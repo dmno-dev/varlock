@@ -41,7 +41,7 @@ We shipped lots of integrations this year, including: **[JavaScript / Node.js](h
 
 ### Developer Tools & Infrastructure
 
-We also shipped tools to help you use varlock in your projects including a **[Docker Image](https://varlock.dev/guides/docker/)**, **[GitHub Action](https://varlock.dev/integrations/github-action/)**, and a **[Docs MCP](https://varlock.dev/guides/ai-tools/#varlock-docs-mcp)**.
+We also shipped tools to help you use varlock in your projects including a **[Docker Image](https://varlock.dev/integrations/docker/)**, **[GitHub Action](https://varlock.dev/integrations/github-action/)**, and a **[Docs MCP](https://varlock.dev/guides/ai-tools/#varlock-docs-mcp)**.
 
 ## Community Highlights
 

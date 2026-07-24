@@ -1,0 +1,36 @@
+---
+title: Agent Safehouse
+description: Launch Agent Safehouse with varlock proxy env
+---
+
+## Agent Safehouse
+
+[Agent Safehouse](https://github.com/eugene1g/agent-safehouse) is a macOS Seatbelt wrapper with deny-first, composable profiles for coding agents. It hardens filesystem access; it does not broker credentials.
+
+### Install
+
+```bash
+brew install eugene1g/safehouse/agent-safehouse
+```
+
+### Launch with proxy env
+
+Seatbelt shares the host network, so host loopback from `proxy env` works:
+
+```bash
+eval "$(varlock proxy env)"
+safehouse claude --dangerously-skip-permissions
+```
+
+Or a shell alias that always sources the proxy session first:
+
+```bash
+# ~/.zshrc
+safe-claude() {
+  eval "$(varlock proxy env)"
+  safehouse claude --dangerously-skip-permissions "$@"
+}
+```
+
+Tune profiles with `--add-dirs-ro`, `--append-profile`, and the [Safehouse docs](https://agent-safehouse.dev/docs/) so the agent can only read what it needs; keep real secrets out of those paths when they are proxied via varlock.
+

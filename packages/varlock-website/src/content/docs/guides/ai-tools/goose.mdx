@@ -1,0 +1,75 @@
+---
+title: Goose
+description: Inject LLM API keys into Goose with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Goose](https://goose-docs.ai/) is Block's open-source, extensible AI agent for the terminal (and desktop). It is MCP-native and works with many LLM providers. Use varlock to inject provider API keys at runtime so they never sit in a plain text `.env` or shell history.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Launch commands:** `goose` (interactive), `goose session`, `goose run` (see [CLI commands](https://goose-docs.ai/docs/guides/goose-cli-commands/))
+
+**Environment variables** (see [environment variables](https://goose-docs.ai/docs/guides/environment-variables/) and [providers](https://goose-docs.ai/docs/getting-started/providers/)):
+
+- Provider keys such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`
+- Optional: `GOOSE_PROVIDER` and `GOOSE_MODEL` to select provider/model without `goose configure`
+
+You can also store credentials via `goose configure`. Env injection is a better fit for shared machines, CI, and keeping secrets out of goose's local secret store.
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+
+# @type=string
+GOOSE_PROVIDER=anthropic
+
+# @type=string
+GOOSE_MODEL=claude-sonnet-4-5-20250929
+```
+
+<OpExamplesTip />
+
+```bash
+varlock run -- goose
+
+# one-shot task
+varlock run -- goose run -t "summarize recent git changes"
+```
+
+## From any directory
+
+Personal schema at `~/.env.goose`:
+
+```env-spec title="~/.env.goose"
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @type=string
+GOOSE_PROVIDER=anthropic
+
+# @type=string
+GOOSE_MODEL=claude-sonnet-4-5-20250929
+```
+
+```bash
+varlock run -p ~/.env.goose -- goose
+```
+
+## Shell alias (optional)
+
+```bash
+alias vgoose='varlock run -p ~/.env.goose --no-redact-stdout -- goose'
+```
+
+`--no-redact-stdout` keeps Goose's own terminal output unredacted while secrets stay out of your shell history.
+
+See the [Goose docs](https://goose-docs.ai/) for install, extensions/MCP, and recipes. Pair with the [MCP guide](/guides/mcp/) when wiring secret-backed MCP servers.

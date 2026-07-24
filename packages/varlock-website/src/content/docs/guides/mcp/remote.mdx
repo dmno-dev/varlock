@@ -1,0 +1,127 @@
+---
+title: Remote MCP servers
+description: Deploy and configure remote MCP servers with varlock-validated environment
+---
+
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+
+## Remote MCP Servers
+
+For production deployments, you'll want to run MCP servers as standalone processes with varlock integrated directly into the server code.
+
+:::note
+Code is for example purposes only. Server implementations will vary depending on the MCP server you're using. See the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) for more information.
+:::
+
+### Server Implementation
+
+```typescript title="server.ts"
+import 'varlock/auto-load';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { ENV } from 'varlock/env';
+
+async function main() {
+  const server = new Server(
+    {
+      name: 'my-mcp-server',
+      version: '1.0.0'
+    },
+    {
+      capabilities: {
+        tools: {}
+      }
+    }
+  );
+
+  // Register tools with access to secure configuration
+  server.setRequestHandler('tools/call', async (request) => {
+    const { name, arguments: args } = request.params;
+
+    switch (name) {
+      case 'query-database':
+        // Use secure database connection from config
+        return await queryDatabase(ENV.DATABASE_URL, args);
+
+      case 'call-external-api':
+        // Use secure API key from config
+        return await callExternalAPI(ENV.EXTERNAL_API_KEY, args);
+
+      default:
+        throw new Error(`Unknown tool: ${name}`);
+    }
+  });
+
+  const transport = new StdioServerTransport(process.stdin, process.stdout);
+  await server.connect(transport);
+}
+
+async function queryDatabase(databaseUrl: string, args: any) {
+  // Implementation using secure database URL
+  console.log('Querying database with secure connection');
+  return { result: 'database query result' };
+}
+
+async function callExternalAPI(apiKey: string, args: any) {
+  // Implementation using secure API key
+  console.log('Calling external API with secure key');
+  return { result: 'api call result' };
+}
+
+main().catch(console.error);
+```
+
+### Production Deployment
+
+For production, create environment-specific schema files. See the [environments guide](/guides/environments) for detailed information on managing multiple environments with varlock.
+
+```env-spec title=".env.schema"
+# @defaultSensitive=true
+# @defaultRequired=true
+# @currentEnv=$APP_ENV
+# ---
+
+# env flag is used to determine which environment to load
+# default is development
+# @type=enum(development, staging, test, production)
+APP_ENV=development
+
+# Database connection
+# @type=url
+DATABASE_URL=
+
+# External API credentials
+# @type=string(startsWith="sk_")
+EXTERNAL_API_KEY=
+
+# Authentication
+# @type=string(minLength=32)
+AUTH_SECRET=
+
+# Server settings
+# @sensitive=false
+# @type=number(min=1024, max=65535)
+SERVER_PORT=3000
+
+# @sensitive=false
+# @type=enum(debug, info, warn, error)
+LOG_LEVEL=info
+```
+
+```env-spec title=".env.production"
+DATABASE_URL=op(op://prodTest/prodVault/prod-database-url)
+EXTERNAL_API_KEY=op(op://prodTest/prodVault/prod-external-api-key)
+AUTH_SECRET=op(op://prodTest/prodVault/prod-auth-secret)
+SERVER_PORT=3000
+LOG_LEVEL=warn
+```
+
+Then in the command to start the server, you can use the `varlock run` command to load the environment variables with the correct `currentEnv` environment override.
+
+```bash
+APP_ENV=production varlock run -- node server.js
+```
+
+
+
+

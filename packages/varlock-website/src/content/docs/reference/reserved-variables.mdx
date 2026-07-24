@@ -29,7 +29,7 @@ Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secr
 
 ### `_VARLOCK_REDACT_STDOUT`
 
-Overrides [`varlock run`](/reference/cli-commands/#run) output redaction:
+Overrides [`varlock run`](/reference/cli/load-and-run/#run) output redaction:
 
 - `true` / `1`: force redaction on (only applies to piped/redirected output; errors if attached to an interactive terminal)
 - `false` / `0`: disable redaction entirely
@@ -38,7 +38,7 @@ The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env
 
 ### `_VARLOCK_FILTER`
 
-Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on [`varlock load`](/reference/cli-commands/#load) / [`varlock run`](/reference/cli-commands/#run). An explicit `--filter` flag takes precedence over this env var. Useful when you can't easily pass a CLI flag, for example a wrapper script, CI config, or a build-time integration that invokes varlock's loading APIs directly.
+Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on [`varlock load`](/reference/cli/load-and-run/#load) / [`varlock run`](/reference/cli/load-and-run/#run). An explicit `--filter` flag takes precedence over this env var. Useful when you can't easily pass a CLI flag, for example a wrapper script, CI config, or a build-time integration that invokes varlock's loading APIs directly.
 
 ```bash
 _VARLOCK_FILTER="#billing" varlock load --format json
@@ -66,7 +66,7 @@ These are injected automatically so that varlock state survives across process b
 
 ### `__VARLOCK_ENV`
 
-The serialized env graph (resolved config values plus metadata) injected by [`varlock run`](/reference/cli-commands/#run) and build-time integrations, so the runtime can load your config without re-invoking the CLI. [`@internal`](/reference/item-decorators/#internal) items are excluded from this blob by default everywhere it's built, including framework integrations.
+The serialized env graph (resolved config values plus metadata) injected by [`varlock run`](/reference/cli/load-and-run/#run) and build-time integrations, so the runtime can load your config without re-invoking the CLI. [`@internal`](/reference/item-decorators/#internal) items are excluded from this blob by default everywhere it's built, including framework integrations.
 
 ### `__VARLOCK_RUN`
 

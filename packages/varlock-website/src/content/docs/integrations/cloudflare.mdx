@@ -329,7 +329,7 @@ For multi-worker repos today:
 
 - Deploy each Worker separately with `varlock-wrangler deploy -c <that-worker-config>`, or
 - Share a single `.env.schema` and run deploy once per worker script, or
-- Use [`varlock run`](/reference/cli-commands/#run) to inject resolved env when invoking a non-wrangler deploy tool (see [non-wrangler deploy tools](#non-wrangler-deploy-tools-alchemysstpulumi) below).
+- Use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved env when invoking a non-wrangler deploy tool (see [non-wrangler deploy tools](#non-wrangler-deploy-tools-alchemysstpulumi) below).
 
 First-class multi-worker / auxiliary-worker support is not implemented yet. If this blocks your setup, join [Discord](https://chat.dmno.dev) and share your wrangler layout and which Workers need which vars.
 :::
@@ -354,7 +354,7 @@ Delete `.dev.vars` and `.dev.vars.<environment>` files when using the Vite plugi
 
 ### Non-wrangler deploy tools (Alchemy, SST, Pulumi)
 
-If you deploy Workers with **IaC tools other than wrangler** ([Alchemy](https://alchemy.run/), SST, Pulumi, Terraform, etc.), you can still use varlock for **fail-fast validation and secret resolution** via [`varlock run`](/reference/cli-commands/#run), which injects resolved values into `process.env` for the deploy tool to read.
+If you deploy Workers with **IaC tools other than wrangler** ([Alchemy](https://alchemy.run/), SST, Pulumi, Terraform, etc.), you can still use varlock for **fail-fast validation and secret resolution** via [`varlock run`](/reference/cli/load-and-run/#run), which injects resolved values into `process.env` for the deploy tool to read.
 
 What you **cannot** get today without `varlock-wrangler`: the in-worker runtime layer (`@varlock/cloudflare-integration/init`) that provides console redaction and response leak detection. That layer reads a `__VARLOCK_ENV` binding that only `varlock-wrangler` produces.
 

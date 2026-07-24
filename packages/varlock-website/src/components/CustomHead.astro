@@ -1,8 +1,82 @@
 ---
-import Head from "@astrojs/starlight/components/Head.astro";
-import { Font } from "astro:assets";
-import animLogo from "../assets/logos/varlock-logo-anim.gif";
+/**
+ * Early hash redirects for docs hubs whose sections moved to child pages.
+ * Emitted only on those hubs; runs synchronously in <head> before paint.
+ */
+import Head from '@astrojs/starlight/components/Head.astro';
+import { Font } from 'astro:assets';
+import animLogo from '../assets/logos/varlock-logo-anim.gif';
+
+/** pathname without trailing slash (except root) → hash id → destination URL */
+const HASH_REDIRECTS: Record<string, Record<string, string>> = {
+  '/guides/mcp': {
+    'local-mcp-servers-with-stdio': '/guides/mcp/local/',
+    'remote-mcp-servers': '/guides/mcp/remote/',
+    'docs-mcp': '/guides/mcp/docs-mcp/',
+  },
+  '/guides/proxy': {
+    'routing-rules': '/guides/proxy/rules/#routing-rules',
+    'controlling-what-the-agent-sees': '/guides/proxy/rules/#controlling-what-the-agent-sees',
+    'running-modes': '/guides/proxy/running/#running-modes',
+    sessions: '/guides/proxy/running/#sessions',
+    'how-the-child-is-wired': '/guides/proxy/running/#how-the-child-is-wired',
+    auditing: '/guides/proxy/running/#auditing',
+    'editing-the-schema-while-a-session-is-running':
+      '/guides/proxy/running/#editing-the-schema-while-a-session-is-running',
+    sandboxing: '/guides/sandboxing/',
+  },
+  '/guides/sandboxing': {
+    minimal: '/guides/sandboxing/minimal/',
+    fence: '/guides/sandboxing/fence/',
+    yolobox: '/guides/sandboxing/yolobox/',
+    'agent-safehouse': '/guides/sandboxing/agent-safehouse/',
+    bubblewrap: '/guides/sandboxing/bubblewrap/',
+    'mxc-windows': '/guides/sandboxing/mxc/',
+  },
+  '/plugins/kubernetes': {
+    'installation-and-setup': '/plugins/kubernetes/setup/',
+    'loading-values': '/plugins/kubernetes/loading/',
+    'kubernetes-setup': '/plugins/kubernetes/cluster-setup/',
+    reference: '/plugins/kubernetes/reference/',
+  },
+  '/reference/cli-commands': {
+    init: '/reference/cli/project/#init',
+    scan: '/reference/cli/project/#scan',
+    'install-plugin': '/reference/cli/project/#install-plugin',
+    telemetry: '/reference/cli/project/#telemetry',
+    help: '/reference/cli/project/#help',
+    load: '/reference/cli/load-and-run/#load',
+    run: '/reference/cli/load-and-run/#run',
+    printenv: '/reference/cli/load-and-run/#printenv',
+    explain: '/reference/cli/load-and-run/#explain',
+    encrypt: '/reference/cli/encryption/#encrypt',
+    reveal: '/reference/cli/encryption/#reveal',
+    lock: '/reference/cli/encryption/#lock',
+    audit: '/reference/cli/encryption/#audit',
+    'generate-key': '/reference/cli/encryption/#generate-key',
+    cache: '/reference/cli/cache-and-codegen/#cache',
+    codegen: '/reference/cli/cache-and-codegen/#codegen',
+    typegen: '/reference/cli/cache-and-codegen/#codegen',
+    proxy: '/reference/cli/proxy/#proxy',
+  },
+};
+
+const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
+const hashRedirects = HASH_REDIRECTS[pathname] ?? null;
 ---
+
+{
+  hashRedirects && (
+    <script is:inline define:vars={{ hashRedirects }}>
+      (() => {
+        const id = location.hash.slice(1);
+        if (!id) return;
+        const dest = hashRedirects[id];
+        if (dest) location.replace(dest);
+      })();
+    </script>
+  )
+}
 
 <!-- <Font cssVariable="--font-pixel" preload /> -->
 <Font cssVariable="--font-jetbrains-mono" preload />
@@ -12,19 +86,19 @@ import animLogo from "../assets/logos/varlock-logo-anim.gif";
 </Head>
 
 <script is:inline define:vars={{ animLogoSrc: animLogo.src }}>
-  document.addEventListener("DOMContentLoaded", () => {
-    const siteTitle = document.querySelector(".site-title");
-    const logoImg = siteTitle?.querySelector("img");
+  document.addEventListener('DOMContentLoaded', () => {
+    const siteTitle = document.querySelector('.site-title');
+    const logoImg = siteTitle?.querySelector('img');
     if (!logoImg) return;
 
     const staticSrc = logoImg.src;
     // preload the gif so hover swap is instant
     new Image().src = animLogoSrc;
 
-    siteTitle.addEventListener("mouseenter", () => {
+    siteTitle.addEventListener('mouseenter', () => {
       logoImg.src = animLogoSrc;
     });
-    siteTitle.addEventListener("mouseleave", () => {
+    siteTitle.addEventListener('mouseleave', () => {
       logoImg.src = staticSrc;
     });
   });

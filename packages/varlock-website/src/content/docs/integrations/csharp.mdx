@@ -3,7 +3,7 @@ title: C#
 description: Use varlock with C# via a generated, typed env class
 ---
 
-To use varlock with C#, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+To use varlock with C#, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli/load-and-run/#run). It loads and validates your env, then injects it into the process.
 
 Add [`@generateCsharpEnv`](/reference/root-decorators/#generatecsharpenv) to your schema to generate a small, self-contained class: a typed `Env` with init-only properties, a static `Load()` that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SensitiveKeys` set.
 
@@ -11,7 +11,7 @@ Add [`@generateCsharpEnv`](/reference/root-decorators/#generatecsharpenv) to you
 # @generateCsharpEnv(path=Env.cs)
 ```
 
-The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). Requires **.NET 6+** (uses `System.Text.Json` from the BCL; no extra NuGet package). Optional `namespace=` and `class=` set the C# namespace and class name (default: no namespace, class `Env`). Property names are PascalCase (`DB_HOST` → `DbHost`).
+The file is regenerated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly with [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). Requires **.NET 6+** (uses `System.Text.Json` from the BCL; no extra NuGet package). Optional `namespace=` and `class=` set the C# namespace and class name (default: no namespace, class `Env`). Property names are PascalCase (`DB_HOST` → `DbHost`).
 
 ## Reading values
 

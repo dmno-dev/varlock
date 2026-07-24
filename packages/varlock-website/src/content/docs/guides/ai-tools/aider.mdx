@@ -1,0 +1,65 @@
+---
+title: Aider
+description: Inject LLM API keys into Aider with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Aider](https://aider.chat/) is an open-source AI pair programmer for the terminal. It maps your repo, edits files, and commits changes. Use varlock to inject provider API keys at runtime so they never sit in a plain text `.env` or shell history.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Launch command:** `aider`
+
+**Environment variables** (see [API keys](https://aider.chat/docs/config/api-keys.html)):
+
+- `ANTHROPIC_API_KEY` for Anthropic models
+- `OPENAI_API_KEY` for OpenAI models
+- Other providers use their usual env names (`DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, and so on)
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+```
+
+<OpExamplesTip />
+
+```bash
+varlock run -- aider
+
+# or pin a model
+varlock run -- aider --model sonnet
+```
+
+## From any directory
+
+Personal schema at `~/.env.aider`:
+
+```env-spec title="~/.env.aider"
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+```
+
+```bash
+varlock run -p ~/.env.aider -- aider
+```
+
+## Shell alias (optional)
+
+```bash
+alias vaider='varlock run -p ~/.env.aider --no-redact-stdout -- aider'
+```
+
+`--no-redact-stdout` keeps Aider's own terminal output unredacted while secrets stay out of your shell history.
+
+See the [Aider docs](https://aider.chat/docs/) for models, install, and config file options.

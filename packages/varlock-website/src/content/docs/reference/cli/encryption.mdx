@@ -1,0 +1,198 @@
+---
+title: Encryption commands
+description: CLI reference for encrypt, reveal, lock, audit, and generate-key
+---
+
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+<div class="reference-docs">
+
+<div>
+
+## `varlock encrypt` ||encrypt||
+
+Encrypts sensitive values using device-local encryption. Encrypted values are stored in `.env` files using the `varlock()` resolver function and are automatically decrypted at load time.
+
+On macOS, encryption is hardware-backed via the Secure Enclave (with Touch ID / biometric authentication). On Windows, keys are TPM-sealed when a TPM is available (Windows Hello gates interactive decrypts). On Linux, TPM2 and/or Secret Service is used. A pure-JavaScript file-based fallback is available on all platforms.
+
+See the [local encryption guide](/guides/local-encryption/) for platform details. On Windows, existing DPAPI keys are automatically upgraded to TPM sealing on the next decrypt.
+
+```bash
+varlock encrypt [options]
+```
+
+**Options:**
+- `--file`:    Path to a `.env` file; encrypts all sensitive plaintext values in-place
+
+**Examples:**
+```bash
+# Interactive mode: encrypt a single value (prompts with hidden input)
+varlock encrypt
+
+# Pipe a value via stdin (keeps secrets out of shell history)
+printf '%s' "$SECRET" | varlock encrypt
+varlock encrypt < secret.txt
+
+# Encrypt all sensitive plaintext values in a .env file
+varlock encrypt --file .env.local
+```
+
+In single-value mode, you'll either be prompted to enter a value (hidden input) or the value will be read from stdin when piped. The encrypted output is printed for you to copy into your `.env.local` file:
+```
+SOME_SENSITIVE_KEY=varlock("local:<encrypted>")
+```
+
+:::tip
+Piping via stdin avoids exposing secrets in your shell history. Prefer `printf '%s'` over `echo` to avoid a trailing newline (varlock strips a single trailing newline either way).
+:::
+
+In file mode, varlock loads the env graph, identifies `@sensitive` items with plaintext values, and lets you select which to encrypt in-place.
+
+:::tip
+Use `varlock encrypt --file .env.local` after adding new secrets to quickly encrypt them all at once.
+:::
+
+:::note[Alternative: prompt mode]
+Instead of encrypting values ahead of time, you can use `varlock(prompt)` as a placeholder in your `.env` files. On first load, varlock will prompt you to enter the secret and automatically replace the placeholder with the encrypted value. See the [`varlock()` function reference](/reference/functions/#varlock) for details.
+:::
+
+</div>
+
+<div>
+
+## `varlock reveal` ||reveal||
+
+Securely view or copy the value of a `@sensitive` environment variable. The value is displayed in an alternate terminal screen buffer so it doesn't persist in your scrollback history.
+
+🔒 Usually sensitive values are redacted, so this is needed to actually view the value without exposing it in plaintext on disk or in your terminal history.
+
+```bash
+varlock reveal [VAR_NAME] [options]
+```
+
+**Options:**
+- `--copy`:        Copy the value to clipboard instead of displaying (auto-clears after 10s)
+- [Common options](/reference/cli-commands/#common-options): `--path` / `-p`, `--env`
+
+**Examples:**
+```bash
+# Interactive picker to browse and reveal sensitive values
+varlock reveal
+
+# Reveal a specific variable
+varlock reveal MY_SECRET
+
+# Copy a value to clipboard (auto-clears after 10s)
+varlock reveal MY_SECRET --copy
+```
+
+:::note
+Non-sensitive values are not shown by `varlock reveal`. Use [`varlock printenv`](#printenv) for non-sensitive values, or to inject a sensitive value into a command.
+:::
+
+:::note[Clipboard support on Linux]
+`varlock reveal --copy` uses your system clipboard command (`xclip` or `xsel`) on Linux. Install one of them if copy mode is unavailable.
+:::
+
+</div>
+
+<div>
+
+## `varlock lock` ||lock||
+
+Locks the encryption daemon, requiring biometric authentication (e.g., Touch ID) for the next decrypt operation. This invalidates the current biometric session cache.
+
+```bash
+varlock lock
+```
+
+This command only has an effect when using a biometric-enabled encryption backend (macOS Secure Enclave, Windows Hello, or Linux with polkit/PAM biometric setup). On other backends, it will display a message and exit.
+
+:::tip
+Use `varlock lock` when stepping away from your machine to ensure the next person to decrypt a secret must authenticate biometrically.
+:::
+
+</div>
+
+<div>
+
+## `varlock audit` ||audit||
+
+Scans your source code for environment variable references and compares them against keys defined in your schema.
+
+This command reports two drift categories:
+- **Missing in schema**: key is used in code but not declared in schema
+- **Unused in schema**: key is declared in schema but not referenced in code
+
+Pure execution-environment plumbing, meaning variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`), is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
+
+Exit codes:
+- `0` when schema and code are in sync
+- `1` when drift is detected
+
+```bash
+varlock audit [paths...] [options]
+```
+
+**Positional arguments:**
+- `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root.
+
+**Options:**
+- [Common options](/reference/cli-commands/#common-options): `--path` / `-p` (here it sets the **schema** entry point, single path only)
+- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times)
+
+**Examples:**
+```bash
+# Audit current project
+varlock audit
+
+# Audit using a specific .env file as schema entry point
+varlock audit --path .env.prod
+
+# Audit using a directory as schema entry point
+varlock audit --path ./config
+
+# Only scan specific directories
+varlock audit ./src ./lib
+
+# Exclude directories from scanning
+varlock audit --ignore vendor
+
+# Exclude multiple directories
+varlock audit -i vendor -i generated
+```
+
+:::note
+When `--path` points to a directory, code scanning is scoped to that directory tree. When it points to a file, scanning is scoped to that file's parent directory.
+:::
+
+:::note[Monorepos]
+Code scanning does not descend into nested projects. Any subdirectory that contains its own `package.json` or `.env.schema` is treated as a separate package and skipped. This keeps a parent package's audit from picking up env var references that belong to child packages, and works even in a fresh monorepo where the child packages haven't run `varlock init` yet. Run `varlock audit` inside each package to audit it against its own schema.
+:::
+
+:::tip[Suppressing false positives]
+- Use [`@auditIgnore`](/reference/item-decorators/#auditignore) on individual schema items that are only consumed by external tools and won't appear in your application code.
+- Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (e.g., vendored code, generated files) from the code scan.
+:::
+
+</div>
+
+<div>
+
+## `varlock generate-key` ||generate-key||
+
+Generates a random 256-bit encryption key for use with `_VARLOCK_ENV_KEY`. This key is used to encrypt the resolved env blob that gets baked into your build output on certain frameworks/platforms.
+
+```bash
+varlock generate-key
+varlock generate-key --plain
+```
+
+**Flags:**
+- `--plain`: Print only the key (no surrounding help text). Useful for piping into platform CLIs, e.g. `varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive`.
+
+See the [encrypted deployments guide](/guides/encrypted-deployments/) and the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) / [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
+
+</div>
+
+</div>

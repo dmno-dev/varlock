@@ -299,15 +299,21 @@ const generatedPrompt = computed(() => {
   if (aiPick.length > 0) {
     lines.push('## AI tools');
     for (const t of aiPick) lines.push(formatTileLine(t));
+    lines.push(`- AI Tools overview: ${absDocUrl('/guides/ai-tools/')}`);
     lines.push('');
   }
 
   lines.push('## Repository layout');
-  lines.push(
-    mono.value
-      ? '- **Monorepo or multi-app / service:** I need shared Varlock config patterns across packages (root + package-level schema, consistent env names).'
-      : '- **Single project:** one primary Varlock setup at the repo root (adjust if multiple env files are needed).',
-  );
+  if (mono.value) {
+    lines.push(
+      '- **Monorepo or multi-app / service:** I need shared Varlock config patterns across packages (root + package-level schema, consistent env names).',
+    );
+    lines.push(`- Monorepos guide: ${absDocUrl('/guides/monorepos/')}`);
+  } else {
+    lines.push(
+      '- **Single project:** one primary Varlock setup at the repo root (adjust if multiple env files are needed).',
+    );
+  }
   lines.push('');
 
   const langIds = [...selectedLangIds.value].sort();
@@ -331,6 +337,7 @@ const generatedPrompt = computed(() => {
   if (sec.length > 0) {
     lines.push('## Secret stores & plugins');
     for (const t of sec) lines.push(formatTileLine(t));
+    lines.push(`- Plugins guide: ${absDocUrl('/guides/plugins/')}`);
     lines.push('');
   }
 
@@ -341,8 +348,23 @@ const generatedPrompt = computed(() => {
     lines.push('');
   }
 
+  lines.push('## Prefer these docs');
+  lines.push(`- Installation: ${absDocUrl('/getting-started/installation/')}`);
+  lines.push(`- Schema writing: ${absDocUrl('/guides/schema/')}`);
+  lines.push(`- Secrets / sensitivity: ${absDocUrl('/guides/secrets/')}`);
+  lines.push(`- Environments: ${absDocUrl('/guides/environments/')}`);
+  lines.push(`- Imports: ${absDocUrl('/guides/import/')}`);
+  lines.push(`- Local encryption: ${absDocUrl('/guides/local-encryption/')}`);
+  lines.push(`- CLI (load / run / init): ${absDocUrl('/reference/cli/load-and-run/')} and ${absDocUrl('/reference/cli/project/')}`);
+  lines.push(`- Docs MCP (search the docs from the agent): ${absDocUrl('/guides/mcp/docs-mcp/')}`);
+  if (aiPick.length > 0) {
+    lines.push(`- Credential proxy (optional, for agents that call APIs): ${absDocUrl('/guides/proxy/')}`);
+    lines.push(`- Sandboxing (optional, with the proxy): ${absDocUrl('/guides/sandboxing/')}`);
+  }
+  lines.push('');
+
   lines.push(
-    'Please run `varlock init --agent`, author a sensible of `.env.schema` files (as many as needed), and install any required Varlock plugins and framework/language integrations for the stack above. Always prefer the linked Varlock docs. You can validate your `.env.schema` with `varlock load --agent`.',
+    'Please run `varlock init --agent`, author a sensible set of `.env.schema` files (as many as needed), and install any required Varlock plugins and framework/language integrations for the stack above. Install the Varlock skill with `npx skills add dmno-dev/varlock` when the tool supports skills. Always prefer the linked Varlock docs (and Docs MCP when available). Validate with `varlock load --agent` (sensitive values are redacted).',
   );
   return lines.join('\n');
 });

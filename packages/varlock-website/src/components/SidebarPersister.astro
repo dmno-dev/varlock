@@ -1,0 +1,85 @@
+---
+/**
+ * Starlight's SidebarPersister, with one change: the sessionStorage hash includes
+ * each group's `collapsed` flag. Starlight's hash only uses labels + hrefs, so
+ * changing default expand/collapse never invalidates stored open state and the
+ * old collapsed UI keeps winning over the HTML `open` attribute.
+ */
+import type { StarlightRouteData } from '@astrojs/starlight/route-data';
+
+type SidebarEntry = StarlightRouteData['sidebar'][number];
+
+function sidebarIdentity(sidebar: SidebarEntry[]): string {
+  return sidebar
+    .flatMap((entry) =>
+      entry.type === 'group'
+        ? entry.label + String(entry.collapsed) + sidebarIdentity(entry.entries)
+        : entry.label + entry.href
+    )
+    .join('');
+}
+
+function getSidebarHash(sidebar: SidebarEntry[]): string {
+  let hash = 0;
+  const identity = sidebarIdentity(sidebar);
+  for (let i = 0; i < identity.length; i++) {
+    const char = identity.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+  }
+  return (hash >>> 0).toString(36).padStart(7, '0');
+}
+
+const hash = getSidebarHash(Astro.locals.starlightRoute.sidebar);
+
+declare global {
+  interface Window {
+    _starlightScrollRestore?: number;
+  }
+}
+---
+
+<sl-sidebar-state-persist data-hash={hash}>
+  <script is:inline aria-hidden="true">
+    (() => {
+      try {
+        if (!matchMedia('(min-width: 50em)').matches) return;
+        /** @type {HTMLElement | null} */
+        const target = document.querySelector('sl-sidebar-state-persist');
+        const state = JSON.parse(sessionStorage.getItem('sl-sidebar-state') || '0');
+        if (!target || !state || target.dataset.hash !== state.hash) return;
+        window._starlightScrollRestore = state.scroll;
+        customElements.define(
+          'sl-sidebar-restore',
+          class SidebarRestore extends HTMLElement {
+            connectedCallback() {
+              try {
+                const idx = parseInt(this.dataset.index || '');
+                const details = this.closest('details');
+                if (details && typeof state.open[idx] === 'boolean') details.open = state.open[idx];
+              } catch {}
+            }
+          }
+        );
+      } catch {}
+    })();
+  </script>
+
+  <slot />
+
+  <script is:inline aria-hidden="true">
+    (() => {
+      const scroller = document.getElementById('starlight__sidebar');
+      if (!window._starlightScrollRestore || !scroller) return;
+      scroller.scrollTop = window._starlightScrollRestore;
+      delete window._starlightScrollRestore;
+    })();
+  </script>
+</sl-sidebar-state-persist>
+
+<style>
+  @layer starlight.core {
+    sl-sidebar-state-persist {
+      display: contents;
+    }
+  }
+</style>

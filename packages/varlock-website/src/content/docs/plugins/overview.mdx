@@ -4,12 +4,50 @@ description: Varlock plugins overview
 ---
 
 import Badge from '@/components/Badge.astro';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
 Plugins allow extending the functionality of Varlock. See the [plugins guide](/guides/plugins/) for more details on using plugins.
 
 For now, only official Varlock plugins under the `@varlock` npm scope are supported. We plan to support third-party plugins in the future, along with loading plugins from different sources (e.g., local files, git, npm/jsr, http, etc.).
 
-## Official plugins
+## Password managers
+
+<CardGrid>
+  <LinkCard title="1Password" href="/plugins/1password/" description="@varlock/1password-plugin" />
+  <LinkCard title="Bitwarden" href="/plugins/bitwarden/" description="@varlock/bitwarden-plugin" />
+  <LinkCard title="Dashlane" href="/plugins/dashlane/" description="@varlock/dashlane-plugin" />
+  <LinkCard title="Keeper" href="/plugins/keeper/" description="@varlock/keeper-plugin" />
+  <LinkCard title="KeePass" href="/plugins/keepass/" description="@varlock/keepass-plugin" />
+  <LinkCard title="Pass" href="/plugins/pass/" description="@varlock/pass-plugin" />
+  <LinkCard title="Passbolt" href="/plugins/passbolt/" description="@varlock/passbolt-plugin" />
+  <LinkCard title="Proton Pass" href="/plugins/proton-pass/" description="@varlock/proton-pass-plugin" />
+  <LinkCard title="macOS Keychain" href="/plugins/macos-keychain/" description="Built-in (no npm package)" />
+</CardGrid>
+
+## Secrets platforms
+
+<CardGrid>
+  <LinkCard title="Doppler" href="/plugins/doppler/" description="@varlock/doppler-plugin" />
+  <LinkCard title="Infisical" href="/plugins/infisical/" description="@varlock/infisical-plugin" />
+  <LinkCard title="HashiCorp Vault" href="/plugins/hashicorp-vault/" description="@varlock/hashicorp-vault-plugin" />
+  <LinkCard title="Akeyless" href="/plugins/akeyless/" description="@varlock/akeyless-plugin" />
+</CardGrid>
+
+## Cloud secret stores
+
+<CardGrid>
+  <LinkCard title="AWS SSM/SM" href="/plugins/aws-secrets/" description="@varlock/aws-secrets-plugin" />
+  <LinkCard title="Azure Key Vault" href="/plugins/azure-key-vault/" description="@varlock/azure-key-vault-plugin" />
+  <LinkCard title="GCP Secret Manager" href="/plugins/google-secret-manager/" description="@varlock/google-secret-manager-plugin" />
+</CardGrid>
+
+## Infrastructure
+
+<CardGrid>
+  <LinkCard title="Kubernetes" href="/plugins/kubernetes/" description="@varlock/kubernetes-plugin" />
+</CardGrid>
+
+## Package reference
 
 | Plugin | npm package |
 |--------|-------------|
@@ -26,11 +64,10 @@ For now, only official Varlock plugins under the `@varlock` npm scope are suppor
 | [KeePass](/plugins/keepass/) | <Badge npmPackage="@varlock/keepass-plugin" /> |
 | [Keeper](/plugins/keeper/) | <Badge npmPackage="@varlock/keeper-plugin" /> |
 | [Kubernetes](/plugins/kubernetes/) (Secrets & ConfigMaps) | <Badge npmPackage="@varlock/kubernetes-plugin" /> |
-| [macOS Keychain](/plugins/macos-keychain/)| N/A - built-in |
+| [macOS Keychain](/plugins/macos-keychain/) | N/A - built-in |
 | [Pass](/plugins/pass/) (unix password manager) | <Badge npmPackage="@varlock/pass-plugin" /> |
 | [Passbolt](/plugins/passbolt/) | <Badge npmPackage="@varlock/passbolt-plugin" /> |
 | [Proton Pass](/plugins/proton-pass/) | <Badge npmPackage="@varlock/proton-pass-plugin" /> |
-
 
 :::note[Looking for something else?]
 If you have a specific plugin in mind, please join us on [Discord](https://chat.dmno.dev) and let us know!

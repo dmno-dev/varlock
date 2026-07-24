@@ -19,7 +19,7 @@ June releases were focused on deployment security, caching, schema ergonomics, a
 
 ### Caching, durations, and random generators
 
-- **Built-in caching system** - `cache()` resolver, plugin cache API, encrypted on-disk store, and `varlock cache` CLI (`status` / `clear`). See the [caching guide](/guides/caching/) and [`varlock cache`](/reference/cli-commands/#cache).
+- **Built-in caching system** - `cache()` resolver, plugin cache API, encrypted on-disk store, and `varlock cache` CLI (`status` / `clear`). See the [caching guide](/guides/caching/) and [`varlock cache`](/reference/cli/cache-and-codegen/#cache).
 - **`duration` data type** - Shared TTL parser for `cache()` and plugin `cacheTtl` options. See the [`duration` data type](/reference/data-types/#duration).
 - **Random value generators** - `randomNum()`, `randomUuid()`, `randomHex()`, and `randomString()` backed by `node:crypto`. See [random value generators](/reference/functions/#random-value-generators).
 - **CI disk caching** - Set `_VARLOCK_CACHE_KEY` to share an encrypted disk cache across CI processes without persisting the key to disk.
@@ -39,7 +39,7 @@ June releases were focused on deployment security, caching, schema ergonomics, a
 
 - **Smarter stdout redaction** - Interactive TTY tools like `psql` and `claude` keep raw terminal behavior; piped/redirected output is still redacted. ([PR #770](https://github.com/dmno-dev/varlock/pull/770))
 - **Container-friendly signal forwarding** - `varlock run` forwards SIGTERM/SIGINT/SIGHUP/SIGQUIT to child processes and propagates exit status faithfully — safe as a container ENTRYPOINT / PID 1.
-- **Monorepo-aware scanning** - `varlock audit` and `varlock init` no longer descend into child packages, and skip pure execution-environment plumbing like `PATH` and `npm_*`. See [`varlock audit`](/reference/cli-commands/#audit).
+- **Monorepo-aware scanning** - `varlock audit` and `varlock init` no longer descend into child packages, and skip pure execution-environment plumbing like `PATH` and `npm_*`. See [`varlock audit`](/reference/cli/encryption/#audit).
 - **Bundled agent skill** - Version-pinned varlock guidance ships inside the npm package for agent discovery. See the [AI tools guide](/guides/ai-tools/).
 - **Typegen hygiene** - Plain `.env`-only keys no longer leak into generated types; `varlock typegen` reports ignored keys.
 

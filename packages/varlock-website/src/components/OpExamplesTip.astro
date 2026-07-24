@@ -1,0 +1,13 @@
+---
+/**
+ * Tip shown after the first `op()` example in AI Tools docs.
+ * Prefer any secrets plugin; examples use 1Password for concreteness.
+ */
+import { Aside } from '@astrojs/starlight/components';
+---
+
+<Aside type="tip">
+  You can use any secrets provider you want, but we like 1Password since it uses biometric authentication
+  for local access. All the examples in this guide use the <a href="/plugins/1password/">1Password plugin</a>
+  (<code>op()</code>) to show more real world examples. See that page for plugin setup and auth options.
+</Aside>

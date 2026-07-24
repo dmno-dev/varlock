@@ -1,0 +1,133 @@
+---
+title: Loading Kubernetes values
+description: Resolver functions and patterns for Secrets and ConfigMaps
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+## Loading values
+
+Once the plugin is installed and initialized, you can start adding config items that load values using the `k8sSecret()` and `k8sConfigMap()` resolver functions.
+
+### How Secrets and ConfigMaps are structured
+
+A Kubernetes Secret or ConfigMap is a **named resource that holds a map of key/value pairs**:
+
+```yaml title="Example Secret"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets       # ← the resource name
+data:
+  DATABASE_URL: cG9zdGdyZXM6...    # ← keys inside the resource
+  API_KEY: c2VjcmV0LWtleQ==
+```
+
+So fetching a value is always a two-level lookup: which Secret/ConfigMap (`name`), and which key inside it (`key`). The resolvers reflect this directly:
+
+- `k8sSecret(name, key)`: read `name.data.key`
+- `k8sConfigMap(name, key)`: read `name.data.key` (or `name.binaryData.key`)
+
+When `key` is omitted, the plugin uses the config item's name as the key. This works well when your Secret keys already match your env var names.
+
+### Secret keys
+
+The `k8sSecret()` function fetches a key from a Kubernetes Secret. Values stored in Secret `data` are base64-encoded; the plugin decodes them automatically before returning.
+
+```env-spec title=".env.schema"
+# Auto-infer key from item name (fetches "DATABASE_URL" from "app-secrets")
+DATABASE_URL=k8sSecret(app-secrets)
+
+# Explicit key name
+DB_URL=k8sSecret(app-secrets, DATABASE_URL)
+
+# Named args also work
+DB_URL=k8sSecret(name=app-secrets, key=DATABASE_URL)
+
+# With named instance
+PROD_DB_URL=k8sSecret(prod, app-secrets, DATABASE_URL)
+```
+
+### ConfigMap keys
+
+The `k8sConfigMap()` function fetches a key from a Kubernetes ConfigMap. Both `data` (string) and `binaryData` (base64-encoded) fields are supported.
+
+```env-spec title=".env.schema"
+# Auto-infer key from item name
+PUBLIC_API_HOST=k8sConfigMap(app-config)
+
+# Explicit key name
+API_HOST=k8sConfigMap(app-config, PUBLIC_API_HOST)
+```
+
+### Default Secret/ConfigMap (Recommended for the common case)
+
+The idiomatic Kubernetes deployment pattern is one Secret + one ConfigMap per app, mounted into the pod via `envFrom`. If your app follows this pattern, set `defaultSecret` and `defaultConfigMap` once on the init decorator and skip the name argument on every call:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/kubernetes-plugin)
+# @initKubernetes(
+#   namespace=default,
+#   defaultSecret=app-secrets,
+#   defaultConfigMap=app-config,
+# )
+# ---
+
+# Both default to app-secrets / app-config and infer the key from the item name
+DATABASE_URL=k8sSecret()
+API_KEY=k8sSecret()
+JWT_SECRET=k8sSecret()
+PUBLIC_API_HOST=k8sConfigMap()
+
+# Override just the key while still using the default Secret
+STRIPE_KEY=k8sSecret(key=stripe_api_key)
+
+# Override the resource name to read from a different Secret
+SHARED_TOKEN=k8sSecret(shared-secrets, AUTH_TOKEN)
+```
+
+You can mix positional and named arguments, but you can't provide the same field twice. For example, `k8sSecret(app-secrets, name=other-secrets)` is a schema error.
+
+### Bulk loading
+
+Use bulk loading when a single Secret or ConfigMap contains several environment variables you want to map into your config. The bulk resolvers return all keys as a JSON object, which pairs naturally with `@setValuesBulk`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/kubernetes-plugin)
+# @initKubernetes(namespace=default)
+# @setValuesBulk(k8sSecretBulk(app-secrets), format=json)
+# @setValuesBulk(k8sConfigMapBulk(app-config), format=json)
+# ---
+
+DATABASE_URL=
+API_KEY=
+PUBLIC_API_HOST=
+```
+
+Only items declared in your schema will be populated; any extra keys in the Secret or ConfigMap are ignored.
+
+Bulk resolvers also pick up `defaultSecret`/`defaultConfigMap`, so the names can be omitted entirely:
+
+```env-spec title=".env.schema"
+# @initKubernetes(defaultSecret=app-secrets, defaultConfigMap=app-config)
+# @setValuesBulk(k8sSecretBulk(), format=json)
+# @setValuesBulk(k8sConfigMapBulk(), format=json)
+```
+
+### Optional values
+
+By default, fetching a key from a missing Secret/ConfigMap throws an error. If you want missing resources or keys to resolve to `undefined` instead, set `allowMissing=true`:
+
+```env-spec title=".env.schema"
+# @initKubernetes(namespace=default, allowMissing=true)
+# ---
+
+# @required=false
+OPTIONAL_FLAG=k8sConfigMap(feature-flags, NEW_UI)
+```
+
+When `allowMissing=true`, also mark the corresponding items with `@required=false` (or wrap the resolver with `fallback()`) so validation does not fail.
+
+---
+

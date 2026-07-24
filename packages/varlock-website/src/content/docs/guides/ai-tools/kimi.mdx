@@ -1,0 +1,54 @@
+---
+title: Kimi
+description: Inject KIMI_API_KEY into Kimi Code CLI with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Kimi Code CLI](https://www.kimi.com/code/docs/en/) is Moonshot AI's terminal coding agent (`kimi`). Use varlock to inject `KIMI_API_KEY` at runtime so the key never sits in a plain text `.env` or shell history.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Launch command:** `kimi`
+
+**Authentication:** You can sign in interactively with `/login` (Kimi Code OAuth or a platform API key), or inject a key via the environment. See [environment variables](https://moonshotai.github.io/kimi-cli/en/configuration/env-vars.html).
+
+**Environment variable:** `KIMI_API_KEY` (optional: `KIMI_BASE_URL` if you use a custom endpoint)
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+KIMI_API_KEY=op(op://api-local/kimi/api-key)
+```
+
+<OpExamplesTip />
+
+```bash
+varlock run -- kimi
+```
+
+## From any directory
+
+Personal schema at `~/.env.kimi`:
+
+```env-spec title="~/.env.kimi"
+# @sensitive @required
+KIMI_API_KEY=op(op://api-local/kimi/api-key)
+```
+
+```bash
+varlock run -p ~/.env.kimi -- kimi
+```
+
+## Shell alias (optional)
+
+```bash
+alias vkimi='varlock run -p ~/.env.kimi --no-redact-stdout -- kimi'
+```
+
+`--no-redact-stdout` keeps Kimi's own terminal output unredacted while secrets stay out of your shell history.
+
+See the [Kimi Code getting started guide](https://www.kimi.com/help/kimi-code/cli-getting-started) for install options and login flows.

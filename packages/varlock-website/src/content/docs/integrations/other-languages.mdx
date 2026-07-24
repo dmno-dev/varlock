@@ -3,7 +3,7 @@ title: Other languages
 description: Integrating varlock into other languages
 ---
 
-To use varlock with other languages, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) rather than a JS package manager, and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your environment, then runs your command with the resolved values injected into the process.
+To use varlock with other languages, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) rather than a JS package manager, and run your app under [`varlock run`](/reference/cli/load-and-run/#run). It loads and validates your environment, then runs your command with the resolved values injected into the process.
 
 ```bash
 varlock run -- <your-command>
@@ -28,7 +28,7 @@ It exposes only these primitives (no global singleton or imposed caching), so it
 | Java | `@generateJavaEnv` | [Java](/integrations/java/) |
 | C# | `@generateCsharpEnv` | [C#](/integrations/csharp/) |
 
-Files are generated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly via [`varlock codegen`](/reference/cli-commands/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli-commands/#run), which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
+Files are generated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly via [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli/load-and-run/#run), which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
 
 Note that `varlock run --inject vars` strips the `__VARLOCK_ENV` blob from the child process, so the generated loaders can't work under it. Use the default injection mode (or `--inject blob`) when your program loads a generated module.
 
@@ -59,7 +59,7 @@ Keys whose names aren't valid identifiers (they contain `.` or `-`) are **omitte
 :::
 
 :::caution[Sensitive values in the blob]
-`__VARLOCK_ENV` includes resolved sensitive values and metadata used by varlock integrations. For interactive shells or workflows where subprocesses inspect the environment, use [`--inject vars`](/reference/cli-commands/#run) and read individual vars (as strings) instead. Note that this also disables the generated loaders, which need the blob.
+`__VARLOCK_ENV` includes resolved sensitive values and metadata used by varlock integrations. For interactive shells or workflows where subprocesses inspect the environment, use [`--inject vars`](/reference/cli/load-and-run/#run) and read individual vars (as strings) instead. Note that this also disables the generated loaders, which need the blob.
 :::
 
 **We are planning deeper integrations with other languages. Want to help us build these? Join our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>.**

@@ -102,7 +102,7 @@ You do not need to migrate every package at once. A practical order:
 4. **Leave untouched apps alone**: packages without a `.env.schema` should keep using their existing env loading until you migrate them.
 
 :::tip[CLI-only services]
-Services that do not need a framework integration can start with [`varlock run`](/reference/cli-commands/#run) and a local `.env.schema` without changing root dependency overrides.
+Services that do not need a framework integration can start with [`varlock run`](/reference/cli/load-and-run/#run) and a local `.env.schema` without changing root dependency overrides.
 :::
 
 ## Typed `ENV` across packages
@@ -135,6 +135,6 @@ Run the command from the service directory (or pass `--path` to its env folder).
 
 Container images often copy a single app directory, not the whole monorepo. If your schema uses `@import()` to pull files from sibling packages or the repo root, those paths must exist in the build context, otherwise the load graph fails at build time.
 
-The [Docker guide](/guides/docker/) covers the official image, multi-stage copies of the varlock binary, and running `varlock run` as your container entrypoint.
+The [Docker guide](/integrations/docker/) covers the official image, multi-stage copies of the varlock binary, and running `varlock run` as your container entrypoint.
 
-Run [`varlock flatten`](/reference/cli-commands/#flatten) while the full monorepo is available (e.g. in the builder stage of a multi-stage build) to collapse the import graph into a self-contained directory that travels with the package. See the [Docker guide](/guides/docker/#monorepos-and-partial-build-context) for the full workflow.
+Run [`varlock flatten`](/reference/cli/project/#flatten) while the full monorepo is available (e.g. in the builder stage of a multi-stage build) to collapse the import graph into a self-contained directory that travels with the package. See the [Docker guide](/integrations/docker/#monorepos-and-partial-build-context) for the full workflow.

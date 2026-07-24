@@ -19,7 +19,7 @@ Secret provider plugins now support [OIDC workload identity federation](/guides/
 
 ### Audit and schema hygiene
 
-- **`varlock audit`** - New code env scanner and audit command to find schema items missing from application code (and vice versa). See [`varlock audit`](/reference/cli-commands/#audit), [`@auditIgnore`](/reference/item-decorators/#auditignore), and [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths). Thanks [@danish-fareed](https://github.com/danish-fareed).
+- **`varlock audit`** - New code env scanner and audit command to find schema items missing from application code (and vice versa). See [`varlock audit`](/reference/cli/encryption/#audit), [`@auditIgnore`](/reference/item-decorators/#auditignore), and [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths). Thanks [@danish-fareed](https://github.com/danish-fareed).
 - **`@deprecated` item decorator** - Mark variables as deprecated with strikethrough in pretty output and `@deprecated` JSDoc in generated types. ([PR #644](https://github.com/dmno-dev/varlock/pull/644))
 - **Load summaries for automation** - `--summary-stderr` / `--summary-file` on `varlock load`, plus `fullResult` on `execSyncVarlock` for programmatic consumers. ([PR #681](https://github.com/dmno-dev/varlock/pull/681))
 

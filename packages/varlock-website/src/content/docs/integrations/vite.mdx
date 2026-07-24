@@ -144,6 +144,56 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
+
+### Within `vite.config.*`
+It's often useful to be able to access env vars in your Vite config. Without varlock, it's a bit awkward, but with varlock it's already available. Import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+
+```diff lang="ts" title="vite.config.ts"
+import { defineConfig } from 'vite';
+import { varlockVitePlugin } from '@varlock/vite-integration';
++import { ENV } from 'varlock/env';
+
++doSomethingWithEnvVar(ENV.FOO);
+
+export default defineConfig({ /* ... */ });
+```
+
+:::caution[TypeScript config]
+If you find you are not getting type completion on `ENV`, you may need to add your vite config and generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::
+
+### Within HTML templates
+Vite [natively supports](https://vite.dev/guide/env-and-mode.html#html-constant-replacement) injecting env vars into HTML files using a special syntax like `%SOME_VAR%`.
+
+This plugin injects additional replacements for strings like `%ENV.SOME_VAR%`.
+
+Note that unlike the native functionality which does not replace missing/non-existant items, we will try to replace all items, and will throw helpful errors if something goes wrong.
+
+:::tip[HTML comments]
+Note that replacements anywhere in the file, including HTML comments, are still attempted and can cause errors. For example `<!-- %ENV.BAD_ITEM_KEY% -->` will still fail!
+:::
+
+### Within other scripts
+
+Even in a static front-end project, you may have other scripts in your project that rely on sensitive config.
+
+You can use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved config into other scripts as regular environment vars.
+
+<ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTsTypes(path='env.d.ts')
+# ---
+# your config items...
+```
+
+
+---
+
 ## Managing multiple environments
 
 Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**

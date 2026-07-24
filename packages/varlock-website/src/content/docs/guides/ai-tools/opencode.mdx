@@ -1,0 +1,81 @@
+---
+title: Opencode
+description: Inject API keys into Opencode with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Opencode](https://opencode.ai/) is a provider-agnostic AI coding assistant that works in your terminal. Use varlock to inject provider API keys at runtime.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Environment variables:**
+
+- `ANTHROPIC_API_KEY` for Claude models
+- `OPENAI_API_KEY` for OpenAI models
+- `OPENCODE_CONFIG` path to custom config file (optional)
+
+## Auth configuration
+
+Run `opencode auth login` once. When prompted for an API key, paste an env reference instead:
+
+`{"env:ANTHROPIC_API_KEY"}`
+
+Your config file (`~/.local/share/opencode/auth.json`) should look like:
+
+```json title="~/.local/share/opencode/auth.json"
+{
+  "anthropic": {
+    "type": "api",
+    "key": "{env:ANTHROPIC_API_KEY}"
+  }
+}
+```
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+```
+
+<OpExamplesTip />
+
+```bash
+varlock run -- opencode
+
+# or with a specific model
+varlock run -- opencode --model claude-3-5-sonnet
+```
+
+## From any directory
+
+Personal schema at `~/.env.opencode`:
+
+```env-spec title="~/.env.opencode"
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+```
+
+```bash
+varlock run -p ~/.env.opencode -- opencode
+
+# or with a specific model
+varlock run -p ~/.env.opencode -- opencode --model claude-3-5-sonnet
+```
+
+## Shell alias (optional)
+
+```bash
+alias vopencode='varlock run -p ~/.env.opencode --no-redact-stdout -- opencode'
+```
+
+See the [Opencode docs](https://opencode.ai/docs/) for more information.

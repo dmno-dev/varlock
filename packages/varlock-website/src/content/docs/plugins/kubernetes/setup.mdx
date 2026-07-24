@@ -1,0 +1,104 @@
+---
+title: Kubernetes plugin setup
+description: Install and configure the @varlock/kubernetes-plugin
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/kubernetes-plugin` package as a normal dependency.
+Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/kubernetes-plugin)
+#
+# 2. Initialize the plugin - see below for more details on options
+# @initKubernetes(namespace=default)
+```
+
+### Authentication options
+
+The plugin tries authentication methods in this priority order:
+1. **Explicit cluster server + token** - If `clusterServer` is provided in `@initKubernetes()`
+2. **Explicit kubeconfig** - If `kubeconfig` is provided (file path or raw YAML/JSON string)
+3. **In-cluster service account** - Auto-detected via `KUBERNETES_SERVICE_HOST`/`KUBERNETES_SERVICE_PORT` env vars (set automatically inside pods)
+4. **Default kubeconfig** - Loads from `$KUBECONFIG` or `~/.kube/config`
+
+### Automatic authentication (Recommended for local dev)
+
+For local development, just initialize the plugin and the plugin will pick up your default kubeconfig automatically:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/kubernetes-plugin)
+# @initKubernetes(namespace=default)
+```
+
+**How this works:**
+
+- **Local development:** Uses your active `kubectl` context from `~/.kube/config` (or `$KUBECONFIG`)
+- **Inside a pod:** Uses the pod's mounted service account credentials at `/var/run/secrets/kubernetes.io/serviceaccount/`
+
+If your kubeconfig has multiple contexts, you can select one explicitly:
+
+```env-spec title=".env.schema"
+# @initKubernetes(namespace=default, context=my-dev-cluster)
+```
+
+### Explicit cluster server and token
+
+If you don't want to rely on a kubeconfig file (for example, in CI/CD or other deployed environments), provide the API server URL and a bearer token directly:
+
+<Steps>
+1. **Create a service account and RBAC** in your cluster (see Kubernetes Setup section below)
+
+2. **Wire up the credentials in your config**. Add a config item for the token and reference it when initializing the plugin.
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/kubernetes-plugin)
+    # @initKubernetes(
+    #   namespace=default,
+    #   clusterServer="https://kubernetes.example.com:6443",
+    #   token=$KUBERNETES_TOKEN
+    # )
+    # ---
+
+    # @type=kubernetesBearerToken @sensitive @internal
+    KUBERNETES_TOKEN=
+    ```
+
+3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject the bearer token.
+</Steps>
+
+For clusters that present self-signed or custom-CA certificates, you can disable TLS verification by adding `skipTlsVerify=true` to `@initKubernetes()`. This should generally be avoided outside of development.
+
+### Raw kubeconfig
+
+You can also pass an entire kubeconfig as a string (YAML or JSON), useful when injecting credentials from a secret manager or platform env var:
+
+```env-spec title=".env.schema"
+# @initKubernetes(kubeconfig=$KUBECONFIG_DATA)
+# ---
+
+# @sensitive
+KUBECONFIG_DATA=
+```
+
+The plugin auto-detects whether `kubeconfig` is a file path or raw content by looking for YAML/JSON markers.
+
+### Multiple instances
+
+If you need to read from multiple namespaces or clusters, register multiple named instances:
+
+```env-spec title=".env.schema"
+# @initKubernetes(id=dev, namespace=dev)
+# @initKubernetes(id=prod, namespace=prod, context=prod-cluster)
+# ---
+
+DEV_DATABASE_URL=k8sSecret(dev, app-secrets, DATABASE_URL)
+PROD_DATABASE_URL=k8sSecret(prod, app-secrets, DATABASE_URL)
+```
+

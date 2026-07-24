@@ -1,0 +1,47 @@
+---
+title: Minimal
+description: Wire the Minimal sandbox through varlock proxy
+---
+
+## Minimal
+
+[Minimal](https://minimal.dev/) runs tasks in an isolated sandbox ([task sandbox](https://docs.minimal.dev/concepts/sandboxing)). Start varlock on the **host**, pass the proxy/CA/placeholder environment into the Minimal task, then run the agent inside Minimal so outbound HTTPS goes through varlock.
+
+```bash
+eval "$(varlock proxy env)"
+minimal run claude   # or: minimal run <your-agent-task>
+```
+
+`varlock proxy env` prints the child view for the active session: placeholder values for proxied secrets, plus `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`, `NO_PROXY`, and CA trust vars (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and related). Sourcing it before `minimal run` forwards that environment when Minimal inherits the launching shell's env.
+
+:::tip[One-shot alternative]
+```bash
+varlock proxy run -- minimal run claude
+```
+
+Prefer `proxy start` + `proxy env` when you want a durable session log while you iterate on the sandbox task.
+:::
+
+Confirm the agent sees placeholders, not real secrets:
+
+```bash
+# inside the Minimal task / agent shell, after env was passed through
+printenv ANTHROPIC_API_KEY
+# expect something like sk-ant-api03-0000… (your @placeholder), not the vault value
+```
+
+### Verify on your install
+
+Minimal's isolation mode affects whether the guest can reach the host proxy:
+
+- **Linux process sandboxing** that still shares host loopback can use `HTTP_PROXY=http://127.0.0.1:<port>` as emitted by `proxy env`.
+- **microVM** isolation typically cannot reach the host's `127.0.0.1`. Varlock's proxy currently binds loopback only; non-loopback "sandbox bridging" is not available yet. If `minimal run` cannot connect through the proxy on your platform, that is the gap to watch, not a misconfigured schema.
+
+If HTTPS clients inside the sandbox fail TLS handshake, confirm the CA bundle vars from `proxy env` were actually present in the task environment (not only on the host shell that launched Minimal).
+
+### Claude Code and host key pinholes
+
+Minimal's `claude-code` package can wire host paths such as `~/.claude` into the task sandbox so Claude can keep state and find an API key on disk. That pinhole is useful for agent state, but it undercuts credential isolation if the real key lives there.
+
+For secrets you mark with `@proxy`, prefer the placeholder + proxy path above, and avoid relying on a real key file inside the sandbox for those same credentials.
+
