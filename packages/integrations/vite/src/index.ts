@@ -644,8 +644,12 @@ See https://varlock.dev/integrations/vite/ for more details.
         (_fullMatch, itemKey) => {
           if (!varlockLoadedEnv.config[itemKey]) {
             throw new Error(`Config item \`${itemKey}\` does not exist`);
-          } else if ((varlockLoadedEnv.config[itemKey].isDynamic ?? varlockLoadedEnv.config[itemKey].isSensitive)) {
-            throw new Error(`Config item \`${itemKey}\` is dynamic and cannot be used in html replacements`);
+          } else if (varlockLoadedEnv.config[itemKey].isSensitive) {
+            // sensitive items are dynamic (not inlineable) by default, but the reason that
+            // matters to the user here is the secrecy one - lead with that
+            throw new Error(`Config item \`${itemKey}\` is sensitive and cannot be used in html replacements`);
+          } else if (varlockLoadedEnv.config[itemKey].isDynamic) {
+            throw new Error(`Config item \`${itemKey}\` is dynamic (runtime-resolved) and cannot be used in html replacements`);
           } else {
             // undefined will be turned into empty string in html replacements
             return varlockLoadedEnv.config[itemKey].value ?? '';
