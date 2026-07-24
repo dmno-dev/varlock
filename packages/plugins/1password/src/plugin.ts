@@ -2,7 +2,7 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
@@ -20,6 +20,41 @@ const OP_ICON = 'simple-icons:1password';
 type OpAuthCompletedFn = (success: boolean) => void;
 
 const CLI_BATCH_READ_TIMEOUT = 50;
+
+/*
+  Batched CLI reads go through `op inject`: we feed it a template of
+  `KEY={{ op://ref }}` entries on stdin and it prints the template with refs
+  resolved, in a single authenticated call. Previously this used
+  `op run -- env -0`, but that depends on a unix `env` binary which does not
+  exist on windows (unless git's usr/bin happens to be on PATH).
+
+  Entries are joined with a random per-call separator string because secret
+  values can contain newlines, and `op inject` strips control characters
+  (e.g. \0, \x1e) from its output so a non-printable separator would be lost.
+*/
+function buildInjectTemplate(opReferences: Array<string>) {
+  const separator = `__VARLOCK_1P_SEP_${randomUUID()}__`;
+  const keyToRef: Record<string, string> = {};
+  let i = 1;
+  const template = opReferences.map((ref) => {
+    const key = `VARLOCK_1P_INJECT_${i++}`;
+    keyToRef[key] = ref;
+    return `${key}={{ ${ref} }}${separator}`;
+  }).join('');
+  return { template, separator, keyToRef };
+}
+
+/** Parse `op inject` output back into op-ref → value (dangling segments, e.g. a trailing newline, are ignored). */
+function parseInjectResult(result: string, separator: string, keyToRef: Record<string, string>) {
+  const valuesByRef: Record<string, string> = {};
+  for (const segment of result.split(separator)) {
+    const eqPos = segment.indexOf('=');
+    const key = segment.substring(0, eqPos);
+    if (!keyToRef[key]) continue;
+    valuesByRef[keyToRef[key]] = segment.substring(eqPos + 1);
+  }
+  return valuesByRef;
+}
 
 /*
   ! IMPORTANT INFO ON CLI APP AUTH
@@ -58,17 +93,11 @@ async function checkAppCliAuth(): Promise<OpAuthCompletedFn> {
 
 async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatch>) {
   debug('execute op read batch (app auth)', Object.keys(batchToExecute));
-  const envMap = {} as Record<string, string>;
-  let i = 1;
-  Object.keys(batchToExecute).forEach((opReference) => {
-    envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
-  });
+  const { template, separator, keyToRef } = buildInjectTemplate(Object.keys(batchToExecute));
   const startAt = new Date();
 
   const authCompletedFn = await checkAppCliAuth();
-  // `env -0` splits values by a null character instead of newlines
-  // because otherwise we'll have trouble dealing with values that contain newlines
-  await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
+  await spawnAsync('op', ['inject', ...lockCliToOpAccount ? ['--account', lockCliToOpAccount] : []], {
     env: {
       PATH: process.env.PATH!,
       ...process.env.USER && { USER: process.env.USER },
@@ -76,21 +105,16 @@ async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatc
       ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
       ...pickProxyEnv(),
       OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-      ...envMap,
     },
+    input: template,
   })
     .then((result) => {
       authCompletedFn?.(true);
       debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-      const lines = result.split('\0');
-      for (const line of lines) {
-        const eqPos = line.indexOf('=');
-        const key = line.substring(0, eqPos);
-        if (!envMap[key]) continue;
-        const val = line.substring(eqPos + 1);
-        const opRef = envMap[key];
-        batchToExecute[opRef].deferredPromises.forEach((p) => {
+      const valuesByRef = parseInjectResult(result, separator, keyToRef);
+      for (const [opRef, val] of Object.entries(valuesByRef)) {
+        batchToExecute[opRef]?.deferredPromises.forEach((p) => {
           p.resolve(val);
         });
       }
@@ -369,17 +393,11 @@ class OpPluginInstance {
   /** Executes the per-instance CLI read batch using `op run` with a service account token. */
   private async executeCliBatch(batchToExecute: NonNullable<typeof this.cliBatch>) {
     debug('execute op read batch (service account CLI)', Object.keys(batchToExecute));
-    const envMap = {} as Record<string, string>;
-    let i = 1;
-    Object.keys(batchToExecute).forEach((opReference) => {
-      envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
-    });
+    const { template, separator, keyToRef } = buildInjectTemplate(Object.keys(batchToExecute));
     const startAt = new Date();
 
     const authCompletedFn = await this.checkCliAuth();
-    // `env -0` splits values by a null character instead of newlines
-    // because otherwise we'll have trouble dealing with values that contain newlines
-    await spawnAsync('op', `run --no-masking ${this.account ? `--account ${this.account} ` : ''}-- env -0`.split(' '), {
+    await spawnAsync('op', ['inject', ...this.account ? ['--account', this.account] : []], {
       env: {
         // have to pass a few things through at least path so it can find `op` and related config files
         PATH: process.env.PATH!,
@@ -393,24 +411,17 @@ class OpPluginInstance {
         // this setting actually just enables the CLI + Desktop App integration
         // which in some cases op has a hard time detecting via app setting
         OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-        ...envMap,
       },
+      input: template,
     })
       .then(async (result) => {
         authCompletedFn?.(true);
         debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-        const lines = result.split('\0');
-        for (const line of lines) {
-          const eqPos = line.indexOf('=');
-          const key = line.substring(0, eqPos);
-
-          if (!envMap[key]) continue;
-          const val = line.substring(eqPos + 1);
-          const opRef = envMap[key];
-
+        const valuesByRef = parseInjectResult(result, separator, keyToRef);
+        for (const [opRef, val] of Object.entries(valuesByRef)) {
           // resolve the deferred promises with the value
-          batchToExecute[opRef].deferredPromises.forEach((p) => {
+          batchToExecute[opRef]?.deferredPromises.forEach((p) => {
             p.resolve(val);
           });
         }
