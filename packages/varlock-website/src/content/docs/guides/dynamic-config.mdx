@@ -10,6 +10,8 @@ Varlock separates two concerns:
 
 These are related, but not the same.
 
+The default behavior matches what you are used to from prefix conventions like `NEXT_PUBLIC_*` / `VITE_*` / `PUBLIC_*`: public values are inlined into client bundles at build time, and everything else stays runtime-only. The difference is what drives the split. In varlock it follows sensitivity (which you can still infer from those same prefixes via [`@defaultSensitive=inferFromPrefix(...)`](/reference/root-decorators/#defaultsensitive)) rather than being hardcoded to a name prefix, and the `@dynamic` / `@static` decorators let you deviate per item when the default is not what you want.
+
 ## Defaults and decorators
 
 By default, static/dynamic behavior follows sensitivity:
