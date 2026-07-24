@@ -78,6 +78,7 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 ## Dynamic+public config
 
 Use [`@dynamic`](/reference/item-decorators/#dynamic) to keep selected public values runtime-resolved.
+Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
 ```env-spec title=".env.schema"

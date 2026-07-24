@@ -58,6 +58,7 @@ See the [**Vite integration page**](/integrations/vite/) for configuration optio
 ## Dynamic+public recipe
 
 SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration.
+Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
 Use this schema shape:

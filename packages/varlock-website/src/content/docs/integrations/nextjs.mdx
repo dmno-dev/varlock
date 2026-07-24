@@ -225,6 +225,8 @@ For a full mental model and cross-framework patterns, see the [Static vs Dynamic
 
 By default, dynamic behavior follows sensitivity (`@defaultDynamic=inferFromSensitive`), but you can override per item with [`@dynamic`](/reference/item-decorators/#dynamic) / [`@static`](/reference/item-decorators/#static).
 
+Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic). On Vercel in particular, env changes trigger a redeploy (and rebuild), so dynamic+public mainly matters for self-hosted deployments or promoted build artifacts.
+
 ```env-spec title=".env.schema"
 # @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
 # @defaultDynamic=inferFromSensitive

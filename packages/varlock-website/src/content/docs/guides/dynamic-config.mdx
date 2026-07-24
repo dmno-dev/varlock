@@ -38,6 +38,18 @@ Or override globally with [`@defaultDynamic`](/reference/root-decorators/#defaul
 - `dynamic + public` (valid): runtime feature flags, environment banners, etc.
 - `static + sensitive` (rare, use with care): server-only build-time replacement
 
+## Do you actually need dynamic+public?
+
+Often not. On platforms that rebuild and redeploy on every env change (Vercel, Netlify, Cloudflare Workers Builds, and most PaaS setups), a plain public (static) value already updates on each change: the rebuild re-inlines the new value. Marking it `@dynamic` gains nothing there.
+
+Dynamic+public matters when values can change without a client rebuild:
+
+- long-running or self-hosted servers (Docker, Kubernetes, VMs) that restart with new env
+- build-once-deploy-many pipelines, where one client build is promoted across environments that resolve different values
+- runtime feature flags served from the environment rather than a flag service
+
+If none of these apply to you, keep public values static and skip the endpoint/hydration machinery entirely. Sensitive values are unaffected either way: they default to dynamic for secrecy, not freshness.
+
 ## Runtime helpers for dynamic+public
 
 When public values are dynamic, the client must load them at runtime:
