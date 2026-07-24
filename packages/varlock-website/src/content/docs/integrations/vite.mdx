@@ -144,6 +144,62 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
+## Managing multiple environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
+
+Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it by overriding the value when running commands - for example `APP_ENV=production vite build`. For a JavaScript based project, this will often be done in your `package.json` scripts.
+
+```diff lang="json" title="package.json" add=/APP_ENV=[a-z]+/
+{
+  "scripts": {
+    "dev": "vite dev",
+    "test": "APP_ENV=test vitest",
+    "build": "APP_ENV=production vite build",
+    "preview": "APP_ENV=production vite preview",
+  }
+}
+```
+
+In some cases, you could also set the current environment value based on other vars already injected by your CI platform, like the current branch name. See the [environments guide](/guides/environments) for more information.
+
+
+## Managing sensitive config values
+
+Vite uses the `VITE_` prefix to determine which env vars are public (bundled for the browser). Varlock decouples the concept of being _sensitive_ from key names, and instead you control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
+
+Set a default and explicitly mark items:
+
+```diff lang="env-spec" title=".env.schema" add="@sensitive"
++# @defaultSensitive=false
+# ---
+NON_SECRET_FOO= # sensitive by default
+# @sensitive
+SECRET_FOO=
+```
+
+Or if you'd like to continue using Vite's prefix behavior:
+
+```diff lang="env-spec" title=".env.schema"
++# @defaultSensitive=inferFromPrefix('VITE_')
+# ---
+FOO= # sensitive
+VITE_FOO= # non-sensitive, due to prefix
+```
+
+
+
+:::caution[Bundling behavior]
+All non-sensitive items are bundled at build time via `ENV`, while `import.meta.env` replacements continue to only include `VITE_`-prefixed items.
+:::
+
+
+
+---
+
+:::note[Encrypting the env blob]
+When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+:::
 
 ## Dynamic+public config recipe
 
@@ -152,11 +208,10 @@ Most apps do not need this: on platforms that rebuild on every env change, stati
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
 ```env-spec title=".env.schema"
-# @defaultSensitive=inferFromPrefix('VITE_')
 # @defaultDynamic=inferFromSensitive
 # ---
-VITE_STATIC_FLAG=enabled
-VITE_RUNTIME_FLAG=enabled # @dynamic
+VITE_STATIC_FLAG=enabled  # @public
+VITE_RUNTIME_FLAG=enabled # @public @dynamic
 ```
 
 ### Server-side rendering
@@ -239,62 +294,6 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 
 ---
 
-## Managing multiple environments
-
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
-
-Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it by overriding the value when running commands - for example `APP_ENV=production vite build`. For a JavaScript based project, this will often be done in your `package.json` scripts.
-
-```diff lang="json" title="package.json" add=/APP_ENV=[a-z]+/
-{
-  "scripts": {
-    "dev": "vite dev",
-    "test": "APP_ENV=test vitest",
-    "build": "APP_ENV=production vite build",
-    "preview": "APP_ENV=production vite preview",
-  }
-}
-```
-
-In some cases, you could also set the current environment value based on other vars already injected by your CI platform, like the current branch name. See the [environments guide](/guides/environments) for more information.
-
-
-## Managing sensitive config values
-
-Vite uses the `VITE_` prefix to determine which env vars are public (bundled for the browser). Varlock decouples the concept of being _sensitive_ from key names, and instead you control this with the [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) root decorator and the [`@sensitive`](/reference/item-decorators/#sensitive) item decorator. See the [secrets guide](/guides/secrets) for more information.
-
-Set a default and explicitly mark items:
-
-```diff lang="env-spec" title=".env.schema" add="@sensitive"
-+# @defaultSensitive=false
-# ---
-NON_SECRET_FOO= # sensitive by default
-# @sensitive
-SECRET_FOO=
-```
-
-Or if you'd like to continue using Vite's prefix behavior:
-
-```diff lang="env-spec" title=".env.schema"
-+# @defaultSensitive=inferFromPrefix('VITE_')
-# ---
-FOO= # sensitive
-VITE_FOO= # non-sensitive, due to prefix
-```
-
-
-
-:::caution[Bundling behavior]
-All non-sensitive items are bundled at build time via `ENV`, while `import.meta.env` replacements continue to only include `VITE_`-prefixed items.
-:::
-
-
-
----
-
-:::note[Encrypting the env blob]
-When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
-:::
 
 ---
 

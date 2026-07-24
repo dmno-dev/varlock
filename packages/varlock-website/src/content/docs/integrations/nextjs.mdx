@@ -214,86 +214,6 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 - All non-sensitive items are replaced at build time (not just `NEXT_PUBLIC_`)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
-
-## Static vs dynamic config
-
-Varlock separates:
-- **sensitive vs public** (security boundary)
-- **dynamic vs static** (runtime vs build-time replacement)
-
-For a full mental model and cross-framework patterns, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
-
-By default, dynamic behavior follows sensitivity (`@defaultDynamic=inferFromSensitive`), but you can override per item with [`@dynamic`](/reference/item-decorators/#dynamic) / [`@static`](/reference/item-decorators/#static).
-
-Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic). On Vercel in particular, env changes trigger a redeploy (and rebuild), so dynamic+public mainly matters for self-hosted deployments or promoted build artifacts.
-
-```env-spec title=".env.schema"
-# @defaultSensitive=inferFromPrefix('NEXT_PUBLIC_')
-# @defaultDynamic=inferFromSensitive
-# ---
-NEXT_PUBLIC_STATIC_FLAG=enabled
-NEXT_PUBLIC_RUNTIME_FLAG=enabled # @dynamic
-SECRET_API_KEY= # dynamic by default
-```
-
-### Server-rendered access
-
-For server components and route handlers, use `ENV.KEY` directly:
-
-```tsx title="app/page.tsx"
-import { ENV } from 'varlock/env';
-
-export default function Page() {
-  return <p>{ENV.NEXT_PUBLIC_RUNTIME_FLAG}</p>;
-}
-```
-
-When a **dynamic** key is accessed in server-rendered code, the Next integration marks that render path as dynamic (not statically prerendered), including nested component access.
-
-### Client-side access for dynamic+public keys
-
-Dynamic+public values are not inlined into client bundles. The recommended pattern is:
-
-1. Add a route that returns `getPublicDynamicEnv()`
-2. Load once in client code with `loadPublicDynamicEnv()`
-3. Continue reading via `ENV.KEY`
-
-```ts title="app/__varlock/public-env/route.ts"
-import { getPublicDynamicEnv } from 'varlock/env';
-
-export const dynamic = 'force-dynamic';
-
-export async function GET() {
-  return Response.json(getPublicDynamicEnv(), {
-    headers: { 'cache-control': 'no-store' },
-  });
-}
-```
-
-```tsx title="app/example/client-widget.tsx"
-'use client';
-
-import { useEffect } from 'react';
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-export function ClientWidget() {
-  useEffect(() => {
-    void loadPublicDynamicEnv();
-  }, []);
-  return <p>{ENV.NEXT_PUBLIC_RUNTIME_FLAG}</p>;
-}
-```
-
-If you want to return only a subset, pass keys to `getPublicDynamicEnv(['KEY_A', 'KEY_B'])`.
-
-Note that in the browser, reading a dynamic+public key *before* `loadPublicDynamicEnv()` completes returns `undefined`. Gate rendering on the load completing, or handle the `undefined` initial state.
-
-:::tip[Keep unaffected pages static]
-Do not put client dynamic-env loading in your root layout unless every route needs it. Prefer a route group/segment-level layout or a local component so pages that do not use dynamic+public values can still be prerendered.
-:::
-
----
-
 ## Managing multiple environments
 
 Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
@@ -401,6 +321,85 @@ NEXT_PUBLIC_FOO= # non-sensitive, due to prefix
 :::caution[Bundling behavior]
 All non-sensitive items are bundled at build time via `ENV`, while `process.env` replacements only include `NEXT_PUBLIC_`-prefixed items.
 :::
+
+## Static vs dynamic config
+
+Varlock separates:
+- **sensitive vs public** (security boundary)
+- **dynamic vs static** (runtime vs build-time replacement)
+
+For a full mental model and cross-framework patterns, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+By default, dynamic behavior follows sensitivity (`@defaultDynamic=inferFromSensitive`), but you can override per item with [`@dynamic`](/reference/item-decorators/#dynamic) / [`@static`](/reference/item-decorators/#static).
+
+Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic). On Vercel in particular, env changes trigger a redeploy (and rebuild), so dynamic+public mainly matters for self-hosted deployments or promoted build artifacts.
+
+```env-spec title=".env.schema"
+# @defaultDynamic=inferFromSensitive
+# ---
+NEXT_PUBLIC_STATIC_FLAG=enabled  # @public
+NEXT_PUBLIC_RUNTIME_FLAG=enabled # @public @dynamic
+SECRET_API_KEY= # sensitive by default, so also dynamic
+```
+
+### Server-rendered access
+
+For server components and route handlers, use `ENV.KEY` directly:
+
+```tsx title="app/page.tsx"
+import { ENV } from 'varlock/env';
+
+export default function Page() {
+  return <p>{ENV.NEXT_PUBLIC_RUNTIME_FLAG}</p>;
+}
+```
+
+When a **dynamic** key is accessed in server-rendered code, the Next integration marks that render path as dynamic (not statically prerendered), including nested component access.
+
+### Client-side access for dynamic+public keys
+
+Dynamic+public values are not inlined into client bundles. The recommended pattern is:
+
+1. Add a route that returns `getPublicDynamicEnv()`
+2. Load once in client code with `loadPublicDynamicEnv()`
+3. Continue reading via `ENV.KEY`
+
+```ts title="app/__varlock/public-env/route.ts"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  return Response.json(getPublicDynamicEnv(), {
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+```
+
+```tsx title="app/example/client-widget.tsx"
+'use client';
+
+import { useEffect } from 'react';
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+export function ClientWidget() {
+  useEffect(() => {
+    void loadPublicDynamicEnv();
+  }, []);
+  return <p>{ENV.NEXT_PUBLIC_RUNTIME_FLAG}</p>;
+}
+```
+
+If you want to return only a subset, pass keys to `getPublicDynamicEnv(['KEY_A', 'KEY_B'])`.
+
+Note that in the browser, reading a dynamic+public key *before* `loadPublicDynamicEnv()` completes returns `undefined`. Gate rendering on the load completing, or handle the `undefined` initial state.
+
+:::tip[Keep unaffected pages static]
+Do not put client dynamic-env loading in your root layout unless every route needs it. Prefer a route group/segment-level layout or a local component so pages that do not use dynamic+public values can still be prerendered.
+:::
+
+---
+
 
 
 ## Extra setup for standalone mode ||standalone||

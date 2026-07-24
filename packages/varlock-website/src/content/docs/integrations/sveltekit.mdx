@@ -52,79 +52,6 @@ Use `varlockVitePlugin` exactly as you would in any Vite project. This is the se
 :::tip[Next steps]
 See the [**Vite integration page**](/integrations/vite/) for configuration options, SSR injection modes, accessing env vars, managing environments, sensitive values, and more.
 :::
-
----
-
-## Dynamic+public recipe
-
-SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration.
-Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
-For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
-
-Use this schema shape:
-
-```env-spec title=".env.schema"
-# @defaultSensitive=false
-# @defaultDynamic=inferFromSensitive
-# ---
-PUBLIC_STATIC_VAR=
-PUBLIC_DYNAMIC_VAR= # @dynamic
-
-# @sensitive
-SECRET_VAR=
-```
-
-### 1) Server-rendered routes
-
-In non-prerendered server paths, access `ENV.KEY` directly:
-
-```ts title="src/routes/+page.server.ts"
-import { ENV } from 'varlock/env';
-
-export const load = async () => ({
-  runtimeFlag: ENV.PUBLIC_DYNAMIC_VAR,
-});
-```
-
-### 2) Client routes/components
-
-Expose an endpoint and load once before reading `ENV.KEY` on the client:
-
-```ts title="src/routes/__varlock/public-env/+server.ts"
-import { getPublicDynamicEnv } from 'varlock/env';
-
-export const GET = async () => new Response(JSON.stringify(getPublicDynamicEnv()), {
-  headers: {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  },
-});
-```
-
-```svelte title="src/routes/+page.svelte"
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-  let runtimeFlag = 'loading...';
-
-  onMount(async () => {
-    await loadPublicDynamicEnv();
-    runtimeFlag = ENV.PUBLIC_DYNAMIC_VAR;
-  });
-</script>
-
-<p>{runtimeFlag}</p>
-```
-
-If you only want a subset, return `getPublicDynamicEnv(['PUBLIC_DYNAMIC_VAR'])` from the endpoint.
-
-### 3) Prerendered routes
-
-Prerendered routes should only use static values. Keep dynamic-key usage out of routes/files that must be prerendered.
-
----
-
 ## Setup for Cloudflare Workers
 
 <div class="page-badges">
@@ -199,6 +126,79 @@ If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.
 :::tip[Next steps]
 See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on `varlock-wrangler`, multi-environment setup, and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
 :::
+
+---
+
+## Dynamic+public recipe
+
+SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration.
+Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+Use this schema shape:
+
+```env-spec title=".env.schema"
+# @defaultSensitive=false
+# @defaultDynamic=inferFromSensitive
+# ---
+PUBLIC_STATIC_VAR=
+PUBLIC_DYNAMIC_VAR= # @dynamic
+
+# @sensitive
+SECRET_VAR=
+```
+
+### 1) Server-rendered routes
+
+In non-prerendered server paths, access `ENV.KEY` directly:
+
+```ts title="src/routes/+page.server.ts"
+import { ENV } from 'varlock/env';
+
+export const load = async () => ({
+  runtimeFlag: ENV.PUBLIC_DYNAMIC_VAR,
+});
+```
+
+### 2) Client routes/components
+
+Expose an endpoint and load once before reading `ENV.KEY` on the client:
+
+```ts title="src/routes/__varlock/public-env/+server.ts"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export const GET = async () => new Response(JSON.stringify(getPublicDynamicEnv()), {
+  headers: {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+  },
+});
+```
+
+```svelte title="src/routes/+page.svelte"
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+  let runtimeFlag = 'loading...';
+
+  onMount(async () => {
+    await loadPublicDynamicEnv();
+    runtimeFlag = ENV.PUBLIC_DYNAMIC_VAR;
+  });
+</script>
+
+<p>{runtimeFlag}</p>
+```
+
+If you only want a subset, return `getPublicDynamicEnv(['PUBLIC_DYNAMIC_VAR'])` from the endpoint.
+
+### 3) Prerendered routes
+
+Prerendered routes should only use static values. Keep dynamic-key usage out of routes/files that must be prerendered.
+
+---
+
 
 ---
 

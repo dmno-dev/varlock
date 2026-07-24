@@ -74,100 +74,6 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
-
-## Dynamic+public config
-
-Use [`@dynamic`](/reference/item-decorators/#dynamic) to keep selected public values runtime-resolved.
-Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
-For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
-
-```env-spec title=".env.schema"
-# @defaultSensitive=inferFromPrefix('PUBLIC_')
-# @defaultDynamic=inferFromSensitive
-# ---
-PUBLIC_STATIC_FLAG=enabled
-PUBLIC_RUNTIME_FLAG=enabled # @dynamic
-```
-
-### Server rendering
-
-In server-rendered Astro code, access dynamic values via `ENV.KEY` as usual.
-
-### Client-side usage
-
-When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). Load it in the browser with `loadPublicDynamicEnv()`:
-
-```astro title="src/components/MyClientThing.astro"
----
----
-<script>
-  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-  await loadPublicDynamicEnv();
-  console.log(ENV.PUBLIC_RUNTIME_FLAG);
-</script>
-```
-
-:::note[Static output]
-With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
-:::
-
-### Route injection options
-
-You can control endpoint injection:
-
-```ts title="astro.config.ts"
-import { defineConfig } from 'astro/config';
-import varlockAstroIntegration from '@varlock/astro-integration';
-
-export default defineConfig({
-  integrations: [
-    varlockAstroIntegration({
-      publicDynamicEndpoint: true, // auto by default
-      // or: { path: '/my-public-env' }
-      // or: false (disable auto endpoint)
-    }),
-  ],
-});
-```
-
-### Within `astro.config.*`
-It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it easy. In fact it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
-
-```diff lang="ts" title="astro.config.ts"
-import { defineConfig } from 'astro/config';
-import varlockAstroIntegration from '@varlock/astro-integration';
-+import { ENV } from 'varlock/env';
-
-+doSomethingWithEnvVar(ENV.FOO);
-
-export default defineConfig({ /* ... */ });
-```
-
-:::caution[TypeScript config]
-If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
-:::
-
-### Within other scripts
-
-Even in a static front-end project, you may have other scripts in your project that rely on sensitive config.
-
-You can use [`varlock run`](/reference/cli-commands/#run) to inject resolved config into other scripts as regular env vars.
-
-<ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
-
-### Type-safety and IntelliSense
-
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
-
-```diff lang="env-spec" title=".env.schema"
-+# @generateTsTypes(path='env.d.ts')
-# ---
-# your config items...
-```
-
----
-
 ## Managing multiple environments
 
 Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Astro/Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
@@ -278,6 +184,99 @@ Varlock manages env injection automatically. Delete any `.dev.vars` file in your
 :::
 
 See the [Cloudflare Workers integration docs](/integrations/cloudflare/) for full details on how dev injection, deployment, CI/CD, and `varlock-wrangler` work.
+
+## Dynamic+public config
+
+Use [`@dynamic`](/reference/item-decorators/#dynamic) to keep selected public values runtime-resolved.
+Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+```env-spec title=".env.schema"
+# @defaultDynamic=inferFromSensitive
+# ---
+PUBLIC_STATIC_FLAG=enabled  # @public
+PUBLIC_RUNTIME_FLAG=enabled # @public @dynamic
+```
+
+### Server rendering
+
+In server-rendered Astro code, access dynamic values via `ENV.KEY` as usual.
+
+### Client-side usage
+
+When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). Load it in the browser with `loadPublicDynamicEnv()`:
+
+```astro title="src/components/MyClientThing.astro"
+---
+---
+<script>
+  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+  await loadPublicDynamicEnv();
+  console.log(ENV.PUBLIC_RUNTIME_FLAG);
+</script>
+```
+
+:::note[Static output]
+With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
+:::
+
+### Route injection options
+
+You can control endpoint injection:
+
+```ts title="astro.config.ts"
+import { defineConfig } from 'astro/config';
+import varlockAstroIntegration from '@varlock/astro-integration';
+
+export default defineConfig({
+  integrations: [
+    varlockAstroIntegration({
+      publicDynamicEndpoint: true, // auto by default
+      // or: { path: '/my-public-env' }
+      // or: false (disable auto endpoint)
+    }),
+  ],
+});
+```
+
+### Within `astro.config.*`
+It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it easy. In fact it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+
+```diff lang="ts" title="astro.config.ts"
+import { defineConfig } from 'astro/config';
+import varlockAstroIntegration from '@varlock/astro-integration';
++import { ENV } from 'varlock/env';
+
++doSomethingWithEnvVar(ENV.FOO);
+
+export default defineConfig({ /* ... */ });
+```
+
+:::caution[TypeScript config]
+If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::
+
+### Within other scripts
+
+Even in a static front-end project, you may have other scripts in your project that rely on sensitive config.
+
+You can use [`varlock run`](/reference/cli-commands/#run) to inject resolved config into other scripts as regular env vars.
+
+<ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTsTypes(path='env.d.ts')
+# ---
+# your config items...
+```
+
+---
+
 
 ---
 
