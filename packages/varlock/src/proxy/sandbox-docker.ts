@@ -39,7 +39,7 @@ const PROXY_HOSTNAME = 'varlock-proxy';
 const FORWARDER_IMAGE = 'alpine/socat:1.8.0.0';
 
 /** CA-bundle env vars the proxy injects — all repoint to the in-guest mount. */
-const CA_PATH_ENV_VARS = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'GIT_SSL_CAINFO'];
+const CA_PATH_ENV_VARS = ['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'DENO_CERT'];
 /** Proxy-URL env vars — all repoint at the in-guest forwarder. */
 const PROXY_URL_ENV_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'];
 

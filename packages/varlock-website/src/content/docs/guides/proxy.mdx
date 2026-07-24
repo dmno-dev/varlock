@@ -336,7 +336,8 @@ Sessions are durable records: they persist after the proxy stops (visible with `
 `proxy run` (and `proxy env`) inject a standard set of environment variables into the child so common HTTP clients trust the proxy with no manual setup:
 
 - **Proxy address:** `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and lowercase), with `NO_PROXY` excluding localhost.
-- **CA trust:** `NODE_EXTRA_CA_CERTS` (Node.js), `REQUESTS_CA_BUNDLE` (Python `requests`), `CURL_CA_BUNDLE` (curl), `GIT_SSL_CAINFO` (git), and `SSL_CERT_FILE` (OpenSSL-based tools).
+- **CA trust:** `NODE_EXTRA_CA_CERTS` (Node.js), `REQUESTS_CA_BUNDLE` (Python `requests`), `CURL_CA_BUNDLE` (curl), `GIT_SSL_CAINFO` (git), `DENO_CERT` (Deno), and `SSL_CERT_FILE` (OpenSSL-based tools).
+- **Runtime opt-ins:** `NODE_USE_ENV_PROXY=1`, so Node's built-in `fetch` (Node 24+) routes through the proxy. Without it, `fetch` ignores the proxy env vars entirely and sends requests (with placeholder values) directly to the upstream. On older Node versions the flag is ignored and `fetch` still bypasses the proxy; use an env-proxy-aware client (axios, got) or Node 24+.
 
 The proxy URL carries no credentials, and the proxy never asks clients for proxy authentication (no `407` challenges). Session scoping is enforced by the proxy itself, so clients with limited proxy-auth support (like Python's `urllib`) work with the plain `HTTPS_PROXY` url.
 
@@ -348,6 +349,8 @@ The proxy uses an **ephemeral, in-memory certificate authority** generated per r
 Tools that ignore the standard proxy/CA environment variables (many GUI apps, browsers, and some language runtimes with their own trust stores) won't be transparently proxied. The target here is CLI tools and agents, which generally do respect them.
 
 One known offender: the Python that ships with macOS (`/usr/bin/python3`, built against Apple's LibreSSL) ignores `SSL_CERT_FILE`, so its `urllib` fails TLS verification against the proxy. Pythons from python.org, Homebrew, pyenv, or `uv` honor it. On the system Python, either use `requests` (which reads `REQUESTS_CA_BUNDLE`) or pass the bundle explicitly: `ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])`.
+
+The same class of issue affects clients that verify TLS against the macOS system keychain instead of the CA env vars: Go programs on macOS (including CLIs like `gh` and `terraform`), .NET on macOS, macOS system Ruby, and Rust tools built with platform-verifier crates. These honor `HTTPS_PROXY` but reject the proxy's certificate. On Linux, Go and .NET read `SSL_CERT_FILE` and work. There is no env-var fix on macOS; run those tools outside the proxy or on Linux (e.g. `--sandbox=docker`).
 :::
 
 ### Pinning the port and CA location

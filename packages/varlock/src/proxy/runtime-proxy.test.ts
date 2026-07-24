@@ -251,6 +251,9 @@ describe('startLocalProxyRuntime', () => {
     expect(runtime.env.REQUESTS_CA_BUNDLE).toBeDefined();
     expect(runtime.env.CURL_CA_BUNDLE).toBeDefined();
     expect(runtime.env.GIT_SSL_CAINFO).toBeDefined();
+    expect(runtime.env.DENO_CERT).toBe(runtime.env.SSL_CERT_FILE);
+    // without this, node's built-in fetch silently bypasses the proxy (node >= 24)
+    expect(runtime.env.NODE_USE_ENV_PROXY).toBe('1');
 
     await runtime.stop();
   });
