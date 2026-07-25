@@ -204,22 +204,12 @@ In server-rendered Astro code, access dynamic values via `ENV.KEY` as usual.
 
 ### Client-side usage
 
-When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). Load it in the browser with `loadPublicDynamicEnv()`:
-
-```astro title="src/components/MyClientThing.astro"
----
----
-<script>
-  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-  await loadPublicDynamicEnv();
-  console.log(ENV.PUBLIC_RUNTIME_FLAG);
-</script>
-```
+When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only). If browser code needs one of these values, load it with `loadPublicDynamicEnv()`; this is rarely needed, see the [Astro recipe in the guide](/guides/dynamic-config/#framework-recipes).
 
 :::note[Static output]
 With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
 :::
+
 
 ### Route injection options
 

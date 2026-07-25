@@ -265,30 +265,8 @@ Unlike Next.js Server Components, Expo Router page components run on **both** th
 The babel plugin inlines **static** values into your app code at build time. By default that means every non-sensitive value; mark a public value [`@dynamic`](/reference/item-decorators/#dynamic) to opt it out of inlining.
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
-Values that are not inlined (sensitive values, and anything `@dynamic`) are only directly accessible in **server routes** (`+api` files). Referencing one from native code logs a build-time warning, and reading it at runtime in native will fail.
+Values that are not inlined (sensitive values, and anything `@dynamic`) are only directly accessible in **server routes** (`+api` files). Referencing one from native code logs a build-time warning, and reading it at runtime in native will fail. If native code needs a runtime-fresh public value, expose it from a server route and hydrate over the network; see the [Expo recipe in the guide](/guides/dynamic-config/#framework-recipes).
 
-If native code needs a runtime-fresh public value, expose it from a server route and hydrate over the network:
-
-```ts title="app/api/public-env+api.ts"
-import { getPublicDynamicEnv } from 'varlock/env';
-
-export function GET() {
-  return Response.json(getPublicDynamicEnv());
-}
-```
-
-```ts title="native code"
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-// native fetch needs an absolute URL - point at your deployed server
-await loadPublicDynamicEnv({ endpoint: 'https://myapp.example.com/api/public-env' });
-console.log(ENV.PUBLIC_RUNTIME_FLAG);
-```
-
----
-
-
----
 
 ## Reference
 - [Root decorators reference](/reference/root-decorators)

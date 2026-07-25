@@ -2,6 +2,7 @@
 title: Static vs Dynamic Config
 description: How to control build-time replacement vs runtime resolution, and how to use dynamic+public values safely
 ---
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Varlock separates two concerns:
 
@@ -11,6 +12,8 @@ Varlock separates two concerns:
 These are related, but not the same.
 
 The default behavior matches what you are used to from prefix conventions like `NEXT_PUBLIC_*` / `VITE_*` / `PUBLIC_*`: public values are inlined into client bundles at build time, and everything else stays runtime-only. The difference is what drives the split. In varlock it follows sensitivity as declared in your schema rather than a name prefix, and the `@dynamic` / `@static` decorators let you deviate per item when the default is not what you want. (If you want to keep a prefix convention, [`@defaultSensitive=inferFromPrefix(...)`](/reference/root-decorators/#defaultsensitive) can infer sensitivity from names, but that is optional.)
+
+One important nuance: dynamic values are still resolved when varlock loads, at server boot, deploy, or `varlock run`, not on every access. `ENV.KEY` returns that resolved value. Dynamic means the value is not frozen into build output; it does not mean it is re-resolved per request.
 
 ## Defaults and decorators
 
@@ -54,15 +57,103 @@ If browser code does not read the value, skip the endpoint/hydration machinery e
 
 ## Runtime helpers for dynamic+public
 
-When public values are dynamic, the client must load them at runtime:
+When browser code needs a public+dynamic value, it has to be fetched from your backend:
 
 - `getPublicDynamicEnv(keys?)`: server-side helper for endpoint payloads
 - `loadPublicDynamicEnv(opts?)`: client-side fetch + hydrate helper
 - `ENV.MY_VAR`: keep using the same access pattern after hydration
 
-Example:
+The endpoint serves the values the server process booted with (see the note on boot-time resolution above).
 
-```ts title="server endpoint"
+## Framework recipes
+
+Each recipe is the same shape: a small server route returning `getPublicDynamicEnv()`, and a one-time `loadPublicDynamicEnv()` call before browser code reads `ENV.KEY`.
+
+<Tabs syncKey="framework">
+<TabItem label="Next.js">
+
+```ts title="app/__varlock/public-env/route.ts"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  return Response.json(getPublicDynamicEnv(), {
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+```
+
+```tsx title="app/example/client-widget.tsx"
+'use client';
+
+import { useEffect } from 'react';
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+export function ClientWidget() {
+  useEffect(() => {
+    void loadPublicDynamicEnv();
+  }, []);
+  return <p>{ENV.NEXT_PUBLIC_RUNTIME_FLAG}</p>;
+}
+```
+
+In the browser, reading a dynamic+public key before `loadPublicDynamicEnv()` completes returns `undefined`; gate rendering on the load completing or handle the initial state. Avoid putting the loading call in your root layout unless every route needs it, so pages that do not use dynamic+public values can still be prerendered.
+
+</TabItem>
+<TabItem label="Astro">
+
+The Astro integration auto-injects the endpoint at `/__varlock/public-env` when public+dynamic keys exist (configurable; see [route injection options](/integrations/astro/#route-injection-options)). Load it in the browser:
+
+```astro title="src/components/MyClientThing.astro"
+---
+---
+<script>
+  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+  await loadPublicDynamicEnv();
+  console.log(ENV.PUBLIC_RUNTIME_FLAG);
+</script>
+```
+
+</TabItem>
+<TabItem label="SvelteKit">
+
+```ts title="src/routes/__varlock/public-env/+server.ts"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export const GET = async () => new Response(JSON.stringify(getPublicDynamicEnv()), {
+  headers: {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+  },
+});
+```
+
+```svelte title="src/routes/+page.svelte"
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+  let runtimeFlag = 'loading...';
+
+  onMount(async () => {
+    await loadPublicDynamicEnv();
+    runtimeFlag = ENV.PUBLIC_DYNAMIC_VAR;
+  });
+</script>
+
+<p>{runtimeFlag}</p>
+```
+
+Keep dynamic-key usage out of routes that must be prerendered.
+
+</TabItem>
+<TabItem label="Vite">
+
+Plain Vite does not inject an endpoint automatically; add one in whatever server you pair with it:
+
+```ts title="server route example"
 import { getPublicDynamicEnv } from 'varlock/env';
 
 export function GET() {
@@ -72,12 +163,60 @@ export function GET() {
 }
 ```
 
-```ts title="client code"
+```ts title="client entry example"
 import { ENV, loadPublicDynamicEnv } from 'varlock/env';
 
 await loadPublicDynamicEnv({ endpoint: '/__varlock/public-env' });
+console.log(ENV.VITE_RUNTIME_FLAG);
+```
+
+</TabItem>
+<TabItem label="Cloudflare">
+
+Usually unnecessary on Workers (values are fixed at deploy and client assets typically rebuild on deploy; see the [Cloudflare page](/integrations/cloudflare/#dynamicpublic-config)). For build-once-deploy-many setups:
+
+```ts title="in your worker fetch handler / router"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+// e.g. inside your fetch handler:
+if (url.pathname === '/__varlock/public-env') {
+  return Response.json(getPublicDynamicEnv(), {
+    headers: { 'cache-control': 'no-store' },
+  });
+}
+```
+
+```ts title="client code"
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+await loadPublicDynamicEnv();
 console.log(ENV.PUBLIC_RUNTIME_FLAG);
 ```
+
+</TabItem>
+<TabItem label="Expo">
+
+Expose a server route and hydrate over the network (native fetch needs an absolute URL):
+
+```ts title="app/api/public-env+api.ts"
+import { getPublicDynamicEnv } from 'varlock/env';
+
+export function GET() {
+  return Response.json(getPublicDynamicEnv());
+}
+```
+
+```ts title="native code"
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+await loadPublicDynamicEnv({ endpoint: 'https://myapp.example.com/api/public-env' });
+console.log(ENV.PUBLIC_RUNTIME_FLAG);
+```
+
+</TabItem>
+</Tabs>
+
+If you only need a subset of keys, return `getPublicDynamicEnv(['KEY_A', 'KEY_B'])` from your endpoint.
 
 ## Framework behavior
 

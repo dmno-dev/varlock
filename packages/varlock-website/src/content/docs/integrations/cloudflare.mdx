@@ -265,35 +265,8 @@ For more information, see the [environments guide](/guides/environments).
 
 On Workers, [`@dynamic`](/reference/item-decorators/#dynamic) usually changes nothing in practice. Worker values are fixed at deploy time (`varlock-wrangler deploy` resolves your env and uploads it), and client assets are typically rebuilt in the same pipeline, so a static public value and a dynamic one change at exactly the same moment. If you build and deploy together, you can ignore this section; there is no downside to leaving `@dynamic` markers in a schema shared with other platforms (worker-side code reads `ENV.KEY` the same either way).
 
-Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. An inlined public value is frozen from the build; a public+dynamic value can instead be served by the worker with its deploy-time value.
-For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. For that setup, see the [Cloudflare recipe in the guide](/guides/dynamic-config/#framework-recipes); the endpoint serves whatever the worker was deployed with, not per-request-fresh values.
 
-There is no automatically injected endpoint on Cloudflare. For that decoupled setup, add a route in your worker that serves `getPublicDynamicEnv()`:
-
-```ts title="in your worker fetch handler / router"
-import { getPublicDynamicEnv } from 'varlock/env';
-
-// e.g. inside your fetch handler:
-if (url.pathname === '/__varlock/public-env') {
-  return Response.json(getPublicDynamicEnv(), {
-    headers: { 'cache-control': 'no-store' },
-  });
-}
-```
-
-```ts title="client code"
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-await loadPublicDynamicEnv();
-console.log(ENV.PUBLIC_RUNTIME_FLAG);
-```
-
-The endpoint serves whatever the worker was deployed with, not per-request-fresh values.
-
-----
-
-
-----
 
 ## Cloudflare Workers Builds (CI/CD)
 
