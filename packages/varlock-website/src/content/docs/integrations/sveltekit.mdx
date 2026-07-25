@@ -132,7 +132,7 @@ See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on
 ## Dynamic+public recipe
 
 SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration.
-Most apps do not need this: on platforms that rebuild on every env change, static public values already update with each change. See [Do you actually need dynamic+public?](/guides/dynamic-config/#do-you-actually-need-dynamicpublic).
+Marking a value `@dynamic` needs no extra code: server-side reads work as usual. The endpoint + hydration shown below are only needed when **browser code** reads a public+dynamic value (it must be fetched from the backend), which is a niche situation. See [When do you need the client-side machinery?](/guides/dynamic-config/#when-do-you-need-the-client-side-machinery).
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
 Use this schema shape:
