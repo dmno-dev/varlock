@@ -342,6 +342,19 @@ export function initVarlockEnv(opts?: {
   // also some frameworks inject a process polyfill, others do not
   if (isBrowser && !globalThis.process?.env.__VARLOCK_ENV) {
     envState.initialized = true;
+    // boot-time injected public+dynamic values: a server/entrypoint may write a
+    // `<script>globalThis.__varlockPublicDynamicEnv = {...}</script>` tag into the
+    // served HTML (e.g. a docker entrypoint using `varlock load --filter
+    // '@dynamic,!@sensitive' --format json`), avoiding any endpoint fetch. Script
+    // tags run before module scripts, so the global is set by the time we init.
+    // Any later loadPublicDynamicEnv() call short-circuits once hydrated.
+    const bootInjected = (globalThis as any).__varlockPublicDynamicEnv;
+    if (bootInjected && typeof bootInjected === 'object' && !Array.isArray(bootInjected)) {
+      // defined later in the module - safe because the module-level auto-init that
+      // reaches this code runs at the very bottom of the file
+      // eslint-disable-next-line no-use-before-define
+      setPublicDynamicEnv(bootInjected);
+    }
     return;
   }
 
@@ -420,18 +433,6 @@ export function initVarlockEnv(opts?: {
   envState.initialized = true;
 }
 
-// we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
-// note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch
-try {
-  if (!envState.initialized) {
-    // if we are automatically loading because __VARLOCK_ENV is already set
-    // then we assume process.env vars have also already been set (although might not harm anything?)
-    initVarlockEnv({ allowFail: true });
-  }
-} catch (err) {
-  // expected that this will fail when process.env does not exist
-  // but we may want to look for specific errors
-}
 
 
 
@@ -715,3 +716,19 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
 });
 
 export const ENV = EnvProxy;
+
+// we will attempt to call initVarlockEnv automatically, but in most cases it should be called explicitly
+// note that if this is being imported in the browser, process.env may not exist, so we do this in a try/catch.
+// NOTE - this must stay at the BOTTOM of the module: init (e.g. the browser boot-injection
+// hook) calls helpers whose module-level `const` state would still be in the temporal dead
+// zone if this ran mid-module, and the try/catch would silently swallow the ReferenceError.
+try {
+  if (!envState.initialized) {
+    // if we are automatically loading because __VARLOCK_ENV is already set
+    // then we assume process.env vars have also already been set (although might not harm anything?)
+    initVarlockEnv({ allowFail: true });
+  }
+} catch (err) {
+  // expected that this will fail when process.env does not exist
+  // but we may want to look for specific errors
+}

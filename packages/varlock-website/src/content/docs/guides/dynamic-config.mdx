@@ -208,6 +208,39 @@ console.log(ENV.PUBLIC_RUNTIME_FLAG);
 
 If you only need a subset of keys, return `getPublicDynamicEnv(['KEY_A', 'KEY_B'])` from your endpoint.
 
+## Boot-time injection (no endpoint)
+
+If your server can rewrite the served HTML when it starts (a common pattern for static SPAs in Docker), you can skip the endpoint and fetch entirely: extract the public+dynamic values with the `--filter` selector language and inject them as a script tag. The runtime picks up `globalThis.__varlockPublicDynamicEnv` automatically at init, so no app code changes are needed, and any existing `loadPublicDynamicEnv()` call short-circuits since values are already hydrated.
+
+Put a placeholder in your HTML entry:
+
+```html title="index.html (in <head>, before your bundle)"
+<!--VARLOCK_PUBLIC_DYNAMIC_ENV-->
+```
+
+Then replace it at boot:
+
+```sh title="docker-entrypoint.sh"
+#!/bin/sh
+set -e
+
+# resolve only the public+dynamic subset from the container env
+export PUBLIC_ENV_JSON="$(varlock load --filter '@dynamic,!@sensitive' --format json)"
+
+node -e '
+  const fs = require("fs");
+  const html = fs.readFileSync("dist/index.html", "utf8");
+  fs.writeFileSync("dist/index.html", html.replace(
+    "<!--VARLOCK_PUBLIC_DYNAMIC_ENV-->",
+    `<script>globalThis.__varlockPublicDynamicEnv = ${process.env.PUBLIC_ENV_JSON}</script>`,
+  ));
+'
+
+exec "$@"
+```
+
+The `--filter '@dynamic,!@sensitive'` selection also scopes resolution and validation, so a container that only serves static assets does not need the rest of your schema to be resolvable at boot. As always, only public values belong in served HTML; the filter guarantees sensitive values are excluded.
+
 ## Framework behavior
 
 | Framework | Dynamic server access | Dynamic+public endpoint |
