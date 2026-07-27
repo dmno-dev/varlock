@@ -57,13 +57,26 @@ If browser code does not read the value, skip the endpoint/hydration machinery e
 
 ## Runtime helpers for dynamic+public
 
-When browser code needs a public+dynamic value, it has to be fetched from your backend:
+When browser code needs a public+dynamic value, it has to be fetched from your backend. Two helpers, both exported from `varlock/env`, cover the round trip.
 
-- `getPublicDynamicEnv(keys?)`: server-side helper for endpoint payloads
-- `loadPublicDynamicEnv(opts?)`: client-side fetch + hydrate helper
-- `ENV.MY_VAR`: keep using the same access pattern after hydration
+### `getPublicDynamicEnv(keys?)`
 
-The endpoint serves the values the server process booted with (see the note on boot-time resolution above).
+Server-side. Returns the current public+dynamic values as a plain object, ready to serve from an endpoint. The values are whatever the server process booted with (see the note on boot-time resolution above).
+
+- `keys` (optional `string[]`): limit the payload to a subset, e.g. `getPublicDynamicEnv(['MY_FLAG'])`. Keys that are not declared public+dynamic are always excluded.
+
+### `loadPublicDynamicEnv(opts?)`
+
+Client-side. Fetches the endpoint, hydrates the shared `ENV` store, and returns the payload; once it resolves, `ENV.KEY` reads work as usual. Concurrent calls share a single request, and after a successful load it will not refetch unless forced.
+
+Options:
+
+- `endpoint` (default `/__varlock/public-env`): URL to fetch. Must be absolute outside the browser (e.g. native apps).
+- `force`: refetch even if values are already hydrated.
+- `fetch`: custom fetch implementation (defaults to the global `fetch`).
+- `requestInit`: extra request options, merged over the defaults (`GET`, `cache: 'no-store'`, `credentials: 'same-origin'`).
+
+The response must be a JSON object of key/value pairs, and hydration is filtered to the declared public+dynamic keys. If you deliver values through some other transport, `setPublicDynamicEnv(values)` hydrates the store directly, and `clearPublicDynamicEnv()` resets it.
 
 ## Framework recipes
 
