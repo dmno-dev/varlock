@@ -8,13 +8,24 @@ plugin.registerRootDecorator({
   name: 'initTestPlugin',
   isFunction: true,
   useFnArgsResolver: true,
-  process() {
+  process(argsVal) {
     const id = '_default';
     if (instances[id]) {
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
-    instances[id] = true;
-    return { id };
+    instances[id] = {};
+    return { id, valueResolver: argsVal.objArgs?.value };
   },
-  execute() {},
+  async execute({ id, valueResolver }) {
+    // mirrors real init decorators resolving their args (ex: @initAws region/profile)
+    instances[id].value = await valueResolver?.resolve();
+  },
+});
+
+// exposes what the init decorator resolved so tests can assert on it
+plugin.registerResolverFunction({
+  name: 'initArgValue',
+  resolve() {
+    return instances._default?.value;
+  },
 });
