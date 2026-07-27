@@ -27,6 +27,29 @@ describe('diagnostics-core', () => {
     ).toBe(false);
   });
 
+  // Plugin inits (@initInfisical, @initOp, etc.) are not in the intellisense
+  // catalog, so repeatability depends on detecting `@name(` even when `)` is
+  // on a later line. One representative covers all of them.
+  it('treats multiline open-paren decorator calls as function calls', () => {
+    expect(getDecoratorOccurrences('# @initInfisical(', 0)).toEqual([
+      {
+        name: 'initInfisical',
+        line: 0,
+        start: 2,
+        end: 16,
+        isFunctionCall: true,
+      },
+    ]);
+
+    const diagnostics = createDecoratorDiagnostics([
+      ...getDecoratorOccurrences('# @initInfisical(', 0),
+      ...getDecoratorOccurrences('# @initInfisical(', 1),
+    ]);
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.message.includes('@initInfisical')),
+    ).toBe(false);
+  });
+
   it('flags incompatible decorator pairs inline', () => {
     const diagnostics = createDecoratorDiagnostics(
       getDecoratorOccurrences('# @required @optional @sensitive @public', 0),
