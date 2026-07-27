@@ -626,7 +626,11 @@ export class EnvGraph {
       if (source.disabled) continue;
       for (const decInstance of source.rootDecorators) {
         if (!decInstance.decValueResolver) continue; // no resolver = errored during process()
-        await this.resolveEnvValues(decInstance.decValueResolver.deps);
+        // the items named in the decorator args (e.g. `@initAws(profile=$AWS_PROFILE)`) may
+        // themselves depend on other items, so we must resolve the full transitive closure -
+        // resolveEnvValues() skips any item whose deps are not in the set it was given
+        const deps = this.expandKeysWithTransitiveDeps(decInstance.decValueResolver.deps);
+        await this.resolveEnvValues([...deps]);
         try {
           await decInstance.execute();
         } catch (err) {

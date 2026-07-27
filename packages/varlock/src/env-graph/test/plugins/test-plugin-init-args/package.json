@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/test-plugin-init-args",
+  "private": true,
+  "description": "plugin used in automated tests - init decorator with args that reference config items",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  }
+}
