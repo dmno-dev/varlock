@@ -171,29 +171,6 @@ console.log(ENV.VITE_RUNTIME_FLAG);
 ```
 
 </TabItem>
-<TabItem label="Cloudflare">
-
-Usually unnecessary on Workers (values are fixed at deploy and client assets typically rebuild on deploy; see the [Cloudflare page](/integrations/cloudflare/#dynamicpublic-config)). For build-once-deploy-many setups:
-
-```ts title="in your worker fetch handler / router"
-import { getPublicDynamicEnv } from 'varlock/env';
-
-// e.g. inside your fetch handler:
-if (url.pathname === '/__varlock/public-env') {
-  return Response.json(getPublicDynamicEnv(), {
-    headers: { 'cache-control': 'no-store' },
-  });
-}
-```
-
-```ts title="client code"
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
-
-await loadPublicDynamicEnv();
-console.log(ENV.PUBLIC_RUNTIME_FLAG);
-```
-
-</TabItem>
 <TabItem label="Expo">
 
 Expose a server route and hydrate over the network (native fetch needs an absolute URL):

@@ -265,7 +265,7 @@ For more information, see the [environments guide](/guides/environments).
 
 On Workers, [`@dynamic`](/reference/item-decorators/#dynamic) usually changes nothing in practice. Worker values are fixed at deploy time (`varlock-wrangler deploy` resolves your env and uploads it), and client assets are typically rebuilt in the same pipeline, so a static public value and a dynamic one change at exactly the same moment. If you build and deploy together, you can ignore this section; there is no downside to leaving `@dynamic` markers in a schema shared with other platforms (worker-side code reads `ENV.KEY` the same either way).
 
-Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. For that setup, see the [Cloudflare recipe in the guide](/guides/dynamic-config/#framework-recipes); the endpoint serves whatever the worker was deployed with, not per-request-fresh values.
+Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. For that setup, use your framework's recipe from the [guide](/guides/dynamic-config/#framework-recipes) (most apps on Workers run a framework like Astro or SvelteKit); on a plain worker, add a route in your fetch handler that returns `getPublicDynamicEnv()`. Either way the endpoint serves whatever the worker was deployed with, not per-request-fresh values.
 
 
 ## Cloudflare Workers Builds (CI/CD)
