@@ -265,7 +265,7 @@ Unlike Next.js Server Components, Expo Router page components run on **both** th
 The babel plugin inlines **static** values into your app code at build time. By default that means every non-sensitive value; mark a public value [`@dynamic`](/reference/item-decorators/#dynamic) to opt it out of inlining.
 For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
 
-Values that are not inlined (sensitive values, and anything `@dynamic`) are only directly accessible in **server routes** (`+api` files). Referencing one from native code logs a build-time warning, and reading it at runtime in native will fail. If native code needs a runtime-fresh public value, expose it from a server route and hydrate over the network; see the [Expo recipe in the guide](/guides/dynamic-config/#framework-recipes).
+Values that are not inlined (sensitive values, and anything `@dynamic`) are only directly accessible in **server routes** (`+api` files). Referencing one from native code logs a build-time warning, and reading it at runtime in native will fail. If native code needs a runtime-fresh public value, expose it from a server route and hydrate over the network; see the [Expo recipe in the guide](/guides/dynamic-config/#loading-from-a-server-endpoint).
 
 
 ## Reference

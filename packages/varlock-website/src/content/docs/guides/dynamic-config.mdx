@@ -1,71 +1,70 @@
 ---
-title: Static vs Dynamic Config
+title: Static vs Dynamic Vars
 description: How to control build-time replacement vs runtime resolution, and how to use dynamic+public values safely
 ---
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Varlock separates two concerns:
+Most build tools and web frameworks have a concept of "public" env vars, based on a name prefix (e.g., `NEXT_PUBLIC_*`/`VITE_*`/`PUBLIC_*`). Public values are made available in the client by inlining them at build time, while non-public values are resolved at boot time, and are not available in the client. While it works for most situations, this setup merges 2 distinct concepts that varlock decouples to give you more flexibility:
 
-- **sensitive vs public**: security boundary (can this be exposed to clients?)
-- **static vs dynamic**: execution-time boundary (can this be replaced at build time?)
+- **sensitive** vs **public** - is this safe to expose to clients
+- **static** vs **dynamic** - can this be bundled at build time
 
-These are related, but not the same.
+By manually marking items as `@dynamic`/`@static`, you get two new possibilities:
 
-The default behavior matches what you are used to from prefix conventions like `NEXT_PUBLIC_*` / `VITE_*` / `PUBLIC_*`: public values are inlined into client bundles at build time, and everything else stays runtime-only. The difference is what drives the split. In varlock it follows sensitivity as declared in your schema rather than a name prefix, and the `@dynamic` / `@static` decorators let you deviate per item when the default is not what you want. (If you want to keep a prefix convention, [`@defaultSensitive=inferFromPrefix(...)`](/reference/root-decorators/#defaultsensitive) can infer sensitivity from names, but that is optional.)
+- `@dynamic`+`@public` - a non-sensitive value that is never bundled at build time. This is useful for values that change without a client rebuild.
+- `@static`+`@sensitive` - a sensitive value that is inlined into server bundles. Very rarely needed, but can affect code folding for deep optimization.
+
+
+:::note[You probably don't need to think about this]
+If you are building a totally static site, or you host on a platform that rebuilds and redeploys on every env change (Vercel, Netlify, Cloudflare Workers Builds, etc) the notion of a "dynamic" value that changes at boot time doesn't exist. Every change to a public value triggers a rebuild, so we can skip the dynamic machinery entirely.
+
+Examples of when you might need this:
+- running your builds separate from your deploys (e.g. a CI/CD pipeline that builds once and deploys to multiple environments)
+- building a single docker image to run in different situations
+:::
+
+
 
 One important nuance: dynamic values are still resolved when varlock loads, at server boot, deploy, or `varlock run`, not on every access. `ENV.KEY` returns that resolved value. Dynamic means the value is not frozen into build output; it does not mean it is re-resolved per request.
 
 ## Defaults and decorators
 
-By default, static/dynamic behavior follows sensitivity:
+By default, static/dynamic behavior follows sensitivity, like what you are likely used to. You can also adjust the default with the [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic) root decorator, and override per item with the [`@dynamic`](/reference/item-decorators/#dynamic) and [`@static`](/reference/item-decorators/#static) item decorators. 
 
 ```env-spec title=".env.schema"
-# @defaultDynamic=inferFromSensitive
-# ---
 # @public
-PUBLIC_FOO=        # static by default
+SOMETHING_STATIC=foo       # static by default
+# @public @dynamic
+SET_AT_BOOT=               # explicitly dynamic
 # @sensitive
-SECRET_BAR=        # dynamic by default
+SECRET_BAR=somePluginFn()  # dynamic by default
 ```
 
-Override per item with:
-- [`@dynamic`](/reference/item-decorators/#dynamic)
-- [`@static`](/reference/item-decorators/#static)
+## Loading dynamic vars in the client
 
-Or override globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic):
-- `inferFromSensitive` (default): dynamic follows sensitivity
-- `true`: all dynamic unless overridden
-- `false`: all static unless overridden
+Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. Use it freely whenever a public value should stay out of client bundles or stay runtime-resolved on the server. 
 
-## Typical patterns
 
-- `static + public` (most common): safe to inline in client bundles
-- `dynamic + sensitive` (most common): runtime-only secrets
-- `dynamic + public` (valid): runtime feature flags, environment banners, etc.
-- `static + sensitive` (rare, use with care): server-only build-time replacement
+Because dynamic+public items cannot be bundled into client-side code, if you need them available on the client, we must load them somehow after build time. We can either:
 
-## When do you need the client-side machinery?
+- load them from a server endpoint
+- inject them into static files _at boot time_
 
-Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. Use it freely whenever a public value should stay out of client bundles or stay runtime-resolved on the server.
+The endpoint approach works anywhere you have a running server. Boot-time injection has no runtime fetch at all, so it works for fully static sites, but it only works when you control the boot command (e.g. your own Docker image, VM, or server process); on managed platforms where you cannot hook the serve step, use the endpoint approach.
 
-The endpoint and `loadPublicDynamicEnv()` hydration described below are a different matter. They are only needed when **browser code** reads a public+dynamic value: the browser cannot see server env, so the value has to be fetched from your backend. That situation is genuinely niche, because it also requires the value to change without a client rebuild:
+If browser code does not read the value, none of this machinery is needed: `@dynamic` alone does the job. Sensitive values are unaffected either way: they default to dynamic for secrecy, and are never available in the client.
 
-- on platforms that rebuild and redeploy on every env change (Vercel, Netlify, Cloudflare Workers Builds, and most PaaS setups), a plain public (static) value already updates on each change, so client code can just use static values
-- it matters on long-running or self-hosted servers (Docker, Kubernetes, VMs) that restart with new env, and in build-once-deploy-many pipelines where one client build is promoted across environments that resolve different values
+### Runtime helpers
 
-If browser code does not read the value, skip the endpoint/hydration machinery entirely: `@dynamic` alone does the job. Sensitive values are unaffected either way: they default to dynamic for secrecy, not freshness.
+The endpoint approach revolves around two helpers, both exported from `varlock/env`. (Boot-time injection does not need them, though it plays nice with them.)
 
-## Runtime helpers for dynamic+public
-
-When browser code needs a public+dynamic value, it has to be fetched from your backend. Two helpers, both exported from `varlock/env`, cover the round trip.
-
-### `getPublicDynamicEnv(keys?)`
+#### `getPublicDynamicEnv(keys?)`
 
 Server-side. Returns the current public+dynamic values as a plain object, ready to serve from an endpoint. The values are whatever the server process booted with (see the note on boot-time resolution above).
 
 - `keys` (optional `string[]`): limit the payload to a subset, e.g. `getPublicDynamicEnv(['MY_FLAG'])`. Keys that are not declared public+dynamic are always excluded.
 
-### `loadPublicDynamicEnv(opts?)`
+#### `loadPublicDynamicEnv(opts?)`
 
 Client-side. Fetches the endpoint, hydrates the shared `ENV` store, and returns the payload; once it resolves, `ENV.KEY` reads work as usual. Concurrent calls share a single request, and after a successful load it will not refetch unless forced.
 
@@ -78,7 +77,7 @@ Options:
 
 The response must be a JSON object of key/value pairs, and hydration is filtered to the declared public+dynamic keys. If you deliver values through some other transport, `setPublicDynamicEnv(values)` hydrates the store directly, and `clearPublicDynamicEnv()` resets it.
 
-## Framework recipes
+### Loading from a server endpoint
 
 Each recipe is the same shape: a small server route returning `getPublicDynamicEnv()`, and a one-time `loadPublicDynamicEnv()` call before browser code reads `ENV.KEY`.
 
@@ -162,25 +161,29 @@ export const GET = async () => new Response(JSON.stringify(getPublicDynamicEnv()
 Keep dynamic-key usage out of routes that must be prerendered.
 
 </TabItem>
-<TabItem label="Vite">
+<TabItem label="TanStack Start">
 
-Plain Vite does not inject an endpoint automatically; add one in whatever server you pair with it:
-
-```ts title="server route example"
+```ts title="src/routes/api/public-env.ts"
+import { createServerFileRoute } from '@tanstack/react-start/server';
 import { getPublicDynamicEnv } from 'varlock/env';
 
-export function GET() {
-  return Response.json(getPublicDynamicEnv(), {
+export const ServerRoute = createServerFileRoute('/api/public-env').methods({
+  GET: async () => Response.json(getPublicDynamicEnv(), {
     headers: { 'cache-control': 'no-store' },
-  });
-}
+  }),
+});
 ```
 
-```ts title="client entry example"
+```tsx title="src/components/client-widget.tsx"
+import { useEffect } from 'react';
 import { ENV, loadPublicDynamicEnv } from 'varlock/env';
 
-await loadPublicDynamicEnv({ endpoint: '/__varlock/public-env' });
-console.log(ENV.VITE_RUNTIME_FLAG);
+export function ClientWidget() {
+  useEffect(() => {
+    void loadPublicDynamicEnv({ endpoint: '/api/public-env' });
+  }, []);
+  return <p>{ENV.PUBLIC_RUNTIME_FLAG}</p>;
+}
 ```
 
 </TabItem>
@@ -208,56 +211,65 @@ console.log(ENV.PUBLIC_RUNTIME_FLAG);
 
 If you only need a subset of keys, return `getPublicDynamicEnv(['KEY_A', 'KEY_B'])` from your endpoint.
 
-## Boot-time injection (no endpoint)
+### Boot-time injection
 
-If your server can rewrite the served HTML when it starts (a common pattern for static SPAs in Docker), you can skip the endpoint and fetch entirely: extract the public+dynamic values with the `--filter` selector language and inject them as a script tag. The runtime picks up `globalThis.__varlockPublicDynamicEnv` automatically at init, so no app code changes are needed, and any existing `loadPublicDynamicEnv()` call short-circuits since values are already hydrated.
+This approach only applies when you control the boot command of whatever serves your files (your own Docker image, VM, or server process); a common pattern for static SPAs in Docker. The idea: skip the endpoint and fetch entirely by extracting the public+dynamic values with the `--filter` selector language and injecting them into the served files once, at boot. The runtime picks up `globalThis.__varlockPublicDynamicEnv` automatically at init, so no app code changes are needed, and any existing `loadPublicDynamicEnv()` call short-circuits since values are already hydrated.
 
-Put a placeholder in your HTML entry:
+We can't provide a one-size-fits-all recipe for this, because it depends on your framework and server setup. But the general idea is:
 
-```html title="index.html (in <head>, before your bundle)"
-<!--VARLOCK_PUBLIC_DYNAMIC_ENV-->
-```
+<Steps>
 
-Then replace it at boot:
+1. Make sure a placeholder comment ends up in your HTML entry file (or a common script/entry point).
 
-```sh title="docker-entrypoint.sh"
-#!/bin/sh
-set -e
+    ```diff lang="html" title="dist/index.html"
+    <html>
+      <head>
+        ...
+    +    <!--VARLOCK_PUBLIC_DYNAMIC_ENV-->
+        <script src="/path/to/your/bundle.js"></script>
+        ...
+    ```
 
-# resolve only the public+dynamic subset from the container env
-export PUBLIC_ENV_JSON="$(varlock load --filter '@dynamic,!@sensitive' --format json)"
+2. Replace it at boot. Plain POSIX shell is enough (no node needed in the container, and shell parameter expansion splices the JSON in literally, with none of sed's escaping pitfalls):
 
-node -e '
-  const fs = require("fs");
-  const html = fs.readFileSync("dist/index.html", "utf8");
-  fs.writeFileSync("dist/index.html", html.replace(
-    "<!--VARLOCK_PUBLIC_DYNAMIC_ENV-->",
-    `<script>globalThis.__varlockPublicDynamicEnv = ${process.env.PUBLIC_ENV_JSON}</script>`,
-  ));
-'
+    ```sh title="docker-entrypoint.sh"
+    #!/bin/sh
+    set -e
 
-exec "$@"
-```
+    # resolve only the public+dynamic subset from the container env
+    PUBLIC_ENV_JSON="$(varlock load --filter '@dynamic,!@sensitive' --format json)"
+
+    MARKER='<!--VARLOCK_PUBLIC_DYNAMIC_ENV-->'
+    HTML_FILE=dist/index.html
+    html="$(cat "$HTML_FILE")"
+    case "$html" in
+      *"$MARKER"*) ;;
+      *) echo "varlock env placeholder not found in $HTML_FILE" >&2; exit 1 ;;
+    esac
+    printf '%s\n' "${html%%"$MARKER"*}<script>globalThis.__varlockPublicDynamicEnv = $PUBLIC_ENV_JSON</script>${html#*"$MARKER"}" > "$HTML_FILE"
+
+    exec "$@"
+    ```
+
+3. Wire it up as your image's entrypoint, keeping your normal serve command as the CMD (the script's `exec "$@"` hands off to it after injecting):
+
+    ```dockerfile title="Dockerfile"
+    COPY docker-entrypoint.sh /docker-entrypoint.sh
+    RUN chmod +x /docker-entrypoint.sh
+    ENTRYPOINT ["/docker-entrypoint.sh"]
+    # keep whatever serve command your image already uses, e.g.:
+    CMD ["nginx", "-g", "daemon off;"]
+    ```
+
+    On the official nginx image you can skip the ENTRYPOINT override entirely: drop the script into `/docker-entrypoint.d/` (without the final `exec "$@"` line) and the stock entrypoint runs it automatically before starting nginx.
+
+</Steps>
+
+The replacement step itself can be accomplished many ways: this shell snippet, a small node script, `envsubst`, or whatever templating your setup already has. The only contract is that `globalThis.__varlockPublicDynamicEnv` is set to the JSON object before your bundle loads.
+
+If the entrypoint never runs, the placeholder is just an HTML comment, so nothing breaks; the values are simply not injected. The marker is consumed on injection, so the guard also prevents double-injection on container restarts with a persisted file.
 
 The `--filter '@dynamic,!@sensitive'` selection also scopes resolution and validation, so a container that only serves static assets does not need the rest of your schema to be resolvable at boot. As always, only public values belong in served HTML; the filter guarantees sensitive values are excluded.
-
-## Framework behavior
-
-| Framework | Dynamic server access | Dynamic+public endpoint |
-| :-- | :-- | :-- |
-| Next.js | Dynamic access via `ENV.KEY` in server render paths marks route dynamic | Add a route handler (recommended default path: `/__varlock/public-env`) |
-| Astro | Works in SSR paths | Auto-injected endpoint in SSR mode (configurable) |
-| SvelteKit | Works in SSR paths | Add a `+server.ts` endpoint |
-| Vite (generic) | Works in SSR/server runtime | Add your own server endpoint |
-| Cloudflare Workers | Works in the worker at runtime (values fixed at deploy) | Usually unnecessary (client assets typically rebuild on deploy); for build-once-deploy-many setups, add a route serving `getPublicDynamicEnv()` |
-| TanStack Start | Works in SSR/server routes (via the Vite integration) | Add a server route (see the Vite recipe) |
-| Expo | Server routes (`+api` files) only; native code cannot read dynamic values directly (build-time warning) | Expose an `+api` route and hydrate with an absolute endpoint URL |
-
-See framework-specific recipes:
-- [Next.js](/integrations/nextjs/)
-- [Astro](/integrations/astro/)
-- [SvelteKit](/integrations/sveltekit/)
-- [Vite](/integrations/vite/)
 
 ## Prerender/build guardrails
 

@@ -201,7 +201,7 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::
 
-## Dynamic+public config recipe
+## Dynamic+public config
 
 Use `@dynamic` for public values that should not be inlined into client bundles:
 
@@ -210,9 +210,7 @@ VITE_STATIC_FLAG=enabled  # @public
 VITE_RUNTIME_FLAG=enabled # @public @dynamic
 ```
 
-Marking a value `@dynamic` needs no extra code: server-side reads work as usual, with values resolved when the server boots (not per request). The endpoint + browser hydration machinery is only needed when **browser code** reads a public+dynamic value (it must be fetched from the backend), which is a niche situation. See [When do you need the client-side machinery?](/guides/dynamic-config/#when-do-you-need-the-client-side-machinery).
-
-If you do need browser access, see the [Vite recipe in the guide](/guides/dynamic-config/#framework-recipes).
+Server-side reads keep working with no extra code (values resolve when the server boots, not per request). If **browser code** needs one of these values, it must be loaded from the backend after build; see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client) in the guide. With plain Vite, you provide the endpoint in whatever server you pair with it.
 
 
 ## Reference

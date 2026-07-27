@@ -129,13 +129,11 @@ See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on
 
 ---
 
-## Dynamic+public recipe
+## Dynamic+public config
 
-SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration. Use `@dynamic` for public values that should not be inlined into client bundles; server-side reads (`load` functions, endpoints) keep using `ENV.KEY` as usual, and prerendered routes should only use static values.
+SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration. Use `@dynamic` for public values that should not be inlined into client bundles; server-side reads (`load` functions, endpoints) keep using `ENV.KEY` as usual (values resolve at server boot), and prerendered routes should only use static values.
 
-Marking a value `@dynamic` needs no extra code: server-side reads work as usual, with values resolved when the server boots (not per request). The endpoint + browser hydration machinery is only needed when **browser code** reads a public+dynamic value (it must be fetched from the backend), which is a niche situation. See [When do you need the client-side machinery?](/guides/dynamic-config/#when-do-you-need-the-client-side-machinery).
-
-If you do need browser access, see the [SvelteKit recipe in the guide](/guides/dynamic-config/#framework-recipes).
+If **browser code** needs one of these values, it must be loaded from the backend after build; see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
 
 
 ## Migrating from SvelteKit's `$env/*`
@@ -150,7 +148,7 @@ Varlock replaces all four `$env/*` modules with a single `ENV` object from `varl
 | :---------------- | :----------------- |
 | `$env/static/public` | `ENV.FOO` where `@sensitive=false`; non-sensitive values are inlined at build time on both client and server |
 | `$env/static/private` | `ENV.FOO` where `@sensitive=true`, referenced from SSR/server code; inlined into the server bundle, build errors if referenced from client code |
-| `$env/dynamic/public` | `ENV.FOO` where `@dynamic` + non-sensitive; loaded at runtime for client usage via `loadPublicDynamicEnv()` (see [recipe above](#dynamicpublic-recipe)) |
+| `$env/dynamic/public` | `ENV.FOO` where `@dynamic` + non-sensitive; loaded at runtime for client usage via `loadPublicDynamicEnv()` (see [above](#dynamicpublic-config)) |
 | `$env/dynamic/private` | `ENV.FOO`; in server contexts it's read from the live runtime env (e.g. Cloudflare bindings via `varlockCloudflareVitePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
 | `PUBLIC_` prefix requirement | Per-item [`@sensitive`](/reference/item-decorators/#sensitive) decorator, or a schema-wide [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) rule |
 
