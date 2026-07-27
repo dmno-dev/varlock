@@ -100,7 +100,7 @@ function releaseLock(lockPath: string, token: string | undefined): void {
     if (token !== undefined) {
       const owner = readLockOwner(lockPath);
       if (owner && owner.token !== token) {
-        debug('not releasing %s — lock was stolen by pid %d', lockPath, owner.pid);
+        debug('not releasing %s, lock was stolen by pid %d', lockPath, owner.pid);
         return;
       }
     }
@@ -130,14 +130,18 @@ function registerLockCleanup(): void {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) {
     // `once`, then re-raise: attaching any listener suppresses Node's default
     // termination, so we hand the signal back rather than picking an exit code.
-    // Deliberately does not exit on its own — `varlock run` installs its own
+    // Deliberately does not exit on its own: `varlock run` installs its own
     // forwarders, and racing them would break child signal delivery.
-    process.once(signal, () => {
-      releaseAll();
-      if (process.listenerCount(signal) === 0) {
-        process.kill(process.pid, signal);
-      }
-    });
+    try {
+      process.once(signal, () => {
+        releaseAll();
+        if (process.listenerCount(signal) === 0) {
+          process.kill(process.pid, signal);
+        }
+      });
+    } catch {
+      // some signals (e.g. SIGQUIT) can't be listened for on every platform
+    }
   }
 }
 
@@ -156,7 +160,7 @@ export async function withDirLock<T>(
   opts: LockOpts,
   fn: () => Promise<T> | T,
 ): Promise<T> {
-  // already held further up this call stack — e.g. `cache(key="x", cache(key="x", …))`,
+  // already held further up this call stack, e.g. `cache(key="x", cache(key="x", …))`,
   // or a plugin whose producer re-enters the same key. Mutual exclusion is
   // already satisfied, so proceed rather than self-deadlocking until the deadline.
   const outerHeld = lockContext.getStore();
@@ -204,13 +208,13 @@ export async function withDirLock<T>(
         if (!opts.failOpen) {
           throw new Error(
             `Timed out waiting for cache lock at ${lockPath}\n`
-            + 'If no other varlock process is running this lock may be orphaned — '
-            + 'run `varlock cache clear --yes` or delete the path above.',
+            + 'If no other varlock process is running this lock may be orphaned. '
+            + 'Run `varlock cache clear --yes` or delete the path above.',
           );
         }
-        // a lock problem must never become a resolution failure — the worst case
+        // a lock problem must never become a resolution failure: the worst case
         // of proceeding is duplicated work, which is what the lock optimizes away
-        debug('lock %s timed out — proceeding without it', lockPath);
+        debug('lock %s timed out, proceeding without it', lockPath);
         return await fn();
       }
       await sleep(opts.waitMs);
@@ -564,7 +568,7 @@ export class CacheStore {
    *
    * Locks are normally self-healing (an abandoned lock is detected via owner
    * liveness), but clearing them explicitly is the escape hatch when a lock
-   * survives that check — e.g. one left on a different machine via a synced
+   * survives that check, e.g. one left on a different machine via a synced
    * home directory, where pid liveness can't be evaluated.
    */
   clearLocks(): void {

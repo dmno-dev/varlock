@@ -336,7 +336,7 @@ function spawnNativeBinaryAsync(
       finish(undefined, stdout);
     });
     proc.stdin.on('error', () => {
-      // the child can exit before we finish writing — EPIPE here is not useful
+      // the child can exit before we finish writing, EPIPE here is not useful
       debug('spawnNativeBinaryAsync: stdin write failed (child already exited)');
     });
     proc.stdin.end(opts.input);

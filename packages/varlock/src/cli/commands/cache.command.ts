@@ -191,12 +191,13 @@ const clearCommand = define({
     }
 
     try {
+      // a full clear also drops lock dirs. locks go first: clearing entries
+      // itself takes the file lock, and a wedged lock is often exactly why the
+      // user is running this command
+      if (!pluginName) store.clearLocks();
       const count = pluginName
         ? await store.clearByPrefix(`plugin:${pluginName}:`)
         : await store.clearAll();
-      // a full clear also drops lock dirs — clearing the cache is what users
-      // reach for when a lock is wedged, so it must actually unwedge it
-      if (!pluginName) store.clearLocks();
       console.log(`  Cleared ${count} ${target}`);
     } catch (err) {
       console.error(ansis.red(`Failed to clear ${target}: ${err instanceof Error ? err.message : err}`));
@@ -280,8 +281,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {
         initialValue: false,
       });
       if (isCancel(confirmed) || !confirmed) continue;
-      const count = await store.clearAll();
       store.clearLocks();
+      const count = await store.clearAll();
       console.log(`  Cleared ${count} entries`);
       return;
     }

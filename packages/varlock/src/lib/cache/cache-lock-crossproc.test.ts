@@ -61,7 +61,7 @@ describe.runIf(hasBun)('orphaned lock left by a killed process', () => {
     fs.writeFileSync(holderScript, `
       import { CacheStore } from ${JSON.stringify(path.join(thisDir, 'cache-store.ts'))};
       const store = new CacheStore();
-      // never resolves — stands in for a hung API call or an unanswered prompt
+      // never resolves, stands in for a hung API call or an unanswered prompt
       store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, () => new Promise(() => {})).catch(() => {});
       setInterval(() => {}, 1_000);
     `);
