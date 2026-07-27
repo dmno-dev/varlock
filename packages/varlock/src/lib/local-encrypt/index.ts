@@ -10,7 +10,7 @@
  *   4. File-based (pure JS) — universal fallback, no native binary needed
  */
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveNativeBinary } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
@@ -280,6 +280,69 @@ function runNativeBinary(args: Array<string>, opts?: { timeout?: number; sensiti
   return output;
 }
 
+/**
+ * Spawn the native binary asynchronously, writing `input` to its stdin and
+ * resolving with its stdout.
+ *
+ * Async rather than `spawnSync` because this runs on the cache write path,
+ * inside the cache key lock. A blocking spawn there stalls every other
+ * concurrent item resolution in the process, and would freeze the lock's
+ * liveness heartbeat so a busy holder looks dead to other processes.
+ */
+function spawnNativeBinaryAsync(
+  binaryPath: string,
+  args: Array<string>,
+  opts: { input: string; timeout?: number },
+): Promise<string> {
+  const timeoutMs = opts.timeout ?? 30_000;
+  return new Promise((resolve, reject) => {
+    debug(`spawnNativeBinaryAsync: ${binaryPath} ${redactDataArg(args).join(' ')}`);
+    const proc = spawn(binaryPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    // held in an object so `finish` can clear a timer declared after it
+    const pending: { timer?: ReturnType<typeof setTimeout> } = {};
+
+    const finish = (err?: Error, out?: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(pending.timer);
+      if (err) reject(err);
+      else resolve(out ?? '');
+    };
+
+    pending.timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      finish(new Error(`Native binary timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    proc.stdout.setEncoding('utf-8');
+    proc.stderr.setEncoding('utf-8');
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    proc.on('error', (err) => finish(err));
+    proc.on('close', (code) => {
+      // the binary reports failures as JSON on stdout, so a non-zero exit with
+      // output is still handed back for the caller to parse
+      if (!stdout.trim()) {
+        finish(new Error(`Native binary exited with code ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}`));
+        return;
+      }
+      finish(undefined, stdout);
+    });
+    proc.stdin.on('error', () => {
+      // the child can exit before we finish writing — EPIPE here is not useful
+      debug('spawnNativeBinaryAsync: stdin write failed (child already exited)');
+    });
+    proc.stdin.end(opts.input);
+  });
+}
+
 function runNativeBinaryJson<T = Record<string, unknown>>(
   args: Array<string>,
   opts?: { timeout?: number; sensitiveOutput?: boolean },
@@ -441,13 +504,11 @@ export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KE
   const binaryPath = resolveNativeBinary();
   if (!binaryPath) throw new Error('Native binary not found');
 
-  const proc = spawnSync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
+  const stdout = await spawnNativeBinaryAsync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
     input: b64Input,
-    encoding: 'utf-8',
     timeout: 30_000,
   });
-  if (proc.error) throw proc.error;
-  const result = JSON.parse(proc.stdout.trim());
+  const result = JSON.parse(stdout.trim());
   if (result.error) throw new Error(result.error);
   return result.ciphertext;
 }

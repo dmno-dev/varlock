@@ -194,6 +194,9 @@ const clearCommand = define({
       const count = pluginName
         ? await store.clearByPrefix(`plugin:${pluginName}:`)
         : await store.clearAll();
+      // a full clear also drops lock dirs — clearing the cache is what users
+      // reach for when a lock is wedged, so it must actually unwedge it
+      if (!pluginName) store.clearLocks();
       console.log(`  Cleared ${count} ${target}`);
     } catch (err) {
       console.error(ansis.red(`Failed to clear ${target}: ${err instanceof Error ? err.message : err}`));
@@ -278,6 +281,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {
       });
       if (isCancel(confirmed) || !confirmed) continue;
       const count = await store.clearAll();
+      store.clearLocks();
       console.log(`  Cleared ${count} entries`);
       return;
     }
