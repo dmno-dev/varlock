@@ -21,11 +21,6 @@
 
 
 
-## 1.14.1
-<sub>2026-07-28</sub>
-
-- [#949](https://github.com/dmno-dev/varlock/pull/949)  *(patch)* - Fix proxy MITM certs that occasionally failed to load due to a non-minimal DER serial number
-
 ## 1.14.0
 <sub>2026-07-28</sub>
 
@@ -48,6 +43,8 @@
 - [#947](https://github.com/dmno-dev/varlock/pull/947)  *(patch)* - ENV is no longer exported from the package root; import it from `varlock/env` instead
 - [#943](https://github.com/dmno-dev/varlock/pull/943)  *(patch)*
   Cache locks left behind by an interrupted run are now reclaimed immediately instead of stalling later runs for several minutes and hiding the real error. `varlock cache clear` also clears locks.
+- [#949](https://github.com/dmno-dev/varlock/pull/949)  *(patch)*
+  Fix proxy MITM certs that occasionally failed to load: roughly 1 in 512 minted certs got a non-minimal DER serial number, which strict TLS parsers reject
 
 ## 1.13.0
 <sub>2026-07-21</sub>
