@@ -267,6 +267,8 @@ We can't provide a one-size-fits-all recipe for this, because it depends on your
 
 The replacement step itself can be accomplished many ways: this shell snippet, a small node script, `envsubst`, or whatever templating your setup already has. The only contract is that `globalThis.__varlockPublicDynamicEnv` is set to the JSON object before your bundle loads.
 
+`varlock load --format json` emits HTML-script-safe JSON (it escapes `<` as `\u003C`), so a public value containing something like `</script>` cannot break out of the tag or inject markup. If you build the payload some other way, escape it yourself before embedding it in HTML.
+
 If the entrypoint never runs, the placeholder is just an HTML comment, so nothing breaks; the values are simply not injected. The marker is consumed on injection, so the guard also prevents double-injection on container restarts with a persisted file.
 
 The `--filter '@dynamic,!@sensitive'` selection also scopes resolution and validation, so a container that only serves static assets does not need the rest of your schema to be resolvable at boot. As always, only public values belong in served HTML; the filter guarantees sensitive values are excluded.

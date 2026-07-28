@@ -1,5 +1,23 @@
 import { describe, test, expect } from 'vitest';
-import { formatShellValue } from '../load.command.js';
+import { formatShellValue, toScriptSafeJson } from '../load.command.js';
+
+describe('toScriptSafeJson', () => {
+  test('escapes < so a value cannot break out of a <script> tag', () => {
+    const value = '</script><script>globalThis.pwned=true</script>';
+    const json = JSON.stringify({ FLAG: value }, null, 2);
+    const safe = toScriptSafeJson(json);
+
+    expect(safe).not.toContain('</script>');
+    expect(safe).not.toContain('<script>');
+    // still valid JSON that round-trips to the exact original value
+    expect(JSON.parse(safe).FLAG).toBe(value);
+  });
+
+  test('leaves payloads without < untouched', () => {
+    const json = JSON.stringify({ A: 'plain', B: 'a & b' }, null, 2);
+    expect(toScriptSafeJson(json)).toBe(json);
+  });
+});
 
 describe('formatShellValue', () => {
   test('wraps simple value in single quotes', () => {

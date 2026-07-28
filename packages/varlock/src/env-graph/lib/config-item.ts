@@ -844,24 +844,26 @@ export class ConfigItem {
     await this.processRequired();
     await this.processSensitive();
 
-    // proxy-view items short-circuit before the impliesSensitive/processDynamic steps
-    // (see the value phase in resolve()) — keep metadata-only resolution identical
-    if (this.envGraph.proxyResolutionView?.[this.key]) return;
-
-    // Resolver functions like varlock() and keychain() imply sensitivity —
-    // override defaults but respect explicit per-item @sensitive=false / @public
-    if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
-      const wasSensitive = this._isSensitive;
-      this._isSensitive = true;
-      if (!wasSensitive) {
-        // the resolver is what actually made this sensitive (it wasn't otherwise)
-        this._sensitiveSource = 'resolver';
-        const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
-        if (hasSchemaSource) {
-          this._schemaErrors.push(new SchemaError(
-            'implicitly treated as @sensitive — add @sensitive to schema',
-            { isWarning: true },
-          ));
+    // proxy-view items skip the impliesSensitive adjustment (it inspects the value
+    // resolver, and their real values are handled upstream by the proxy daemon) -
+    // but processDynamic still runs below: it reads only decorators, and skipping it
+    // would leave e.g. a @sensitive @static item wrongly marked dynamic
+    if (!this.envGraph.proxyResolutionView?.[this.key]) {
+      // Resolver functions like varlock() and keychain() imply sensitivity —
+      // override defaults but respect explicit per-item @sensitive=false / @public
+      if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
+        const wasSensitive = this._isSensitive;
+        this._isSensitive = true;
+        if (!wasSensitive) {
+          // the resolver is what actually made this sensitive (it wasn't otherwise)
+          this._sensitiveSource = 'resolver';
+          const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
+          if (hasSchemaSource) {
+            this._schemaErrors.push(new SchemaError(
+              'implicitly treated as @sensitive — add @sensitive to schema',
+              { isWarning: true },
+            ));
+          }
         }
       }
     }
