@@ -63,12 +63,12 @@ The linked guides cover open-source, easy-to-install sandboxes that do **not** s
 
 | Sandbox | Isolation | Platforms |
 |---|---|---|
-| [Minimal](/guides/sandboxing/minimal/) | Task / microVM or process sandbox | macOS, Linux |
-| [Fence](/guides/sandboxing/fence/) | Seatbelt / bubblewrap + domain allowlist | macOS, Linux |
-| [yolobox](/guides/sandboxing/yolobox/) | Container (home dir stays on the host) | macOS, Linux |
-| [Agent Safehouse](/guides/sandboxing/agent-safehouse/) | Deny-first Seatbelt profiles | macOS |
-| [bubblewrap](/guides/sandboxing/bubblewrap/) | Linux namespaces (DIY) | Linux |
-| [MXC](/guides/sandboxing/mxc/) | Windows AppContainer (`processcontainer`) | Windows 11 |
+| [Minimal](/sandboxes/minimal/) | Task / microVM or process sandbox | macOS, Linux |
+| [Fence](/sandboxes/fence/) | Seatbelt / bubblewrap + domain allowlist | macOS, Linux |
+| [yolobox](/sandboxes/yolobox/) | Container (home dir stays on the host) | macOS, Linux |
+| [Agent Safehouse](/sandboxes/agent-safehouse/) | Deny-first Seatbelt profiles | macOS |
+| [bubblewrap](/sandboxes/bubblewrap/) | Linux namespaces (DIY) | Linux |
+| [MXC](/sandboxes/mxc/) | Windows AppContainer (`processcontainer`) | Windows 11 |
 
 Tools that already broker credentials at the network boundary (Docker Sandboxes, microsandbox, Anthropic `srt` credential `mask`, and similar) are out of scope here: use those on their own, or wait for varlock host bridging if you want varlock as the broker inside a microVM that cannot reach host loopback.
 

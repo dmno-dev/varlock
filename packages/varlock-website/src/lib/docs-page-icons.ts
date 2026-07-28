@@ -16,7 +16,9 @@ const EXTRA_PAGE_ICONS: Record<string, string> = {
 export function getDocsPageIcon(routeId: string): string | undefined {
   const id = routeId.replace(/^\/+|\/+$/g, '');
   // Child pages under plugins/integrations (e.g. kubernetes/setup) inherit the parent icon
-  const isIntegrationLike = id.startsWith('plugins/') || id.startsWith('integrations/');
+  const isIntegrationLike = id.startsWith('plugins/')
+    || id.startsWith('integrations/')
+    || id.startsWith('sandboxes/');
   if (!isIntegrationLike) return undefined;
   if (EXTRA_PAGE_ICONS[id]) return EXTRA_PAGE_ICONS[id];
 

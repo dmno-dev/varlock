@@ -82,6 +82,6 @@ npx tsx run-sandboxed-agent.ts claude
 The child inherits the placeholder + CA environment you set in PowerShell. MXC's `network.proxy` steers AppContainer egress at varlock on loopback, which the host process can reach.
 
 :::tip[WSL on Windows]
-If you already develop under WSL2, you can run the [Fence](/guides/sandboxing/fence/) or [bubblewrap](/guides/sandboxing/bubblewrap/) recipes inside the distro instead. Start `varlock proxy` in the same WSL environment (or confirm the Windows-side loopback address the distro can reach) so `HTTP_PROXY` still points at a reachable proxy.
+If you already develop under WSL2, you can run the [Fence](/sandboxes/fence/) or [bubblewrap](/sandboxes/bubblewrap/) recipes inside the distro instead. Start `varlock proxy` in the same WSL environment (or confirm the Windows-side loopback address the distro can reach) so `HTTP_PROXY` still points at a reachable proxy.
 :::
 

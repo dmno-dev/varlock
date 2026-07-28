@@ -88,7 +88,7 @@ The proxy works with any client that honors the standard proxy and CA env vars a
 
 :::note[Workarounds]
 - **macOS system Python:** use `requests` (reads `REQUESTS_CA_BUNDLE`), or pass the bundle explicitly: `ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])`. Pythons from python.org, Homebrew, pyenv, or `uv` need nothing.
-- **macOS system-keychain clients (Go, .NET, Rust platform verifiers):** these honor `HTTPS_PROXY` but verify TLS against the system keychain, which does not contain the proxy's ephemeral CA. There is no env-var fix; run those tools on Linux (e.g. [`--sandbox=docker`](/guides/sandboxing/), where they read `SSL_CERT_FILE`) or outside the proxy.
+- **macOS system-keychain clients (Go, .NET, Rust platform verifiers):** these honor `HTTPS_PROXY` but verify TLS against the system keychain, which does not contain the proxy's ephemeral CA. There is no env-var fix; run those tools on Linux (e.g. [`--sandbox=docker`](/guides/proxy/sandboxing/), where they read `SSL_CERT_FILE`) or outside the proxy.
 - **GUI apps and browsers** generally ignore these env vars entirely; the target here is CLI tools and agents.
 :::
 
@@ -151,5 +151,5 @@ On its own the proxy raises the bar but is not a hard boundary: a determined sam
 varlock proxy run --sandbox -- claude
 ```
 
-Bare `--sandbox` is a built-in macOS jail (loopback-only egress + credential-path and keychain denials). Use `--sandbox=docker` (or `=podman`) for a container whose only egress is the host proxy. Details, flags, and third-party recipes: [Sandboxing](/guides/sandboxing/).
+Bare `--sandbox` is a built-in macOS jail (loopback-only egress + credential-path and keychain denials). Use `--sandbox=docker` (or `=podman`) for a container whose only egress is the host proxy. Details, flags, and third-party recipes: [Sandboxing](/guides/proxy/sandboxing/).
 

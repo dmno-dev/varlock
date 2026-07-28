@@ -359,7 +359,7 @@ const generatedPrompt = computed(() => {
   lines.push(`- Docs MCP (search the docs from the agent): ${absDocUrl('/guides/mcp/docs-mcp/')}`);
   if (aiPick.length > 0) {
     lines.push(`- Credential proxy (optional, for agents that call APIs): ${absDocUrl('/guides/proxy/')}`);
-    lines.push(`- Sandboxing (optional, with the proxy): ${absDocUrl('/guides/sandboxing/')}`);
+    lines.push(`- Sandboxing (optional, with the proxy): ${absDocUrl('/guides/proxy/sandboxing/')}`);
   }
   lines.push('');
 
