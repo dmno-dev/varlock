@@ -37,7 +37,17 @@ Reading a key that isn't in your schema raises `VarlockMissingKeyError` rather t
 varlock.reload()
 ```
 
-`repr(ENV)` masks values marked `@sensitive`, so echoing `env` in a cell won't write secrets into the saved notebook.
+### Redaction
+
+`load()` masks values marked `@sensitive` in `print()`, in `logging`, and in notebook cell output, so a secret does not end up saved in an `.ipynb` or a log file:
+
+```python
+print(f"token={env['API_KEY']}")     # token=sk▒▒▒▒▒
+print(varlock.reveal(env["API_KEY"]))  # 👁 sk-abc123 👁, shown on purpose
+varlock.scan_for_leaks(payload)      # raises VarlockLeakError naming the key
+```
+
+Only values that resolved to strings are masked. It is a safety net, not a guarantee: a stream captured before `load()` ran, a write to `sys.stdout.buffer`, or an object rendering a secret in its own `__str__` can still get through. Follows the schema's `@redactLogs` setting; override per call with `load(redact_logs=False)`.
 
 ### Scripts and servers
 
@@ -59,8 +69,10 @@ from varlock import ENV
 | `ENV` | The resolved env, a read-only mapping with attribute access |
 | `is_loaded()`, `is_running_under_varlock_run()` | State checks |
 | `get_settings()`, `get_sensitive_keys()` | Schema metadata |
+| `redact(obj)`, `reveal(value)`, `scan_for_leaks(value)` | Redaction primitives |
+| `install_redaction()`, `uninstall_redaction()` | Turn output redaction on or off |
 
-`load()` accepts `cwd`, `path`, `env`, `force`, `inject`, `on_error`, and `timeout`. See the docstrings.
+`load()` accepts `cwd`, `path`, `env`, `force`, `inject`, `redact_logs`, `on_error`, and `timeout`. See the docstrings.
 
 Set `VARLOCK_BIN` to an absolute path to skip CLI discovery.
 

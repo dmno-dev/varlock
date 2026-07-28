@@ -37,14 +37,30 @@ Reading a key that is not in your schema raises `VarlockMissingKeyError` rather 
 | `varlock.ENV` | The resolved env, a read-only mapping with attribute access |
 | `varlock.get_sensitive_keys()` | Keys whose values are marked `@sensitive` |
 | `varlock.is_running_under_varlock_run()` | Whether the process was started by `varlock run` |
+| `varlock.redact(obj)` | Mask sensitive values found anywhere in `obj` |
+| `varlock.reveal(value)` | Show a sensitive value on purpose |
+| `varlock.scan_for_leaks(value)` | Raise `VarlockLeakError` if `value` contains a sensitive value |
+| `varlock.install_redaction()` / `uninstall_redaction()` | Turn output redaction on or off |
 
-`load()` takes `cwd`, `path`, and `env` to control which schema is loaded, `force` to re-resolve, `inject=False` to leave `os.environ` alone, and `timeout`. Failures raise `VarlockLoadError` with the CLI's own error output attached. To fail fast at startup the way `varlock run` does, import the side-effect module as early as you can instead:
+`load()` takes `cwd`, `path`, and `env` to control which schema is loaded, `force` to re-resolve, `inject=False` to leave `os.environ` alone, `redact_logs` to override the schema's redaction setting, and `timeout`. Failures raise `VarlockLoadError` with the CLI's own error output attached. To fail fast at startup the way `varlock run` does, import the side-effect module as early as you can instead:
 
 ```python
 import varlock.auto_load  # noqa: F401
 
 from varlock import ENV
 ```
+
+### Redaction
+
+`load()` masks values marked [`@sensitive`](/reference/item-decorators/#sensitive) in `print()` output, in `logging`, and in notebook cell output, following your schema's [`@redactLogs`](/reference/root-decorators/#redactlogs) setting:
+
+```python
+print(f"connecting with {env['DB_PASSWORD']}")   # connecting with hu▒▒▒▒▒
+print(varlock.reveal(env["DB_PASSWORD"]))        # 👁 hunter2 👁, shown on purpose
+varlock.scan_for_leaks(response_body)            # raises VarlockLeakError naming the key
+```
+
+Only values that resolved to strings are masked, and a stream captured before `load()` ran can still get through. See the [Jupyter page](/integrations/jupyter/#redaction) for the full list of what is and is not covered.
 
 :::note[Which CLI it calls]
 The package resolves nothing itself: every plugin, cache, and validation behavior comes from the varlock CLI you have installed. It looks for the binary in `VARLOCK_BIN`, then `PATH`, then the standalone install directories, then any `node_modules/.bin` above your working directory.

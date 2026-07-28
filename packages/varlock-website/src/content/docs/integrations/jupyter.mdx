@@ -72,24 +72,50 @@ varlock.load(path=".env.staging")
 varlock.load(env="production")
 ```
 
-## Sharing notebooks
+## Redaction
 
-Values marked [`@sensitive`](/reference/item-decorators/#sensitive) are masked in the notebook's own output. Echoing `env` in a cell, which Jupyter renders through `repr()`, shows masked values rather than writing your secrets into the saved `.ipynb`:
-
-```python
-env
-# <varlock.Env APP_ENV='development', OPENAI_API_KEY='sk▒▒▒▒▒'>
-```
-
-You can build your own redaction from the same list:
+A saved `.ipynb` keeps its cell output, so a secret printed once stays in the file and follows it into git and any share link. `load()` installs redaction to keep that from happening. Values marked [`@sensitive`](/reference/item-decorators/#sensitive) are masked in cell output, in `print()`, and in anything logged through `logging`:
 
 ```python
-varlock.get_sensitive_keys()   # frozenset({'OPENAI_API_KEY'})
+env                                  # <varlock.Env APP_ENV='development', OPENAI_API_KEY='sk▒▒▒▒▒'>
+{"key": env["OPENAI_API_KEY"]}       # {'key': 'sk▒▒▒▒▒'}
+print(env["OPENAI_API_KEY"])         # sk▒▒▒▒▒
+logging.info("using %s", env["OPENAI_API_KEY"])
 ```
 
-:::caution
-This covers displaying the env object itself. It does not stop a cell that prints a secret directly, and the resolved value is a normal string once you read it. Treat a notebook that touched sensitive values the way you would treat any file that might contain them.
+Masking applies wherever the value appears, not only when you display it directly, so a secret buried in a response body or a dict is caught as well. Elements of a composite value are matched individually, so leaking one item out of a list is caught too.
+
+To print a value on purpose, wrap it:
+
+```python
+print(varlock.reveal(env["OPENAI_API_KEY"]))   # 👁 sk-abc123... 👁
+```
+
+The markers make it obvious in the output that the value was deliberately shown.
+
+To check something on its way out of the process, scan it. This raises `VarlockLeakError` naming the key rather than masking, which is what you want before writing a file or calling a third party:
+
+```python
+varlock.scan_for_leaks(payload)
+```
+
+You can also redact anything by hand with `varlock.redact(obj)`, which walks strings, lists, and dicts.
+
+:::caution[What redaction does not cover]
+Redaction is a safety net, not a guarantee. It cannot see a stream a library captured before you called `load()`, writes that go to `sys.stdout.buffer`, or a value rendered by an object's own `__str__` after masking has run. Only values that resolved to **strings** are masked: a sensitive value that resolved to a number is left alone, since masking every occurrence of that number would break unrelated output.
+
+Treat a notebook that touched sensitive values the way you would treat any file that might contain them.
 :::
+
+Redaction follows your schema's [`@redactLogs`](/reference/root-decorators/#redactlogs) setting, which is on unless you turn it off. To control it per call:
+
+```python
+varlock.load(redact_logs=False)   # off for this session
+varlock.install_redaction()       # or turn it back on later
+varlock.uninstall_redaction()
+```
+
+Call `install_redaction()` again if something replaces `sys.stdout` after you loaded, which re-patches the new stream.
 
 ## Plugins that need authentication
 

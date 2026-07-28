@@ -59,6 +59,7 @@ class LoadedGraph:
         "env_strings",
         "declared_keys",
         "sensitive_keys",
+        "prevent_leaks",
         "settings",
         "errors",
         "raw",
@@ -71,6 +72,7 @@ class LoadedGraph:
         env_strings: Dict[str, str],
         declared_keys: List[str],
         sensitive_keys: FrozenSet[str],
+        prevent_leaks: Dict[str, bool],
         settings: Dict[str, Any],
         errors: Optional[Dict[str, Any]],
         raw: Dict[str, Any],
@@ -79,6 +81,7 @@ class LoadedGraph:
         self.env_strings = env_strings
         self.declared_keys = declared_keys
         self.sensitive_keys = sensitive_keys
+        self.prevent_leaks = prevent_leaks
         self.settings = settings
         self.errors = errors
         self.raw = raw
@@ -91,11 +94,14 @@ def parse_graph(data: Dict[str, Any]) -> LoadedGraph:
     env_strings: Dict[str, str] = {}
     declared_keys: List[str] = []
     sensitive: List[str] = []
+    prevent_leaks: Dict[str, bool] = {}
 
     for key, entry in config.items():
         declared_keys.append(key)
         if entry.get("isSensitive"):
             sensitive.append(key)
+            # only emitted when opted out via `@sensitive={preventLeaks=false}`
+            prevent_leaks[key] = entry.get("preventLeaks", True) is not False
         # unset optional items are serialized without a `value` at all, so a missing key here
         # means "declared but has no value", which is distinct from a value of None
         if "value" not in entry:
@@ -109,6 +115,7 @@ def parse_graph(data: Dict[str, Any]) -> LoadedGraph:
         env_strings=env_strings,
         declared_keys=declared_keys,
         sensitive_keys=frozenset(sensitive),
+        prevent_leaks=prevent_leaks,
         settings=data.get("settings") or {},
         errors=data.get("errors"),
         raw=data,

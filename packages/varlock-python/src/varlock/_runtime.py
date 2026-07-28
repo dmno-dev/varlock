@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, FrozenSet, List, Optional
 
+from . import _redaction
 from ._blob import BLOB_ENV_VAR, LoadedGraph
 
 
@@ -82,6 +83,10 @@ class EnvState:
         self.sensitive_keys = graph.sensitive_keys
         self.errors = graph.errors
 
+        # rebuild what redaction matches against, so a reload stops masking values that are
+        # no longer current and starts masking the new ones
+        _redaction.reset(graph)
+
         if inject and not self.settings.get("disableProcessEnvInjection"):
             for key, env_str in graph.env_strings.items():
                 self.set_env_var(key, env_str)
@@ -98,6 +103,7 @@ class EnvState:
         self.sensitive_keys = frozenset()
         self.errors = None
         self.initialized = False
+        _redaction.clear()
 
 
 #: Module-level singleton. Unlike the JS runtime (which stores state on `globalThis` because

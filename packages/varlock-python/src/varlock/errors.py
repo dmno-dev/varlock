@@ -14,6 +14,7 @@ __all__ = [
     "VarlockLoadError",
     "VarlockNotLoadedError",
     "VarlockMissingKeyError",
+    "VarlockLeakError",
 ]
 
 
@@ -69,6 +70,15 @@ class VarlockLoadError(VarlockError):
 
 class VarlockNotLoadedError(VarlockError):
     """``ENV`` was accessed before any values were loaded."""
+
+
+class VarlockLeakError(VarlockError):
+    """A sensitive value was found in something on its way out of the process."""
+
+    def __init__(self, message: str, *, key: str) -> None:
+        super().__init__(message)
+        #: The config item whose value leaked.
+        self.key = key
 
 
 class VarlockMissingKeyError(VarlockError, KeyError, AttributeError):

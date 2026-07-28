@@ -20,14 +20,17 @@ import os
 import sys
 from typing import Any, Dict, FrozenSet, Optional, Sequence, Union
 
+from . import _patch
 from ._binary import BIN_PATH_ENV_VAR, clear_cache as clear_binary_cache, find_binary
 from ._blob import BLOB_ENV_VAR, RUN_FLAG_ENV_VAR, parse_blob
 from ._cli import PathArg, run_load
 from ._env import Env
+from ._redaction import redact, reveal, scan_for_leaks
 from ._runtime import state as _state
 from .errors import (
     VarlockBinaryNotFoundError,
     VarlockError,
+    VarlockLeakError,
     VarlockLoadError,
     VarlockMissingKeyError,
     VarlockNotLoadedError,
@@ -50,10 +53,16 @@ __all__ = [
     "is_running_under_varlock_run",
     "get_settings",
     "get_sensitive_keys",
+    "redact",
+    "reveal",
+    "scan_for_leaks",
+    "install_redaction",
+    "uninstall_redaction",
     "find_binary",
     "clear_binary_cache",
     "VarlockError",
     "VarlockBinaryNotFoundError",
+    "VarlockLeakError",
     "VarlockLoadError",
     "VarlockMissingKeyError",
     "VarlockNotLoadedError",
@@ -73,6 +82,7 @@ def load(
     env: Optional[str] = None,
     force: bool = False,
     inject: bool = True,
+    redact_logs: Optional[bool] = None,
     on_error: str = "raise",
     timeout: Optional[float] = None,
 ) -> Env:
@@ -93,6 +103,9 @@ def load(
         inject: Also set the resolved values as environment variables, so libraries reading
             ``os.environ`` and any subprocesses you spawn see them. Honors
             ``@disableProcessEnvInjection``.
+        redact_logs: Mask sensitive values in logs, ``print()`` output, and notebook cell
+            output. ``None`` (default) follows your schema's ``@redactLogs`` setting, which
+            is on unless you turned it off.
         on_error: ``"raise"`` (default) raises :class:`VarlockLoadError`. ``"exit"`` prints
             the CLI's error output and exits, matching what ``varlock run`` does. Prefer the
             default in notebooks and long-lived processes.
@@ -107,13 +120,19 @@ def load(
         VarlockBinaryNotFoundError: if the varlock CLI isn't installed.
     """
     try:
-        return _load(
+        result = _load(
             cwd=cwd, path=path, env=env, force=force, inject=inject, timeout=timeout
         )
     except VarlockError as err:
         if on_error == "exit":
             _exit_with(err)
         raise
+
+    if redact_logs is None:
+        redact_logs = _state.settings.get("redactLogs") is not False
+    if redact_logs:
+        install_redaction()
+    return result
 
 
 def _load(
@@ -170,8 +189,29 @@ def reload(**kwargs: Any) -> Env:
 
 
 def unload() -> None:
-    """Forget the loaded env and restore every environment variable varlock set."""
+    """Forget the loaded env, restore every environment variable varlock set, and stop
+    redacting."""
+    uninstall_redaction()
     _state.reset()
+
+
+def install_redaction() -> None:
+    """Mask sensitive values in output.
+
+    Covers `logging` (every logger and handler, including ones created later), ``print()``
+    via stdout and stderr, and notebook cell output. :func:`load` calls this for you unless
+    your schema sets ``@redactLogs=false``.
+
+    It is not foolproof, the same caveat the JS integration carries: a stream captured before
+    this ran, a write to ``sys.stdout.buffer``, or an object that renders a secret in its own
+    ``__str__`` can still get through. Only values that resolved to strings are masked.
+    """
+    _patch.patch_all()
+
+
+def uninstall_redaction() -> None:
+    """Stop masking sensitive values in output."""
+    _patch.unpatch_all()
 
 
 def is_loaded() -> bool:

@@ -5,6 +5,9 @@ Runs both standalone (the package shells out to the CLI itself) and under `varlo
 which is the point of the integration.
 """
 
+import contextlib
+import io
+import logging
 import os
 
 import varlock
@@ -42,6 +45,22 @@ assert "OPTIONAL_UNSET" not in os.environ
 # sensitive values never appear in the repr (a notebook echoes it into the saved file)
 assert varlock.get_sensitive_keys() == frozenset({"SECRET"})
 assert "shhh" not in repr(env), repr(env)
+
+# redaction is installed by load(), since @redactLogs defaults on
+assert varlock.redact(f"token={env['SECRET']}") == "token=sh▒▒▒▒▒"
+assert "shhh" in varlock.redact(varlock.reveal(env["SECRET"]))
+
+captured = io.StringIO()
+with contextlib.redirect_stdout(captured):
+    print(f"leaking {env['SECRET']}")
+    logging.getLogger("smoke").warning("also %s", env["SECRET"])
+assert "shhh" not in captured.getvalue(), captured.getvalue()
+
+try:
+    varlock.scan_for_leaks(f'{{"token": "{env["SECRET"]}"}}')
+    raise AssertionError("expected VarlockLeakError")
+except varlock.VarlockLeakError as err:
+    assert err.key == "SECRET"
 
 expect_under_run = os.environ.get("EXPECT_VARLOCK_RUN") == "1"
 assert varlock.is_running_under_varlock_run() is expect_under_run
