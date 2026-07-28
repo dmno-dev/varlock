@@ -58,6 +58,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
       { label: 'mise', slug: 'integrations/mise' },
       { label: 'direnv', slug: 'integrations/direnv' },
       { label: 'Python', slug: 'integrations/python' },
+      { label: 'Jupyter notebooks', slug: 'integrations/jupyter' },
       { label: 'Rust', slug: 'integrations/rust' },
       { label: 'Go', slug: 'integrations/go' },
       { label: 'PHP', slug: 'integrations/php' },

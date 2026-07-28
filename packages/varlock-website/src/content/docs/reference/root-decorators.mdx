@@ -334,7 +334,7 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 
 Controls whether sensitive config values are automatically redacted from console output. When enabled, any sensitive values will be replaced with `▒▒▒▒▒` in logs.
 
-_Only applies in JavaScript based projects where varlock runtime code is imported._
+_Only applies where varlock runtime code is imported: JavaScript projects, and Python projects using the [`varlock` package](/integrations/python/#native-package)._
 
 - `true` (default): Console logs are automatically redacted
 - `false`: Console logs are not redacted (useful for debugging)

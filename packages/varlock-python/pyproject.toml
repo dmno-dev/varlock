@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "varlock"
+version = "0.1.0"
+description = "AI-safe .env files: load and validate your env schema from Python, no wrapped launch required"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "dmno-dev" }]
+keywords = [
+  "varlock",
+  "env",
+  "dotenv",
+  "environment variables",
+  "config",
+  "secrets",
+  "secret-management",
+  "jupyter",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+  "Typing :: Typed",
+]
+# intentionally zero runtime dependencies - the package is a thin client of the varlock CLI
+dependencies = []
+
+[project.urls]
+Homepage = "https://varlock.dev"
+Documentation = "https://varlock.dev/integrations/python/"
+Repository = "https://github.com/dmno-dev/varlock"
+Issues = "https://github.com/dmno-dev/varlock/issues"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/varlock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
