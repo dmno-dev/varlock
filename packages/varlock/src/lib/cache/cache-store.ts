@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { getUserVarlockDir } from '../user-config-dir';
 import * as localEncrypt from '../local-encrypt';
@@ -8,7 +10,250 @@ import { createDebug } from '../debug';
 const debug = createDebug('varlock:cache');
 
 const FILE_LOCK_OPTS = { waitMs: 25, timeoutMs: 5_000, staleMs: 30_000 };
-const KEY_LOCK_OPTS = { waitMs: 50, timeoutMs: 5 * 60_000, staleMs: 10 * 60_000 };
+/**
+ * The key lock serializes the producer (an API call, a biometric unlock, a CLI
+ * prompt) across processes, so waiting is normal and the deadline is only a
+ * backstop for a holder that is alive but wedged. Orphaned locks are handled by
+ * liveness detection, not by this timeout.
+ */
+const KEY_LOCK_OPTS = {
+  waitMs: 50, timeoutMs: 5 * 60_000, staleMs: 10 * 60_000, failOpen: true,
+};
+
+/** Metadata written into a lock dir identifying its owner */
+const LOCK_OWNER_FILE = 'owner.json';
+/**
+ * How long after creation a lock dir may lack owner metadata before we treat it
+ * as an orphan. Covers the sub-millisecond gap between `mkdir` and writing the
+ * owner file, and locks left by varlock versions predating owner metadata.
+ */
+const OWNER_GRACE_MS = 5_000;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+type LockOwner = { pid: number; host: string; token: string };
+
+type LockOpts = { waitMs: number; timeoutMs: number; staleMs: number; failOpen?: boolean };
+
+/** Lock dirs currently held by this process, released on interrupt/exit */
+const heldLocks = new Map<string, string>();
+let cleanupRegistered = false;
+
+/**
+ * Lock dirs held by the *current async call stack*.
+ *
+ * Distinguishes a re-entrant call (nested inside the critical section, so it
+ * already owns the lock) from a concurrent sibling in the same process (which
+ * must still wait). A process-global set cannot tell those apart.
+ */
+const lockContext = new AsyncLocalStorage<ReadonlySet<string>>();
+
+function readLockOwner(lockPath: string): LockOwner | undefined {
+  try {
+    const raw = fs.readFileSync(path.join(lockPath, LOCK_OWNER_FILE), 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.pid !== 'number' || typeof parsed?.host !== 'string' || typeof parsed?.token !== 'string') {
+      return undefined;
+    }
+    return parsed as LockOwner;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the process that owns a lock is still running.
+ *
+ * Only decidable for locks owned on this host. A recycled pid reads as alive,
+ * which fails safe: we keep waiting and fall back to the mtime staleness check.
+ */
+function isLockOwnerAlive(owner: LockOwner): boolean {
+  if (owner.host !== os.hostname()) return true;
+  if (owner.pid === process.pid) return true;
+  try {
+    process.kill(owner.pid, 0);
+    return true;
+  } catch (err: any) {
+    // EPERM means the process exists but belongs to another user
+    return err?.code === 'EPERM';
+  }
+}
+
+/** Atomically discard a lock dir. Only one racing waiter can win the rename. */
+function stealLock(lockPath: string): void {
+  const graveyard = `${lockPath}.stale.${process.pid}.${randomBytes(4).toString('hex')}`;
+  fs.renameSync(lockPath, graveyard);
+  fs.rmSync(graveyard, { recursive: true, force: true });
+}
+
+/**
+ * Release a lock dir, but only if this process still owns it.
+ *
+ * Without the token check a holder that was (correctly) judged stale and stolen
+ * from would delete the *new* owner's lock on its way out, letting two
+ * processes run the same producer concurrently.
+ */
+function releaseLock(lockPath: string, token: string | undefined): void {
+  try {
+    if (token !== undefined) {
+      const owner = readLockOwner(lockPath);
+      if (owner && owner.token !== token) {
+        debug('not releasing %s, lock was stolen by pid %d', lockPath, owner.pid);
+        return;
+      }
+    }
+    stealLock(lockPath);
+  } catch {
+    // already gone, or another process won a concurrent steal
+  } finally {
+    heldLocks.delete(lockPath);
+  }
+}
+
+/**
+ * Best-effort release of every lock this process holds.
+ *
+ * Ctrl+C at a biometric or password prompt is the common way locks get
+ * orphaned, and the prompt-owning CLI often inherits stdin, so the signal hits
+ * the whole process group.
+ */
+function registerLockCleanup(): void {
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+  const releaseAll = () => {
+    for (const [lockPath, token] of [...heldLocks]) releaseLock(lockPath, token);
+  };
+  process.on('exit', releaseAll);
+
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) {
+    // `once`, then re-raise: attaching any listener suppresses Node's default
+    // termination, so we hand the signal back rather than picking an exit code.
+    // Deliberately does not exit on its own: `varlock run` installs its own
+    // forwarders, and racing them would break child signal delivery.
+    try {
+      process.once(signal, () => {
+        releaseAll();
+        if (process.listenerCount(signal) === 0) {
+          process.kill(process.pid, signal);
+        }
+      });
+    } catch {
+      // some signals (e.g. SIGQUIT) can't be listened for on every platform
+    }
+  }
+}
+
+/**
+ * Cross-process mutual exclusion via atomic `mkdir` of a lock directory.
+ *
+ * A lock is considered abandoned when its owning process is gone (checked via
+ * pid liveness), falling back to an mtime staleness window when ownership
+ * can't be determined. Held locks have their mtime refreshed periodically so a
+ * slow holder is not treated as stale.
+ *
+ * @internal exported so lock semantics can be tested with short timeouts
+ */
+export async function withDirLock<T>(
+  lockPath: string,
+  opts: LockOpts,
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  // already held further up this call stack, e.g. `cache(key="x", cache(key="x", …))`,
+  // or a plugin whose producer re-enters the same key. Mutual exclusion is
+  // already satisfied, so proceed rather than self-deadlocking until the deadline.
+  const outerHeld = lockContext.getStore();
+  if (outerHeld?.has(lockPath)) {
+    debug('re-entering lock %s already held by this call stack', lockPath);
+    return await fn();
+  }
+
+  const token = randomBytes(16).toString('hex');
+  const deadline = Date.now() + opts.timeoutMs;
+  let acquired = false;
+
+  while (true) {
+    try {
+      fs.mkdirSync(lockPath, { mode: 0o700 });
+      acquired = true;
+      break;
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        // parent dir missing — create it (0700: keys can leak secret topology) and retry
+        fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+        continue;
+      }
+      if (err?.code !== 'EEXIST') {
+        throw err;
+      }
+      try {
+        const owner = readLockOwner(lockPath);
+        const stat = fs.statSync(lockPath);
+        const ageMs = Date.now() - stat.mtimeMs;
+        if (owner ? !isLockOwnerAlive(owner) : ageMs > OWNER_GRACE_MS) {
+          debug('stealing abandoned lock %s (owner pid %s)', lockPath, owner?.pid ?? 'unknown');
+          stealLock(lockPath);
+          continue;
+        }
+        if (ageMs > opts.staleMs) {
+          debug('stealing stale lock %s', lockPath);
+          stealLock(lockPath);
+          continue;
+        }
+      } catch {
+        // lock disappeared or another waiter won the steal; retry
+      }
+      if (Date.now() >= deadline) {
+        if (!opts.failOpen) {
+          throw new Error(
+            `Timed out waiting for cache lock at ${lockPath}\n`
+            + 'If no other varlock process is running this lock may be orphaned. '
+            + 'Run `varlock cache clear --yes` or delete the path above.',
+          );
+        }
+        // a lock problem must never become a resolution failure: the worst case
+        // of proceeding is duplicated work, which is what the lock optimizes away
+        debug('lock %s timed out, proceeding without it', lockPath);
+        return await fn();
+      }
+      await sleep(opts.waitMs);
+    }
+  }
+
+  let ownerWritten = false;
+  try {
+    fs.writeFileSync(
+      path.join(lockPath, LOCK_OWNER_FILE),
+      JSON.stringify({ pid: process.pid, host: os.hostname(), token } satisfies LockOwner),
+      { encoding: 'utf-8', mode: 0o600 },
+    );
+    ownerWritten = true;
+    heldLocks.set(lockPath, token);
+    registerLockCleanup();
+  } catch {
+    // without owner metadata the lock still works, it just can't be identified
+  }
+
+  // refresh mtime while held so long operations don't get their lock stolen
+  const touchTimer = setInterval(() => {
+    try {
+      const now = new Date();
+      fs.utimesSync(lockPath, now, now);
+    } catch {
+      // lock dir gone (stolen/removed) — nothing useful to do
+    }
+  }, Math.max(1_000, Math.floor(opts.staleMs / 3)));
+  touchTimer.unref?.();
+
+  const nestedHeld = new Set(outerHeld ?? []).add(lockPath);
+  try {
+    return await lockContext.run(nestedHeld, async () => fn());
+  } finally {
+    clearInterval(touchTimer);
+    if (acquired) releaseLock(lockPath, ownerWritten ? token : undefined);
+  }
+}
 
 export const MAX_CACHE_KEY_LENGTH = 2_048;
 /** "forever" TTLs are stored as a concrete far-future expiry (~100 years) */
@@ -85,77 +330,6 @@ export function assertValidCacheKey(key: string, label = 'cache key'): void {
   }
 }
 
-const sleep = (ms: number) => new Promise<void>((resolve) => {
-  setTimeout(resolve, ms);
-});
-
-/**
- * Cross-process mutual exclusion via atomic `mkdir` of a lock directory.
- *
- * Stale locks are stolen via an atomic rename (so two waiters cannot both
- * "remove and acquire"), and held locks have their mtime refreshed
- * periodically so a long-running holder is not treated as stale.
- */
-async function withDirLock<T>(
-  lockPath: string,
-  opts: { waitMs: number; timeoutMs: number; staleMs: number },
-  fn: () => Promise<T> | T,
-): Promise<T> {
-  const deadline = Date.now() + opts.timeoutMs;
-  while (true) {
-    try {
-      fs.mkdirSync(lockPath, { mode: 0o700 });
-      break;
-    } catch (err: any) {
-      if (err?.code === 'ENOENT') {
-        // parent dir missing — create it (0700: keys can leak secret topology) and retry
-        fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
-        continue;
-      }
-      if (err?.code !== 'EEXIST') {
-        throw err;
-      }
-      try {
-        const stat = fs.statSync(lockPath);
-        if (Date.now() - stat.mtimeMs > opts.staleMs) {
-          // steal stale lock atomically — only one waiter can win the rename
-          const graveyard = `${lockPath}.stale.${process.pid}.${randomBytes(4).toString('hex')}`;
-          fs.renameSync(lockPath, graveyard);
-          fs.rmSync(graveyard, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-        // lock disappeared or another waiter won the steal; retry
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`Timed out waiting for cache lock at ${lockPath}`);
-      }
-      await sleep(opts.waitMs);
-    }
-  }
-
-  // refresh mtime while held so long operations don't get their lock stolen
-  const touchTimer = setInterval(() => {
-    try {
-      const now = new Date();
-      fs.utimesSync(lockPath, now, now);
-    } catch {
-      // lock dir gone (stolen/removed) — nothing useful to do
-    }
-  }, Math.max(1_000, Math.floor(opts.staleMs / 3)));
-  touchTimer.unref?.();
-
-  try {
-    return await fn();
-  } finally {
-    clearInterval(touchTimer);
-    try {
-      fs.rmSync(lockPath, { recursive: true, force: true });
-    } catch {
-      // lock cleanup failure is non-fatal
-    }
-  }
-}
 
 /**
  * JSON-file-based encrypted cache store.
@@ -382,6 +556,29 @@ export class CacheStore {
    */
   getFilePath(): string {
     return this.filePath;
+  }
+
+  /** Directory holding this store's per-key lock dirs. */
+  getKeyLocksPath(): string {
+    return `${this.filePath}.keylocks`;
+  }
+
+  /**
+   * Remove this store's lock dirs.
+   *
+   * Locks are normally self-healing (an abandoned lock is detected via owner
+   * liveness), but clearing them explicitly is the escape hatch when a lock
+   * survives that check, e.g. one left on a different machine via a synced
+   * home directory, where pid liveness can't be evaluated.
+   */
+  clearLocks(): void {
+    for (const target of [this.getKeyLocksPath(), `${this.filePath}.lock`]) {
+      try {
+        fs.rmSync(target, { recursive: true, force: true });
+      } catch (err) {
+        debug('failed to clear locks at %s: %O', target, err);
+      }
+    }
   }
 
   // -- internal --

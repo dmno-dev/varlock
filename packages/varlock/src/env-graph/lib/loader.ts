@@ -49,6 +49,9 @@ export async function loadEnvGraph(opts?: {
       }
     }
     for (const store of diskStores) {
+      // locks are cleared unconditionally: a run interrupted before its first
+      // write leaves a lock dir behind with no cache file to gate on
+      store.clearLocks();
       if (fs.existsSync(store.getFilePath())) await store.clearAll();
     }
   }
