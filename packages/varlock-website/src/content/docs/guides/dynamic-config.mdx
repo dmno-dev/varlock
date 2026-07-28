@@ -230,14 +230,16 @@ We can't provide a one-size-fits-all recipe for this, because it depends on your
         ...
     ```
 
-2. Replace it at boot. Plain POSIX shell is enough (no node needed in the container, and shell parameter expansion splices the JSON in literally, with none of sed's escaping pitfalls):
+2. Replace it at boot. Plain POSIX shell is enough (no node needed in the container, and shell parameter expansion splices the JSON in literally, avoiding sed's value-escaping pitfalls):
 
     ```sh title="docker-entrypoint.sh"
     #!/bin/sh
     set -e
 
-    # resolve only the public+dynamic subset from the container env
-    PUBLIC_ENV_JSON="$(varlock load --filter '@dynamic,!@sensitive' --format json)"
+    # resolve only the public+dynamic subset from the container env, then escape `<`
+    # as `<` so a value containing `</script>` cannot break out of the tag
+    # (a fixed substitution, so none of sed's usual value-splicing pitfalls apply)
+    PUBLIC_ENV_JSON="$(varlock load --filter '@dynamic,!@sensitive' --format json | sed 's/</\\u003C/g')"
 
     MARKER='<!--VARLOCK_PUBLIC_DYNAMIC_ENV-->'
     HTML_FILE=dist/index.html
@@ -267,7 +269,7 @@ We can't provide a one-size-fits-all recipe for this, because it depends on your
 
 The replacement step itself can be accomplished many ways: this shell snippet, a small node script, `envsubst`, or whatever templating your setup already has. The only contract is that `globalThis.__varlockPublicDynamicEnv` is set to the JSON object before your bundle loads.
 
-`varlock load --format json` emits HTML-script-safe JSON (it escapes `<` as `\u003C`), so a public value containing something like `</script>` cannot break out of the tag or inject markup. If you build the payload some other way, escape it yourself before embedding it in HTML.
+Whatever tool you use, escape the JSON for HTML before embedding it in a `<script>` tag, so a public value containing something like `</script>` cannot break out of the tag or inject markup. The `sed` step above escapes `<` as its `\u003C` unicode escape, which is spec-valid JSON that parses back to `<`; a node script can serialize with the equivalent escape.
 
 If the entrypoint never runs, the placeholder is just an HTML comment, so nothing breaks; the values are simply not injected. The marker is consumed on injection, so the guard also prevents double-injection on container restarts with a persisted file.
 

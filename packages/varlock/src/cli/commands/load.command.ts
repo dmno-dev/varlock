@@ -109,17 +109,6 @@ export function formatShellValue(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/**
- * Escape `<` (as a `<` unicode escape) in JSON so the result is safe to embed
- * inside an HTML `<script>` element - a string value containing `</script>` cannot
- * break out of the tag. The escape is spec-valid JSON that parses back to `<`, and
- * `<` only ever appears inside string values in JSON output, so a global replace is
- * safe and lossless.
- */
-export function toScriptSafeJson(json: string): string {
-  return json.replace(/</g, '\\u003C');
-}
-
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
@@ -230,8 +219,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } else if (outputFormat === 'json') {
     const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject({ filterKeys });
-    // script-safe so the output can be embedded directly in an HTML <script> tag
-    console.log(toScriptSafeJson(JSON.stringify(env, null, 2)));
+    console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
     // @internal items are excluded by default, same as every other format — json-full is
