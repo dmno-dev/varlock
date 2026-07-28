@@ -1,4 +1,7 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
+import { createHash } from 'node:crypto';
 import { InfisicalSDK } from '@infisical/sdk';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
@@ -9,6 +12,13 @@ const INFISICAL_ICON = 'simple-icons:infisical';
 plugin.name = 'infisical';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = INFISICAL_ICON;
 plugin.standardVars = {
   initDecorator: '@initInfisical',
@@ -35,20 +45,35 @@ class InfisicalPluginInstance {
   private oidcToken?: string;
   /** Optional default secret path */
   private secretPath?: string;
+  /** If true, missing secrets return undefined instead of throwing */
+  allowMissing?: boolean;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
   ) {}
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Infisical instance/project/environment is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.siteUrl, this.projectId, this.environment]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
 
   setAuth(
     projectId: any,
     environment: any,
     clientId: any,
     clientSecret: any,
-    siteUrl?: string,
+    siteUrl?: any,
     secretPath?: string,
     identityId?: any,
     oidcToken?: any,
+    allowMissing?: boolean,
   ) {
     if (projectId && typeof projectId === 'string') this.projectId = projectId;
     if (environment && typeof environment === 'string') this.environment = environment;
@@ -56,12 +81,52 @@ class InfisicalPluginInstance {
     if (clientSecret && typeof clientSecret === 'string') this.clientSecret = clientSecret;
     if (identityId && typeof identityId === 'string') this.identityId = identityId;
     if (oidcToken && typeof oidcToken === 'string') this.oidcToken = oidcToken;
-    this.siteUrl = siteUrl;
+    if (siteUrl && typeof siteUrl === 'string') this.siteUrl = siteUrl;
     this.secretPath = secretPath;
+    if (allowMissing !== undefined) this.allowMissing = allowMissing;
     debug('infisical instance', this.id, 'set auth - projectId:', projectId, 'environment:', environment, 'hasIdentityId:', !!identityId);
   }
 
+  /** @internal telemetry: which auth method this instance is configured for (fixed enum, never raw values) */
+  get telemetryAuthMethod(): 'universal' | 'oidc' | 'none' {
+    if (this.clientId) return 'universal';
+    if (this.identityId) return 'oidc';
+    return 'none';
+  }
+
+  /** @internal telemetry: whether a custom site URL is set (self-hosted vs cloud) — boolean only, never the URL */
+  get telemetrySelfHosted() { return this.siteUrl != null; }
+
   private infisicalClientPromise?: Promise<InfisicalSDK>;
+  private static readonly defaultSiteUrl = 'https://app.infisical.com';
+
+  private async exchangeOidcToken(identityId: string, jwt: string): Promise<string> {
+    const response = await fetch(
+      `${this.siteUrl || InfisicalPluginInstance.defaultSiteUrl}/api/v1/auth/oidc-auth/login`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          identityId,
+          jwt,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const responseText = await response.text().catch(() => '');
+      throw new Error(responseText || `OIDC login failed with status ${response.status}`);
+    }
+
+    const payload = await response.json() as { accessToken?: string };
+    if (!payload.accessToken) {
+      throw new Error('OIDC login response did not include accessToken');
+    }
+
+    return payload.accessToken;
+  }
 
   private async initClient() {
     if (this.infisicalClientPromise) return this.infisicalClientPromise;
@@ -110,10 +175,8 @@ class InfisicalPluginInstance {
             });
           }
 
-          await (client.auth() as any).oidcAuth.login({
-            identityId: this.identityId,
-            jwt,
-          });
+          const accessToken = await this.exchangeOidcToken(this.identityId, jwt);
+          client.auth().accessToken(accessToken);
           debug('Infisical client initialized with OIDC Auth');
         }
 
@@ -252,6 +315,19 @@ class InfisicalPluginInstance {
 
 const pluginInstances: Record<string, InfisicalPluginInstance> = {};
 
+/** Returns true if the error represents a missing Infisical secret */
+function isNotFoundError(err: any): boolean {
+  if (err instanceof ResolutionError) {
+    const msg = err.message || '';
+    return msg.includes('not found') || msg.includes('NotFound');
+  }
+  const errorMsg = err?.message || String(err);
+  const statusCode = err?.statusCode || err?.response?.status;
+  return statusCode === 404
+    || errorMsg.includes('not found')
+    || errorMsg.includes('NotFound');
+}
+
 plugin.registerRootDecorator({
   name: 'initInfisical',
   description: 'Initialize an Infisical plugin instance for infisical() resolver',
@@ -299,12 +375,6 @@ plugin.registerRootDecorator({
       });
     }
 
-    // Validate siteUrl is static if provided
-    if (objArgs.siteUrl && !objArgs.siteUrl.isStatic) {
-      throw new SchemaError('Expected siteUrl to be static');
-    }
-    const siteUrl = objArgs.siteUrl ? String(objArgs.siteUrl.staticValue) : undefined;
-
     // Validate secretPath is static if provided
     if (objArgs.secretPath && !objArgs.secretPath.isStatic) {
       throw new SchemaError('Expected secretPath to be static');
@@ -316,7 +386,9 @@ plugin.registerRootDecorator({
 
     return {
       id,
-      siteUrl,
+      cacheTtlResolver: objArgs.cacheTtl,
+      allowMissingResolver: objArgs.allowMissing,
+      siteUrlResolver: objArgs.siteUrl,
       secretPath,
       projectIdResolver: objArgs.projectId,
       environmentResolver: objArgs.environment,
@@ -328,7 +400,9 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
-    siteUrl,
+    cacheTtlResolver,
+    allowMissingResolver,
+    siteUrlResolver,
     secretPath,
     projectIdResolver,
     environmentResolver,
@@ -345,6 +419,8 @@ plugin.registerRootDecorator({
     const clientSecret = await clientSecretResolver?.resolve();
     const identityId = await identityIdResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
+    const siteUrl = await siteUrlResolver?.resolve();
+    const allowMissing = await allowMissingResolver?.resolve();
 
     pluginInstances[id].setAuth(
       projectId,
@@ -355,7 +431,12 @@ plugin.registerRootDecorator({
       secretPath,
       identityId,
       oidcToken,
+      allowMissing as boolean | undefined,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -375,6 +456,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'infisicalClientSecret',
   sensitive: true,
+  internal: true,
   typeDescription: 'Client Secret for Infisical Universal Auth (machine identity)',
   icon: INFISICAL_ICON,
   docs: [
@@ -390,7 +472,7 @@ plugin.registerResolverFunction({
   label: 'Fetch secret value from Infisical',
   icon: INFISICAL_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 0,
   },
   process() {
@@ -465,12 +547,14 @@ plugin.registerResolverFunction({
       }
     }
 
+    const allowMissingResolver = this.objArgs?.allowMissing;
+
     return {
-      instanceId, itemKey, secretNameResolver, secretPathResolver,
+      instanceId, itemKey, secretNameResolver, secretPathResolver, allowMissingResolver,
     };
   },
   async resolve({
-    instanceId, itemKey, secretNameResolver, secretPathResolver,
+    instanceId, itemKey, secretNameResolver, secretPathResolver, allowMissingResolver,
   }) {
     const selectedInstance = pluginInstances[instanceId];
 
@@ -497,8 +581,30 @@ plugin.registerResolverFunction({
       secretPath = resolvedPath;
     }
 
-    const secretValue = await selectedInstance.getSecret(secretName, secretPath);
-    return secretValue;
+    const allowMissing = allowMissingResolver ? !!(await allowMissingResolver.resolve()) : undefined;
+    const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
+
+    const fetchSecret = async () => {
+      try {
+        return await selectedInstance.getSecret(secretName, secretPath);
+      } catch (err) {
+        if (shouldAllowMissing && isNotFoundError(err)) {
+          return undefined;
+        }
+        throw err;
+      }
+    };
+
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `infisical:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretPath || ''}:${secretName}`;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        fetchSecret,
+      );
+    }
+
+    return await fetchSecret();
   },
 });
 
@@ -570,6 +676,36 @@ plugin.registerResolverFunction({
       tagSlugs = [resolvedTag];
     }
 
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const tagsKey = tagSlugs?.join(',') || '';
+      const cacheKey = `infisicalBulk:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretPath || ''}:${tagsKey}`;
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.listSecrets(secretPath, tagSlugs)),
+      );
+      if (cachedOrFetched !== undefined) {
+        if (typeof cachedOrFetched === 'string') return cachedOrFetched;
+        return JSON.stringify(cachedOrFetched);
+      }
+      throw new ResolutionError('Expected Infisical bulk response object');
+    }
+
     return await selectedInstance.listSecrets(secretPath, tagSlugs);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_universal: authMethods.has('universal'),
+    auth_oidc: authMethods.has('oidc'),
+    self_hosted: instances.some((i) => i.telemetrySelfHosted),
+  };
 });

@@ -1,6 +1,31 @@
 # @varlock/proton-pass-plugin
 
 
+
+
+
+
+## 2.0.0
+<sub>2026-06-23</sub>
+
+- [#817](https://github.com/dmno-dev/varlock/pull/817)  *(major)* - **Breaking:** the service-account / auth token data types are now `@internal` by default — varlock still uses them to fetch your other secrets, but they are no longer injected into your application. If your app reads one of these credentials directly (e.g. to write secrets back or fetch more at runtime), set `@internal=false` to keep it injected.
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(patch)* - Report anonymous, non-sensitive usage attributes (auth mode, feature flags) through varlock's opt-out telemetry.
+
+## 1.1.0
+<sub>2026-06-19</sub>
+
+- [#805](https://github.com/dmno-dev/varlock/pull/805)  *(minor)* - Add Proton Pass personal access token login (PROTON_PASS_PERSONAL_ACCESS_TOKEN) as a non-interactive alternative to username/password
+
+## 1.0.2
+<sub>2026-06-10</sub>
+
+- [#759](https://github.com/dmno-dev/varlock/pull/759)  *(patch)* - Reduce extra Proton Pass auth prompts by removing preflight info checks and using auth-retry reads.
+
+## 1.0.1
+<sub>2026-06-05</sub>
+
+- [#752](https://github.com/dmno-dev/varlock/pull/752)  *(patch)* - batch proton pass reads to reduce repeated prompts and add regression tests
+
 ## 1.0.0
 <sub>2026-04-29</sub>
 

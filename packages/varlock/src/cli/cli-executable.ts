@@ -2,6 +2,8 @@ import { cli, type Command } from 'gunshi';
 import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
 
+import { strictFlags } from './strict-flags-plugin';
+
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
@@ -10,6 +12,7 @@ import { InvalidEnvError } from './helpers/error-checks';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
+import { enforceProxyContextGuards } from './helpers/proxy-context-guard';
 
 // we'll import just the spec from each, so the implementations can be lazy loaded
 import { commandSpec as initCommandSpec } from './commands/init.command';
@@ -23,11 +26,16 @@ import { commandSpec as revealCommandSpec } from './commands/reveal.command';
 import { commandSpec as helpCommandSpec } from './commands/help.command';
 import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command';
 import { commandSpec as explainCommandSpec } from './commands/explain.command';
+import { commandSpec as flattenCommandSpec } from './commands/flatten.command';
 import { commandSpec as scanCommandSpec } from './commands/scan.command';
+import { commandSpec as codegenCommandSpec } from './commands/codegen.command';
 import { commandSpec as typegenCommandSpec } from './commands/typegen.command';
 import { commandSpec as installPluginCommandSpec } from './commands/install-plugin.command';
 import { commandSpec as auditCommandSpec } from './commands/audit.command';
 import { commandSpec as generateKeyCommandSpec } from './commands/generate-key.command';
+import { commandSpec as cacheCommandSpec } from './commands/cache.command';
+import { commandSpec as keychainCommandSpec } from './commands/keychain.command';
+import { commandSpec as proxyCommandSpec } from './commands/proxy.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
 // import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
 
@@ -43,11 +51,12 @@ function buildLazyCommand(
   return {
     ...commandSpec,
     run: async (...args: Array<any>) => {
-      // Track command execution
-      await trackCommand(commandName, { command: commandName });
-      // load the command fn and run it
-      const commandSpecAndFn = await loadCommandFn();
-      return commandSpecAndFn.commandFn(...args);
+      try {
+        const commandSpecAndFn = await loadCommandFn();
+        return await commandSpecAndFn.commandFn(...args);
+      } finally {
+        await trackCommand(commandName, { command: commandName });
+      }
     },
   };
 }
@@ -62,13 +71,18 @@ subCommands.set('lock', buildLazyCommand(lockCommandSpec, async () => await impo
 subCommands.set('reveal', buildLazyCommand(revealCommandSpec, async () => await import('./commands/reveal.command')));
 // subCommands.set('doctor', buildLazyCommand(doctorCommandSpec, async () => await import('./commands/doctor.command')));
 subCommands.set('explain', buildLazyCommand(explainCommandSpec, async () => await import('./commands/explain.command')));
+subCommands.set('flatten', buildLazyCommand(flattenCommandSpec, async () => await import('./commands/flatten.command')));
 subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await import('./commands/help.command')));
 subCommands.set('telemetry', buildLazyCommand(telemetryCommandSpec, async () => await import('./commands/telemetry.command')));
 subCommands.set('scan', buildLazyCommand(scanCommandSpec, async () => await import('./commands/scan.command')));
 subCommands.set('audit', buildLazyCommand(auditCommandSpec, async () => await import('./commands/audit.command')));
+subCommands.set('codegen', buildLazyCommand(codegenCommandSpec, async () => await import('./commands/codegen.command')));
 subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => await import('./commands/typegen.command')));
 subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, async () => await import('./commands/install-plugin.command')));
 subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async () => await import('./commands/generate-key.command')));
+subCommands.set('cache', buildLazyCommand(cacheCommandSpec, async () => await import('./commands/cache.command')));
+subCommands.set('keychain', buildLazyCommand(keychainCommandSpec, async () => await import('./commands/keychain.command')));
+subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await import('./commands/proxy.command')));
 // subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
 // subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
 
@@ -101,6 +115,8 @@ subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async (
       await trackCommand('version');
     }
 
+    await enforceProxyContextGuards(args);
+
     // warn if standalone binary version differs from local node_modules install
     // skip for --version/--help/complete since those are quick informational commands
     if (__VARLOCK_SEA_BUILD__ && args[0] !== '--version' && args[0] !== '--help' && !isCompletionInvoke) {
@@ -120,7 +136,7 @@ subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async (
       description: 'Encrypt and protect your env vars',
       version: versionId,
       subCommands,
-      plugins: [completion()],
+      plugins: [completion(), strictFlags()],
       renderHeader: async (ctx) => {
         // do not show header if we are running a sub-command
         if (ctx.name) return '';

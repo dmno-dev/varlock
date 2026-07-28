@@ -1,0 +1,47 @@
+# Socket (socket.dev) configuration — read by the Socket GitHub App.
+# Lives in-repo so our supply-chain policy is reviewable + version-controlled
+# instead of buried in the dashboard.
+#
+# NOTE: issueRules here control *whether an alert is reported at all* (noise).
+# Whether a reported alert *blocks* a PR vs. just comments is governed by the
+# org Security Policy in the Socket dashboard — keep the high-signal ones below
+# set to "block" there, and the rest to "monitor".
+version: 2
+
+# Only scan PRs that actually change dependencies. A PR that touches no manifest
+# or lockfile has nothing for Socket to say — this alone kills most of the noise.
+triggerPaths:
+  - "**/package.json"
+  - "bun.lock"
+  - "bun.lockb"
+
+githubApp:
+  enabled: true
+  # Keep real security alerts on PRs...
+  pullRequestAlertsEnabled: true
+  # ...but drop the big auto-generated dependency-overview / report comments that
+  # land on every PR and train people to scroll past Socket.
+  dependencyOverviewEnabled: false
+  projectReportsEnabled: false
+
+issueRules:
+  # --- High signal: the malicious-bump / credential-theft threat model ---
+  malware: true              # known malware
+  installScripts: true       # postinstall/preinstall hooks (the classic exfil vector)
+  shellScriptOverride: true  # package overrides shell scripts
+  networkAccess: true        # phones home
+  envVars: true              # reads env vars — directly relevant to a secrets tool
+  gitDependency: true        # non-registry source (git)
+  httpDependency: true       # non-registry source (http url)
+  didYouMean: true           # typosquat / lookalike name
+  troll: true                # protestware / sabotage
+  obfuscatedRequire: true    # obfuscated code paths
+  criticalCVE: true          # critical known vulns
+
+  # --- Low signal for us: reputational/heuristic noise we were ignoring anyway ---
+  newAuthor: false           # new maintainer publishing — fires constantly
+  unstableOwnership: false
+  telemetry: false           # covered by networkAccess for the cases we care about
+  minifiedFile: false        # common in legit deps
+  hasNativeCode: false       # we ship native binaries ourselves; not a useful signal here
+  deprecated: false          # handled by our dependency hygiene, not a security gate

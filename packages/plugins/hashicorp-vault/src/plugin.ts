@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +15,13 @@ const VAULT_ICON = 'simple-icons:vault';
 plugin.name = 'vault';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = VAULT_ICON;
 plugin.standardVars = {
   initDecorator: '@initHcpVault',
@@ -47,7 +57,11 @@ class VaultPluginInstance {
   private jwtAuthPath?: string;
   private oidcToken?: string;
   private cachedToken?: CachedToken;
+  /** in-flight login promise so concurrent callers share one auth request */
+  private loginInFlight?: Promise<string>;
   private secretCache = new Map<string, Promise<Record<string, any>>>();
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -95,7 +109,19 @@ class VaultPluginInstance {
     );
   }
 
-  private async getVaultToken(): Promise<string> {
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Vault server/namespace is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the secret value at a path is determined by server + namespace
+    // (the token only affects authorization, not which value lives at the path)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.url, this.namespace]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
+
+  async getVaultToken(): Promise<string> {
     // Check cached token (with 30s buffer)
     if (this.cachedToken && this.cachedToken.expiresAt > Date.now() + 30_000) {
       debug('Using cached Vault token');
@@ -108,14 +134,26 @@ class VaultPluginInstance {
       return this.token;
     }
 
+    // Share one in-flight AppRole/JWT login across concurrent callers
+    if (this.loginInFlight) {
+      debug('Awaiting in-flight Vault login');
+      return this.loginInFlight;
+    }
+
     // 2. AppRole auth
     if (this.roleId && this.secretId) {
-      return this.loginWithAppRole();
+      this.loginInFlight = this.loginWithAppRole().finally(() => {
+        this.loginInFlight = undefined;
+      });
+      return this.loginInFlight;
     }
 
     // 3. JWT/OIDC auth
     if (this.jwtRole) {
-      return this.loginWithJwt();
+      this.loginInFlight = this.loginWithJwt().finally(() => {
+        this.loginInFlight = undefined;
+      });
+      return this.loginInFlight;
     }
 
     // 4. Vault/OpenBao CLI token helper files
@@ -257,6 +295,17 @@ class VaultPluginInstance {
     }
   }
 
+  /** @internal telemetry: which auth method this instance is configured for (fixed enum, never raw values) */
+  get telemetryAuthMethod(): 'token' | 'approle' | 'jwt' | 'cli_file' {
+    if (this.token) return 'token';
+    if (this.roleId && this.secretId) return 'approle';
+    if (this.jwtRole) return 'jwt';
+    return 'cli_file';
+  }
+
+  /** @internal telemetry: whether a namespace is configured (HCP/enterprise vs OSS) — boolean only, never the namespace string */
+  get telemetryUsesNamespace() { return this.namespace != null; }
+
   buildPath(explicitPath?: string): string {
     let basePath: string;
     if (explicitPath) {
@@ -277,7 +326,7 @@ class VaultPluginInstance {
     return basePath;
   }
 
-  private fetchSecretData(secretPath: string): Promise<Record<string, any>> {
+  fetchSecretData(secretPath: string): Promise<Record<string, any>> {
     // Deduplicate concurrent fetches for the same path
     const cached = this.secretCache.get(secretPath);
     if (cached) {
@@ -390,9 +439,8 @@ class VaultPluginInstance {
     }
   }
 
-  async getSecret(secretPath: string, jsonKey?: string): Promise<string> {
-    const secretData = await this.fetchSecretData(secretPath);
-
+  /** extract a value from fetched secret data - a specific key, the single value, or the full JSON blob */
+  extractValueFromSecretData(secretData: Record<string, any>, jsonKey?: string): string {
     // If a JSON key is specified, extract it
     if (jsonKey) {
       if (!(jsonKey in secretData)) {
@@ -409,6 +457,11 @@ class VaultPluginInstance {
       return String(secretData[keys[0]]);
     }
     return JSON.stringify(secretData);
+  }
+
+  async getSecret(secretPath: string, jsonKey?: string): Promise<string> {
+    const secretData = await this.fetchSecretData(secretPath);
+    return this.extractValueFromSecretData(secretData, jsonKey);
   }
 }
 
@@ -442,6 +495,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       urlResolver: objArgs.url,
       namespaceResolver: objArgs.namespace,
       tokenResolver: objArgs.token,
@@ -456,6 +510,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
+    cacheTtlResolver,
     urlResolver,
     namespaceResolver,
     tokenResolver,
@@ -489,12 +544,17 @@ plugin.registerRootDecorator({
       jwtAuthPath,
       oidcToken,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
 plugin.registerDataType({
   name: 'vaultToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'HashiCorp Vault authentication token',
   icon: VAULT_ICON,
   docs: [
@@ -646,6 +706,88 @@ plugin.registerResolverFunction({
     // Build the full path using pathPrefix/defaultPath
     const fullPath = selectedInstance.buildPath(secretPath || undefined);
 
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full secret data object per path, then extract per lookup
+      // (avoids collisions between different #KEY lookups on the same path)
+      const cacheKey = `hcpVault:${instanceId}:${selectedInstance.cacheKeyIdentity}:${fullPath}`;
+      const secretData = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.fetchSecretData(fullPath),
+      );
+      if (!secretData || typeof secretData !== 'object') {
+        throw new ResolutionError('Cached Vault secret payload has unexpected type (expected object)');
+      }
+      return selectedInstance.extractValueFromSecretData(secretData, jsonKey);
+    }
+
     return await selectedInstance.getSecret(fullPath, jsonKey);
   },
+});
+
+plugin.registerResolverFunction({
+  name: 'vaultToken',
+  label: 'HashiCorp Vault client token',
+  icon: VAULT_ICON,
+  impliesSensitive: true,
+  argsSchema: {
+    type: 'array',
+    arrayMaxLength: 1,
+  },
+  process() {
+    // Optional positional arg = instance id
+    let instanceId = '_default';
+    if (this.arrArgs?.length) {
+      if (!this.arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id to be a static value');
+      }
+      instanceId = String(this.arrArgs[0].staticValue);
+    }
+
+    if (!Object.values(pluginInstances).length) {
+      throw new SchemaError('No Vault plugin instances found', {
+        tip: 'Initialize at least one Vault instance using the @initHcpVault() root decorator',
+      });
+    }
+
+    const selectedInstance = pluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('Vault plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initHcpVault call',
+            'or use `vaultToken(id)` to select an instance by id',
+            `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`Vault plugin instance id "${instanceId}" not found`, {
+          tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
+        });
+      }
+    }
+
+    return { instanceId };
+  },
+  async resolve({ instanceId }) {
+    return pluginInstances[instanceId].getVaultToken();
+  },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_token: authMethods.has('token'),
+    auth_approle: authMethods.has('approle'),
+    auth_jwt: authMethods.has('jwt'),
+    auth_cli_file: authMethods.has('cli_file'),
+    uses_namespace: instances.some((i) => i.telemetryUsesNamespace),
+  };
 });

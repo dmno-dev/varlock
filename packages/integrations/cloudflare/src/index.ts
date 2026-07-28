@@ -1,16 +1,15 @@
 import path from 'node:path';
 import {
-  existsSync, readdirSync, unlinkSync, writeFileSync,
+  existsSync, readdirSync, unlinkSync,
 } from 'node:fs';
-import { execSync, spawn, type ChildProcess } from 'node:child_process';
 import {
   varlockVitePlugin, varlockLoadedEnv, varlockLastError, buildErrorPageHtml,
 } from '@varlock/vite-integration';
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
-import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
+import { CLOUDFLARE_SSR_ENTRY_CODE, disableWranglerDotEnvAutoload, logVarlockEnvInjectionNotice } from './shared-ssr-entry-code';
+import { formatEnvLine } from './format-env-line';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
-
-const isWindows = process.platform === 'win32';
+import { serveFifoOrFile } from './serve-fifo-or-file';
 
 /** Name exposed by `@cloudflare/vite-plugin`'s main plugin object. */
 const CLOUDFLARE_PLUGIN_NAME = 'vite-plugin-cloudflare';
@@ -67,14 +66,6 @@ function chunkString(str: string, maxBytes: number): Array<string> {
   return chunks;
 }
 
-function formatEnvLine(key: string, value: string): string {
-  if (!value.includes("'")) {
-    return `${key}='${value}'`;
-  }
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-  return `${key}="${escaped}"`;
-}
-
 function formatDevVarsContent(
   graph: { config: Record<string, { value: unknown }> },
   serializedGraph: string,
@@ -112,64 +103,16 @@ function formatDevVarsContent(
   return lines.join('\n');
 }
 
-/**
- * Serves `content` at `filePath` for reading by miniflare.
- * On Unix: uses a FIFO (named pipe) so secrets never touch disk.
- * On Windows: falls back to a regular temp file.
- *
- * The FIFO child process writes to the pipe in a loop — each `readFileSync`
- * by wrangler/miniflare gets the content, and the child immediately starts
- * the next write so subsequent reads also work.
- */
-function serveFifoOrFile(filePath: string, content: string) {
-  let fifoProcess: ChildProcess | undefined;
-
-  if (isWindows) {
-    writeFileSync(filePath, content);
-  } else {
-    execSync(`mkfifo -m 0600 "${filePath}"`);
-    // Spawn a child process that writes to the FIFO in a loop.
-    // Content is passed as a base64-encoded argument instead of stdin
-    // to avoid a deadlock: wrangler's readFileSync blocks the parent's
-    // event loop, which would prevent stdin data from being flushed.
-    const encoded = Buffer.from(content).toString('base64');
-    const parentPid = process.pid;
-    fifoProcess = spawn(process.execPath, [
-      '-e', `
-      const fs = require('fs');
-      const content = Buffer.from('${encoded}', 'base64').toString();
-      // Exit if the parent process dies (orphan protection).
-      setInterval(() => {
-        try { process.kill(${parentPid}, 0); }
-        catch { process.exit(); }
-      }, 2000);
-      (function serve() {
-        try { fs.writeFileSync(${JSON.stringify(filePath)}, content); setImmediate(serve); }
-        catch { process.exit(); }
-      })();
-    `,
-    ], { stdio: ['ignore', 'ignore', 'ignore'] });
-  }
-
-  return {
-    stop() {
-      fifoProcess?.kill();
-    },
-  };
-}
-
-
 // --- main plugin -----------------------------------------------------------
 
 /**
  * Varlock Cloudflare Vite plugin — wraps `@cloudflare/vite-plugin` with
  * automatic env var injection.
  *
- * For SvelteKit projects deploying via `@sveltejs/adapter-cloudflare`, use
- * `varlockSvelteKitCloudflarePlugin` from
- * `@varlock/cloudflare-integration/sveltekit` instead — it skips
- * `@cloudflare/vite-plugin` (which doesn't support SvelteKit) and uses an
- * SSR-entry-based env loader.
+ * For SvelteKit projects deploying via `@sveltejs/adapter-cloudflare`, use the
+ * standard `varlockVitePlugin` from `@varlock/vite-integration` instead — it
+ * auto-detects the Cloudflare adapter and uses an SSR-entry-based env loader,
+ * skipping `@cloudflare/vite-plugin` (which doesn't support SvelteKit).
  *
  * **Important:** Do not use a `.dev.vars` file alongside this plugin — varlock
  * handles env injection automatically. The plugin will throw an error if a
@@ -198,6 +141,10 @@ export function varlockCloudflareVitePlugin(
   // consumer's — causing spurious type errors. Since Vite's `plugins` config
   // is loosely typed, Array<any> is functionally equivalent.
 ): Array<any> {
+  // Opt out of wrangler's redundant `.env`/`.dev.vars` auto-loading before the
+  // CF plugin resolves its config — varlock injects the resolved env itself.
+  disableWranglerDotEnvAutoload();
+
   // --- conflict guard ---------------------------------------------------
   // Error loudly if the user added `@cloudflare/vite-plugin` themselves.
   const conflictGuard: import('vite').Plugin = {
@@ -285,6 +232,7 @@ export function varlockCloudflareVitePlugin(
   const errorPagePlugin: import('vite').Plugin = {
     name: 'varlock-cloudflare-error-page',
     configureServer(server) {
+      logVarlockEnvInjectionNotice();
       // Return middleware — returning from configureServer adds it in the
       // "post" phase, after internal vite middlewares
       return () => {
@@ -303,6 +251,11 @@ export function varlockCloudflareVitePlugin(
     ssrEdgeRuntime: true,
     ssrEntryModuleIds: ['\0virtual:cloudflare/worker-entry'],
     ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
+    isCloudflareTarget: true,
+    integrationTelemetry: {
+      name: __VARLOCK_INTEGRATION_NAME__,
+      version: __VARLOCK_INTEGRATION_VERSION__,
+    },
   });
 
   const cloudflarePlugin = cloudflare({
@@ -322,7 +275,8 @@ export function varlockCloudflareVitePlugin(
     configResolved(config) {
       resolvedRoot = config.root;
     },
-    configurePreviewServer(server) {
+    async configurePreviewServer(server) {
+      logVarlockEnvInjectionNotice();
       if (!resolvedRoot) return;
 
       // Find the build output directory containing wrangler.json.
@@ -349,7 +303,7 @@ export function varlockCloudflareVitePlugin(
       // Write a temporary .dev.vars file for miniflare to pick up.
       // On Unix we use a FIFO (named pipe) so secrets stay in memory.
       // On Windows we fall back to a regular file.
-      const fifo = serveFifoOrFile(devVarsPath, content);
+      const fifo = await serveFifoOrFile(devVarsPath, content);
 
       // Clean up when the preview server shuts down.
       const origClose = server.close.bind(server);

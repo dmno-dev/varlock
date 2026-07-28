@@ -8,6 +8,44 @@
 
 
 
+
+
+
+
+
+## 1.2.0
+<sub>2026-07-28</sub>
+
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)* - Add static/dynamic config controls and dynamic+public framework/runtime support
+
+## 1.1.6
+<sub>2026-07-16</sub>
+
+- [#886](https://github.com/dmno-dev/varlock/pull/886)  *(patch)* Thanks [@mhornbacher](https://github.com/mhornbacher)!
+  Preserve all "use ..." directives (e.g. "use cache", "use cache: remote", "use workflow", "use memo") including stacked ones, instead of only a fixed set
+
+## 1.1.5
+<sub>2026-07-15</sub>
+
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)*
+  Detect FIFO/non-regular env sources (e.g. 1Password Environments) and disable watching and reload checks for them, fixing dev-server hangs and repeated reload logs
+- [#881](https://github.com/dmno-dev/varlock/pull/881)  *(patch)* - Warn when deploying to Vercel without encryption enabled for the injected env blob
+
+## 1.1.4
+<sub>2026-07-06</sub>
+
+- [#857](https://github.com/dmno-dev/varlock/pull/857)  *(patch)*
+  Fix dev-server env file reloading on turbopack and Next 16. Two issues: (1) on Next 16 only the render worker calls `loadEnvConfig`, so the extra env-file watchers were never installed — watcher ownership is now claimed by whichever process loads env first; (2) on turbopack, non-sensitive `ENV.x` values were statically inlined into server files at compile time, so reloaded values were never served — in dev, server-side (node runtime) files now read env through the runtime proxy, which stays fresh across reloads. Client components and edge files still inline values (required), so those keep needing a page refresh after a full recompile.
+- [#860](https://github.com/dmno-dev/varlock/pull/860)  *(patch)*
+  fix turbopack static ENV replacement corrupting ENV.x references inside string literals and comments — replacement is now AST-based, matching the vite integration
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Fix pages router and middleware support: webpack builds no longer fail on pages-router files, pages-router SSR picks up reloaded env values in turbopack dev, middleware no longer crashes the dev server or gets rejected by Vercel's edge bundle analyzer, works with turbopack dev on Next 15.5+, and encrypted deployments now work in middleware and edge routes
+
+## 1.1.3
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(patch)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
 ## 1.1.2
 <sub>2026-05-29</sub>
 

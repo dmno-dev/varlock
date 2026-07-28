@@ -6,12 +6,10 @@ description: How to install and set up Varlock in your project
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 import { LinkButton, TabItem, Tabs } from "@astrojs/starlight/components";
 
-There are two ways to install `varlock`:
+There are two ways to install Varlock:
 
-1. Install as a `package.json` dependency in JavaScript/TypeScript projects
+1. Install as a `package.json` dependency in JavaScript/TypeScript projects (the `varlock` CLI package)
 2. Install as a standalone binary
-
----
 
 If you prefer to let your AI agent install Varlock for you, you can skip these instructions and build a prompt for your agent:
 
@@ -59,6 +57,24 @@ Then run the setup wizard to help you get started:
 varlock init
 ```
 
+:::note[Windows Defender]
+If Windows flags `varlock-local-encrypt.exe`, see the [local encryption guide, Windows Defender false positives](/guides/local-encryption/#windows-defender-false-positives) for verification and recovery steps.
+:::
+
+**Installation script usage**
+
+```
+Usage: install.sh [options]
+
+install varlock binary
+
+Options:
+  --dir             directory to install varlock to (defaults to $XDG_CONFIG_HOME/varlock/bin, else ~/.varlock/bin if it exists, else ~/.config/varlock/bin)
+  --reinstall       reinstall even if already installed (default: false)
+  --version         version of varlock to install (defaults to latest)
+  --force-no-brew   force install without homebrew even when detected (default: false)
+  --skip-win-exe    on WSL, skip installing the Windows encryption helper (varlock-local-encrypt.exe) (default: false)
+```
 
 ## Varlock skill
 
@@ -85,9 +101,17 @@ gh skill install dmno-dev/varlock varlock
 
 See the [AI Tools guide](/guides/ai-tools/#install-the-varlock-skill) for update commands and agent-specific options.
 
+## Editor and shell tooling
 
+Varlock ships with first-party tooling that makes authoring `.env.schema` files much easier. Set these up right after installing the CLI.
 
-:::tip[Shell completions]
-Enable tab completion for varlock commands and flags in your terminal. See the [Shell Completion guide](/guides/shell-completion/) for setup instructions.
-:::
+### VS Code extension
+
+Install the [**@env-spec VS Code extension**](/env-spec/vs-code-ext/) from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=varlock.env-spec-language) or [Open VSX](https://open-vsx.org/extension/varlock/env-spec-language) (for Cursor, Windsurf, and other VS Code forks).
+
+It provides syntax highlighting, decorator and `@type` IntelliSense, `$KEY` reference completion, and inline validation while you edit `.env.schema` and other `@env-spec` files.
+
+### Shell completion
+
+Enable tab completion for varlock commands and flags in bash, zsh, or fish. See the [Shell completion guide](/guides/shell-completion/) for one-time setup. Usually, adding `eval "$(varlock complete)"` to your shell profile is enough.
 

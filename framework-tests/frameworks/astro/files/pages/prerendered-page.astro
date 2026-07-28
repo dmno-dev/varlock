@@ -1,0 +1,21 @@
+---
+export const prerender = true;
+import { ENV } from 'varlock/env';
+
+const publicVar = ENV.PUBLIC_VAR;
+const hasSensitive = !!ENV.SENSITIVE_VAR;
+
+// This should be redacted in build output
+console.log('secret-log-test:', ENV.SENSITIVE_VAR);
+---
+
+<html>
+  <head>
+    <title>Varlock Prerendered Test - Astro</title>
+  </head>
+  <body>
+    <h1>Varlock Prerendered Test - Astro</h1>
+    <p>Public var: {publicVar}</p>
+    <p>Has sensitive: {hasSensitive ? 'sensitive-var-available' : 'X - not available'}</p>
+  </body>
+</html>

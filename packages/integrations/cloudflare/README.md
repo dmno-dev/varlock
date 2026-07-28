@@ -1,5 +1,7 @@
 # @varlock/cloudflare-integration
 
+[![npm version](https://img.shields.io/npm/v/@varlock/cloudflare-integration.svg)](https://npmx.dev/package/@varlock/cloudflare-integration) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/cloudflare-integration.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package helps you integrate [varlock](https://varlock.dev) into a [Cloudflare Workers](https://developers.cloudflare.com/workers/) project.
 
 It provides:

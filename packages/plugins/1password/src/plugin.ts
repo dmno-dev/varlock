@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 
+import { createHash, randomUUID } from 'node:crypto';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
@@ -17,6 +20,41 @@ const OP_ICON = 'simple-icons:1password';
 type OpAuthCompletedFn = (success: boolean) => void;
 
 const CLI_BATCH_READ_TIMEOUT = 50;
+
+/*
+  Batched CLI reads go through `op inject`: we feed it a template of
+  `KEY={{ op://ref }}` entries on stdin and it prints the template with refs
+  resolved, in a single authenticated call. Previously this used
+  `op run -- env -0`, but that depends on a unix `env` binary which does not
+  exist on windows (unless git's usr/bin happens to be on PATH).
+
+  Entries are joined with a random per-call separator string because secret
+  values can contain newlines, and `op inject` strips control characters
+  (e.g. \0, \x1e) from its output so a non-printable separator would be lost.
+*/
+function buildInjectTemplate(opReferences: Array<string>) {
+  const separator = `__VARLOCK_1P_SEP_${randomUUID()}__`;
+  const keyToRef: Record<string, string> = {};
+  let i = 1;
+  const template = opReferences.map((ref) => {
+    const key = `VARLOCK_1P_INJECT_${i++}`;
+    keyToRef[key] = ref;
+    return `${key}={{ ${ref} }}${separator}`;
+  }).join('');
+  return { template, separator, keyToRef };
+}
+
+/** Parse `op inject` output back into op-ref → value (dangling segments, e.g. a trailing newline, are ignored). */
+function parseInjectResult(result: string, separator: string, keyToRef: Record<string, string>) {
+  const valuesByRef: Record<string, string> = {};
+  for (const segment of result.split(separator)) {
+    const eqPos = segment.indexOf('=');
+    const key = segment.substring(0, eqPos);
+    if (!keyToRef[key]) continue;
+    valuesByRef[keyToRef[key]] = segment.substring(eqPos + 1);
+  }
+  return valuesByRef;
+}
 
 /*
   ! IMPORTANT INFO ON CLI APP AUTH
@@ -55,17 +93,11 @@ async function checkAppCliAuth(): Promise<OpAuthCompletedFn> {
 
 async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatch>) {
   debug('execute op read batch (app auth)', Object.keys(batchToExecute));
-  const envMap = {} as Record<string, string>;
-  let i = 1;
-  Object.keys(batchToExecute).forEach((opReference) => {
-    envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
-  });
+  const { template, separator, keyToRef } = buildInjectTemplate(Object.keys(batchToExecute));
   const startAt = new Date();
 
   const authCompletedFn = await checkAppCliAuth();
-  // `env -0` splits values by a null character instead of newlines
-  // because otherwise we'll have trouble dealing with values that contain newlines
-  await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
+  await spawnAsync('op', ['inject', ...lockCliToOpAccount ? ['--account', lockCliToOpAccount] : []], {
     env: {
       PATH: process.env.PATH!,
       ...process.env.USER && { USER: process.env.USER },
@@ -73,21 +105,16 @@ async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatc
       ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
       ...pickProxyEnv(),
       OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-      ...envMap,
     },
+    input: template,
   })
     .then((result) => {
       authCompletedFn?.(true);
       debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-      const lines = result.split('\0');
-      for (const line of lines) {
-        const eqPos = line.indexOf('=');
-        const key = line.substring(0, eqPos);
-        if (!envMap[key]) continue;
-        const val = line.substring(eqPos + 1);
-        const opRef = envMap[key];
-        batchToExecute[opRef].deferredPromises.forEach((p) => {
+      const valuesByRef = parseInjectResult(result, separator, keyToRef);
+      for (const [opRef, val] of Object.entries(valuesByRef)) {
+        batchToExecute[opRef]?.deferredPromises.forEach((p) => {
           p.resolve(val);
         });
       }
@@ -178,6 +205,15 @@ async function appAuthCliRead(opReference: string, account?: string): Promise<st
 
 plugin.name = '1pass';
 debug('init - version =', plugin.version);
+
+// capture cache accessor while the plugin proxy context is active
+// (the `plugin` proxy is only valid during module initialization, not during resolve())
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache not available (e.g., no encryption key)
+}
 plugin.icon = OP_ICON;
 plugin.standardVars = {
   initDecorator: '@initOp',
@@ -268,6 +304,8 @@ class OpPluginInstance {
   private connectToken?: string;
   /** If true, missing items/fields/vaults return undefined instead of throwing */
   allowMissing?: boolean;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   /** Per-instance auth mutex for the service-account CLI path (each token is an independent auth context). */
   private cliAuthDeferred?: DeferredPromise<boolean>;
@@ -277,6 +315,17 @@ class OpPluginInstance {
   constructor(
     readonly id: string,
   ) {
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which 1Password account/server is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the service account token is hashed (never stored raw) - it identifies the account when `account` is not set
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.account, this.connectHost, this.token]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
   }
 
   setAuth(
@@ -300,6 +349,17 @@ class OpPluginInstance {
 
   /** Whether this instance is configured for Connect server */
   get isConnect() { return !!(this.connectHost && this.connectToken); }
+
+  /** @internal telemetry: which auth path this instance is configured for */
+  get telemetryAuthMode(): 'connect' | 'service_account_cli' | 'service_account_sdk' | 'app' | 'none' {
+    if (this.isConnect) return 'connect';
+    if (this.token) return this.useCliWithServiceAccount ? 'service_account_cli' : 'service_account_sdk';
+    if (this.allowAppAuth) return 'app';
+    return 'none';
+  }
+
+  /** @internal telemetry: whether this instance has a cache TTL configured */
+  get telemetryUsesCache() { return this.cacheTtl != null; }
 
   opClientPromise: Promise<Client> | undefined;
   async initSdkClient() {
@@ -333,17 +393,11 @@ class OpPluginInstance {
   /** Executes the per-instance CLI read batch using `op run` with a service account token. */
   private async executeCliBatch(batchToExecute: NonNullable<typeof this.cliBatch>) {
     debug('execute op read batch (service account CLI)', Object.keys(batchToExecute));
-    const envMap = {} as Record<string, string>;
-    let i = 1;
-    Object.keys(batchToExecute).forEach((opReference) => {
-      envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
-    });
+    const { template, separator, keyToRef } = buildInjectTemplate(Object.keys(batchToExecute));
     const startAt = new Date();
 
     const authCompletedFn = await this.checkCliAuth();
-    // `env -0` splits values by a null character instead of newlines
-    // because otherwise we'll have trouble dealing with values that contain newlines
-    await spawnAsync('op', `run --no-masking ${this.account ? `--account ${this.account} ` : ''}-- env -0`.split(' '), {
+    await spawnAsync('op', ['inject', ...this.account ? ['--account', this.account] : []], {
       env: {
         // have to pass a few things through at least path so it can find `op` and related config files
         PATH: process.env.PATH!,
@@ -357,24 +411,17 @@ class OpPluginInstance {
         // this setting actually just enables the CLI + Desktop App integration
         // which in some cases op has a hard time detecting via app setting
         OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-        ...envMap,
       },
+      input: template,
     })
       .then(async (result) => {
         authCompletedFn?.(true);
         debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-        const lines = result.split('\0');
-        for (const line of lines) {
-          const eqPos = line.indexOf('=');
-          const key = line.substring(0, eqPos);
-
-          if (!envMap[key]) continue;
-          const val = line.substring(eqPos + 1);
-          const opRef = envMap[key];
-
+        const valuesByRef = parseInjectResult(result, separator, keyToRef);
+        for (const [opRef, val] of Object.entries(valuesByRef)) {
           // resolve the deferred promises with the value
-          batchToExecute[opRef].deferredPromises.forEach((p) => {
+          batchToExecute[opRef]?.deferredPromises.forEach((p) => {
             p.resolve(val);
           });
         }
@@ -724,6 +771,9 @@ class OpPluginInstance {
 }
 const pluginInstances: Record<string, OpPluginInstance> = {};
 
+/** @internal telemetry: set when the schema uses the opLoadEnvironment resolver */
+let usedEnvironments = false;
+
 /** Returns true if the error represents a missing 1Password item/field/vault */
 function isNotFoundError(err: any): boolean {
   const code = err?.code;
@@ -787,6 +837,7 @@ plugin.registerRootDecorator({
       account,
       connectHost,
       allowMissingResolver: objArgs.allowMissing,
+      cacheTtlResolver: objArgs.cacheTtl,
       tokenResolver: objArgs.token,
       allowAppAuthResolver: objArgs.allowAppAuth,
       connectTokenResolver: objArgs.connectToken,
@@ -794,7 +845,7 @@ plugin.registerRootDecorator({
     };
   },
   async execute({
-    id, account, connectHost, allowMissingResolver, tokenResolver,
+    id, account, connectHost, allowMissingResolver, cacheTtlResolver, tokenResolver,
     allowAppAuthResolver, connectTokenResolver, useCliWithServiceAccountResolver,
   }) {
     // even if these are empty, we can't throw errors yet
@@ -813,6 +864,10 @@ plugin.registerRootDecorator({
       allowMissing as boolean | undefined,
       !!useCliWithServiceAccount,
     );
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -820,6 +875,7 @@ plugin.registerRootDecorator({
 plugin.registerDataType({
   name: 'opServiceAccountToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'Service account token used to authenticate with the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) and [SDKs](https://developer.1password.com/docs/sdks/)',
   icon: OP_ICON,
   docs: [
@@ -827,7 +883,6 @@ plugin.registerDataType({
       description: '1Password service accounts',
       url: 'https://developer.1password.com/docs/service-accounts/',
     },
-    'https://example.com',
   ],
   async validate(val) {
     if (!val.startsWith('ops_')) {
@@ -839,6 +894,7 @@ plugin.registerDataType({
 plugin.registerDataType({
   name: 'opConnectToken',
   sensitive: true,
+  internal: true,
   typeDescription: 'API token used to authenticate with a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/)',
   icon: OP_ICON,
   docs: [
@@ -910,6 +966,22 @@ plugin.registerResolverFunction({
     }
     const allowMissing = allowMissingResolver ? !!(await allowMissingResolver.resolve()) : undefined;
     const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `op:${instanceId}:${selectedInstance.cacheKeyIdentity}:${opReference}`;
+      return await pluginCache.getOrSet(cacheKey, selectedInstance.cacheTtl, async () => {
+        try {
+          return await selectedInstance.readItem(opReference);
+        } catch (err) {
+          if (shouldAllowMissing && isNotFoundError(err)) {
+            return undefined;
+          }
+          throw err;
+        }
+      });
+    }
+
     try {
       const opValue = await selectedInstance.readItem(opReference);
       return opValue;
@@ -932,6 +1004,7 @@ plugin.registerResolverFunction({
     arrayMaxLength: 2,
   },
   process() {
+    usedEnvironments = true;
     let instanceId = '_default';
     let environmentIdResolver: Resolver | undefined;
 
@@ -978,6 +1051,35 @@ plugin.registerResolverFunction({
     if (typeof environmentId !== 'string') {
       throw new SchemaError('expected environment ID to resolve to a string');
     }
+
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `opEnv:${instanceId}:${selectedInstance.cacheKeyIdentity}:${environmentId}`;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.readEnvironment(environmentId),
+      );
+    }
+
     return await selectedInstance.readEnvironment(environmentId);
   },
+});
+
+// Anonymous, non-sensitive usage signals — which auth path(s) and features are in use.
+// Strictly sanitized before send (booleans / counts only here); no item refs, accounts, or hosts.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authModes = new Set(instances.map((i) => i.telemetryAuthMode));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.telemetryUsesCache),
+    // custom attributes
+    auth_app: authModes.has('app'),
+    auth_service_account_sdk: authModes.has('service_account_sdk'),
+    auth_service_account_cli: authModes.has('service_account_cli'),
+    auth_connect: authModes.has('connect'),
+    uses_environments: usedEnvironments,
+  };
 });

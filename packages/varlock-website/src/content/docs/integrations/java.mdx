@@ -1,0 +1,96 @@
+---
+title: Java
+description: Use varlock with Java via a generated, typed env class
+---
+
+To use varlock with Java, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+
+Add [`@generateJavaEnv`](/reference/root-decorators/#generatejavaenv) to your schema to generate a small, self-contained class: a typed `Env` with public final fields, a static `load()` that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+
+```env-spec title=".env.schema"
+# @generateJavaEnv(path=src/main/java/Env.java)
+```
+
+The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). Requires **Java 17+** and [Jackson](https://github.com/FasterXML/jackson) on the classpath (`jackson-databind`):
+
+```xml title="pom.xml (snippet)"
+<dependency>
+  <groupId>com.fasterxml.jackson.core</groupId>
+  <artifactId>jackson-databind</artifactId>
+  <version>2.17.2</version>
+</dependency>
+```
+
+Optional `package=` and `class=` set the Java package and class name (default: no package, class `Env`). Field names are camelCase (`DB_HOST` → `dbHost`).
+
+## Reading values
+
+Call `load()` once, then read fields off the object. Required scalars are primitives (`long`, `boolean`, …); optional ones are boxed (`Long`, `Boolean`, …) and may be `null`:
+
+```java
+Env e = Env.load();          // call once, hold or pass `e` around
+String host = e.dbHost;      // String (required field)
+if (e.dbPort != null) {      // Long (optional field)
+    System.out.println(host + ":" + e.dbPort);
+}
+```
+
+Build a jar as usual, then run it under varlock:
+
+```bash
+mvn -q package
+varlock run -- java -jar target/myapp.jar
+```
+
+With [Spring Boot](https://spring.io/projects/spring-boot), wrap the usual run goal (or the packaged jar) the same way:
+
+```bash
+varlock run -- ./mvnw spring-boot:run
+# or, after `./mvnw -q package`:
+varlock run -- java -jar target/myapp.jar
+```
+
+`load()` throws a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`) or if a required key is absent.
+
+## Sharing one instance
+
+Every `load()` call re-parses the blob. To avoid reloading, bind the loaded instance wherever your app keeps shared config.
+
+Spring: expose it as a `@Bean` and inject `Env` where you need it:
+
+```java
+@Configuration
+public class EnvConfig {
+  @Bean
+  public Env env() {
+    return Env.load(); // call once at startup
+  }
+}
+
+@Service
+public class DbService {
+  private final Env env;
+
+  public DbService(Env env) {
+    this.env = env;
+  }
+
+  public void connect() {
+    // env.dbHost, env.dbPort, …
+  }
+}
+```
+
+No DI container? A small holder works:
+
+```java
+public final class Config {
+  public static final Env ENV = Env.load();
+}
+
+// elsewhere: Config.ENV.dbPort  (Long)
+```
+
+:::note
+Every key is also injected as a plain environment variable, so you can read any of them with `System.getenv` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be fields, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+:::

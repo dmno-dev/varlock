@@ -7,6 +7,81 @@
 
 
 
+
+
+
+
+
+
+
+
+
+## 1.4.0
+<sub>2026-07-28</sub>
+
+- *(minor)* Version bump from `@varlock/vite-integration` v1.4.0
+
+## 1.3.2
+<sub>2026-07-21</sub>
+
+- [#916](https://github.com/dmno-dev/varlock/pull/916)  *(patch)*
+  Stop embedding `.dev.vars` contents in the preview FIFO helper's process argv. Secrets are passed on stdin with a control fd, matching `varlock-wrangler`.
+- [#915](https://github.com/dmno-dev/varlock/pull/915)  *(patch)* - Fix .dev.vars quoting so secrets with apostrophes, quotes, and backslashes round-trip correctly through Wrangler
+
+## 1.3.1
+<sub>2026-07-20</sub>
+
+- *(patch)* Version bump from `@varlock/vite-integration` v1.3.1
+
+## 1.3.0
+<sub>2026-07-15</sub>
+
+- [#881](https://github.com/dmno-dev/varlock/pull/881)  *(minor)*
+  Cascaded from @varlock/vite-integration: no longer defaults ssrInjectMode to resolved-env for the Cloudflare adapter (redundant with the native runtime binding loader)
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)*
+  varlock-wrangler dev: skip watching FIFO/non-regular env sources (fixes endless no-op reload logs), and ignore spurious watch events where file mtime is unchanged
+
+## 1.2.1
+<sub>2026-07-06</sub>
+
+- *(patch)* Version bump from `@varlock/vite-integration` v1.2.1
+
+## 1.2.0
+<sub>2026-06-23</sub>
+
+- [#823](https://github.com/dmno-dev/varlock/pull/823)  *(patch)* - Fix varlock env initialization when using the Astro Cloudflare adapter (@astrojs/cloudflare), including Astro v7. The Astro integration now injects varlock init into the Cloudflare worker entry so ENV works in astro dev and production Workers deployments. Requires `@varlock/cloudflare-integration` when using `@astrojs/cloudflare` (optional peer). varlock now also disables wrangler's redundant `.env` auto-loading (which printed "Using secrets defined in .env" and could shadow varlock's values), since varlock is the source of env for the worker.
+- [#827](https://github.com/dmno-dev/varlock/pull/827)  *(patch)* - SvelteKit on Cloudflare now works with the standard varlockVitePlugin() — it auto-detects the @sveltejs/adapter-cloudflare adapter (configured in svelte.config.js or inline in vite.config) and injects the Workers env loader automatically. The same import now works across all deploy targets. varlockSvelteKitCloudflarePlugin is deprecated; install @varlock/cloudflare-integration alongside the vite plugin for Cloudflare deploys.
+- *(minor)* Version bump from `@varlock/vite-integration` v1.2.0
+
+## 1.1.7
+<sub>2026-06-11</sub>
+
+- [#774](https://github.com/dmno-dev/varlock/pull/774)  *(patch)* - Fix intermittent 'secrets-file contents is not valid' error during wrangler deploy/versions upload in Linux CI. The FIFO that serves resolved env to wrangler re-armed a new writer in a tight loop, so a reader could read multiple concatenated copies of the JSON before seeing EOF. Writers now serve exactly one copy then exit, and a fresh single-shot writer is re-armed once that copy is consumed — only one writer is ever armed at a time (no concatenation), while still supporting wrangler reading the file more than once (e.g. `wrangler types` re-reads the env file). The FIFO is kept so resolved secrets never exist as a file at rest.
+
+## 1.1.6
+<sub>2026-06-10</sub>
+
+- [#743](https://github.com/dmno-dev/varlock/pull/743)  *(patch)* - fix(cloudflare): harden varlock-wrangler FIFO server against CI races
+  The FIFO server child process now signals readiness on a dedicated
+  control pipe (fd 3) before the parent spawns downstream consumers
+  (wrangler), eliminating a race where wrangler could open the FIFO
+  before the child had buffered content and called the first
+  `writeFileSync` to open the FIFO for write — observed in Linux/Docker
+  CI environments as `The contents of "/tmp/varlock-secrets-..." is not
+  valid`.
+  Also:
+  - Forward child stderr to the parent so write failures are no longer
+    swallowed by a silent `process.exit()`.
+  - Surface child write errors with iteration number and error code via
+    the control pipe.
+  - Fix UTF-8 corruption that could occur when stdin chunks split a
+    multi-byte character (use `Buffer.concat` instead of string `+=`).
+
+## 1.1.5
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(patch)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
 ## 1.1.4
 <sub>2026-05-29</sub>
 

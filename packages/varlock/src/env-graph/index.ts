@@ -1,6 +1,6 @@
 export { loadEnvGraph } from './lib/loader';
 
-export { EnvGraph, type SerializedEnvGraph } from './lib/env-graph';
+export { EnvGraph, type SerializedEnvGraph, type ProxyResolutionView } from './lib/env-graph';
 export {
   FileBasedDataSource, DotEnvFileDataSource, DirectoryDataSource, MultiplePathsContainerDataSource,
 } from './lib/data-source';
@@ -14,4 +14,20 @@ export {
 export {
   BUILTIN_VARS, isBuiltinVar,
 } from './lib/builtin-vars';
-export { generateTsTypesSrc, getTsDefinitionForItem } from './lib/type-generation';
+export {
+  builtInCodeGenerators,
+  collectTypeGenItems,
+  generateCsharpEnvSrc,
+  generateGoEnvSrc,
+  generateJavaEnvSrc,
+  generatePhpEnvSrc,
+  generatePythonEnvSrc,
+  generateRustEnvSrc,
+  generateTsTypesSrc,
+  resolveFieldType,
+  resolveFieldTypes,
+  type CodeGenContext,
+  type CodeGeneratorDef,
+  type CoercedType,
+  type ResolvedFieldType,
+} from './lib/type-generation';

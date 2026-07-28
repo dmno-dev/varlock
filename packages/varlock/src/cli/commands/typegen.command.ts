@@ -1,51 +1,19 @@
 import { define } from 'gunshi';
 
-import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
-import { CliExitError } from '../helpers/exit-error';
+import { commandSpec as codegenCommandSpec, commandFn as codegenCommandFn } from './codegen.command';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
+// Deprecated alias for `varlock codegen` — kept for back-compat. Same behavior, just warns.
 export const commandSpec = define({
   name: 'typegen',
-  description: 'Generate TypeScript types from your env schema',
-  args: {
-    path: {
-      type: 'string',
-      short: 'p',
-      multiple: true,
-      description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
-    },
-  },
-  examples: `
-Generates TypeScript type definitions from your .env schema files.
-Uses only non-environment-specific schema info, so output is deterministic
-regardless of which environment is active.
-
-This is useful when you have \`@generateTypes(lang=ts, path=env.d.ts, auto=false)\`
-in your schema to disable automatic type generation during \`varlock load\` or \`varlock run\`.
-
-Examples:
-  varlock typegen                    # Generate types using default schema
-  varlock typegen --path .env.prod   # Generate types from a specific .env file
-`.trim(),
+  description: '(deprecated) alias for `varlock codegen`',
+  args: codegenCommandSpec.args,
+  examples: 'Deprecated alias for `varlock codegen` — kept for back-compat. Use `varlock codegen` instead.',
+  // hide from `varlock help` — still runnable, but we only advertise `codegen`
+  internal: true,
 });
 
-
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const envGraph = await loadVarlockEnvGraph({
-    entryFilePaths: ctx.values.path,
-  });
-  checkForSchemaErrors(envGraph);
-  checkForNoEnvFiles(envGraph);
-
-  // Force type generation even if auto=false is set
-  const generatedCount = await envGraph.generateTypesIfNeeded({ ignoreAutoFalse: true });
-
-  if (generatedCount === 0) {
-    throw new CliExitError('No @generateTypes decorator found in your schema', {
-      suggestion: 'Add `@generateTypes(lang=ts, path=env.d.ts)` to your .env.schema file.',
-    });
-  }
-
-  console.log('✅ Types generated successfully');
+  console.warn('[varlock] ⚠️  `varlock typegen` is deprecated — use `varlock codegen` instead.');
+  return codegenCommandFn(ctx as any);
 };

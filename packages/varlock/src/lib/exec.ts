@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { constants as osConstants } from 'node:os';
 import { Readable } from 'node:stream';
 import {
   join, delimiter, extname, isAbsolute,
 } from 'node:path';
 import {
-  existsSync, statSync, readFileSync, accessSync, constants as fsConstants,
+  existsSync, statSync, openSync, readSync, closeSync, accessSync, constants as fsConstants,
 } from 'node:fs';
 
 interface ExecOptions {
@@ -13,9 +14,24 @@ interface ExecOptions {
   stdin?: 'inherit' | 'pipe';
   stdout?: 'inherit' | 'pipe';
   stderr?: 'inherit' | 'pipe';
+  /**
+   * Run the child in its own process group (POSIX `setsid`). Lets callers
+   * forward signals to the whole group (`process.kill(-pid, sig)`) so that
+   * grandchildren are terminated too. Ignored on Windows.
+   */
+  detached?: boolean;
 }
 
-interface ExecResult {
+/**
+ * Convert a signal name into the conventional shell exit status (128 + signal number),
+ * matching how shells report a process terminated by a signal.
+ */
+function signalExitCode(signal: NodeJS.Signals): number {
+  const signalNumber = osConstants.signals[signal];
+  return signalNumber ? 128 + signalNumber : 1;
+}
+
+export interface ExecResult {
   exitCode: number;
   signal?: NodeJS.Signals;
   stdout?: Readable;
@@ -71,16 +87,32 @@ function isExecutableOnWindows(filePath: string): boolean {
 }
 
 /**
- * Read shebang from file (first 150 bytes)
+ * Read shebang from file (first 150 bytes only).
+ *
+ * Must not use readFileSync on the whole file: `varlock run -- node ...` resolves
+ * bare `node` via PATH and probes candidates for a shebang. Reading a ~100MB+
+ * Node binary into a UTF-8 string spikes the parent to hundreds of MiB and can
+ * OOM 256Mi containers.
  */
 function readShebang(filePath: string): string | null {
+  let fd: number | undefined;
   try {
-    const fd = readFileSync(filePath, { encoding: 'utf8', flag: 'r' });
-    const first150 = fd.slice(0, 150);
+    fd = openSync(filePath, 'r');
+    const buf = Buffer.alloc(150);
+    const bytesRead = readSync(fd, buf, 0, 150, 0);
+    const first150 = buf.toString('utf8', 0, bytesRead);
     const match = first150.match(/^#!([^\r\n]+)/);
     return match ? match[1].trim() : null;
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore close errors
+      }
+    }
   }
 }
 
@@ -200,6 +232,8 @@ export function exec(
   const spawnOptions: any = {
     env: options.env || process.env,
     shell: false,
+    // process groups are a POSIX concept; on Windows we forward to the child pid directly
+    detached: options.detached === true && process.platform !== 'win32',
   };
 
   // On Windows, wrap .cmd/.bat (or unresolved commands) in cmd.exe
@@ -273,7 +307,8 @@ export function exec(
         return;
       }
 
-      const exitCode = code ?? (signal ? 1 : 0);
+      // a process killed by a signal has a null exit code; report it as 128+N like a shell does
+      const exitCode = code ?? (signal ? signalExitCode(signal) : 0);
       const exitResult: ExecResult = {
         exitCode,
         signal: signal || undefined,

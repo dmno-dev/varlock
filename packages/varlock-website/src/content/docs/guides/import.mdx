@@ -7,10 +7,10 @@ The [`@import()` root decorator](/reference/root-decorators/#import) allows you 
 
 **Basic examples:**
 ```env-spec
-# @import(./.env.imported)              # import specific file
-# @import(./env-dir/)                   # import directory
-# @import(./.env.partial, KEY1, KEY2)   # import specific keys
-# @import(~/.env.shared)                # import from home directory
+# @import(./.env.imported)                 # import specific file
+# @import(./env-dir/)                      # import directory
+# @import(./.env.partial, pick=[K1, K2])   # import specific keys
+# @import(~/.env.shared)                   # import from home directory
 ```
 
 ## Import source types
@@ -48,6 +48,13 @@ You can import files from your home directory using the `~/` prefix. This is use
 # @import(../shared-config-dir/)
 ```
 
+:::tip[File vs directory: which should I import?]
+- **Import a single file** when you want exactly that file's contents: a shared `.env.common`, or specific keys from another schema via `pick`.
+- **Import a directory** (trailing `/`) when you want everything that directory would load on its own: its `.env.schema` **plus** sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag.
+
+This distinction matters when pulling in a root or sibling package. Importing its `.env.schema` file alone brings only the schema; importing the package's **directory** also brings its values (including `.env.local` and `.env.[currentEnv]`). For the common "import the repo root" case in a monorepo, use the directory form (`# @import(../../)`).
+:::
+
 {/*
 ### HTTP URL (👀 coming soon)
 
@@ -70,13 +77,22 @@ A registry (npm, jsr, etc.), package name, version, and path can be used to impo
 
 ## Partial imports
 
-By default, all items will be imported, but you may add a list of specific keys to import as additional args after the first.
+By default, all items will be imported, but you can restrict which keys are brought in:
 
-- If there is a chain of imports, an item is only imported if every ancestor import includes it (or imports all items)
+- `pick=[...]` imports only an allowlist of keys
+- `omit=[...]` imports everything except a denylist of keys
+- You can't use both in one import, and both accept simple globs (`*`, `?`)
+- If there is a chain of imports, an item is only imported if every ancestor import includes it (filters intersect)
 
 ```env-spec
-# @import(./.env.imported, KEY1, KEY2)
+# @import(./.env.imported, pick=[KEY1, KEY2])   # allowlist
+# @import(./.env.imported, pick=[API_*])        # globs work too
+# @import(./.env.imported, omit=[SECRET])       # denylist
 ```
+
+:::caution[Positional keys are deprecated]
+Older docs and configs list keys as positional args (`@import(./.env.imported, KEY1, KEY2)`). This still works but is deprecated and will warn. Use `pick=[KEY1, KEY2]` instead.
+:::
 
 ## Conditional imports
 
@@ -87,7 +103,7 @@ The `enabled` parameter accepts any expression that evaluates to a boolean. It c
 **Example:**
 ```env-spec title=".env.schema" /\(enabled=.*\)\\)/
 # Combine with partial imports
-# @import(./.env.features, FEATURE_X, enabled=eq($ENABLE_X, "true"))
+# @import(./.env.features, pick=[FEATURE_X], enabled=eq($ENABLE_X, "true"))
 # ---
 ENABLE_X=true
 ```
@@ -107,7 +123,7 @@ The `allowMissing` parameter accepts a boolean value (defaults to `false`). It c
 **Combine with other parameters:**
 ```env-spec title=".env.schema"
 # Optional partial import with conditional loading
-# @import(./.env.features, FEATURE_X, enabled=true, allowMissing=true)
+# @import(./.env.features, pick=[FEATURE_X], enabled=true, allowMissing=true)
 ```
 
 ## Import precedence and merging multiple sources
@@ -138,3 +154,48 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 - Root decorators that affect individual items (e.g., `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
 - An item with no value at all (e.g., `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
 - If an imported file is marked with [`@disable`](/reference/root-decorators/#disable), it and any files it imports are skipped entirely
+- Importing the same source from multiple places (a "diamond") is fine: it is loaded once and reused
+
+## When things go wrong
+
+### `environment flag "..." must be defined within this schema`
+
+If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`) and that variable is only brought in via a **partial** `@import()`, varlock validates the env flag during schema initialization, before imported values are merged. The flag must be **defined in the same `.env.schema` file** that declares `@currentEnv`, not only in an imported file.
+
+This commonly appears in monorepos when a sub-package imports shared keys from a parent schema:
+
+```env-spec title=".env.schema (sub-package)"
+# @currentEnv=$DEPLOY_ENV
+# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
+# ---
+MY_SERVICE_URL=...
+```
+
+Running `varlock load` fails with:
+
+```txt
+environment flag "DEPLOY_ENV" must be defined within this schema
+```
+
+**Fixes:**
+
+- Define the env flag locally in the file that uses `@currentEnv`, even if the value comes from elsewhere:
+
+```env-spec title=".env.schema (sub-package)"
+# @currentEnv=$DEPLOY_ENV
+# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
+# ---
+DEPLOY_ENV=
+MY_SERVICE_URL=...
+```
+
+- Move `@currentEnv` to the shared schema where the flag is already defined
+- Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling
+
+### Circular imports
+
+A circular chain of imports (e.g. `a` imports `b` which imports `a`) is not allowed. Varlock detects the cycle and fails with an explicit error showing the chain:
+
+```txt
+Circular import detected: a/.env.schema -> b/.env.schema -> a/.env.schema
+```

@@ -74,6 +74,20 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // Mark as done so we don't retry
   injectedTurbopackRuntime = true;
 
+  // Vercel has no native runtime-binding mechanism, so baking the resolved env
+  // into the build is the correct approach there — but plaintext means secrets
+  // sit as JSON in the build artifact. Nudge (don't block) users who haven't
+  // opted into `@encryptInjectedEnv`. Placed after the guard above so it only
+  // fires once (this function is called repeatedly until the runtime files
+  // are found, per the early return above).
+  if (process.env.VERCEL === '1' && !encryptionRequired) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[varlock] ⚠️ Deploying to Vercel ships your resolved env as plaintext JSON in the build artifact. '
+      + 'Consider enabling `@encryptInjectedEnv` — see https://varlock.dev/guides/encrypted-deployments/',
+    );
+  }
+
   // Load both init bundles — server (full, node:zlib/node:http) and edge (no node builtins)
   const initServerSrc = fs.readFileSync(require.resolve('varlock/init-server'), 'utf8');
   const initEdgeSrc = fs.readFileSync(require.resolve('varlock/init-edge'), 'utf8');

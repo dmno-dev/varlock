@@ -1,6 +1,6 @@
 # @varlock/hashicorp-vault-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://www.npmjs.com/package/@varlock/hashicorp-vault-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/hashicorp-vault-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmx.dev/package/@varlock/hashicorp-vault-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/hashicorp-vault-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [HashiCorp Vault](https://www.vaultproject.io/) (KV v2 secrets engine) / [OpenBao](https://openbao.org/) into your configuration.
 
@@ -87,7 +87,7 @@ You can also provide a token directly:
 # )
 # ---
 
-# @type=vaultToken @sensitive
+# @type=vaultToken @sensitive @internal
 VAULT_TOKEN=
 ```
 
@@ -216,6 +216,30 @@ API_KEY=
 
 This fetches all keys from `secret/myapp/config` and maps them to matching item keys.
 
+### Exposing the client token
+
+Use `vaultToken()` when another tool needs the same Vault client token the plugin already authenticated with (for example OpenTofu OpenBao state encryption via `BAO_TOKEN`). The resolver returns the token from the active auth method and reuses the plugin's cached login.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/hashicorp-vault-plugin@2.0.0)
+# @initHcpVault(
+#   url=$BAO_ADDR,
+#   jwtRole=$VAULT_ROLE,
+#   jwtAuthPath="gitlab",
+#   oidcToken=$GITLAB_OIDC
+# )
+# ---
+
+# @sensitive
+BAO_TOKEN=vaultToken()
+```
+
+Mark the item `@sensitive`. If you also use `@type=vaultToken`, set `@internal=false` so the value is injected for consumers (the type defaults to `@internal`).
+
+Prefer a consumer-specific name like `BAO_TOKEN` over `VAULT_TOKEN` when `VAULT_TOKEN` is already an input to `@initHcpVault(token=$VAULT_TOKEN)`, which would create a dependency cycle.
+
+With multiple instances, pass the instance id: `vaultToken(prod)`.
+
 ---
 
 ## Reference
@@ -238,6 +262,7 @@ Initialize a HashiCorp Vault plugin instance.
 - `jwtRole?: string` - JWT auth method role name (enables OIDC workload identity)
 - `jwtAuthPath?: string` - JWT auth method mount path (defaults to `jwt`)
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `vaultSecret()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions
@@ -266,6 +291,19 @@ By default, the item key (variable name) is used as the JSON key to extract from
 **How paths work:**
 
 Vault KV v2 stores key/value pairs at a path. Given a path like `secret/myapp/config`, the plugin calls `GET /v1/secret/data/myapp/config` (the first path segment is the mount point, and `/data/` is inserted for the KV v2 API).
+
+#### `vaultToken()`
+
+Returns the Vault client token for an initialized plugin instance. Useful when another tool needs the same short-lived credential the plugin already obtained.
+
+Always treated as sensitive. Reuses the plugin's existing auth cache instead of logging in again.
+
+**Signatures:**
+
+- `vaultToken()` - Token from the default instance
+- `vaultToken(instanceId)` - Token from a named instance
+
+If you use `@type=vaultToken`, also set `@internal=false` so the value is injected. Do not assign `vaultToken()` to `VAULT_TOKEN` when that same item is passed as `@initHcpVault(token=$VAULT_TOKEN)` (dependency cycle). Prefer a consumer-specific name such as `BAO_TOKEN`.
 
 ### Data Types
 

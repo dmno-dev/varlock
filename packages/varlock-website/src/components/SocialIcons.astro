@@ -1,10 +1,13 @@
 ---
 import DefaultSocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
 import StarArrow from "./StarArrow.vue";
+import bookIcon from "@/assets/pixel-art/book.png";
+import scrollIcon from "@/assets/pixel-art/scroll.png";
 ---
 
 <div class="custom-social-icons-wrapper">
-  <a href="/blog/" class="blog-nav-link"><img src="https://varlock-pixel-art.dmno.workers.dev/icons/scroll.png" alt="" class="blog-nav-icon" /> Blog</a>
+  <a href="/getting-started/introduction" class="nav-link"><img src={bookIcon.src} width="26" height="27" alt="" class="pixel-nav-icon" /> Docs</a>
+  <a href="/blog/" class="nav-link"><img src={scrollIcon.src} width="26" height="26" alt="" class="pixel-nav-icon" /> Blog</a>
   <div class="star-arrow-header">
     <StarArrow client:load />
   </div>
@@ -18,7 +21,7 @@ import StarArrow from "./StarArrow.vue";
     gap: 0.5rem;
     position: relative;
   }
-  .blog-nav-link {
+  .nav-link {
     color: var(--sl-color-white);
     text-decoration: none;
     font-family: var(--font-pixel);
@@ -29,23 +32,23 @@ import StarArrow from "./StarArrow.vue";
     white-space: nowrap;
     border: none !important;
     outline: none;
-    border-bottom: 2px solid transparent !important;
     display: inline-flex;
     align-items: center;
     gap: 0.3em;
   }
-  .blog-nav-link:hover {
+  .nav-link:hover {
     color: var(--sl-color-text-accent);
-    border-bottom: 2px dotted var(--sl-color-text-accent) !important;
   }
-  .blog-nav-icon {
-    height: 1.1em;
-    width: auto;
+  .pixel-nav-icon {
     vertical-align: middle;
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
     margin-right: 0.15em;
+    transition: transform 0.15s ease;
+  }
+  .nav-link:hover .pixel-nav-icon {
+    transform: translateY(-2px);
   }
   .star-arrow-header {
     display: flex;

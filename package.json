@@ -16,6 +16,8 @@
     "build": "turbo build --filter=\"!smoke-test-*\"",
     "build:libs": "bun run build --filter=\"!@varlock/website\" --filter=\"!smoke-test-*\"",
     "build:swift": "bun run --filter=\"@varlock/encryption-binary-swift\" build:current",
+    "build:varlock": "turbo build --filter=varlock",
+    "bundle-size": "BUILD_TYPE=release bun run build:varlock && bun run scripts/report-bundle-size.ts",
     "test:ci": "turbo test:ci --filter=\"!smoke-test-*\"",
     "smoke-test": "cd smoke-tests && bun run test",
     "test:frameworks": "cd framework-tests && bun run test",
@@ -25,9 +27,13 @@
     "dev": "turbo run dev --concurrency=40 --parallel --filter=\"!smoke-test-*\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "audit:changed": "bun run scripts/audit-changed-packages.ts --audit-level=critical",
+    "audit:full": "bun audit --audit-level=moderate",
     "bumpy:add": "bumpy add",
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "packages:new": "bunx fledgling",
+    "packages:sync": "bunx fledgling sync"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.37.1",
@@ -37,7 +43,7 @@
     "@types/node": "catalog:",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
-    "@varlock/bumpy": "^1.10.2",
+    "@varlock/bumpy": "^1.18.1",
     "@varlock/tsconfig": "workspace:*",
     "eslint": "^10.0.2",
     "eslint-plugin-es-x": "^9.5.0",
@@ -53,17 +59,22 @@
     "typescript-eslint": "^8.56.1",
     "varlock": "workspace:*"
   },
-  "packageManager": "bun@1.3.11",
+  "packageManager": "bun@1.3.14",
   "engines": {
     "node": ">=22"
   },
   "overrides": {
     "@xmldom/xmldom": ">=0.9.10",
     "@modelcontextprotocol/sdk": ">=1.29.0",
+    "esbuild": ">=0.28.1",
+    "hono": ">=4.12.21",
     "postcss": ">=8.5.10",
     "qs": "^6.15.2",
-    "ws": ">=8.20.1",
-    "tmp": ">=0.2.6"
+    "ws": ">=8.21.0",
+    "tmp": ">=0.2.6",
+    "vite": ">=7.3.5 <8",
+    "form-data": ">=4.0.6",
+    "js-yaml": ">=4.2.0"
   },
   "catalog": {
     "@sindresorhus/is": "^7.2.0",
@@ -77,5 +88,11 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"
+  },
+  "fledgling": {
+    "provider": "github",
+    "workflow": "release.yaml",
+    "environment": "publish",
+    "permissions": "publish"
   }
 }

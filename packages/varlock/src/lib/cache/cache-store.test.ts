@@ -1,0 +1,362 @@
+import {
+  describe, it, expect, vi, beforeEach, afterEach,
+} from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { CacheStore } from './cache-store';
+
+// mock localEncrypt to avoid needing real encryption keys
+vi.mock('../local-encrypt', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  ensureKey: vi.fn(async () => {}),
+  encryptValue: vi.fn(async (value: string) => `encrypted:${value}`),
+  decryptValue: vi.fn(async (value: string) => value.replace('encrypted:', '')),
+}));
+
+// mock getUserVarlockDir to use a temp directory
+let tempDir: string;
+vi.mock('../user-config-dir', () => ({
+  getUserVarlockDir: () => tempDir,
+}));
+
+beforeEach(() => {
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-cache-test-'));
+});
+
+afterEach(() => {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe('CacheStore', () => {
+  describe('get/set', () => {
+    it('returns undefined for missing key', async () => {
+      const store = new CacheStore();
+      const result = await store.get('missing:key');
+      expect(result).toBeUndefined();
+    });
+
+    it('stores and retrieves a value', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:mykey', 'hello', 60_000);
+      const result = await store.get('plugin:test:mykey');
+      expect(result).toBeDefined();
+      expect(result!.value).toBe('hello');
+    });
+
+    it('returns cachedAt timestamp', async () => {
+      const store = new CacheStore();
+      const before = Date.now();
+      await store.set('plugin:test:ts', 'val', 60_000);
+      const after = Date.now();
+      const result = await store.get('plugin:test:ts');
+      expect(result!.cachedAt).toBeGreaterThanOrEqual(before);
+      expect(result!.cachedAt).toBeLessThanOrEqual(after);
+    });
+
+    it('overwrites existing value', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:k', 'v1', 60_000);
+      await store.set('plugin:test:k', 'v2', 60_000);
+      const result = await store.get('plugin:test:k');
+      expect(result!.value).toBe('v2');
+    });
+  });
+
+  describe('getOrSet', () => {
+    it('returns existing cached value without calling producer', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:getOrSet', 'cached', 60_000);
+      const producer = vi.fn(async () => 'fresh');
+
+      const result = await store.getOrSet('plugin:test:getOrSet', 60_000, producer);
+
+      expect(result?.value).toBe('cached');
+      expect(result?.cacheHit).toBe(true);
+      expect(producer).not.toHaveBeenCalled();
+    });
+
+    it('deduplicates concurrent producers for the same key', async () => {
+      const store = new CacheStore();
+      const producer = vi.fn(async () => {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 30);
+        });
+        return 'shared-value';
+      });
+
+      const [a, b] = await Promise.all([
+        store.getOrSet('plugin:test:race', 60_000, producer),
+        store.getOrSet('plugin:test:race', 60_000, producer),
+      ]);
+
+      expect(producer).toHaveBeenCalledTimes(1);
+      expect(a?.value).toBe('shared-value');
+      expect(b?.value).toBe('shared-value');
+    });
+
+    it('propagates producer errors and releases the key lock', async () => {
+      const store = new CacheStore();
+      await expect(store.getOrSet('plugin:test:err', 60_000, () => {
+        throw new Error('boom');
+      })).rejects.toThrow('boom');
+
+      // lock must be released — a retry runs the producer immediately
+      const result = await store.getOrSet('plugin:test:err', 60_000, () => 'recovered');
+      expect(result?.value).toBe('recovered');
+      expect(result?.cacheHit).toBe(false);
+    });
+
+    it('does not store undefined producer results', async () => {
+      const store = new CacheStore();
+      const result = await store.getOrSet('plugin:test:undef', 60_000, () => undefined);
+      expect(result).toBeUndefined();
+      expect(await store.get('plugin:test:undef')).toBeUndefined();
+    });
+  });
+
+  describe('expiry', () => {
+    it('returns undefined for expired entry', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:exp', 'val', 1); // 1ms TTL
+      // wait for expiry
+      await new Promise<void>((r) => {
+        setTimeout(r, 10);
+      });
+      const result = await store.get('plugin:test:exp');
+      expect(result).toBeUndefined();
+    });
+
+    it('counts expired entries in stats and removes them on read', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:exp', 'val', 1);
+      await new Promise<void>((r) => {
+        setTimeout(r, 10);
+      });
+
+      // entry still occupies the file and shows up as expired in stats
+      let raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      expect(raw['plugin:test:exp']).toBeDefined();
+      const stats = store.getStats();
+      expect(stats.total).toBe(1);
+      expect(stats.expired).toBe(1);
+
+      // reading it removes it from the file
+      expect(await store.get('plugin:test:exp')).toBeUndefined();
+      raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      expect(raw['plugin:test:exp']).toBeUndefined();
+    });
+
+    it('prunes expired entries on writes', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:old', 'v', 1);
+      await new Promise<void>((r) => {
+        setTimeout(r, 10);
+      });
+      await store.set('plugin:test:new', 'v', 60_000);
+      const raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      expect(raw['plugin:test:old']).toBeUndefined();
+      expect(raw['plugin:test:new']).toBeDefined();
+    });
+  });
+
+  describe('delete', () => {
+    it('removes a specific entry', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:a', 'va', 60_000);
+      await store.set('plugin:test:b', 'vb', 60_000);
+      await store.delete('plugin:test:a');
+      expect(await store.get('plugin:test:a')).toBeUndefined();
+      expect((await store.get('plugin:test:b'))!.value).toBe('vb');
+    });
+  });
+
+  describe('clearAll', () => {
+    it('clears all entries and returns count', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:a:1', 'v1', 60_000);
+      await store.set('plugin:b:2', 'v2', 60_000);
+      const count = await store.clearAll();
+      expect(count).toBe(2);
+      expect(await store.get('plugin:a:1')).toBeUndefined();
+      expect(await store.get('plugin:b:2')).toBeUndefined();
+    });
+
+    it('returns 0 when empty', async () => {
+      const store = new CacheStore();
+      expect(await store.clearAll()).toBe(0);
+    });
+  });
+
+  describe('clearByPrefix', () => {
+    it('clears only entries matching prefix', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:1password:a', 'v1', 60_000);
+      await store.set('plugin:1password:b', 'v2', 60_000);
+      await store.set('plugin:aws:c', 'v3', 60_000);
+      await store.set('resolver:file:item:text', 'v4', 60_000);
+
+      const count = await store.clearByPrefix('plugin:1password:');
+      expect(count).toBe(2);
+      expect(await store.get('plugin:1password:a')).toBeUndefined();
+      expect(await store.get('plugin:1password:b')).toBeUndefined();
+      expect((await store.get('plugin:aws:c'))!.value).toBe('v3');
+      expect((await store.get('resolver:file:item:text'))!.value).toBe('v4');
+    });
+  });
+
+  describe('getStats', () => {
+    it('returns correct stats', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:1password:a', 'v1', 60_000);
+      await store.set('plugin:1password:b', 'v2', 60_000);
+      await store.set('plugin:aws:c', 'v3', 60_000);
+      await store.set('resolver:/path:ITEM:text()', 'v4', 60_000);
+
+      const stats = store.getStats();
+      expect(stats.total).toBe(4);
+      expect(stats.expired).toBe(0);
+      expect(stats.byPrefix['plugin:1password']).toBe(2);
+      expect(stats.byPrefix['plugin:aws']).toBe(1);
+      expect(stats.byPrefix['resolver:/path']).toBe(1);
+    });
+  });
+
+  describe('persistence', () => {
+    it('persists across new CacheStore instances', async () => {
+      const store1 = new CacheStore();
+      await store1.set('plugin:test:persist', 'persistent-value', 60_000);
+
+      const store2 = new CacheStore();
+      const result = await store2.get('plugin:test:persist');
+      expect(result!.value).toBe('persistent-value');
+    });
+  });
+
+  describe('type preservation', () => {
+    it('preserves number type', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:num', 42, 60_000);
+      const result = await store.get('plugin:test:num');
+      expect(result!.value).toBe(42);
+      expect(typeof result!.value).toBe('number');
+    });
+
+    it('preserves boolean type', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:bool', true, 60_000);
+      const result = await store.get('plugin:test:bool');
+      expect(result!.value).toBe(true);
+      expect(typeof result!.value).toBe('boolean');
+    });
+
+    it('preserves object type', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:obj', { foo: 'bar', num: 1 }, 60_000);
+      const result = await store.get('plugin:test:obj');
+      expect(result!.value).toEqual({ foo: 'bar', num: 1 });
+    });
+
+    it('preserves array type', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:arr', [1, 'two', true], 60_000);
+      const result = await store.get('plugin:test:arr');
+      expect(result!.value).toEqual([1, 'two', true]);
+    });
+  });
+
+  describe('encryption', () => {
+    it('stores encrypted JSON envelopes (key + value) in the file', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:enc', 'secret', 60_000);
+
+      const raw = fs.readFileSync(store.getFilePath(), 'utf-8');
+      const data = JSON.parse(raw);
+      // value should be an encrypted envelope binding the cache key, not plaintext
+      expect(data['plugin:test:enc'].v).toBe(`encrypted:${JSON.stringify({ k: 'plugin:test:enc', v: 'secret' })}`);
+      expect(data['plugin:test:enc'].v).not.toBe('secret');
+    });
+
+    it('treats an entry moved to a different key as a miss (envelope binding)', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:original', 'bound-value', 60_000);
+
+      // simulate ciphertext swapped between entries within the file
+      const raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      raw['plugin:test:other'] = raw['plugin:test:original'];
+      fs.writeFileSync(store.getFilePath(), JSON.stringify(raw));
+
+      expect(await store.get('plugin:test:other')).toBeUndefined();
+      expect((await store.get('plugin:test:original'))!.value).toBe('bound-value');
+    });
+  });
+
+  describe('set return value', () => {
+    it('returns the stored timestamps', async () => {
+      const store = new CacheStore();
+      const before = Date.now();
+      const stored = await store.set('plugin:test:ret', 'v', 60_000);
+      expect(stored).toBeDefined();
+      expect(stored!.cachedAt).toBeGreaterThanOrEqual(before);
+      expect(stored!.expiresAt).toBe(stored!.cachedAt + 60_000);
+    });
+  });
+
+  describe('key validation', () => {
+    it('rejects empty cache keys', async () => {
+      const store = new CacheStore();
+      await expect(store.get('')).rejects.toThrow('Invalid cache key');
+      await expect(store.set('', 'v', 60_000)).rejects.toThrow('Invalid cache key');
+      await expect(store.delete('')).rejects.toThrow('Invalid cache key');
+      await expect(store.clearByPrefix('')).rejects.toThrow('Invalid cache key prefix');
+    });
+
+    it('rejects control characters in cache keys', async () => {
+      const store = new CacheStore();
+      await expect(store.get('plugin:test:\nkey')).rejects.toThrow('control characters');
+      await expect(store.set('plugin:test:\u0000key', 'v', 60_000)).rejects.toThrow('control characters');
+      await expect(store.delete('plugin:test:\rkey')).rejects.toThrow('control characters');
+      await expect(store.clearByPrefix('plugin:test:\t')).rejects.toThrow('control characters');
+    });
+  });
+
+  describe('graceful degradation', () => {
+    it('handles missing cache file gracefully', async () => {
+      const store = new CacheStore();
+      // no file exists yet
+      const result = await store.get('anything');
+      expect(result).toBeUndefined();
+    });
+
+    it('handles corrupted cache file gracefully', async () => {
+      const store = new CacheStore();
+      // write garbage to the cache file
+      const dir = path.dirname(store.getFilePath());
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(store.getFilePath(), 'not valid json');
+
+      const result = await store.get('anything');
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // skip on windows where unix-style file modes don't apply
+  describe.skipIf(process.platform === 'win32')('file permissions', () => {
+    // bitwise mask is the standard way to extract Unix permission bits from stat.mode
+    /* eslint-disable no-bitwise */
+    it('writes the cache file with 0600 permissions', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:k', 'v', 60_000);
+      const stat = fs.statSync(store.getFilePath());
+      expect(stat.mode & 0o777).toBe(0o600);
+    });
+
+    it('creates the cache directory with 0700 permissions', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:k', 'v', 60_000);
+      const stat = fs.statSync(path.dirname(store.getFilePath()));
+      expect(stat.mode & 0o777).toBe(0o700);
+    });
+    /* eslint-enable no-bitwise */
+  });
+});

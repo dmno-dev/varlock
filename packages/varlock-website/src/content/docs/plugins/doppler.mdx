@@ -19,7 +19,7 @@ The plugin uses service tokens for programmatic access to your Doppler secrets, 
 - **Fetch secrets** from Doppler projects and configs
 - **Bulk-load secrets** with `dopplerBulk()` via `@setValuesBulk`
 - **Service token authentication** for secure, scoped API access
-- **Efficient caching** — a single API call is shared across all secret lookups in the same config
+- **Efficient caching**: a single API call is shared across all secret lookups in the same config
 - **Multiple plugin instances** for different projects/configs
 - **Auto-infer secret names** from variable names for convenience
 - **Helpful error messages** with resolution tips
@@ -43,7 +43,7 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # ---
 
 # 3. Add your service token
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 
@@ -60,7 +60,7 @@ DOPPLER_TOKEN=
 
 3. **Save the token** (displayed only once!)
 
-    Copy the service token immediately — it will only be displayed once.
+    Copy the service token immediately. It will only be displayed once.
 
     :::caution[Save token securely]
     Store the service token securely. You won't be able to see it again after this step!
@@ -77,7 +77,7 @@ DOPPLER_TOKEN=
     # )
     # ---
 
-    # @type=dopplerServiceToken @sensitive
+    # @type=dopplerServiceToken @sensitive @internal
     DOPPLER_TOKEN=
     ```
 
@@ -139,7 +139,7 @@ Use `dopplerBulk()` with `@setValuesBulk` to load all secrets from a Doppler con
 # @initDoppler(project=my-project, config=dev, serviceToken=$DOPPLER_TOKEN)
 # @setValuesBulk(dopplerBulk())
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 API_KEY=
@@ -168,18 +168,21 @@ Initialize a Doppler plugin instance for accessing secrets.
 - `project` (required): Doppler project name
 - `config` (required): Config name (e.g., `dev`, `stg`, `prd`, or a branch config)
 - `serviceToken` (required): Doppler service token. Should be a reference to a config item of type `dopplerServiceToken`.
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initDoppler"
 # @initDoppler(
 #   project=my-project,
 #   config=dev,
-#   serviceToken=$DOPPLER_TOKEN
+#   serviceToken=$DOPPLER_TOKEN,
+#   cacheTtl="1h"
 # )
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
+
 </div>
 </div>
 
@@ -188,10 +191,13 @@ DOPPLER_TOKEN=
 <div>
 #### `dopplerServiceToken`
 
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
+
+
 Represents a Doppler service token. This type is marked as `@sensitive`.
 
 ```env-spec "dopplerServiceToken"
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 </div>
@@ -248,7 +254,7 @@ Bulk-load all secrets from a Doppler config. Intended for use with `@setValuesBu
 # @plugin(@varlock/doppler-plugin)
 # @initDoppler(project=my-app, config=dev, serviceToken=$DOPPLER_TOKEN)
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 # Secret names automatically match config keys
@@ -278,7 +284,7 @@ PROD_DATABASE=doppler(prod, "DATABASE_URL")
 # @initDoppler(project=my-app, config=dev, serviceToken=$DOPPLER_TOKEN)
 # @setValuesBulk(dopplerBulk())
 # ---
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 # These will be populated from Doppler secrets with matching names
@@ -303,7 +309,7 @@ SENDGRID_API_KEY=
 - Check that the service token has access to the requested project/config
 
 ### Access denied
-- Service tokens are scoped to a specific config — ensure you're using the right one
+- Service tokens are scoped to a specific config, so ensure you're using the right one
 - Verify the token hasn't been revoked
 
 ### Wrong config

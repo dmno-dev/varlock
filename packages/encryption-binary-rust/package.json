@@ -8,5 +8,11 @@
     "build:linux-arm64": "bun run scripts/build-rust.ts --target aarch64-unknown-linux-musl",
     "build:windows-x64": "bun run scripts/build-rust.ts --target x86_64-pc-windows-msvc",
     "build:windows-arm64": "bun run scripts/build-rust.ts --target aarch64-pc-windows-msvc"
-  }
+  },
+  "devDependencies": {
+    "@varlock/1password-plugin": "workspace:*",
+    "varlock": "workspace:*"
+  },
+  "author": "dmno-dev",
+  "license": "MIT"
 }

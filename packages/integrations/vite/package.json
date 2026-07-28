@@ -1,7 +1,7 @@
 {
   "name": "@varlock/vite-integration",
   "description": "Vite plugin to use varlock for .env file loading - adds validation, type-safety, and extra security features",
-  "version": "1.1.2",
+  "version": "1.4.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
@@ -47,8 +47,8 @@
     "vite": ">=5"
   },
   "devDependencies": {
+    "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
-    "ast-matcher": "^1.2.0",
     "magic-string": "^0.30.17",
     "rollup": "^4.46.2",
     "tsup": "catalog:",

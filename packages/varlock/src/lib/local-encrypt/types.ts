@@ -5,8 +5,8 @@
 /** Which encryption backend is active */
 export type BackendType = (
   | 'secure-enclave' // macOS Secure Enclave (Swift binary)
-  | 'windows-tpm' // Windows native (Rust binary) — DPAPI now, TPM/Hello planned
-  | 'linux-tpm' // Linux native (Rust binary) — kernel keyring now, TPM planned
+  | 'windows-tpm' // Windows native (Rust binary) — NCrypt TPM seal + Windows Hello presence; DPAPI fallback
+  | 'linux-tpm' // Linux native (Rust binary) — TPM2 seal/unseal and/or Secret Service; polkit/PAM presence
   | 'file' // Pure JS file-based (universal fallback)
 );
 
@@ -25,7 +25,7 @@ export interface BackendInfo {
 export interface DaemonMessage {
   id: string;
   action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session'
-    | 'keychain-get' | 'keychain-search' | 'keychain-pick';
+    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-set';
   payload?: Record<string, unknown>;
 }
 
@@ -34,6 +34,7 @@ export interface DaemonResponse {
   id: string;
   result?: unknown;
   error?: string;
+  errorCode?: string;
 }
 
 /** Metadata about a keychain item (no secret values) */
@@ -51,6 +52,16 @@ export interface KeychainItemRef {
   account?: string;
   keychain?: string;
   label?: string;
+}
+
+/** Result from adding VarlockEnclave to a keychain item's access list */
+export interface KeychainFixAccessResult {
+  modified: boolean;
+}
+
+/** Result from creating or updating a keychain item */
+export interface KeychainSetResult {
+  updated: boolean;
 }
 
 /** Result from the status command of a native binary */

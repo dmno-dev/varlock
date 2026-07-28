@@ -10,6 +10,7 @@ interface Props {
   showSearch?: boolean;
   showTableOfContents?: boolean;
   showSidebar?: boolean;
+  hideDesktopSidebar?: boolean;
   sidebar?: Array<any>;
   head?: import("../lib/meta").MetaHeadItem[];
 }
@@ -21,6 +22,7 @@ const {
   showSearch = true,
   showTableOfContents = false,
   showSidebar = false,
+  hideDesktopSidebar = false,
   sidebar,
   head,
 } = Astro.props;
@@ -75,6 +77,25 @@ const {
   <style is:global>
     site-search {
       display: none;
+    }
+  </style>
+) : null}
+
+{/*
+  Enable Starlight's sidebar (so mobile gets the hamburger nav drawer + search),
+  but suppress the desktop sidebar so the page stays full-width like a landing page.
+  The mobile overlay (<50rem) is untouched; we only hide the pinned desktop pane.
+*/}
+{hideDesktopSidebar ? (
+  <style is:global>
+    @media (min-width: 50rem) {
+      .sidebar {
+        display: none;
+      }
+      [data-has-sidebar] {
+        --sl-content-inline-start: 0rem;
+        --sl-content-width: 75rem;
+      }
     }
   </style>
 ) : null}

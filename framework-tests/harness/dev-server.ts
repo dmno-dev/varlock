@@ -58,7 +58,7 @@ async function fetchWithRetry(
     try {
       const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
       const body = await resp.text();
-      return { status: resp.status, body };
+      return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
     } catch {
       if (i < retries - 1) {
         await new Promise<void>((r) => {
@@ -70,7 +70,7 @@ async function fetchWithRetry(
   // final attempt — let it throw
   const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   const body = await resp.text();
-  return { status: resp.status, body };
+  return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
 }
 
 /**
@@ -193,8 +193,25 @@ export async function runDevServer(
     COREPACK_ENABLE_PROJECT_SPEC: '0',
     WRANGLER_SEND_METRICS: 'false',
     VARLOCK_DEBUG: '1',
+    // Astro v7 auto-backgrounds `astro dev` when it detects an agentic/CI
+    // environment, which detaches the server's output (and emits JSON logs) so
+    // the harness can't monitor stdout. Setting this env var (any value — astro
+    // only checks presence) disables that auto-detection; `0` is the form astro
+    // documents and reads correctly as "background off".
+    ASTRO_DEV_BACKGROUND: '0',
     ...scenario.env,
   };
+
+  // The harness runs under vitest, so process.env carries VITEST / VITEST_* vars.
+  // Astro v7's dev server plugin (vite-plugin-astro-server) bails out of mounting
+  // its SSR request handler when it sees process.env.VITEST — an escape hatch for
+  // Astro's own vitest suite — which makes every SSR route 404 ("Cannot GET").
+  // Strip these so the spawned dev server doesn't think it's running under vitest.
+  for (const key of Object.keys(spawnEnv)) {
+    if (key === 'VITEST' || key.startsWith('VITEST_')) {
+      delete (spawnEnv as Record<string, string | undefined>)[key];
+    }
+  }
   log(`Spawning: ${command}`);
   let child: ChildProcess;
   try {
@@ -313,6 +330,13 @@ export async function runDevServer(
         log(`Response: status=${result.status}, body=${result.body.length} bytes`);
         responses.push(result);
       } catch (err) {
+        if (req.allowRequestFailure) {
+          // e.g. runtime leak detection kills the response mid-stream — record a
+          // synthetic result so scenario/log assertions can still run
+          log(`Request failed (allowed): ${(err as Error).message}`);
+          responses.push({ status: 0, body: '', headers: {} });
+          continue;
+        }
         logError(`Request failed: ${(err as Error).message}`);
         dumpOutput();
         throw err;

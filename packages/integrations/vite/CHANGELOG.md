@@ -5,6 +5,46 @@
 
 
 
+
+
+
+
+
+
+## 1.4.0
+<sub>2026-07-28</sub>
+
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)* - Add static/dynamic config controls and dynamic+public framework/runtime support
+
+## 1.3.1
+<sub>2026-07-20</sub>
+
+- [#894](https://github.com/dmno-dev/varlock/pull/894)  *(patch)*
+  Fix Astro + Cloudflare static/prerendered builds: bake resolved env into the build-time prerender worker, and stop mis-injecting SSR init code into non-entry modules during builds (REQUIRE_TLA errors)
+
+## 1.3.0
+<sub>2026-07-15</sub>
+
+- [#881](https://github.com/dmno-dev/varlock/pull/881)  *(minor)*
+  Warn when deploying to Vercel with resolved env injection and no encryption enabled; throw if resolved-env is combined with a detected Cloudflare target (redundant with native runtime binding injection)
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)*
+  Detect FIFO/non-regular env sources (e.g. 1Password Environments) and skip registering them for dev-server restart watching, with a one-time notice
+
+## 1.2.1
+<sub>2026-07-06</sub>
+
+- [#860](https://github.com/dmno-dev/varlock/pull/860)  *(patch)* - internal refactor: static ENV.x replacement code moved to a shared internal package (no behavior change)
+
+## 1.2.0
+<sub>2026-06-23</sub>
+
+- [#827](https://github.com/dmno-dev/varlock/pull/827)  *(minor)* - SvelteKit on Cloudflare now works with the standard varlockVitePlugin() — it auto-detects the @sveltejs/adapter-cloudflare adapter (configured in svelte.config.js or inline in vite.config) and injects the Workers env loader automatically. The same import now works across all deploy targets. varlockSvelteKitCloudflarePlugin is deprecated; install @varlock/cloudflare-integration alongside the vite plugin for Cloudflare deploys.
+
+## 1.1.3
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(patch)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
 ## 1.1.2
 <sub>2026-05-24</sub>
 

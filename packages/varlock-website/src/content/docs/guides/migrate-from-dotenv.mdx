@@ -36,7 +36,9 @@ varlock run -- node app.js
 APP_ENV=staging varlock run -- node app.js
 ```
 
-> You can use multiple `.env` files (see [Environments guide](/guides/environments)).
+:::note
+You can use multiple `.env` files (see the [Environments guide](/guides/environments/)).
+:::
 
 ---
 
@@ -60,7 +62,7 @@ Finally, you can remove `dotenv` from your dependencies:
 
 ## Using overrides
 
-If `dotenv` is being used under the hood of one of your dependencies, you can use `overrides` to seamlessly swap in `varlock` instead.
+If `dotenv` is being used under the hood of one of your dependencies, you can use `overrides` to swap in `varlock` instead.
 
 
 <Tabs syncKey='package-manager'>

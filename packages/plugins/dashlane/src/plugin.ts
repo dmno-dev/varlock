@@ -77,6 +77,7 @@ plugin.registerResolverFunction({
 plugin.registerDataType({
   name: 'dashlaneDeviceKeys',
   sensitive: true,
+  internal: true,
   typeDescription: 'Service device keys for non-interactive Dashlane CLI authentication',
   icon: DASHLANE_ICON,
   docs: [
@@ -89,4 +90,16 @@ plugin.registerDataType({
     const error = validateDeviceKeys(val);
     if (error) throw new ValidationError(error);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(manager.instances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    // custom attributes
+    auto_sync: instances.some((i) => i.telemetryAutoSync),
+    lock_on_exit: instances.some((i) => i.telemetryLockOnExit),
+  };
 });

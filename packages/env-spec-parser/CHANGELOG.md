@@ -2,6 +2,46 @@
 
 
 
+
+
+
+
+
+
+## 0.5.0
+<sub>2026-07-21</sub>
+
+- [#917](https://github.com/dmno-dev/varlock/pull/917)  *(minor)*
+  Add array and object value types: `@type=array(...)` and `@type=record(...)` with per-element validation, native `[a, b]` / `{k=v}` literal values, JSON and separator string input, configurable serialization back to process.env, per-element redaction, and typed code generation across languages
+
+## 0.4.2
+<sub>2026-07-20</sub>
+
+- [#889](https://github.com/dmno-dev/varlock/pull/889)  *(patch)* - Fix $(...) truncation on nested parentheses and dropped spaces before $VAR/${VAR} inside unquoted exec expansion
+
+## 0.4.1
+<sub>2026-06-17</sub>
+
+- [#794](https://github.com/dmno-dev/varlock/pull/794)  *(patch)* - Object and array literals can now span multiple lines. Inside decorators each continuation line is prefixed with `#` (like multi-line function calls), e.g. a long `@import(./.env.shared, pick=[ ... ])` key list; literals nested in item-value function calls use plain newlines. Single-line literals are unchanged.
+  Multi-line literals and function calls also support `#` comments — full-line entries can be commented out (`# # OLD_KEY,`) and individual entries annotated with trailing comments (`# KEY, # note`).
+  The VSCode extension's syntax highlighting now understands object/array literals (single- and multi-line) and these inline comments.
+
+## 0.4.0
+<sub>2026-06-16</sub>
+
+- [#783](https://github.com/dmno-dev/varlock/pull/783)  *(minor)* - Add per-item leak-detection opt-out via `@sensitive={preventLeaks=false}`. Secrets that legitimately leave the system (e.g. an API endpoint that returns a secret to another service) can be excluded from runtime leak detection while still being redacted in logs. The options form also accepts `enabled` to toggle sensitivity (including dynamically, e.g. `@sensitive={enabled=forEnv(production)}`).
+  Adds standalone object (`{key=value}`) and array (`[a, b, c]`) literals to the env-spec grammar, usable as decorator values and function-call arguments (including nested). `()` remains reserved for function calls.
+
+## 0.3.5
+<sub>2026-06-10</sub>
+
+- [#757](https://github.com/dmno-dev/varlock/pull/757)  *(patch)* Thanks [@yinjs](https://github.com/yinjs)! - fix: treat whitespace-only lines as blank lines instead of throwing a parse error
+
+## 0.3.4
+<sub>2026-06-03</sub>
+
+- [#742](https://github.com/dmno-dev/varlock/pull/742)  *(patch)* Thanks [@Shtian](https://github.com/Shtian)! - Fixed URL fragments in @docs() decorator not being highlighted correctly.
+
 ## 0.3.3
 <sub>2026-05-29</sub>
 

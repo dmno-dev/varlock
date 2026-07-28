@@ -16,14 +16,14 @@ Pass stores each secret as a GPG-encrypted file in `~/.password-store`, organize
 
 ## Features
 
-- **Zero-config** - Works with your existing pass store out of the box
-- **GPG-backed encryption** - Leverages pass's native GPG security model
-- **Auto-infer entry paths** from variable names for convenience
+- **Zero-config**: works with your existing pass store
+- **GPG-backed encryption**: uses pass's native GPG security model
+- **Auto-infer entry paths** from variable names
 - **Bulk-load secrets** with `passBulk()` via `@setValuesBulk`
 - **Multiple store instances** for accessing different pass stores
 - **Name prefixing** for scoped entry access
-- **`allowMissing`** option for graceful handling of optional secrets
-- **In-session caching** - Each entry is decrypted only once per resolution
+- **`allowMissing`** option for optional secrets
+- **In-session caching**: each entry is decrypted only once per resolution
 - **Helpful error messages** with resolution tips
 
 ## Installation and setup
@@ -122,7 +122,7 @@ STRIPE_KEY=pass("services/stripe/live-key")
 DB_URL=pass("production/database/url")
 ```
 
-When called without arguments, `pass()` automatically uses the config item key as the entry path. This provides a convenient convention-over-configuration approach.
+When called without arguments, `pass()` uses the config item key as the entry path.
 
 ### Handling optional secrets
 

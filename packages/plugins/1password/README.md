@@ -1,6 +1,6 @@
 # @varlock/1password-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/1password-plugin.svg)](https://www.npmjs.com/package/@varlock/1password-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/1password-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/1password-plugin.svg)](https://npmx.dev/package/@varlock/1password-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/1password-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [1Password](https://1password.com/) into your configuration.
 
@@ -47,7 +47,7 @@ For deployed environments (CI/CD, production, etc), you'll need a service accoun
 # @initOp(token=$OP_TOKEN)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 ```
 
@@ -74,13 +74,13 @@ Set `useCliWithServiceAccount=true` to use the `op` CLI binary instead of the SD
 # @initOp(token=$OP_TOKEN, useCliWithServiceAccount=true)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 ```
 
 **Requirements:**
 
-1. Install the `op` CLI: [Installation guide](https://developer.1password.com/docs/cli/get-started/)
+1. Install the `op` CLI: [Installation guide](https://www.1password.dev/cli/get-started/)
 2. The `OP_SERVICE_ACCOUNT_TOKEN` (i.e. `$OP_TOKEN` above) must resolve to a valid service account token at load time.
 
 The `op` binary is significantly lighter than the WASM SDK. `op` authentication is handled headlessly via the token — no desktop app or interactive sign-in is needed.
@@ -94,13 +94,13 @@ During local development, you can use the 1Password desktop app instead of a ser
 # @initOp(token=$OP_TOKEN, allowAppAuth=true, account=acmeco)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 ```
 
 **Setup requirements:**
 
-1. Install the `op` CLI: [Installation guide](https://developer.1password.com/docs/cli/get-started/)
+1. Install the `op` CLI: [Installation guide](https://www.1password.dev/cli/get-started/)
 2. Enable desktop app + CLI integration in 1Password settings
 3. Specify your account shorthand (optional but recommended)
    - Run `op account list` to see available accounts
@@ -114,20 +114,20 @@ Keep in mind that this method connects as _YOU_ who likely has more access than 
 
 ### Connect server setup (self-hosted)
 
-If you are running a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/), you can authenticate using a Connect server URL and token:
+If you are running a self-hosted [1Password Connect server](https://www.1password.dev/connect/), you can authenticate using a Connect server URL and token:
 
 ```env-spec
 # @plugin(@varlock/1password-plugin)
 # @initOp(connectHost="http://connect-server:8080", connectToken=$OP_CONNECT_TOKEN)
 # ---
 
-# @type=opConnectToken @sensitive
+# @type=opConnectToken @sensitive @internal
 OP_CONNECT_TOKEN=
 ```
 
 **Setup requirements:**
 
-1. Deploy a [1Password Connect server](https://developer.1password.com/docs/connect/get-started/)
+1. Deploy a [1Password Connect server](https://www.1password.dev/connect/get-started/)
 2. Create a Connect token with access to the required vault(s)
 3. Set the `OP_CONNECT_TOKEN` environment variable
 
@@ -155,7 +155,7 @@ This plugin introduces the `op()` function to fetch secret values using 1Passwor
 # @initOp(token=$OP_TOKEN, allowAppAuth=forEnv(dev), account=acmeco)
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 
 # Fetch secrets using 1Password secret references
@@ -201,7 +201,7 @@ PROD_ITEM=op(prod, op://vault-name/item-name/field-name)
 
 ### Loading 1Password Environments
 
-Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://developer.1password.com/docs/environments/) at once:
+Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1Password environment](https://www.1password.dev/environments/) at once:
 
 ```env-spec
 # @plugin(@varlock/1password-plugin)
@@ -209,7 +209,7 @@ Use `opLoadEnvironment()` with `@setValuesBulk` to load all variables from a [1P
 # @setValuesBulk(opLoadEnvironment(your-environment-id))
 # ---
 
-# @type=opServiceAccountToken @sensitive
+# @type=opServiceAccountToken @sensitive @internal
 OP_TOKEN=
 
 API_KEY=
@@ -244,6 +244,7 @@ Initialize a 1Password plugin instance - setting up options and authentication. 
 - `connectToken?: string` - API token for the Connect server. Should be a reference to a config item of type `opConnectToken`. Required when `connectHost` is set.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 - `allowMissing?: boolean` - When `true`, all `op()` calls for this instance will return `undefined` instead of throwing when the referenced item/field is not found. Can be a dynamic value (e.g., `allowMissing=forEnv(dev)` to only allow missing in dev). Other errors (auth failures, bad format, etc.) still throw.
+- `cacheTtl?: string | number` - Cache resolved values from `op()` / `opLoadEnvironment()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared). Set to `false` (or an empty string) to disable caching. Storage follows global `@cache` mode (`disk` or `memory`) and is disabled when caching is globally disabled or `--skip-cache` is used.
 
 ### Functions
 
@@ -310,11 +311,11 @@ Vault access rules cannot be edited after creation. If your setup changes, creat
 :::
 
 **Access toggle:**
-Each vault has a toggle to disable service account access in general. It's on by default. [Learn more](https://developer.1password.com/docs/service-accounts/manage-service-accounts/#manage-access)
+Each vault has a toggle to disable service account access in general. It's on by default. [Learn more](https://www.1password.dev/service-accounts/manage-service-accounts/)
 
 ### Rate Limits
 
-Note that [rate limits](https://developer.1password.com/docs/service-accounts/rate-limits/) vary by account type (personal, family, teams, business).
+Note that [rate limits](https://www.1password.dev/service-accounts/rate-limits/) vary by account type (personal, family, teams, business).
 
 ## Troubleshooting
 
@@ -353,8 +354,8 @@ Note that [rate limits](https://developer.1password.com/docs/service-accounts/ra
 ## Resources
 
 - [1Password](https://1password.com/)
-- [Service Accounts](https://developer.1password.com/docs/service-accounts/)
-- [1Password Connect](https://developer.1password.com/docs/connect/)
-- [1Password CLI](https://developer.1password.com/docs/cli/)
-- [Secret References](https://developer.1password.com/docs/cli/secret-references/)
+- [Service Accounts](https://www.1password.dev/service-accounts/)
+- [1Password Connect](https://www.1password.dev/connect/)
+- [1Password CLI](https://www.1password.dev/cli/)
+- [Secret References](https://www.1password.dev/cli/secret-references/)
 - [Full documentation](https://varlock.dev/plugins/1password/)

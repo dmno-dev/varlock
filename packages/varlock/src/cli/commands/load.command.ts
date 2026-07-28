@@ -8,8 +8,15 @@ import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
+import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
+import {
+  PROXY_CHILD_ENV_VAR,
+  PROXY_SESSION_ID_ENV_VAR,
+  PROXY_SESSION_UUID_ENV_VAR,
+} from '../../proxy/env-vars';
+import { getActiveProxySession } from '../../proxy/session-registry';
 
 export const commandSpec = define({
   name: 'load',
@@ -34,6 +41,14 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'When load is failing, show all items rather than only failing items',
     },
+    'include-internal': {
+      type: 'boolean',
+      description: 'Include @internal items in --format json-full output (excluded by default, since json-full is commonly consumed programmatically - e.g. by framework integrations - not just for local human inspection)',
+    },
+    filter: {
+      type: 'string',
+      description: 'Filter which items are shown: comma-separated key names/globs (e.g. STRIPE_*), negations (!KEY), decorator selectors (@sensitive, @required), and tag selectors (#tagname, set via @tag(tagname)). Can also be set via the _VARLOCK_FILTER env var (this flag takes precedence)',
+    },
     env: {
       type: 'string',
       description: 'Set the environment (e.g., production, development, etc) - will be overridden by @currentEnv in the schema if present',
@@ -52,6 +67,14 @@ export const commandSpec = define({
       type: 'string',
       description: 'Also write the pretty (redacted) summary to a file path (useful for CI, e.g. $GITHUB_STEP_SUMMARY)',
     },
+    'clear-cache': {
+      type: 'boolean',
+      description: 'Clear cache and re-resolve all values',
+    },
+    'skip-cache': {
+      type: 'boolean',
+      description: 'Skip cache entirely for this invocation',
+    },
   },
   examples: `
 Loads and validates environment variables according to your .env files, and prints the results.
@@ -69,6 +92,10 @@ Examples:
   varlock load --format json-full --summary-stderr   # JSON on stdout + redacted human summary on stderr
   varlock load --format json-full --summary-file /tmp/summary.txt   # JSON on stdout + redacted human summary written to file
   varlock load --agent            # Agent-safe JSON output with sensitive values redacted
+  varlock load --format json-full --include-internal   # Include @internal items for local debugging
+  varlock load --filter="STRIPE_*,!STRIPE_DEBUG_KEY"  # Only STRIPE_* keys, excluding one
+  varlock load --filter="@sensitive"  # Only items marked @sensitive
+  varlock load --filter="#billing"    # Only items tagged @tag(billing)
 `.trim(),
 });
 
@@ -85,7 +112,11 @@ export function formatShellValue(value: string): string {
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
     format, compact, 'show-all': showAll, 'summary-stderr': summaryStderr, 'summary-file': summaryFile, agent,
+    'include-internal': includeInternal,
   } = ctx.values;
+  // parse --filter (or the _VARLOCK_FILTER env var) up front, so a bad filter string errors
+  // before any loading/resolution work happens
+  const itemFilter = getCliItemFilter(ctx.values.filter);
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 
@@ -96,6 +127,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,
+    clearCache: ctx.values['clear-cache'],
+    skipCache: ctx.values['skip-cache'],
   });
 
   // For json-full, still run the checks so their pretty output goes to stderr,
@@ -120,9 +153,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // errors would just be noise caused by the parse/schema failure
   if (!hasSchemaErrors) {
     // Generate types before resolving values — uses only non-env-specific schema info
-    await envGraph.generateTypesIfNeeded();
+    await envGraph.runCodeGeneratorsIfNeeded();
 
-    await envGraph.resolveEnvValues();
+    // A --filter scopes resolution (and validation) to what it selects plus dependencies — an
+    // unrelated broken item outside the filter won't block this load, and excluded items'
+    // value resolvers never run. Decorator selectors resolve item metadata first, then match
+    // exactly (see EnvGraph.resolveEnvValuesForFilter).
+    if (itemFilter) await itemFilter.resolveScoped(envGraph);
+    else await envGraph.resolveEnvValues();
 
     if (outputFormat === 'json-full') {
       checkForConfigErrors(envGraph, { showAll, noThrow: true });
@@ -131,8 +169,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
+  const filterKeys = itemFilter?.getFilterKeys(Object.values(envGraph.configSchema));
+  const sortedConfigKeys = filterKeys
+    ? envGraph.sortedConfigKeys.filter((key) => filterKeys.has(key))
+    : envGraph.sortedConfigKeys;
+
   if ((summaryStderr || summaryFile) && outputFormat !== 'pretty') {
-    const summaryLines = envGraph.sortedConfigKeys.map(
+    const summaryLines = sortedConfigKeys.map(
       (key) => getItemSummary(envGraph.configSchema[key]),
     );
     const summaryStr = `${summaryLines.join('\n')}\n`;
@@ -147,8 +190,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   /** When --agent is set, return a copy of the resolved env with sensitive values redacted */
   function getRedactedEnvObject() {
     const redactedEnv: Record<string, unknown> = {};
-    const resolvedEnv = envGraph.getResolvedEnvObject();
-    for (const itemKey of envGraph.sortedConfigKeys) {
+    // include @internal items here: they aren't injected, but an agent inspecting the env
+    // still needs to see they exist (redacted) to help set/debug them
+    const resolvedEnv = envGraph.getResolvedEnvObject({ includeInternal: true });
+    for (const itemKey of sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       const value = resolvedEnv[itemKey];
       if (item.isSensitive && typeof value === 'string') {
@@ -168,16 +213,33 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.error();
     }
     console.error(ansis.bold.green('-- Resolved config --'));
-    for (const itemKey of envGraph.sortedConfigKeys) {
+    for (const itemKey of sortedConfigKeys) {
       const item = envGraph.configSchema[itemKey];
       console.log(getItemSummary(item));
     }
   } else if (outputFormat === 'json') {
-    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject();
+    const env = agent ? getRedactedEnvObject() : envGraph.getResolvedEnvObject({ filterKeys });
     console.log(JSON.stringify(env, null, 2));
   } else if (outputFormat === 'json-full') {
     const indent = compact ? 0 : 2;
-    const serialized = envGraph.getSerializedGraph();
+    // @internal items are excluded by default, same as every other format — json-full is
+    // routinely consumed programmatically (framework integrations shell out to this exact
+    // command to get their injected config), so a secret-zero credential must not appear here
+    // unless explicitly requested. Pass --include-internal for local human inspection.
+    const serialized = envGraph.getSerializedGraph({ includeInternal: !!includeInternal, filterKeys });
+    // Detect the proxy context via the unified resolver (env marker → session
+    // token → ancestry), so the annotation is accurate even if the child scrubbed
+    // the env marker.
+    const proxySession = await getActiveProxySession().catch(() => undefined);
+    if (proxySession || process.env[PROXY_CHILD_ENV_VAR] === '1') {
+      (serialized as any).runtime = {
+        proxy: {
+          active: true,
+          sessionId: proxySession?.id ?? process.env[PROXY_SESSION_ID_ENV_VAR],
+          sessionUuid: proxySession?.uuid ?? process.env[PROXY_SESSION_UUID_ENV_VAR],
+        },
+      };
+    }
     if (agent) {
       for (const key in serialized.config) {
         const item = serialized.config[key];
@@ -195,7 +257,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       gracefulExit(1);
     }
   } else if (outputFormat === 'env' || outputFormat === 'shell') {
-    const resolvedEnv = envGraph.getResolvedEnvObject();
+    const resolvedEnv = envGraph.getResolvedEnvObject({ filterKeys });
+    // env/shell output is destined for raw environment variables, so values are emitted
+    // in their process.env string form (composites become separator-joined/JSON strings);
+    // the typed object above still decides quoting (bare numbers/booleans stay unquoted)
+    const resolvedEnvStrings = envGraph.getResolvedEnvStringObject({ filterKeys });
     const skipUndefined = compact === true;
     const prefix = outputFormat === 'shell' ? 'export ' : '';
 
@@ -209,14 +275,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       let strValue: string;
       if (value === undefined) {
         strValue = '';
-      } else if (typeof value === 'string') {
+      } else if (typeof value === 'string' || typeof value === 'object') {
+        const stringForm = resolvedEnvStrings[key] ?? '';
         if (outputFormat === 'shell') {
-          strValue = formatShellValue(value);
+          strValue = formatShellValue(stringForm);
         } else {
-          strValue = `"${value.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
+          strValue = `"${stringForm.replaceAll('"', '\\"').replaceAll('\n', '\\n')}"`;
         }
       } else {
-        strValue = JSON.stringify(value);
+        // bare scalars (numbers/booleans) stay unquoted so re-reading infers the same type
+        strValue = String(value);
       }
       console.log(`${prefix}${key}=${strValue}`);
     }

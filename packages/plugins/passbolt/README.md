@@ -1,6 +1,6 @@
 # @varlock/passbolt-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/passbolt-plugin.svg)](https://www.npmjs.com/package/@varlock/passbolt-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/passbolt-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/passbolt-plugin.svg)](https://npmx.dev/package/@varlock/passbolt-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/passbolt-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [Passbolt Secrets Manager](https://www.passbolt.com/) into your configuration.
 
@@ -44,7 +44,7 @@ You will need to provide your Passbolt account kit and its passphrase:
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -67,7 +67,7 @@ This plugin introduces the `passbolt()` function to fetch secret values.
 # @plugin(@varlock/passbolt-plugin)
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -105,7 +105,7 @@ Use `passboltBulk()` with `@setValuesBulk` to load all secrets (passwords) from 
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # @setValuesBulk(passboltBulk(folderPath="Database/Dev"))
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -122,7 +122,7 @@ Or use `passboltCustomFieldsObj()` with `@setValuesBulk` to load all custom fiel
 # @initPassbolt(accountKit=$PB_ACCOUNT_KIT, passphrase=$PB_PASSPHRASE)
 # @setValuesBulk(passboltCustomFieldsObj("01234567-0123-4567-890a-bcdef0123456"))
 # ---
-# @type=passboltAccountKit @sensitive
+# @type=passboltAccountKit @sensitive @internal
 PB_ACCOUNT_KIT=
 # @type=string @sensitive
 PB_PASSPHRASE=
@@ -163,6 +163,7 @@ Initialize a Passbolt Secrets Manager plugin instance.
 
 - `accountKit: string` (required) - Passbolt account kit
 - `passphrase: string` (required) - Passphrase to decrypt your private key
+- `cacheTtl?: string | number` - Cache resolved values for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

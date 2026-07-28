@@ -22,14 +22,15 @@ vi.mock('varlock/patch-console', () => ({
 }));
 
 import { withVarlockMetroConfig } from '../src/metro-config';
+import packageJson from '../package.json';
 
 const FAKE_ENV_GRAPH = {
   basePath: '/tmp',
   sources: [],
   settings: {},
   config: {
-    API_URL: { value: 'https://api.example.com', isSensitive: false },
-    SECRET_KEY: { value: 's3cr3t', isSensitive: true },
+    API_URL: { value: 'https://api.example.com', isSensitive: false, isDynamic: false },
+    SECRET_KEY: { value: 's3cr3t', isSensitive: true, isDynamic: true },
   },
 };
 
@@ -61,7 +62,13 @@ describe('withVarlockMetroConfig', () => {
   it('calls execSyncVarlock to load config', () => {
     withVarlockMetroConfig({});
     expect(mockExecSyncVarlock).toHaveBeenCalledOnce();
-    expect(mockExecSyncVarlock).toHaveBeenCalledWith('load --format json-full', { fullResult: true });
+    expect(mockExecSyncVarlock).toHaveBeenCalledWith('load --format json-full', {
+      fullResult: true,
+      integrationTelemetry: {
+        name: packageJson.name,
+        version: packageJson.version,
+      },
+    });
   });
 
   it('sets process.env.__VARLOCK_ENV with the JSON result', () => {

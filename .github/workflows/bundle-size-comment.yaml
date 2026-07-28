@@ -1,0 +1,91 @@
+name: Bundle size comment
+
+# Privileged half of the fork-safe bundle-size comment (mirrors Bumpy comment).
+#
+# Runs on `workflow_run` — a trusted context that NEVER checks out or executes PR
+# code — and posts the report produced by the unprivileged "Bundle size check".
+#
+# SECURITY: the artifact body is untrusted (a fork produced it). Two things keep
+# this safe: (1) it is downloaded to runner.temp, OUTSIDE any checkout, so it
+# can't overwrite trusted files; and (2) the target PR is resolved from the
+# trusted `workflow_run` event (head_sha), never from the artifact, so a fork
+# can't redirect the comment onto another PR. The body is used only as comment
+# text, and the sticky-comment marker is owned here (not read from the artifact).
+on:
+  workflow_run:
+    workflows: ["Bundle size check"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: bundle-size-comment-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Download to runner.temp (OUTSIDE any checkout) so the untrusted artifact
+      # can't overwrite trusted files. `continue-on-error` so a missing artifact
+      # (e.g. the check was skipped) just means there is nothing to post.
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: bundle-size-comment
+          path: ${{ runner.temp }}/bundle-size-comment
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Upsert sticky comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // Marker is owned here (trusted), not read from the artifact — so a
+            // fork can't point the sticky comment at some other comment.
+            const marker = '<!-- bundle-size-report -->';
+            const file = path.join(process.env.RUNNER_TEMP, 'bundle-size-comment', 'comment.md');
+
+            let report;
+            try {
+              report = fs.readFileSync(file, 'utf8');
+            } catch {
+              core.info('No report artifact found; nothing to post.');
+              return;
+            }
+            if (!report.trim()) {
+              core.info('Empty report; nothing to post.');
+              return;
+            }
+            const body = `${marker}\n${report}`;
+
+            // Resolve the target PR from the trusted event, never from the artifact.
+            const headSha = context.payload.workflow_run.head_sha;
+            const { owner, repo } = context.repo;
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner, repo, commit_sha: headSha,
+            });
+            const pr = prs.find((p) => p.state === 'open');
+            if (!pr) {
+              core.info(`No open PR associated with ${headSha}; nothing to post.`);
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: pr.number, per_page: 100,
+            });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+              core.info(`Updated bundle-size comment ${existing.id} on PR #${pr.number}`);
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+              core.info(`Created bundle-size comment on PR #${pr.number}`);
+            }

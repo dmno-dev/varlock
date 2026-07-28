@@ -134,4 +134,50 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).not.toContain('DEFAULT_IGNORED');
     expect(result.keys).not.toContain('CUSTOM_IGNORED');
   });
+
+  test('does not descend into nested varlock projects (child packages with their own schema)', async () => {
+    // a child package that is its own varlock project
+    const childPkg = path.join(tempDir, 'packages', 'child');
+    fs.mkdirSync(childPkg, { recursive: true });
+    fs.writeFileSync(path.join(childPkg, '.env.schema'), 'CHILD_KEY=');
+    fs.writeFileSync(path.join(childPkg, 'index.ts'), 'process.env.CHILD_ONLY_KEY');
+
+    // a nested directory without its own schema - should still be scanned
+    const innerDir = path.join(tempDir, 'src', 'inner');
+    fs.mkdirSync(innerDir, { recursive: true });
+    fs.writeFileSync(path.join(innerDir, 'thing.ts'), 'process.env.INNER_KEY');
+
+    fs.writeFileSync(path.join(tempDir, 'app.ts'), 'process.env.ROOT_KEY');
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toContain('ROOT_KEY');
+    expect(result.keys).toContain('INNER_KEY');
+    expect(result.keys).not.toContain('CHILD_ONLY_KEY');
+  });
+
+  test('does not descend into workspace packages that have a package.json but no schema yet', async () => {
+    // a fresh monorepo: child package exists but hasn't run `varlock init` yet
+    const childPkg = path.join(tempDir, 'packages', 'child');
+    fs.mkdirSync(childPkg, { recursive: true });
+    fs.writeFileSync(path.join(childPkg, 'package.json'), '{ "name": "child" }');
+    fs.writeFileSync(path.join(childPkg, 'index.ts'), 'process.env.CHILD_ONLY_KEY');
+
+    fs.writeFileSync(path.join(tempDir, 'app.ts'), 'process.env.ROOT_KEY');
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toContain('ROOT_KEY');
+    expect(result.keys).not.toContain('CHILD_ONLY_KEY');
+  });
+
+  test('still scans the root project even though the root has its own package.json/schema', async () => {
+    fs.writeFileSync(path.join(tempDir, 'package.json'), '{ "name": "root" }');
+    fs.writeFileSync(path.join(tempDir, '.env.schema'), 'ROOT_KEY=');
+    fs.writeFileSync(path.join(tempDir, 'app.ts'), 'process.env.ROOT_KEY');
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toContain('ROOT_KEY');
+  });
 });

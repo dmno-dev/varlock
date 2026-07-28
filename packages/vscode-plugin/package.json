@@ -7,7 +7,7 @@
     "color": "#4F0049",
     "theme": "dark"
   },
-  "version": "0.2.0",
+  "version": "0.3.1",
   "publisher": "varlock",
   "author": "dmno-dev",
   "license": "MIT",
@@ -82,11 +82,14 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
+    "install:local": "bun run build && bun run scripts/install-local.ts",
     "test": "vitest",
     "test:grammar": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
-    "test:ci": "vitest --run && bun run test:grammar",
+    "test:snap": "vscode-tmgrammar-snap -s source.env-spec -g ./language/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
+    "test:snap:update": "vscode-tmgrammar-snap -u -s source.env-spec -g ./language/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
+    "test:ci": "vitest --run && bun run test:grammar && bun run test:snap",
     "package": "bun run build && vsce package -o env-spec-language.vsix --no-dependencies",
-    "publish:vsce": "vsce publish -i env-spec-language.vsix",
+    "publish:vsce": "vsce publish -i env-spec-language.vsix --azure-credential",
     "publish:ovsx": "ovsx publish -i env-spec-language.vsix",
     "publish": "bun run package && bun run publish:vsce && bun run publish:ovsx",
     "typecheck": "tsc --noEmit"
@@ -94,9 +97,11 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/vscode": "^1.99.0",
+    "@varlock/1password-plugin": "workspace:*",
     "@vscode/vsce": "^3.6.2",
     "ovsx": "^0.10.6",
     "tsup": "catalog:",
+    "varlock": "workspace:*",
     "vitest": "catalog:",
     "vscode-tmgrammar-test": "^0.1.3"
   },

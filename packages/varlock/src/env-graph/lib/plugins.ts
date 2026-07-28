@@ -1,20 +1,26 @@
 /// <reference path="../../globals.d.ts" />
 import path from 'node:path';
-import { exec as execCb } from 'node:child_process';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
-import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import ansis from 'ansis';
-import semver from 'semver';
+import semverValid from 'semver/functions/valid';
+import semverValidRange from 'semver/ranges/valid';
+import semverSatisfies from 'semver/functions/satisfies';
 import { isCancel } from '@clack/prompts';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { PluginCacheAccessor } from '../../lib/cache/plugin-cache-accessor';
+import { NoopCacheStore } from '../../lib/cache/noop-cache-store';
+import type { CacheStoreLike } from '../../lib/cache/cache-store';
+import { parseTtl } from '../../lib/cache/ttl-parser';
+import { resolveCacheTtl } from '../../lib/cache/resolve-cache-ttl';
 import { confirm } from '../../cli/helpers/prompts';
+import { extractTarball } from '../../lib/extract-tarball';
 
 
 import { FileBasedDataSource, type EnvGraphDataSource } from './data-source';
@@ -27,6 +33,7 @@ import type {
   DecoratorInstance, ItemDecoratorDef, RootDecoratorDef, RootDecoratorInstance,
 } from './decorators';
 import { createEnvGraphDataType } from './data-types';
+import type { CodeGeneratorDef } from './type-generation';
 
 import { createDebug, type Debugger } from '../../lib/debug';
 import { getWorkspaceInfo } from '../../lib/workspace-utils';
@@ -79,6 +86,8 @@ const varlockPluginLibExports = {
   SchemaError,
   ResolutionError,
   createDebug,
+  parseTtl,
+  resolveCacheTtl,
 };
 
 
@@ -143,13 +152,18 @@ async function loadPluginModuleESM(filePath: string): Promise<void> {
       source = new Bun.Transpiler({ loader: 'ts' }).transformSync(source);
     }
 
-    await import(/* webpackIgnore: true */ `data:text/javascript,${encodeURIComponent(source)}`);
+    await import(/* webpackIgnore: true */ /* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source)}`);
   } else {
     const fileUrl = pathToFileURL(filePath).href;
-    await import(/* webpackIgnore: true */ `${fileUrl}?t=${Date.now()}`);
+    await import(/* webpackIgnore: true */ /* @vite-ignore */ `${fileUrl}?t=${Date.now()}`);
   }
 }
 
+
+/** Allowed value types for plugin telemetry attributes (strictly sanitized before send) */
+export type PluginTelemetryAttributeValue = boolean | number | string | null;
+/** Flat object of anonymous, non-sensitive usage attributes a plugin reports for telemetry */
+export type PluginTelemetryAttributes = Record<string, PluginTelemetryAttributeValue>;
 
 export class VarlockPlugin {
   // helper so end user code can get same error classes
@@ -209,6 +223,22 @@ export class VarlockPlugin {
   }
 
 
+  // -- Cache API for plugin authors --
+  private _cacheAccessor?: PluginCacheAccessor;
+  /** @internal set by EnvGraph when plugins are loaded */
+  _cacheStore?: CacheStoreLike;
+
+  /**
+   * Scoped cache accessor for this plugin.
+   * Keys are automatically namespaced to prevent collisions between plugins.
+   */
+  get cache(): PluginCacheAccessor {
+    // when caching is unavailable (--skip-cache / @cache=disabled), hand out a
+    // no-op-backed accessor so plugin code doesn't need to special-case it
+    this._cacheAccessor ||= new PluginCacheAccessor(this.name, this._cacheStore ?? new NoopCacheStore());
+    return this._cacheAccessor;
+  }
+
   readonly dataTypes?: Array<Parameters<typeof createEnvGraphDataType>[0]> = [];
   registerDataType(dataTypeDef: Parameters<typeof createEnvGraphDataType>[0]) {
     this.debug('registerDataType', dataTypeDef.name);
@@ -221,6 +251,17 @@ export class VarlockPlugin {
     this.rootDecorators!.push(decoratorDef);
   }
 
+  readonly codeGenerators?: Array<CodeGeneratorDef> = [];
+  /**
+   * Register a code generator contributed by this plugin. Each generator is triggered by a root
+   * decorator (named `decoratorName`) and produces a file — the same mechanism the built-in
+   * ts/py/rs/go/php generators use.
+   */
+  registerCodeGenerator(generatorDef: CodeGeneratorDef) {
+    this.debug('registerCodeGenerator', generatorDef.decoratorName);
+    this.codeGenerators!.push(generatorDef);
+  }
+
   readonly itemDecorators?: Array<ItemDecoratorDef<any>> = [];
   registerItemDecorator<T>(decoratorDef: ItemDecoratorDef<T>) {
     this.debug('registerItemDecorator', decoratorDef.name);
@@ -231,6 +272,21 @@ export class VarlockPlugin {
   registerResolverFunction<T>(resolverDef: ResolverDef<T>) {
     this.debug('registerResolverFunction', resolverDef.name);
     this.resolverFunctions!.push(resolverDef);
+  }
+
+  /** @internal telemetry attributes provider registered by the plugin (collected for official plugins only) */
+  _getTelemetryAttributes?: () => PluginTelemetryAttributes;
+  /**
+   * Register a function returning a flat object of anonymous, non-sensitive usage
+   * attributes for this plugin (booleans, short enum strings, counts) — e.g. which
+   * auth mode is in use, whether a feature is enabled. Called when telemetry is
+   * captured. Values are strictly sanitized and only collected for official
+   * `@varlock/*` plugins. Throwing or returning unexpected shapes is safe —
+   * offending entries are dropped. Never include secret values, names, or paths.
+   */
+  registerTelemetryAttributes(fn: () => PluginTelemetryAttributes) {
+    this.debug('registerTelemetryAttributes');
+    this._getTelemetryAttributes = fn;
   }
 
   /**
@@ -447,6 +503,11 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   plugin.installDecoratorInstances.push(pluginDecorator);
   graph.plugins.push(plugin);
 
+  // propagate cache store so plugin.cache is available during module execution
+  if (graph._cacheStore) {
+    plugin._cacheStore = graph._cacheStore;
+  }
+
   // this finally executes the plugin code
   await plugin.executePluginModule();
 
@@ -458,6 +519,9 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   // register decorators, resolvers, data types from this plugin
   for (const rootDec of plugin.rootDecorators || []) {
     graph.registerRootDecorator(rootDec);
+  }
+  for (const codeGen of plugin.codeGenerators || []) {
+    graph.registerCodeGenerator(codeGen);
   }
   for (const itemDec of plugin.itemDecorators || []) {
     graph.registerItemDecorator(itemDec);
@@ -488,7 +552,6 @@ async function isPluginCached(url: string): Promise<boolean> {
 }
 
 async function downloadPlugin(url: string) {
-  const exec = promisify(execCb);
   const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
   const indexPath = path.join(cacheDir, 'index.json');
   await fs.mkdir(cacheDir, { recursive: true });
@@ -525,10 +588,12 @@ async function downloadPlugin(url: string) {
     }).on('error', reject);
   });
 
-  // Extract tgz to a temp folder
+  // Extract tgz to a temp folder. We extract natively (zlib + a small tar
+  // reader) rather than shelling out to `tar`, so plugin auto-install works in
+  // minimal/distroless images that have neither a shell nor a `tar` binary.
   const tmpExtractDir = path.join(cacheDir, `tmp-extract-${crypto.randomBytes(8).toString('hex')}`);
   await fs.mkdir(tmpExtractDir);
-  await exec(`tar -xzf ${tmpTgz} -C ${tmpExtractDir}`);
+  await extractTarball(tmpTgz, tmpExtractDir);
 
   // Find package.json (assume in package/ or root)
   let pkgJsonPath = path.join(tmpExtractDir, 'package', 'package.json');
@@ -569,7 +634,7 @@ async function downloadPlugin(url: string) {
  * @returns the local cache directory the plugin was extracted into
  */
 export async function downloadPluginToCache(moduleName: string, versionDescriptor: string): Promise<string> {
-  if (!semver.valid(versionDescriptor)) {
+  if (!semverValid(versionDescriptor)) {
     throw new Error(`"${versionDescriptor}" is not a fixed version — use an exact version like 1.2.3`);
   }
 
@@ -636,7 +701,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             versionDescriptor = pluginSourceDescriptor.slice(atLocation + 1);
           }
 
-          const semverRange = semver.validRange(versionDescriptor);
+          const semverRange = semverValidRange(versionDescriptor);
           if (versionDescriptor && !semverRange) {
             throw new SchemaError(`Bad @plugin version descriptor: ${versionDescriptor}`);
           } else if (semverRange === '*') {
@@ -665,7 +730,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               const packageJsonString = await fs.readFile(pluginPackageJsonPath, 'utf-8');
               const packageJson = JSON.parse(packageJsonString);
               const packageVersion = packageJson.version;
-              if (versionDescriptor && !semver.satisfies(packageVersion, versionDescriptor)) {
+              if (versionDescriptor && !semverSatisfies(packageVersion, versionDescriptor)) {
                 throw new SchemaError(`Installed plugin "${moduleName}" version "${packageVersion}" does not satisfy requested version "${versionDescriptor}"`, {
                   location: getErrorLocation(dataSource, pluginDecorator),
                 });
@@ -691,7 +756,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               } else {
                 throw new SchemaError(`Plugin "${moduleName}" unable to resolve - set a fixed version (e.g., \`@plugin(${moduleName}@1.2.3)\`)`);
               }
-            } else if (!semver.valid(versionDescriptor)) {
+            } else if (!semverValid(versionDescriptor)) {
               throw new SchemaError(`Plugin "${moduleName}" must use a fixed version when not installing via package.json (e.g., \`@plugin(${moduleName}@1.2.3)\`)`, {
                 location: getErrorLocation(dataSource, pluginDecorator),
               });
@@ -769,4 +834,3 @@ export type VarlockPluginCtx = {
 };
 
 export type definePluginFn = (p: VarlockPlugin) => void;
-

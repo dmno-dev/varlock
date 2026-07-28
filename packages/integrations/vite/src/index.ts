@@ -1,5 +1,6 @@
 /* eslint-disable no-console */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import MagicString from 'magic-string';
@@ -12,7 +13,7 @@ import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
-import { createReplacerTransformFn, SUPPORTED_FILES } from './transform';
+import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-replacer';
 
 import { ansiToHtml } from './ansi-to-html';
 export { ansiToHtml };
@@ -51,21 +52,31 @@ export let varlockLoadedEnv: SerializedEnvGraph;
 export let varlockLastError: string | undefined;
 let lastErrorAt = 0;
 let configHookCalled = false;
+// one-time guard for the SvelteKit+Cloudflare auto-detection notice
+let cfDetectNoticeLogged = false;
+// one-time guard for the Vercel unencrypted resolved-env warning
+let vercelUnencryptedWarningLogged = false;
 let staticReplacements: Record<string, any> = {};
+let publicDynamicKeys: Array<string> = [];
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
 
 
 function resetStaticReplacements() {
   staticReplacements = {};
+  publicDynamicKeys = [];
   for (const itemKey in varlockLoadedEnv?.config) {
     const itemInfo = varlockLoadedEnv.config[itemKey];
-    // TODO: probably reimplement static/dynamic controls here too
-    if (!itemInfo.isSensitive) {
+    const isDynamic = itemInfo.isDynamic ?? itemInfo.isSensitive;
+    if (isDynamic && !itemInfo.isSensitive) {
+      publicDynamicKeys.push(itemKey);
+    }
+    if (!isDynamic) {
       // we have to pass in a string of 'undefined' so it gets replaced properly
       const val = itemInfo.value === undefined ? 'undefined' : JSON.stringify(itemInfo.value);
       staticReplacements[`ENV.${itemKey}`] = val;
     }
   }
+  (globalThis as any).__varlockPublicDynamicKeys = publicDynamicKeys;
 
   debug('static replacements', staticReplacements);
 
@@ -75,13 +86,40 @@ function resetStaticReplacements() {
 }
 
 
+// Env sources may not be regular files — e.g. 1Password Environments serves
+// `.env` as a FIFO (named pipe) that is re-served on every read. Watching such
+// a file is meaningless (its stat churns whenever it is read) and registering
+// it in `configFileDependencies` would make vite restart the dev server in a
+// loop, since each restart re-reads the pipe and fires new fs events.
+function isExistingNonRegularFile(filePath: string): boolean {
+  try {
+    return !fs.statSync(filePath).isFile();
+  } catch {
+    return false; // missing files keep their current handling
+  }
+}
+
+const warnedNonRegularSources = new Set<string>();
+function warnNonRegularSourceOnce(absPath: string, basePath?: string) {
+  if (warnedNonRegularSources.has(absPath)) return;
+  warnedNonRegularSources.add(absPath);
+  const displayPath = basePath ? (path.relative(basePath, absPath) || absPath) : absPath;
+  console.log(`ℹ️ [varlock] ${displayPath} is not a regular file (FIFO/pipe), live reload is disabled for it`);
+}
+
 let loadCount = 0;
+let activeIntegrationTelemetry = {
+  name: __VARLOCK_INTEGRATION_NAME__,
+  version: __VARLOCK_INTEGRATION_VERSION__,
+};
+
 function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
       env: originalProcessEnv,
+      integrationTelemetry: activeIntegrationTelemetry,
       ...(cwd && { cwd }),
     });
     process.env.__VARLOCK_ENV = stdout;
@@ -143,6 +181,15 @@ export interface VarlockVitePluginOptions {
   ssrEdgeRuntime?: boolean,
   /** additional virtual module IDs to treat as entry points (e.g., '\0virtual:cloudflare/worker-entry') */
   ssrEntryModuleIds?: Array<string>,
+  /** override integration identity for CLI telemetry (used by composed integrations like Astro) */
+  integrationTelemetry?: { name: string, version: string },
+  /**
+   * set by composed integrations (e.g. `@varlock/cloudflare-integration`, the
+   * Astro Cloudflare adapter branch) when the CF runtime env loader has been
+   * injected via `ssrEntryCode`. Used to reject `ssrInjectMode: 'resolved-env'`
+   * as redundant — the loader already hydrates env from Cloudflare bindings.
+   */
+  isCloudflareTarget?: boolean,
 }
 
 // Return type is `any` instead of `Plugin` to avoid symlink type conflicts.
@@ -155,26 +202,95 @@ const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
+  if (vitePluginOptions?.integrationTelemetry) {
+    const prevName = activeIntegrationTelemetry.name;
+    activeIntegrationTelemetry = vitePluginOptions.integrationTelemetry;
+    if (prevName !== activeIntegrationTelemetry.name) {
+      reloadConfig();
+    }
+  }
+
+  // Resolved at build time. These start from the passed options but may be
+  // overridden by SvelteKit+Cloudflare auto-detection in `configResolved`
+  // (see below). They're read lazily by `buildInitModuleCode()`, which runs
+  // when the virtual init module is loaded — always after `configResolved`.
+  let resolvedSsrEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
+  let resolvedSsrEntryCode = vitePluginOptions?.ssrEntryCode;
+  let resolvedIsCloudflareTarget = vitePluginOptions?.isCloudflareTarget ?? false;
+
   // Build the virtual init module content once. This module is imported
   // by SSR entry points and evaluates before any user code because it
   // has no transitive dependencies on user modules.
-  function buildInitModuleCode() {
-    const ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
-    const isEdgeRuntime = vitePluginOptions?.ssrEdgeRuntime ?? false;
+  function buildInitModuleCode(environmentName?: string) {
+    let ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
+
+    // Cloudflare's build-time prerender worker (@astrojs/cloudflare v14 runs
+    // prerendering inside workerd via @cloudflare/vite-plugin's experimental
+    // `prerenderWorker`, a vite environment named "prerender") executes during
+    // the build with no bindings attached, so the runtime bindings loader can
+    // never find env there and `process.env.__VARLOCK_ENV` doesn't exist inside
+    // workerd. Bake the resolved env directly instead by routing this env
+    // through the same `resolved-env` path used below (so it shares the init +
+    // patch sequence and any future additions to it) — this artifact only
+    // generates static HTML at build time and is not deployed, and generated
+    // HTML is still leak-scanned by the framework integrations. The three
+    // guards keyed off `isCfPrerenderEnv` opt it out of the CF-specific
+    // behaviors that don't apply to the throwaway prerender worker: the
+    // "redundant on CF" rejection, env encryption (the worker can't read
+    // `_VARLOCK_ENV_KEY`, and the artifact is discarded), and the CF bindings
+    // loader (whose top-level `await import('cloudflare:workers')` + absent
+    // bindings are exactly what break the build here).
+    const isCfPrerenderEnv = resolvedIsCloudflareTarget && environmentName === 'prerender' && !isDevCommand;
+    if (isCfPrerenderEnv) ssrInjectMode = 'resolved-env';
+
+    const isEdgeRuntime = resolvedSsrEdgeRuntime;
     const lines: Array<string> = [
       '// Virtual module generated by @varlock/vite-integration',
       '// Runs before any user code to ensure ENV is available at module top-level',
       'globalThis.__varlockThrowOnMissingKeys = true;',
+      `globalThis.__varlockPublicDynamicKeys = ${JSON.stringify(publicDynamicKeys)};`,
     ];
 
     const encryptionRequired = varlockLoadedEnv?.settings?.encryptInjectedEnv;
-    let encryptionKey: string | undefined = process.env._VARLOCK_ENV_KEY;
+    // Force plaintext for the prerender worker — it can't read _VARLOCK_ENV_KEY
+    // (no bindings) and is discarded after the build, so an encrypted blob would
+    // only fail to decrypt.
+    let encryptionKey: string | undefined = isCfPrerenderEnv ? undefined : process.env._VARLOCK_ENV_KEY;
 
     if (ssrInjectMode === 'auto-load') {
       lines.push("import 'varlock/auto-load';");
     } else {
       if (ssrInjectMode === 'resolved-env') {
-        if (encryptionRequired && !encryptionKey) {
+        // Only reject this for production builds. In dev, some adapters (e.g.
+        // Astro's @astrojs/cloudflare) run SSR inside workerd via a plugin-owned
+        // miniflare instance with no binding-injection hook for varlock to use,
+        // so resolved-env is the only way to get real values into the worker —
+        // it's the composed integration's own default there, not shipped in a
+        // deploy artifact.
+        if (resolvedIsCloudflareTarget && !isDevCommand && !isCfPrerenderEnv) {
+          throw new Error(
+            "[varlock] ssrInjectMode: 'resolved-env' is redundant on Cloudflare Workers and ships resolved "
+            + '(possibly sensitive) values into the worker bundle unnecessarily. Cloudflare deploys get their '
+            + 'env injected at runtime from bindings via `varlock-wrangler` — remove the `ssrInjectMode` override '
+            + "(or set it to 'init-only') and let the Cloudflare integration handle it.\n"
+            + 'See https://varlock.dev/integrations/cloudflare/ for details.',
+          );
+        }
+        // Vercel has no native runtime-binding mechanism like Cloudflare's, so
+        // `resolved-env` is the correct approach there — but plaintext means
+        // secrets sit as JSON in the build artifact. Nudge (don't block) users
+        // who haven't opted into `@encryptInjectedEnv`.
+        if (process.env.VERCEL === '1' && !encryptionRequired && !isDevCommand) {
+          if (!vercelUnencryptedWarningLogged) {
+            vercelUnencryptedWarningLogged = true;
+            console.warn(
+              "\x1b[33m[varlock] ⚠️ ssrInjectMode: 'resolved-env' on Vercel ships your resolved env as plaintext JSON "
+              + 'in the build artifact. Consider enabling `@encryptInjectedEnv` — '
+              + 'see https://varlock.dev/guides/encrypted-deployments/\x1b[0m',
+            );
+          }
+        }
+        if (encryptionRequired && !encryptionKey && !isCfPrerenderEnv) {
           if (isDevCommand) {
             // auto-generate a temporary key for local dev
             encryptionKey = generateEncryptionKeyHex();
@@ -196,9 +312,11 @@ export function varlockVitePlugin(
         }
       }
 
-      // inject custom entry code from integrations (e.g., CF bindings loader)
-      if (vitePluginOptions?.ssrEntryCode?.length) {
-        lines.push(...vitePluginOptions.ssrEntryCode);
+      // inject custom entry code from integrations (e.g., CF bindings loader) —
+      // but not in the prerender worker, where the runtime bindings loader can't
+      // work and its top-level await breaks the build (env is baked in above).
+      if (resolvedSsrEntryCode?.length && !isCfPrerenderEnv) {
+        lines.push(...resolvedSsrEntryCode);
       }
 
       // decrypt the encrypted env blob before initVarlockEnv runs
@@ -234,6 +352,58 @@ export function varlockVitePlugin(
     return lines.join('\n');
   }
 
+  // Auto-detect SvelteKit deploying to Cloudflare Workers and wire up the edge
+  // env-loader so users don't need a separate import. SvelteKit resolves its
+  // config (from `svelte.config.js` OR inline `sveltekit({ adapter })`) and
+  // exposes it on the `vite-plugin-sveltekit-setup` plugin's `api.options`, so
+  // this one check covers both config layouts. The Cloudflare-specific injected
+  // code lives in `@varlock/cloudflare-integration` and is pulled in lazily via
+  // a runtime dynamic import. CF deployers already have it installed (it ships
+  // `varlock-wrangler`); it is intentionally NOT declared as a (peer)dependency
+  // here because cloudflare-integration depends on vite-integration, and the
+  // back-edge would create a build/typecheck cycle. We skip this when the
+  // consumer already supplied
+  // `ssrEntryCode` (e.g. the astro integration or the legacy
+  // `varlockSvelteKitCloudflarePlugin`) so we never double-inject.
+  async function detectSvelteKitCloudflareTarget(config: { plugins?: ReadonlyArray<any> }) {
+    if (resolvedSsrEntryCode) return;
+
+    // SvelteKit's setup plugin (`vite-plugin-sveltekit-setup`) exposes the
+    // resolved config via `api.options`. Match structurally on the
+    // `kit.adapter` shape rather than the plugin name so this is resilient to
+    // version changes — only SvelteKit exposes a resolved adapter this way.
+    const sveltekitSetup = config.plugins?.find((p) => p?.api?.options?.kit?.adapter);
+    if (!sveltekitSetup) return;
+
+    const adapterName: string | undefined = sveltekitSetup.api.options.kit.adapter?.name;
+    // `adapter-auto` keeps its own name even when it resolves to Cloudflare in
+    // CF's CI, so fall back to the platform env vars CF sets at build time.
+    const isCloudflare = adapterName === '@sveltejs/adapter-cloudflare'
+      || (adapterName === '@sveltejs/adapter-auto' && !!(process.env.CF_PAGES || process.env.WORKERS_CI));
+    if (!isCloudflare) return;
+
+    try {
+      // Variable specifier + cast: keeps this a runtime-only dynamic import so
+      // typecheck/bundling don't require the (optional) package to be present.
+      const cfEntryCodeModule = '@varlock/cloudflare-integration/ssr-entry-code';
+      const { CLOUDFLARE_SSR_ENTRY_CODE } = await import(cfEntryCodeModule) as { CLOUDFLARE_SSR_ENTRY_CODE: string };
+      resolvedSsrEntryCode = [CLOUDFLARE_SSR_ENTRY_CODE];
+      resolvedSsrEdgeRuntime = true;
+      resolvedIsCloudflareTarget = true;
+      debug('detected SvelteKit + Cloudflare adapter — injecting edge env loader');
+      // Surface the auto-detection so it isn't silent magic in the build output.
+      if (!cfDetectNoticeLogged) {
+        cfDetectNoticeLogged = true;
+        console.log('\x1b[36m🔒 [varlock] detected @sveltejs/adapter-cloudflare — injecting the Cloudflare Workers env loader into the SSR entry\x1b[0m');
+      }
+    } catch {
+      throw new Error(
+        '[varlock] SvelteKit deploying to Cloudflare requires @varlock/cloudflare-integration.\n'
+        + 'Install it alongside @varlock/vite-integration: npm install @varlock/cloudflare-integration',
+      );
+    }
+  }
+
   return {
     name: 'inject-varlock-config',
     enforce: 'post',
@@ -242,7 +412,10 @@ export function varlockVitePlugin(
       if (id === VARLOCK_INIT_MODULE_ID) return id;
     },
     load(id) {
-      if (id === VARLOCK_INIT_MODULE_ID) return buildInitModuleCode();
+      if (id === VARLOCK_INIT_MODULE_ID) {
+        // `this.environment` exists in vite 6+ (environments API)
+        return buildInitModuleCode(this.environment?.name);
+      }
     },
 
     // hook to modify config before it is resolved
@@ -267,6 +440,11 @@ See https://varlock.dev/integrations/vite/ for more details.
       }
 
       isDevCommand = env.command === 'serve';
+      if (env.command === 'build') {
+        process.env.__VARLOCK_EXECUTION_PHASE = 'build';
+      } else {
+        delete process.env.__VARLOCK_EXECUTION_PHASE;
+      }
 
       // Determine the project root for the current Vite/Vitest project.
       // In monorepo setups with Vitest workspace projects, config.root
@@ -316,10 +494,24 @@ See https://varlock.dev/integrations/vite/ for more details.
           process.exit(1);
         }
       }
+
+      if (!hasCfPlugin) {
+        // Keep the `cloudflare:workers` runtime import that the SvelteKit+Cloudflare
+        // env loader injects into the SSR entry (see configResolved). The adapter
+        // isn't resolvable this early, so we add it whenever the CF Vite plugin is
+        // absent — it's inert unless something actually imports the specifier
+        // (Rollup only externalizes specifiers that appear in the module graph).
+        // When the CF Vite plugin IS present (non-SvelteKit CF setups) it manages
+        // `cloudflare:*` externals itself, so we stay out of its way. Returned as a
+        // partial config so Vite's mergeConfig folds it into any existing externals.
+        return { build: { rollupOptions: { external: ['cloudflare:workers'] } } };
+      }
     },
     // hook to observe/modify config after it is resolved
-    configResolved(config) {
+    async configResolved(config) {
       debug('vite plugin - configResolved fn called');
+
+      await detectSvelteKitCloudflareTarget(config);
 
       if (!varlockLoadedEnv) return;
       // inject all .env files that varlock loaded into `configFileDependencies`
@@ -327,7 +519,12 @@ See https://varlock.dev/integrations/vite/ for more details.
       for (const varlockSource of varlockLoadedEnv.sources) {
         if (!varlockSource.enabled) continue;
         if (varlockLoadedEnv.basePath && varlockSource.path) {
-          config.configFileDependencies.push(path.resolve(varlockLoadedEnv.basePath, varlockSource.path));
+          const absPath = path.resolve(varlockLoadedEnv.basePath, varlockSource.path);
+          if (isExistingNonRegularFile(absPath)) {
+            warnNonRegularSourceOnce(absPath, varlockLoadedEnv.basePath);
+            continue;
+          }
+          config.configFileDependencies.push(absPath);
         }
       }
     },
@@ -352,6 +549,10 @@ See https://varlock.dev/integrations/vite/ for more details.
       // replace build-time ENV.x references
       let magicString = replacerFn(this, code, id);
 
+      // Detect dev vs build.
+      // Use the environment API (vite 6+), falling back to command check (vite 5).
+      const isDevEnv = this.environment ? this.environment.mode === 'dev' : isDevCommand;
+
       // Detect if this module is an entry point so we can inject varlock init.
       // For regular files: try isEntry (build mode), fall back to moduleIds[0] (dev).
       // For virtual modules: check ssrEntryModuleIds from integrations (e.g. CF plugin).
@@ -364,7 +565,13 @@ See https://varlock.dev/integrations/vite/ for more details.
         } catch {
           // vite 6 throws "isEntry property of ModuleInfo is not supported" in dev
         }
-        if (!isEntry) {
+        // The moduleIds[0] heuristic is only for dev, where isEntry is
+        // unavailable. During builds isEntry is authoritative — and under
+        // rolldown's parallel transforms, moduleIds[0] is timing-dependent and
+        // can misfire, injecting the init module into an arbitrary module
+        // (e.g. react-dom's CJS internals, where its top-level await then
+        // breaks require() paths — see issue #893).
+        if (!isEntry && isDevEnv) {
           const moduleIds = Array.from(this.getModuleIds());
           if (moduleIds[0] === id) isEntry = true;
         }
@@ -384,14 +591,14 @@ See https://varlock.dev/integrations/vite/ for more details.
         } else {
           // Client entry
           injectCode.push('globalThis.__varlockThrowOnMissingKeys = true;');
-          // Detect dev vs build for client-side dev helpers.
-          // Use the environment API (vite 6+), falling back to command check (vite 5).
-          const isDevEnv = this.environment ? this.environment.mode === 'dev' : isDevCommand;
           if (isDevEnv) {
             injectCode.push(
               `globalThis.__varlockValidKeys = ${JSON.stringify(Object.keys(varlockLoadedEnv?.config || {}))};`,
             );
           }
+          injectCode.push(
+            `globalThis.__varlockPublicDynamicKeys = ${JSON.stringify(publicDynamicKeys)};`,
+          );
         }
 
         injectCode.push('// -------- ');
@@ -438,7 +645,11 @@ See https://varlock.dev/integrations/vite/ for more details.
           if (!varlockLoadedEnv.config[itemKey]) {
             throw new Error(`Config item \`${itemKey}\` does not exist`);
           } else if (varlockLoadedEnv.config[itemKey].isSensitive) {
+            // sensitive items are dynamic (not inlineable) by default, but the reason that
+            // matters to the user here is the secrecy one - lead with that
             throw new Error(`Config item \`${itemKey}\` is sensitive and cannot be used in html replacements`);
+          } else if (varlockLoadedEnv.config[itemKey].isDynamic) {
+            throw new Error(`Config item \`${itemKey}\` is dynamic (runtime-resolved) and cannot be used in html replacements`);
           } else {
             // undefined will be turned into empty string in html replacements
             return varlockLoadedEnv.config[itemKey].value ?? '';

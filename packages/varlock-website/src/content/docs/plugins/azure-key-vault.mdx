@@ -18,13 +18,15 @@ The plugin automatically integrates with Azure authentication, including Managed
 
 - **Zero-config authentication** - Just provide your vault URL, authentication happens automatically
 - **Managed Identity support** - No credentials needed for Azure-hosted apps (App Service, Container Instances, VMs, Functions, AKS)
-- **Azure CLI authentication** - Works seamlessly with `az login` for local development
+- **Azure CLI authentication** - Works with `az login` for local development
 - **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
 - Automatic token caching and renewal
 - **[OIDC workload identity](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
 - Lightweight implementation using REST API (47 KB bundle, no heavy Azure SDK dependencies)
+
+For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ## Installation and setup
 
@@ -92,7 +94,7 @@ If you're deploying outside of Azure (e.g., AWS, GCP, on-premises), wire up serv
     # @type=azureClientId @sensitive
     AZURE_CLIENT_ID=
 
-    # @type=azureClientSecret @sensitive
+    # @type=azureClientSecret @sensitive @internal
     AZURE_CLIENT_SECRET=
     ```
 
@@ -311,6 +313,7 @@ Initialize an Azure Key Vault plugin instance for accessing secrets.
 - `clientSecret` (optional): Service principal client secret (password)
 - `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `id` (optional): Instance identifier for multiple vaults
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initAzure"
 # @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
@@ -351,6 +354,15 @@ Represents a service principal client secret (password). This type is marked as 
 # @type=azureClientSecret
 AZURE_CLIENT_SECRET=
 ```
+
+:::tip[Does your app use these credentials too?]
+The examples here mark the credential [`@internal`](/reference/item-decorators/#internal) so it's used by varlock to fetch your secrets but **not** injected into your app. This is the recommended posture when varlock is the only consumer. Unlike the dedicated secrets-manager tokens, Azure credentials are **not** `@internal` by default (they're commonly read directly by the Azure SDK), so if you need the credential at runtime for other purposes, opt out with `@internal=false` to keep it injected:
+
+```env-spec
+# @type=azureClientSecret @internal=false
+AZURE_CLIENT_SECRET=
+```
+:::
 </div>
 </div>
 

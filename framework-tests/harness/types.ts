@@ -131,6 +131,8 @@ export interface BuildResult {
 export interface DevServerRequest {
   /** URL path, e.g. "/" or "/api/health" */
   path: string;
+  /** Test name for this request (default: auto-generated from path) */
+  label?: string;
   /** Expected HTTP status (default: 200) */
   expectedStatus?: number;
   /** Assertions on the response body */
@@ -138,6 +140,11 @@ export interface DevServerRequest {
     shouldContain?: Array<string>;
     shouldNotContain?: Array<string>;
   };
+  /**
+   * Assertions on response headers (keys are lowercase header names).
+   * String values assert an exact match, RegExp values a pattern match.
+   */
+  headerAssertions?: Record<string, string | RegExp>;
   /**
    * Files to write before this request (triggers env reload / server restart).
    * Keys are paths relative to project root, values are file content.
@@ -151,12 +158,21 @@ export interface DevServerRequest {
    * config file dependency changes) or HMR updates where the server doesn't restart.
    */
   fileEditDelay?: number;
+  /**
+   * Tolerate a network-level request failure (e.g. the server killing the response
+   * mid-stream when runtime leak detection fires). Records status 0 with an empty
+   * body instead of failing the scenario. When set, the status assertion is skipped
+   * unless `expectedStatus` is set explicitly.
+   */
+  allowRequestFailure?: boolean;
 }
 
 /** Result of a single HTTP request to the dev server */
 export interface DevServerRequestResult {
   status: number;
   body: string;
+  /** response headers, lowercase keys */
+  headers: Record<string, string>;
 }
 
 /** Configuration for a dev server scenario */

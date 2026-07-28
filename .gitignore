@@ -19,3 +19,9 @@ framework-tests/.test-projects
 .magent
 .claude/worktrees/
 eslint-output.txt
+
+# vitest coverage output
+coverage/
+
+# local throwaway experiments
+scratch/

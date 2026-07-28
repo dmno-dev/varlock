@@ -1,26 +1,32 @@
 import _ from '@env-spec/utils/my-dash';
 import {
-  ParsedEnvSpecDecorator, ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
+  ParsedEnvSpecDecorator, ParsedEnvSpecArrayLiteral, ParsedEnvSpecObjectLiteral,
+  ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
-import { EnvGraphDataType } from './data-types';
+import { EnvGraphDataType, isCompositeCoercedType } from './data-types';
 import { EnvGraph } from './env-graph';
 import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
   ValidationError,
 } from './errors';
+import { TAG_NAME_REGEX, TAG_NAME_RULES } from './item-filter';
+import type { CacheHitInfo } from './resolution-context';
 
 import { EnvGraphDataSource } from './data-source';
 import {
-  convertParsedValueToResolvers, type ResolvedValue, type Resolver, StaticValueResolver,
+  convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
+  ArrayLiteralResolver, ObjectLiteralResolver,
 } from './resolver';
+import { buildTypeSpecPlan, coercedTypesMatch, type TypeSpecPlan } from './type-decorator';
 import { ItemDecoratorInstance } from './decorators';
 
 export type ConfigItemDef = {
   description?: string;
   // TODO: translate parser decorator class into our own generic version
   parsedDecorators?: Array<ParsedEnvSpecDecorator>;
-  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  parsedValue: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+    | ParsedEnvSpecArrayLiteral | ParsedEnvSpecObjectLiteral | undefined;
 
   resolver?: Resolver;
   decorators?: Array<ItemDecoratorInstance>;
@@ -34,6 +40,35 @@ export type ConfigItemDefAndSource = {
 export class ConfigItem {
   /** Whether this is a builtin VARLOCK_* variable */
   isBuiltin?: boolean;
+
+  /** Cache hits recorded during resolution (rolled up from potentially multiple cache() resolvers) */
+  _cacheHits: Array<CacheHitInfo> = [];
+
+  /** Whether any value was served from cache */
+  get isCacheHit() { return this._cacheHits.length > 0; }
+
+  /** Whether this item uses cache(). */
+  get isCached(): boolean {
+    return this._findCacheResolver(this.valueResolver) !== undefined;
+  }
+
+  /** TTL string from the cache() resolver (for display in explain command). undefined = forever. */
+  get cacheTtl(): string | number | undefined {
+    const cacheResolver = this._findCacheResolver(this.valueResolver);
+    if (!cacheResolver) return undefined;
+    const ttlResolver = cacheResolver.objArgs?.ttl;
+    return ttlResolver?.staticValue as string | number | undefined;
+  }
+
+  private _findCacheResolver(resolver?: Resolver): Resolver | undefined {
+    if (!resolver) return undefined;
+    if (resolver.fnName === 'cache') return resolver;
+    for (const child of resolver.arrArgs ?? []) {
+      const found = this._findCacheResolver(child);
+      if (found) return found;
+    }
+    return undefined;
+  }
 
   /** Programmatic definitions not tied to a data source (e.g. builtin vars) */
   _internalDefs: Array<ConfigItemDefAndSource> = [];
@@ -53,10 +88,10 @@ export class ConfigItem {
     // we may want to cache the definition list at some point when loading is complete
     // although we need it to be dynamic during the loading process when doing any early resolution of the envFlag
     const defs: Array<ConfigItemDefAndSource> = [];
-    for (const { source, importKeys } of this.envGraph.sortedDefinitionSources) {
+    for (const { source, filterNode } of this.envGraph.sortedDefinitionSources) {
       if (!source.configItemDefs[this.key]) continue;
       if (source.disabled) continue;
-      if (importKeys && !importKeys.includes(this.key)) continue;
+      if (filterNode && !filterNode.isKeyImported(this.key)) continue;
       defs.push({ itemDef: source.configItemDefs[this.key], source });
     }
     defs.push(...this._internalDefs);
@@ -69,7 +104,16 @@ export class ConfigItem {
    * regardless of which environment is being loaded.
    */
   get defsForTypeGeneration() {
-    return this.defs.filter((def) => !def.source || !def.source.isEnvSpecific);
+    return this.defs.filter((def) => {
+      if (!def.source) return true;
+      // env-specific sources (e.g. `.env.local`, `.env.production`) must not affect types
+      if (def.source.isEnvSpecific) return false;
+      // a plain auto-loaded `.env` is a value source, not a schema source — keys defined
+      // only there should not leak into generated types (output stays deterministic
+      // regardless of an uncommitted local `.env`)
+      if (def.source.isAutoloadedValueSource) return false;
+      return true;
+    });
   }
 
   get description() {
@@ -97,6 +141,23 @@ export class ConfigItem {
     if (!deprecatedDec) return undefined;
     const val = deprecatedDec.parsedDecorator.simplifiedValue;
     return typeof val === 'string' ? val : undefined;
+  }
+
+  /**
+   * Whether this item is used only internally by varlock (e.g. a "secret zero" used to
+   * resolve _other_ items) and must NOT be injected into the running application.
+   * Internal items are still resolved and can be referenced by other items via ref(),
+   * but are excluded from the injected env vars, the serialized graph blob, and generated types.
+   */
+  get isInternal(): boolean {
+    const internalDec = this.getDec('internal');
+    // an explicit `@internal` / `@internal=false` always wins over a data-type default
+    if (internalDec) {
+      // bare `@internal` === `@internal=true`; `@internal=false` explicitly opts out
+      return internalDec.parsedDecorator.simplifiedValue === true;
+    }
+    // otherwise fall back to the data type's default (e.g. a service-account token type)
+    return this.dataType?.isInternal ?? false;
   }
   get docsLinks() {
     // matching { url, description } from OpenAPI
@@ -128,6 +189,15 @@ export class ConfigItem {
     return links;
   }
 
+  /**
+   * Tags attached via one or more `@tag(...)` calls, used by the `--filter` CLI flag and the
+   * `filter=` codegen decorator arg (e.g. `--filter="#tag1"`, `filter=#tag1`). Resolved eagerly in
+   * `process()` — unlike `docsLinks` (read lazily after full resolution) — because code generation
+   * needs tags before `resolveEnvValues()` runs, and `@tag(...)` args are always static tag names.
+   */
+  _tags: Array<string> = [];
+  get tags(): Array<string> { return this._tags; }
+
   /** Whether the resolved value came from a process.env override rather than file definitions */
   get isOverridden() {
     return this.key in this.envGraph.overrideValues;
@@ -142,10 +212,12 @@ export class ConfigItem {
     const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
     for (const def of this.defs) {
       if (def.itemDef.resolver) {
+        // Skip truly empty static values when an internal fallback exists
+        // (e.g. VARLOCK_ENV= to attach decorators). Do not treat false/0 as empty.
         if (
           hasInternalResolver
           && def.itemDef.resolver instanceof StaticValueResolver
-          && !def.itemDef.resolver.staticValue
+          && (def.itemDef.resolver.staticValue === undefined || def.itemDef.resolver.staticValue === '')
         ) {
           continue;
         }
@@ -163,12 +235,12 @@ export class ConfigItem {
     const hasInternalResolver = this._internalDefs.some((d) => d.itemDef.resolver);
     for (const def of this.defs) {
       if (def.itemDef.resolver) {
-        // Skip empty static values when an internal fallback resolver exists
-        // (e.g., user defines VARLOCK_ENV= to add decorators — the builtin resolver still applies)
+        // Skip truly empty static values when an internal fallback exists
+        // (e.g. VARLOCK_ENV= to attach decorators). Do not treat false/0 as empty.
         if (
           hasInternalResolver
           && def.itemDef.resolver instanceof StaticValueResolver
-          && !def.itemDef.resolver.staticValue
+          && (def.itemDef.resolver.staticValue === undefined || def.itemDef.resolver.staticValue === '')
         ) {
           continue;
         }
@@ -200,10 +272,24 @@ export class ConfigItem {
   }
 
 
+  /**
+   * provisional (static/deterministic) data type instance - used for type generation.
+   * When the type spec has dynamic (resolver-valued) parts, the final instance is built
+   * during resolve() into _resolvedDataType; use `effectiveDataType` for coercion etc.
+   */
   dataType?: EnvGraphDataType;
+  /** final data type instance after dynamic type spec parts resolved (see dataType) */
+  _resolvedDataType?: EnvGraphDataType;
+  get effectiveDataType() { return this._resolvedDataType ?? this.dataType; }
+  /** parsed @type spec - carries deferred resolvers when parts are dynamic */
+  private _typeSpecPlan?: TypeSpecPlan;
+
   _schemaErrors: Array<SchemaError> = [];
   get resolverSchemaErrors() {
-    return this.valueResolver?.schemaErrors || [];
+    return [
+      ...this.valueResolver?.schemaErrors || [],
+      ...(this._typeSpecPlan?.deferred ?? []).flatMap((d) => d.resolver.schemaErrors),
+    ];
   }
   get decoratorSchemaErrors() {
     return _.values(this.allDecorators).flatMap((d) => d.schemaErrors);
@@ -263,37 +349,116 @@ export class ConfigItem {
       }
     }
 
-    const typeDec = this.getDec('type');
-    let dataTypeName: string | undefined;
-    let dataTypeArgs: any;
-    // TODO: this will not currently support any resolver functions within type settings
-    const typeDecParsedValue = typeDec?.parsedDecorator.value;
-    if (typeDecParsedValue instanceof ParsedEnvSpecStaticValue) {
-      dataTypeName = typeDecParsedValue.value;
-    } else if (typeDecParsedValue instanceof ParsedEnvSpecFunctionCall) {
-      dataTypeName = typeDecParsedValue.name;
-      dataTypeArgs = typeDecParsedValue.simplifiedArgs;
+    // A dual-form decorator (function OR value, e.g. @proxy) is mutually exclusive
+    // per item: you can't both route with @proxy(...) and set @proxy=passthrough.
+    for (const [name, valueDec] of Object.entries(this.effectiveDecorators)) {
+      if (valueDec.isFunctionOrValue && this.effectiveDecoratorFns[name]?.length) {
+        valueDec._errors.push(new SchemaError(
+          `@${name} cannot be used as both a value (@${name}=...) and a function (@${name}(...)) on the same item`,
+        ));
+      }
     }
-    // if no type is set explicitly, we can try to use inferred type from the resolver
-    // currently only static value resolver does this - but you can imagine another resolver knowing the type ahead of time
-    // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
-    if (!dataTypeName && this.valueResolver?.inferredType) {
-      dataTypeName = this.valueResolver.inferredType;
-    }
-    dataTypeName ||= 'string';
-    dataTypeArgs ||= [];
 
-    if (!(dataTypeName in this.envGraph.dataTypesRegistry)) {
-      this._schemaErrors.push(new SchemaError(`unknown data type: ${dataTypeName}`));
-    } else {
-      const dataTypeFactory = this.envGraph.dataTypesRegistry[dataTypeName];
-      this.dataType = dataTypeFactory(..._.isPlainObject(dataTypeArgs) ? [dataTypeArgs] : dataTypeArgs);
+    // resolve @tag(...) eagerly - see the `tags` getter comment for why
+    for (const tagDec of this.getDecFns('tag')) {
+      const decVal = await tagDec.resolve();
+      const tags: Array<string> = decVal?.arr && _.isArray(decVal.arr) ? decVal.arr.map((t: any) => String(t)) : [];
+      if (!tags.length) {
+        this._schemaErrors.push(new SchemaError('@tag requires at least one tag name, e.g. @tag(billing)'));
+        continue;
+      }
+      for (const tag of tags) {
+        // enforce selector-safe tag names, so every tag stays reachable via a `#tagname` filter
+        if (!TAG_NAME_REGEX.test(tag)) {
+          this._schemaErrors.push(new SchemaError(`@tag - invalid tag name "${tag}"`, { tip: TAG_NAME_RULES }));
+        } else if (!this._tags.includes(tag)) {
+          this._tags.push(tag); // duplicates (e.g. across multiple @tag calls) collapse silently
+        }
+      }
     }
+
+    const typeDec = this.getDec('type');
+    const typeDecParsedValue = typeDec?.parsedDecorator.value;
+    if (typeDecParsedValue) {
+      try {
+        this._typeSpecPlan = buildTypeSpecPlan({
+          registry: this.envGraph.dataTypesRegistry,
+          resolverFns: this.envGraph.registeredResolverFunctions,
+          dataSource: typeDec!.dataSource,
+        }, typeDecParsedValue);
+        // dynamic parts (option values / whole type) go through the normal resolver
+        // lifecycle - process now (validates args, registers deps), resolve during item
+        // resolution just before coercion
+        for (const d of this._typeSpecPlan.deferred) {
+          d.resolver.process(typeDec);
+        }
+        // provisional instance: deterministic (dynamic parts omitted/candidate-substituted),
+        // used for type generation and any pre-resolution introspection
+        this.dataType = this._typeSpecPlan.build();
+      } catch (err) {
+        this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
+      }
+    } else {
+      // if no type is set explicitly, we can try to use inferred type from the resolver
+      // currently only static value / literal resolvers do this - but you can imagine another
+      // resolver knowing the type ahead of time
+      // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
+      this.dataType = this.inferDataTypeFromResolver() ?? this.envGraph.dataTypesRegistry.string();
+    }
+  }
+
+  /** infer a data type instance from the shape of the (untyped) value resolver */
+  private inferDataTypeFromResolver(): EnvGraphDataType | undefined {
+    const registry = this.envGraph.dataTypesRegistry;
+    const resolver = this.valueResolver;
+    if (!resolver) return undefined;
+
+    // a literal value (`ITEM=[a, b]` / `ITEM={k=v}`) implies a composite type - same
+    // principle as an unquoted `123` inferring number below
+    if (resolver instanceof ArrayLiteralResolver) {
+      // when every element infers the same scalar type (e.g. `[8080, 3000]`), carry it through
+      const elementTypes = _.uniq((resolver.arrArgs ?? []).map((r) => r.inferredType));
+      const elementTypeName = (
+        elementTypes.length === 1
+        && elementTypes[0] !== undefined
+        && ['number', 'boolean'].includes(elementTypes[0])
+      ) ? elementTypes[0] : 'string';
+      return registry.array({ element: registry[elementTypeName](), elementTypeName });
+    }
+    if (resolver instanceof ObjectLiteralResolver) {
+      return registry.record();
+    }
+
+    // builtin vars declare an authoritative type on their internal resolver
+    // (e.g. VARLOCK_IS_CI is boolean), which wins over inference from a
+    // user-provided static value so VARLOCK_IS_CI=0 still coerces to false
+    const internalResolverType = this._internalDefs.find(
+      (d) => d.itemDef.resolver?.inferredType,
+    )?.itemDef.resolver?.inferredType;
+    const inferredTypeName = internalResolverType || resolver.inferredType;
+    if (inferredTypeName && inferredTypeName in registry) {
+      return registry[inferredTypeName]();
+    }
+    return undefined;
   }
 
   get dependencyKeys() {
     return _.uniq([
       ...this.valueResolver?.deps || [],
+      // dynamic @type parts (e.g. minLength=if(eq($APP_MODE, ...), 1, 0)) may reference other items
+      ...(this._typeSpecPlan?.deferred ?? []).flatMap((d) => d.resolver.deps),
+      ...this.metadataDependencyKeys,
+    ]);
+  }
+
+  /**
+   * Just the dependencies of this item's decorator resolvers (e.g. `@required=eq($OTHER, x)`
+   * needs OTHER's value) — the subset of {@link dependencyKeys} that must be resolved before
+   * {@link resolveMetadata} can run. Used by filtered resolution to resolve only what's needed
+   * to evaluate decorator-based filter selectors.
+   */
+  get metadataDependencyKeys() {
+    return _.uniq([
       ..._.values(this.effectiveDecorators).flatMap(
         (dec) => dec.decValueResolver?.deps || [],
       ),
@@ -400,10 +565,57 @@ export class ConfigItem {
 
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
+  /** how sensitivity was determined (undefined = the global default that items are sensitive) */
+  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy';
   get isSensitive(): boolean {
     return this._isSensitive;
   }
+
+  /** how this item's sensitivity was determined — used by `varlock explain` */
+  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'default' {
+    return this._sensitiveSource ?? 'default';
+  }
+
+  /** how this item's @internal status was determined, or undefined if not internal */
+  get internalSource(): 'explicit' | 'data-type' | undefined {
+    if (!this.isInternal) return undefined;
+    return this.getDec('internal') ? 'explicit' : 'data-type';
+  }
+
+  /**
+   * Whether runtime leak detection scans output (responses, etc.) for this item's value.
+   * Defaults to true for sensitive items; can be disabled per-item via
+   * `@sensitive={preventLeaks=false}` for secrets that legitimately leave the system
+   * (e.g. an API endpoint that returns a secret to another service).
+   * Note: this only opts out of leak detection — the value is still redacted in logs.
+   */
+  _preventLeaks: boolean = true;
+  get preventLeaks(): boolean {
+    return this._preventLeaks;
+  }
   private async processSensitive() {
+    // Resolve the normal sensitivity signals first (so @sensitive/@public schema
+    // validation still runs), then force sensitivity for @proxy-managed items below.
+    await this.resolveSensitiveSource();
+
+    // @proxy-managed items are always sensitive: the proxied child only ever sees a
+    // placeholder while the real value is injected at the wire, so force sensitivity
+    // regardless of any @public / @sensitive=false signal.
+    if (this.getDecFns('proxy').length > 0) {
+      // If the author explicitly made it public, warn that @proxy wins — otherwise
+      // the override is silent and surprising.
+      if (this._sensitiveExplicitlySet && !this._isSensitive) {
+        this._schemaErrors.push(new SchemaError(
+          '@proxy implies @sensitive — the @public / @sensitive=false on this item is overridden (its value is still proxied as a placeholder).',
+          { isWarning: true },
+        ));
+      }
+      this._isSensitive = true;
+      this._sensitiveSource = 'proxy';
+    }
+  }
+
+  private async resolveSensitiveSource() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
 
     // Pass 1: explicit per-item @sensitive / @public decorators take highest priority
@@ -413,14 +625,38 @@ export class ConfigItem {
       if (!sensitiveDec) continue;
 
       const usingPublic = sensitiveDec.name === 'public';
+
+      // options-object form: `@sensitive={preventLeaks=false}` — carries per-item
+      // runtime-protection options. `enabled` toggles sensitivity itself (defaults to
+      // true, and may be a function for dynamic control, e.g. enabled=forEnv(prod)).
+      if (sensitiveDec.parsedDecorator.value instanceof ParsedEnvSpecObjectLiteral) {
+        if (usingPublic) {
+          this._schemaErrors.push(new SchemaError('@public does not accept options - use @sensitive={...} on sensitive items'));
+          return;
+        }
+        const resolved = await sensitiveDec.resolve() as Record<string, any> | undefined;
+        if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
+        this._isSensitive = this.applySensitiveOptions(resolved ?? {});
+        this._sensitiveExplicitlySet = true;
+        this._sensitiveSource = 'explicit';
+        return;
+      }
+      // an array literal is never valid here — guide toward the object form
+      if (sensitiveDec.parsedDecorator.value instanceof ParsedEnvSpecArrayLiteral) {
+        this._schemaErrors.push(new SchemaError('@sensitive expects options as an object, e.g. @sensitive={preventLeaks=false}'));
+        return;
+      }
+
       const sensitiveDecValue = await sensitiveDec.resolve();
       if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
       if (![true, false, undefined].includes(sensitiveDecValue)) {
-        throw new SchemaError('@sensitive/@public must resolve to a boolean or undefined');
+        this._schemaErrors.push(new SchemaError('@sensitive/@public must resolve to a boolean or undefined'));
+        return;
       }
       if (sensitiveDecValue !== undefined) {
         this._isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
         this._sensitiveExplicitlySet = true;
+        this._sensitiveSource = 'explicit';
         return;
       }
     }
@@ -439,6 +675,7 @@ export class ConfigItem {
             return;
           }
           this._isSensitive = !this.key.startsWith(prefix);
+          this._sensitiveSource = 'prefix';
           return;
         } else {
           const defaultSensitiveVal = await defaultSensitiveDec.resolve();
@@ -446,13 +683,93 @@ export class ConfigItem {
             this._schemaErrors.push(new SchemaError('@defaultSensitive must resolve to a boolean value'));
           } else {
             this._isSensitive = defaultSensitiveVal;
+            this._sensitiveSource = 'default-decorator';
             return;
           }
         }
       }
     }
 
-    if (sensitiveFromDataType !== undefined) this._isSensitive = sensitiveFromDataType;
+    if (sensitiveFromDataType !== undefined) {
+      this._isSensitive = sensitiveFromDataType;
+      this._sensitiveSource = 'data-type';
+    }
+  }
+
+  /**
+   * Apply named options from the `@sensitive={...}` form.
+   * Returns whether the item is sensitive (the `enabled` option, defaulting to true) —
+   * `enabled` may be static or a function, allowing dynamic control of sensitivity.
+   */
+  private applySensitiveOptions(opts: Record<string, any>): boolean {
+    let enabled = true;
+    for (const optKey of Object.keys(opts)) {
+      if (optKey === 'enabled') {
+        if (typeof opts[optKey] !== 'boolean') {
+          this._schemaErrors.push(new SchemaError('@sensitive enabled option must resolve to a boolean'));
+          continue;
+        }
+        enabled = opts[optKey];
+      } else if (optKey === 'preventLeaks') {
+        if (typeof opts[optKey] !== 'boolean') {
+          this._schemaErrors.push(new SchemaError('@sensitive preventLeaks option must be a boolean'));
+          continue;
+        }
+        this._preventLeaks = opts[optKey];
+      } else {
+        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: enabled, preventLeaks`));
+      }
+    }
+    return enabled;
+  }
+
+  _isDynamic: boolean = true;
+  get isDynamic(): boolean {
+    return this._isDynamic;
+  }
+  private async processDynamic() {
+    try {
+      // Pass 1: explicit per-item @dynamic / @static decorators take highest priority
+      for (const def of this.defs) {
+        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
+        const dynamicDec = dynamicDecs[0];
+        if (!dynamicDec) continue;
+
+        const usingStatic = dynamicDec.name === 'static';
+        const dynamicDecValue = await dynamicDec.resolve();
+        if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) return;
+        if (![true, false, undefined].includes(dynamicDecValue)) {
+          throw new SchemaError('@dynamic/@static must resolve to a boolean or undefined');
+        }
+        if (dynamicDecValue !== undefined) {
+          this._isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
+          return;
+        }
+      }
+
+      // Pass 2: @defaultDynamic from source files
+      for (const def of this.defs) {
+        const defaultDynamicDec = def.source?.getRootDec('defaultDynamic');
+        if (!defaultDynamicDec) continue;
+
+        const defaultDynamicVal = await defaultDynamicDec.resolve();
+        if (_.isBoolean(defaultDynamicVal)) {
+          this._isDynamic = defaultDynamicVal;
+          return;
+        }
+        if (defaultDynamicVal === 'inferFromSensitive') {
+          this._isDynamic = this._isSensitive;
+          return;
+        }
+        throw new SchemaError('@defaultDynamic must resolve to true, false, or inferFromSensitive');
+      }
+    } catch (err) {
+      this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
+      return;
+    }
+
+    // Default behavior: dynamic state follows sensitivity.
+    this._isDynamic = this._isSensitive;
   }
 
 
@@ -488,6 +805,71 @@ export class ConfigItem {
     return this.resolvedRawValue !== this.resolvedValue;
   }
 
+  /**
+   * The resolved value serialized to its process.env string form (undefined stays
+   * undefined). Scalars stringify naturally; composite types (array/object) use their
+   * data type's serialize() (separator-joined or JSON).
+   */
+  get resolvedEnvStringValue(): string | undefined {
+    if (this.resolvedValue === undefined) return undefined;
+    const dataType = this.effectiveDataType;
+    if (dataType) return dataType.serialize(this.resolvedValue);
+    return typeof this.resolvedValue === 'string' ? this.resolvedValue : String(this.resolvedValue);
+  }
+
+  /**
+   * Whether {@link resolveMetadata} has run — after which isRequired/isSensitive/isDynamic
+   * are accurate even though the value may not be resolved yet.
+   */
+  isMetadataResolved = false;
+
+  /**
+   * The metadata half of {@link resolve}: resolves this item's decorators and computes
+   * isRequired / isSensitive / isDynamic (including the resolver-implied sensitivity
+   * override), WITHOUT touching the value resolver. Any values the decorators themselves
+   * reference ({@link metadataDependencyKeys}) must already be resolved.
+   *
+   * Filtered resolution uses this to evaluate decorator-based `--filter` selectors
+   * exactly, then only resolve values for items the filter selects — so an excluded
+   * item's value resolver (exec calls, secrets managers, etc.) never runs.
+   */
+  async resolveMetadata() {
+    if (this.isMetadataResolved) return;
+    // bail early if we have real schema errors (warnings do not block resolution)
+    if (this._schemaErrors.some((e) => !e.isWarning)) return;
+    if (this.resolverSchemaErrors.some((e) => !e.isWarning)) return;
+    this.isMetadataResolved = true;
+
+    await this.resolveDecorators();
+    await this.processRequired();
+    await this.processSensitive();
+
+    // proxy-view items skip the impliesSensitive adjustment (it inspects the value
+    // resolver, and their real values are handled upstream by the proxy daemon) -
+    // but processDynamic still runs below: it reads only decorators, and skipping it
+    // would leave e.g. a @sensitive @static item wrongly marked dynamic
+    if (!this.envGraph.proxyResolutionView?.[this.key]) {
+      // Resolver functions like varlock() and keychain() imply sensitivity —
+      // override defaults but respect explicit per-item @sensitive=false / @public
+      if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
+        const wasSensitive = this._isSensitive;
+        this._isSensitive = true;
+        if (!wasSensitive) {
+          // the resolver is what actually made this sensitive (it wasn't otherwise)
+          this._sensitiveSource = 'resolver';
+          const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
+          if (hasSchemaSource) {
+            this._schemaErrors.push(new SchemaError(
+              'implicitly treated as @sensitive — add @sensitive to schema',
+              { isWarning: true },
+            ));
+          }
+        }
+      }
+    }
+    await this.processDynamic();
+  }
+
   async resolve(reset = false) {
     // bail early if we have real schema errors (warnings do not block resolution)
     if (this._schemaErrors.some((e) => !e.isWarning)) return;
@@ -496,11 +878,13 @@ export class ConfigItem {
     if (reset) {
       this.isResolved = false;
       this.isValidated = false;
+      this.isMetadataResolved = false;
       this.resolutionError = undefined;
       this.coercionError = undefined;
       this.validationErrors = undefined;
       this.resolvedRawValue = undefined;
       this.resolvedValue = undefined;
+      this._resolvedDataType = undefined;
     }
     if (this.isResolved) {
       // previously we would throw an error, now we resolve the envFlag early, so we can just return
@@ -508,24 +892,27 @@ export class ConfigItem {
       return;
     }
 
-    await this.resolveDecorators();
-    await this.processRequired();
-    await this.processSensitive();
+    await this.resolveMetadata();
 
-    // Resolver functions like varlock() and keychain() imply sensitivity —
-    // override defaults but respect explicit per-item @sensitive=false / @public
-    if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
-      const wasSensitive = this._isSensitive;
-      this._isSensitive = true;
-      if (!wasSensitive) {
-        const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
-        if (hasSchemaSource) {
-          this._schemaErrors.push(new SchemaError(
-            'implicitly treated as @sensitive — add @sensitive to schema',
-            { isWarning: true },
-          ));
-        }
+    // Proxy-child resolution view: inside a `varlock proxy` session, a sensitive
+    // item is forced to its placeholder (or omitted) instead of resolving the real
+    // value — so re-running `varlock load`/`printenv`/`run` can never surface a
+    // secret the proxy is meant to hide. Runs after decorators (so isSensitive,
+    // isRequired, etc. are correct for serialization) but short-circuits value
+    // resolution, coercion, validation and the required check: the real value was
+    // already validated upstream by the proxy daemon.
+    const proxyDirective = this.envGraph.proxyResolutionView?.[this.key];
+    if (proxyDirective) {
+      this.isResolved = true;
+      if (proxyDirective.kind === 'placeholder') {
+        this.resolvedRawValue = proxyDirective.value;
+        this.resolvedValue = proxyDirective.value;
+      } else {
+        this.resolvedRawValue = undefined;
+        this.resolvedValue = undefined;
       }
+      this.isValidated = true;
+      return;
     }
 
     if (!this.valueResolver) {
@@ -557,20 +944,69 @@ export class ConfigItem {
     // first deal with empty values and checking required
     if (this.resolvedRawValue === undefined || this.resolvedRawValue === '') {
       // we preserve undefined vs empty string - might want to change this?
-      this.resolvedValue = this.resolvedRawValue;
+      // EXCEPT for composite types (array/record), where an empty string means "missing" -
+      // preserving '' would misrepresent the item's type, and it must never become an
+      // empty container
+      if (this.resolvedRawValue === '' && isCompositeCoercedType(this.dataType?.coercedType)) {
+        this.resolvedValue = undefined;
+      } else {
+        this.resolvedValue = this.resolvedRawValue;
+      }
       if (this.isRequired) {
         this.validationErrors = [new EmptyRequiredValueError(undefined)];
       }
       return;
     }
 
-    if (!this.dataType) throw new Error('expected dataType to be set');
+    // finalize a dynamic type spec - resolve deferred parts (option values / whole type)
+    // and rebuild the instance. The final type may vary validation behavior but must
+    // generate the same types as the provisional one (which is what codegen saw).
+    if (this._typeSpecPlan?.deferred.length) {
+      try {
+        const resolvedTypeParts = new Map<Resolver, any>();
+        for (const d of this._typeSpecPlan.deferred) {
+          resolvedTypeParts.set(d.resolver, await d.resolver.resolve());
+        }
+        const finalType = this._typeSpecPlan.build(resolvedTypeParts);
+        if (this.dataType && !coercedTypesMatch(this.dataType, finalType)) {
+          throw new SchemaError(
+            `dynamic @type resolved to "${finalType.name}", which does not generate the same type as "${this.dataType.name}"`,
+            { tip: 'a dynamic @type may vary validation but not the generated type - e.g. url vs string is ok, number vs string is not' },
+          );
+        }
+        this._resolvedDataType = finalType;
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          this.validationErrors = [err];
+        } else if (err instanceof SchemaError) {
+          this.validationErrors = [new ValidationError(err.message, { tip: err.tip })];
+        } else if (err instanceof ResolutionError) {
+          this.resolutionError = err;
+        } else {
+          this.resolutionError = new ResolutionError(`error resolving dynamic @type parts: ${err}`);
+          this.resolutionError.cause = err as Error;
+        }
+        return;
+      }
+    }
+
+    const dataType = this.effectiveDataType;
+    if (!dataType) throw new Error('expected dataType to be set');
 
     // COERCE VALUE - often will do nothing, but gives us a chance to convert strings to numbers, etc
     try {
-      const coerceResult = this.dataType.coerce(this.resolvedRawValue);
+      const coerceResult = dataType.coerce(this.resolvedRawValue);
       if (coerceResult instanceof Error) throw coerceResult;
       this.resolvedValue = coerceResult;
+      // coercion may resolve a non-empty raw value to "missing" (e.g. a whitespace-only
+      // string on a composite type) - treat like the empty short-circuit above instead
+      // of running validation against undefined
+      if (this.resolvedValue === undefined) {
+        if (this.isRequired) {
+          this.validationErrors = [new EmptyRequiredValueError(undefined)];
+        }
+        return;
+      }
     } catch (err) {
       if (err instanceof CoercionError) {
         this.coercionError = err;
@@ -586,7 +1022,7 @@ export class ConfigItem {
 
     // VALIDATE
     try {
-      const validateResult = await this.dataType.validate(this.resolvedValue);
+      const validateResult = await dataType.validate(this.resolvedValue);
       if (
         validateResult instanceof Error
         || (_.isArray(validateResult) && validateResult[0] instanceof Error)
@@ -616,7 +1052,9 @@ export class ConfigItem {
   }
 
   get isValid() {
-    return this.validationState === 'valid';
+    // a warning is advisory — only a real error makes an item invalid (and e.g. unsafe to
+    // reference from another item). `validationState === 'valid'` would wrongly exclude warn-state.
+    return this.validationState !== 'error';
   }
 
   /**
@@ -740,8 +1178,58 @@ export class ConfigItem {
       if (!foundSensitive && sensitiveFromDataType !== undefined) {
         isSensitive = sensitiveFromDataType;
       }
+      // @proxy forces sensitivity (same override as processSensitive) so generated
+      // types mark a @public @proxy item sensitive rather than contradicting runtime.
+      if (this.getDecFns('proxy').length > 0) {
+        isSensitive = true;
+      }
     } catch {
       // on error, fall back to default (sensitive=true, safe default)
+    }
+
+    // isDynamic - mirrors processDynamic() logic
+    let isDynamic = isSensitive;
+    try {
+      let foundDynamic = false;
+      for (const def of defs) {
+        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
+        const dynamicDec = dynamicDecs[0];
+
+        if (dynamicDec) {
+          const usingStatic = dynamicDec.name === 'static';
+          // Skip dynamic decorators to avoid caching a stale result
+          if (dynamicDec.decValueResolver?.fnName !== '\0static') break;
+          const dynamicDecValue = await dynamicDec.resolve();
+          if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) break;
+          if (![true, false, undefined].includes(dynamicDecValue)) break;
+          if (dynamicDecValue !== undefined) {
+            isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
+            foundDynamic = true;
+            break;
+          }
+        }
+
+        const defaultDynamicDec = def.source?.getRootDec('defaultDynamic');
+        if (!defaultDynamicDec) continue;
+
+        const defaultDynamicVal = await defaultDynamicDec.resolve();
+        if (_.isBoolean(defaultDynamicVal)) {
+          isDynamic = defaultDynamicVal;
+          foundDynamic = true;
+          break;
+        }
+        if (defaultDynamicVal === 'inferFromSensitive') {
+          isDynamic = isSensitive;
+          foundDynamic = true;
+          break;
+        }
+      }
+      if (!foundDynamic) {
+        isDynamic = isSensitive;
+      }
+    } catch {
+      // on error, fall back to default linkage (dynamic follows sensitivity)
+      isDynamic = isSensitive;
     }
 
     // icon - resolve from filtered defs' decorators
@@ -799,10 +1287,12 @@ export class ConfigItem {
       isRequired,
       isRequiredDynamic,
       isSensitive,
+      isDynamic,
       icon,
       docsLinks,
       isDeprecated: this.isDeprecated,
       deprecationMessage: this.deprecationMessage,
+      tags: this.tags,
     };
   }
 }
@@ -815,8 +1305,11 @@ export type TypeGenItemInfo = {
   isRequired: boolean;
   isRequiredDynamic: boolean;
   isSensitive: boolean;
+  isDynamic: boolean;
   icon?: string;
   docsLinks: Array<{ url: string, description?: string }>;
   isDeprecated: boolean;
   deprecationMessage?: string;
+  /** tags from `@tag(...)` - resolved eagerly in `process()`, so safe to read here */
+  tags: Array<string>;
 };

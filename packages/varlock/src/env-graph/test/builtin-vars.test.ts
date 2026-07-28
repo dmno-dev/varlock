@@ -1,6 +1,7 @@
 import {
   describe, test, vi, expect,
 } from 'vitest';
+import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
 
 // We need to mock the child_process module used by builtin-vars.ts
@@ -40,6 +41,43 @@ describe('VARLOCK_* builtin variables', () => {
         VARLOCK_ENV: false,
         VARLOCK_IS_CI: false,
       },
+    }));
+  });
+
+  describe('type preservation', () => {
+    // Regression: when a typed builtin (e.g. boolean VARLOCK_IS_CI) is registered
+    // early via a root-decorator reference, the finishLoad process() pass used to
+    // recompute its type and default it back to 'string', stringifying `false` to
+    // "false" — which made not()/if() see a truthy string. The builtin resolver now
+    // advertises its declared type via inferredType so the type is preserved.
+    test('boolean builtin referenced in a root decorator keeps its boolean type', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.imported, enabled=not($VARLOCK_IS_CI))
+          # ---
+          LOCAL_VAR=local
+        `,
+        '.env.imported': 'IMPORTED_VAR=imported',
+      },
+      processEnv: {},
+      expectValues: {
+        VARLOCK_IS_CI: false, // boolean false, not the string "false"
+        IMPORTED_VAR: 'imported', // import is enabled because not(false) === true
+      },
+    }));
+
+    test('same root-decorator reference disables the import when in CI', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.imported, enabled=not($VARLOCK_IS_CI))
+          # ---
+          LOCAL_VAR=local
+        `,
+        '.env.imported': 'IMPORTED_VAR=imported',
+      },
+      processEnv: { CI: 'true', GITHUB_ACTIONS: 'true' },
+      expectValues: { VARLOCK_IS_CI: true },
+      expectNotInSchema: ['IMPORTED_VAR'],
     }));
   });
 
@@ -154,6 +192,31 @@ describe('VARLOCK_* builtin variables', () => {
       },
       expectValues: { VARLOCK_IS_CI: true },
     }));
+
+    // Regression (#899): empty-static skip used truthiness (`!staticValue`), which
+    // also skipped boolean false / number 0 when a builtin internal resolver exists.
+    test('schema override VARLOCK_IS_CI=false wins over CI detection', envFilesTest({
+      envFile: 'VARLOCK_IS_CI=false',
+      processEnv: {
+        CI: 'true',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+      },
+      expectValues: { VARLOCK_IS_CI: false },
+    }));
+
+    test('schema override VARLOCK_IS_CI=0 is not skipped as empty', envFilesTest({
+      envFile: 'VARLOCK_IS_CI=0',
+      processEnv: {
+        CI: 'true',
+        GITHUB_ACTIONS: 'true',
+        GITHUB_REPOSITORY: 'owner/repo',
+      },
+      // Number 0 must not be treated as empty; schema wins over builtin true.
+      // The builtin's declared boolean type also wins over the value's inferred
+      // number type, so 0 coerces to false.
+      expectValues: { VARLOCK_IS_CI: false },
+    }));
   });
 
   describe('CI platform variables', () => {
@@ -250,6 +313,18 @@ describe('VARLOCK_* builtin variables', () => {
         GITHUB_REPOSITORY: 'my-org/my-repo',
       },
       expectValues: { VARLOCK_REPO: 'my-org/my-repo' },
+    }));
+
+    test('VARLOCK_OS returns the current process platform', envFilesTest({
+      envFile: 'MY_VAR=$VARLOCK_OS',
+      processEnv: {},
+      expectValues: { VARLOCK_OS: process.platform },
+    }));
+
+    test('VARLOCK_RUNTIME returns a JS runtime name', envFilesTest({
+      envFile: 'MY_VAR=$VARLOCK_RUNTIME',
+      processEnv: {},
+      expectValues: { VARLOCK_RUNTIME: expect.stringMatching(/^(node|bun|deno)$/) },
     }));
   });
 

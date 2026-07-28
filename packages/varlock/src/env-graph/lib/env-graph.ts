@@ -1,21 +1,43 @@
 import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
-import { ConfigItem } from './config-item';
-import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
+import fs from 'node:fs';
+import { ConfigItem, type TypeGenItemInfo } from './config-item';
+import {
+  EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
+  keyPassesImportFilter,
+} from './data-source';
+import { type KeyFilter } from './key-filter';
+import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
-import { generateTypes } from './type-generation';
+import {
+  builtInCodeGenerators, collectTypeGenItems, resolveFieldTypes,
+  type CodeGeneratorDef, type ResolvedFieldType,
+} from './type-generation';
 
 import {
-  builtInItemDecorators, builtInRootDecorators, RootDecoratorInstance, type ItemDecoratorDef, type RootDecoratorDef,
+  builtInItemDecorators, builtInRootDecorators,
+  RootDecoratorInstance,
+  type ItemDecoratorDef,
+  type RootDecoratorDef,
 } from './decorators';
 import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
+import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
+import { isVarlockReservedKey } from './reserved-vars';
+import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
+import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
+import {
+  PROXY_APPROVAL_EACH_VALUES,
+  parseProxySubstitutionTarget,
+  type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
+} from '../../proxy/types';
+import { parseDuration } from '../../lib/duration';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -27,12 +49,12 @@ export type SerializedEnvGraphErrors = {
   root?: Array<string>;
 };
 
-/** Entry in the sorted definition sources list — pairs a data source with the importKeys
- * filter that applies at that specific position in the precedence chain */
+/** Entry in the sorted definition sources list — pairs a data source with the node whose
+ * import chain filters which keys are visible at that specific position in the precedence chain */
 export type DefinitionSourceEntry = {
   source: EnvGraphDataSource;
-  /** importKeys filter for this position (undefined = all keys visible) */
-  importKeys?: Array<string>;
+  /** node whose import chain decides key visibility for this position (undefined = all keys visible) */
+  filterNode?: EnvGraphDataSource;
 };
 
 export type SerializedEnvGraph = {
@@ -48,14 +70,40 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
+    proxyEgress?: ProxyEgressMode;
+    /** `@proxyConfig={reload=...}` posture; the proxy resolves `auto` at launch. */
+    proxyReload?: 'off' | 'manual' | 'auto';
   },
   config: Record<string, {
     value: any;
+    /**
+     * process.env-ready string form - present only for composite values (arrays/objects),
+     * whose flat form depends on the item's type settings (separator vs JSON). Consumers
+     * injecting into process.env should use `envStr ?? String(value)`.
+     */
+    envStr?: string;
     isSensitive: boolean;
+    /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
+    preventLeaks?: boolean;
+    /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
+    isInternal?: boolean;
+    /** whether the value must stay runtime-resolved (never inlined at build time). Omitted when it matches `isSensitive` (the default linkage), so consumers should read `isDynamic ?? isSensitive`. */
+    isDynamic?: boolean;
   }>;
+  /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
+  overrideKeys?: Array<string>;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
+
+/**
+ * Per-item directive applied during resolution inside a proxy-child context:
+ * substitute a placeholder for the (sensitive) value, or omit it entirely.
+ */
+export type ProxyResolutionView = Record<
+  string,
+  { kind: 'placeholder'; value: string } | { kind: 'omit' }
+>;
 
 /** container of the overall graph and current resolution attempt / values */
 export class EnvGraph {
@@ -65,11 +113,31 @@ export class EnvGraph {
 
   basePath?: string;
 
+  // -- Cache --
+  /** @internal cache store instance, initialized during loading */
+  _cacheStore?: import('../../lib/cache/cache-store').CacheStoreLike;
+  /** @internal cache mode selected from CLI/loader auto policy */
+  _cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
+  /** @internal --clear-cache flag: clear cache then resolve + rewrite */
+  _clearCacheMode = false;
+  /** @internal --skip-cache flag: skip cache entirely */
+  _skipCacheMode = false;
+
   /** root data source (.env.schema) */
   rootDataSource?: EnvGraphDataSource;
 
   /** place to store process.env overrides */
   overrideValues: Record<string, string | undefined> = {};
+
+  /**
+   * Proxy-child resolution view: when a graph is loaded inside a `varlock proxy`
+   * session, each sensitive item is forced to a placeholder (or omitted) at
+   * resolution time so re-resolving the schema can never surface the real value.
+   * Set by `load-graph` from the active session's record. The real values were
+   * already validated by the proxy daemon, so these short-circuit coerce/validate
+   * and the required check. Empty/undefined outside a proxied context.
+   */
+  proxyResolutionView?: ProxyResolutionView;
 
   /** config item key of env flag (toggles env-specific data sources enabled) */
   envFlagKey?: string;
@@ -98,30 +166,48 @@ export class EnvGraph {
   }
 
   /**
+   * Stack of sources whose imports are currently being processed (an ancestor chain).
+   * Used to detect circular imports: a path that re-enters while still on the stack is a cycle.
+   * Unlike `_loadedImportPaths` (recorded only after a child fully loads, for diamond dedup),
+   * this is recorded *before* descending, so a true cycle is caught before it recurses forever.
+   */
+  private _importProcessingStack: Array<string> = [];
+
+  /**
+   * Mark a source as being processed for imports.
+   * Returns the cycle chain (including the repeated entry) if `key` is already on the stack,
+   * otherwise pushes it and returns undefined.
+   */
+  beginImportProcessing(key: string): Array<string> | undefined {
+    const existingIndex = this._importProcessingStack.indexOf(key);
+    if (existingIndex !== -1) {
+      return [...this._importProcessingStack.slice(existingIndex), key];
+    }
+    this._importProcessingStack.push(key);
+    return undefined;
+  }
+
+  /** Pop a source off the import-processing stack once its imports are done. */
+  endImportProcessing(key: string) {
+    const index = this._importProcessingStack.lastIndexOf(key);
+    if (index !== -1) this._importProcessingStack.splice(index, 1);
+  }
+
+  /**
    * Register ConfigItems for keys visible through an import
    * that may not have been registered during the original source's finishInit.
    */
   registerItemsForImport(
     source: EnvGraphDataSource,
     importSite: EnvGraphDataSource,
-    importKeys?: Array<string>,
+    importMeta?: { importKeys?: Array<string>, importFilter?: KeyFilter },
   ) {
-    // Compute effective importKeys: intersection of import filter and importSite's parent chain
-    const siteKeys = importSite.importKeys;
-    let effectiveKeys: Array<string> | undefined;
-    const hasFilter = importKeys && importKeys.length > 0;
-    if (hasFilter && siteKeys?.length) {
-      effectiveKeys = importKeys.filter((k) => siteKeys.includes(k));
-    } else if (hasFilter) {
-      effectiveKeys = importKeys;
-    } else {
-      effectiveKeys = siteKeys;
-    }
-
+    // A key is visible only if it passes both this import's own filter and the
+    // importSite's full import chain (nested imports intersect).
     for (const s of this._getDescendants(source)) {
-      const keys = effectiveKeys || _.keys(s.configItemDefs);
-      for (const itemKey of keys) {
-        if (!s.configItemDefs[itemKey]) continue;
+      for (const itemKey of _.keys(s.configItemDefs)) {
+        if (importMeta && !keyPassesImportFilter(itemKey, importMeta.importKeys, importMeta.importFilter)) continue;
+        if (!importSite.isKeyImported(itemKey)) continue;
         this.configSchema[itemKey] ??= new ConfigItem(this, itemKey);
       }
     }
@@ -169,14 +255,13 @@ export class EnvGraph {
 
     for (const source of this.sortedDataSources) {
       if (source instanceof ImportAliasSource) {
-        // Alias: expand to the original source's subtree at this position,
-        // using the alias's importKeys (derived from its own parent chain)
-        const importKeys = source.importKeys;
+        // Alias: expand to the original source's subtree at this position, applying the
+        // alias node's import chain (its own filter + the importing context) for visibility.
         for (const descendant of this._getDescendants(source.original)) {
-          result.push({ source: descendant, importKeys });
+          result.push({ source: descendant, filterNode: source });
         }
       } else {
-        result.push({ source, importKeys: source.importKeys });
+        result.push({ source, filterNode: source });
       }
     }
 
@@ -202,11 +287,26 @@ export class EnvGraph {
     this.dataTypesRegistry[factory.dataTypeName] = factory;
   }
 
+  // `generate[A-Z]*` root decorator names are reserved for code generators (registered via
+  // registerCodeGenerator), giving a bidirectional guarantee: a `@generate*` root decorator always
+  // writes generated output. Scoped to root decorators only (a code generator can never be an item
+  // decorator) and to the camelCase `generate` prefix (so names like `@generatedBy` stay usable).
+  private static RESERVED_GENERATE_PREFIX = /^generate[A-Z]/;
+
+  // item and root decorators share one `@name` syntax, so a cross-registry duplicate is
+  // rejected as an accidental collision — it would otherwise be shadowed by placement
+  // validation. The exception is an INTENTIONAL dual placement (`@proxy`: detached rules in
+  // the header + attached rules on an item), which both defs must opt into via
+  // `allowDualPlacement`; `_validateDecoratorPlacement` then routes each use to the right def.
   itemDecoratorsRegistry: Record<string, ItemDecoratorDef> = {};
   registerItemDecorator(decoratorDef: ItemDecoratorDef) {
     const name = decoratorDef.name;
     if (name in this.itemDecoratorsRegistry) {
       throw new SchemaError(`Item decorator "${name}" already registered`);
+    }
+    const rootDec = this.rootDecoratorsRegistry[name];
+    if (rootDec && !(decoratorDef.allowDualPlacement && rootDec.allowDualPlacement)) {
+      throw new SchemaError(`Item decorator "${name}" conflicts with a root decorator of the same name`);
     }
     this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
@@ -214,10 +314,38 @@ export class EnvGraph {
   rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
-    if (name in this.itemDecoratorsRegistry) {
+    if (EnvGraph.RESERVED_GENERATE_PREFIX.test(name)) {
+      throw new SchemaError(`Root decorator "${name}" — "generate*" names are reserved for code generators (use registerCodeGenerator)`);
+    }
+    if (name in this.rootDecoratorsRegistry) {
       throw new SchemaError(`Root decorator "${name}" already registered`);
     }
+    const itemDec = this.itemDecoratorsRegistry[name];
+    if (itemDec && !(decoratorDef.allowDualPlacement && itemDec.allowDualPlacement)) {
+      throw new SchemaError(`Root decorator "${name}" conflicts with an item decorator of the same name`);
+    }
     this.rootDecoratorsRegistry[decoratorDef.name] = decoratorDef;
+  }
+
+  /** Registered code generators, keyed by the root decorator name that triggers them. */
+  codeGeneratorsRegistry: Record<string, CodeGeneratorDef> = {};
+  registerCodeGenerator(generatorDef: CodeGeneratorDef) {
+    const name = generatorDef.decoratorName;
+    // code-gen decorators must be `@generate*` — a consistent, self-documenting convention that
+    // separates them from behavior decorators (@cache, @import, ...) and avoids accidental collisions
+    if (!EnvGraph.RESERVED_GENERATE_PREFIX.test(name)) {
+      throw new SchemaError(`Code generator decorator names must match "generate[A-Z]..." (got "${name}")`);
+    }
+    if (name in this.codeGeneratorsRegistry) {
+      throw new SchemaError(`Code generator "${name}" already registered`);
+    }
+    if (name in this.itemDecoratorsRegistry) {
+      throw new SchemaError(`Code generator "${name}" conflicts with an item decorator of the same name`);
+    }
+    // ensure a root decorator exists for this generator (plugins get one for free).
+    // insert directly — registerRootDecorator reserves the `generate` prefix for exactly this path.
+    this.rootDecoratorsRegistry[name] ??= { name, isFunction: true };
+    this.codeGeneratorsRegistry[name] = generatorDef;
   }
 
   constructor() {
@@ -236,6 +364,11 @@ export class EnvGraph {
     // base item decorators (required, sensitive, docs, etc)
     for (const itemDec of builtInItemDecorators) {
       this.registerItemDecorator(itemDec);
+    }
+    // base code generators (ts/py/rs/go/php + deprecated generateTypes alias)
+    // registered via the same API plugins use
+    for (const codeGen of builtInCodeGenerators) {
+      this.registerCodeGenerator(codeGen);
     }
 
     this.overrideValues = originalProcessEnv;
@@ -283,6 +416,12 @@ export class EnvGraph {
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
       description: builtinDef.description,
+      // Advertise the builtin's declared type so that if the item gets a
+      // process() call (e.g. when registered early via a root-decorator
+      // reference), config-item type inference preserves it instead of
+      // defaulting back to 'string' — which would stringify a boolean/number
+      // builtin (e.g. VARLOCK_IS_CI false -> "false", breaking not()/if()).
+      inferredType: builtinType,
       async resolve() {
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
@@ -296,6 +435,7 @@ export class EnvGraph {
       // internal def has no decorators and no source with root-level defaults.
       item._isRequired = false;
       item._isSensitive = false;
+      item._isDynamic = false;
       // Set dataType directly since registerBuiltinVar is called synchronously
       // during resolver processing, and the item may not get a process() call
       // from the finishLoad loop (for...in doesn't reliably visit new keys).
@@ -345,6 +485,24 @@ export class EnvGraph {
       if (isBuiltinVar(key)) this.registerBuiltinVar(key);
     }
 
+    // Warn about items defined with varlock's reserved _VARLOCK_ prefix. These keys are
+    // excluded from the injected env blob and generated types, so a user-defined one is
+    // almost certainly a mistake (or a typo'd internal var that won't behave as expected).
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const itemKey of Object.keys(source.configItemDefs)) {
+        if (isVarlockReservedKey(itemKey)) {
+          source._errors.push(new SchemaError(
+            `"${itemKey}" uses varlock's reserved _VARLOCK_ prefix`,
+            {
+              isWarning: true,
+              tip: 'Keys starting with _VARLOCK_ are reserved for configuring varlock itself and are excluded from the injected env and generated types. Rename this item unless that exclusion is intended.',
+            },
+          ));
+        }
+      }
+    }
+
     // process root decorators
     let hasErrors = false;
     for (const source of this.sortedDataSources) {
@@ -353,6 +511,86 @@ export class EnvGraph {
         await decInstance.process();
         if (decInstance.schemaErrors.some((e) => !e.isWarning)) hasErrors = true;
       }
+    }
+
+    // apply global cache policy early so plugin modules see the final setting
+    // when @plugin decorators execute below.
+    const cacheDec = this.getRootDec('cache');
+    if (cacheDec) {
+      // @cache is resolved before config items, so any refs in its value
+      // (e.g. if($USE_CACHE, "memory", "disabled")) must be early-resolved first,
+      // same as @disable does in finishInit. A missing ref is surfaced by the
+      // resolver itself when the decorator resolves below.
+      if (cacheDec.decValueResolver) {
+        for (const depKey of cacheDec.decValueResolver.deps) {
+          const depItem = this.configSchema[depKey];
+          if (depItem) await depItem.earlyResolve();
+        }
+      }
+      const cacheSetting = await cacheDec.resolve();
+      let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
+      if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
+        cacheMode = cacheSetting;
+      } else if (cacheSetting !== undefined) {
+        // dynamic values are validated here (static ones already failed in process());
+        // undefined (e.g. forEnv with no match) falls back to auto
+        cacheDec._errors.push(new SchemaError(
+          `@cache resolved to an invalid value (${JSON.stringify(cacheSetting)}) — must be one of: "auto", "memory", "disk", "disabled"`,
+        ));
+      }
+      if (cacheMode === 'disabled') {
+        this._cacheMode = 'disabled';
+        this._skipCacheMode = true;
+        this._cacheStore = undefined;
+      } else if (!this._skipCacheMode) {
+        const { CacheStore, InMemoryCacheStore } = await import('../../lib/cache');
+        if (cacheMode === 'memory') {
+          this._cacheMode = 'memory';
+          this._cacheStore = new InMemoryCacheStore();
+        } else if (cacheMode === 'disk') {
+          // explicit disk mode overrides the auto policy's safety fallback — allowed, but warn
+          const localEncrypt = await import('../../lib/local-encrypt');
+          const { createEnvKeyCacheStore, getCacheEnvKey } = await import('../../lib/cache');
+          const envKey = getCacheEnvKey(this.processEnvOverride ?? process.env);
+          const backendIsFile = localEncrypt.getBackendInfo().type === 'file';
+
+          let diskStore: import('../../lib/cache/cache-store').CacheStoreLike | undefined;
+          if (backendIsFile && envKey) {
+            // env-provided key beats the file fallback — the key never touches disk
+            try {
+              diskStore = createEnvKeyCacheStore(envKey);
+            } catch (err) {
+              cacheDec._errors.push(new SchemaError(
+                `_VARLOCK_CACHE_KEY is set but invalid (${err instanceof Error ? err.message : err}) — falling back to file-based encryption`,
+                { isWarning: true },
+              ));
+            }
+          }
+          if (!diskStore) {
+            if (backendIsFile) {
+              cacheDec._errors.push(new SchemaError(
+                '@cache=disk with the file-based encryption fallback stores the decryption key on the same disk as the cache — encrypted values are only obfuscated',
+                { isWarning: true },
+              ));
+            } else if (this.ciEnvInfo.isCI) {
+              cacheDec._errors.push(new SchemaError(
+                '@cache=disk in CI persists encrypted values on the runner disk — make sure the runner is ephemeral or this is intended',
+                { isWarning: true },
+              ));
+            }
+            diskStore = new CacheStore();
+          }
+          this._cacheMode = 'disk';
+          this._cacheStore = diskStore;
+        } else if (cacheMode === 'auto') {
+          if (!this._cacheStore) {
+            if (this._cacheMode === 'memory') this._cacheStore = new InMemoryCacheStore();
+            else if (this._cacheMode === 'disk') this._cacheStore = new CacheStore();
+          }
+        }
+      }
+    } else if (this._skipCacheMode) {
+      this._cacheStore = undefined;
     }
 
     // check declared standardVars against the environment
@@ -391,7 +629,11 @@ export class EnvGraph {
       if (source.disabled) continue;
       for (const decInstance of source.rootDecorators) {
         if (!decInstance.decValueResolver) continue; // no resolver = errored during process()
-        await this.resolveEnvValues(decInstance.decValueResolver.deps);
+        // the items named in the decorator args (e.g. `@initAws(profile=$AWS_PROFILE)`) may
+        // themselves depend on other items, so we must resolve the full transitive closure -
+        // resolveEnvValues() skips any item whose deps are not in the set it was given
+        const deps = this.expandKeysWithTransitiveDeps(decInstance.decValueResolver.deps);
+        await this.resolveEnvValues([...deps]);
         try {
           await decInstance.execute();
         } catch (err) {
@@ -415,6 +657,8 @@ export class EnvGraph {
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
+    await this.getRootDec('proxyConfig')?.resolve();
+    await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
   }
 
   get graphAdjacencyList() {
@@ -489,7 +733,18 @@ export class EnvGraph {
 
         // mark item as beginning to actually resolve
         itemsToResolveStatus[itemKey] = true; // true means in progress
-        await item.resolve();
+        await runWithResolutionContext({
+          cacheStore: this._cacheStore,
+          skipCache: this._skipCacheMode,
+          cacheHits: [],
+          currentItem: item,
+        }, async () => {
+          await item.resolve();
+          const ctx = getResolutionContext();
+          if (ctx?.cacheHits.length) {
+            item._cacheHits = ctx.cacheHits;
+          }
+        });
         markItemCompleted(itemKey);
       };
 
@@ -513,6 +768,70 @@ export class EnvGraph {
     await this.resolveEnvValues([...transitiveDeps, key]);
   }
 
+  /**
+   * Unions `keys` with the transitive dependencies of each — the key set `resolveEnvValues()`
+   * needs to correctly resolve every one of `keys` (it does not expand dependencies itself; see
+   * `resolveItemWithDeps()` above for the single-key precedent this generalizes).
+   */
+  expandKeysWithTransitiveDeps(keys: Iterable<string>): Set<string> {
+    const expanded = new Set<string>();
+    for (const key of keys) {
+      expanded.add(key);
+      for (const dep of getTransitiveDeps(key, this.graphAdjacencyList)) expanded.add(dep);
+    }
+    return expanded;
+  }
+
+  /**
+   * Resolve only what a `--filter` selects, so items outside the filter are neither resolved
+   * nor validated (an unrelated broken item won't block the load, and excluded items' value
+   * resolvers — exec calls, secrets managers, etc. — never run).
+   *
+   * Filters with only key/glob/tag selectors match immediately from the schema. Decorator
+   * selectors (`@sensitive`/`@required`/`@dynamic`) match on *computed* state, so for those
+   * this goes metadata-first:
+   * 1. items the filter definitely excludes regardless of decorator state are skipped entirely
+   * 2. for the rest, any values their decorators reference are resolved (they're true
+   *    dependencies of evaluating the filter), then their metadata is resolved (cheap - no
+   *    value resolvers run)
+   * 3. the filter is evaluated exactly against the resolved metadata, and only matched items
+   *    (plus transitive deps) get their values resolved and validated
+   */
+  async resolveEnvValuesForFilter(filter: ParsedItemFilter): Promise<void> {
+    const allItems = Object.values(this.configSchema);
+
+    if (!filter.usesDecoratorSelector) {
+      const matchedKeys = filter.computeKeys(allItems);
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+      return;
+    }
+
+    // pre-evaluate with decorator state unknown - definite yes/no verdicts need no metadata
+    const definitelyIncluded: Array<string> = [];
+    const undecidedItems: Array<ConfigItem> = [];
+    for (const item of allItems) {
+      const verdict = filter.preEvaluate(item);
+      if (verdict === 'yes') definitelyIncluded.push(item.key);
+      else if (verdict === 'unknown') undecidedItems.push(item);
+    }
+
+    // resolve any values the undecided items' decorators reference - true dependencies of
+    // evaluating the filter (e.g. `@required=eq($OTHER, x)` needs OTHER's value)
+    const metadataDepKeys = new Set<string>(undecidedItems.flatMap((item) => item.metadataDependencyKeys));
+    if (metadataDepKeys.size) {
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(metadataDepKeys)]);
+    }
+    for (const item of undecidedItems) {
+      await item.resolveMetadata();
+    }
+
+    const matchedKeys = new Set([
+      ...definitelyIncluded,
+      ...undecidedItems.filter((item) => filter.matches(item)).map((item) => item.key),
+    ]);
+    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+  }
+
   /** config keys with builtin vars first, then user-defined in schema order */
   get sortedConfigKeys() {
     const builtinKeys: Array<string> = [];
@@ -524,16 +843,59 @@ export class EnvGraph {
     return [...builtinKeys, ...userKeys];
   }
 
-  getResolvedEnvObject() {
+  /**
+   * Keys that were excluded from generated types because they only exist in a plain `.env`
+   * value file (not declared in `.env.schema` or imported into it). These are usually drift —
+   * a stale or extra key, or one the user meant to declare in their schema. Type generation
+   * deliberately ignores them so output stays deterministic, but surfacing them lets the
+   * `typegen` command (or a future doctor check) nudge the user. Keys defined only in
+   * env-specific files (`.env.local`, `.env.production`, ...) are intentionally excluded here.
+   */
+  getValueOnlyKeysExcludedFromTypes() {
+    const keys: Array<string> = [];
+    for (const itemKey of this.sortedConfigKeys) {
+      if (isVarlockReservedKey(itemKey)) continue;
+      const item = this.configSchema[itemKey];
+      if (item.isBuiltin) continue;
+      // still has a schema-defining def → it's included in types, nothing to flag
+      if (item.defsForTypeGeneration.length) continue;
+      // only flag keys that actually appear in a plain `.env` (vs. only env-specific files)
+      if (item.defs.some((def) => def.source?.isAutoloadedValueSource)) keys.push(itemKey);
+    }
+    return keys;
+  }
+
+  getResolvedEnvObject(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }) {
     const envObject: Record<string, any> = {};
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
+      // @internal items are used only by varlock (e.g. to resolve other items) and are
+      // never injected into the application — exclude them from the resolved env output
+      if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       envObject[itemKey] = item.resolvedValue;
     }
     return envObject;
   }
 
-  getSerializedGraph(): SerializedEnvGraph {
+  /**
+   * like getResolvedEnvObject, but values are serialized to their process.env string
+   * form (composite values become separator-joined or JSON strings). Undefined values
+   * stay undefined so callers can distinguish unset items.
+   */
+  getResolvedEnvStringObject(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }) {
+    const envObject: Record<string, string | undefined> = {};
+    for (const itemKey of this.sortedConfigKeys) {
+      const item = this.configSchema[itemKey];
+      if (item.isInternal && !opts?.includeInternal) continue;
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
+      envObject[itemKey] = item.resolvedEnvStringValue;
+    }
+    return envObject;
+  }
+
+  getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
       sources: [],
@@ -549,21 +911,57 @@ export class EnvGraph {
       });
     }
     for (const itemKey of this.sortedConfigKeys) {
-      // _VARLOCK_ENV_KEY is used to encrypt/decrypt the blob itself — including it
-      // would be redundant (the runtime already has it via process.env) and wasteful.
-      if (itemKey === '_VARLOCK_ENV_KEY') continue;
+      // _VARLOCK_* keys configure varlock's own behavior and must never land in the blob:
+      // e.g. _VARLOCK_ENV_KEY encrypts the blob itself (the runtime already has it via
+      // process.env) and _VARLOCK_CACHE_KEY encrypts the disk cache. Skip the whole
+      // reserved prefix so any current/future infra var is excluded automatically.
+      if (isVarlockReservedKey(itemKey)) continue;
       const item = this.configSchema[itemKey];
+      // @internal items are never injected into the app, so the blob (delivered to the app
+      // process via __VARLOCK_ENV) must exclude them entirely. Inspection callers
+      // (e.g. `load --format json-full`) opt in via includeInternal to show them, flagged.
+      if (item.isInternal && !opts?.includeInternal) continue;
+      // when set (e.g. via the CLI `--filter` flag), only include selected keys
+      if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
+        // composite values carry their flat string form, since re-deriving it requires
+        // the item's type settings (separator vs JSON) which don't travel in the blob
+        ...(typeof item.resolvedValue === 'object' && item.resolvedValue !== null)
+          ? { envStr: item.resolvedEnvStringValue } : {},
         isSensitive: item.isSensitive,
+        ...item.isInternal ? { isInternal: true } : {},
+        // only emit when opted out — keeps the common-case blob smaller
+        ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
+        // only emit when it diverges from the sensitivity linkage (the default), so
+        // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
+        ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
       };
     }
+    // Only process.env keys that correspond to a config item can actually act as overrides.
+    // overrideValues defaults to the entire process.env, so without this filter the provenance
+    // list would mirror every env var (PATH, HOME, ...) — pure noise that also leaks the
+    // caller's full env var name list into the blob. Reserved _VARLOCK_* keys configure
+    // varlock itself and are never overrides, so exclude them even if defined in the schema.
+    // items excluded by filterKeys aren't in the blob's config, so their override provenance
+    // would be pure noise — and would leak the excluded key's name into the blob
+    serializedGraph.overrideKeys = normalizeOverrideKeys(
+      Object.keys(this.overrideValues).filter(
+        (k) => k in this.configSchema && !isVarlockReservedKey(k)
+          && (!opts?.filterKeys || opts.filterKeys.has(k)),
+      ),
+    );
 
     // expose a few root level settings
     serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+    const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
+    serializedGraph.settings.proxyEgress = proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
+    // Store the raw reload posture (off/manual/auto); the proxy command resolves `auto`
+    // at launch from context. Absent = undefined, and the command defaults it to `auto`.
+    if (proxyConfig?.reload) serializedGraph.settings.proxyReload = proxyConfig.reload;
 
     // collect all errors into a single nested object
     const errors: SerializedEnvGraphErrors = {};
@@ -603,46 +1001,115 @@ export class EnvGraph {
     return _.some(_.values(this.configSchema), (i) => !i.isValid);
   }
 
-  async generateTypes(lang: string, outputPath: string) {
-    await generateTypes(this, lang, outputPath);
+  /**
+   * True when `@disableProcessEnvInjection` is set — resolved values are NOT mirrored into
+   * `process.env`, so type generation should not type `process.env` as populated.
+   * Resolved during finishLoad(), so this is available before code generation runs.
+   */
+  get isProcessEnvInjectionDisabled(): boolean {
+    return this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
   }
 
   /**
-   * Resolve @generateTypes decorators and generate type files.
+   * Resolve every registered code-generation decorator (@generateTsTypes, @generatePythonEnv,
+   * plugin-contributed ones, and the deprecated @generateTypes) and write their output files.
    * This should be called after finishLoad() but before resolveEnvValues().
-   * The @generateTypes decorator args (lang, path) are static, so we can resolve them
-   * without needing full env resolution. Type info is computed from non-env-specific
-   * definitions only, so the output is deterministic regardless of environment.
+   * Decorator args (path, options) are static, so we can resolve them without full env resolution.
+   * Type info is computed from non-env-specific definitions only, so output is deterministic
+   * regardless of the active environment.
    *
-   * @param opts.ignoreAutoFalse - if true, generate types even if `auto=false` is set.
+   * @param opts.ignoreAutoFalse - if true, generate even if `auto=false` is set.
    *   Used by the `varlock typegen` command to force generation.
    */
-  async generateTypesIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
-    const generateTypesDecs = this.getRootDecFns('generateTypes');
+  async runCodeGeneratorsIfNeeded(opts?: { ignoreAutoFalse?: boolean }) {
     let generatedCount = 0;
-    for (const generateTypesDec of generateTypesDecs) {
-      const typeGenSettings = await generateTypesDec.resolve();
+    // decorators seen but skipped because they live in an imported file without
+    // `executeWhenImported` — lets `varlock codegen` explain a zero count accurately
+    let skippedImportOnlyCount = 0;
 
-      // we skip generating types if `@generateTypes` was not in the main file
-      // unless the `executeWhenImported` flag is set
-      if (generateTypesDec.dataSource.isImport && !typeGenSettings.obj.executeWhenImported) continue;
+    // the full (unfiltered) item list is the same across all generators — build it lazily,
+    // once, and only if at least one generator actually runs
+    let allTypeGenItems: Array<TypeGenItemInfo> | undefined;
+    // per-filter-string field cache ('' = unfiltered), so multiple decorators sharing the
+    // same `filter=` (or lack of one) don't recompute the same field list
+    const fieldsByFilterStr = new Map<string, Array<ResolvedFieldType>>();
 
-      // skip if auto=false unless explicitly overridden (e.g., `varlock typegen`)
-      if (typeGenSettings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+    // options handled by this shared loop, valid on every code-gen decorator
+    const commonOptions = ['path', 'auto', 'executeWhenImported', 'filter'];
 
-      if (!typeGenSettings.obj.lang) throw new Error('@generateTypes - must set `lang` arg');
-      if (typeGenSettings.obj.lang !== 'ts') throw new Error(`@generateTypes - unsupported language: ${typeGenSettings.obj.lang}`);
-      if (!typeGenSettings.obj.path) throw new Error('@generateTypes - must set `path` arg');
-      if (!_.isString(typeGenSettings.obj.path)) throw new Error('@generateTypes - `path` arg must be a string');
+    for (const decoratorName of Object.keys(this.codeGeneratorsRegistry)) {
+      const generator = this.codeGeneratorsRegistry[decoratorName];
+      const decs = this.getRootDecFns(decoratorName);
+      for (const dec of decs) {
+        const settings = await dec.resolve();
 
-      const outputPath = generateTypesDec.dataSource instanceof FileBasedDataSource
-        ? path.resolve(generateTypesDec.dataSource.fullPath, '..', typeGenSettings.obj.path)
-        : typeGenSettings.obj.path;
+        // validate before the skips below — a typo'd option or missing path on an `auto=false`
+        // decorator should be a loud error on every load, not sit undetected until `varlock codegen`
+        if (!settings.obj.path) throw new Error(`@${decoratorName} - must set \`path\` arg`);
+        if (!_.isString(settings.obj.path)) throw new Error(`@${decoratorName} - \`path\` arg must be a string`);
+        if (settings.obj.filter !== undefined && !_.isString(settings.obj.filter)) {
+          throw new SchemaError(`@${decoratorName} - \`filter\` arg must be a string`);
+        }
 
-      await this.generateTypes(typeGenSettings.obj.lang, outputPath);
-      generatedCount++;
+        // catch misspelled options (e.g. `exposEnv=`) instead of silently ignoring them
+        if (generator.knownOptions) {
+          const allowed = new Set([...commonOptions, ...generator.knownOptions]);
+          const unknown = Object.keys(settings.obj).filter((key) => !allowed.has(key));
+          if (unknown.length) {
+            throw new SchemaError(
+              `@${decoratorName} - unknown option${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. `
+              + `Allowed: ${Array.from(allowed).join(', ')}`,
+            );
+          }
+        }
+
+        // skip if the decorator came from an imported file, unless `executeWhenImported` is set
+        if (dec.dataSource.isImport && !settings.obj.executeWhenImported) {
+          skippedImportOnlyCount++;
+          continue;
+        }
+        // skip if auto=false unless explicitly overridden (e.g. `varlock codegen`)
+        if (settings.obj.auto === false && !opts?.ignoreAutoFalse) continue;
+
+        const sourceDir = dec.dataSource instanceof FileBasedDataSource
+          ? path.resolve(dec.dataSource.fullPath, '..')
+          : process.cwd();
+        const outputPath = path.resolve(sourceDir, settings.obj.path);
+
+        const filterStr: string | undefined = settings.obj.filter;
+        if (!fieldsByFilterStr.has(filterStr ?? '')) {
+          // filter against TypeGenItemInfo (pre-resolution isSensitive/isRequired, computed by
+          // getTypeGenInfo()), NOT bare ConfigItems — those getters aren't populated correctly
+          // until resolveEnvValues() runs, which happens after code generation
+          allTypeGenItems ||= await collectTypeGenItems(this);
+          const filterKeys = computeFilteredKeys(allTypeGenItems, filterStr, `@${decoratorName} filter`);
+          const items = filterKeys ? allTypeGenItems.filter((info) => filterKeys.has(info.key)) : allTypeGenItems;
+          fieldsByFilterStr.set(filterStr ?? '', resolveFieldTypes(items));
+        }
+        const fields = fieldsByFilterStr.get(filterStr ?? '')!;
+
+        const src = await generator.generate({
+          graph: this,
+          // fresh deep copy per call — a generator (incl. plugin-contributed ones) that
+          // sorts/mutates its input, at any depth, must not corrupt what later generators receive
+          fields: structuredClone(fields),
+          options: settings.obj,
+          outputPath,
+          sourceDir,
+        });
+
+        // skip the write when content is unchanged — rewriting bumps the mtime, which forces
+        // spurious work downstream (cargo recompiles, tsc/vite watcher churn) on every load/run
+        const existing = await fs.promises.readFile(outputPath, 'utf-8').catch(() => undefined);
+        if (existing !== src) {
+          // ensure the target directory exists (e.g. `path=env/env.go` or `path=src/env.rs`)
+          await fs.promises.mkdir(path.dirname(outputPath), { recursive: true });
+          await fs.promises.writeFile(outputPath, src, 'utf-8');
+        }
+        generatedCount++;
+      }
     }
-    return generatedCount;
+    return { generatedCount, skippedImportOnlyCount };
   }
 
   getRootDec(decoratorName: string) {
@@ -670,4 +1137,228 @@ export class EnvGraph {
 
   /** plugins installed globally in the graph */
   plugins: Array<VarlockPlugin> = [];
+
+  /**
+   * Normalize a `@proxy` list option (`domain`, `method`, `keys`) into a string
+   * array. Accepts a single string (`domain="api.x.com"`) or an array literal
+   * (`domain=[a.com, b.com]`); trims and drops empties.
+   */
+  private static normalizeStringList(value: unknown): Array<string> {
+    const raw = Array.isArray(value) ? value : [value];
+    return raw
+      .filter((v): v is string => _.isString(v))
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Validate a *resolved* `@proxy(...)` arg object — catches misconfigurations
+   * that only surface after dynamic resolution (where the static load-time
+   * validator can't see the value). Fail loud rather than silently dropping a
+   * security-relevant option (a dropped `block`/`approval` is a permissive rule).
+   */
+  private static validateResolvedProxyObj(obj: any): void {
+    // Reject unknown options at resolve time too (the static load-time validator
+    // doesn't fire for header/root @proxy decorators), so a typo like `blok=true`
+    // fails loudly instead of silently producing a permissive rule. Entries that
+    // reach the recursive call have already been filtered to the per-entry set.
+    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules'];
+    for (const key of Object.keys(obj ?? {})) {
+      if (!validOptions.includes(key)) {
+        throw new SchemaError(`@proxy: unknown option "${key}". Valid options: ${validOptions.join(', ')}`);
+      }
+    }
+    if (obj?.block !== undefined && !_.isBoolean(obj.block)) {
+      throw new SchemaError(`@proxy: block must resolve to a boolean, got ${JSON.stringify(obj.block)}`);
+    }
+    if (obj?.path !== undefined && !_.isString(obj.path)) {
+      throw new SchemaError(`@proxy: path must resolve to a string, got ${JSON.stringify(obj.path)}`);
+    }
+    // `approval` resolves to either a boolean or an options object `{enabled?, each?, maxDuration?}`.
+    const approval = obj?.approval;
+    if (approval !== undefined && !_.isBoolean(approval)) {
+      if (!_.isPlainObject(approval)) {
+        throw new SchemaError(`@proxy: approval must resolve to a boolean or an options object, got ${JSON.stringify(approval)}`);
+      }
+      for (const key of Object.keys(approval)) {
+        if (!['enabled', 'each', 'maxDuration'].includes(key)) {
+          throw new SchemaError(`@proxy: unknown approval option "${key}". Valid options: enabled, each, maxDuration`);
+        }
+      }
+      if (approval.enabled !== undefined && !_.isBoolean(approval.enabled)) {
+        throw new SchemaError(`@proxy: approval.enabled must resolve to a boolean, got ${JSON.stringify(approval.enabled)}`);
+      }
+      const eachOk = _.isString(approval.each)
+        && PROXY_APPROVAL_EACH_VALUES.includes(approval.each as ProxyApprovalEach);
+      if (approval.each !== undefined && !eachOk) {
+        throw new SchemaError(`@proxy: approval.each must be one of ${PROXY_APPROVAL_EACH_VALUES.join(', ')}`);
+      }
+      if (approval.maxDuration !== undefined) {
+        try {
+          parseDuration(approval.maxDuration as string | number);
+        } catch {
+          throw new SchemaError('@proxy: approval.maxDuration must be a duration like "15m" or 0 (always ask)');
+        }
+      }
+    }
+
+    // `substituteIn` resolves to a target string or an array of them.
+    if (obj?.substituteIn !== undefined) {
+      const targets = EnvGraph.normalizeStringList(obj.substituteIn);
+      if (targets.length === 0) {
+        throw new SchemaError(`@proxy: substituteIn must resolve to one or more targets (header, header:<name>, query, query:<param>, body:<path>), got ${JSON.stringify(obj.substituteIn)}`);
+      }
+      for (const raw of targets) {
+        const parsed = parseProxySubstitutionTarget(raw);
+        if (!parsed.ok) throw new SchemaError(`@proxy: ${parsed.error}`);
+      }
+    }
+    if (obj?.maxOccurrences !== undefined) {
+      const val = obj.maxOccurrences;
+      if (!_.isNumber(val) || !Number.isInteger(val) || val < 1) {
+        throw new SchemaError(`@proxy: maxOccurrences must resolve to an integer >= 1, got ${JSON.stringify(val)}`);
+      }
+    }
+
+    // `rules=[{...}]`: each entry is a policy refinement for the parent's domain.
+    if (obj?.rules !== undefined) {
+      if (!Array.isArray(obj.rules)) {
+        throw new SchemaError(`@proxy: rules must be an array of rule objects, got ${JSON.stringify(obj.rules)}`);
+      }
+      for (const entry of obj.rules) {
+        if (!_.isPlainObject(entry)) {
+          throw new SchemaError(`@proxy: each rules entry must be an object, got ${JSON.stringify(entry)}`);
+        }
+        for (const key of Object.keys(entry)) {
+          if (!['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'].includes(key)) {
+            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval, substituteIn, maxOccurrences (domain and keys are set on the parent @proxy)`);
+          }
+        }
+        // reuse the per-option type checks for the entry (path/method/block/approval)
+        EnvGraph.validateResolvedProxyObj(entry);
+      }
+    }
+  }
+
+  /**
+   * Approval fields for a rule, from a resolved `@proxy(...)` arg object.
+   * `approval` is a boolean (`approval=true`) or an options object
+   * (`approval={each=..., maxDuration=...}`); the object form implies required
+   * unless `enabled=false`. Assumes the object passed `validateResolvedProxyObj`.
+   */
+  private static buildProxyApprovalFields(obj: any): Partial<ProxyRule> {
+    const approval = obj?.approval;
+    let required = false;
+    let each: ProxyApprovalEach | undefined;
+    let maxDurationMs: number | undefined;
+
+    if (_.isBoolean(approval)) {
+      required = approval;
+    } else if (_.isPlainObject(approval)) {
+      required = approval.enabled !== false; // object form implies required unless explicitly disabled
+      each = _.isString(approval.each) ? (approval.each as ProxyApprovalEach) : undefined;
+      maxDurationMs = approval.maxDuration !== undefined
+        ? parseDuration(approval.maxDuration as string | number)
+        : undefined;
+    }
+
+    if (!required) return {};
+    return {
+      approval: {
+        ...(each ? { each } : {}),
+        ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+      },
+    };
+  }
+
+  /** Build one runtime ProxyRule from a resolved `@proxy(...)` arg object (or a `rules` entry). */
+  private static buildProxyRuleFromObj(obj: any, domain: Array<string>, itemKeys: Array<string>): ProxyRule {
+    const method = EnvGraph.normalizeStringList(obj?.method);
+    // Kept as raw target strings (validated above); parsed into structured targets
+    // at request time. Filter to entries the parser accepts as a defensive backstop.
+    const substituteIn = EnvGraph.normalizeStringList(obj?.substituteIn)
+      .filter((raw) => parseProxySubstitutionTarget(raw).ok);
+    return {
+      domain,
+      itemKeys,
+      ...(_.isString(obj?.path) ? { path: obj.path } : {}),
+      ...(method.length ? { method } : {}),
+      ...(_.isBoolean(obj?.block) ? { block: obj.block } : {}),
+      ...(substituteIn.length ? { substituteIn } : {}),
+      ...(_.isNumber(obj?.maxOccurrences) ? { maxOccurrences: obj.maxOccurrences } : {}),
+      ...EnvGraph.buildProxyApprovalFields(obj),
+    };
+  }
+
+  /**
+   * Expand a resolved `@proxy(...)` arg object into one or more runtime rules: the
+   * parent rule (which carries injection via `itemKeys` and the parent's own
+   * path/method/block) plus one policy-only rule per `rules=[{...}]` entry. Each
+   * entry inherits `domain`, injects nothing (empty `itemKeys`), and refines via
+   * precedence (block > require-approval > allow), so the domain is written once.
+   */
+  private static expandProxyRules(obj: any, domain: Array<string>, itemKeys: Array<string>): Array<ProxyRule> {
+    const out: Array<ProxyRule> = [EnvGraph.buildProxyRuleFromObj(obj, domain, itemKeys)];
+    if (Array.isArray(obj?.rules)) {
+      for (const entry of obj.rules) {
+        out.push(EnvGraph.buildProxyRuleFromObj(entry, domain, []));
+      }
+    }
+    return out;
+  }
+
+  async getProxyRules(): Promise<Array<ProxyRule>> {
+    const rules: Array<ProxyRule> = [];
+
+    // detached rules from root-level @proxy(...)
+    for (const rootProxyDec of this.getRootDecFns('proxy')) {
+      const resolved = await rootProxyDec.resolve();
+      EnvGraph.validateResolvedProxyObj(resolved?.obj);
+      const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
+      if (domain.length === 0) continue;
+      const itemKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
+      rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys));
+    }
+
+    // attached rules from item-level @proxy(...)
+    for (const itemKey of this.sortedConfigKeys) {
+      const item = this.configSchema[itemKey];
+      for (const itemProxyDec of item.getDecFns('proxy')) {
+        const resolved = await itemProxyDec.resolve();
+        EnvGraph.validateResolvedProxyObj(resolved?.obj);
+        const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
+        if (domain.length === 0) continue;
+        const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
+        const itemKeys = _.uniq([itemKey, ...extraKeys]);
+        rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys));
+      }
+    }
+
+    return rules;
+  }
+
+  async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
+    const rules = await this.getProxyRules();
+    const managedKeys = _.uniq(rules.flatMap((r) => r.itemKeys));
+    const managedItems: Array<ProxyManagedItem> = [];
+
+    const usedPlaceholders = new Set<string>();
+    for (const key of managedKeys) {
+      const item = this.configSchema[key];
+      if (!item) {
+        throw new SchemaError(`@proxy references unknown item "${key}"`);
+      }
+      if (!_.isString(item.resolvedValue) || item.resolvedValue.length === 0) continue;
+
+      const { placeholder, isGenericFallback } = await generateProxyPlaceholderForItem(item, usedPlaceholders);
+      managedItems.push({
+        key,
+        placeholder,
+        realValue: item.resolvedValue,
+        ...(isGenericFallback ? { placeholderIsGenericFallback: true } : {}),
+      });
+    }
+
+    return managedItems;
+  }
 }

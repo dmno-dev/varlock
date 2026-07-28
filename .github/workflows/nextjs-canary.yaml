@@ -1,0 +1,49 @@
+name: Next.js Canary Tests
+
+# Early warning for upstream Next.js changes that break the nextjs integration's
+# version-coupled mechanisms (@next/env override, env watch list, runtime
+# injection). Runs the full nextjs framework test suite against next@canary.
+# Failures here are informational — they never block PRs.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1' # weekly, monday morning UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    name: Framework Tests (nextjs canary)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+
+      - name: Build libraries
+        run: bun run build:libs
+
+      - name: Run nextjs canary framework tests
+        run: cd framework-tests && bun install && NEXTJS_CANARY=1 bun run test -- --reporter=verbose frameworks/nextjs/nextjs-canary.test.ts
+        timeout-minutes: 15
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'

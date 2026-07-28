@@ -17,6 +17,10 @@ function loadVarlockConfig() {
     const { stdout } = execSyncVarlock('load --format json-full', {
       fullResult: true,
       env: originalProcessEnv,
+      integrationTelemetry: {
+        name: __VARLOCK_INTEGRATION_NAME__,
+        version: __VARLOCK_INTEGRATION_VERSION__,
+      },
     });
     process.env.__VARLOCK_ENV = stdout;
     varlockLoadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
@@ -93,7 +97,7 @@ function valueToNode(t: BabelAPI['types'], value: unknown): object {
  * Babel plugin for Expo/React Native projects that integrates varlock.
  *
  * Replaces `ENV.xxx` member expressions with their static values at compile time
- * for non-sensitive config items. Sensitive items are NOT inlined and are only
+ * for non-dynamic config items. Dynamic items are NOT inlined and are only
  * accessible at runtime in Expo server routes (+api files) via the ENV proxy.
  * Accessing a sensitive value in native code will emit a build-time warning.
  *
@@ -121,16 +125,18 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
   const { config } = varlockLoadedEnv;
   const t = api.types;
 
-  // Build the set of non-sensitive keys that can be statically replaced
-  const warnedSensitiveKeys = new Set<string>();
-  const nonSensitiveKeys = new Set<string>();
+  // Build the set of non-dynamic keys that can be statically replaced
+  const warnedKeys = new Set<string>();
+  const staticKeys = new Set<string>();
   for (const itemKey in config) {
-    if (!config[itemKey].isSensitive) {
-      nonSensitiveKeys.add(itemKey);
+    const item = config[itemKey];
+    const isDynamic = item.isDynamic ?? item.isSensitive;
+    if (!isDynamic) {
+      staticKeys.add(itemKey);
     }
   }
 
-  debug('static replacements keys', [...nonSensitiveKeys]);
+  debug('static replacements keys', [...staticKeys]);
 
   return {
     name: 'varlock-expo-integration',
@@ -147,20 +153,30 @@ export default function varlockExpoBabelPlugin(api: BabelAPI) {
         ) {
           const key = node.property.name as string;
 
-          if (nonSensitiveKeys.has(key)) {
+          if (staticKeys.has(key)) {
             const item = config[key];
             nodePath.replaceWith(valueToNode(t, item.value));
             debug(`replaced ENV.${key} with static value`);
-          } else if (config[key]?.isSensitive) {
-            debug(`ENV.${key} is sensitive - skipping static replacement`);
+          } else if (config[key]) {
+            const isDynamic = config[key].isDynamic ?? config[key].isSensitive;
+            if (!isDynamic) return;
+            debug(`ENV.${key} is dynamic - skipping static replacement`);
 
-            if (!isServerFile(state.filename) && !warnedSensitiveKeys.has(key)) {
-              warnedSensitiveKeys.add(key);
+            // any non-inlined (dynamic) value is unavailable in native code - warn either
+            // way, leading with the reason that applies (secrecy vs runtime-resolution)
+            if (!isServerFile(state.filename) && !warnedKeys.has(key)) {
+              warnedKeys.add(key);
+              const reason = config[key].isSensitive
+                ? `ENV.${key} is marked @sensitive and was not inlined.`
+                : `ENV.${key} is dynamic (runtime-resolved) and was not inlined.`;
+              const availability = config[key].isSensitive
+                ? '  Sensitive values are only accessible in Expo server routes (+api files).'
+                : '  Dynamic values are only accessible in Expo server routes (+api files).';
               // eslint-disable-next-line no-console
               console.warn([
-                `⚠️  @varlock/expo-integration: ENV.${key} is marked @sensitive and was not inlined.`,
+                `⚠️  @varlock/expo-integration: ${reason}`,
                 `  → ${state.filename ?? '<unknown file>'}`,
-                '  Sensitive values are only accessible in Expo server routes (+api files).',
+                availability,
                 '  Accessing this value in native code will throw at runtime.',
               ].join('\n'));
             }

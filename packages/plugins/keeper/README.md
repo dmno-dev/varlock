@@ -1,6 +1,6 @@
 # @varlock/keeper-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/keeper-plugin.svg)](https://www.npmjs.com/package/@varlock/keeper-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/keeper-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/keeper-plugin.svg)](https://npmx.dev/package/@varlock/keeper-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/keeper-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Keeper Security](https://keepersecurity.com/) vaults via the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK.
 
@@ -54,7 +54,7 @@ ksm profile export --format json | base64
 # @initKeeper(token=$KSM_CONFIG)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG=
 ```
 
@@ -66,10 +66,10 @@ KSM_CONFIG=
 # @initKeeper(token=$KSM_CONFIG_DEV, id=dev)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG_PROD=
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG_DEV=
 ```
 
@@ -132,6 +132,7 @@ Initialize a Keeper Secrets Manager plugin instance.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `token` | string | yes | Base64-encoded Secrets Manager config (typically from `$KSM_CONFIG`) |
+| `cacheTtl` | string \| number | no | Cache resolved values from `keeper()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching |
 | `id` | string | no | Instance identifier for multiple configurations (defaults to `_default`) |
 
 ### Data types
@@ -209,7 +210,7 @@ ksm profile export --format json | base64
 # @initKeeper(token=$KSM_CONFIG)
 # ---
 
-# @type=keeperSmToken @sensitive
+# @type=keeperSmToken @sensitive @internal
 KSM_CONFIG=
 
 # Your secrets

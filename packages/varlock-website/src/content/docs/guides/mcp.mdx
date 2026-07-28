@@ -20,6 +20,8 @@ For local development and testing, MCP servers often use stdio transport for com
 Create a `.env.schema` file for your MCP server:
 
 ```env-spec title=".env.schema"
+# @plugin(@varlock/1password-plugin)
+# @initOp(allowAppAuth=true)
 # @defaultSensitive=true
 # @defaultRequired=true
 # ---
@@ -46,12 +48,12 @@ SERVER_PORT=3000
 LOG_LEVEL=info
 ```
 
-Create your local `.env` file with values from your 1Password vault:
+Create your local `.env.local` file with values from your 1Password vault:
 
-```env-spec title=".env"
-DATABASE_URL=exec(`op read "op://devTest/myVault/database-url"`)
-EXTERNAL_API_KEY=exec(`op read "op://devTest/myVault/external-api-key"`)
-AUTH_SECRET=exec(`op read "op://devTest/myVault/auth-secret"`)
+```env-spec title=".env.local"
+DATABASE_URL=op(op://devTest/myVault/database-url)
+EXTERNAL_API_KEY=op(op://devTest/myVault/external-api-key)
+AUTH_SECRET=op(op://devTest/myVault/auth-secret)
 LOG_LEVEL=debug
 ```
 
@@ -168,7 +170,7 @@ And the corresponding `.env.schema` file would look something like this:
 
 # GitHub token
 # @type=string(startsWith="ghp_")
-GITHUB_TOKEN=exec(`op read "op://devTest/myVault/github-token"`)
+GITHUB_TOKEN=op(op://devTest/myVault/github-token)
 ```
   </TabItem>
 
@@ -409,9 +411,9 @@ LOG_LEVEL=info
 ```
 
 ```env-spec title=".env.production"
-DATABASE_URL=exec(`op read "op://prodTest/prodVault/prod-database-url"`)
-EXTERNAL_API_KEY=exec(`op read "op://prodTest/prodVault/prod-external-api-key"`)
-AUTH_SECRET=exec(`op read "op://prodTest/prodVault/prod-auth-secret"`)
+DATABASE_URL=op(op://prodTest/prodVault/prod-database-url)
+EXTERNAL_API_KEY=op(op://prodTest/prodVault/prod-external-api-key)
+AUTH_SECRET=op(op://prodTest/prodVault/prod-auth-secret)
 SERVER_PORT=3000
 LOG_LEVEL=warn
 ```
@@ -436,10 +438,7 @@ Always use external secret management such as 1Password or the built-in env var 
 API_KEY=sk_live_1234567890abcdef
 
 # ✅ Use external secret management
-API_KEY=exec(`op read "op://devTest/myVault/api-key"`)
-
-# ✅ Use external secret management
-API_KEY=exec(`op read "op://devTest/myVault/api-key"`)
+API_KEY=op(op://devTest/myVault/api-key)
 ```
 
 ### 2. Use Environment-Specific Schemas
@@ -463,12 +462,12 @@ API_KEY=
 
 ```env-spec title=".env.development"
 DATABASE_URL=postgresql://localhost:5432/dev_db
-API_KEY=exec(`op read "op://devTest/myVault/dev-api-key"`)
+API_KEY=op(op://devTest/myVault/dev-api-key)
 ```
 
 ```env-spec title=".env.production"
-DATABASE_URL=exec(`op read "op://prodTest/prodVault/prod-database-url"`)
-API_KEY=exec(`op read "op://prodTest/prodVault/prod-api-key"`)
+DATABASE_URL=op(op://prodTest/prodVault/prod-database-url)
+API_KEY=op(op://prodTest/prodVault/prod-api-key)
 ```
 
 ### 3. Validate Sensitive Data

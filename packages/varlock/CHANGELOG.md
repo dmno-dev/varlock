@@ -6,6 +6,198 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## 1.14.0
+<sub>2026-07-28</sub>
+
+- [#930](https://github.com/dmno-dev/varlock/pull/930)  *(minor)*
+  New `varlock flatten` command: collapses the @import graph into a self-contained directory (rewriting import paths, pinning plugin versions) so a single package can be deployed without the rest of the monorepo, e.g. in Docker builds
+- [#934](https://github.com/dmno-dev/varlock/pull/934)  *(minor)*
+  Proxy: secrets are now substituted into request headers only by default (excluding common forward/log headers like cookie and x-forwarded-*), and a placeholder may appear at most once per request. Widen with @proxy(substituteIn=[...]) using targets like header:authorization, path, query:api_key, or body:client_secret (body always needs a path; use body:* for bodies that can't be parsed into one), and raise the cap with maxOccurrences. This prevents an injected secret from being swapped into a request body, query, or unintended header where it could be exfiltrated.
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)*
+  Add `@dynamic` selector to the `--filter` language (`!@dynamic` selects static items). Decorator-based filters (`@dynamic`/`@sensitive`/`@required`) now scope resolution and validation to selected items, so e.g. a build-time `--filter='!@dynamic'` skips runtime-only vars entirely, including their `@required` checks
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)* - Add static/dynamic config controls and dynamic+public framework/runtime support
+- [#933](https://github.com/dmno-dev/varlock/pull/933)  *(patch)* - fix `varlock audit` ignoring `@auditIgnore` on schema items
+- [#930](https://github.com/dmno-dev/varlock/pull/930)  *(patch)*
+  plugins now work in shell-less/distroless images: tarballs extract natively (no `tar`/shell dependency), and `varlock flatten --vendor-plugins` copies plugins into the output for a fully self-contained artifact
+- [#924](https://github.com/dmno-dev/varlock/pull/924)  *(patch)*
+  Reduce published package size: build the proxy cert authority from low-level asn1 packages instead of @peculiar/x509, and strip bundled third-party source text from release sourcemaps
+- [#937](https://github.com/dmno-dev/varlock/pull/937)  *(patch)*
+  proxy client compatibility fixes: minted MITM certs now include subject/authority key identifiers so strict TLS verifiers (python 3.13+ urllib/httpx defaults) accept them; the injected env now sets NODE_USE_ENV_PROXY=1 so Node's built-in fetch (node 24+) routes through the proxy instead of silently bypassing it, and DENO_CERT so Deno trusts the proxy CA; Proxy-Authorization from clients is stripped instead of forwarded upstream
+- [#946](https://github.com/dmno-dev/varlock/pull/946)  *(patch)*
+  Root decorators (@initAws, etc) now resolve the full dependency chain of items referenced in their args, instead of only the directly referenced items
+- [#947](https://github.com/dmno-dev/varlock/pull/947)  *(patch)* - ENV is no longer exported from the package root; import it from `varlock/env` instead
+- [#943](https://github.com/dmno-dev/varlock/pull/943)  *(patch)*
+  Cache locks left behind by an interrupted run are now reclaimed immediately instead of stalling later runs for several minutes and hiding the real error. `varlock cache clear` also clears locks.
+- [#949](https://github.com/dmno-dev/varlock/pull/949)  *(patch)*
+  Fix proxy MITM certs that occasionally failed to load: roughly 1 in 512 minted certs got a non-minimal DER serial number, which strict TLS parsers reject
+
+## 1.13.0
+<sub>2026-07-21</sub>
+
+- [#918](https://github.com/dmno-dev/varlock/pull/918)  *(minor)*
+  Report load failures to error trackers. `varlock/auto-load` can now throw the load error (instead of exiting silently) so a reporter like Sentry can capture it. Opt in with a `globalThis._varlockOnLoadError` hook (called with the error and the values that did resolve), or set `_VARLOCK_THROW_ON_LOAD_ERROR=1` when a reporter is already initialized. Default behavior is unchanged.
+- [#917](https://github.com/dmno-dev/varlock/pull/917)  *(minor)*
+  Add array and object value types: `@type=array(...)` and `@type=record(...)` with per-element validation, native `[a, b]` / `{k=v}` literal values, JSON and separator string input, configurable serialization back to process.env, per-element redaction, and typed code generation across languages
+- [#908](https://github.com/dmno-dev/varlock/pull/908)  *(patch)* - Reject numeric Infinity/-Infinity in number coercion
+- [#910](https://github.com/dmno-dev/varlock/pull/910)  *(patch)* - Honor falsy schema overrides for builtin vars like VARLOCK_IS_CI
+- [#913](https://github.com/dmno-dev/varlock/pull/913)  *(patch)* - Scan Buffer chunks in ServerResponse.end for leaks
+- [#920](https://github.com/dmno-dev/varlock/pull/920)  *(patch)*
+  Fix refs in the `@cache` root decorator value (e.g. `@cache=if($USE_CACHE, "memory", "disabled")`) silently resolving as undefined
+- [#911](https://github.com/dmno-dev/varlock/pull/911)  *(patch)*
+  Resolve dynamic arguments in forEnv(); a forEnv() argument that resolves to undefined is now an error instead of silently comparing against "undefined"
+- [#895](https://github.com/dmno-dev/varlock/pull/895)  *(patch)* Thanks [@cturner8](https://github.com/cturner8)!
+  install.sh now installs varlock-local-encrypt.exe on WSL so local encryption can use the Windows TPM/Hello backend (pass --skip-win-exe to opt out)
+- [#923](https://github.com/dmno-dev/varlock/pull/923)  *(patch)* - Fix varlock run OOM when child command is a bare PATH binary like node (shebang probe no longer reads the whole file)
+- [#922](https://github.com/dmno-dev/varlock/pull/922)  *(patch)* - Add --plain flag to generate-key for piping into platform CLIs
+
+## 1.12.0
+<sub>2026-07-20</sub>
+
+- [#892](https://github.com/dmno-dev/varlock/pull/892)  *(minor)* - Add `@generateJavaEnv` and `@generateCsharpEnv` loadable env modules (typed Env, loader, sensitive keys)
+- [#780](https://github.com/dmno-dev/varlock/pull/780)  *(patch)*
+  `@encryptInjectedEnv` is now honored when `varlock run` / `varlock proxy run` inject the env blob.
+
+  Previously the setting only applied to the library auto-load path and build-time integrations; the CLI spawn paths injected a plaintext `__VARLOCK_ENV` blob and merely forwarded a pre-existing key. In blob-only inject mode (`--inject blob`), the blob is now encrypted with an ephemeral key carried alongside it, so resolved values never sit in plaintext in the child's environment. This is leak resistance (crash reporters, env dumps, logs), not protection from an attacker who can read the full environment.
+- [#780](https://github.com/dmno-dev/varlock/pull/780)  *(patch)*
+  Add `varlock proxy`: a local credential proxy for AI agents (preview).
+
+  Run an agent (or any untrusted tool) through a local MITM proxy so it only ever sees placeholder secrets: real values are injected at the wire (bound to a verified upstream TLS identity), responses are scrubbed back to placeholders, and every request is policy-checked and audited. Mark a secret with `@proxy(domain="api.example.com")`; sensitive items are shown to the child as placeholders by default, with `@proxy=passthrough` / `@proxy=omit` escape hatches. Route with host/path/method rules (`block`, `approval`), set egress with `@proxyConfig={egress="strict"}`, and hot-reload live policy with `varlock proxy reload`. Sessions are durable and auditable (`varlock proxy status` / `rules` / `audit`); `proxy start` runs a daemon with a live request log that other `proxy run` invocations attach to. Add `proxy run --sandbox` to run the agent in a sandbox whose only egress is the proxy: a built-in macOS credential + egress jail, or `--sandbox=docker` (`=podman`) to run it in a container while your secrets stay on the host. Preview: on its own the proxy is same-uid and raises the bar rather than being a boundary; `--sandbox` (or a container) is what makes it one. See the [proxy guide](https://varlock.dev/guides/proxy/).
+- [#907](https://github.com/dmno-dev/varlock/pull/907)  *(patch)*
+  Fix nested `varlock run`: a command-local override (`FOO=bar varlock ...`) inside a parent `varlock run` now wins over the parent's injected value again, instead of being clobbered by the re-injected env blob.
+
+## 1.11.0
+<sub>2026-07-15</sub>
+
+- [#873](https://github.com/dmno-dev/varlock/pull/873)  *(minor)*
+  Add `--filter` flag to `load`/`run` for selecting env vars by key/glob, `@sensitive`/`@required`, or tags (new `@tag()` item decorator). Also add a matching `filter=` arg to `@generate*` code-generation decorators, so a single schema can emit multiple generated files scoped to different subsets.
+- [#871](https://github.com/dmno-dev/varlock/pull/871)  *(minor)*
+  Add detection for Railway, AWS Amplify, Google Cloud Run, Deno Deploy, Zeabur, and Firebase App Hosting; detect dev sandboxes (CodeSandbox, StackBlitz, GitHub Codespaces, Gitpod, Replit) with isCI: false; add detectRuntime/detectOs and expose them as VARLOCK_RUNTIME/VARLOCK_OS builtin variables.
+
+  Also fixes several incorrect env var names found during a std-env doc audit: GitHub Actions PR number (was reading a non-existent variable), GitLab MR number (was using the instance-wide ID instead of the IID), Netlify build URL (double `https://`), Semaphore PR number (Classic-only variable), Azure Pipelines PR number (prefers the GitHub-facing number), and Bitbucket repo owner (deprecated variable). Adds repo extraction for Bitrise.
+
+  A second pass against std-env's actual detection logic found three more real gaps: Vercel and Netlify now report `isCI: false` when running their local dev servers (`vercel dev`, `netlify dev`) instead of always reporting CI; StackBlitz detection now also requires the WebContainer runtime marker (matching std-env) instead of a weak SHELL-only heuristic that could misfire; and `detectRuntime`'s `isNode` flag now matches std-env's semantics (stays `true` under Bun/Deno's Node-compat mode).
+- [#874](https://github.com/dmno-dev/varlock/pull/874)  *(patch)*
+  Fix: `varlock load --format json-full` no longer includes `@internal` items by default (pass `--include-internal` to opt in for local debugging). Framework integrations shell out to this exact command to get their injected config, so this closes a leak where an `@internal` secret-zero credential could reach client/SSR runtime code.
+- [#882](https://github.com/dmno-dev/varlock/pull/882)  *(patch)*
+  Docs: clarify that _VARLOCK_ENV_KEY encrypts the injected env blob (not an encrypted() resolver), and drop the stale plugin count from the package README
+- [#884](https://github.com/dmno-dev/varlock/pull/884)  *(patch)* - Refuse to write back encrypted values to non-regular source files (FIFO/pipe) with a clear error instead of blocking
+
+## 1.10.0
+<sub>2026-07-06</sub>
+
+- [#849](https://github.com/dmno-dev/varlock/pull/849)  *(minor)*
+  Generate code for Python, Rust, Go, and PHP with new per-language decorators (`@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, `@generatePhpEnv`). Each emits a self-contained, idiomatic module — typed coerced values, a loader that parses the injected env, and a `SENSITIVE_KEYS` constant — so it's usable out of the box. The TypeScript generator moves to `@generateTsTypes` and gains options to control `process.env`/`import.meta.env` augmentation and a monorepo-friendly `exposeEnv=local` mode. `@generateTypes(lang=ts)` still works as a deprecated alias. The `varlock typegen` command is renamed to `varlock codegen` (with `typegen` kept as a deprecated alias). Note: `@disableProcessEnvInjection` now requires a static `true`/`false` value — env-dependent values like `forEnv(prod)` are a schema error, since generated code must not differ per environment.
+- [#853](https://github.com/dmno-dev/varlock/pull/853)  *(patch)* - Reject unknown or misspelled CLI flags with a did-you-mean suggestion instead of silently ignoring them
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Runtime leak detection now catches secrets in compressed responses: gzipped responses that fit in a single chunk (i.e. most pages) were never scanned, so browsers — which always send `Accept-Encoding: gzip` — could receive leaked sensitive values the scanner should have blocked. Brotli and zstd responses are now scanned too, and compressed chunks containing a leak fail closed (the response is killed) instead of passing through.
+
+  Note: since most browser traffic previously bypassed the scanner, an app with an existing undetected leak will start seeing those responses blocked after upgrading — look for `DETECTED LEAKED SENSITIVE CONFIG` in server logs, which names the offending config key.
+- [#861](https://github.com/dmno-dev/varlock/pull/861)  *(patch)*
+  Runtime fixes: env state is now shared across bundled copies of `varlock/env` (fixes stale values after env reloads when a bundler duplicates the module, including cleanup of `process.env` keys removed between reloads), and `node:crypto` is loaded lazily — with encrypted env blobs decrypting via WebCrypto on edge runtimes that lack it entirely (e.g. Vercel Edge). Minimum supported Node version is now 22.3.
+- [#854](https://github.com/dmno-dev/varlock/pull/854)  *(patch)*
+  Windows local encryption now uses TPM-sealed keys via NCrypt when available; existing DPAPI keys auto-upgrade on the next decrypt.
+- [#865](https://github.com/dmno-dev/varlock/pull/865)  *(patch)*
+  icon fetching during type generation now ignores failed responses, times out after 2s, and doesn't retry failed icons within a run
+- [#866](https://github.com/dmno-dev/varlock/pull/866)  *(patch)*
+  plugin-registered data types can now declare `coercedType` so generated env modules type their fields correctly (previously they always emitted as strings)
+
+## 1.9.0
+<sub>2026-06-25</sub>
+
+- [#835](https://github.com/dmno-dev/varlock/pull/835)  *(minor)* - Add `varlock keychain` commands to manage macOS Keychain-backed secrets.
+- [#830](https://github.com/dmno-dev/varlock/pull/830)  *(patch)*
+  Improved `audit` and `init` env var scanning in monorepos:
+
+  - Scanning no longer descends into child packages — any subdirectory with its own `package.json` or `.env.schema` is treated as a separate package and skipped. This fixes spurious results and makes scanning much faster.
+  - Pure execution-environment plumbing (`PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`, etc.) is no longer reported as "missing in schema" by `audit`, nor added to inferred schemas by `init`. App-meaningful vars like `NODE_ENV` and CI variables are still reported.
+
+## 1.8.0
+<sub>2026-06-23</sub>
+
+- [#817](https://github.com/dmno-dev/varlock/pull/817)  *(minor)* - Add @internal decorator to mark items used only by varlock (e.g. a secret-zero token) so they are resolved but not injected into your app
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(minor)* - Enrich CLI telemetry with plugin, integration, and schema feature context.
+- [#811](https://github.com/dmno-dev/varlock/pull/811)  *(patch)* - Stop UPX on Windows native encrypt binary, sign via Azure Artifact Signing, and publish SHA256SUMS for native helpers
+- [#812](https://github.com/dmno-dev/varlock/pull/812)  *(patch)* - varlock run now forwards termination signals (SIGTERM/SIGINT/SIGHUP/SIGQUIT) to the child process and propagates its exit status faithfully (128+N on signal death), making it safe to use as a container ENTRYPOINT / PID 1
+- [#799](https://github.com/dmno-dev/varlock/pull/799)  *(patch)* - Update gunshi to 0.35. `varlock cache status`/`clear` are now proper subcommands with scoped help and completion, and `printenv`/`explain`/`reveal`/`scan`/`audit` now declare their positional arguments so they appear in `--help` and shell completion.
+
+## 1.7.2
+<sub>2026-06-19</sub>
+
+- [#806](https://github.com/dmno-dev/varlock/pull/806)  *(patch)* - Fix typegen leaking keys that exist only in a plain .env (not declared in .env.schema) into generated types. `varlock typegen` now also reports any such ignored keys.
+- [#809](https://github.com/dmno-dev/varlock/pull/809)  *(patch)* - Detect circular @import() between schemas and fail with a clear error instead of crashing
+- [#808](https://github.com/dmno-dev/varlock/pull/808)  *(patch)* - Bundle the varlock agent skill in the npm package so agents can discover version-pinned guidance from node_modules
+
+## 1.7.1
+<sub>2026-06-17</sub>
+
+- [#790](https://github.com/dmno-dev/varlock/pull/790)  *(patch)* - Fix typed builtin vars (e.g. boolean VARLOCK_IS_CI) being stringified when referenced from root decorators like @import/@initOp, which broke not()/if() logic
+- [#794](https://github.com/dmno-dev/varlock/pull/794)  *(patch)* - Object and array literals can now span multiple lines. Inside decorators each continuation line is prefixed with `#` (like multi-line function calls), e.g. a long `@import(./.env.shared, pick=[ ... ])` key list; literals nested in item-value function calls use plain newlines. Single-line literals are unchanged.
+  Multi-line literals and function calls also support `#` comments — full-line entries can be commented out (`# # OLD_KEY,`) and individual entries annotated with trailing comments (`# KEY, # note`).
+  The VSCode extension's syntax highlighting now understands object/array literals (single- and multi-line) and these inline comments.
+
+## 1.7.0
+<sub>2026-06-16</sub>
+
+- [#783](https://github.com/dmno-dev/varlock/pull/783)  *(minor)* - Add per-item leak-detection opt-out via `@sensitive={preventLeaks=false}`. Secrets that legitimately leave the system (e.g. an API endpoint that returns a secret to another service) can be excluded from runtime leak detection while still being redacted in logs. The options form also accepts `enabled` to toggle sensitivity (including dynamically, e.g. `@sensitive={enabled=forEnv(production)}`).
+  Adds standalone object (`{key=value}`) and array (`[a, b, c]`) literals to the env-spec grammar, usable as decorator values and function-call arguments (including nested). `()` remains reserved for function calls.
+- [#786](https://github.com/dmno-dev/varlock/pull/786)  *(minor)* - `@setValuesBulk` and `@import` support `pick`/`omit` key filters.
+  Filter which keys are brought in with `pick` (allowlist) or `omit` (denylist) array args — e.g. `@setValuesBulk(opLoadEnvironment(env-id), pick=[API_KEY, DB_*])` or `@import(./.env.shared, omit=[LEGACY_TOKEN])`. By default every key is included; `pick` and `omit` can't be combined, and both accept simple globs (`*`, `?`).
+  For `@import`, listing keys as positional args (`@import(./.env.shared, KEY1, KEY2)`) is now deprecated in favor of `pick=[...]` — it still works but warns.
+
+## 1.6.1
+<sub>2026-06-11</sub>
+
+- [#770](https://github.com/dmno-dev/varlock/pull/770)  *(patch)* - **Fix:** `varlock run` no longer breaks interactive TTY tools (`psql`, `claude`, etc.). Previously redaction always piped stdout/stderr, which broke raw-TTY behavior unless you passed `--no-redact-stdout`.
+  Redaction is now auto-detected per stream: output attached to an interactive terminal passes through directly (preserving raw TTY behavior), while piped or redirected output (CI logs, files, pipes) is still redacted — that's where leaked secrets actually persist. Detection is per stream, so `varlock run -- app | tee log.txt` redacts stdout while stderr (still on the terminal) passes through.
+  - Add `--redact-stdout` / `_VARLOCK_REDACT_STDOUT` to override the auto-detection: force redaction of piped output (e.g. to override `@redactLogs=false`). Forcing redaction while attached to an interactive terminal errors, since it isn't possible without breaking TTY behavior. The flag takes precedence over the env var.
+  - Fix a leak where a secret split across stream chunk boundaries escaped redaction.
+  - Exclude all reserved `_VARLOCK_*` keys from the injected env blob, generated types, and override provenance (previously only `_VARLOCK_ENV_KEY` / `_VARLOCK_CACHE_KEY` were excluded), and scope override provenance to actual schema config keys instead of mirroring every `process.env` key. Warn when a user defines a config item using the reserved `_VARLOCK_` prefix.
+
+## 1.6.0
+<sub>2026-06-10</sub>
+
+- [#577](https://github.com/dmno-dev/varlock/pull/577)  *(minor)* - - Add caching system: `cache()` resolver, plugin cache API, encrypted JSON store (file mode `0600`), `varlock cache` CLI with TTY-aware browser and `--yes` confirm for `clear`.
+  - Cache TTLs use the shared duration format; `"forever"` caches until manually cleared (the default for `cache()`), setting a plugin's `cacheTtl` to `false` (or an empty string) disables caching, and a TTL of `0` is rejected as ambiguous.
+  - Cached values are individually encrypted and bound to their cache key, so entries cannot be swapped or replayed within the cache file.
+  - `--clear-cache` always clears the persistent disk cache, including when combined with `--skip-cache`; `@cache=disk` warns when used in CI or with the file-based encryption fallback.
+  - Add random value generators backed by `node:crypto`: `randomNum()` (integer by default, float when `precision` is set), `randomUuid()`, `randomHex()` (string-length by default, `bytes=true` for byte-length), `randomString()` (uses rejection sampling for unbiased output across any charset).
+  - Add `duration` data type: accepts flexible string/number input (`"1h"`, `"30m"`, `"500ms"`, `2000`, `"2days"`) and coerces to a number in a configurable output unit (`ms` default; `seconds`, `minutes`, `hours`, `days`, `weeks`). Only plain decimal number formats are accepted, and sub-millisecond durations are rejected. Same parser is used by `cache(..., ttl=...)` and the plugin `cacheTtl` option.
+  - When `_VARLOCK_CACHE_KEY` is set (e.g. as a CI secret; same format as `_VARLOCK_ENV_KEY`, but a separate var since that one can be ephemeral), `auto` cache mode uses a disk cache encrypted with that key instead of falling back to memory — enabling shared caching across CI processes without the key ever touching disk. Each key gets its own cache file, named by key fingerprint.
+  - `@cache` can be set dynamically with functions (e.g. `@cache=forEnv(dev, "disk")`); invalid resolved values surface as schema errors.
+  - Plaintext is passed to the native encryption binary via stdin instead of argv so it never appears in process listings (the macOS enclave binary gained `--data-stdin` support); debug logging no longer includes encrypt/decrypt payloads.
+  - Plugin opt-in caching via `cacheTtl` is documented per plugin — see the plugin packages' own changelogs.
+- [#757](https://github.com/dmno-dev/varlock/pull/757)  *(patch)* Thanks [@yinjs](https://github.com/yinjs)! - fix: treat whitespace-only lines as blank lines instead of throwing a parse error
+- [#756](https://github.com/dmno-dev/varlock/pull/756)  *(patch)* - Preserve process.env override provenance across nested invocations so `varlock run`-injected resolved values are no longer treated as true overrides by inner `varlock` loads.
+  Only real upstream overrides now propagate through nesting, while inner command-local overrides still win as expected.
+  Also fixes smoke-test CLI resolution to use the workspace-local varlock CLI instead of any globally installed binary.
+  Note: `__VARLOCK_ENV` now includes override provenance metadata (`__varlockOverrideMeta`). Tooling that strictly validates that blob shape should allow unknown/new fields.
+- [#768](https://github.com/dmno-dev/varlock/pull/768)  *(patch)* - fix: only warn about file-based encryption fallback when encryption is actually used, not on every load
+
+## 1.5.1
+<sub>2026-06-05</sub>
+
+- [#754](https://github.com/dmno-dev/varlock/pull/754)  *(patch)* - fix biometric session fragmentation under turborepo and prevent duplicate daemons from parallel-spawn races
+
+## 1.5.0
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(minor)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
 ## 1.4.0
 <sub>2026-05-29</sub>
 

@@ -1,6 +1,6 @@
 # @varlock/azure-key-vault-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://www.npmjs.com/package/@varlock/azure-key-vault-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/azure-key-vault-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/azure-key-vault-plugin.svg)](https://npmx.dev/package/@varlock/azure-key-vault-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/azure-key-vault-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault) into your configuration.
 
@@ -74,11 +74,13 @@ AZURE_TENANT_ID=
 # @type=azureClientId
 AZURE_CLIENT_ID=
 
-# @type=azureClientSecret @sensitive
+# @type=azureClientSecret @sensitive @internal
 AZURE_CLIENT_SECRET=
 ```
 
 You would then need to inject these env vars using your CI/CD system.
+
+> `@internal` keeps this credential out of your app's environment — varlock only uses it to fetch your secrets. If you need the credential at runtime for other purposes (e.g. via the Azure SDK), set `@internal=false` to keep it injected.
 
 ### OIDC workload identity (For Vercel, GitHub Actions, etc.)
 
@@ -172,6 +174,7 @@ Initialize an Azure Key Vault plugin instance.
 - `clientId?: string` - Service principal application (client) ID
 - `clientSecret?: string` - Service principal client secret (password)
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `azureSecret()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple vaults (defaults to `_default`)
 
 ### Functions

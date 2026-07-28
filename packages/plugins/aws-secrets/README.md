@@ -1,6 +1,6 @@
 # @varlock/aws-secrets-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://www.npmjs.com/package/@varlock/aws-secrets-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/aws-secrets-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/aws-secrets-plugin.svg)](https://npmx.dev/package/@varlock/aws-secrets-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/aws-secrets-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading data from [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/) and [AWS Systems Manager Parameter Store](https://aws.amazon.com/systems-manager/features/#Parameter_Store) into your configuration.
 
@@ -72,11 +72,13 @@ If you're deploying outside of AWS (e.g., Azure, GCP, on-premises), wire up IAM 
 # @type=awsAccessKey
 AWS_ACCESS_KEY_ID=
 
-# @type=awsSecretKey @sensitive
+# @type=awsSecretKey @sensitive @internal
 AWS_SECRET_ACCESS_KEY=
 ```
 
 You would then need to inject these env vars using your CI/CD system.
+
+> `@internal` keeps this credential out of your app's environment — varlock only uses it to fetch your secrets. If you need the credential at runtime for other purposes (e.g. via the AWS SDK), set `@internal=false` to keep it injected.
 
 ### OIDC workload identity (For Vercel, GitHub Actions, etc.)
 
@@ -203,6 +205,7 @@ Initialize an AWS plugin instance.
 - `oidcRoleArn?: string` - ARN of IAM role to assume via OIDC (enables workload identity federation)
 - `oidcSessionName?: string` - Session name for the OIDC assumed role (defaults to `varlock-session`)
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `awsSecret()` / `awsParam()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### Functions

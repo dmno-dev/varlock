@@ -26,6 +26,9 @@ export class CliExitError extends Error {
 
     if (this.more?.details) {
       msg += joinAndCompact(_.castArray(this.more?.details), '\n');
+      // separate the details block from the suggestion (otherwise they render glued
+      // together, e.g. "…recover real values.Re-approve the change…")
+      msg += '\n';
     }
 
     if (this.more?.suggestion) {

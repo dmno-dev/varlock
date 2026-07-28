@@ -64,7 +64,7 @@ bun run smoke-test
   - Tools that check stdin properties can still run
 - **Cross-runtime redaction**: Verifies redaction works with both Node.js and Bun
 
-**Note on TTY detection**: When redaction is enabled, stdout/stderr are piped through the redaction filter. Varlock automatically injects `FORCE_COLOR` into the child process environment when the parent terminal is a TTY, so most color libraries (chalk, kleur, etc.) still produce colored output. Tools that require a fully connected TTY (like `psql` or `claude`) may still need `--no-redact-stdout` for raw terminal features. The stdin test verifies that stdin properties remain accessible even when stdout/stderr are piped.
+**Note on TTY detection**: Redaction is auto-detected per stream — output attached to an interactive terminal passes through directly (preserving raw TTY behavior for tools like `psql` or `claude`), while piped/redirected output goes through the redaction filter. Since the smoke tests capture output (non-TTY), redaction is always active there. The stdin test verifies that stdin properties remain accessible even when stdout/stderr are piped.
 
 ### 5. Framework Integration Tests
 - **Next.js Integration**: Builds a minimal Next.js site with `@varlock/nextjs-integration` and verifies:
@@ -136,22 +136,17 @@ Edit `scripts/smoke-test.sh` and add a new test section.
 
 ### Interactive Tools and TTY Detection
 
-When log redaction is enabled (default), varlock pipes stdout/stderr through a redaction filter. This means child processes won't see stdout/stderr as TTYs, which can affect interactive tools that check TTY status.
+Redaction is auto-detected per output stream. When a stream is attached to an interactive terminal, it is inherited directly (`stdio: 'inherit'`), so interactive CLIs that check `process.stdout.isTTY` (e.g., `psql`, `mysql`, `claude`), prompts, progress bars, and spinners all work without any flags. When a stream is piped or redirected (as in the smoke tests and CI), it goes through the redaction filter and the child won't see it as a TTY.
 
-**Affected tools**:
-- Interactive CLIs that check `process.stdout.isTTY` (e.g., `psql`, `mysql`, `claude`)
-- Tools that prompt for user input
-- Progress bars and spinners that need TTY control
-
-**Solution**: Use the `--no-redact-stdout` flag:
+To override the auto-detection:
 ```bash
-varlock run --no-redact-stdout -- psql
-varlock run --no-redact-stdout -- claude
+varlock run --no-redact-stdout -- node app.js > log.txt  # force-disable redaction even when piped
+varlock run --redact-stdout -- node app.js > log.txt     # force redaction of piped output (e.g., @redactLogs=false)
 ```
 
-This disables redaction and passes all streams through using `stdio: 'inherit'`, preserving TTY detection.
+`--redact-stdout` errors if output is attached to an interactive terminal — redacting a TTY-attached stream requires piping it, which would break TTY-dependent tools.
 
-**Important**: stdin is always inherited (even with redaction enabled), so tools can read user input. The limitation is specifically about stdout/stderr TTY detection.
+**Important**: stdin is always inherited (even with redaction enabled), so tools can read user input. The limitation is specifically about stdout/stderr TTY detection when output is piped.
 
 ## Troubleshooting
 

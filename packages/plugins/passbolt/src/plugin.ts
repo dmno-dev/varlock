@@ -1,4 +1,7 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
+import { createHash } from 'node:crypto';
 import { PassboltClient, type UUIDv4String } from './passbolt';
 import type { Resource } from './types';
 
@@ -9,6 +12,13 @@ const PASSBOLT_ICON = 'simple-icons:passbolt';
 plugin.name = 'passbolt';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = PASSBOLT_ICON;
 plugin.standardVars = {
   initDecorator: '@initPassbolt',
@@ -21,8 +31,21 @@ plugin.standardVars = {
 class PassboltPluginInstance {
   private accountKit?: string;
   private passphrase?: string;
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(readonly id: string) {}
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Passbolt server/user is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the account kit encodes the server URL and user id (it is hashed, never stored raw)
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.accountKit]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
 
   setAuth(accountKit?: any, passphrase?: any) {
     this.accountKit = accountKit?.toString?.() ?? undefined;
@@ -245,19 +268,34 @@ plugin.registerRootDecorator({
 
     pluginInstances[id] = new PassboltPluginInstance(id);
 
-    return { id, accountKitResolver: objArgs.accountKit, passphraseResolver: objArgs.passphrase };
+    return {
+      id,
+      cacheTtlResolver: objArgs.cacheTtl,
+      accountKitResolver: objArgs.accountKit,
+      passphraseResolver: objArgs.passphrase,
+    };
   },
-  async execute({ id, accountKitResolver, passphraseResolver }) {
+  async execute({
+    id,
+    cacheTtlResolver,
+    accountKitResolver,
+    passphraseResolver,
+  }) {
     const accountKit = await accountKitResolver?.resolve();
     const passphrase = await passphraseResolver?.resolve();
 
     pluginInstances[id].setAuth(accountKit, passphrase);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
 plugin.registerDataType({
   name: 'passboltAccountKit',
   sensitive: true,
+  internal: true,
   typeDescription: 'Passbolt accountKit for authentication',
   icon: PASSBOLT_ICON,
   async validate(val: any): Promise<true> {
@@ -285,8 +323,18 @@ plugin.registerResolverFunction({
   async resolve({ instanceId, resourceIdResolver, fieldResolver }) {
     const selectedInstance = pluginInstances[instanceId];
     const { resourceId, field } = await resolveResourceId(resourceIdResolver);
+    const resolvedField = field ?? await fieldResolver?.resolve();
 
-    return await selectedInstance.getResource(resourceId, field ?? await fieldResolver?.resolve());
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `passbolt:${instanceId}:${selectedInstance.cacheKeyIdentity}:resource:${resourceId}:${resolvedField || ''}`;
+      return await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getResource(resourceId, resolvedField),
+      );
+    }
+
+    return await selectedInstance.getResource(resourceId, resolvedField);
   },
 });
 
@@ -329,6 +377,20 @@ plugin.registerResolverFunction({
       throw new SchemaError('Expected folderPath to resolve to a string');
     }
 
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `passboltBulk:${instanceId}:${selectedInstance.cacheKeyIdentity}:${folderPath}`;
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.getBulkResources(folderPath)),
+      );
+      if (cachedOrFetched !== undefined) {
+        if (typeof cachedOrFetched === 'string') return cachedOrFetched;
+        return JSON.stringify(cachedOrFetched);
+      }
+      throw new ResolutionError('Expected Passbolt bulk response object');
+    }
+
     return await selectedInstance.getBulkResources(folderPath);
   },
 });
@@ -351,6 +413,30 @@ plugin.registerResolverFunction({
     const selectedInstance = pluginInstances[instanceId];
     const { resourceId } = await resolveResourceId(resourceIdResolver);
 
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `passboltCustomFields:${instanceId}:${selectedInstance.cacheKeyIdentity}:${resourceId}`;
+      const cachedOrFetched = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => JSON.parse(await selectedInstance.getCustomFieldObj(resourceId)),
+      );
+      if (cachedOrFetched !== undefined) {
+        if (typeof cachedOrFetched === 'string') return cachedOrFetched;
+        return JSON.stringify(cachedOrFetched);
+      }
+      throw new ResolutionError('Expected Passbolt custom fields object');
+    }
+
     return await selectedInstance.getCustomFieldObj(resourceId);
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+  };
 });

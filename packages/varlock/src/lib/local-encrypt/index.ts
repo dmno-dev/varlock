@@ -5,12 +5,12 @@
  * available backend on the current platform:
  *
  *   1. macOS Secure Enclave (Swift binary) — hardware-backed, Touch ID
- *   2. Windows TPM/Hello (Rust binary) — hardware-backed, Windows Hello (TODO)
- *   3. Linux TPM2 (Rust binary) — hardware-backed (TODO)
+ *   2. Windows NCrypt TPM + Hello (Rust binary) — TPM at-rest; Hello presence gate
+ *   3. Linux TPM2 / Secret Service (Rust binary) — hardware-backed on TPM hosts; polkit/PAM presence
  *   4. File-based (pure JS) — universal fallback, no native binary needed
  */
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveNativeBinary } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
@@ -257,22 +257,96 @@ function waitForWindowsDaemonFromWsl(binaryPath: string, timeoutMs: number = 12_
 
 // ── Native binary one-shot commands ────────────────────────────────────
 
-function runNativeBinary(args: Array<string>, opts?: { timeout?: number }): string {
+/** Hide the payload following --data so plaintext/ciphertext never lands in debug logs */
+function redactDataArg(args: Array<string>): Array<string> {
+  const out = [...args];
+  const i = out.indexOf('--data');
+  if (i >= 0 && i + 1 < out.length) out[i + 1] = '<redacted>';
+  return out;
+}
+
+function runNativeBinary(args: Array<string>, opts?: { timeout?: number; sensitiveOutput?: boolean }): string {
   const binaryPath = resolveNativeBinary();
   if (!binaryPath) {
     debug('runNativeBinary: no binary found');
     throw new Error('Native binary not found');
   }
-  debug(`runNativeBinary: ${binaryPath} ${args.join(' ')}`);
+  debug(`runNativeBinary: ${binaryPath} ${redactDataArg(args).join(' ')}`);
   const output = execFileSync(binaryPath, args, {
     encoding: 'utf-8',
     timeout: opts?.timeout ?? 30_000,
   }).trim();
-  debug(`runNativeBinary result: ${output.slice(0, 200)}`);
+  debug(`runNativeBinary result: ${opts?.sensitiveOutput ? `<${output.length} chars>` : output.slice(0, 200)}`);
   return output;
 }
 
-function runNativeBinaryJson<T = Record<string, unknown>>(args: Array<string>, opts?: { timeout?: number }): T {
+/**
+ * Spawn the native binary asynchronously, writing `input` to its stdin and
+ * resolving with its stdout.
+ *
+ * Async rather than `spawnSync` because this runs on the cache write path,
+ * inside the cache key lock. A blocking spawn there stalls every other
+ * concurrent item resolution in the process, and would freeze the lock's
+ * liveness heartbeat so a busy holder looks dead to other processes.
+ */
+function spawnNativeBinaryAsync(
+  binaryPath: string,
+  args: Array<string>,
+  opts: { input: string; timeout?: number },
+): Promise<string> {
+  const timeoutMs = opts.timeout ?? 30_000;
+  return new Promise((resolve, reject) => {
+    debug(`spawnNativeBinaryAsync: ${binaryPath} ${redactDataArg(args).join(' ')}`);
+    const proc = spawn(binaryPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    // held in an object so `finish` can clear a timer declared after it
+    const pending: { timer?: ReturnType<typeof setTimeout> } = {};
+
+    const finish = (err?: Error, out?: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(pending.timer);
+      if (err) reject(err);
+      else resolve(out ?? '');
+    };
+
+    pending.timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      finish(new Error(`Native binary timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    proc.stdout.setEncoding('utf-8');
+    proc.stderr.setEncoding('utf-8');
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    proc.on('error', (err) => finish(err));
+    proc.on('close', (code) => {
+      // the binary reports failures as JSON on stdout, so a non-zero exit with
+      // output is still handed back for the caller to parse
+      if (!stdout.trim()) {
+        finish(new Error(`Native binary exited with code ${code}${stderr.trim() ? `: ${stderr.trim()}` : ''}`));
+        return;
+      }
+      finish(undefined, stdout);
+    });
+    proc.stdin.on('error', () => {
+      // the child can exit before we finish writing, EPIPE here is not useful
+      debug('spawnNativeBinaryAsync: stdin write failed (child already exited)');
+    });
+    proc.stdin.end(opts.input);
+  });
+}
+
+function runNativeBinaryJson<T = Record<string, unknown>>(
+  args: Array<string>,
+  opts?: { timeout?: number; sensitiveOutput?: boolean },
+): T {
   const output = runNativeBinary(args, opts);
   const parsed = JSON.parse(output);
   if (parsed.error) {
@@ -340,11 +414,6 @@ export function getBackendInfo(): BackendInfo {
     }
   } else {
     debug(`getBackendInfo: using file backend (type=${type}, binaryPath=${binaryPath ?? 'none'}, isFileFallback=${isFileFallback})`);
-    if (isFileFallback && !process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) {
-      process.stderr.write(
-        '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
-      );
-    }
     cachedBackendInfo = {
       type,
       platform: process.platform,
@@ -368,6 +437,18 @@ export function getDaemonClient(): DaemonClient {
   return daemonClient;
 }
 
+// getBackendInfo() is called as a passive capability probe on every load (cache
+// auto-policy), so the fallback warning only fires when crypto ops actually run
+let warnedFileFallback = false;
+function warnIfFileFallback(backend: BackendInfo) {
+  if (warnedFileFallback || !backend.isFileFallback) return;
+  if (process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) return;
+  warnedFileFallback = true;
+  process.stderr.write(
+    '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
+  );
+}
+
 // ── Key management ─────────────────────────────────────────────────────
 
 /** Check if a key exists. */
@@ -389,6 +470,7 @@ export function keyExists(keyId: string = DEFAULT_KEY_ID): boolean {
 export async function generateKey(keyId: string = DEFAULT_KEY_ID): Promise<{ keyId: string; publicKey: string }> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
+    warnIfFileFallback(backend);
     return fileBackend.generateKey(keyId);
   }
   return runNativeBinaryJson<{ keyId: string; publicKey: string }>(['generate-key', '--key-id', keyId]);
@@ -412,25 +494,22 @@ export async function ensureKey(keyId: string = DEFAULT_KEY_ID): Promise<void> {
 export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
+    warnIfFileFallback(backend);
     return fileBackend.encryptValue(plaintext, keyId);
   }
-  // Native binary encrypt (one-shot, no biometric needed for encrypt)
+  // Native binary encrypt (one-shot, no biometric needed for encrypt).
+  // Plaintext is passed via stdin so it never appears in process listings
+  // (and on WSL2, to avoid arg mangling across the WSL/Windows boundary).
   const b64Input = Buffer.from(plaintext, 'utf-8').toString('base64');
-  if (isWSL()) {
-    // On WSL2, pass data via stdin to avoid arg mangling across the WSL/Windows boundary
-    const binaryPath = resolveNativeBinary();
-    if (!binaryPath) throw new Error('Native binary not found');
-    const proc = spawnSync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
-      input: b64Input,
-      encoding: 'utf-8',
-      timeout: 30_000,
-    });
-    if (proc.error) throw proc.error;
-    const result = JSON.parse(proc.stdout.trim());
-    if (result.error) throw new Error(result.error);
-    return result.ciphertext;
-  }
-  const result = runNativeBinaryJson<{ ciphertext: string }>(['encrypt', '--key-id', keyId, '--data', b64Input]);
+  const binaryPath = resolveNativeBinary();
+  if (!binaryPath) throw new Error('Native binary not found');
+
+  const stdout = await spawnNativeBinaryAsync(binaryPath, ['encrypt', '--key-id', keyId, '--data-stdin'], {
+    input: b64Input,
+    timeout: 30_000,
+  });
+  const result = JSON.parse(stdout.trim());
+  if (result.error) throw new Error(result.error);
   return result.ciphertext;
 }
 
@@ -445,6 +524,7 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     debug('decryptValue: using file backend');
+    warnIfFileFallback(backend);
     return fileBackend.decryptValue(ciphertext, keyId);
   }
 
@@ -506,7 +586,7 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
 
       const result = JSON.parse(proc.stdout.trim());
       if (result.error) throw new Error(result.error);
-      debug(`decryptValue: WSL2 result: ${proc.stdout.trim().slice(0, 100)}`);
+      debug(`decryptValue: WSL2 decrypt ok (<${proc.stdout.trim().length} chars>)`);
       return result.plaintext;
     }
     debug('decryptValue: biometric decrypt via daemon client');
@@ -516,7 +596,10 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
 
   // Non-biometric native backend (e.g., Linux TPM without polkit) — one-shot
   debug('decryptValue: non-biometric one-shot decrypt');
-  const result = runNativeBinaryJson<{ plaintext: string }>(['decrypt', '--key-id', keyId, '--data', ciphertext]);
+  const result = runNativeBinaryJson<{ plaintext: string }>(
+    ['decrypt', '--key-id', keyId, '--data', ciphertext],
+    { sensitiveOutput: true },
+  );
   return result.plaintext;
 }
 

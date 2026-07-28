@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 
 import {
-  writeFileSync, unlinkSync, watch, existsSync,
+  writeFileSync, unlinkSync, watch, existsSync, statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -10,6 +10,7 @@ import { spawn, execSync } from 'node:child_process';
 
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import { formatEnvLine } from './format-env-line';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -49,14 +50,20 @@ function spawnWrangler(args: Array<string>): Promise<number> {
 }
 
 function loadSerializedGraph() {
-  const { stdout } = execSyncVarlock('load --format json-full --compact', { fullResult: true });
+  const { stdout } = execSyncVarlock('load --format json-full --compact', {
+    fullResult: true,
+    integrationTelemetry: {
+      name: __VARLOCK_INTEGRATION_NAME__,
+      version: __VARLOCK_INTEGRATION_VERSION__,
+    },
+  });
   return {
     json: stdout,
     graph: JSON.parse(stdout) as {
       basePath?: string,
       sources: Array<{ label: string, enabled: boolean, path?: string }>,
       settings?: { encryptInjectedEnv?: boolean },
-      config: Record<string, { value: unknown, isSensitive: boolean }>,
+      config: Record<string, { value: unknown, isSensitive: boolean, isDynamic?: boolean }>,
     },
   };
 }
@@ -85,58 +92,160 @@ function createServingTempFile(prefix: string) {
     }
   }
 
+  type ServingHandle = {
+    update: (content: string) => Promise<void>,
+    stop: () => void,
+  };
+
   /**
    * Start serving content via the FIFO (or write a regular file on Windows).
-   * On Unix: spawns a child process that writes to the FIFO in a loop.
-   * Using a child process means the blocked libuv thread lives in the child —
-   * killing the child cleanly releases it, allowing our main process to exit.
-   * On Windows: writes a regular file, with refresh() to update it.
+   *
+   * On Unix: spawns a child process that writes the content to the FIFO exactly
+   * once, then exits ("single-shot"). A FIFO is an unframed byte stream and the
+   * reader (`fs.readFileSync`) reads until EOF — which only occurs once *no*
+   * writer has the pipe open. Serving in a loop (re-opening a writer immediately)
+   * means a reader can read several concatenated copies before it ever sees EOF,
+   * which surfaced as wrangler reporting `--secrets-file` contents as invalid
+   * JSON in Linux CI (intermittent, scheduling-dependent). Writing one copy then
+   * closing guarantees a clean EOF after exactly one copy.
+   *
+   * Once that copy is consumed (the writer exits cleanly), a fresh single-shot
+   * writer is re-armed so the next reader has content. This is required because
+   * wrangler reads these files more than once — `wrangler types` re-reads the
+   * `--env-file`, and deploy/upload can re-read the `--secrets-file` — so a
+   * pure one-shot writer would leave the second read hanging. Only ever one
+   * writer is armed at a time, so copies never overlap (no concatenation). The
+   * FIFO is kept (rather than a temp file) so resolved secrets never exist as a
+   * file at rest — a failed/aborted deploy leaves no plaintext secrets on disk.
+   *
+   * Using a child process means the blocked libuv thread (the FIFO open() blocks
+   * until a reader appears) lives in the child — killing it cleanly releases it.
+   *
+   * On Windows: writes a regular file, with update() to refresh it.
+   *
+   * Returns a promise that resolves once the FIFO server is ready to accept a
+   * reader — this prevents racing with downstream consumers (e.g. wrangler).
    */
-  function startServing(getContent: () => string) {
+  async function startServing(getContent: () => string): Promise<ServingHandle> {
     if (isWindows) {
       writeFileSync(filePath, getContent());
       return {
-        update(content: string) { writeFileSync(filePath, content); },
+        async update(content: string) { writeFileSync(filePath, content); },
         stop() {
           /* noop on Windows */
         },
       };
     }
 
-    // spawn a child process to serve the FIFO
-    // the child reads content from stdin, then writes it to the FIFO in a loop
-    const fifoServer = spawn(process.execPath, [
-      '-e', `
-      const fs = require('fs');
-      const path = ${JSON.stringify(filePath)};
-      let content = '';
-      process.stdin.on('data', d => content += d);
-      process.stdin.on('end', () => {
-        (function serve() {
-          try { fs.writeFileSync(path, content); setImmediate(serve); }
-          catch { process.exit(); }
-        })();
-      });
-    `,
-    ], {
-      stdio: ['pipe', 'ignore', 'ignore'],
-    });
-    fifoServer.stdin!.write(getContent());
-    fifoServer.stdin!.end();
+    let stopped = false;
+    // bumped on update()/stop() to invalidate any in-flight re-arm chain
+    let generation = 0;
+    let currentChild: ReturnType<typeof spawn> | undefined;
+    let getContentFn = getContent;
 
-    return {
-      /** Kill and respawn the FIFO server with new content */
-      update(content: string) {
-        fifoServer.kill();
-        const replacement = startServing(() => content);
-        // swap the stop/update methods on this handle
-        this.stop = replacement.stop;
-        this.update = replacement.update;
+    // spawn a single-shot writer: buffer content from stdin, signal 'ready',
+    // write exactly one copy to the FIFO, then exit. fd 3 is a control pipe:
+    // 'ready\n' once buffered and about to open the FIFO, 'err:<message>\n' on
+    // write failure so the parent can surface it instead of dying silently.
+    function spawnWriter(content: string, gen: number): Promise<ReturnType<typeof spawn>> {
+      const child = spawn(process.execPath, [
+        '-e', `
+        const fs = require('fs');
+        const path = ${JSON.stringify(filePath)};
+        const ctrl = fs.createWriteStream(null, { fd: 3 });
+        const chunks = [];
+        process.stdin.on('data', d => chunks.push(d));
+        process.stdin.on('end', () => {
+          // concat Buffers once at end — '+=' on a Buffer corrupts split UTF-8
+          const content = Buffer.concat(chunks).toString('utf8');
+          // signal readiness *before* the blocking FIFO open so the parent
+          // knows it's safe to spawn the reader (e.g. wrangler).
+          ctrl.write('ready\\n');
+          try {
+            // write exactly one copy then exit — closing the fd delivers a
+            // clean EOF after one copy (no concatenation race).
+            fs.writeFileSync(path, content);
+            process.exit(0);
+          } catch (e) {
+            try { ctrl.write('err:' + (e && e.code || '') + ' ' + (e && e.message || String(e)) + '\\n'); } catch {}
+            try { process.stderr.write('[varlock-wrangler:fifo-server] write failed: ' + (e && e.stack || e) + '\\n'); } catch {}
+            process.exit(1);
+          }
+        });
+      `,
+      ], {
+        // stdio: stdin=pipe (content), stdout=ignored, stderr=piped (forwarded),
+        // fd 3 = control pipe for ready/error signals
+        stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
+      });
+      child.stdin!.write(content);
+      child.stdin!.end();
+
+      // forward child stderr so we don't lose diagnostic output on crashes
+      child.stderr?.on('data', (d) => process.stderr.write(d));
+
+      // re-arm: when this writer's single copy is consumed (clean exit), spawn a
+      // fresh writer so the next reader has content. guarded by generation so a
+      // stale chain from before an update()/stop() doesn't resurrect a writer.
+      child.once('exit', (code) => {
+        if (stopped || code !== 0 || gen !== generation) return;
+        currentChild = undefined;
+        spawnWriter(getContentFn(), gen).then((c) => {
+          if (stopped || gen !== generation) c.kill();
+          else currentChild = c;
+        }).catch(() => { /* surfaced via stderr/control pipe */ });
+      });
+
+      // surface any control-pipe messages (errors after readiness)
+      const controlPipe = (child.stdio as Array<any>)[3] as NodeJS.ReadableStream;
+
+      // wait for child to signal it's ready (i.e. has buffered the content and
+      // is about to open the FIFO). without this, the parent can race ahead and
+      // spawn wrangler before the child even starts.
+      return new Promise<ReturnType<typeof spawn>>((resolve, reject) => {
+        let buf = '';
+        const onData = (d: Buffer) => {
+          buf += d.toString('utf8');
+          if (buf.includes('ready\n')) {
+            controlPipe.off('data', onData);
+            // keep listening for post-ready error messages
+            controlPipe.on('data', (more: Buffer) => {
+              const msg = more.toString('utf8').trim();
+              if (msg) process.stderr.write(`[varlock-wrangler] fifo-server: ${msg}\n`);
+            });
+            resolve(child);
+          } else if (buf.startsWith('err:')) {
+            reject(new Error(`fifo-server failed before ready: ${buf.trim()}`));
+          }
+        };
+        controlPipe.on('data', onData);
+        child.once('exit', (code, signal) => {
+          if (!buf.includes('ready\n')) {
+            reject(new Error(`fifo-server exited before ready (code=${code}, signal=${signal})`));
+          }
+        });
+      });
+    }
+
+    currentChild = await spawnWriter(getContentFn(), generation);
+
+    const handle: ServingHandle = {
+      /** Swap the served content and re-arm a fresh writer with it */
+      async update(content: string) {
+        getContentFn = () => content;
+        generation++; // invalidate the previous re-arm chain
+        const previous = currentChild;
+        currentChild = undefined;
+        previous?.kill();
+        currentChild = await spawnWriter(content, generation);
       },
       stop() {
-        fifoServer.kill();
+        stopped = true;
+        generation++; // stop any in-flight re-arm
+        currentChild?.kill();
       },
     };
+    return handle;
   }
 
   return {
@@ -168,16 +277,6 @@ function chunkString(str: string, maxBytes: number): Array<string> {
   }
   if (current) chunks.push(current);
   return chunks;
-}
-
-function formatEnvLine(key: string, value: string): string {
-  if (!value.includes("'")) {
-    // single quotes — literal, no escaping needed
-    return `${key}='${value}'`;
-  }
-  // fall back to double quotes with escaping
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-  return `${key}="${escaped}"`;
 }
 
 /**
@@ -215,10 +314,8 @@ function addVarlockEnvToLines(lines: Array<string>, json: string) {
 }
 
 function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
-  // output as dotenv format using single quotes — single-quoted values are
-  // treated as literal strings with no escape processing, which avoids issues
-  // with double quotes in JSON blobs and special characters in values.
-  // values containing single quotes are double-quoted with escaping instead.
+  // dotenv/Wrangler-compatible quoting via formatEnvLine (prefer a quote char
+  // absent from the value; no backslash escapes dotenv will leave literal).
   const lines: Array<string> = [
     '# ⚠️  AUTO-GENERATED BY VARLOCK — DO NOT EDIT',
     `# ${isWindows ? 'This is a temporary file and will be cleaned up automatically.' : 'This file is served via a named pipe (FIFO) and exists only in memory.'}`,
@@ -324,7 +421,8 @@ async function handleDeploy(args: Array<string>) {
   const tmp = createServingTempFile('varlock-secrets');
   const content = JSON.stringify(secretsObj);
   debug('deploy: starting FIFO serve');
-  const handle = tmp.startServing(() => content);
+  const handle = await tmp.startServing(() => content);
+  debug('deploy: FIFO serve ready');
 
   process.on('SIGINT', () => {
     handle.stop();
@@ -379,7 +477,8 @@ async function handleTypes(args: Array<string>) {
 
   const tmp = createServingTempFile('varlock-types-env');
   debug('types: starting FIFO serve');
-  const handle = tmp.startServing(() => envFileLines.join('\n'));
+  const handle = await tmp.startServing(() => envFileLines.join('\n'));
+  debug('types: FIFO serve ready');
 
   let exitCode = process.exitCode ?? 0;
   try {
@@ -446,7 +545,8 @@ async function handleDev(args: Array<string>) {
   const watchers: Array<ReturnType<typeof watch>> = [];
 
   debug('dev: starting FIFO serve');
-  const handle = tmp.startServing(() => cachedContent);
+  const handle = await tmp.startServing(() => cachedContent);
+  debug('dev: FIFO serve ready');
 
   function cleanup() {
     handle.stop();
@@ -475,7 +575,7 @@ async function handleDev(args: Array<string>) {
     // debounce — multiple files may change at once (e.g. editor saves multiple files,
     // or macOS fs.watch() emits extra events for unchanged files)
     if (restartTimeout) clearTimeout(restartTimeout);
-    restartTimeout = setTimeout(() => {
+    restartTimeout = setTimeout(async () => {
       const changedFileList = [...changedFiles];
       changedFiles.clear();
       try {
@@ -492,7 +592,8 @@ async function handleDev(args: Array<string>) {
         loaded = freshLoaded;
         configIsValid = true;
         cachedContent = formatEnvFileContent(freshLoaded);
-        handle.update(cachedContent);
+        // await readiness so wrangler doesn't restart before the new FIFO server is serving
+        await handle.update(cachedContent);
         const changedMsg = changedFileList.length
           ? `change detected in ${changedFileList.length} env source file${changedFileList.length === 1 ? '' : 's'}`
           : 'change detected in env source files';
@@ -511,7 +612,7 @@ async function handleDev(args: Array<string>) {
               loaded = { json: err.stdout, graph: parsed };
               cachedGraphJson = err.stdout;
               cachedContent = `${formatEnvLine('__VARLOCK_ENV', err.stdout)}\n`;
-              handle.update(cachedContent);
+              await handle.update(cachedContent);
               console.error('\n[varlock-wrangler] \u26a0\ufe0f config is invalid \u2014 fix the error(s) above and save to reload\n');
               wranglerChild?.kill();
               // restartTimeout stays truthy so the exit handler knows this was a restart-kill
@@ -531,7 +632,32 @@ async function handleDev(args: Array<string>) {
       if (!source.enabled || !source.path) continue;
       const fullPath = join(loaded.graph.basePath, source.path);
       try {
-        const w = watch(fullPath, () => scheduleRestart(fullPath));
+        // Sources that are not regular files (e.g. a FIFO served by 1Password
+        // Environments) cannot be watched: their stat churns whenever they are
+        // read, and each reload re-reads every source, so watching one creates
+        // an endless reload loop. Live reload is disabled for those sources.
+        const initialStat = statSync(fullPath);
+        if (!initialStat.isFile()) {
+          console.log(`ℹ️ [varlock-wrangler] ${source.path} is not a regular file (FIFO/pipe), live reload is disabled for it`);
+          continue;
+        }
+        let lastMtimeMs = initialStat.mtimeMs;
+        const w = watch(fullPath, () => {
+          // macOS fs.watch emits spurious change events when another local tool
+          // merely opens/inspects the file (issue #845). A real save always
+          // updates mtime, so ignore events where mtime is unchanged.
+          try {
+            const currentMtimeMs = statSync(fullPath).mtimeMs;
+            if (currentMtimeMs === lastMtimeMs) {
+              debug('dev: ignoring watch event with unchanged mtime', fullPath);
+              return;
+            }
+            lastMtimeMs = currentMtimeMs;
+          } catch {
+            // file may have been deleted/renamed — treat as a change
+          }
+          scheduleRestart(fullPath);
+        });
         watchers.push(w);
         debug('dev: watching', fullPath);
       } catch {

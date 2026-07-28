@@ -26,10 +26,10 @@ Any environment-specific files (e.g., `.env.development`) will automatically be 
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
-- `.env` - will be loaded, but not recommended, instead use something more specific
-- `.env.local` - local overrides (gitignored)
+- `.env` - ⚠️ **not recommended**, will be loaded but better to use others
+- `.env.local` - local overrides _(gitignored)_
 - `.env.[currentEnv]` - environment-specific values
-- `.env.[currentEnv].local` - environment-specific local overrides (gitignored)
+- `.env.[currentEnv].local` - environment-specific local overrides _(gitignored)_
 
 :::tip[Auto-detect with `VARLOCK_ENV`]
 Instead of managing your own environment flag, you can use the built-in `$VARLOCK_ENV` variable which auto-detects the environment from your CI/deploy platform. See the [builtin variables reference](/reference/builtin-variables/) for details.
@@ -154,15 +154,9 @@ APP_ENV=production turbo run build
 
 it will load the correct `.env.production` file because the override for `APP_ENV` is passed correctly to `turbo` and in turn to `varlock`.
 
-> Substitute whatever your env flag is for `APP_ENV` in the above example.
-
 :::tip
-In the above example, we're _only_ passing the `APP_ENV` because that's the variable you are most likely going to want to override in your scripts. If there are other variables you want to pass to your scripts, they will need to be explicitly added as well.
+Substitute whatever your environment flag is for `APP_ENV` in the above example. We're _only_ passing `APP_ENV` because that is the variable you are most likely going to want to override in your scripts. If there are other variables you want to pass to your scripts, they will need to be explicitly added as well.
 :::
-
-
-
----
 
 ### Setting the Environment Flag
 

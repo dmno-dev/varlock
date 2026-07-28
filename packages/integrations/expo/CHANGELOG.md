@@ -2,6 +2,18 @@
 
 
 
+
+
+## 1.2.0
+<sub>2026-07-28</sub>
+
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)* - Add static/dynamic config controls and dynamic+public framework/runtime support
+
+## 1.1.1
+<sub>2026-06-03</sub>
+
+- [#656](https://github.com/dmno-dev/varlock/pull/656)  *(patch)* - add @encryptInjectedEnv and @disableProcessEnvInjection root decorators for encrypted deployments
+
 ## 1.1.0
 <sub>2026-05-02</sub>
 

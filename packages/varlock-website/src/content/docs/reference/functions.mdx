@@ -1,6 +1,6 @@
 ---
 title: Resolver functions
-description: A comprehensive reference of all available function resolvers in varlock
+description: A reference of all available function resolvers in varlock
 ---
 
 You may use _resolver functions_ instead of static values within both config items and decorator values.
@@ -18,11 +18,11 @@ EXPANSION_EQUIVALENT="pre-${OTHER}-post"
 USING_FN_CALLS=concat("pre-", ref(OTHER), "-post")
 
 # mixed example
-CONFIG=exec(`aws ssm get-parameter --name "/config/${APP_ENV}" --with-decryption`)
+CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
 ```
 
 
-There are built-in utility functions, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 ## Core
 <div class="reference-docs">
@@ -32,7 +32,7 @@ There are built-in utility functions, encryption functions for device-local secr
 
 References another config item (env var) - which is useful when composing multiple functions together.
 
-Expansion equivalent: `ref(OTHER_VARL)` === `${OTHER_VAR}` (and also `$OTHER_VAR`)
+Expansion equivalent: `ref(OTHER_VAR)` === `${OTHER_VAR}` (and also `$OTHER_VAR`)
 
 We recommend using the bracketed version within string templates, and the simpler version when referencing an item directly.
 
@@ -61,15 +61,21 @@ PATH2=`base/${APP_ENV}/config.json` # equivalent using expansion
 
 Executes a CLI command and uses its output as the value. This is particularly useful for integrating with external tools and services.
 
-NOTE - many CLI tools output an additional newline. `exec()` will trim this automatically.
+:::note
+Many CLI tools output an additional newline. `exec()` will trim this automatically.
+:::
+
+:::tip[Prefer a plugin when one exists]
+If varlock has a [plugin](/plugins/overview/) for your provider (1Password, AWS, Vault, …), use its resolver (e.g. `op()`) instead of shelling out. Plugins handle auth, caching, and validation. Reach for `exec()` only for tools without a plugin, or for custom logic.
+:::
 
 Expansion equivalent: `exec(command)` === `$(command)`
 
 ```env-spec "exec"
-# Using 1Password CLI
-API_KEY=exec(`op read "op://dev test/service x/api key"`)
-# Using AWS CLI
-AWS_CREDENTIALS=exec(`aws sts get-session-token --profile prod`)
+# A custom or internal secrets CLI
+API_KEY=exec(`my-secrets-cli get api-key`)
+# Any command whose stdout becomes the value
+GIT_SHA=exec(`git rev-parse HEAD`)
 ```
 </div>
 
@@ -107,7 +113,7 @@ APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, developm
 :::caution[Quoting path-like values]
 An unquoted match value that looks like a valid regex (i.e., `/something/` with optional flags) will be treated as a regex pattern. If you need to match a literal string containing slashes (like a file path), wrap it in quotes.
 ```env-spec
-# /usr/local/ looks like a valid regex — use quotes to match it literally
+# /usr/local/ looks like a valid regex, so use quotes to match it literally
 ITEM=remap($PATH_VAR, "/usr/local/", found, default)
 ```
 :::
@@ -150,14 +156,14 @@ API_URL=ifs(
 <div>
 ### Regex-like strings
 
-Certain functions like `remap()` and type options like `matches` support regex pattern matching. You can use JavaScript-style regex syntax (`/pattern/flags`) as an unquoted value — these will be automatically detected and treated as regular expressions.
+Certain functions like `remap()` and type options like `matches` support regex pattern matching. You can use JavaScript-style regex syntax (`/pattern/flags`) as an unquoted value. These will be automatically detected and treated as regular expressions.
 
 A string is treated as a regex when it:
 - Starts and ends with `/` (with optional flags like `i`, `g`, `m`, `s`, `u`, `y` after the closing `/`)
 - Is **not** wrapped in quotes
 
 ```env-spec
-# regex pattern in remap — matches case-insensitively
+# regex pattern in remap, matches case-insensitively
 ENV_TYPE=remap($APP_ENV, /^dev.*/i, dev, "production", prod)
 
 # regex pattern in type options
@@ -171,17 +177,17 @@ API_URL=
 :::caution[Paths vs regex ambiguity]
 Since `/something/` looks like a valid regex, values like `/usr/lib/` will be treated as regex patterns in contexts that support them (like `remap()` match values). To use a literal string containing slashes, wrap it in quotes:
 ```env-spec
-# unquoted — treated as regex pattern matching "usr/lib"
+# unquoted, treated as regex pattern matching "usr/lib"
 ITEM=remap($VAR, /usr/lib/, matched)
 
-# quoted — treated as the literal string "/usr/lib/"
+# quoted, treated as the literal string "/usr/lib/"
 ITEM=remap($VAR, "/usr/lib/", matched)
 ```
 Note that as a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always treated as plain strings.
 :::
 
 :::note[`regex()` function]
-The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred — it's more concise and supports flags.
+The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred, since it's more concise and supports flags.
 
 ```env-spec
 # older style - still works
@@ -264,6 +270,139 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 
 </div>
 
+## Random value generators
+
+These functions generate random values using cryptographically secure randomness (`node:crypto`). In ephemeral environments, it can be helpful to generate values that are unique per run/deployment. For local dev, the [`cache()`](#cache) function can be used to keep a value stable for a period of time.
+
+<div class="reference-docs">
+<div>
+### `randomNum()`
+
+Generates a random number. **Integer by default**; if you pass `precision=N`, returns a float with `N` decimal places.
+
+- With 1 arg: generates between `0` and `max` (inclusive)
+- With 2 args: generates between `min` and `max` (inclusive)
+- `precision=N` option switches to float mode (decimal places, 0-20)
+
+```env-spec "randomNum"
+# Cached random port between 3000 and 4000 (integer)
+DEV_PORT=cache(randomNum(3000, 4000))
+
+# One-off random integer up to 1000
+SEED=randomNum(1000)
+
+# Random float between 0 and 1 with 4 decimal places
+RATE=randomNum(0, 1, precision=4)
+
+# Cached random float between 10 and 20 with 4 decimal places
+THRESHOLD=cache(randomNum(10, 20, precision=4))
+```
+</div>
+
+<div>
+### `randomUuid()`
+
+Generates a random UUID v4.
+
+```env-spec "randomUuid"
+# Unique identifier for this environment (stable across runs)
+INSTANCE_ID=cache(randomUuid())
+
+# Per-run / per-evaluation ID
+REQUEST_ID=randomUuid()
+```
+</div>
+
+<div>
+### `randomHex()`
+
+Generates a random hexadecimal string. By default the argument is the **character length** of the output. Pass `bytes=true` to interpret the argument as a byte count instead (where each byte = 2 hex characters). Default is `32` characters.
+
+```env-spec "randomHex"
+# 32-character hex string (default)
+# @sensitive
+SESSION_SECRET=cache(randomHex())
+
+# 64-character hex string
+# @sensitive
+ENCRYPTION_KEY=cache(randomHex(64))
+
+# 32 bytes (= 64 hex chars), byte-length mode
+# @sensitive
+HMAC_KEY=cache(randomHex(32, bytes=true))
+
+# Non-sensitive one-off value
+NONCE=randomHex(16)
+```
+</div>
+
+<div>
+### `randomString()`
+
+Generates a random alphanumeric string. Default length is `16` characters using `A-Za-z0-9`.
+
+- First arg: character length (default: 16)
+- `charset=S` option: custom character set to draw from
+
+```env-spec "randomString"
+# 32-character alphanumeric string
+# @sensitive
+API_SECRET=cache(randomString(32))
+
+# 8-character string from custom charset
+PIN_CODE=cache(randomString(8, charset="0123456789"))
+
+# One-off random string
+TEMP_LABEL=randomString(10)
+```
+</div>
+</div>
+
+## Caching
+
+<div class="reference-docs">
+<div>
+### `cache()`
+
+Wraps any resolver to cache its result. See [caching guide](/guides/caching/) for more details.
+
+- First arg: the resolver to cache
+- `ttl=D` option: how long to cache (default: `forever`). Accepts duration strings with `ms`, `s`, `m`, `h`, `d`, `w` suffixes (long forms and plurals also work), bare numbers as milliseconds, or the keyword `forever` to cache until manually cleared.
+- `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value should be shared across files or when you want a stable key that doesn't change with resolver edits.
+  - Keys must be non-empty printable text (no control characters) and at most 2048 characters.
+
+The cache automatically invalidates when you change the wrapped resolver expression (unless using a custom `key`).
+
+```env-spec "cache"
+# Cache a random UUID forever (until manually cleared)
+INSTANCE_ID=cache(randomUuid())
+
+# Cache an API token for 1 hour
+AUTH_TOKEN=cache(exec(`get-token.sh`), ttl="1h")
+
+# Cache for 30 minutes
+TEMP_KEY=cache(randomHex(32), ttl="30m")
+
+# Use an explicit cache key (shared across files/projects)
+SHARED_TOKEN=cache(exec(`fetch-org-token.sh`), ttl="1d", key="org-auth-token")
+```
+
+Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view or clear the **disk cache**.
+
+Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` / `varlock printenv` to control caching behavior for a single invocation.
+
+Global cache behavior is configured with the [`@cache` root decorator](/reference/root-decorators/#cache).
+
+In `memory` mode, `varlock cache` will not show in-memory entries from a running process.
+
+For strategy recommendations and troubleshooting, see the [Caching guide](/guides/caching/).
+
+:::tip
+Plugin authors can also use the cache API via `plugin.cache.getOrSet()` (or `get()` / `set()`) to cache expensive API calls. See the [Plugins guide](/guides/plugins/#plugin-caching) for more information.
+:::
+</div>
+</div>
+
 ## Encryption
 <div class="reference-docs">
 
@@ -272,13 +411,13 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 
 Decrypts a locally encrypted value, or prompts for a new secret to encrypt. This is the built-in resolver for varlock's [device-local encryption](/guides/local-encryption/) feature.
 
-**Decrypt mode** — pass an encrypted payload to decrypt at load time:
+**Decrypt mode**: pass an encrypted payload to decrypt at load time:
 ```env-spec "varlock"
 # @sensitive
 API_KEY=varlock("local:<encrypted-payload>")
 ```
 
-**Prompt mode** — prompts the user to enter a secret, encrypts it, and writes the encrypted value back to the source file:
+**Prompt mode**: prompts the user to enter a secret, encrypts it, and writes the encrypted value back to the source file:
 ```env-spec "varlock"
 # @sensitive
 API_KEY=varlock(prompt)
@@ -288,7 +427,7 @@ API_KEY=varlock(prompt=1)
 
 On first run with `prompt` mode, you'll be asked to enter the secret value. Once entered, the file is automatically updated with the encrypted payload. On macOS with Secure Enclave, a native dialog with biometric authentication is used.
 
-Values are encrypted using the best available backend on your platform — see the [Local encryption guide](/guides/local-encryption/) for details.
+Values are encrypted using the best available backend on your platform. See the [Local encryption guide](/guides/local-encryption/) for details.
 
 Encrypted payload lifecycle:
 - Store encrypted payloads (`varlock("local:...")`) in local override files (typically `.env.local`)
@@ -320,7 +459,7 @@ DATABASE_PASSWORD=keychain("com.company.database")
 # Named service with account
 ADMIN_PW=keychain("com.company.db", account="admin")
 
-# Interactive picker mode — writes back resolved reference
+# Interactive picker mode, writes back resolved reference
 NEW_SECRET=keychain(prompt)
 ```
 

@@ -12,6 +12,25 @@ enum KeychainError: LocalizedError {
     case keychainNotFound(String)
     case ambiguousMatch(service: String, accounts: [String])
 
+    var code: String {
+        switch self {
+        case .itemNotFound:
+            return "itemNotFound"
+        case .accessDenied:
+            return "accessDenied"
+        case .duplicateItem:
+            return "duplicateItem"
+        case .unexpectedData:
+            return "unexpectedData"
+        case .unhandledError:
+            return "unhandledError"
+        case .keychainNotFound:
+            return "keychainNotFound"
+        case .ambiguousMatch:
+            return "ambiguousMatch"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .itemNotFound:
@@ -301,6 +320,50 @@ final class KeychainManager {
 
     // MARK: - Add Item
 
+    /// Create or update a generic password item.
+    /// Returns true when an existing item was updated, false when a new item was created.
+    static func setGenericPassword(service: String, account: String, value: String, update: Bool = false) throws -> Bool {
+        guard let valueData = value.data(using: .utf8) else {
+            throw KeychainError.unexpectedData
+        }
+
+        let lookup: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+
+        if update {
+            let attrs: [CFString: Any] = [
+                kSecValueData: valueData,
+                kSecAttrLabel: account.isEmpty ? service : account,
+            ]
+            let status = SecItemUpdate(lookup as CFDictionary, attrs as CFDictionary)
+            switch status {
+            case errSecSuccess:
+                return true
+            case errSecItemNotFound:
+                break
+            default:
+                throw KeychainError.unhandledError(status)
+            }
+        }
+
+        var addQuery = lookup
+        addQuery[kSecAttrLabel] = account.isEmpty ? service : account
+        addQuery[kSecValueData] = valueData
+
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        switch status {
+        case errSecSuccess:
+            return false
+        case errSecDuplicateItem:
+            throw KeychainError.duplicateItem
+        default:
+            throw KeychainError.unhandledError(status)
+        }
+    }
+
     /// Create a new keychain item as a secure note.
     /// The label is the only user-visible identifier in Keychain Access.
     /// The value is stored as RTF for Keychain Access compatibility.
@@ -420,25 +483,55 @@ final class KeychainManager {
     /// Get a SecKeychainItem reference for ACL operations.
     /// Searches generic passwords first, then internet passwords.
     private static func getItemRef(service: String, account: String?, keychainName: String?) throws -> SecKeychainItem {
+        let searchList: [SecKeychain]?
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            searchList = [keychainRef]
+        } else {
+            searchList = nil
+        }
+
         for itemClass in [kSecClassGenericPassword, kSecClassInternetPassword] {
+            let serviceAttribute = itemClass == kSecClassGenericPassword ? kSecAttrService : kSecAttrServer
+
+            if account == nil {
+                var countQuery: [CFString: Any] = [
+                    kSecClass: itemClass,
+                    kSecReturnAttributes: true,
+                    kSecMatchLimit: kSecMatchLimitAll,
+                    serviceAttribute: service,
+                ]
+
+                if let searchList = searchList {
+                    countQuery[kSecMatchSearchList] = searchList
+                }
+
+                var countResult: AnyObject?
+                let countStatus = SecItemCopyMatching(countQuery as CFDictionary, &countResult)
+                if countStatus == errSecSuccess, let items = countResult as? [[String: Any]], items.count > 1 {
+                    let accounts = items.compactMap { $0[kSecAttrAccount as String] as? String }
+                    throw KeychainError.ambiguousMatch(
+                        service: service,
+                        accounts: accounts
+                    )
+                }
+            }
+
             var query: [CFString: Any] = [
                 kSecClass: itemClass,
                 kSecReturnRef: true,
                 kSecMatchLimit: kSecMatchLimitOne,
+                serviceAttribute: service,
             ]
-
-            if itemClass == kSecClassGenericPassword {
-                query[kSecAttrService] = service
-            } else {
-                query[kSecAttrServer] = service
-            }
 
             if let account = account {
                 query[kSecAttrAccount] = account
             }
 
-            if let keychainName = keychainName, let keychainRef = resolveKeychain(named: keychainName) {
-                query[kSecMatchSearchList] = [keychainRef]
+            if let searchList = searchList {
+                query[kSecMatchSearchList] = searchList
             }
 
             var result: AnyObject?

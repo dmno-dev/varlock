@@ -1,5 +1,7 @@
 # @varlock/nextjs-integration
 
+[![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmx.dev/package/@varlock/nextjs-integration) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/nextjs-integration.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package helps you integrate [varlock](https://varlock.dev) into a [Next.js](https://nextjs.org) project.
 
 It is designed as a drop-in replacement for [`@next/env`](https://www.npmjs.com/package/@next/env), which is the internal package that Next.js uses to load `.env` files, as well as a small plugin for your `next.config.*` file that enables additional security features.

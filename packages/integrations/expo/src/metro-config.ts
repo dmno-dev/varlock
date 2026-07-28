@@ -76,7 +76,13 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
   if (process.env.__VARLOCK_ENV) return config;
 
   try {
-    const { stdout } = execSyncVarlock('load --format json-full', { fullResult: true });
+    const { stdout } = execSyncVarlock('load --format json-full', {
+      fullResult: true,
+      integrationTelemetry: {
+        name: __VARLOCK_INTEGRATION_NAME__,
+        version: __VARLOCK_INTEGRATION_VERSION__,
+      },
+    });
     process.env.__VARLOCK_ENV = stdout;
 
     const parsed = JSON.parse(stdout) as SerializedEnvGraph;

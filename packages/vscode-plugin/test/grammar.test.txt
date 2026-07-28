@@ -61,6 +61,66 @@ EXAMPLE_VAR=test
 # <- comment.line.env-spec
 DEC_FN_VAR=test
 
+# @docs(https://varlock.dev/env-spec/overview/#a-short-example)
+# <- comment.line.env-spec
+#                                             ^^^^^^^^^^^^^^^^ string.unquoted.env-spec
+DOCS_FRAGMENT_VAR=test
+
+# unquoted decorator value terminated by `#` with no preceding space -> comment
+# @unquoted=noquotes#should be comment
+#           ^^^^^^^^ string.unquoted.env-spec
+#                   ^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+NO_SPACE_COMMENT_VAR=test
+#^^^^^^^^^^^^^^^^^^^ entity.name.tag.env-spec
+
+# @type(
+#   string,
+#   ^^^^^^ string.unquoted.env-spec
+#   number
+#   ^^^^^^ string.unquoted.env-spec
+# )
+# ^ punctuation.section.parens.end.env-spec
+MULTI_DEC_VAR=test
+
+# @dec(fn())
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^^ variable.function.env-spec
+#        ^ punctuation.section.parens.begin.env-spec
+#         ^ punctuation.section.parens.end.env-spec
+#          ^ punctuation.section.parens.end.env-spec
+NESTED_FN_DEC_VAR=test
+
+# @dec(fn(arg))
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^^ variable.function.env-spec
+#        ^ punctuation.section.parens.begin.env-spec
+#         ^^^ string.unquoted.env-spec
+#            ^ punctuation.section.parens.end.env-spec
+#             ^ punctuation.section.parens.end.env-spec
+NESTED_FN_ARG_DEC_VAR=test
+
+# @dec(key=fn())
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^^^ entity.other.attribute-name.env-spec
+#         ^ keyword.operator.assignment.env-spec
+#          ^^ variable.function.env-spec
+#            ^ punctuation.definition.parameters.begin.env-spec
+#             ^ punctuation.definition.parameters.end.env-spec
+#              ^ punctuation.section.parens.end.env-spec
+KWARG_FN_DEC_VAR=test
+
+# @dec(a, fn(), b)
+#     ^ punctuation.section.parens.begin.env-spec
+#      ^ string.unquoted.env-spec
+#       ^ punctuation.separator.comma.env-spec
+#         ^^ variable.function.env-spec
+#           ^ punctuation.section.parens.begin.env-spec
+#            ^ punctuation.section.parens.end.env-spec
+#             ^ punctuation.separator.comma.env-spec
+#               ^ string.unquoted.env-spec
+#                ^ punctuation.section.parens.end.env-spec
+MULTI_ARG_FN_DEC_VAR=test
+
 # ======================
 # Variable expansion
 # ======================
@@ -113,6 +173,138 @@ NUMERIC=123
 
 UNDEFINED_VAL=undefined
 #             ^^^^^^^^^ constant.language.undefined.env-spec
+
+# ======================
+# Object & array literals
+# ======================
+
+# @dec=[a, b]
+#      ^ punctuation.definition.array.begin.env-spec
+#       ^ string.unquoted.env-spec
+#          ^ string.unquoted.env-spec
+#           ^ punctuation.definition.array.end.env-spec
+
+ARR_DEC=test
+#^^^^^^ entity.name.tag.env-spec
+
+# @sensitive={ preventLeaks=false }
+#            ^ punctuation.definition.dictionary.begin.env-spec
+#              ^^^^^^^^^^^^ entity.other.attribute-name.env-spec
+#                          ^ keyword.operator.assignment.env-spec
+#                           ^^^^^ constant.language.boolean.env-spec
+#                                 ^ punctuation.definition.dictionary.end.env-spec
+
+OBJ_DEC=test
+#^^^^^^ entity.name.tag.env-spec
+
+KEYS=fn([a, b])
+#       ^ punctuation.definition.array.begin.env-spec
+#        ^ string.unquoted.env-spec
+#            ^ punctuation.definition.array.end.env-spec
+#             ^ punctuation.definition.parameters.end.env-spec
+
+
+# Item-value array (plain-newline continuation) with comments
+LIST_ML=fn([
+#          ^ punctuation.definition.array.begin.env-spec
+  ONE,
+# ^^^ string.unquoted.env-spec
+  # TWO disabled
+# ^^^^^^^^^^^^^^ comment.line.env-spec
+  THREE, # last
+# ^^^^^ string.unquoted.env-spec
+#        ^^^^^^ comment.line.env-spec
+])
+# <- punctuation.definition.array.end.env-spec
+#^ punctuation.definition.parameters.end.env-spec
+AFTER_LIST=ok
+#^^^^^^^^^ entity.name.tag.env-spec
+
+# Item-value literal (fn-call) with UNINDENTED (column-0) comments. Unlike a
+# decorator, continuation lines here are not `#`-prefixed, so a column-0 `#` is
+# a full comment, not a structural prefix.
+COL0_ML=fn({
+  items=[
+# col-0 comment inside nested array
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+    ONE,
+#   ^^^ string.unquoted.env-spec
+  ],
+# count=3 disabled at column 0
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ comment.line.env-spec
+  timeout=30, # trailing note
+# ^^^^^^^ entity.other.attribute-name.env-spec
+#             ^^^^^^^^^^^^^^ comment.line.env-spec
+})
+AFTER_COL0=ok
+#^^^^^^^^^ entity.name.tag.env-spec
+
+# Bare multi-line fn call (positional args, NO bracket literal). The continuation
+# lines are not `#`-prefixed, so both indented and column-0 comments are full
+# comments. (Distinct path from the literal cases above: the fn call closes at
+# end of the first line and the body is handled as plain continuation lines.)
+FN_ML=fn(
+  ONE,
+# ^^^ string.unquoted.env-spec
+  # TWO disabled (indented comment)
+#   ^^^^^^^^^^^^ comment.line.env-spec
+# THREE disabled (column-0 comment)
+# ^^^^^^^^^^^^^^ comment.line.env-spec
+  FOUR, # trailing note
+# ^^^^ string.unquoted.env-spec
+#        ^^^^^^^^^^^^^ comment.line.env-spec
+)
+# <- punctuation.definition.parameters.end.env-spec
+AFTER_FN_ML=ok
+#^^^^^^^^^^ entity.name.tag.env-spec
+
+# @import(pick=[
+#   ALPHA,
+#   ^^^^^ string.unquoted.env-spec
+#   # disabled,
+#   ^^^^^^^^^^^ comment.line.env-spec
+#   BETA, # primary
+#   ^^^^ string.unquoted.env-spec
+#         ^^^^^^^^^ comment.line.env-spec
+# ])
+# ^ punctuation.definition.array.end.env-spec
+#  ^ punctuation.section.parens.end.env-spec
+IMPORT_ML=test
+#^^^^^^^^ entity.name.tag.env-spec
+
+# Bare item-value literals (no fn-call / decorator wrapper).
+# These are single-line only; bare multi-line literals are not valid @env-spec
+# (they require a fn() wrapper), so the grammar must not span lines here.
+ARR_INLINE=[a, b]
+#          ^ punctuation.definition.array.begin.env-spec
+#           ^ string.unquoted.env-spec
+#              ^ string.unquoted.env-spec
+#               ^ punctuation.definition.array.end.env-spec
+
+OBJ_INLINE={ host=localhost, port=5432 }
+#          ^ punctuation.definition.dictionary.begin.env-spec
+#            ^^^^ entity.other.attribute-name.env-spec
+#                ^ keyword.operator.assignment.env-spec
+#                 ^^^^^^^^^ string.unquoted.env-spec
+#                            ^^^^ entity.other.attribute-name.env-spec
+#                                 ^^^^ constant.numeric.env-spec
+#                                      ^ punctuation.definition.dictionary.end.env-spec
+
+OBJ_NESTED=[{ aa=1 }, { bb=2 }]
+#          ^ punctuation.definition.array.begin.env-spec
+#           ^ punctuation.definition.dictionary.begin.env-spec
+#             ^^ entity.other.attribute-name.env-spec
+#                  ^ punctuation.definition.dictionary.end.env-spec
+#                             ^ punctuation.definition.array.end.env-spec
+
+# A bare bracket left unclosed must NOT swallow the following entry — it closes
+# at end of line, so the next line is still a normal env entry.
+STRAY_OPEN=[oops
+#          ^ punctuation.definition.array.begin.env-spec
+NEXT_ENTRY=fine
+#^^^^^^^^^ entity.name.tag.env-spec
+#         ^ keyword.operator.assignment.env-spec
+#          ^^^^ string.unquoted.env-spec
 
 # ======================
 # Edge cases

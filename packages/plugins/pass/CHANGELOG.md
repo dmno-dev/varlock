@@ -1,6 +1,12 @@
 # @varlock/pass-plugin
 
 
+
+## 1.0.1
+<sub>2026-06-23</sub>
+
+- [#818](https://github.com/dmno-dev/varlock/pull/818)  *(patch)* - Report anonymous, non-sensitive usage attributes (auth mode, feature flags) through varlock's opt-out telemetry.
+
 ## 1.0.0
 <sub>2026-04-29</sub>
 

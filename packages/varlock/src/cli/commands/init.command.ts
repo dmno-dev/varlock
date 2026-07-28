@@ -22,6 +22,8 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { findEnvFiles } from '../helpers/find-env-files';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { scanCodeForEnvVars } from '../helpers/env-var-scanner';
+import { isWellKnownEnvKey } from '../helpers/well-known-env-keys';
+import { detectTypegenDecorator } from '../helpers/typegen-lang-detect';
 
 export const commandSpec = define({
   name: 'init',
@@ -146,8 +148,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ].join('\n'));
     envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultRequired', 'infer', { explicitTrue: true });
     envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'defaultSensitive', 'false', { explicitTrue: true });
-    // TODO: detect js/ts project before adding this
-    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, 'generateTypes', 'lang=ts, path=env.d.ts', { bareFnArgs: true });
+    // pick a code-gen decorator matching the detected primary project language (ts/py/go/rs/php)
+    const typegen = await detectTypegenDecorator();
+    envSpecUpdater.setRootDecorator(parsedEnvSchemaFile, typegen.decorator, typegen.args, { bareFnArgs: true });
     // envSpecUpdater.setRootDecorator(parsedEnvFile, 'envFlag', 'APP_ENV', { comment: 'controls automatic loading of env-specific files (e.g. .env.test, .env.prod, etc.)' });
 
     // add example item
@@ -164,7 +167,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ensureAllItemsExist(parsedEnvSchemaFile, Object.values(parsedEnvFiles));
 
     const scannedCodeKeysToAdd = !exampleFileToConvert
-      ? scannedCodeEnvKeys.filter((key) => !parsedEnvSchemaFile.configItems.find((i) => i.key === key))
+      ? scannedCodeEnvKeys.filter((key) => {
+        // skip execution-environment plumbing (PATH, NODE_OPTIONS, npm_*, ...) - it's read
+        // from process.env but isn't app config the user should declare
+        if (isWellKnownEnvKey(key)) return false;
+        return !parsedEnvSchemaFile.configItems.find((i) => i.key === key);
+      })
       : [];
 
     // add items we detect in source code if no sample/example file was provided
@@ -265,11 +273,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       const reloadedSchemaFile = await parseEnvSpecDotEnvFile(await fs.readFile(schemaFilePath, 'utf-8'));
       // check if they removed the EXAMPLE_ITEM and warn them
       if (reloadedSchemaFile.configItems.find((i) => i.key === 'EXAMPLE_ITEM')) {
-        logLines([
-          '',
-          ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
-          `Please make sure your schema is all correct before using it...`,
-        ]);
+        logLines(confirmReviewed
+          ? [
+            '',
+            ansis.bold(`🚨 Really? ${ansis.red("You didn't remove the EXAMPLE_ITEM!")}`),
+            `Please make sure your schema is all correct before using it...`,
+          ]
+          : [
+            '',
+            ansis.bold(`🙏 Thanks for your honesty!`),
+            `Make sure to review your schema and remove the ${ansis.bold('EXAMPLE_ITEM')} before using it...`,
+          ]);
       }
     }
 

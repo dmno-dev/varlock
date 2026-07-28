@@ -72,6 +72,12 @@ export const commandSpec = define({
   name: 'scan',
   description: 'Scan files for sensitive config values that should not be in plaintext',
   args: {
+    targets: {
+      type: 'positional',
+      required: false,
+      multiple: true,
+      description: 'Files, directories, or globs to scan (defaults to the current directory)',
+    },
     staged: {
       type: 'boolean',
       description: 'Only scan staged git files',
@@ -455,7 +461,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const includeIgnored = ctx.values['include-ignored'] ?? false;
 
   // Positional arguments are treated as explicit paths/globs to scan
-  const scanTargets = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
+  const scanTargets = ctx.values.targets ?? [];
 
   // Load the varlock env graph to get the actual sensitive values
   const envGraph = await loadVarlockEnvGraph({

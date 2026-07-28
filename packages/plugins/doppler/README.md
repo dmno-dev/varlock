@@ -1,5 +1,7 @@
 # @varlock/doppler-plugin
 
+[![npm version](https://img.shields.io/npm/v/@varlock/doppler-plugin.svg)](https://npmx.dev/package/@varlock/doppler-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/doppler-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 Load secrets from [Doppler](https://www.doppler.com/) into your Varlock configuration.
 
 ## Features
@@ -11,6 +13,8 @@ Load secrets from [Doppler](https://www.doppler.com/) into your Varlock configur
 - ✅ Multiple plugin instances for different projects/configs
 - ✅ Auto-infer secret names from variable names
 - ✅ Helpful error messages with resolution tips
+
+`cacheTtl` is optional and uses the same duration format as varlock `cache()` (e.g. `"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared). Set to `false` (or an empty string) to disable caching.
 
 ## Installation
 
@@ -37,11 +41,12 @@ Navigate to your project config in the Doppler dashboard → **Access** → **Se
 # @initDoppler(
 #   project=my-project,
 #   config=dev,
-#   serviceToken=$DOPPLER_TOKEN
+#   serviceToken=$DOPPLER_TOKEN,
+#   cacheTtl="1h"
 # )
 # ---
 
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 ```
 
@@ -77,7 +82,7 @@ PROD_DATABASE=doppler(prod, "DATABASE_URL")
 # @setValuesBulk(dopplerBulk())
 # ---
 
-# @type=dopplerServiceToken @sensitive
+# @type=dopplerServiceToken @sensitive @internal
 DOPPLER_TOKEN=
 
 DATABASE_URL=

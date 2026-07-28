@@ -1,6 +1,6 @@
 # @varlock/google-secret-manager-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://www.npmjs.com/package/@varlock/google-secret-manager-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/google-secret-manager-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmx.dev/package/@varlock/google-secret-manager-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/google-secret-manager-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Google Cloud Secret Manager](https://cloud.google.com/secret-manager) into your configuration.
 
@@ -65,9 +65,11 @@ For explicit service account authentication:
 # @initGsm(projectId=my-gcp-project, credentials=$GCP_SA_KEY)
 # ---
 
-# @type=gcpServiceAccountJson @sensitive
+# @type=gcpServiceAccountJson @sensitive @internal
 GCP_SA_KEY=
 ```
+
+> `@internal` keeps this credential out of your app's environment — varlock only uses it to fetch your secrets. If you need the credential at runtime for other purposes (e.g. via the Google Cloud SDK), set `@internal=false` to keep it injected.
 
 The `credentials` parameter accepts:
 - JSON string containing the service account key
@@ -152,6 +154,7 @@ Root decorator to initialize a Google Secret Manager plugin instance.
 - `workloadIdentityProvider?: string` - Full Workload Identity Provider resource name for OIDC federation
 - `serviceAccountEmail?: string` - Service account email for WIF impersonation
 - `oidcToken?: string` - Explicit OIDC JWT token (auto-detected from platform if not provided)
+- `cacheTtl?: string | number` - Cache resolved values from `gsm()` for the provided TTL (`"5m"`, `"1h"`, `"1d"`, or `"forever"` to cache until manually cleared); set to `false` (or an empty string) to disable caching
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 
 ### `gsm()`

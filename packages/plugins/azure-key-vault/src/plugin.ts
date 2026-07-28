@@ -1,5 +1,8 @@
-import { type Resolver, plugin } from 'varlock/plugin-lib';
+import {
+  type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
+} from 'varlock/plugin-lib';
 import ky from 'ky';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +16,13 @@ const AZURE_ICON = 'skill-icons:azure-dark';
 plugin.name = 'azure';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
+// capture cache accessor while plugin proxy context is active
+let pluginCache: PluginCacheAccessor | undefined;
+try {
+  pluginCache = plugin.cache;
+} catch {
+  // cache unavailable in this runtime context
+}
 plugin.icon = AZURE_ICON;
 plugin.standardVars = {
   initDecorator: '@initAzure',
@@ -42,6 +52,8 @@ class AzurePluginInstance {
   private oidcToken?: string;
   private cachedToken?: CachedToken;
   private secretCache = new Map<string, Promise<string>>();
+  /** optional cache TTL - when set, resolved values are cached */
+  cacheTtl?: string | number;
 
   constructor(
     readonly id: string,
@@ -76,6 +88,28 @@ class AzurePluginInstance {
     );
   }
 
+  /**
+   * @internal telemetry: which auth method this instance is *configured* for (fixed enum, no user input).
+   * 'ambient' means no explicit credentials were configured, so auth falls back to the runtime
+   * chain (Managed Identity / Azure CLI) determined at resolve time.
+   */
+  get telemetryAuthMethod(): 'service_principal' | 'oidc_federated' | 'ambient' {
+    if (this.tenantId && this.clientId && this.clientSecret) return 'service_principal';
+    if (this.tenantId && this.clientId) return 'oidc_federated';
+    return 'ambient';
+  }
+
+  private _cacheKeyIdentity?: string;
+  /** short hash identifying which Key Vault is being read, used to namespace cache keys */
+  get cacheKeyIdentity() {
+    // the vault URL globally identifies the vault; included as a hash for consistency with other plugins
+    this._cacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.vaultUrl]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._cacheKeyIdentity;
+  }
+
   private async getAzureCliToken(): Promise<string | undefined> {
     // Try the older accessTokens.json format first
     try {
@@ -87,9 +121,14 @@ class AzurePluginInstance {
       const now = new Date();
       const validToken = tokens.find((t: any) => {
         const expiresOn = new Date(t.expiresOn);
+        // `_authority` looks like https://login.microsoftonline.com/<tenant>; only accept a
+        // cached token whose issuing tenant matches the configured one (see MSAL note below).
+        const tenantMatches = !this.tenantId
+          || (typeof t._authority === 'string' && t._authority.includes(this.tenantId));
         return t.resource === 'https://vault.azure.net'
           && expiresOn > now
-          && t.tokenType === 'Bearer';
+          && t.tokenType === 'Bearer'
+          && tenantMatches;
       });
 
       if (validToken) {
@@ -118,11 +157,19 @@ class AzurePluginInstance {
       const accessTokens = msalCache.AccessToken || {};
       const now = Math.floor(Date.now() / 1000);
 
-      // Find a valid token for vault.azure.net
+      // Find a valid token for vault.azure.net.
+      // When a tenantId is configured we must match it against the token's `realm`
+      // (the tenant that issued the token). With multiple `az login` accounts the cache
+      // can hold valid vault.azure.net tokens for several tenants; handing a token from
+      // the wrong tenant to the vault yields a confusing 401 ("token expired or invalid").
       for (const [_key, token] of Object.entries(accessTokens) as Array<[string, any]>) {
         if (token.target?.includes('https://vault.azure.net/.default')
           && token.expires_on > now
           && token.secret) {
+          if (this.tenantId && token.realm !== this.tenantId) {
+            debug(`Skipping cached MSAL token for tenant ${token.realm} (need ${this.tenantId})`);
+            continue;
+          }
           debug('Found valid Azure CLI token from MSAL cache');
 
           // Cache it
@@ -141,7 +188,9 @@ class AzurePluginInstance {
     // If no cached token found, try to get one directly from az CLI
     try {
       debug('No cached token found, attempting to get token from az CLI directly');
-      const result = execSync('az account get-access-token --resource https://vault.azure.net', {
+      // Scope the request to the configured tenant so we don't get a token for the wrong account.
+      const tenantArg = this.tenantId ? ` --tenant ${this.tenantId}` : '';
+      const result = execSync(`az account get-access-token --resource https://vault.azure.net${tenantArg}`, {
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['ignore', 'pipe', 'ignore'], // Suppress stderr
@@ -371,7 +420,7 @@ class AzurePluginInstance {
     }
   }
 
-  private fetchSecretValue(secretRef: string): Promise<string> {
+  fetchSecretValue(secretRef: string): Promise<string> {
     // Deduplicate concurrent fetches for the same ref
     const cached = this.secretCache.get(secretRef);
     if (cached) {
@@ -467,27 +516,29 @@ class AzurePluginInstance {
     }
   }
 
-  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
-    const rawValue = await this.fetchSecretValue(secretRef);
+  /** extract a key from a JSON-encoded secret value, or return the raw value if no key specified */
+  extractJsonKeyFromSecret(rawValue: string, jsonKey?: string): string {
+    if (!jsonKey) return rawValue;
 
-    if (jsonKey) {
-      try {
-        const parsed = JSON.parse(rawValue);
-        if (!(jsonKey in parsed)) {
-          throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
-            tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-          });
-        }
-        return String(parsed[jsonKey]);
-      } catch (err) {
-        if (err instanceof ResolutionError) throw err;
-        throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
-          tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+    try {
+      const parsed = JSON.parse(rawValue);
+      if (!(jsonKey in parsed)) {
+        throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+          tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
         });
       }
+      return String(parsed[jsonKey]);
+    } catch (err) {
+      if (err instanceof ResolutionError) throw err;
+      throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
+        tip: 'Ensure the secret value is valid JSON when extracting a specific key',
+      });
     }
+  }
 
-    return rawValue;
+  async getSecret(secretRef: string, jsonKey?: string): Promise<string> {
+    const rawValue = await this.fetchSecretValue(secretRef);
+    return this.extractJsonKeyFromSecret(rawValue, jsonKey);
   }
 }
 
@@ -519,6 +570,7 @@ plugin.registerRootDecorator({
 
     return {
       id,
+      cacheTtlResolver: objArgs.cacheTtl,
       vaultUrlResolver: objArgs.vaultUrl,
       tenantIdResolver: objArgs.tenantId,
       clientIdResolver: objArgs.clientId,
@@ -528,6 +580,7 @@ plugin.registerRootDecorator({
   },
   async execute({
     id,
+    cacheTtlResolver,
     vaultUrlResolver,
     tenantIdResolver,
     clientIdResolver,
@@ -540,6 +593,10 @@ plugin.registerRootDecorator({
     const clientSecret = await clientSecretResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
     pluginInstances[id].setAuth(vaultUrl, tenantId, clientId, clientSecret, oidcToken);
+    const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
+    if (cacheTtl !== undefined) {
+      pluginInstances[id].cacheTtl = cacheTtl;
+    }
   },
 });
 
@@ -707,7 +764,38 @@ plugin.registerResolverFunction({
       secretRef = `${secretRef.split('@')[0]}@${version}`;
     }
 
+    // check cache if cacheTtl is configured and cache is available
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      // store the full secret value, then apply jsonKey extraction per lookup
+      // (avoids collisions between azureSecret("x#foo") and azureSecret("x#bar"))
+      const cacheKey = `azureSecret:${instanceId}:${selectedInstance.cacheKeyIdentity}:${secretRef}`;
+      const rawValue = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.fetchSecretValue(secretRef),
+      );
+      if (typeof rawValue !== 'string') {
+        throw new ResolutionError('Cached Azure Key Vault secret value has unexpected type (expected string)');
+      }
+      return selectedInstance.extractJsonKeyFromSecret(rawValue, jsonKey);
+    }
+
     const secretValue = await selectedInstance.getSecret(secretRef, jsonKey);
     return secretValue;
   },
+});
+
+// Anonymous, non-sensitive usage signals. Strictly sanitized before send.
+plugin.registerTelemetryAttributes(() => {
+  const instances = Object.values(pluginInstances);
+  const authMethods = new Set(instances.map((i) => i.telemetryAuthMethod));
+  return {
+    // standard attributes
+    instance_count: instances.length,
+    cache_enabled: instances.some((i) => i.cacheTtl != null),
+    // custom attributes
+    auth_service_principal: authMethods.has('service_principal'),
+    auth_oidc_federated: authMethods.has('oidc_federated'),
+    auth_ambient: authMethods.has('ambient'),
+  };
 });

@@ -23,6 +23,8 @@
     "vitest": "catalog:"
   },
   "dependencies": {
-    "@sindresorhus/is": "catalog:"
+    "@sindresorhus/is": "catalog:",
+    "ast-matcher": "^1.2.0",
+    "magic-string": "^0.30.17"
   }
 }

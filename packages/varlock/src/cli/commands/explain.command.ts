@@ -3,7 +3,7 @@ import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { formattedValue } from '../../lib/formatting';
+import { formattedValue, formatTimeAgo, formatDuration } from '../../lib/formatting';
 import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForSchemaErrors, checkForNoEnvFiles,
@@ -11,12 +11,38 @@ import {
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { StaticValueResolver } from '../../env-graph/lib/resolver';
+import type { ConfigItem } from '../../env-graph/lib/config-item';
 import _ from '@env-spec/utils/my-dash';
+
+/** Human-readable explanation of how an item's sensitivity was determined */
+function describeSensitiveSource(item: ConfigItem): string {
+  switch (item.sensitiveSource) {
+    case 'explicit': return 'set explicitly';
+    case 'data-type': return `from the \`${item.dataType?.name}\` data type`;
+    case 'resolver': return `inferred from the ${item.valueResolver?.fnName}() resolver`;
+    case 'default-decorator': return 'from @defaultSensitive';
+    case 'prefix': return 'from a @defaultSensitive prefix rule';
+    case 'proxy': return 'forced sensitive by its @proxy rule, so the agent only sees a placeholder';
+    default: return 'default: items are sensitive unless marked @public';
+  }
+}
+
+/** Human-readable explanation of how an item became @internal */
+function describeInternalSource(item: ConfigItem): string {
+  return item.internalSource === 'explicit'
+    ? 'set explicitly via @internal'
+    : `set by the \`${item.dataType?.name}\` data type`;
+}
 
 export const commandSpec = define({
   name: 'explain',
   description: 'Show detailed information about how a config item is resolved',
   args: {
+    key: {
+      type: 'positional',
+      required: false,
+      description: 'Config item to explain',
+    },
     env: {
       type: 'string',
       description: 'Set the environment (e.g., production, development, etc)',
@@ -51,13 +77,12 @@ function describeResolver(resolver: any, indent = ''): string {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
-  if (!positionals.length) {
+  const varName = ctx.values.key;
+  if (!varName) {
     throw new CliExitError('Missing required argument: variable name', {
       suggestion: 'Run `varlock explain MY_VAR` to explain a config item',
     });
   }
-  const varName = positionals[0];
 
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
@@ -97,7 +122,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   else props.push('optional');
   if (isSensitive) props.push('sensitive');
   else props.push('public');
+  if (item.isInternal) props.push('internal');
   console.log(`  ${ansis.gray('Properties:')} ${props.join(', ')}`);
+
+  // Show *how* sensitivity / internal-ness were determined (explicit vs implied by data type/resolver)
+  if (isSensitive) {
+    console.log(`  ${ansis.gray('Sensitive:')} yes ${ansis.gray.italic(`(${describeSensitiveSource(item)})`)}`);
+  }
+  if (item.isInternal) {
+    console.log(`  ${ansis.gray('Internal:')} ${ansis.yellow('yes')} ${ansis.gray.italic(`(${describeInternalSource(item)} — not injected into your app; set @internal=false to inject)`)}`);
+  }
 
   // Resolved value
   console.log('');
@@ -146,6 +180,27 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.log(`    ${resolverDesc} from ${ansis.cyan(sourceLabel)}`);
     } else {
       console.log(`    ${ansis.gray('(no value set)')}`);
+    }
+  }
+
+  // Cache info
+  if (item.isCached || item.isCacheHit) {
+    console.log('');
+    console.log(ansis.bold('  Cache'));
+
+    if (item.isCacheHit) {
+      const hit = item._cacheHits[0];
+      const ttlMs = hit.expiresAt - hit.cachedAt;
+      // ~100 years is our sentinel for "forever"
+      const ttlDisplay = ttlMs > 50 * 365.25 * 86_400_000 ? 'forever' : formatDuration(ttlMs);
+      console.log(`    ${ansis.gray('TTL:')} ${ttlDisplay}`);
+      console.log(`    ${ansis.blue('Status:')} hit (cached ${formatTimeAgo(hit.cachedAt)})`);
+    } else {
+      // cache miss — show TTL from the cache() resolver if available
+      const cacheTtl = item.cacheTtl;
+      const ttlDisplay = cacheTtl !== undefined ? String(cacheTtl) : 'forever';
+      console.log(`    ${ansis.gray('TTL:')} ${ttlDisplay}`);
+      console.log(`    ${ansis.gray('Status:')} miss (freshly resolved)`);
     }
   }
 

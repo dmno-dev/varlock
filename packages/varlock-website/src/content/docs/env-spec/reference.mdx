@@ -60,7 +60,8 @@ BAZ= # @dec # this is @ignored too
 Decorators are used within comments to attach structured data to specific config items, or within a standalone comment block to alter a group of items or the entire document and loading process.
 
 - Each decorator has a name and optional value (`@name=value`) or is a bare function call `@func()`
-- Decorators with values may only be used once per comment block, while function calls may be used multiple times
+- The two forms carry a meaning: **bare function calls `@func(...)` may be used multiple times** (their args accumulate, e.g. multiple `@docs(...)` links), while **decorators with a value `@name=value` are single-use**
+- A decorator value may itself be a function call (`@name=func(args)`), an object literal (`@name={key=value}`), or an array literal (`@name=[a, b, c]`). These are all single-use values, not bare function calls
 - Using the name only is equivalent to setting the value to true -- `@required` === `@required=true`
 - Multiple decorators may be specified on the same line
 - Decorator values will be parsed using the common value-handling rules (see below)
@@ -72,6 +73,7 @@ Decorators are used within comments to attach structured data to specific config
 # @doubleQuoted="with spaces" @singleQuote='hi' @backTickQuote=`hi`
 # @unquoted=this-works-too @withNewline="new\nline"
 # @funcCallNoArgs=func() @dec=funcCallArray(val1, "val2") @dec=funcCallObj(k1=v1, k2="v2")
+# @objectLiteral={k1=v1, k2="v2"} @arrayLiteral=[a, b, c]  # standalone object/array values
 # @anotherOne # and some comments, this @decorator is ignored
 # this is a comment and this @decorator is ignored
 ```
@@ -173,7 +175,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 
 ### Regex literals
 
-Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected — for example, as function arguments or decorator option values.
+Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected, for example as function arguments or decorator option values.
 
 - The pattern is delimited by `/` characters
 - Forward slashes within the pattern must be escaped as `\/`
@@ -203,6 +205,104 @@ MULTIPLE_ARGS=fn(one, "two", three, 123.456)
 KEY_VALUE_ARGS=fn(key1=v1, key2="v2", key3=true)
 MIXED_ARGS=fn(item1, item2, key1=v1, key2="v2", key3=true)
 NOT_FN_CALL="fn()" # treated as string
+```
+
+### Object & array literals
+
+Standalone objects and arrays use distinct brackets, keeping them unambiguous from function calls (which use `()`):
+
+- `{ key=value, ... }` is an **object**, where keys use `=` (as elsewhere in the spec), not `:`
+- `[ value, ... ]` is an **array**
+- they may be nested, and used as decorator values, function-call arguments, or standalone config item values
+- they are parsed using the common value-handling rules, and may span multiple lines (see [Multi-line literals](#multi-line-literals) below)
+- as a config item value, a literal implies the item's type (or pair it with an explicit `@type=array(...)` / `@type=record(...)` for element validation - see [array](/reference/data-types/#array) and [record](/reference/data-types/#record))
+- an item value starting with `{`/`[` that does not parse as a literal (e.g. a JSON string using `:` pairs) still falls back to a plain string
+
+```env-spec
+# @dec={ key1=v1, key2="v2", nested={ a=1 } }
+# @dec=[a, b, c]
+# @dec=fn(opts={ retries=3 }, tags=[x, y])
+ITEM=
+
+# @type=array(email)
+ALLOWED_EMAILS=[admin@example.com, support@example.com]
+# @type=record(url)
+ENDPOINTS={api=https://api.example.com, docs=https://docs.example.com}
+```
+
+This is why per-item options are written `@sensitive={preventLeaks=false}` rather than `@sensitive(...)`. The latter (a bare function call) is reserved for repeatable decorators.
+
+#### When to reach for a literal (and when not to)
+
+Object/array literals earn their place only where there is **no function-call `()` already carrying the structure**. In practice that means two situations:
+
+1. **The value of a non-function decorator**, e.g. `@sensitive={preventLeaks=false}`. These decorators can't take bare `()` args (that syntax is reserved for repeatable decorators), so an object value is the only way to attach options.
+2. **A single argument that is itself a nested object or list**, sitting alongside other args, e.g. `fn(retry={count=3, backoff=2})`.
+
+Do **not** wrap a function's (or function-decorator's) own named arguments in a literal. The parentheses already _are_ the options bag. The following are correct as written, and the literal-wrapped versions are redundant:
+
+| Prefer | Avoid |
+| --- | --- |
+| `@type=string(minLength=3, maxLength=50)` | `@type=string({minLength=3, maxLength=50})` |
+| `@generateTsTypes(path=env.d.ts)` | `@generateTsTypes({path=env.d.ts})` |
+| `cache(fn, ttl=1h, key=k)` | `cache(fn, {ttl=1h, key=k})` |
+
+Also prefer the existing positional/comma forms for:
+
+- **ordered pairs**: `ifs(cond1, val1, cond2, val2, default)` and `remap($VAR, match1, result1, ...)` read like a spreadsheet `IFS()`/lookup and stay flat. Crucially, `remap` match keys may be **regexes or non-identifier strings**, which cannot be object keys (keys must match `/[a-zA-Z][a-zA-Z0-9_]*/`), so an object would be strictly less expressive.
+- **value lists**: `@type=enum(dev, staging, prod)` already reads as a list; `enum([...])` only adds brackets.
+
+#### Multi-line literals
+
+Object and array literals may span multiple lines, which is handy for long key lists
+(e.g. picking many keys to import). The continuation convention matches function calls
+and depends on where the literal lives:
+
+- **Inside a decorator** (which lives in a `#` comment), every continuation line must
+  start with `#`:
+
+  ```env-spec
+  # @import(./.env.shared, pick=[
+  #   DATABASE_URL,
+  #   REDIS_URL,
+  #   STRIPE_KEY,
+  # ])
+  DATABASE_URL=
+  ```
+
+  ```env-spec
+  # @sensitive={
+  #   preventLeaks=false,
+  # }
+  SECRET=
+  ```
+
+- **On an item value line**, where the literal is nested in a function call, plain
+  newlines are used (no `#`):
+
+  ```env-spec
+  ALLOWED=fn([
+    dev,
+    staging,
+    prod,
+  ])
+  ```
+
+A trailing comma is allowed. If a `#`-prefixed continuation is omitted in a decorator,
+the bracket simply falls back to a plain string value and the following lines remain
+independent config items. They are never silently absorbed into the literal.
+
+Within a multi-line literal (or function call), `#` introduces a comment that runs to the
+end of the line, so entries can be commented out or annotated. This applies the same way
+to multi-line function-call arguments.
+
+```env-spec
+# @import(./.env.shared, pick=[
+#   DATABASE_URL,
+#   # REDIS_URL,        ← commented out, skipped
+#   STRIPE_KEY, # primary payment key
+# ])
+DATABASE_URL=
 ```
 
 ### String expansion ||expansion||

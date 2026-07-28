@@ -40,6 +40,7 @@ export default tseslint.config(
     ignores: [
       '**/dist',
       '**/dist-sea',
+      '**/dist-test',
       '**/node_modules',
       '**/.turbo',
       'packages/eslint-custom-rules',
@@ -176,6 +177,8 @@ export default tseslint.config(
       'framework-tests/**',
       'packages/encryption-binary-swift/scripts/**',
       'packages/encryption-binary-rust/scripts/**',
+      'packages/vscode-plugin/scripts/**',
+      'packages/varlock-website/scripts/**',
     ],
     rules: {
       'no-console': 0,

@@ -10,11 +10,24 @@ export const commandSpec = define({
   name: 'printenv',
   description: 'Print the resolved value of a single environment variable',
   args: {
+    key: {
+      type: 'positional',
+      required: false,
+      description: 'Variable to print',
+    },
     path: {
       type: 'string',
       short: 'p',
       multiple: true,
       description: 'Path to a specific .env file or directory (with trailing slash) to use as the entry point (can be specified multiple times)',
+    },
+    'clear-cache': {
+      type: 'boolean',
+      description: 'Clear cache and re-resolve all values',
+    },
+    'skip-cache': {
+      type: 'boolean',
+      description: 'Skip cache entirely for this invocation',
     },
   },
   examples: `
@@ -36,18 +49,17 @@ Examples:
 });
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  // ctx.positionals includes the subcommand name(s) themselves, so we skip them
-  // by slicing off ctx.commandPath.length entries (e.g. skips 'printenv' at index 0)
-  const positionals = (ctx.positionals ?? []).slice(ctx.commandPath?.length ?? 0);
-  if (!positionals.length) {
+  const varName = ctx.values.key;
+  if (!varName) {
     throw new CliExitError('Missing required argument: variable name', {
       suggestion: 'Run `varlock printenv MY_VAR` to print the value of MY_VAR',
     });
   }
-  const varName = positionals[0];
 
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: ctx.values.path,
+    clearCache: ctx.values['clear-cache'],
+    skipCache: ctx.values['skip-cache'],
   });
   checkForSchemaErrors(envGraph);
 

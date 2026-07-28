@@ -4,7 +4,9 @@ import {
 import { FrameworkTestEnv } from '../../harness/index';
 
 export function defineAstroTests(astroVersion: number, testDir: string, opts: { portBase: number }) {
-  const nodeAdapterVersion = astroVersion >= 6 ? '^10' : '^9';
+  let nodeAdapterVersion = '^9';
+  if (astroVersion >= 7) nodeAdapterVersion = '^11';
+  else if (astroVersion >= 6) nodeAdapterVersion = '^10';
   let nextPort = opts.portBase;
   const port = () => nextPort++;
 
@@ -260,6 +262,44 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
         ],
       });
 
+      astroEnv.describeDevScenario('dynamic public env endpoint', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.mts',
+        },
+        requests: [
+          {
+            path: '/__varlock/public-env',
+            bodyAssertions: {
+              shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-var--dev"'],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+      });
+
+      astroEnv.describeDevScenario('dynamic public env endpoint - custom path', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.custom-public-path.mts',
+        },
+        requests: [
+          {
+            path: '/api/public-env',
+            bodyAssertions: {
+              shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-var--dev"'],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+      });
+
       astroEnv.describeDevScenario('leaky API endpoint', {
         command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,
@@ -282,6 +322,39 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
           {
             description: 'leak detection message appears',
             shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+          },
+        ],
+      });
+
+      astroEnv.describeDevScenario('dynamic public env endpoint - disabled', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.no-public-endpoint.mts',
+        },
+        requests: [
+          {
+            path: '/__varlock/public-env',
+            expectedStatus: 404,
+          },
+        ],
+      });
+
+      astroEnv.describeDevScenario('dynamic public env endpoint - auto disabled when none exist', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.mts',
+          '.env.schema': 'schemas/.env.schema.no-public-dynamic',
+        },
+        requests: [
+          {
+            path: '/__varlock/public-env',
+            expectedStatus: 404,
           },
         ],
       });
@@ -370,4 +443,186 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
       // is covered above in "invalid schema causes build failure".
     });
   });
+
+  // ---- Cloudflare adapter (@astrojs/cloudflare) ----
+  // @astrojs/cloudflare v14 requires Astro v7, so this suite is v7+ only.
+  // It runs SSR in workerd via @cloudflare/vite-plugin and relies on
+  // @varlock/cloudflare-integration to inject env into the worker.
+  if (astroVersion >= 7) {
+    describe(`Astro v${astroVersion} — Cloudflare adapter`, () => {
+      const cfEnv = new FrameworkTestEnv({
+        testDir,
+        framework: `astro-v${astroVersion}-cloudflare`,
+        packageManager: 'pnpm',
+        dependencies: {
+          astro: `^${astroVersion}`,
+          varlock: 'will-be-replaced',
+          '@varlock/astro-integration': 'will-be-replaced',
+          '@varlock/cloudflare-integration': 'will-be-replaced',
+          '@astrojs/cloudflare': '^14',
+          '@astrojs/react': '^6',
+          react: '^19',
+          'react-dom': '^19',
+          wrangler: '^4',
+        },
+        overrides: {
+          punycode: 'npm:punycode@^2.3.1',
+        },
+        templateFiles: {
+          '.env.schema': 'schemas/.env.schema',
+          '.env.dev': 'schemas/.env.dev',
+          '.env.prod': 'schemas/.env.prod',
+        },
+      });
+
+      beforeAll(() => cfEnv.setup(), 180_000);
+      afterAll(() => cfEnv.teardown());
+
+      // Regression test for https://github.com/dmno-dev/varlock/issues/893 —
+      // static output + CF adapter + a CJS dep (react-dom) in the prerender
+      // build must not get the TLA-containing varlock-ssr-init module injected
+      // into a require()-reachable module (Rolldown rejects it with REQUIRE_TLA).
+      cfEnv.describeScenario('static output with react component', {
+        command: 'astro build',
+        templateFiles: {
+          'src/pages/index.astro': 'pages/react-page.astro',
+          'src/components/ReactHello.tsx': 'components/ReactHello.tsx',
+          'astro.config.mts': 'configs/astro.config.cloudflare-static.mts',
+          'wrangler.jsonc': 'configs/wrangler.jsonc',
+        },
+        expectSuccess: true,
+        fileAssertions: [
+          {
+            description: 'env vars are injected into static output',
+            fileGlob: 'dist/**/*.html',
+            shouldContain: [
+              // react inserts a `<!-- -->` separator between text nodes,
+              // so the label and value are asserted separately
+              'react-says:',
+              'public-var-value',
+              'sensitive-var-available',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        ],
+      });
+
+      // A production-representative CF build: `output: 'server'` with one
+      // prerendered page and one on-demand SSR page. This exercises both env
+      // paths in a single build — the build-time prerender worker (env baked in,
+      // no bindings loader) and the deployed SSR worker (runtime bindings loader,
+      // no baked env) — and asserts they don't cross-contaminate.
+      cfEnv.describeScenario('server output with a prerendered page', {
+        command: 'astro build',
+        templateFiles: {
+          'src/pages/index.astro': 'pages/server-basic-page.astro',
+          'src/pages/prerendered.astro': 'pages/prerendered-page.astro',
+          'astro.config.mts': 'configs/astro.config.cloudflare.mts',
+          'wrangler.jsonc': 'configs/wrangler.jsonc',
+        },
+        expectSuccess: true,
+        fileAssertions: [
+          {
+            description: 'prerendered page is rendered at build time with env',
+            fileGlob: 'dist/client/**/*.html',
+            shouldContain: ['public-var-value', 'sensitive-var-available'],
+            shouldNotContain: ['super-secret-value'],
+          },
+          {
+            // The deployed SSR worker must load env from Cloudflare bindings at
+            // runtime (varlock's `Cloudflare-Workers` navigator guard is present)
+            // and must NOT bake the resolved secret into the artifact.
+            description: 'SSR worker uses the runtime bindings loader, not baked env',
+            filePath: 'dist/server/entry.mjs',
+            shouldContain: ['Cloudflare-Workers'],
+            shouldNotContain: ['super-secret-value'],
+          },
+          {
+            description: 'no resolved secret is baked anywhere in the deployed worker',
+            fileGlob: 'dist/server/**/*.mjs',
+            shouldNotContain: ['super-secret-value'],
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'secret is redacted from prerender stdout',
+            shouldContain: ['secret-log-test:'],
+            shouldNotContain: ['super-secret-value'],
+          },
+        ],
+      });
+
+      // Leak protection must run inside the build-time prerender worker (which
+      // now has env baked in): a prerendered page that leaks a sensitive value
+      // fails the build.
+      cfEnv.describeScenario('leaky prerendered page fails the build', {
+        command: 'astro build',
+        templateFiles: {
+          'src/pages/index.astro': 'pages/leaky-prerendered-page.astro',
+          'astro.config.mts': 'configs/astro.config.cloudflare.mts',
+          'wrangler.jsonc': 'configs/wrangler.jsonc',
+        },
+        expectSuccess: false,
+        outputAssertions: [
+          {
+            description: 'output contains leak detection message',
+            shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+          },
+        ],
+      });
+
+      cfEnv.describeDevScenario('SSR + env injection via worker bindings', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 60_000,
+        timeout: 120_000,
+        templateFiles: {
+          'src/pages/index.astro': 'pages/server-basic-page.astro',
+          'src/pages/api/health.ts': 'pages/api-endpoint.ts',
+          'astro.config.mts': 'configs/astro.config.cloudflare.mts',
+          // @astrojs/cloudflare runs SSR in workerd and requires a wrangler config.
+          'wrangler.jsonc': 'configs/wrangler.jsonc',
+        },
+        requests: [
+          {
+            path: '/',
+            bodyAssertions: {
+              shouldContain: [
+                'public-var-value',
+                'unprefixed-public-var',
+                'env-specific-var--dev',
+                'sensitive-var-available',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+          {
+            path: '/api/health',
+            bodyAssertions: {
+              shouldContain: [
+                'public_var::public-var-value',
+                'has_secret::yes',
+                'toplevel_has_secret::yes',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'sensitive value is redacted in console output',
+            shouldContain: ['secret-log-test:'],
+            shouldNotContain: ['super-secret-value'],
+          },
+          {
+            // varlock disables wrangler's redundant .env auto-loading and prints
+            // its own notice in place of "Using secrets defined in .env".
+            description: 'wrangler .env auto-load message is replaced by a varlock notice',
+            shouldContain: ['injecting resolved env into the Cloudflare worker'],
+            shouldNotContain: ['Using secrets defined in .env'],
+          },
+        ],
+      });
+    });
+  }
 }

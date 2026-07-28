@@ -23,14 +23,30 @@ export const commandSpec = define({
   args: {
     'key-id': {
       type: 'string',
-      description: 'Encryption key ID (default: varlock-default)',
+      description: 'Encryption key ID',
       default: 'varlock-default',
+      // Hidden until multi-key round-trips: the varlock("local:...") reference does not
+      // encode a keyId, and the load-time resolver always decrypts with the default key,
+      // so encrypting with a non-default key produces values that cannot be loaded back.
+      hidden: true,
     },
     file: {
       type: 'string',
       description: 'Path to a .env file — encrypts all sensitive plaintext values in-place',
     },
   },
+  examples: `
+Encrypts a value using device-local encryption (Secure Enclave / TPM / file-based),
+producing a varlock("local:...") reference that is safe to commit.
+
+Single-value mode reads from stdin (or prompts interactively) so secrets stay out of
+shell history. --file mode encrypts all @sensitive plaintext values in a .env file in place.
+
+Examples:
+  echo "$MY_SECRET" | varlock encrypt    # Encrypt a value from stdin (non-interactive, agent-friendly)
+  varlock encrypt                        # Prompt interactively for a value
+  varlock encrypt --file .env.local      # Encrypt @sensitive plaintext values in a file in-place
+`.trim(),
 });
 
 async function encryptFile(keyId: string, filePath: string) {
@@ -130,6 +146,20 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   console.log(`Using ${backend.type} backend (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`);
+
+  // Hardware-backed but no presence gate → decryption is unattended (headless/CI hosts).
+  if (backend.hardwareBacked && !backend.biometricAvailable) {
+    let platformHint = '';
+    if (process.platform === 'linux') {
+      platformHint = '\nTo require presence on decrypt, run: sudo varlock-local-encrypt setup --linux-biometrics';
+    } else if (process.platform === 'win32' || process.env.WSL_DISTRO_NAME) {
+      platformHint = '\nConfigure Windows Hello to require fingerprint/PIN on interactive decrypts.';
+    }
+    console.log(
+      '\nNote: no presence gate is configured, so values decrypt unattended (suitable for headless/CI hosts).'
+      + `\nThis protects secrets at rest, but not against a process already running as your user.${platformHint}`,
+    );
+  }
 
   const filePath = ctx.values.file;
 
