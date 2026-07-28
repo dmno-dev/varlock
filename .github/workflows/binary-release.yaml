@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write # keyless cosign signing of checksums.txt
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_TAG: varlock@${{ inputs.version }}
@@ -42,6 +43,11 @@ jobs:
         run: bun install
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # see the matching step in release.yaml for why cosign is pinned too
+          cosign-release: v3.0.6
 
       # Pull the signed/notarized native binaries from the published npm package
       # instead of rebuilding + re-signing them.
@@ -80,11 +86,16 @@ jobs:
           BUILD_TYPE: release
       - name: Build varlock SEA binaries
         run: bun run packages/varlock/scripts/build-binaries.ts
+      # See the matching step in release.yaml for why only checksums.txt is signed.
+      - name: Sign checksums with cosign
+        working-directory: packages/varlock/dist-sea
+        run: cosign sign-blob --yes --bundle checksums.txt.cosign.bundle checksums.txt
+
       - name: Upload binaries to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/varlock/dist-sea
-        run: gh release upload "$RELEASE_TAG" *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
+        run: gh release upload "$RELEASE_TAG" *.{tar.gz,zip} checksums.txt checksums.txt.cosign.bundle ../SHA256SUMS.txt --clobber
 
       - name: Checkout homebrew tap repo
         uses: actions/checkout@v7
