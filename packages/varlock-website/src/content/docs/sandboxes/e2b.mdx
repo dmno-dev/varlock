@@ -37,7 +37,7 @@ This is the standard E2B posture: sandboxes hold real values, and the values tra
 
 ## Running varlock inside the sandbox
 
-If the code running in the sandbox is itself a varlock project (it has a `.env.schema`), install varlock in the sandbox and use `varlock run` there, the same way you would in a [Docker container](/guides/docker/):
+If the code running in the sandbox is itself a varlock project (it has a `.env.schema`), install varlock in the sandbox and use `varlock run` there, the same way you would in a [Docker container](/integrations/docker/):
 
 ```ts
 await sandbox.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
@@ -51,9 +51,9 @@ Values can come in via `envs` as above (the schema validates them at load), or t
 
 ## Credential proxy: keeping secrets out of sandboxes
 
-Both approaches above put real values inside sandboxes. For agentic workloads, the [varlock credential proxy](/guides/proxy/) removes them entirely: sandboxes hold only [placeholders](/guides/proxy/#placeholders), and the proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows. A compromised or prompt-injected agent can exfiltrate nothing but placeholders, and every request is checked against your [`@proxy` rules](/guides/proxy/#routing-rules) and recorded in the [audit log](/guides/proxy/#auditing).
+Both approaches above put real values inside sandboxes. For agentic workloads, the [varlock credential proxy](/guides/proxy/) removes them entirely: sandboxes hold only [placeholders](/guides/proxy/rules/#placeholders), and the proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows. A compromised or prompt-injected agent can exfiltrate nothing but placeholders, and every request is checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing).
 
-E2B sandboxes are remote, so they cannot reach a proxy on your machine's loopback. varlock has a built-in tunnel for this: the broker serves a WebSocket tunnel on its proxy port (which E2B's public sandbox URLs carry), and [`varlock proxy run --url`](/reference/cli-commands/#proxy) runs in the sandbox to reach it. No external tool is involved. There are two shapes, depending on where the proxy (and your real secrets) live:
+E2B sandboxes are remote, so they cannot reach a proxy on your machine's loopback. varlock has a built-in tunnel for this: the broker serves a WebSocket tunnel on its proxy port (which E2B's public sandbox URLs carry), and [`varlock proxy run --url`](/reference/cli/proxy/) runs in the sandbox to reach it. No external tool is involved. There are two shapes, depending on where the proxy (and your real secrets) live:
 
 - **[Broker sandbox](#broker-sandbox)**: the proxy runs in one dedicated E2B sandbox; agent sandboxes connect to it. Fits orchestrators and fleets, where there is no long-lived machine of your own in the loop.
 - **[Proxy on your machine](#proxy-on-your-machine)**: the proxy stays local and secrets never leave your machine, exposed to the sandbox through a tunnel service. Fits the dev loop.
@@ -79,7 +79,7 @@ STRIPE_SECRET_KEY=
 
 An explicit [`@placeholder`](/reference/item-decorators/#placeholder) is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
 
-[`@proxyConfig={egress="strict"}`](/guides/proxy/#egress-modes) blocks any proxied request that does not match a rule. Start with the default permissive mode if your agents need broad internet access through the proxy, and tighten later.
+[`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) blocks any proxied request that does not match a rule. Start with the default permissive mode if your agents need broad internet access through the proxy, and tighten later.
 
 You will also need an [E2B API key](https://e2b.dev/docs) for the orchestrator that creates sandboxes. It can be a varlock-managed secret like any other.
 
@@ -144,7 +144,7 @@ await agent.commands.run(
 The install script drops a self-contained binary and works on any sandbox. E2B's base template ships Node 20, which is **below** varlock's Node 22.3 requirement, so `npm i -g varlock` installs but won't run there. If you build a [custom template](https://e2b.dev/docs/template/quickstart) with Node 22.3+ (or bun), `npm i -g varlock` is a lighter install (~9 MB vs the ~100 MB binary). Either way, baking varlock into the template skips the per-sandbox install entirely, which matters most when a fleet spawns many sandboxes.
 :::
 
-To see what agents are doing, run [`varlock proxy audit`](/reference/cli-commands/#proxy) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
+To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
 
 #### Lock down agent egress
 
@@ -159,7 +159,7 @@ await agent.updateNetwork({
 });
 ```
 
-This is enforced by E2B's infrastructure outside the VM, so nothing the agent does from inside can lift it. It is the same role the internal-only network plays in the [`--sandbox=docker`](/guides/sandboxing/#container---sandboxdocker) recipe, with a stronger enforcement point.
+This is enforced by E2B's infrastructure outside the VM, so nothing the agent does from inside can lift it. It is the same role the internal-only network plays in the [`--sandbox=docker`](/guides/proxy/sandboxing/#container---sandboxdocker) recipe, with a stronger enforcement point.
 
 #### Trust model
 
@@ -167,7 +167,7 @@ Be clear-eyed about what this shape protects against. The broker holds real secr
 
 Two practical notes:
 
-- No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, [edit the schema and reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) from the orchestrator, or restart the broker.
+- No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, [edit the schema and reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) from the orchestrator, or restart the broker.
 - The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one).
 
 ### Proxy on your machine
@@ -193,11 +193,11 @@ await agent.commands.run(
 );
 ```
 
-Requests from agents now resolve against your local schema, the interactive daemon's live request log and [hot reload](/guides/proxy/#editing-the-schema-while-a-session-is-running) work as usual, and `varlock proxy audit` on your machine shows the fleet's traffic. Because the tunnel carries TLS end to end between the agent and your proxy, the tunnel service only ever sees ciphertext.
+Requests from agents now resolve against your local schema, the interactive daemon's live request log and [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) work as usual, and `varlock proxy audit` on your machine shows the fleet's traffic. Because the tunnel carries TLS end to end between the agent and your proxy, the tunnel service only ever sees ciphertext.
 
 ### Alternative: E2B request transforms
 
-E2B has a beta feature ([`network.rules`](https://e2b.dev/docs/sandbox/internet-access)) that injects headers into egress requests for matching hosts at their gateway, so a sandbox can call an API without holding the key. The difference is custody and control: with `network.rules` you hand the real secret to E2B's control plane, and the injection rule is static per sandbox. With the varlock proxy, secrets stay in the broker (or on your machine), and you keep schema-driven policy, path and method rules, strict egress, [hot reload](/guides/proxy/#editing-the-schema-while-a-session-is-running), response scrubbing, and a per-request audit log. If all you need is one static header on one host and you are comfortable with E2B holding the key, `network.rules` is less machinery; past that, use the proxy.
+E2B has a beta feature ([`network.rules`](https://e2b.dev/docs/sandbox/internet-access)) that injects headers into egress requests for matching hosts at their gateway, so a sandbox can call an API without holding the key. The difference is custody and control: with `network.rules` you hand the real secret to E2B's control plane, and the injection rule is static per sandbox. With the varlock proxy, secrets stay in the broker (or on your machine), and you keep schema-driven policy, path and method rules, strict egress, [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, and a per-request audit log. If all you need is one static header on one host and you are comfortable with E2B holding the key, `network.rules` is less machinery; past that, use the proxy.
 
 ## Limitations
 
