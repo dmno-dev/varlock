@@ -12,6 +12,12 @@
 
 
 
+
+## 1.2.0
+<sub>2026-07-28</sub>
+
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)* - Add static/dynamic config controls and dynamic+public framework/runtime support
+
 ## 1.1.6
 <sub>2026-07-16</sub>
 

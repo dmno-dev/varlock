@@ -9,6 +9,12 @@
 
 
 
+
+## 0.3.1
+<sub>2026-07-28</sub>
+
+- [#944](https://github.com/dmno-dev/varlock/pull/944)  *(patch)* - Fix false "can only be used once" diagnostic for multiline plugin init decorators (e.g. `@initInfisical(`)
+
 ## 0.3.0
 <sub>2026-07-21</sub>
 

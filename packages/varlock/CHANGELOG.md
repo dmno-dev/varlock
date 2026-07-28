@@ -19,6 +19,30 @@
 
 
 
+
+## 1.14.0
+<sub>2026-07-28</sub>
+
+- [#930](https://github.com/dmno-dev/varlock/pull/930)  *(minor)*
+  New `varlock flatten` command: collapses the @import graph into a self-contained directory (rewriting import paths, pinning plugin versions) so a single package can be deployed without the rest of the monorepo, e.g. in Docker builds
+- [#934](https://github.com/dmno-dev/varlock/pull/934)  *(minor)*
+  Proxy: secrets are now substituted into request headers only by default (excluding common forward/log headers like cookie and x-forwarded-*), and a placeholder may appear at most once per request. Widen with @proxy(substituteIn=[...]) using targets like header:authorization, path, query:api_key, or body:client_secret (body always needs a path; use body:* for bodies that can't be parsed into one), and raise the cap with maxOccurrences. This prevents an injected secret from being swapped into a request body, query, or unintended header where it could be exfiltrated.
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)*
+  Add `@dynamic` selector to the `--filter` language (`!@dynamic` selects static items). Decorator-based filters (`@dynamic`/`@sensitive`/`@required`) now scope resolution and validation to selected items, so e.g. a build-time `--filter='!@dynamic'` skips runtime-only vars entirely, including their `@required` checks
+- [#750](https://github.com/dmno-dev/varlock/pull/750)  *(minor)* - Add static/dynamic config controls and dynamic+public framework/runtime support
+- [#933](https://github.com/dmno-dev/varlock/pull/933)  *(patch)* - fix `varlock audit` ignoring `@auditIgnore` on schema items
+- [#930](https://github.com/dmno-dev/varlock/pull/930)  *(patch)*
+  plugins now work in shell-less/distroless images: tarballs extract natively (no `tar`/shell dependency), and `varlock flatten --vendor-plugins` copies plugins into the output for a fully self-contained artifact
+- [#924](https://github.com/dmno-dev/varlock/pull/924)  *(patch)*
+  Reduce published package size: build the proxy cert authority from low-level asn1 packages instead of @peculiar/x509, and strip bundled third-party source text from release sourcemaps
+- [#937](https://github.com/dmno-dev/varlock/pull/937)  *(patch)*
+  proxy client compatibility fixes: minted MITM certs now include subject/authority key identifiers so strict TLS verifiers (python 3.13+ urllib/httpx defaults) accept them; the injected env now sets NODE_USE_ENV_PROXY=1 so Node's built-in fetch (node 24+) routes through the proxy instead of silently bypassing it, and DENO_CERT so Deno trusts the proxy CA; Proxy-Authorization from clients is stripped instead of forwarded upstream
+- [#946](https://github.com/dmno-dev/varlock/pull/946)  *(patch)*
+  Root decorators (@initAws, etc) now resolve the full dependency chain of items referenced in their args, instead of only the directly referenced items
+- [#947](https://github.com/dmno-dev/varlock/pull/947)  *(patch)* - ENV is no longer exported from the package root; import it from `varlock/env` instead
+- [#943](https://github.com/dmno-dev/varlock/pull/943)  *(patch)*
+  Cache locks left behind by an interrupted run are now reclaimed immediately instead of stalling later runs for several minutes and hiding the real error. `varlock cache clear` also clears locks.
+
 ## 1.13.0
 <sub>2026-07-21</sub>
 
