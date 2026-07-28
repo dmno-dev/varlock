@@ -14,14 +14,15 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bundle": "esbuild src/server.ts --bundle --platform=node --target=node18 --format=cjs --outfile=out/server.js --legal-comments=none",
-    "build": "npm run typecheck && npm run bundle"
+    "build": "bun run typecheck && bun run bundle",
+    "test": "bun test"
   },
   "dependencies": {
-    "vscode-languageserver": "^9.0.1"
+    "vscode-languageserver": "^10.1.0"
   },
   "devDependencies": {
-    "@types/node": "^22.15.17",
-    "esbuild": "^0.24.0",
-    "typescript": "^5.8.3"
+    "@types/node": "^26.1.2",
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
   }
 }

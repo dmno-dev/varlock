@@ -10,9 +10,10 @@
     "directory": "packages/zed-plugin"
   },
   "scripts": {
-    "server:build": "npm --prefix server run build",
-    "server:typecheck": "npm --prefix server run typecheck",
-    "release:zed": "node scripts/release.mjs",
-    "pin-grammar": "node scripts/pin-grammar.mjs"
+    "server:build": "bun run --cwd server build",
+    "server:typecheck": "bun run --cwd server typecheck",
+    "server:test": "bun run --cwd server test",
+    "release:zed": "bun run scripts/release.mjs",
+    "pin-grammar": "bun run scripts/pin-grammar.mjs"
   }
 }

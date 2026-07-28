@@ -3,7 +3,7 @@
 //
 // Workflow:
 //   1. Commit grammar changes.
-//   2. Run: node packages/zed-plugin/scripts/pin-grammar.mjs
+//   2. Run: bun run packages/zed-plugin/scripts/pin-grammar.mjs
 //   3. Commit the extension.toml update.
 
 import { readFileSync, writeFileSync } from 'node:fs';

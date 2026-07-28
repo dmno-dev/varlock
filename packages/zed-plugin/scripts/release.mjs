@@ -3,8 +3,8 @@
 // release asset that the Zed extension downloads at runtime.
 //
 // Usage:
-//   node packages/zed-plugin/scripts/release.mjs            # tag = v<extension.toml version>
-//   node packages/zed-plugin/scripts/release.mjs 0.1.1      # explicit version (bumps all version pins)
+//   bun run packages/zed-plugin/scripts/release.mjs            # tag = v<extension.toml version>
+//   bun run packages/zed-plugin/scripts/release.mjs 0.1.1      # explicit version (bumps all version pins)
 //
 // Requires: gh CLI authenticated, repo `dmno-dev/varlock` to exist.
 
@@ -30,7 +30,6 @@ const cargoTomlPath = join(root, 'Cargo.toml');
 const cargoLockPath = join(root, 'Cargo.lock');
 const rustPath = join(root, 'src', 'lib.rs');
 const pkgPath = join(serverDir, 'package.json');
-const lockPath = join(serverDir, 'package-lock.json');
 
 function run(cmd, opts = {}) {
   const r = spawnSync(cmd, {
@@ -111,11 +110,6 @@ function writeExtensionVersion(version) {
 function writeServerPackageVersion(pkg, version) {
   pkg.version = version;
   writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-
-  const lock = JSON.parse(readFileSync(lockPath, 'utf8'));
-  lock.version = version;
-  if (lock.packages?.['']) lock.packages[''].version = version;
-  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
 }
 
 function writeRustVersions(version) {
@@ -185,7 +179,7 @@ if (releaseTag !== tag) {
 }
 
 console.log(`* building bundled language server (${tag})`);
-run('npm --prefix server run build');
+run('bun run --cwd server build');
 
 const stageDir = mkdtempSync(join(tmpdir(), 'envspec-release-'));
 const assetPath = join(stageDir, ASSET_NAME);
