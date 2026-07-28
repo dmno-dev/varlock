@@ -9,6 +9,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - `packages/varlock-website` — docs site (Astro); docs content lives in `src/content/docs/`
 - `packages/vscode-plugin` — VSCode extension for @env-spec language support
 - `packages/integrations/*` — framework integrations (nextjs, vite, astro, ...)
+- `packages/varlock-python` — native Python integration, published to PyPI as `varlock` (not npm). Pure Python, no runtime deps; it shells out to the CLI the way `varlock/auto-load` does. Managed with `uv` (`uv run pytest`), not bun
 - `packages/utils`, `packages/plugins` — shared internals
 - `packages/varlock-docs-mcp` — docs MCP server for external varlock users; do **not** use it to look things up while working on this repo — read the docs source directly
 

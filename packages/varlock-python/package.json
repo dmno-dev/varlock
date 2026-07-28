@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/python",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Native Python integration for varlock (published to PyPI as `varlock`, not to npm)",
+  "scripts": {
+    "test:python": "uv run --frozen pytest",
+    "build:python": "uv build"
+  }
+}

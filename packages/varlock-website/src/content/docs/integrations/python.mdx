@@ -1,11 +1,58 @@
 ---
 title: Python
-description: Use varlock with Python via a generated typed env module, Pydantic Settings, or environs
+description: Use varlock with Python via the varlock package, a generated typed env module, Pydantic Settings, or environs
 ---
 
-To use varlock with Python, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+There are two ways to use varlock from Python. Both need the [standalone binary](/getting-started/installation/#as-a-standalone-binary) installed.
 
-Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module: a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+1. **The `varlock` package** resolves your schema from inside a running process, so no wrapped launch is needed. Use it in [Jupyter notebooks](/integrations/jupyter/), where there is no command line to wrap, and anywhere else you want one call instead of a launcher.
+2. **[`varlock run`](/reference/cli-commands/#run)** wraps your command, loads and validates your env, then injects it into the process. Pair it with [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) for a typed, dependency-free module to read the values back.
+
+## Native package
+
+```bash
+pip install varlock
+```
+
+```python
+import varlock
+
+env = varlock.load()
+
+port = env["DB_PORT"]   # 5432, an int, not "5432"
+debug = env.DEBUG       # attribute access works too
+```
+
+`load()` resolves and validates your schema by calling the CLI, returns the coerced values, and sets them as environment variables so libraries reading `os.environ` and any subprocess you spawn see them. It is cheap to call more than once: after the first call it returns the loaded values without doing any work.
+
+The same call also works under [`varlock run`](/reference/cli-commands/#run). The values are already resolved there, so `load()` reads them instead of resolving again, and one codebase runs both ways.
+
+Reading a key that is not in your schema raises `VarlockMissingKeyError` rather than returning `None`. A key that is declared but has no value in the current environment says so specifically.
+
+| | |
+| --- | --- |
+| `varlock.load(**opts)` | Resolve (or adopt already-resolved values) and return `ENV` |
+| `varlock.reload(**opts)` | Re-resolve, ignoring what is already loaded |
+| `varlock.unload()` | Forget the values and restore every env var varlock set |
+| `varlock.ENV` | The resolved env, a read-only mapping with attribute access |
+| `varlock.get_sensitive_keys()` | Keys whose values are marked `@sensitive` |
+| `varlock.is_running_under_varlock_run()` | Whether the process was started by `varlock run` |
+
+`load()` takes `cwd`, `path`, and `env` to control which schema is loaded, `force` to re-resolve, `inject=False` to leave `os.environ` alone, and `timeout`. Failures raise `VarlockLoadError` with the CLI's own error output attached. To fail fast at startup the way `varlock run` does, import the side-effect module as early as you can instead:
+
+```python
+import varlock.auto_load  # noqa: F401
+
+from varlock import ENV
+```
+
+:::note[Which CLI it calls]
+The package resolves nothing itself: every plugin, cache, and validation behavior comes from the varlock CLI you have installed. It looks for the binary in `VARLOCK_BIN`, then `PATH`, then the standalone install directories, then any `node_modules/.bin` above your working directory.
+:::
+
+## Generated env module
+
+Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module: a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant. Use this when you want types without adding a dependency.
 
 ```env-spec title=".env.schema"
 # @generatePythonEnv(path=env.py)
@@ -13,7 +60,7 @@ Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to you
 
 The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). It has no dependencies, importing it has no side effects, and it imports on any **Python 3.7+** (it uses `from __future__ import annotations`, so `NotRequired`/`Literal` are type-checker-only).
 
-## Reading values
+### Reading values
 
 Call `load_env()` once, then read keys off the dict. Values are coerced (`int`/`bool`/etc.), not raw strings:
 
@@ -34,7 +81,7 @@ varlock run -- python main.py
 
 `load_env()` raises a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`). Optional keys that are unset are absent from the dict (`NotRequired`), not present as `None`.
 
-## Sharing one instance
+### Sharing one instance
 
 Every `load_env()` call re-parses the blob. To avoid reloading, load once in a config module and share it, the idiomatic "settings module" pattern:
 

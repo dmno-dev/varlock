@@ -23,5 +23,11 @@ eslint-output.txt
 # vitest coverage output
 coverage/
 
+# python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+
 # local throwaway experiments
 scratch/

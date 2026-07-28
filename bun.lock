@@ -492,6 +492,10 @@
         "wrangler": "^4.93.0",
       },
     },
+    "packages/varlock-python": {
+      "name": "@varlock/python",
+      "version": "0.0.0",
+    },
     "packages/varlock-website": {
       "name": "@varlock/website",
       "version": "0.0.1",
@@ -1508,6 +1512,8 @@
     "@varlock/passbolt-plugin": ["@varlock/passbolt-plugin@workspace:packages/plugins/passbolt"],
 
     "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
+
+    "@varlock/python": ["@varlock/python@workspace:packages/varlock-python"],
 
     "@varlock/tsconfig": ["@varlock/tsconfig@workspace:packages/tsconfig"],
 

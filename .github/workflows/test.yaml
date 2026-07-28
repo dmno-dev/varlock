@@ -140,6 +140,23 @@ jobs:
             echo "::warning::Some Rust binary caches missing — will trigger rebuild"
           fi
 
+  # The native Python package (packages/varlock-python). Its own test suite is pure Python and
+  # stubs the CLI, so it runs independently of the JS build. The end-to-end checks against a
+  # real CLI live in the smoke-test suite.
+  python-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Run tests
+        working-directory: packages/varlock-python
+        # oldest and newest supported versions - the package has no dependencies, so the
+        # versions in between are not where breakage hides
+        run: |
+          uv run --frozen --python 3.9 pytest -q
+          uv run --frozen --python 3.13 pytest -q
+
   # Build + sign the macOS native binary if varlock is being released AND (source changed or cache missing)
   build-native-macos:
     needs: build-and-test

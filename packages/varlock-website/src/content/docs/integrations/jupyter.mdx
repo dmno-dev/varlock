@@ -1,0 +1,126 @@
+---
+title: Jupyter notebooks
+description: Load and validate your env schema inside a running Jupyter kernel, without launching it under varlock run
+---
+
+Notebooks are the one Python workflow where [`varlock run`](/reference/cli-commands/#run) is awkward. VS Code's Jupyter extension and JupyterLab spawn the kernel process themselves, so there is no command line for you to wrap. Starting Jupyter from a terminal under `varlock run` and then connecting to it as an existing server works, but it means giving up the normal kernel picker.
+
+The [`varlock` Python package](/integrations/python/#native-package) resolves your schema from inside the kernel instead, so the kernel can be started however you normally start it.
+
+## Setup
+
+Install the CLI, then the Python package into whichever environment your kernel uses:
+
+```bash
+brew install dmno-dev/tap/varlock
+# or: curl -sSfL https://varlock.dev/install.sh | sh -s
+```
+
+```bash
+pip install varlock
+```
+
+The package calls the CLI to resolve values, so both are required. If your kernel runs in a virtualenv or conda env, install into that env, not your system Python.
+
+## Loading values
+
+```python
+import varlock
+
+env = varlock.load()
+```
+
+`load()` resolves and validates your schema, returns the coerced values, and sets them as environment variables in the kernel process. Call it in your first cell:
+
+```python
+env["OPENAI_API_KEY"]   # also env.OPENAI_API_KEY
+env["BATCH_SIZE"]       # 32, an int, not "32"
+```
+
+Because the values also land in `os.environ`, libraries that read the environment on their own pick them up with no extra wiring:
+
+```python
+import openai
+
+varlock.load()
+client = openai.OpenAI()   # finds OPENAI_API_KEY in os.environ
+```
+
+Any subprocess you spawn from the notebook inherits the resolved values too, the same as under `varlock run`.
+
+Reading a key that is not in your schema raises `VarlockMissingKeyError` rather than returning `None`, so a typo fails in the cell that has it instead of somewhere further down.
+
+## Reloading
+
+A kernel outlives many edits. After changing your schema, rotating a secret, or switching environments, re-resolve without restarting:
+
+```python
+varlock.reload()
+```
+
+This re-runs the CLI, replaces the values in `env` and `os.environ`, and drops any keys that left your schema. The `env` object you already have is updated in place, so cells holding a reference to it stay correct.
+
+`load()` on its own is cheap to call repeatedly: once values are loaded it returns them without doing any work, so putting it at the top of a notebook that gets re-run is fine.
+
+## Which schema gets loaded
+
+Schema resolution starts from the process's working directory, which for a notebook is normally the directory the notebook file lives in. To load a schema somewhere else:
+
+```python
+varlock.load(cwd="../services/api")
+varlock.load(path=".env.staging")
+varlock.load(env="production")
+```
+
+## Sharing notebooks
+
+Values marked [`@sensitive`](/reference/item-decorators/#sensitive) are masked in the notebook's own output. Echoing `env` in a cell, which Jupyter renders through `repr()`, shows masked values rather than writing your secrets into the saved `.ipynb`:
+
+```python
+env
+# <varlock.Env APP_ENV='development', OPENAI_API_KEY='sk▒▒▒▒▒'>
+```
+
+You can build your own redaction from the same list:
+
+```python
+varlock.get_sensitive_keys()   # frozenset({'OPENAI_API_KEY'})
+```
+
+:::caution
+This covers displaying the env object itself. It does not stop a cell that prints a secret directly, and the resolved value is a normal string once you read it. Treat a notebook that touched sensitive values the way you would treat any file that might contain them.
+:::
+
+## Plugins that need authentication
+
+If a [plugin](/plugins/overview/) needs you to log in, do that from a terminal before loading:
+
+```bash
+varlock login
+```
+
+The kernel cannot show an interactive prompt, so a load that requires one fails with the CLI's error message rather than hanging. Approval prompts that your OS raises on its own, such as a 1Password biometric check, still work from the notebook, and `load()` waits for them by default.
+
+## Errors
+
+A schema or validation failure raises `VarlockLoadError`, and the CLI's formatted output is included in the message:
+
+```python
+try:
+    varlock.load()
+except varlock.VarlockLoadError as err:
+    print(err)          # the CLI's error output
+    print(err.errors)   # structured per-item errors
+```
+
+The package raises rather than exiting, so a typo in your schema does not kill the kernel.
+
+## Running Jupyter under varlock run
+
+Launching the whole server under [`varlock run`](/reference/cli-commands/#run) still works, and is worth using when you want every kernel to get the env with no in-notebook setup:
+
+```bash
+varlock run -- jupyter lab
+```
+
+Notebooks calling `varlock.load()` work unchanged here. The values are already resolved, so `load()` reads them instead of resolving again.
