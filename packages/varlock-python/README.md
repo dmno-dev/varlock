@@ -37,6 +37,22 @@ Reading a key that isn't in your schema raises `VarlockMissingKeyError` rather t
 varlock.reload()
 ```
 
+### Types
+
+`load()` returns values typed as `Any`. Add `@generatePythonEnv(path=env.py)` to your schema and cast to the generated `Env` TypedDict to have a type checker verify them:
+
+```python
+from typing import cast
+
+import varlock
+from env import Env
+
+env = cast(Env, varlock.load())
+port = env["PORT"]     # int
+```
+
+The cast is a no-op at runtime, so this is still the live env object.
+
 ### Redaction
 
 `load()` masks values marked `@sensitive` in `print()`, in `logging`, and in notebook cell output, so a secret does not end up saved in an `.ipynb` or a log file:

@@ -50,6 +50,28 @@ import varlock.auto_load  # noqa: F401
 from varlock import ENV
 ```
 
+### Types
+
+`load()` returns values typed as `Any`. To have a type checker verify them, add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema and cast the loaded env to the generated `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict):
+
+```env-spec title=".env.schema"
+# @generatePythonEnv(path=env.py)
+```
+
+```python
+from typing import cast
+
+import varlock
+from env import Env
+
+env = cast(Env, varlock.load())
+
+port = env["PORT"]     # int
+env["NOT_A_KEY"]       # error: TypedDict "Env" has no key "NOT_A_KEY"
+```
+
+The cast does nothing at runtime, so this is still the live env object: `reload()`, redaction, and the missing-key errors all behave the same. `TypedDict` types subscript access only, so `env.PORT` stays untyped even with the cast.
+
 ### Redaction
 
 `load()` masks values marked [`@sensitive`](/reference/item-decorators/#sensitive) in `print()` output, in `logging`, and in notebook cell output, following your schema's [`@redactLogs`](/reference/root-decorators/#redactlogs) setting:
