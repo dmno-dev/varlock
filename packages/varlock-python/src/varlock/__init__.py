@@ -132,6 +132,8 @@ def load(
         redact_logs = _state.settings.get("redactLogs") is not False
     if redact_logs:
         install_redaction()
+    else:
+        uninstall_redaction()
     return result
 
 

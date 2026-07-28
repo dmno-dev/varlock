@@ -24,9 +24,9 @@ from typing import Any, Optional
 
 from ._redaction import redact
 
-_original_record_factory: Optional[Any] = None
-_original_print: Optional[Any] = None
-# stream name -> (stream object, original write, whether it already had its own `write`)
+_logging_patch: Optional[Any] = None
+_print_patch: Optional[Any] = None
+# stream name -> (stream object, original write, patched write, whether it had its own `write`)
 _patched_streams: dict = {}
 _patched_formatter: Optional[Any] = None
 
@@ -41,13 +41,13 @@ def patch_logging() -> None:
     and every handler, including ones created after this runs. A filter would only cover the
     logger or handler it was attached to.
     """
-    global _original_record_factory
-    if _original_record_factory is not None:
+    global _logging_patch
+    if _logging_patch is not None:
         return
-    _original_record_factory = logging.getLogRecordFactory()
+    original = logging.getLogRecordFactory()
 
     def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
-        record = _original_record_factory(*args, **kwargs)
+        record = original(*args, **kwargs)
         record.msg = redact(record.msg)
         if record.args:
             record.args = redact(record.args)
@@ -55,17 +55,19 @@ def patch_logging() -> None:
 
     factory._varlock_patched = True  # type: ignore[attr-defined]
     logging.setLogRecordFactory(factory)
+    _logging_patch = (original, factory)
 
 
 def unpatch_logging() -> None:
-    global _original_record_factory
-    if _original_record_factory is None:
+    global _logging_patch
+    if _logging_patch is None:
         return
+    original, factory = _logging_patch
     # someone may have installed their own factory on top of ours; restoring the old one
     # would silently drop theirs
-    if getattr(logging.getLogRecordFactory(), "_varlock_patched", False):
-        logging.setLogRecordFactory(_original_record_factory)
-    _original_record_factory = None
+    if logging.getLogRecordFactory() is factory:
+        logging.setLogRecordFactory(original)
+    _logging_patch = None
 
 
 # -- stdout / stderr ---------------------------------------------------------------------
@@ -78,29 +80,31 @@ def patch_print() -> None:
     `sys.stdout` on every call, so this keeps working when a library (or a notebook kernel)
     swaps the stream out after redaction was installed.
     """
-    global _original_print
-    if _original_print is not None:
+    global _print_patch
+    if _print_patch is not None:
         return
-    _original_print = builtins.print
+    original = builtins.print
 
     def patched_print(*args: Any, **kwargs: Any) -> Any:
         # print stringifies each argument anyway, so doing it here first loses nothing and
         # lets a secret inside a dict or a dataclass be caught too
-        return _original_print(
+        return original(
             *(redact(arg if isinstance(arg, str) else str(arg)) for arg in args), **kwargs
         )
 
     patched_print._varlock_patched = True  # type: ignore[attr-defined]
     builtins.print = patched_print
+    _print_patch = (original, patched_print)
 
 
 def unpatch_print() -> None:
-    global _original_print
-    if _original_print is None:
+    global _print_patch
+    if _print_patch is None:
         return
-    if getattr(builtins.print, "_varlock_patched", False):
-        builtins.print = _original_print
-    _original_print = None
+    original, patched_print = _print_patch
+    if builtins.print is patched_print:
+        builtins.print = original
+    _print_patch = None
 
 
 def patch_streams() -> None:
@@ -137,19 +141,20 @@ def patch_streams() -> None:
         except (AttributeError, TypeError):
             # a stream that doesn't allow attribute assignment (some C-level objects)
             continue
-        _patched_streams[name] = (stream, original, had_own_write)
+        _patched_streams[name] = (stream, original, stream.write, had_own_write)
 
 
 def _unpatch_stream(name: str) -> None:
     patched = _patched_streams.pop(name, None)
     if patched is None:
         return
-    stream, original, had_own_write = patched
+    stream, original, patched_write, had_own_write = patched
     try:
-        if had_own_write:
-            stream.write = original
-        else:
-            del stream.write
+        if stream.write is patched_write:
+            if had_own_write:
+                stream.write = original
+            else:
+                del stream.write
     except (AttributeError, TypeError):
         pass
 
@@ -200,16 +205,17 @@ def patch_ipython() -> None:
 
     patched_format._varlock_patched = True  # type: ignore[attr-defined]
     formatter.format = patched_format
-    _patched_formatter = (formatter, original)
+    _patched_formatter = (formatter, original, patched_format)
 
 
 def unpatch_ipython() -> None:
     global _patched_formatter
     if _patched_formatter is None:
         return
-    formatter, original = _patched_formatter
+    formatter, original, patched_format = _patched_formatter
     try:
-        formatter.format = original
+        if formatter.format is patched_format:
+            formatter.format = original
     except (AttributeError, TypeError):
         pass
     _patched_formatter = None
@@ -233,4 +239,4 @@ def unpatch_all() -> None:
 
 
 def is_patched() -> bool:
-    return _original_record_factory is not None or _original_print is not None
+    return _logging_patch is not None or _print_patch is not None
