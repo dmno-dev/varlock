@@ -9,7 +9,7 @@ These are recipes for running an agent inside a third-party sandbox while varloc
 
 Read the [sandboxing guide](/guides/proxy/sandboxing/) first. It covers why the two layers belong together, varlock's own [built-in `--sandbox`](/guides/proxy/sandboxing/#built-in-sandbox) (macOS jail or a container, no third-party install), and the [shared setup](/guides/proxy/sandboxing/#shared-setup) every recipe below assumes.
 
-Each of these tools isolates the filesystem, processes, and network, but none of them broker credentials, so varlock stays the wire injector. Reach for one when you already run that tool, need Windows, or want a different isolation model than the built-in sandbox offers.
+Filesystem, process, and network isolation varies by tool, so check each recipe for its actual boundaries. None of these tools broker credentials, so varlock stays the wire injector. Reach for one when you already run that tool, need Windows, or want a different isolation model than the built-in sandbox offers.
 
 ## Recipes
 
