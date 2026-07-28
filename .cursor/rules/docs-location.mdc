@@ -1,11 +1,7 @@
 ---
-description: 
-globs: 
-alwaysApply: false
----
----
 description: Documentation Pages Location
 globs: *.mdx
+alwaysApply: false
 ---
 # Documentation Pages Location
 
@@ -35,62 +31,63 @@ actions:
     message: |
       When creating documentation pages:
 
-      1. Always place documentation files in PACKAGES_ROOT/varlock-website/src/content/docs/:
+      1. Always place documentation files under `packages/varlock-website/src/content/docs/`:
          ```
          packages/varlock-website/src/content/docs/
          ├── getting-started/
-         │   ├── installation.mdx
-         │   └── about-env-spec.mdx
-         ├── guides/
-         │   ├── secrets.mdx
-         │   ├── security.mdx
-         │   └── ...
-         └── reference/
-             └── ...
+         ├── guides/           # how-to guides (nested by topic in the sidebar)
+         ├── integrations/     # frameworks, languages, platforms
+         ├── plugins/          # secret backends
+         ├── reference/        # CLI + schema language
+         └── env-spec/
          ```
 
-      2. Follow the directory structure:
-         - `getting-started/` - For introductory and setup content
-         - `guides/` - For how-to guides and tutorials
-         - `reference/` - For API reference and technical documentation
+      2. Top-level sections become sidebar **tabs** (Astro docs pattern), configured in
+         `packages/varlock-website/src/sidebar.ts` and rendered by `TabbedSidebar.astro`:
+         - **Getting Started** - Onboarding (keep short)
+         - **Guides** - How-to guides, nested into Core / Encryption and delivery / AI and agents / Ops and migration
+         - **Reference** - CLI, schema language, and `@env-spec`
+         - **Ecosystem** - Integrations and Plugins (nested catalogs)
+
+         Within a tab, nest subgroups so no level has more than ~8–10 siblings.
 
       3. File naming:
          - Use kebab-case for filenames
-         - Always use .mdx extension
-         - Make names descriptive of the content
+         - Always use `.mdx`
+         - Prefer a parent overview page plus children when a topic has independent H2 sections (CLI command groups, per-sandbox-tool, local vs remote MCP, etc.)
 
       4. Never place documentation files:
          - In the project root
-         - Outside the docs directory
-         - In any other location
-      
-      5. Update astro.config.mjs:
-         - Every documentation page must have a corresponding entry in the sidebar navigation
-         - Add new pages to the appropriate section in the sidebar configuration
-         - For reference pages, use the autogenerate option if appropriate
-         - Example:
-           ```javascript
-           sidebar: [
-             {
-               label: 'Getting Started',
-               items: [
-                 { label: 'Installation', slug: 'getting-started/installation' },
-                 { label: 'About env-spec', slug: 'getting-started/about-env-spec' },
-               ],
-             },
-             {
-               label: 'Guides',
-               items: [
-                 { label: 'Secrets', slug: 'guides/secrets' },
-                 { label: 'Security', slug: 'guides/security' },
-               ],
-             },
-             {
-               label: 'Reference',
-               autogenerate: { directory: 'reference' },
-             },
-           ]
+         - Outside `packages/varlock-website/src/content/docs/`
+         - Under `guides/` for Docker (use `integrations/docker`)
+
+      5. Update the sidebar in `packages/varlock-website/src/sidebar.ts`:
+         - Every page must have a corresponding sidebar entry
+         - Add the page under the correct nested subgroup (do not append to a flat 15+ item list)
+         - Aim for ≤8–10 siblings at any nesting level
+         - Example (page under Guides > Core):
+           ```ts
+           {
+             label: 'Guides',
+             items: [
+               {
+                 label: 'Core',
+                 collapsed: true,
+                 items: [
+                   { label: 'Schema', slug: 'guides/schema' },
+                   { label: 'New Feature', slug: 'guides/new-feature' },
+                 ],
+               },
+             ],
+           }
            ```
+
+           Top-level labels must stay one of: Getting Started, Guides, Reference, Ecosystem
+           (they render as the tab switcher). Do not add a fifth top-level group without
+           updating `TabbedSidebar.astro` icons.
+
+      6. If the page is a plugin or integration, also update homepage tiles in
+         `packages/varlock-website/src/lib/works-with-tiles.ts` when it should appear on the homepage.
 
 examples:
   - input: |
@@ -103,23 +100,14 @@ examples:
       packages/varlock-website/src/content/docs/guides/my-guide.mdx
     output: "Correctly placed documentation file"
   - input: |
-      # Bad: Missing sidebar entry
-      # Created file: packages/varlock-website/src/content/docs/guides/new-feature.mdx
-      # But no corresponding entry in astro.config.mjs sidebar
+      # Bad: Flat dump into Guides with 20 siblings
+      # Added guides/new-ai-thing.mdx at the end of the Guides items array
 
-      # Good: With sidebar entry
-      # Created file: packages/varlock-website/src/content/docs/guides/new-feature.mdx
-      # Added to astro.config.mjs:
-      # {
-      #   label: 'Guides',
-      #   items: [
-      #     { label: 'New Feature', slug: 'guides/new-feature' },
-      #   ],
-      # }
-    output: "Documentation file with proper sidebar entry"
-
+      # Good: Nested under the right subgroup
+      # Added under Guides > AI and agents in sidebar.ts
+    output: "Documentation file nested in the correct sidebar subgroup"
 
 metadata:
   priority: high
-  version: 1.0
-  </rule>
+  version: 2.0
+</rule>

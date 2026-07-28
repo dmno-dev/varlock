@@ -1,0 +1,122 @@
+---
+title: Sandboxing
+description: Run AI agents in a sandbox while varlock proxy brokers credentialed requests
+---
+
+The [credential proxy](/guides/proxy/) stops an agent from *trivially reading* secrets it needs to *use*. On its own it still runs as you on the same machine, so it raises the bar rather than drawing a hard boundary. Pair it with an OS sandbox and you get both: the sandbox contains the agent; varlock holds the real credentials and injects them only on verified upstream connections.
+
+Each recipe wires the sandbox to the proxy in one of two ways. Most source the proxy's environment after it starts (`eval "$(varlock proxy env)"`), so the default random port and temp CA dir are fine. A few tools need the proxy address or CA path in a config file **before** the proxy starts; for those, pin them up front with [`--port` / `--cert-dir`](/guides/proxy/running/#pinning-the-port-and-ca-location). Each recipe below uses whichever fits.
+
+## Why sandbox + proxy
+
+On its own the proxy's in-tree guards (placeholder isolation, the schema-fingerprint check) raise the bar but are **not a hard boundary**: a determined agent can spawn a process outside the proxy's view (for example reparented via `setsid`) and reach a secret's source directly. Wrapping the agent in an OS sandbox closes this. It removes the *capability* to reach a resolution source or egress off-loopback, so evading process detection buys nothing.
+
+| Layer | Job |
+|---|---|
+| **Sandbox** | Isolate filesystem, processes, and (where configured) network from the rest of your machine |
+| **Credential proxy** (varlock) | Give the agent placeholders; swap in real secrets only toward allowlisted hosts |
+
+A sandbox without a credential broker often still puts real keys in the guest (env files, keychain pinholes, mounted config). A proxy without a sandbox leaves a determined agent on your uid with paths around the proxy. Use both.
+
+## Built-in sandbox
+
+Start here when you want isolation without installing a third-party sandbox. Add `--sandbox` to a self-owned `proxy run` (it does not apply when attaching to an existing `proxy start` session).
+
+### macOS: `--sandbox`
+
+```bash
+varlock proxy run --sandbox -- claude
+```
+
+Runs the child inside a minimal, built-in **credential + egress jail** (macOS `sandbox-exec`, no install). The jail keeps the agent, varlock, and integrations working while denying exactly the escape routes:
+
+- **Egress**: only loopback is reachable, so the proxy on `127.0.0.1` becomes the child's *sole* path to the network. A process that scrubs its `HTTPS_PROXY` / `HTTP_PROXY` env to bypass the proxy simply cannot connect.
+- **Credential material**: reads of the user varlock dir (the encryption key, plugin/credential cache, and the proxy session/reload channel) are denied, and so are unix-socket connections into it. The daemon that decrypts local secrets listens on a socket under that dir; a file-read deny does not gate a socket connection, so that connection is blocked separately, otherwise a child could reach the warm daemon and have it decrypt for them.
+- **The macOS keychain**: `mach-lookup` to the keychain daemons (`securityd` / `SecurityServer`) is denied, so the agent can't read keychain secrets directly (via `security` or `SecItemCopyMatching`). TLS trust evaluation (`trustd`) is left allowed, so HTTPS still works.
+- **Warm credential agents**: `mach-lookup` to the 1Password helper (and similar) is denied, so the agent cannot drive a warm `op` session directly.
+
+It's **opt-in** by design (a jail that's too tight silently breaks an agent, so we don't force it on). Bare `--sandbox` is macOS-only today; on Linux (or for stronger isolation) use `--sandbox=docker` below.
+
+### Container: `--sandbox=docker`
+
+```bash
+varlock proxy run --sandbox=docker --sandbox-image <image> -- claude
+```
+
+Runs the child in a container (`docker`, or `--sandbox=podman`) whose **only** network egress is the proxy, while your secrets and the resolution machinery stay on the host. varlock wires this up for you:
+
+- The agent container runs on an **`--internal` network**: it has no route to the internet at all, so raw egress fails closed.
+- A tiny **forwarder** container (a `socat` byte-relay holding no secrets) sits on that network as `varlock-proxy` and bridges to the host proxy. The agent's `HTTPS_PROXY` points at it, so every request goes host proxy → policy check → wire injection.
+- Your cwd is mounted as the working directory and the proxy's public CA is mounted read-only so the container trusts the MITM.
+
+Secrets never enter any container: the host proxy resolves them (keeping your encryption key, keychain/enclave, and warm `op` session on the host) and injects the real value onto the wire; the container only ever holds placeholders. Both networks and the forwarder are torn down when the command exits.
+
+`--sandbox-image` is required. It must be an image that contains your command (for example a devcontainer image with `claude` installed); varlock can't know your toolchain. The first run pulls a small `socat` image for the forwarder.
+
+:::note[Why not "run the proxy on the host and point the container at it"?]
+An `--internal` docker network can't reach the host at all (that's what makes it a real egress boundary), so the proxy has to be reachable *as a peer on that network*. The forwarder is the minimal way to do that without moving secret custody off the host.
+:::
+
+## Third-party sandboxes
+
+The [sandbox recipes](/sandboxes/overview/) cover open-source, easy-to-install sandboxes that do **not** ship their own credential broker, so varlock stays the wire injector. Prefer [built-in `--sandbox`](#built-in-sandbox) when it fits; use these when you already run that tool, need Windows, or want a different isolation model.
+
+| Sandbox | Isolation | Platforms |
+|---|---|---|
+| [Minimal](/sandboxes/minimal/) | Task / microVM or process sandbox | macOS, Linux |
+| [Fence](/sandboxes/fence/) | Seatbelt / bubblewrap + domain allowlist | macOS, Linux |
+| [yolobox](/sandboxes/yolobox/) | Container (home dir stays on the host) | macOS, Linux |
+| [Agent Safehouse](/sandboxes/agent-safehouse/) | Deny-first Seatbelt profiles | macOS |
+| [bubblewrap](/sandboxes/bubblewrap/) | Linux namespaces (DIY) | Linux |
+| [MXC](/sandboxes/mxc/) | Windows AppContainer (`processcontainer`) | Windows 11 |
+
+Tools that already broker credentials at the network boundary (Docker Sandboxes, microsandbox, Anthropic `srt` credential `mask`, and similar) are out of scope here: use those on their own, or wait for varlock host bridging if you want varlock as the broker inside a microVM that cannot reach host loopback.
+
+### Shared setup
+
+1. Varlock [installed](/getting-started/installation/) with a working `.env.schema` whose secrets resolve (plugin, encrypted local values, or similar).
+2. Familiarity with the [credential proxy](/guides/proxy/) quick start: mark items with [`@proxy(domain=...)`](/reference/item-decorators/#proxy).
+3. The sandbox CLI for the guide you follow (install commands are inline on each page).
+
+```env-spec title=".env.schema"
+# @proxyConfig={egress="strict"}
+# ---
+# @sensitive
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=yourPreferredPlugin()
+```
+
+Use `@placeholder` when the agent or SDK checks key shape at startup. See [Placeholders](/guides/proxy/rules/#placeholders) and the [Claude Code note](/guides/proxy/#quick-start) on the proxy guide. Wire Claude through [`ANTHROPIC_API_KEY`](/guides/ai-tools/claude/), not a subscription OAuth token.
+
+For recipes that pass env into an external sandbox (rather than `proxy run --sandbox`), start a durable proxy session on the host first:
+
+```bash
+varlock proxy start
+```
+
+By default this binds a random loopback port and writes the CA cert to a temp dir; recipes that source `eval "$(varlock proxy env)"` after startup pick both up automatically. When a tool's config file has to name the proxy address or CA path before the proxy starts (Fence's `upstreamProxy`, MXC's `network.proxy`, or a container that needs the CA at a mountable path), pin them instead:
+
+```bash
+varlock proxy start --port 54321 --cert-dir ./.varlock-proxy
+```
+
+`--port` fails closed if the port is busy, and `--cert-dir` is created if missing (only the cert files are removed on stop). Details: [Pinning the port and CA location](/guides/proxy/running/#pinning-the-port-and-ca-location).
+
+
+
+## What's next
+
+For Apple `container`, microsandbox, or a full VM, run the agent inside it with egress routed through the proxy on a host-reachable address. That is the VM-grade tier and covers the filesystem and process table too.
+
+MicroVM-style sandboxes that cannot reach host loopback (and products that already run their own credential proxy) need varlock reachable on the guest data plane. Until that bridging exists, prefer [built-in `--sandbox`](#built-in-sandbox), the process / Seatbelt / AppContainer recipes above, or container tools only when you have confirmed a host-gateway path to the proxy.
+
+
+## Reference
+
+- [Credential proxy](/guides/proxy/)
+- [`varlock proxy`](/reference/cli/proxy/#proxy) CLI
+- [`@proxy`](/reference/item-decorators/#proxy) / [`@proxyConfig`](/reference/root-decorators/#proxyconfig)
+- [Minimal sandboxing](https://docs.minimal.dev/concepts/sandboxing)
+- [Fence](https://github.com/fencesandbox/fence) / [yolobox](https://yolobox.dev/) / [Agent Safehouse](https://agent-safehouse.dev/) / [bubblewrap](https://github.com/containers/bubblewrap) / [MXC](https://github.com/microsoft/mxc)
+- [AI Tools](/guides/ai-tools/)

@@ -387,7 +387,7 @@ TEMP_KEY=cache(randomHex(32), ttl="30m")
 SHARED_TOKEN=cache(exec(`fetch-org-token.sh`), ttl="1d", key="org-auth-token")
 ```
 
-Use the [`varlock cache`](/reference/cli-commands/#cache) CLI command to view or clear the **disk cache**.
+Use the [`varlock cache`](/reference/cli/cache-and-codegen/#cache) CLI command to view or clear the **disk cache**.
 
 Use `--clear-cache` or `--skip-cache` flags on `varlock load` / `varlock run` / `varlock printenv` to control caching behavior for a single invocation.
 
@@ -432,7 +432,7 @@ Values are encrypted using the best available backend on your platform. See the 
 Encrypted payload lifecycle:
 - Store encrypted payloads (`varlock("local:...")`) in local override files (typically `.env.local`)
 - Decryption happens at runtime during `varlock load` / `varlock run`
-- Use [`varlock reveal`](/reference/cli-commands/#reveal) when you need to inspect a decrypted value interactively
+- Use [`varlock reveal`](/reference/cli/encryption/#reveal) when you need to inspect a decrypted value interactively
 
 </div>
 

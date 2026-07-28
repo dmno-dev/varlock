@@ -74,7 +74,7 @@ curl -sSfL https://varlock.dev/install.sh | sh -s # via cURL
 # Or use the official Docker image
 docker pull ghcr.io/dmno-dev/varlock:latest
 ```
-See the full [installation docs](https://varlock.dev/getting-started/installation/) or the [Docker guide](https://varlock.dev/guides/docker/) for more information.
+See the full [installation docs](https://varlock.dev/getting-started/installation/) or the [Docker guide](https://varlock.dev/integrations/docker/) for more information.
 
 
 ## Workflow
@@ -146,8 +146,8 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 ## MCP Servers
 | MCP Server | Link | URL |
 | --- | --- | --- |
-| Varlock Docs (HTTP) | [Installation](https://varlock.dev/guides/mcp/#docs-mcp) | https://docs.mcp.varlock.dev/mcp |
-| Varlock Docs (SSE) | [Installation](https://varlock.dev/guides/mcp/#docs-mcp) | https://docs.mcp.varlock.dev/sse |
+| Varlock Docs (HTTP) | [Installation](https://varlock.dev/guides/mcp/docs-mcp/) | https://docs.mcp.varlock.dev/mcp |
+| Varlock Docs (SSE) | [Installation](https://varlock.dev/guides/mcp/docs-mcp/) | https://docs.mcp.varlock.dev/sse |
 
 ## Examples
 Examples of integrating varlock in various frameworks and situations can be found in the [Varlock examples repo](https://github.com/dmno-dev/varlock-examples)

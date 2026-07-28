@@ -20,7 +20,7 @@ For mac users, you can also use [keychain()](/plugins/macos-keychain/). The expe
 
 ## Quick start - existing secrets
 
-You likely already have some plaintext secrets in a `.env.local` file. If not you can create one, and add some. Ensure those items are marked as [`@sensitive`](/reference/item-decorators/#sensitive) in your schema. Then you can use [`varlock encrypt`](/reference/cli-commands/#encrypt) to encrypt them in-place:
+You likely already have some plaintext secrets in a `.env.local` file. If not you can create one, and add some. Ensure those items are marked as [`@sensitive`](/reference/item-decorators/#sensitive) in your schema. Then you can use [`varlock encrypt`](/reference/cli/encryption/#encrypt) to encrypt them in-place:
 
 1. Run `varlock encrypt --file .env.local` to encrypt them in-place
 2. Sensitive plaintext values are replaced with `varlock("local:<***encrypted***>")`
@@ -39,7 +39,7 @@ NEW_ITEM=varlock(prompt) # will prompt you for new value
 
 ## Using `varlock encrypt` CLI
 
-You can also call the [`varlock encrypt`](/reference/cli-commands/#encrypt) CLI command to get a secure prompt to encrypt a single value. It will spit out an item you can copy/paste into your file:
+You can also call the [`varlock encrypt`](/reference/cli/encryption/#encrypt) CLI command to get a secure prompt to encrypt a single value. It will spit out an item you can copy/paste into your file:
 
 ```text title="$ varlock encrypt"
 ◇  Enter the value you want to encrypt
@@ -56,7 +56,7 @@ As outlined above, you can also run `varlock encrypt --file .env.local` to encry
 
 ## Core commands
 
-Use [`varlock encrypt`](/reference/cli-commands/#encrypt) to create encrypted payloads:
+Use [`varlock encrypt`](/reference/cli/encryption/#encrypt) to create encrypted payloads:
 
 ```bash
 # Interactive: encrypt a single value
@@ -65,7 +65,7 @@ varlock encrypt
 varlock encrypt --file .env.local
 ```
 
-Use [`varlock reveal`](/reference/cli-commands/#reveal) to inspect decrypted values safely:
+Use [`varlock reveal`](/reference/cli/encryption/#reveal) to inspect decrypted values safely:
 
 ```bash
 varlock reveal                 # interactive - select and reveal
@@ -73,7 +73,7 @@ varlock reveal API_KEY         # securely reveal specific item
 varlock reveal API_KEY --copy  # copy to clipboard
 ```
 
-Use [`varlock lock`](/reference/cli-commands/#lock) to invalidate biometric session cache when stepping away:
+Use [`varlock lock`](/reference/cli/encryption/#lock) to invalidate biometric session cache when stepping away:
 
 ```bash
 varlock lock

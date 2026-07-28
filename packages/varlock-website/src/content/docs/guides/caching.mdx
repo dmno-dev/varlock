@@ -78,7 +78,7 @@ A lock can outlive its owner in one case: a cache directory shared between machi
 
 ## Per-invocation CLI controls
 
-[`varlock load`](/reference/cli-commands/#load), [`varlock run`](/reference/cli-commands/#run), and [`varlock printenv`](/reference/cli-commands/#printenv) support:
+[`varlock load`](/reference/cli/load-and-run/#load), [`varlock run`](/reference/cli/load-and-run/#run), and [`varlock printenv`](/reference/cli/load-and-run/#printenv) support:
 
 - `--skip-cache`: disables cache reads and writes for that invocation (overrides `@cache`)
 - `--clear-cache`: clears the active cache store before resolving values
@@ -87,7 +87,7 @@ If both are used, the cache is cleared first, then reads and writes are skipped 
 
 ## Inspecting and clearing cache
 
-Use [`varlock cache`](/reference/cli-commands/#cache) to inspect and clear the **disk cache**:
+Use [`varlock cache`](/reference/cli/cache-and-codegen/#cache) to inspect and clear the **disk cache**:
 
 ```bash
 varlock cache status

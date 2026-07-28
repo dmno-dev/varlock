@@ -145,9 +145,9 @@ Because internal items still resolve and validate, marking a variable internal d
 `@internal` controls what varlock _injects_, not what it shows. Internal items still appear (redacted) in inspection output (the `varlock load` summary and `varlock load --agent`), so they can be set and debugged.
 :::
 
-`varlock run` strips internal items from the child process environment **even if they were set in the ambient environment** (e.g. `OP_TOKEN=xxx varlock run ...`), so a secret-zero token never leaks into your app. If a _nested_ `varlock run` needs the internal value for its own resolution, pass [`--include-internal`](/reference/cli-commands/#run) to keep it in the child env.
+`varlock run` strips internal items from the child process environment **even if they were set in the ambient environment** (e.g. `OP_TOKEN=xxx varlock run ...`), so a secret-zero token never leaks into your app. If a _nested_ `varlock run` needs the internal value for its own resolution, pass [`--include-internal`](/reference/cli/load-and-run/#run) to keep it in the child env.
 
-`varlock load --format json-full` excludes internal items by default too, since that format is commonly consumed programmatically (framework integrations shell out to this exact command to get their injected config) - pass [`--include-internal`](/reference/cli-commands/#load) there for local debugging.
+`varlock load --format json-full` excludes internal items by default too, since that format is commonly consumed programmatically (framework integrations shell out to this exact command to get their injected config) - pass [`--include-internal`](/reference/cli/load-and-run/#load) there for local debugging.
 </div>
 
 <div>
@@ -302,7 +302,7 @@ STILL_SUPPORTED=
 ### `@auditIgnore`
 **Value type:** `boolean`
 
-Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli-commands/#audit) for this item. Useful for items that are only consumed by external tools and won't appear in your application code.
+Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli/encryption/#audit) for this item. Useful for items that are only consumed by external tools and won't appear in your application code.
 
 ```env-spec
 # @auditIgnore
@@ -342,9 +342,9 @@ Routes an item's secret through the [credential proxy](/guides/proxy/) so an unt
 | `block` | `block=true` denies matching requests outright. |
 | `approval` | `approval=true` holds matching requests for an interactive yes/no in the `proxy start` terminal before they proceed. A self-contained one-shot `proxy run` has no terminal to prompt in and denies them. |
 | `keys` | Array of additional item names to inject for this rule, e.g. `keys=[OTHER_KEY]`. |
-| `substituteIn` | Where the placeholder may be swapped for the real value: `header` (default), `header:<name>`, `path`, `query`, `query:<param>`, or `body:<path>`, e.g. `[header, "body:client_secret"]`. Body always requires a path (`body:*` allows anywhere, for bodies that can't be parsed into a path). A placeholder anywhere no target allows blocks the request instead of substituting. See [Substitution surface](/guides/proxy/#substitution-surface). |
-| `maxOccurrences` | Max times the placeholder may appear in one request before it's blocked (default `1`). See [Substitution surface](/guides/proxy/#substitution-surface). |
-| `rules` | Array of policy refinements sharing this rule's `domain`, e.g. `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval`/`substituteIn`/`maxOccurrences` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/#grouping-rules-for-one-domain). |
+| `substituteIn` | Where the placeholder may be swapped for the real value: `header` (default), `header:<name>`, `path`, `query`, `query:<param>`, or `body:<path>`, e.g. `[header, "body:client_secret"]`. Body always requires a path (`body:*` allows anywhere, for bodies that can't be parsed into a path). A placeholder anywhere no target allows blocks the request instead of substituting. See [Substitution surface](/guides/proxy/rules/#substitution-surface). |
+| `maxOccurrences` | Max times the placeholder may appear in one request before it's blocked (default `1`). See [Substitution surface](/guides/proxy/rules/#substitution-surface). |
+| `rules` | Array of policy refinements sharing this rule's `domain`, e.g. `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval`/`substituteIn`/`maxOccurrences` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/rules/#grouping-rules-for-one-domain). |
 
 The same decorator in the **header** creates a _detached_ policy rule (no injection unless it lists `keys`).
 

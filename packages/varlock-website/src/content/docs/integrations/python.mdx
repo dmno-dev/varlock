@@ -3,7 +3,7 @@ title: Python
 description: Use varlock with Python via a generated typed env module, Pydantic Settings, or environs
 ---
 
-To use varlock with Python, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli-commands/#run). It loads and validates your env, then injects it into the process.
+To use varlock with Python, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli/load-and-run/#run). It loads and validates your env, then injects it into the process.
 
 Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module: a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
@@ -11,7 +11,7 @@ Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to you
 # @generatePythonEnv(path=env.py)
 ```
 
-The file is regenerated automatically on [`varlock load`](/reference/cli-commands/#load) and [`varlock run`](/reference/cli-commands/#run), or explicitly with [`varlock codegen`](/reference/cli-commands/#codegen). It has no dependencies, importing it has no side effects, and it imports on any **Python 3.7+** (it uses `from __future__ import annotations`, so `NotRequired`/`Literal` are type-checker-only).
+The file is regenerated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly with [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). It has no dependencies, importing it has no side effects, and it imports on any **Python 3.7+** (it uses `from __future__ import annotations`, so `NotRequired`/`Literal` are type-checker-only).
 
 ## Reading values
 
@@ -54,7 +54,7 @@ port = env["DB_PORT"]   # int
 
 ## Running your server
 
-[`varlock run`](/reference/cli-commands/#run) wraps any command, so boot your ASGI server, task runner, or scripts through it. Local dev, CI, and production all use the same schema:
+[`varlock run`](/reference/cli/load-and-run/#run) wraps any command, so boot your ASGI server, task runner, or scripts through it. Local dev, CI, and production all use the same schema:
 
 ```bash
 varlock run -- uvicorn main:app --reload
@@ -63,7 +63,7 @@ varlock run -- python manage.py runserver
 ```
 
 :::caution[Shell expansion]
-Environment variables in the command itself are expanded by your shell **before** varlock runs. Pass overrides on the left (`APP_ENV=production varlock run -- …`) or use [`varlock printenv`](/reference/cli-commands/#printenv) to read resolved values into the shell.
+Environment variables in the command itself are expanded by your shell **before** varlock runs. Pass overrides on the left (`APP_ENV=production varlock run -- …`) or use [`varlock printenv`](/reference/cli/load-and-run/#printenv) to read resolved values into the shell.
 :::
 
 ## Using a settings library

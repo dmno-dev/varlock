@@ -1,0 +1,87 @@
+---
+title: MXC (Windows)
+description: Wire MXC through varlock proxy on Windows
+---
+
+## MXC (Windows)
+
+[Microsoft eXecution Containers (MXC)](https://github.com/microsoft/mxc) is an open-source (MIT), policy-driven sandbox SDK. On Windows 11 24H2+ its default backend is `processcontainer` (AppContainer-style process isolation). It does **not** broker credentials; it can force outbound HTTP(S) through a localhost proxy, which is the hook for varlock.
+
+:::caution[Preview]
+MXC is an early public preview. Microsoft documents that some generated policies are still overly permissive and should not be treated as a hard security boundary yet. Pair it with varlock for credential isolation, and keep tightening MXC filesystem policy as the project matures.
+:::
+
+### Install
+
+Requires Windows 11 24H2+ (build 26100+) for `processcontainer`, and Node.js 18+.
+
+```powershell
+npm install @microsoft/mxc-sdk
+```
+
+### Wire MXC through varlock
+
+1. Start the proxy on the host with a fixed port, so `mxc-agent.json` can name it up front:
+
+```powershell
+varlock proxy start --port 54321
+```
+
+2. In PowerShell, load placeholders + CA trust from JSON (bash-style `eval "$(varlock proxy env)"` is for Unix shells; on Windows prefer `--format json`):
+
+```powershell
+$envMap = varlock proxy env --format json | ConvertFrom-Json
+$envMap.PSObject.Properties | ForEach-Object { Set-Item -Path "Env:$($_.Name)" -Value $_.Value }
+```
+
+3. Point MXC's process-container network at that port. MXC's [external proxy example](https://github.com/microsoft/mxc/blob/main/docs/examples.md) routes sandbox traffic to `localhost:<port>`:
+
+```json title="mxc-agent.json"
+{
+  "script": "claude",
+  "timeout": 0,
+  "processContainer": {
+    "name": "varlock-agent",
+    "capabilities": ["internetClient"]
+  },
+  "filesystem": {
+    "readwritePaths": ["C:\\path\\to\\your\\project"]
+  },
+  "network": {
+    "proxy": { "localhost": 54321 }
+  }
+}
+```
+
+Match the port to the `--port` you chose in step 1, and set `readwritePaths` to your project. Keep `@proxyConfig={egress="strict"}` in `.env.schema` so only declared hosts get secrets. Host allow/block lists are not enforced on Windows yet in MXC; varlock's egress rules cover injection scope.
+
+4. Launch with a small Node script (or `wxc-exec.exe` if you build the native binary from the [MXC repo](https://github.com/microsoft/mxc)):
+
+```typescript title="run-sandboxed-agent.ts"
+import { readFileSync } from 'node:fs';
+import { spawnSandboxFromConfig } from '@microsoft/mxc-sdk';
+
+const proxyUrl = process.env.HTTPS_PROXY;
+if (!proxyUrl) {
+  throw new Error('Load varlock proxy env first (HTTPS_PROXY missing)');
+}
+const port = Number(new URL(proxyUrl).port);
+
+const config = JSON.parse(readFileSync('./mxc-agent.json', 'utf8'));
+config.network = { proxy: { localhost: port } };
+config.script = process.argv.slice(2).join(' ') || config.script;
+
+const child = spawnSandboxFromConfig(config, { usePty: true });
+child.on('exit', (code: number | null) => process.exit(code ?? 1));
+```
+
+```powershell
+npx tsx run-sandboxed-agent.ts claude
+```
+
+The child inherits the placeholder + CA environment you set in PowerShell. MXC's `network.proxy` steers AppContainer egress at varlock on loopback, which the host process can reach.
+
+:::tip[WSL on Windows]
+If you already develop under WSL2, you can run the [Fence](/sandboxes/fence/) or [bubblewrap](/sandboxes/bubblewrap/) recipes inside the distro instead. Start `varlock proxy` in the same WSL environment (or confirm the Windows-side loopback address the distro can reach) so `HTTP_PROXY` still points at a reachable proxy.
+:::
+

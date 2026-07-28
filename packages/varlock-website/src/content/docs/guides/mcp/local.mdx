@@ -1,0 +1,303 @@
+---
+title: Local MCP servers
+description: Run local stdio MCP servers with varlock for validated, redacted secrets
+---
+
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+
+## Local MCP Servers with stdio
+
+For local development and testing, MCP servers often use stdio transport for communication with clients. This is perfect for using `varlock run` to securely load environment variables before starting your server.
+
+### Server Setup
+
+Create a `.env.schema` file for your MCP server:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/1password-plugin)
+# @initOp(allowAppAuth=true)
+# @defaultSensitive=true
+# @defaultRequired=true
+# ---
+
+# Database connection for MCP server
+# @type=url
+DATABASE_URL=
+
+# API key for external service
+# @type=string(startsWith="sk_")
+EXTERNAL_API_KEY=
+
+# Authentication secret
+# @type=string(minLength=32)
+AUTH_SECRET=
+
+# Server configuration
+# @sensitive=false
+# @type=number(min=1024, max=65535)
+SERVER_PORT=3000
+
+# @sensitive=false
+# @type=enum(debug, info, warn, error)
+LOG_LEVEL=info
+```
+
+Create your local `.env.local` file with values from your 1Password vault:
+
+```env-spec title=".env.local"
+DATABASE_URL=op(op://devTest/myVault/database-url)
+EXTERNAL_API_KEY=op(op://devTest/myVault/external-api-key)
+AUTH_SECRET=op(op://devTest/myVault/auth-secret)
+LOG_LEVEL=debug
+```
+
+:::note
+We're using 1Password as an example here, but you can use any secret management tool you prefer as long as it has a CLI to load values.
+:::
+
+Update your MCP server's `package.json` to use `varlock run`:
+
+```json title="package.json"
+{
+  "name": "my-mcp-server",
+  "scripts": {
+    "start": "varlock run -- node server.js",
+    "dev": "varlock run -- node --watch server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.4.0"
+  }
+}
+```
+
+### Docker (local)
+
+For containerized local development, create a Dockerfile that uses varlock:
+
+```dockerfile title="Dockerfile"
+FROM node:22-alpine
+
+# Install varlock
+RUN npm install -g @varlock/cli
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY pnpm-lock.yaml ./
+
+# Install dependencies
+RUN npm install -g pnpm && pnpm install
+
+# Copy application files
+COPY . .
+
+# Build the application
+RUN pnpm build
+
+# Use varlock run to start the server
+CMD ["varlock", "run", "--", "node", "dist/server.js"]
+```
+
+Build and run your Docker container:
+
+```bash
+# Build the image
+docker build -t my-mcp-server:latest .
+
+# Run the container (for testing)
+docker run --rm -it my-mcp-server:latest
+```
+
+### Client Configuration
+
+<Tabs syncKey="mcp-clients">
+
+  <TabItem label="Cursor">
+
+Create a Cursor configuration file to connect to your local MCP server:
+
+```json title="~/.cursor/mcp-servers.json"
+{
+  "mcpServers": {
+    "my-local-server": {
+      "command": "npm",
+      "args": ["start"],
+      "cwd": "/path/to/your/mcp-server",
+      "env": {
+        "NODE_ENV": "development"
+      }
+    }
+  }
+}
+```
+
+For local MCP servers running in Docker: In this case an off-the-shelf MCP server is used, so we need to use `varlock run` to load the `GITHUB_TOKEN` environment variable and pass it to the server.
+
+```json title="~/.cursor/mcp-servers.json"
+{
+  "mcpServers": {
+    "github": {
+      "command": "varlock",
+      "args": [
+        "run",
+        "--",
+        "docker",
+        "run",
+        "--rm",
+        "-i",
+        "ghcr.io/github/github-mcp-server:latest"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+And the corresponding `.env.schema` file would look something like this:
+
+```env-spec title=".env.schema"
+# @defaultSensitive=true
+# @defaultRequired=true
+# ---
+
+# GitHub token
+# @type=string(startsWith="ghp_")
+GITHUB_TOKEN=op(op://devTest/myVault/github-token)
+```
+  </TabItem>
+
+  <TabItem label="Claude Desktop">
+
+For Claude Desktop, create a configuration file:
+
+```json title="~/.config/claude/desktop_config.json"
+{
+  "mcpServers": {
+    "my-local-server": {
+      "command": "npm",
+      "args": ["start"],
+      "cwd": "/path/to/your/mcp-server"
+    }
+  }
+}
+```
+
+For local MCP servers running in Docker: In this case an off-the-shelf MCP server is used, so we need to use `varlock run` to load the `GITHUB_TOKEN` environment variable and pass it to the server.
+
+```json title="~/.config/claude/desktop_config.json"
+{
+  "mcpServers": {
+    "github": {
+      "command": "varlock",
+      "args": [
+        "run",
+        "--",
+        "docker",
+        "run",
+        "--rm",
+        "-i",
+        "ghcr.io/github/github-mcp-server:latest"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+  </TabItem>
+
+  <TabItem label="Custom Client">
+
+Here's an example of a custom MCP client that uses varlock for its own configuration:
+
+```typescript title="client.ts"
+import 'varlock/auto-load';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { spawn } from 'child_process';
+import { ENV } from 'varlock/env';
+
+const client = new Client(
+  {
+    name: 'my-mcp-client',
+    version: '1.0.0'
+  },
+  {
+    capabilities: {
+      tools: {}
+    }
+  }
+);
+
+// Start the server process with varlock
+const serverProcess = spawn('pnpm', ['start'], {
+  cwd: ENV.MCP_SERVER_PATH,
+  stdio: ['pipe', 'pipe', 'pipe']
+});
+
+const transport = new StdioClientTransport(serverProcess.stdin, serverProcess.stdout);
+await client.connect(transport);
+
+// Use the client to interact with your MCP server
+const result = await client.callTool({
+  name: 'my-tool',
+  arguments: {}
+});
+```
+
+For third-party MCP servers that require API keys:
+
+```typescript title="third-party-client.ts"
+import 'varlock/auto-load';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { spawn } from 'child_process';
+import { ENV } from 'varlock/env';
+
+async function connectToOpenAIServer() {
+  const client = new Client(
+    { name: 'openai-mcp-client', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+  );
+
+  const serverProcess = spawn('npx', [
+    '@modelcontextprotocol/server-openai',
+    '--api-key', ENV.OPENAI_API_KEY
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, OPENAI_API_KEY: ENV.OPENAI_API_KEY }
+  });
+
+  const transport = new StdioClientTransport(serverProcess.stdin, serverProcess.stdout);
+  await client.connect(transport);
+  return client;
+}
+
+async function connectToGitHubServer() {
+  const client = new Client(
+    { name: 'github-mcp-client', version: '1.0.0' },
+    { capabilities: { tools: {} } }
+  );
+
+  const serverProcess = spawn('npx', [
+    '@modelcontextprotocol/server-github',
+    '--token', ENV.GITHUB_TOKEN
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, GITHUB_TOKEN: ENV.GITHUB_TOKEN }
+  });
+
+  const transport = new StdioClientTransport(serverProcess.stdin, serverProcess.stdout);
+  await client.connect(transport);
+  return client;
+}
+```
+
+  </TabItem>
+
+</Tabs>
+

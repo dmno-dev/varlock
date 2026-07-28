@@ -9,12 +9,12 @@ import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
 The basic workflow for using Varlock is to:
 
-1. Run [`varlock init`](/reference/cli-commands/#init) to set up your `.env.schema` file
-2. Run [`varlock load`](/reference/cli-commands/#load) to debug and refine your .env file(s)
+1. Run [`varlock init`](/reference/cli/project/#init) to set up your `.env.schema` file
+2. Run [`varlock load`](/reference/cli/load-and-run/#load) to debug and refine your .env file(s)
 3. Use Varlock to load, validate, and inject env vars into your application, either:
     - Use an [existing framework / tool integration](/integrations/overview/) that automatically calls Varlock under the hood (_recommended_)
     - Use `import 'varlock/auto-load'` in a backend JavaScript/TypeScript project
-    - Boot your command via [`varlock run`](/reference/cli-commands/#run)<br/>(_necessary for non-JS/TS projects, or feeding env vars to external tools_)
+    - Boot your command via [`varlock run`](/reference/cli/load-and-run/#run)<br/>(_necessary for non-JS/TS projects, or feeding env vars to external tools_)
 
 
 ## CLI Commands
@@ -32,7 +32,7 @@ Our [integrations](/integrations/overview) all use `varlock load` under the hood
 :::
 
 
-See the [`varlock load` CLI Reference](/reference/cli-commands/#load) for more information.
+See the [`varlock load` CLI Reference](/reference/cli/load-and-run/#load) for more information.
 
 #### Understanding `varlock load` output
 
@@ -106,7 +106,7 @@ Each item line shows:
 - The resolved value (quoted strings, colored booleans/numbers)
 - Inline hints such as `📦` (cached), `🟡 process.env` (overridden by the shell), or `< coerced from ...` when a value was coerced
 
-When validation fails, only failing items are shown unless you pass [`--show-all`](/reference/cli-commands/#load). Use [`--format json`](/reference/cli-commands/#load) or [`--format json-full`](/reference/cli-commands/#load) for machine-readable output. For example, in CI or when piping to other tools.
+When validation fails, only failing items are shown unless you pass [`--show-all`](/reference/cli/load-and-run/#load). Use [`--format json`](/reference/cli/load-and-run/#load) or [`--format json-full`](/reference/cli/load-and-run/#load) for machine-readable output. For example, in CI or when piping to other tools.
 
 For example, with `STRIPE_SECRET_KEY` left empty:
 
@@ -127,7 +127,7 @@ For example, with `STRIPE_SECRET_KEY` left empty:
 Executes a command in a child process, injecting your resolved and validated environment variables. This is useful when a code-level integration is not possible. For example, if you're using a database migration tool, you can use `varlock run` to run the migration tool with the correct environment variables. Or if you're using a non-js/ts language, you can use `varlock run` to run a command and inject validated environment variables.
 
 
-See the [`varlock run` CLI Reference](/reference/cli-commands/#run) for more information.
+See the [`varlock run` CLI Reference](/reference/cli/load-and-run/#run) for more information.
 
 ### `varlock encrypt`
 
@@ -137,7 +137,7 @@ Encrypts sensitive values using device-local encryption. Use `--file` to encrypt
 
 Encrypted values are stored as `varlock("local:<encrypted>")` and are automatically decrypted during `varlock load` or `varlock run`.
 
-See the [`varlock encrypt` CLI Reference](/reference/cli-commands/#encrypt) and the [Local encryption guide](/guides/local-encryption/) for more information.
+See the [`varlock encrypt` CLI Reference](/reference/cli/encryption/#encrypt) and the [Local encryption guide](/guides/local-encryption/) for more information.
 
 ### `varlock reveal`
 
@@ -145,4 +145,4 @@ See the [`varlock encrypt` CLI Reference](/reference/cli-commands/#encrypt) and 
 
 Securely view or copy decrypted values of `@sensitive` environment variables. Values are shown in an alternate screen buffer to prevent scrollback capture.
 
-See the [`varlock reveal` CLI Reference](/reference/cli-commands/#reveal) for more information.
+See the [`varlock reveal` CLI Reference](/reference/cli/encryption/#reveal) for more information.

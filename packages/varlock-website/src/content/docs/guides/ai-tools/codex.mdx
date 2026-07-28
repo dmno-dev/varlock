@@ -1,0 +1,67 @@
+---
+title: Codex
+description: Inject OpenAI API keys into Codex CLI with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Codex CLI](https://developers.openai.com/codex/) is OpenAI's coding agent for the terminal. Use varlock to inject API keys at runtime so they never sit in a plain text `.env` or shell history.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Authentication:** Codex supports [ChatGPT sign-in](https://developers.openai.com/codex/auth) (subscription) and API key auth (usage-based). Interactive ChatGPT login is fine for local work. Prefer an API key (via varlock) for headless/`codex exec` workflows.
+
+**Environment variables** (see [Codex environment variables](https://developers.openai.com/codex/environment-variables)):
+
+- `CODEX_API_KEY`: API key for a single non-interactive `codex exec` run
+- `OPENAI_API_KEY`: commonly used for API key login and custom [model providers](https://developers.openai.com/codex/config-advanced) that set `env_key`
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+
+# @sensitive @required
+CODEX_API_KEY=op(op://api-local/openai/api-key)
+```
+
+<OpExamplesTip />
+
+For interactive Codex, use varlock to pass the key into the one-time login command. Codex stores the resulting credentials for later sessions:
+
+```bash
+varlock run -- sh -c 'printenv OPENAI_API_KEY | codex login --with-api-key'
+codex
+```
+
+For a single non-interactive run, inject `CODEX_API_KEY` directly:
+
+```bash
+varlock run -- codex exec "summarize the recent git changes"
+```
+
+## From any directory
+
+Personal schema at `~/.env.codex`:
+
+```env-spec title="~/.env.codex"
+# @sensitive @required
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+
+# @sensitive @required
+CODEX_API_KEY=op(op://api-local/openai/api-key)
+```
+
+```bash
+varlock run -p ~/.env.codex -- sh -c 'printenv OPENAI_API_KEY | codex login --with-api-key'
+codex
+
+varlock run -p ~/.env.codex -- codex exec "summarize the recent git changes"
+```
+
+:::tip
+OpenAI recommends scoping `CODEX_API_KEY` to individual `codex exec` runs rather than exporting it job-wide in CI that runs untrusted repository code. `varlock run` keeps the key in the child process environment for that invocation only.
+:::

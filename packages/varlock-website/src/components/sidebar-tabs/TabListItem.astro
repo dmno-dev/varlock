@@ -1,0 +1,23 @@
+---
+import type { HTMLAttributes } from 'astro/types';
+
+export interface Props {
+  /** Unique ID for the tab panel this item links to. */
+  id: string;
+  /** Mark this item as visible when the page loads. */
+  initial?: boolean;
+  /** Additional class names to apply to the `<li>` */
+  class?: string;
+}
+
+const { id, initial } = Astro.props;
+const linkAttributes: HTMLAttributes<'a'> = initial
+  ? { 'data-initial': 'true', 'aria-selected': 'true' }
+  : {};
+---
+
+<li class:list={Astro.props.class}>
+  <a href={'#' + id} class="tab-link" {...linkAttributes}>
+    <slot />
+  </a>
+</li>

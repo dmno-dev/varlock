@@ -20,6 +20,20 @@ import { sidebar } from './src/sidebar';
 // https://astro.build/config
 export default defineConfig({
   site: 'https://varlock.dev',
+  redirects: {
+    '/guides/docker': '/integrations/docker/',
+    // sandboxing concepts moved under the proxy section, tool recipes into their own ecosystem group
+    '/guides/sandboxing': '/guides/proxy/sandboxing/',
+    '/guides/sandboxing/minimal': '/sandboxes/minimal/',
+    '/guides/sandboxing/fence': '/sandboxes/fence/',
+    '/guides/sandboxing/yolobox': '/sandboxes/yolobox/',
+    '/guides/sandboxing/agent-safehouse': '/sandboxes/agent-safehouse/',
+    '/guides/sandboxing/bubblewrap': '/sandboxes/bubblewrap/',
+    '/guides/sandboxing/mxc': '/sandboxes/mxc/',
+    // CLI / VS Code / README still link to the bare /env-spec path
+    '/env-spec': '/env-spec/overview/',
+    '/env-spec/': '/env-spec/overview/',
+  },
   vite: {
     resolve: {
       alias: {
@@ -113,6 +127,7 @@ export default defineConfig({
         ThemeProvider: '@/components/CustomStarlightThemeProvider.astro',
         SocialIcons: '@/components/SocialIcons.astro',
         Footer: '@/components/Footer.astro',
+        Sidebar: '@/components/TabbedSidebar.astro',
       },
       customCss: ['@/styles/global.css'],
       plugins: [starlightLlmsTxt()],

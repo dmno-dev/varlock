@@ -1,0 +1,203 @@
+---
+title: Kubernetes plugin reference
+description: Resolver and decorator reference, troubleshooting, and resources
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@initKubernetes()`
+
+Initialize a Kubernetes plugin instance for `k8sSecret()`, `k8sConfigMap()`, `k8sSecretBulk()`, and `k8sConfigMapBulk()` resolvers.
+
+**Key/value args:**
+- `id` (optional, static): Instance identifier for multiple instances, defaults to `_default`
+- `namespace` (optional): Kubernetes namespace to read from. Defaults to the kubeconfig context namespace, the pod's mounted service account namespace (when in-cluster), or `default`
+- `context` (optional): Kubeconfig context name to use (overrides the current context)
+- `kubeconfig` (optional): Path to a kubeconfig file, or raw kubeconfig YAML/JSON content
+- `clusterServer` (optional): Kubernetes API server URL for explicit auth (e.g., `https://kubernetes.example.com:6443`)
+- `token` (optional): Bearer token for explicit auth
+- `skipTlsVerify` (optional): Set to `true` to skip TLS verification on the cluster certificate. Only applies when using `clusterServer` + `token`
+- `allowMissing` (optional): If `true`, missing resources or keys return `undefined` instead of throwing
+- `defaultSecret` (optional): Default Secret name used by `k8sSecret()` / `k8sSecretBulk()` when no name argument is provided
+- `defaultConfigMap` (optional): Default ConfigMap name used by `k8sConfigMap()` / `k8sConfigMapBulk()` when no name argument is provided
+
+```env-spec "@initKubernetes"
+# @initKubernetes(namespace=default, defaultSecret=app-secrets, defaultConfigMap=app-config)
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `kubernetesBearerToken`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
+
+
+Represents a Kubernetes bearer token used for API server authentication (typically a service account token). This type is marked as `@sensitive`.
+
+```env-spec "kubernetesBearerToken"
+# @type=kubernetesBearerToken
+KUBERNETES_TOKEN=
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `k8sSecret()`
+
+Fetch a single key from a Kubernetes Secret. Secret `data` values are base64-decoded automatically.
+
+Arguments can be provided positionally or as named arguments, but the same field cannot be provided both ways.
+
+**Array args (positional):**
+- `instanceId` (optional, static): Instance identifier to use when multiple plugin instances are initialized
+- `name` (optional): Name of the Secret resource. Required unless `defaultSecret` is set on `@initKubernetes()`
+- `key` (optional): Key inside the Secret's `data` to fetch. If omitted, uses the item key (variable name)
+
+**Named args:**
+- `id` (optional, static): same as positional `instanceId`
+- `name` (optional): same as positional `name`
+- `key` (optional): same as positional `key`
+
+```env-spec /k8sSecret\(.*\)/
+# Auto-infer key from item name
+DATABASE_URL=k8sSecret(app-secrets)
+
+# Explicit key name (positional)
+DB_URL=k8sSecret(app-secrets, DATABASE_URL)
+
+# Override just the key (uses defaultSecret from @initKubernetes)
+STRIPE_KEY=k8sSecret(key=stripe_api_key)
+
+# Both positional and named
+DB_URL=k8sSecret(name=app-secrets, key=DATABASE_URL)
+
+# With instance ID
+PROD_DB=k8sSecret(prod, app-secrets, DATABASE_URL)
+```
+</div>
+
+<div>
+#### `k8sConfigMap()`
+
+Fetch a single key from a Kubernetes ConfigMap. Both `data` and `binaryData` fields are supported.
+
+Arguments can be provided positionally or as named arguments, but the same field cannot be provided both ways.
+
+**Array args (positional):**
+- `instanceId` (optional, static): Instance identifier to use when multiple plugin instances are initialized
+- `name` (optional): Name of the ConfigMap resource. Required unless `defaultConfigMap` is set on `@initKubernetes()`
+- `key` (optional): Key inside the ConfigMap to fetch. If omitted, uses the item key (variable name)
+
+**Named args:**
+- `id` (optional, static): same as positional `instanceId`
+- `name` (optional): same as positional `name`
+- `key` (optional): same as positional `key`
+
+```env-spec /k8sConfigMap\(.*\)/
+# Auto-infer key from item name
+PUBLIC_API_HOST=k8sConfigMap(app-config)
+
+# Explicit key name
+API_HOST=k8sConfigMap(app-config, PUBLIC_API_HOST)
+
+# Named args
+API_HOST=k8sConfigMap(name=app-config, key=PUBLIC_API_HOST)
+
+# With instance ID
+DEV_HOST=k8sConfigMap(dev, app-config, PUBLIC_API_HOST)
+```
+</div>
+
+<div>
+#### `k8sSecretBulk()`
+
+Fetch all keys from a Kubernetes Secret as a JSON object string. Designed to be used with `@setValuesBulk(..., format=json)`.
+
+**Array args (positional):**
+- `instanceId` (optional, static): Instance identifier to use when multiple plugin instances are initialized
+- `name` (optional): Name of the Secret resource. Required unless `defaultSecret` is set on `@initKubernetes()`
+
+**Named args:**
+- `id` (optional, static): same as positional `instanceId`
+- `name` (optional): same as positional `name`
+
+```env-spec /k8sSecretBulk\(.*\)/
+# Uses defaultSecret from @initKubernetes
+# @setValuesBulk(k8sSecretBulk(), format=json)
+
+# Explicit name
+# @setValuesBulk(k8sSecretBulk(app-secrets), format=json)
+
+# With instance ID
+# @setValuesBulk(k8sSecretBulk(prod, app-secrets), format=json)
+```
+</div>
+
+<div>
+#### `k8sConfigMapBulk()`
+
+Fetch all keys from a Kubernetes ConfigMap as a JSON object string. Designed to be used with `@setValuesBulk(..., format=json)`.
+
+**Array args (positional):**
+- `instanceId` (optional, static): Instance identifier to use when multiple plugin instances are initialized
+- `name` (optional): Name of the ConfigMap resource. Required unless `defaultConfigMap` is set on `@initKubernetes()`
+
+**Named args:**
+- `id` (optional, static): same as positional `instanceId`
+- `name` (optional): same as positional `name`
+
+```env-spec /k8sConfigMapBulk\(.*\)/
+# @setValuesBulk(k8sConfigMapBulk(app-config), format=json)
+
+# @setValuesBulk(k8sConfigMapBulk(prod, app-config), format=json)
+```
+</div>
+</div>
+
+---
+
+## Troubleshooting
+
+### Secret or ConfigMap not found (404)
+- Verify the resource exists: `kubectl get secret <name> -n <namespace>` or `kubectl get configmap <name> -n <namespace>`
+- Double-check the namespace; the plugin reads only from the configured namespace
+- Resource names are case-sensitive and namespace-scoped
+- If the resource is genuinely optional, set `allowMissing=true` on `@initKubernetes()` and `@required=false` on the item
+
+### Permission denied (403)
+- Check that the active identity has the required RBAC: `kubectl auth can-i get secrets -n <namespace>`
+- For in-cluster use, verify the pod's `serviceAccountName` is set and bound to a `Role`/`ClusterRole` that grants `get` on `secrets`/`configmaps`
+- The error message includes the exact `Role` snippet you need to grant
+
+### Authentication failed (401)
+- **Local dev:** Run `kubectl config current-context` and verify it points to the right cluster; run `kubectl get secrets` to confirm your kubeconfig works
+- **Explicit token:** Verify the token isn't expired or revoked. Service account tokens created from `kubernetes.io/service-account-token` Secrets are long-lived, but TokenRequest-issued tokens have shorter TTLs
+- **In-cluster:** Check the pod's mounted service account token at `/var/run/secrets/kubernetes.io/serviceaccount/token`
+
+### Connection refused or TLS errors
+- Verify the cluster API URL is reachable from your machine/pod
+- For clusters with self-signed certificates and explicit auth, set `skipTlsVerify=true` (development only)
+- If using `kubectl` works but the plugin doesn't, your kubeconfig may rely on an [exec credential plugin](https://kubernetes.io/docs/reference/config-api/client-authentication.v1beta1/) (e.g., `aws eks get-token`, `gke-gcloud-auth-plugin`, `kubelogin`). Ensure the helper binary is on your `$PATH`
+
+### Wrong namespace
+- The plugin uses (in order): the explicit `namespace` argument, the current kubeconfig context's namespace, the pod's mounted SA namespace, or `default`
+- To force a specific namespace, pass it explicitly: `@initKubernetes(namespace=my-ns)`
+
+## Resources
+
+- [Kubernetes Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
+- [Kubernetes ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
+- [Kubernetes RBAC](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
+- [Service Account Tokens](https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/)
+- [`@kubernetes/client-node`](https://github.com/kubernetes-client/javascript)

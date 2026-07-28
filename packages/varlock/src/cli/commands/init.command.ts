@@ -246,7 +246,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         '- Can use multiple .env files or functions to manage variation per environment, see https://varlock.dev/guides/environments/',
         '- Complex/large files can be broken up and use `@import`, see https://varlock.dev/guides/import/',
         '- If user wants to load secrets from external sources, help install and configure plugins - see https://varlock.dev/guides/plugins/',
-        '- If user has any sensitive values in plaintext, can use local encryption, see `https://varlock.dev/guides/local-encryption/',
+        '- If user has any sensitive values in plaintext, can use local encryption, see https://varlock.dev/guides/local-encryption/',
         '',
       ]);
     } else {
