@@ -144,7 +144,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         items: [
           { label: 'Overview', slug: 'integrations/overview' },
           {
-            label: 'JavaScript runtimes and frameworks',
+            label: 'JS runtimes and frameworks',
             collapsed: true,
             items: [
               { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
