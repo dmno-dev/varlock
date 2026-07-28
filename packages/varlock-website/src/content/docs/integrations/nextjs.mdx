@@ -363,9 +363,9 @@ varlock run -- node .next/standalone/server.js
 
 ---
 
-:::note[Encrypting the env blob]
+## Encrypting the env blob
+
 When deploying to serverless platforms like Vercel, Varlock injects the fully resolved env data into your server-side build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
-:::
 
 ---
 ## Troubleshooting

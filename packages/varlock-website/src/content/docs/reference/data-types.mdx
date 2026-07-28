@@ -334,7 +334,7 @@ Validation errors are reported per element (`[1] Current value is not in list of
 
 A scalar element that contains the separator fails validation (it could not round-trip through `process.env`); set `format=json` or pick a different separator.
 
-In application code, `ENV.ALLOWED_EMAILS` is a real typed array (`string[]`, `number[]`, etc. via [type generation](/guides/type-generation/)). In `process.env` the value is the flat string form (separator-joined, or JSON when `format=json`).
+In application code, `ENV.ALLOWED_EMAILS` is a real typed array (`string[]`, `number[]`, etc. via [type generation](/guides/code-generation/)). In `process.env` the value is the flat string form (separator-joined, or JSON when `format=json`).
 
 An empty or whitespace-only string input resolves to a missing value (`undefined`), never an empty array; the only way to express an empty array is the explicit `[]` literal (sanctioned via `minLength=0`).
 

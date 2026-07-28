@@ -62,7 +62,7 @@ You can point `@plugin()` at a local path instead of an npm package, either a si
 # @plugin(../shared/plugin/) # package directory (trailing slash)
 ```
 
-Local plugins must be **self-contained**: a single built file, or a package that bundles its dependencies. Varlock loads a plugin from its file directly and does not install anything for it, so a plugin that relies on separate `node_modules` dependencies will fail to load once it is moved away from where those dependencies live (for example in a compiled binary, or in the output of [`varlock flatten`](/reference/cli-commands/#flatten)). If you author a plugin with dependencies, bundle it into a single file first. The official `@varlock/*` plugins are each a single bundled file.
+Local plugins must be **self-contained**: a single built file, or a package that bundles its dependencies. Varlock loads a plugin from its file directly and does not install anything for it, so a plugin that relies on separate `node_modules` dependencies will fail to load once it is moved away from where those dependencies live (for example in a compiled binary, or in the output of [`varlock flatten`](/reference/cli/project/#flatten)). If you author a plugin with dependencies, bundle it into a single file first. The official `@varlock/*` plugins are each a single bundled file.
 
 {/*
 INFO TO ADD LATER

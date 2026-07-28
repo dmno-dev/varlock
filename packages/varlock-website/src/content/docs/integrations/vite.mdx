@@ -247,9 +247,9 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 
 ---
 
-:::note[Encrypting the env blob]
+## Encrypting the env blob
+
 When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
-:::
 
 ## Dynamic+public config
 

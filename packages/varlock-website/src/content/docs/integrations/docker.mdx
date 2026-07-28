@@ -239,7 +239,7 @@ When Docker's build context is limited to `apps/web/`, those imported files are 
 
 ### `varlock flatten`
 
-[`varlock flatten`](/reference/cli-commands/#flatten) collapses the whole import graph into one self-contained directory (default `.env-flat/`) and rewrites the `@import` paths, so the package's env files no longer reach outside the package:
+[`varlock flatten`](/reference/cli/project/#flatten) collapses the whole import graph into one self-contained directory (default `.env-flat/`) and rewrites the `@import` paths, so the package's env files no longer reach outside the package:
 
 ```bash
 cd apps/web && varlock flatten
@@ -270,7 +270,7 @@ CMD ["node", "dist/server.js"]
 
 You can also run `flatten` on the host or in CI before `docker build`, when the build context is limited to the package directory. It never resolves values or executes plugins, so it needs no secrets wherever it runs. Add the output directory to `.gitignore` (and make sure `.dockerignore` does not exclude it).
 
-A few behaviors worth knowing (see the [command reference](/reference/cli-commands/#flatten) for the full list):
+A few behaviors worth knowing (see the [command reference](/reference/cli/project/#flatten) for the full list):
 
 - `.env.local` / `.env.[env].local` files are **skipped by default**, so machine-local secrets don't end up in image layers. Use `--include-local` if you really want them.
 - Conditionally-enabled imports (`enabled=`) are copied too, with their conditions preserved, since production may enable imports your build machine doesn't.
@@ -314,7 +314,7 @@ OP_SERVICE_ACCOUNT_TOKEN= # @sensitive
 DATABASE_URL=op(op://prod/db/connection-string) # @sensitive
 ```
 
-In **Node-based images** where varlock is an npm dependency, install plugins in `package.json` and reference them without a version (or with a range for validation only). See the [Plugins guide](/guides/plugins/#plugin-installation) for details.
+In **Node-based images** where varlock is an npm dependency, install plugins in `package.json` and reference them without a version (or with a range for validation only). See the [Plugins guide](/guides/plugins/#installation) for details.
 
 ### Distroless and shell-less base images
 
@@ -324,7 +324,7 @@ Runtime auto-install still has two limits: **third-party (non-`@varlock`) plugin
 
 #### Vendor plugins with `flatten --vendor-plugins` (recommended)
 
-If you already use [`varlock flatten`](/reference/cli-commands/#flatten) for a monorepo build, add `--vendor-plugins`. It copies each `@plugin()` package into the output (`.env-plugins/`) and rewrites the declarations to local paths. Plugins already in your `node_modules` are copied directly (no network); anything not installed is downloaded. The flattened directory then resolves with **no runtime npm fetch, no shell, and no trust prompt**:
+If you already use [`varlock flatten`](/reference/cli/project/#flatten) for a monorepo build, add `--vendor-plugins`. It copies each `@plugin()` package into the output (`.env-plugins/`) and rewrites the declarations to local paths. Plugins already in your `node_modules` are copied directly (no network); anything not installed is downloaded. The flattened directory then resolves with **no runtime npm fetch, no shell, and no trust prompt**:
 
 ```dockerfile title="Dockerfile (excerpt)"
 # builder stage (has the full monorepo + network)
@@ -472,7 +472,7 @@ For cloud deployments, prefer [service account tokens](/guides/plugins/) or [OID
 
 ### Missing `@import` files
 
-See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error usually lists a path outside your Docker build context. Run [`varlock flatten`](/reference/cli-commands/#flatten) while the full monorepo is available, add explicit `COPY` instructions, or widen the context to the monorepo root.
+See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error usually lists a path outside your Docker build context. Run [`varlock flatten`](/reference/cli/project/#flatten) while the full monorepo is available, add explicit `COPY` instructions, or widen the context to the monorepo root.
 
 ### Wrong environment loaded
 
