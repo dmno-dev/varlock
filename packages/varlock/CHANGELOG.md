@@ -20,6 +20,12 @@
 
 
 
+
+## 1.14.1
+<sub>2026-07-28</sub>
+
+- [#949](https://github.com/dmno-dev/varlock/pull/949)  *(patch)* - Fix proxy MITM certs that occasionally failed to load due to a non-minimal DER serial number
+
 ## 1.14.0
 <sub>2026-07-28</sub>
 
