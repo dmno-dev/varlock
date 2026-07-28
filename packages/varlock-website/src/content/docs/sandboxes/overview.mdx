@@ -1,0 +1,25 @@
+---
+title: Sandboxes Overview
+description: Recipes for wiring third-party sandboxes through the varlock credential proxy
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+These are recipes for running an agent inside a third-party sandbox while varlock holds the real credentials. The sandbox contains the agent; the [credential proxy](/guides/proxy/) gives it placeholders and swaps in real secrets only on verified connections to hosts you allow.
+
+Read the [sandboxing guide](/guides/proxy/sandboxing/) first. It covers why the two layers belong together, varlock's own [built-in `--sandbox`](/guides/proxy/sandboxing/#built-in-sandbox) (macOS jail or a container, no third-party install), and the [shared setup](/guides/proxy/sandboxing/#shared-setup) every recipe below assumes.
+
+Each of these tools isolates the filesystem, processes, and network, but none of them broker credentials, so varlock stays the wire injector. Reach for one when you already run that tool, need Windows, or want a different isolation model than the built-in sandbox offers.
+
+## Recipes
+
+<CardGrid>
+  <LinkCard title="Minimal" href="/sandboxes/minimal/" description="Task / microVM or process sandbox. macOS, Linux" />
+  <LinkCard title="Fence" href="/sandboxes/fence/" description="Seatbelt / bubblewrap + domain allowlist. macOS, Linux" />
+  <LinkCard title="yolobox" href="/sandboxes/yolobox/" description="Container, home dir stays on the host. macOS, Linux" />
+  <LinkCard title="Agent Safehouse" href="/sandboxes/agent-safehouse/" description="Deny-first Seatbelt profiles. macOS" />
+  <LinkCard title="bubblewrap" href="/sandboxes/bubblewrap/" description="Linux namespaces (DIY). Linux" />
+  <LinkCard title="MXC" href="/sandboxes/mxc/" description="Windows AppContainer (processcontainer). Windows 11" />
+</CardGrid>
+
+Tools that already broker credentials at the network boundary (Docker Sandboxes, microsandbox, Anthropic `srt` credential `mask`, and similar) are out of scope here. Use those on their own, or wait for varlock host bridging if you want varlock as the broker inside a microVM that cannot reach host loopback.
