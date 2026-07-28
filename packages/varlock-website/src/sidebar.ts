@@ -35,7 +35,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         ],
       },
       {
-        label: 'Encryption and delivery',
+        label: 'Encryption & delivery',
         collapsed: false,
         items: [
           { label: 'Local encryption', slug: 'guides/local-encryption' },
@@ -45,7 +45,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         ],
       },
       {
-        label: 'AI and agents',
+        label: 'AI & agents',
         collapsed: false,
         items: [
           {
@@ -87,7 +87,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         ],
       },
       {
-        label: 'Ops and migration',
+        label: 'Ops & migration',
         collapsed: false,
         items: [
           { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },
@@ -144,7 +144,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         items: [
           { label: 'Overview', slug: 'integrations/overview' },
           {
-            label: 'JS runtimes and frameworks',
+            label: 'JS runtimes & frameworks',
             collapsed: true,
             items: [
               { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
@@ -172,7 +172,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             ],
           },
           {
-            label: 'Platforms and tooling',
+            label: 'Platforms & tooling',
             collapsed: true,
             items: [
               { label: 'Docker', slug: 'integrations/docker' },
