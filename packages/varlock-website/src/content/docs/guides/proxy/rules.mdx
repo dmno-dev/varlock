@@ -119,7 +119,7 @@ By default, varlock applies **least privilege** to the proxied child:
 Unless an item is marked [`@sensitive=false`](/reference/item-decorators/#sensitive) (shorthand: `@public`), or made non-sensitive by a [`@type`](/reference/item-decorators/#type) / `@defaultSensitive` rule, varlock considers it sensitive, so it becomes a **placeholder** in the proxied child. If your agent needs to read a non-secret config value (an API base URL, a feature flag), mark it `@sensitive=false` so it passes through with its real value.
 :::
 
-Because every sensitive item resolves to a placeholder inside a proxied session, an agent can't **trivially** recover a secret by re-running `varlock load` / `varlock printenv` from within the proxied session; it gets the same placeholder back, not the real value. (A determined agent on the same machine can still escape this; see [Limitations](#limitations) and pair the proxy with a sandbox for a real boundary.)
+Because every sensitive item resolves to a placeholder inside a proxied session, an agent can't **trivially** recover a secret by re-running `varlock load` / `varlock printenv` from within the proxied session; it gets the same placeholder back, not the real value. (A determined agent on the same machine can still escape this; see [Limitations](/guides/proxy/#limitations) and pair the proxy with a sandbox for a real boundary.)
 
 To override the default for an item, use the value form of `@proxy`:
 

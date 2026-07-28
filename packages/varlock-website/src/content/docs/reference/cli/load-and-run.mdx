@@ -76,7 +76,8 @@ varlock load --filter="#billing"
 - `0` when all config is valid
 - non-zero when validation fails (missing required values, failed coercion, or resolver errors)
 
-**Output formats (for scripts & agents):**
+### Output formats (for scripts & agents)
+
 - `--format json`: a flat `{ "KEY": value }` map of resolved values on stdout
 - `--agent`: the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`. Combine with `--agent --format json-full` to get the redacted full graph.
 - `--format json-full`: the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values**, so add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent. [`@internal`](/reference/item-decorators/#internal) items are excluded unless you pass `--include-internal`.

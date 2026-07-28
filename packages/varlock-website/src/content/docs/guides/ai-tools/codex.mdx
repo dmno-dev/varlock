@@ -30,10 +30,16 @@ CODEX_API_KEY=op(op://api-local/openai/api-key)
 
 <OpExamplesTip />
 
-```bash
-varlock run -- codex
+For interactive Codex, use varlock to pass the key into the one-time login command. Codex stores the resulting credentials for later sessions:
 
-# non-interactive
+```bash
+varlock run -- sh -c 'printenv OPENAI_API_KEY | codex login --with-api-key'
+codex
+```
+
+For a single non-interactive run, inject `CODEX_API_KEY` directly:
+
+```bash
 varlock run -- codex exec "summarize the recent git changes"
 ```
 
@@ -50,18 +56,11 @@ CODEX_API_KEY=op(op://api-local/openai/api-key)
 ```
 
 ```bash
-varlock run -p ~/.env.codex -- codex
+varlock run -p ~/.env.codex -- sh -c 'printenv OPENAI_API_KEY | codex login --with-api-key'
+codex
 
 varlock run -p ~/.env.codex -- codex exec "summarize the recent git changes"
 ```
-
-## Shell alias (optional)
-
-```bash
-alias vcodex='varlock run -p ~/.env.codex --no-redact-stdout -- codex'
-```
-
-`--no-redact-stdout` keeps Codex's own terminal output unredacted while secrets stay out of your shell history.
 
 :::tip
 OpenAI recommends scoping `CODEX_API_KEY` to individual `codex exec` runs rather than exporting it job-wide in CI that runs untrusted repository code. `varlock run` keeps the key in the child process environment for that invocation only.
