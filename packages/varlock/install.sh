@@ -300,7 +300,8 @@ sha256_of_file() {
 # generated alongside the archives in scripts/build-binaries.ts. We fetch it over
 # the same TLS connection as the archive, so this is an integrity check against a
 # corrupt or truncated download and a tampered release asset - not a defense
-# against a compromised github account. Releases are not signed yet.
+# against a compromised github account. Releases are signed, but this script does
+# not verify the cosign bundle.
 verify_checksum() {
   _vc_archive_path="$1"
   _vc_archive_name="$2"

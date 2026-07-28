@@ -103,7 +103,7 @@ curl -sSfLO "${BASE}/checksums.txt.cosign.bundle"
 cosign verify-blob checksums.txt \
   --bundle checksums.txt.cosign.bundle \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/dmno-dev/varlock/\.github/workflows/(release|binary-release)\.yaml@'
+  --certificate-identity-regexp '^https://github\.com/dmno-dev/varlock/\.github/workflows/(release|binary-release)\.yaml@refs/heads/main$'
 ```
 
 Both workflow identities are accepted because binaries are normally cut by `release.yaml` alongside the npm publish, and re-cut by `binary-release.yaml` when an already-published version needs new archives.
@@ -150,4 +150,3 @@ It provides syntax highlighting, decorator and `@type` IntelliSense, `$KEY` refe
 ### Shell completion
 
 Enable tab completion for varlock commands and flags in bash, zsh, or fish. See the [Shell completion guide](/guides/shell-completion/) for one-time setup. Usually, adding `eval "$(varlock complete)"` to your shell profile is enough.
-

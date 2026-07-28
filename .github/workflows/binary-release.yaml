@@ -24,6 +24,7 @@ concurrency: ${{ github.workflow }}-${{ inputs.version }}
 
 jobs:
   release-binaries:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
