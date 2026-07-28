@@ -231,6 +231,46 @@ samp {
   display: none;
 }
 
+/* Sidebar group headings sit at the same size as the links under them, so the
+   nav reads as one list. Only an open group gets bold; closed ones recede. */
+.sidebar-content .group-label .large {
+  font-size: var(--sl-text-sm);
+  font-weight: 400;
+  color: var(--sl-color-gray-2);
+}
+
+.sidebar-content details[open]>summary .group-label .large {
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+
+/* Mobile nav: smaller and tighter, since it shares the screen with the page */
+@media not all and (min-width: 50rem) {
+  .sidebar-content .group-label .large,
+  .sidebar-content a {
+    font-size: var(--sl-text-xs);
+  }
+
+  .sidebar-content summary {
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+  }
+
+  .sidebar-content a {
+    padding-top: 0.15rem;
+    padding-bottom: 0.15rem;
+  }
+
+  .sidebar-content ul ul {
+    margin-inline-start: 0.75rem;
+    padding-inline-start: 0.75rem;
+  }
+
+  .sidebar-content {
+    gap: 0.5rem;
+  }
+}
+
 /* starlight hero page header, can't add style on mdx file */
 .site-title {
   font-family: var(--font-pixel);
