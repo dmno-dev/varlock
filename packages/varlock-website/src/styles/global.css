@@ -231,17 +231,10 @@ samp {
   display: none;
 }
 
-/* Sidebar group headings sit at the same size as the links under them, so the
-   nav reads as one list. Only an open group gets bold; closed ones recede. */
+/* Sidebar group headings keep their bold, but drop to the same size as the
+   links under them so weight alone marks the hierarchy. */
 .sidebar-content .group-label .large {
   font-size: var(--sl-text-sm);
-  font-weight: 400;
-  color: var(--sl-color-gray-2);
-}
-
-.sidebar-content details[open]>summary .group-label .large {
-  font-weight: 600;
-  color: var(--sl-color-white);
 }
 
 /* A tab whose entries are plain pages (Getting Started) gets those links styled
