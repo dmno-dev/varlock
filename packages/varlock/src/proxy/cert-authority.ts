@@ -85,16 +85,26 @@ function commonNameDn(value: string): Name {
   ]);
 }
 
-/** Random positive 16-byte serial number as an ASN.1 INTEGER-ready ArrayBuffer. */
-function generateSerialNumber(): ArrayBuffer {
-  const serial = cryptoApi.getRandomValues(new Uint8Array(16));
-  // A leading bit of 1 would encode as a negative INTEGER; prepend a zero byte.
-  if (serial[0] > 0x7F) {
-    const prefixed = new Uint8Array(serial.length + 1);
-    prefixed.set(serial, 1);
+// Strip leading zero bytes, then prepend one back if the top bit is set, so the
+// value encodes as a positive, minimally-encoded DER INTEGER. Both halves
+// matter: a leading 0x00 followed by a byte with a clear top bit is non-minimal
+// and strict parsers (OpenSSL raises ASN1_R_ILLEGAL_PADDING) reject the cert.
+function trimToPositiveInteger(input: Uint8Array): ArrayBuffer {
+  let bytes = input;
+  let i = 0;
+  while (i < bytes.length - 1 && bytes[i] === 0) i++;
+  bytes = bytes.slice(i);
+  if (bytes[0] > 0x7F) {
+    const prefixed = new Uint8Array(bytes.length + 1);
+    prefixed.set(bytes, 1);
     return prefixed.buffer;
   }
-  return serial.buffer as ArrayBuffer;
+  return bytes.buffer as ArrayBuffer;
+}
+
+/** Random positive 16-byte serial number as an ASN.1 INTEGER-ready ArrayBuffer. */
+function generateSerialNumber(): ArrayBuffer {
+  return trimToPositiveInteger(cryptoApi.getRandomValues(new Uint8Array(16)));
 }
 
 function extension(extnID: string, critical: boolean, value: unknown): Extension {
@@ -110,21 +120,6 @@ function pemEncode(label: string, der: ArrayBuffer): string {
 async function exportPrivateKeyPem(key: CryptoKey): Promise<string> {
   const pkcs8 = await cryptoApi.subtle.exportKey('pkcs8', key);
   return pemEncode('PRIVATE KEY', pkcs8);
-}
-
-// Strip leading zero bytes, then prepend one back if the top bit is set, so the
-// value encodes as a positive DER INTEGER.
-function trimToPositiveInteger(input: Uint8Array): ArrayBuffer {
-  let bytes = input;
-  let i = 0;
-  while (i < bytes.length - 1 && bytes[i] === 0) i++;
-  bytes = bytes.slice(i);
-  if (bytes[0] > 0x7F) {
-    const prefixed = new Uint8Array(bytes.length + 1);
-    prefixed.set(bytes, 1);
-    return prefixed.buffer;
-  }
-  return bytes.buffer as ArrayBuffer;
 }
 
 /** Convert a raw WebCrypto ECDSA signature (r||s) to a DER-encoded ECDSA-Sig-Value. */

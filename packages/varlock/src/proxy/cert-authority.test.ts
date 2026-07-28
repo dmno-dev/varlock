@@ -34,6 +34,38 @@ describe('cert-authority (in-memory CA)', () => {
     expect(leafCert.subject).toContain('api.example.com');
   });
 
+  test('serial numbers are minimally encoded DER INTEGERs', async () => {
+    // A random serial starting with 0x00 followed by a byte with a clear top bit
+    // is a non-minimal INTEGER; OpenSSL rejects it with ASN1_R_ILLEGAL_PADDING,
+    // so roughly 1 in 512 minted certs used to be unloadable. Force that byte
+    // pattern instead of relying on chance.
+    const realGetRandomValues = crypto.getRandomValues.bind(crypto);
+    const patched = (array: any) => {
+      const filled = realGetRandomValues(array);
+      // 16 bytes is the serial; leave key material alone.
+      if (filled.length === 16) {
+        filled[0] = 0x00;
+        filled[1] = 0x01;
+      }
+      return filled;
+    };
+
+    (crypto as any).getRandomValues = patched;
+    let ca: Awaited<ReturnType<typeof createEphemeralCa>>;
+    let leaf: Awaited<ReturnType<typeof createHostCert>>;
+    try {
+      ca = await createEphemeralCa();
+      leaf = await createHostCert(ca, 'api.example.com');
+    } finally {
+      (crypto as any).getRandomValues = realGetRandomValues;
+    }
+
+    expect(() => tls.createSecureContext({ cert: ca.certPem })).not.toThrow();
+    expect(() => tls.createSecureContext({ key: leaf.keyPem, cert: leaf.certPem })).not.toThrow();
+    // The leading zero was dropped, not preserved.
+    expect(new x509.X509Certificate(leaf.certPem).serialNumber).not.toMatch(/^00/);
+  });
+
   test('emits PEM material and keeps no private key in the public CA cert', async () => {
     const ca = await createEphemeralCa();
     const leaf = await createHostCert(ca, 'api.example.com');
