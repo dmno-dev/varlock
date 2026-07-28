@@ -40,6 +40,49 @@ def build_load_args(
     return args
 
 
+def quote_for_cmd(arg: str) -> str:
+    """Quote a single argument for a Windows command line, always adding the quotes.
+
+    This is the MSVCRT quoting algorithm that `subprocess.list2cmdline` uses, except that it
+    quotes unconditionally. `list2cmdline` only quotes an argument containing whitespace,
+    which is not enough here: `cmd.exe` parses its own metacharacters (`&`, `|`, `<`, `>`,
+    `^`, parens) out of *unquoted* text before argument splitting ever happens, so
+    `--path a&b` would run `b` as a second command. Inside double quotes it treats them as
+    ordinary characters.
+    """
+    result = ['"']
+    backslashes = 0
+    for char in arg:
+        if char == "\\":
+            backslashes += 1
+            continue
+        if char == '"':
+            # a quote is escaped by a backslash, and every backslash before it doubles
+            result.append("\\" * (backslashes * 2 + 1))
+        else:
+            result.append("\\" * backslashes)
+        backslashes = 0
+        result.append(char)
+    # backslashes before the closing quote double, so they aren't read as escaping it
+    result.append("\\" * (backslashes * 2))
+    result.append('"')
+    return "".join(result)
+
+
+def build_cmd_shim_command(binary: str, args: Sequence[str], comspec: Optional[str] = None) -> str:
+    """Build the command line for running a `.cmd` shim through `cmd.exe`.
+
+    Uses the `cmd.exe /d /s /c "..."` form: `/s` makes cmd strip the outer quote pair and
+    take the rest verbatim, and every token inside is quoted individually, so a
+    metacharacter in a path or an argument stays literal. Handed to `subprocess` with
+    `shell=False` so this exact string reaches `CreateProcess`, rather than `shell=True`
+    building a `/c` line whose quote-stripping rules are far harder to reason about.
+    """
+    shell = comspec or os.environ.get("COMSPEC") or "cmd.exe"
+    inner = " ".join(quote_for_cmd(token) for token in (binary, *args))
+    return f'{quote_for_cmd(shell)} /d /s /c "{inner}"'
+
+
 def _child_env(version: str, base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     child = dict(os.environ if base_env is None else base_env)
     # tells the CLI which integration invoked it (telemetry only)
@@ -66,16 +109,17 @@ def run_load(
     binary = find_binary(cwd)
     args = build_load_args(path=path, env=env, extra_args=extra_args)
 
-    # pnpm creates a .cmd shim on Windows, which only runs through the shell
-    needs_shell = sys.platform.startswith("win") and binary.lower().endswith(".cmd")
+    # pnpm creates a .cmd shim on Windows, and a batch file can only be run by cmd.exe.
+    # Everything else is executed directly, with no shell involved at all.
+    is_cmd_shim = sys.platform.startswith("win") and binary.lower().endswith(".cmd")
     command: Any = (
-        subprocess.list2cmdline([binary, *args]) if needs_shell else [binary, *args]
+        build_cmd_shim_command(binary, args) if is_cmd_shim else [binary, *args]
     )
 
     try:
         result = subprocess.run(
             command,
-            shell=needs_shell,
+            shell=False,
             cwd=os.fspath(cwd) if cwd is not None else None,
             env=_child_env(version, base_env),
             stdout=subprocess.PIPE,
