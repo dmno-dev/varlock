@@ -29,3 +29,12 @@ jobs:
         uses: pullfrog/pullfrog@v0
         with:
           prompt: ${{ inputs.prompt }}
+        env:
+          # Review with GPT Sol via our Azure Foundry deployment instead of the
+          # default Anthropic route. AZURE_API_KEY comes from the Pullfrog
+          # dashboard; these two are set here so they stay readable in run logs
+          # (dashboard-stored values get registered as GitHub Actions log masks).
+          # The Azure deployment must be named exactly `gpt-5.6-sol`: the
+          # @ai-sdk/azure provider uses the model id as the deployment name.
+          AZURE_RESOURCE_NAME: pullfrog-resource
+          PULLFROG_MODEL: azure/gpt-5.6-sol
