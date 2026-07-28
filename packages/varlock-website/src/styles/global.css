@@ -237,23 +237,10 @@ samp {
   font-size: var(--sl-text-sm);
 }
 
-/* A tab whose entries are plain pages (Getting Started) gets those links styled
-   as links. Starlight marks top-level entries `.large`, which otherwise makes a
-   page read like a section heading. The current page keeps its active styling. */
-.sidebar-content a.large {
-  font-size: var(--sl-text-sm);
-}
-
-.sidebar-content a.large:not([aria-current='page']) {
-  font-weight: 400;
-  color: var(--sl-color-gray-2);
-}
-
 /* Mobile nav: smaller and tighter, since it shares the screen with the page */
 @media not all and (min-width: 50rem) {
   .sidebar-content .group-label .large,
-  .sidebar-content a,
-  .sidebar-content a.large {
+  .sidebar-content a {
     font-size: var(--sl-text-xs);
   }
 
