@@ -167,9 +167,6 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 :::caution[TypeScript config]
 If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
 :::
-
----
-
 ## Managing multiple environments
 
 Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
@@ -262,6 +259,14 @@ Unlike Next.js Server Components, Expo Router page components run on **both** th
 :::
 
 ---
+
+## Static vs dynamic values
+
+The babel plugin inlines **static** values into your app code at build time. By default that means every non-sensitive value; mark a public value [`@dynamic`](/reference/item-decorators/#dynamic) to opt it out of inlining.
+For the shared model and tradeoffs, see the [Static vs Dynamic Config guide](/guides/dynamic-config/).
+
+Values that are not inlined (sensitive values, and anything `@dynamic`) are only directly accessible in **server routes** (`+api` files). Referencing one from native code logs a build-time warning, and reading it at runtime in native will fail. If native code needs a runtime-fresh public value, expose it from a server route and hydrate over the network; see the [Expo recipe in the guide](/guides/dynamic-config/#loading-from-a-server-endpoint).
+
 
 ## Reference
 - [Root decorators reference](/reference/root-decorators)

@@ -223,8 +223,42 @@ Varlock manages env injection automatically. Delete any `.dev.vars` file in your
 
 See the [Cloudflare Workers integration docs](/integrations/cloudflare/) for full details on how dev injection, deployment, CI/CD, and `varlock-wrangler` work.
 
----
+## Dynamic+public config
 
+Use [`@dynamic`](/reference/item-decorators/#dynamic) to keep selected public values runtime-resolved; server-rendered code keeps reading `ENV.KEY` with no extra setup. See the [Static vs Dynamic Config guide](/guides/dynamic-config/) for the full model.
+
+```env-spec title=".env.schema"
+PUBLIC_STATIC_FLAG=enabled  # @public
+PUBLIC_RUNTIME_FLAG=enabled # @public @dynamic
+```
+
+### Client-side usage
+
+When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only) that serves them to the browser. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
+
+:::note[Static output]
+With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
+:::
+
+
+### Route injection options
+
+You can control endpoint injection:
+
+```ts title="astro.config.ts"
+import { defineConfig } from 'astro/config';
+import varlockAstroIntegration from '@varlock/astro-integration';
+
+export default defineConfig({
+  integrations: [
+    varlockAstroIntegration({
+      publicDynamicEndpoint: true, // auto by default
+      // or: { path: '/my-public-env' }
+      // or: false (disable auto endpoint)
+    }),
+  ],
+});
+```
 ## Reference
 - [Root decorators reference](/reference/root-decorators)
 - [Item decorators reference](/reference/item-decorators)

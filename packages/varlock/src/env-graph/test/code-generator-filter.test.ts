@@ -121,6 +121,40 @@ describe('code generator `filter=` arg', () => {
     }
   });
 
+  test('supports the @dynamic selector (e.g. a public-runtime-env module)', async () => {
+    const currentDir = path.dirname(expect.getState().testPath!);
+    const dynamicOutputPath = path.join(currentDir, '.tmp-filter-dynamic.d.ts');
+    const staticOutputPath = path.join(currentDir, '.tmp-filter-static.d.ts');
+
+    const g = await loadGraph({
+      envFile: outdent`
+        # @defaultSensitive=false
+        # @generateTsTypes(path=${path.basename(dynamicOutputPath)}, filter="@dynamic,!@sensitive")
+        # @generateTsTypes(path=${path.basename(staticOutputPath)}, filter=!@dynamic)
+        # ---
+        PUBLIC_STATIC=val   # @public
+        PUBLIC_DYNAMIC=val  # @public @dynamic
+        SECRET=val          # @sensitive
+      `,
+    });
+
+    try {
+      await g.runCodeGeneratorsIfNeeded();
+      const dynamicSrc = await fs.promises.readFile(dynamicOutputPath, 'utf-8');
+      const staticSrc = await fs.promises.readFile(staticOutputPath, 'utf-8');
+      // SECRET is dynamic by default (follows sensitivity) - excluded by !@sensitive
+      expect(dynamicSrc).toContain('PUBLIC_DYNAMIC');
+      expect(dynamicSrc).not.toContain('PUBLIC_STATIC');
+      expect(dynamicSrc).not.toContain('SECRET');
+      expect(staticSrc).toContain('PUBLIC_STATIC');
+      expect(staticSrc).not.toContain('PUBLIC_DYNAMIC');
+      expect(staticSrc).not.toContain('SECRET');
+    } finally {
+      await fs.promises.rm(dynamicOutputPath, { force: true });
+      await fs.promises.rm(staticOutputPath, { force: true });
+    }
+  });
+
   test('rejects an unknown decorator selector inside filter=', async () => {
     const g = await loadGraph({
       envFile: outdent`

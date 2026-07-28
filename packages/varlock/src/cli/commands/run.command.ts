@@ -186,12 +186,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // Generate types before resolving values — uses only non-env-specific schema info
   await envGraph.runCodeGeneratorsIfNeeded();
 
-  // A --filter using only keys/globs/tags scopes resolution (and validation) to what it
-  // selects plus dependencies — an unrelated broken item outside the filter won't block this
-  // run. @sensitive/@required selectors can't be scoped this way (see getResolveKeys), so
-  // those fall back to resolving everything, same as an unset --filter.
+  // A --filter scopes resolution (and validation) to what it selects plus dependencies — an
+  // unrelated broken item outside the filter won't block this run, and excluded items'
+  // value resolvers never run. Decorator selectors resolve item metadata first, then match
+  // exactly (see EnvGraph.resolveEnvValuesForFilter).
   const itemFilter = getCliItemFilter(ctx.values.filter);
-  await envGraph.resolveEnvValues(itemFilter?.getResolveKeys(envGraph));
+  if (itemFilter) await itemFilter.resolveScoped(envGraph);
+  else await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
 
   // will fail above if there are any errors

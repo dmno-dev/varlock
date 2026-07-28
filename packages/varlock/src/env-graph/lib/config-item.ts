@@ -447,6 +447,18 @@ export class ConfigItem {
       ...this.valueResolver?.deps || [],
       // dynamic @type parts (e.g. minLength=if(eq($APP_MODE, ...), 1, 0)) may reference other items
       ...(this._typeSpecPlan?.deferred ?? []).flatMap((d) => d.resolver.deps),
+      ...this.metadataDependencyKeys,
+    ]);
+  }
+
+  /**
+   * Just the dependencies of this item's decorator resolvers (e.g. `@required=eq($OTHER, x)`
+   * needs OTHER's value) — the subset of {@link dependencyKeys} that must be resolved before
+   * {@link resolveMetadata} can run. Used by filtered resolution to resolve only what's needed
+   * to evaluate decorator-based filter selectors.
+   */
+  get metadataDependencyKeys() {
+    return _.uniq([
       ..._.values(this.effectiveDecorators).flatMap(
         (dec) => dec.decValueResolver?.deps || [],
       ),
@@ -711,6 +723,55 @@ export class ConfigItem {
     return enabled;
   }
 
+  _isDynamic: boolean = true;
+  get isDynamic(): boolean {
+    return this._isDynamic;
+  }
+  private async processDynamic() {
+    try {
+      // Pass 1: explicit per-item @dynamic / @static decorators take highest priority
+      for (const def of this.defs) {
+        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
+        const dynamicDec = dynamicDecs[0];
+        if (!dynamicDec) continue;
+
+        const usingStatic = dynamicDec.name === 'static';
+        const dynamicDecValue = await dynamicDec.resolve();
+        if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) return;
+        if (![true, false, undefined].includes(dynamicDecValue)) {
+          throw new SchemaError('@dynamic/@static must resolve to a boolean or undefined');
+        }
+        if (dynamicDecValue !== undefined) {
+          this._isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
+          return;
+        }
+      }
+
+      // Pass 2: @defaultDynamic from source files
+      for (const def of this.defs) {
+        const defaultDynamicDec = def.source?.getRootDec('defaultDynamic');
+        if (!defaultDynamicDec) continue;
+
+        const defaultDynamicVal = await defaultDynamicDec.resolve();
+        if (_.isBoolean(defaultDynamicVal)) {
+          this._isDynamic = defaultDynamicVal;
+          return;
+        }
+        if (defaultDynamicVal === 'inferFromSensitive') {
+          this._isDynamic = this._isSensitive;
+          return;
+        }
+        throw new SchemaError('@defaultDynamic must resolve to true, false, or inferFromSensitive');
+      }
+    } catch (err) {
+      this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
+      return;
+    }
+
+    // Default behavior: dynamic state follows sensitivity.
+    this._isDynamic = this._isSensitive;
+  }
+
 
   get errors() {
     return _.compact([
@@ -756,6 +817,59 @@ export class ConfigItem {
     return typeof this.resolvedValue === 'string' ? this.resolvedValue : String(this.resolvedValue);
   }
 
+  /**
+   * Whether {@link resolveMetadata} has run — after which isRequired/isSensitive/isDynamic
+   * are accurate even though the value may not be resolved yet.
+   */
+  isMetadataResolved = false;
+
+  /**
+   * The metadata half of {@link resolve}: resolves this item's decorators and computes
+   * isRequired / isSensitive / isDynamic (including the resolver-implied sensitivity
+   * override), WITHOUT touching the value resolver. Any values the decorators themselves
+   * reference ({@link metadataDependencyKeys}) must already be resolved.
+   *
+   * Filtered resolution uses this to evaluate decorator-based `--filter` selectors
+   * exactly, then only resolve values for items the filter selects — so an excluded
+   * item's value resolver (exec calls, secrets managers, etc.) never runs.
+   */
+  async resolveMetadata() {
+    if (this.isMetadataResolved) return;
+    // bail early if we have real schema errors (warnings do not block resolution)
+    if (this._schemaErrors.some((e) => !e.isWarning)) return;
+    if (this.resolverSchemaErrors.some((e) => !e.isWarning)) return;
+    this.isMetadataResolved = true;
+
+    await this.resolveDecorators();
+    await this.processRequired();
+    await this.processSensitive();
+
+    // proxy-view items skip the impliesSensitive adjustment (it inspects the value
+    // resolver, and their real values are handled upstream by the proxy daemon) -
+    // but processDynamic still runs below: it reads only decorators, and skipping it
+    // would leave e.g. a @sensitive @static item wrongly marked dynamic
+    if (!this.envGraph.proxyResolutionView?.[this.key]) {
+      // Resolver functions like varlock() and keychain() imply sensitivity —
+      // override defaults but respect explicit per-item @sensitive=false / @public
+      if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
+        const wasSensitive = this._isSensitive;
+        this._isSensitive = true;
+        if (!wasSensitive) {
+          // the resolver is what actually made this sensitive (it wasn't otherwise)
+          this._sensitiveSource = 'resolver';
+          const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
+          if (hasSchemaSource) {
+            this._schemaErrors.push(new SchemaError(
+              'implicitly treated as @sensitive — add @sensitive to schema',
+              { isWarning: true },
+            ));
+          }
+        }
+      }
+    }
+    await this.processDynamic();
+  }
+
   async resolve(reset = false) {
     // bail early if we have real schema errors (warnings do not block resolution)
     if (this._schemaErrors.some((e) => !e.isWarning)) return;
@@ -764,6 +878,7 @@ export class ConfigItem {
     if (reset) {
       this.isResolved = false;
       this.isValidated = false;
+      this.isMetadataResolved = false;
       this.resolutionError = undefined;
       this.coercionError = undefined;
       this.validationErrors = undefined;
@@ -777,9 +892,7 @@ export class ConfigItem {
       return;
     }
 
-    await this.resolveDecorators();
-    await this.processRequired();
-    await this.processSensitive();
+    await this.resolveMetadata();
 
     // Proxy-child resolution view: inside a `varlock proxy` session, a sensitive
     // item is forced to its placeholder (or omitted) instead of resolving the real
@@ -800,24 +913,6 @@ export class ConfigItem {
       }
       this.isValidated = true;
       return;
-    }
-
-    // Resolver functions like varlock() and keychain() imply sensitivity —
-    // override defaults but respect explicit per-item @sensitive=false / @public
-    if (this.valueResolver?.def?.impliesSensitive && !this._sensitiveExplicitlySet) {
-      const wasSensitive = this._isSensitive;
-      this._isSensitive = true;
-      if (!wasSensitive) {
-        // the resolver is what actually made this sensitive (it wasn't otherwise)
-        this._sensitiveSource = 'resolver';
-        const hasSchemaSource = this.defs.some((d) => d.source && d.source.type !== 'overrides');
-        if (hasSchemaSource) {
-          this._schemaErrors.push(new SchemaError(
-            'implicitly treated as @sensitive — add @sensitive to schema',
-            { isWarning: true },
-          ));
-        }
-      }
     }
 
     if (!this.valueResolver) {
@@ -1092,6 +1187,51 @@ export class ConfigItem {
       // on error, fall back to default (sensitive=true, safe default)
     }
 
+    // isDynamic - mirrors processDynamic() logic
+    let isDynamic = isSensitive;
+    try {
+      let foundDynamic = false;
+      for (const def of defs) {
+        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
+        const dynamicDec = dynamicDecs[0];
+
+        if (dynamicDec) {
+          const usingStatic = dynamicDec.name === 'static';
+          // Skip dynamic decorators to avoid caching a stale result
+          if (dynamicDec.decValueResolver?.fnName !== '\0static') break;
+          const dynamicDecValue = await dynamicDec.resolve();
+          if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) break;
+          if (![true, false, undefined].includes(dynamicDecValue)) break;
+          if (dynamicDecValue !== undefined) {
+            isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
+            foundDynamic = true;
+            break;
+          }
+        }
+
+        const defaultDynamicDec = def.source?.getRootDec('defaultDynamic');
+        if (!defaultDynamicDec) continue;
+
+        const defaultDynamicVal = await defaultDynamicDec.resolve();
+        if (_.isBoolean(defaultDynamicVal)) {
+          isDynamic = defaultDynamicVal;
+          foundDynamic = true;
+          break;
+        }
+        if (defaultDynamicVal === 'inferFromSensitive') {
+          isDynamic = isSensitive;
+          foundDynamic = true;
+          break;
+        }
+      }
+      if (!foundDynamic) {
+        isDynamic = isSensitive;
+      }
+    } catch {
+      // on error, fall back to default linkage (dynamic follows sensitivity)
+      isDynamic = isSensitive;
+    }
+
     // icon - resolve from filtered defs' decorators
     let icon: string | undefined;
     for (const def of defs) {
@@ -1147,6 +1287,7 @@ export class ConfigItem {
       isRequired,
       isRequiredDynamic,
       isSensitive,
+      isDynamic,
       icon,
       docsLinks,
       isDeprecated: this.isDeprecated,
@@ -1164,6 +1305,7 @@ export type TypeGenItemInfo = {
   isRequired: boolean;
   isRequiredDynamic: boolean;
   isSensitive: boolean;
+  isDynamic: boolean;
   icon?: string;
   docsLinks: Array<{ url: string, description?: string }>;
   isDeprecated: boolean;

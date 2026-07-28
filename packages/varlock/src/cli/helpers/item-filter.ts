@@ -6,15 +6,15 @@ import { CliExitError } from './exit-error';
 
 export type CliItemFilter = {
   /**
-   * Keys to pass to `resolveEnvValues()` (already includes transitive deps), so `load`/`run` can
-   * skip resolving (and validating) items outside the filter entirely — e.g. a build step scoped
-   * to `--filter="#frontend"` doesn't need an unrelated broken backend-only var to be valid.
-   * Returns `undefined` (= resolve everything) for filters using `@sensitive`/`@required`: their
-   * matches aren't knowable until the graph is resolved (see `usesDecoratorSelector`), so there's
-   * nothing to scope down to.
+   * Resolve only what the filter selects (see `EnvGraph.resolveEnvValuesForFilter()`), so
+   * `load`/`run` skip resolving (and validating) items outside the filter entirely — e.g. a
+   * build step scoped to `--filter="#frontend"` doesn't need an unrelated broken backend-only
+   * var to be valid, and `--filter="!@dynamic"` at build time skips runtime-only vars whose
+   * values (and `@required` checks) only make sense at runtime. Decorator selectors resolve
+   * item metadata first (cheap), then match exactly — excluded items' value resolvers never run.
    */
-  getResolveKeys(graph: EnvGraph): Array<string> | undefined;
-  /** the keys passing the filter — call after `resolveEnvValues()`, when decorator getters are accurate */
+  resolveScoped(graph: EnvGraph): Promise<void>;
+  /** the keys passing the filter — call after resolution, when decorator getters are accurate */
   getFilterKeys(items: Array<ConfigItem>): Set<string>;
 };
 
@@ -44,10 +44,8 @@ export function getCliItemFilter(flagValue: string | undefined): CliItemFilter |
   }
 
   return {
-    getResolveKeys(graph) {
-      if (parsed.usesDecoratorSelector) return undefined;
-      const matchedKeys = parsed.computeKeys(Object.values(graph.configSchema));
-      return [...graph.expandKeysWithTransitiveDeps(matchedKeys)];
+    async resolveScoped(graph) {
+      await graph.resolveEnvValuesForFilter(parsed);
     },
     getFilterKeys(items) {
       const keys = parsed.computeKeys(items);

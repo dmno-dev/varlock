@@ -44,6 +44,10 @@ Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on 
 _VARLOCK_FILTER="#billing" varlock load --format json
 ```
 
+### `_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE`
+
+Set to `warn` to downgrade the build/prerender-time guard on [public+dynamic](/guides/dynamic-config/) config access from an error to a one-time warning per key. Useful while migrating an existing app that still reads dynamic public values in prerendered pages.
+
 ### `_VARLOCK_THROW_ON_LOAD_ERROR`
 
 When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporting-load-failures) throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it via its `uncaughtException` handler. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior. See [Reporting load failures](/integrations/javascript/#reporting-load-failures).
@@ -67,3 +71,7 @@ The serialized env graph (resolved config values plus metadata) injected by [`va
 ### `__VARLOCK_RUN`
 
 A marker set so a child process can detect that it is running under `varlock run`.
+
+### `__VARLOCK_EXECUTION_PHASE`
+
+Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the runtime can detect app code executing during build/prerender and apply the [public+dynamic access guard](/guides/dynamic-config/#prerenderbuild-guardrails).

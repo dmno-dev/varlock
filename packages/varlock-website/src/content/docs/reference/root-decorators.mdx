@@ -111,6 +111,26 @@ OTHER_BAR=  # not sensitive (explicit)
 </div>
 
 <div>
+### `@defaultDynamic`
+**Value type:** `boolean | inferFromSensitive`
+
+Sets the default state of each item being treated as _dynamic_ (runtime-resolved) vs _static_ (eligible for build-time replacement). Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@dynamic`](/reference/item-decorators/#dynamic)/[`@static`](/reference/item-decorators/#static).
+
+- `inferFromSensitive` (default): Dynamic behavior follows sensitivity.
+- `true`: All items are dynamic unless explicitly marked static.
+- `false`: All items are static unless explicitly marked dynamic.
+
+```env-spec
+# @defaultSensitive=inferFromPrefix(PUBLIC_)
+# @defaultDynamic=inferFromSensitive
+# ---
+
+PUBLIC_FOO= # static by default (public)
+SECRET_BAR= # dynamic by default (sensitive)
+```
+</div>
+
+<div>
 ### `@disable`
 **Value type:** `boolean`
 
@@ -517,7 +537,7 @@ Every `@generate*` decorator below is a root decorator that _can be called multi
 - `path`: Relative filepath to write the generated file to.
 - `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli-commands/#codegen) explicitly, useful in a CI pipeline or a dedicated build step.
 - `executeWhenImported`: overrides the default of not executing when the containing file is imported (defaults to `false`).
-- `filter`: Restrict this generated file to a subset of items, using the same selector language as the CLI [`--filter` flag](/reference/cli-commands/#filtering-items): key names/globs, `!negations`, `@sensitive`/`@required`, and `#tagname` (set via [`@tag()`](/reference/item-decorators/#tag)). Quote the value if it has more than one comma-separated selector (the decorator parser splits args on unquoted commas), e.g. `filter="STRIPE_*,!STRIPE_DEBUG_KEY"`. Call the same decorator multiple times with different `path`/`filter` pairs to emit several subset files from one schema.
+- `filter`: Restrict this generated file to a subset of items, using the same selector language as the CLI [`--filter` flag](/reference/cli-commands/#filtering-items): key names/globs, `!negations`, `@sensitive`/`@required`/`@dynamic`, and `#tagname` (set via [`@tag()`](/reference/item-decorators/#tag)). Quote the value if it has more than one comma-separated selector (the decorator parser splits args on unquoted commas), e.g. `filter="STRIPE_*,!STRIPE_DEBUG_KEY"`. Call the same decorator multiple times with different `path`/`filter` pairs to emit several subset files from one schema.
 
 ```env-spec
 # only ship billing-tagged keys to the billing package's generated types

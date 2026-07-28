@@ -79,7 +79,7 @@ function getReplacerTransformCached(envGraph: SerializedEnvGraph) {
     cachedReplacerGraph = envGraph;
     const replacements: Record<string, string> = {};
     for (const [key, item] of Object.entries(envGraph.config)) {
-      if (item.isSensitive) continue;
+      if (item.isDynamic ?? item.isSensitive) continue;
       // 'undefined' as a string so it gets spliced in as a literal
       replacements[`ENV.${key}`] = item.value === undefined ? 'undefined' : JSON.stringify(item.value);
     }
@@ -117,6 +117,13 @@ const parseFailureWarnedFiles = new Set<string>();
  * comments, and template literal text are never touched.
  * Falls back to regex replacement if the file fails to parse.
  */
+/** keys that are public AND dynamic - the ones browsers hydrate at runtime */
+function getPublicDynamicKeys(envGraph: SerializedEnvGraph): Array<string> {
+  return Object.entries(envGraph.config)
+    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive)
+    .map(([key]) => key);
+}
+
 function inlineEnvValues(source: string, filePath: string, envGraph: SerializedEnvGraph): string {
   const replacerTransform = getReplacerTransformCached(envGraph);
   try {
@@ -133,7 +140,7 @@ function inlineEnvValues(source: string, filePath: string, envGraph: SerializedE
     }
     let result = source;
     for (const [key, item] of Object.entries(envGraph.config)) {
-      if (item.isSensitive) continue;
+      if (item.isDynamic ?? item.isSensitive) continue;
       // match ENV.KEY as a member expression (word boundary before ENV, not followed by more identifier chars)
       const pattern = new RegExp(`\\bENV\\.${escapeRegExp(key)}(?![\\w$])`, 'g');
       result = result.replace(pattern, item.value === undefined ? 'undefined' : JSON.stringify(item.value));
@@ -157,11 +164,11 @@ function prependAfterDirectives(source: string, codeToPrepend: string): string {
 /**
  * Webpack/Turbopack loader that:
  * 1. Injects resolved env config into instrumentation and proxy files.
- * 2. Replaces `ENV.KEY` references for non-sensitive vars with literal JSON values.
+ * 2. Replaces `ENV.KEY` references for static vars with literal JSON values.
  *
- * SECURITY: Sensitive env values are ONLY embedded into server-side files
- * (never client components). The static ENV.KEY replacements explicitly skip
- * sensitive vars.
+ * SECURITY: Dynamic env values are not embedded at build time, and sensitive
+ * values are expected to stay dynamic by default. The static ENV.KEY
+ * replacements explicitly skip dynamic vars.
  */
 function webpackLoader(this: LoaderContext, source: string) {
   // only transform files within the project root
@@ -231,7 +238,8 @@ function webpackLoader(this: LoaderContext, source: string) {
       initGuard = [
         'import {initVarlockEnv as __varlock$init} from \'varlock/env\';',
         'import {patchGlobalConsole as __varlock$patchConsole} from \'varlock/patch-console\';',
-        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();}',
+        'import {initVarlockNextDynamicAccess as __varlock$initDynAccess} from \'@varlock/nextjs-integration/dynamic-access\';',
+        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();__varlock$initDynAccess();}',
         // React wraps console for RSC dev replay AFTER our initial patch in the
         // runtime file. Re-patching outside the once-guard ensures our redaction
         // wraps React's wrapper so secrets are redacted before React captures them.
@@ -240,16 +248,37 @@ function webpackLoader(this: LoaderContext, source: string) {
       ].join('');
       result = prependAfterDirectives(result, initGuard);
     } else {
-      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();}';
+      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();require(\'@varlock/nextjs-integration/dynamic-access\').initVarlockNextDynamicAccess();}';
       // (see comment above about re-patching console for webpack RSC dev replay)
       if (isWebpack) {
         initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
       }
       result = prependAfterDirectives(result, initGuard);
     }
+  } else {
+    // Client components: inject the declared public+dynamic key list so the runtime
+    // hydration helpers (loadPublicDynamicEnv, setPublicDynamicEnv payload filtering,
+    // hydration-state checks) work in the browser. Key NAMES only - never values.
+    // `??=` so a fresher runtime-computed list (server-side initVarlockEnv, or a dev
+    // reload) is never clobbered by the build-time snapshot. This is the injection
+    // path for turbopack (whose loader runs for browser-context files); webpack client
+    // compilations have no loader, so the webpack plugin injects the same snippet
+    // into the client runtime chunk instead.
+    const publicDynamicKeys = getPublicDynamicKeys(envGraph);
+    if (publicDynamicKeys.length) {
+      result = prependAfterDirectives(
+        result,
+        `globalThis.__varlockPublicDynamicKeys ??= ${JSON.stringify(publicDynamicKeys)};`,
+      );
+    }
   }
 
-  // static replacements for non-sensitive env vars
+  // NOTE - dynamic ENV access marking routes dynamic is handled at runtime by the
+  // global access hook (see dynamic-access.ts, installed via the init guard above).
+  // A source-level rewrite that imported next/headers was tried and reverted: the
+  // injected import is a hard compile error in pages-router files.
+
+  // static replacements for non-dynamic env vars
   // webpack uses DefinePlugin for this, so only needed for turbopack
   if (isTurbopack && source.includes('ENV.')) {
     const isDev = loaderOptions.dev ?? process.env.NODE_ENV === 'development';

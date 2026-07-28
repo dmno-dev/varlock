@@ -1,18 +1,81 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createDebug } from 'varlock';
+import { createDebug, type SerializedEnvGraph } from 'varlock';
+import { execSyncVarlock } from 'varlock/exec-sync-varlock';
 import { scanForLeaks, varlockSettings } from 'varlock/env';
-import { varlockVitePlugin } from '@varlock/vite-integration';
+import { varlockVitePlugin, type VarlockVitePluginOptions } from '@varlock/vite-integration';
 import type { AstroIntegration } from 'astro';
 
 const debug = createDebug('varlock:astro-integration');
+const DEFAULT_PUBLIC_DYNAMIC_ENDPOINT = '/__varlock/public-env';
+const PUBLIC_DYNAMIC_ROUTE_ENTRYPOINT = fileURLToPath(
+  new URL('./public-dynamic-env-route.js', import.meta.url),
+);
 
 debug('Loaded varlock astro integration file');
 
+interface VarlockAstroPublicDynamicEndpointOptions {
+  /** Route path for public dynamic values */
+  path?: string,
+}
+
+export interface VarlockAstroIntegrationOptions extends VarlockVitePluginOptions {
+  /**
+   * Inject a route that returns `getPublicDynamicEnv()`.
+   * - `undefined`: auto (enabled only when dynamic+public config exists)
+   * - `true`: always enabled at `DEFAULT_PUBLIC_DYNAMIC_ENDPOINT`
+   * - `false`: disabled
+   * - object: enabled with custom options
+   */
+  publicDynamicEndpoint?: boolean | VarlockAstroPublicDynamicEndpointOptions,
+}
+
+function hasPublicDynamicConfigInSchema(cwd?: string): boolean {
+  try {
+    const { stdout } = execSyncVarlock('load --format json-full --compact', {
+      fullResult: true,
+      ...(cwd && { cwd }),
+    });
+    const loadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
+    return Object.values(loadedEnv.config || {}).some(
+      (itemInfo) => (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive,
+    );
+  } catch (err) {
+    debug('Failed to auto-detect public+dynamic config, skipping endpoint injection', err);
+    // Fail closed in auto mode - if the schema fails to load, the build will
+    // surface a proper error anyway; injecting a route into a broken config
+    // just muddies the failure. Users can force it with publicDynamicEndpoint=true.
+    return false;
+  }
+}
+
+function shouldInjectPublicDynamicEndpoint(
+  option: VarlockAstroIntegrationOptions['publicDynamicEndpoint'],
+  cwd?: string,
+): boolean {
+  if (option === false) return false;
+  if (option === true || typeof option === 'object') return true;
+  // Auto mode: only inject when public+dynamic keys exist.
+  return hasPublicDynamicConfigInSchema(cwd);
+}
+
+function resolvePublicDynamicEndpointPath(
+  option: VarlockAstroIntegrationOptions['publicDynamicEndpoint'],
+  cwd?: string,
+): string | null {
+  if (!shouldInjectPublicDynamicEndpoint(option, cwd)) return null;
+  const configuredPath = (typeof option === 'object' && option.path) || DEFAULT_PUBLIC_DYNAMIC_ENDPOINT;
+  if (!configuredPath.startsWith('/')) {
+    throw new Error('[varlock] `publicDynamicEndpoint.path` must start with "/"');
+  }
+  return configuredPath;
+}
+
 function varlockAstroIntegration(
-  // re-expose all options from vite plugin
-  integrationOptions?: Parameters<typeof varlockVitePlugin>[0],
+  integrationOptions?: VarlockAstroIntegrationOptions,
 ): AstroIntegration {
+  const { publicDynamicEndpoint } = integrationOptions ?? {};
+
   // captured in astro:config:setup (the only hook that exposes it) and read
   // in astro:config:done, which is where we know the adapter
   let command: 'dev' | 'build' | 'preview' | 'sync' = 'build';
@@ -22,6 +85,29 @@ function varlockAstroIntegration(
     hooks: {
       'astro:config:setup': (opts) => {
         command = opts.command;
+
+        const routePath = resolvePublicDynamicEndpointPath(publicDynamicEndpoint, fileURLToPath(opts.config.root));
+        if (!routePath) return;
+
+        // In auto mode, skip injection for static build output: a non-prerendered
+        // route requires an adapter, and the adapter isn't registered yet in this
+        // hook so we can't check for one. We still inject during `astro dev` so
+        // local development stays consistent. Astro 5 static-output apps WITH an
+        // adapter can serve server routes - those users should opt in explicitly
+        // (publicDynamicEndpoint=true or an options object), which always injects.
+        const explicitlyEnabled = publicDynamicEndpoint === true || typeof publicDynamicEndpoint === 'object';
+        if (!explicitlyEnabled && opts.command === 'build' && opts.config.output !== 'server') {
+          debug(
+            `Skipping "${routePath}" injection for static build output. Set output="server" or pass publicDynamicEndpoint=true (requires an adapter) to enable the public dynamic env route.`,
+          );
+          return;
+        }
+
+        opts.injectRoute({
+          pattern: routePath,
+          entrypoint: PUBLIC_DYNAMIC_ROUTE_ENTRYPOINT,
+          prerender: false,
+        });
       },
 
       // docs say to use astro:config:setup hook to adjust vite config
@@ -31,8 +117,10 @@ function varlockAstroIntegration(
         const adapterName = opts.config.adapter?.name;
 
         let ssrInjectMode = integrationOptions?.ssrInjectMode;
+        // strip our own astro-only option before passing the rest to the vite plugin
+        const { publicDynamicEndpoint: _publicDynamicEndpoint, ...vitePluginBaseOptions } = integrationOptions ?? {};
         let vitePluginOptions: Parameters<typeof varlockVitePlugin>[0] = {
-          ...integrationOptions,
+          ...vitePluginBaseOptions,
         };
 
         if (['@astrojs/netlify', '@astrojs/vercel'].includes(adapterName || '')) {

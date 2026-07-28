@@ -63,7 +63,7 @@ function loadSerializedGraph() {
       basePath?: string,
       sources: Array<{ label: string, enabled: boolean, path?: string }>,
       settings?: { encryptInjectedEnv?: boolean },
-      config: Record<string, { value: unknown, isSensitive: boolean }>,
+      config: Record<string, { value: unknown, isSensitive: boolean, isDynamic?: boolean }>,
     },
   };
 }

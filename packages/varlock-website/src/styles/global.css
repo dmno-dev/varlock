@@ -116,6 +116,15 @@ strong {
   --sl-content-width: 75rem;
 }
 
+/* JetBrains Mono ships programming ligatures (=>, !=, ...) - keep code text literal */
+code,
+pre,
+kbd,
+samp {
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}
+
 /* custom color palette */
 :root {
   --cp-s: 89%;

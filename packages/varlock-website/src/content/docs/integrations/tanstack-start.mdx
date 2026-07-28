@@ -130,6 +130,10 @@ See the [Cloudflare integration page](/integrations/cloudflare/) for more detail
 
 ---
 
+## Dynamic+public config
+
+TanStack Start uses the Vite integration, so static/dynamic behavior works the same as in any Vite app: public values are inlined at build time unless marked [`@dynamic`](/reference/item-decorators/#dynamic), and server code keeps using `ENV.KEY` at runtime. For browser access to a public+dynamic value, add a server route that returns `getPublicDynamicEnv()` and hydrate with `loadPublicDynamicEnv()`. See the [TanStack Start recipe in the guide](/guides/dynamic-config/#loading-from-a-server-endpoint).
+
 ## Compared to TanStack Start's built-in env var handling
 
 TanStack Start inherits [Vite's env var approach](https://tanstack.com/start/v0/docs/framework/react/guide/environment-variables): `process.env` on the server and `import.meta.env` on the client, with only `VITE_`-prefixed vars exposed client-side. Their docs recommend maintaining a manual `src/env.d.ts` for TypeScript support and separate Zod schemas for runtime validation.

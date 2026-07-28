@@ -425,6 +425,23 @@ describe('proxy resolution view (proxied re-resolution)', () => {
     expect(item.resolvedValue).toBeUndefined();
     expect(item.validationErrors).toBeUndefined();
   });
+
+  test('still computes isDynamic from decorators for a proxy-view item', async () => {
+    // processDynamic reads only decorators (no value resolver), so it must run even
+    // under a proxy view - otherwise a @sensitive @static item stays wrongly dynamic
+    const graph = await loadWithView(
+      outdent`
+        # ---
+        # @sensitive @static
+        STATIC_SECRET=real-secret
+      `,
+      { STATIC_SECRET: { kind: 'placeholder', value: 'vlk_placeholder_STATIC_SECRET_abcd' } },
+    );
+
+    const item = graph.configSchema.STATIC_SECRET;
+    expect(item.isSensitive).toBe(true);
+    expect(item.isDynamic).toBe(false);
+  });
 });
 
 // A single-use object-value decorator called as `@name(...)` is guided toward the

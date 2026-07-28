@@ -612,6 +612,7 @@ export function loadEnvConfig(
     const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       fullResult: true,
       env: cleanEnv as any,
+      cwd: rootDir || dir,
       integrationTelemetry: {
         name: __VARLOCK_INTEGRATION_NAME__,
         version: __VARLOCK_INTEGRATION_VERSION__,

@@ -27,6 +27,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
       { label: 'Code generation', slug: 'guides/code-generation', badge: 'new' },
       { label: 'Local encryption', slug: 'guides/local-encryption' },
       { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments', badge: 'new' },
+      { label: 'Static vs dynamic', slug: 'guides/dynamic-config', badge: 'new' },
       { label: 'Caching', slug: 'guides/caching', badge: 'new' },
       { label: 'OIDC Workload Identity', slug: 'guides/oidc', badge: 'new' },
       { label: 'Migrate from dotenv', slug: 'guides/migrate-from-dotenv' },

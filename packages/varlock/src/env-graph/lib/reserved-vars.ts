@@ -46,6 +46,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'When set (`1`/`true`), `varlock/auto-load` throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior.',
   },
   {
+    name: '_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE',
+    description: 'Set to `warn` to downgrade the build/prerender-time public+dynamic access guard from an error to a one-time warning per key (e.g. while migrating an existing app).',
+  },
+  {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
     description: 'Forces the file-based local encryption fallback instead of the native binary. Intended for testing/debugging.',
     internal: true,
@@ -62,6 +66,11 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '__VARLOCK_RUN',
     description: 'Marker set so a child process can detect it is running under `varlock run`.',
+    internal: true,
+  },
+  {
+    name: '__VARLOCK_EXECUTION_PHASE',
+    description: 'Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the ENV proxy can detect app code executing during build/prerender and guard public+dynamic access. An env var (not a global) because prerendering may run in a child process.',
     internal: true,
   },
 ];

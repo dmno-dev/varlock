@@ -62,6 +62,33 @@ describe('SvelteKit', () => {
     ],
   });
 
+  env.describeScenario('build: dynamic+public is not inlined into client bundle', {
+    command: 'vite build',
+    expectSuccess: true,
+    timeout: 180_000,
+    templateFiles: {
+      'src/routes/+page.svelte': 'pages/dynamic-page.svelte',
+    },
+    fileAssertions: [
+      {
+        description: 'client bundle still inlines the static public value',
+        fileGlob: '.svelte-kit/output/client/**/*.js',
+        shouldContain: ['public-test-value'],
+      },
+      {
+        description: 'client bundle references but does not inline the dynamic public value',
+        fileGlob: '.svelte-kit/output/client/**/*.js',
+        shouldContain: ['PUBLIC_DYNAMIC_VAR'],
+        shouldNotContain: ['public-dynamic-default', 'public-dynamic-dev', 'public-dynamic-prod'],
+      },
+      {
+        description: 'sensitive value is absent from all output',
+        fileGlob: '.svelte-kit/output/**/*.js',
+        shouldNotContain: ['super-secret-value'],
+      },
+    ],
+  });
+
   env.describeDevScenario('dev: ENV available at runtime, secret redacted', {
     command: 'vite dev --port 14730',
     readyPattern: /localhost:14730/,
@@ -76,6 +103,57 @@ describe('SvelteKit', () => {
           shouldContain: ['"PUBLIC_VAR":"public-test-value"', '"HAS_SECRET":"yes"'],
           shouldNotContain: ['super-secret-value'],
         },
+      },
+    ],
+  });
+
+  env.describeDevScenario('dev: dynamic+public served at runtime, reloads on env change', {
+    command: 'vite dev --port 14731',
+    readyPattern: /localhost:14731/,
+    readyTimeout: 30_000,
+    templateFiles: {
+      'src/routes/__varlock/public-env/+server.ts': 'routes/public-env-endpoint.ts',
+    },
+    requests: [
+      {
+        path: '/__varlock/public-env',
+        bodyAssertions: {
+          shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-dev"'],
+          shouldNotContain: ['super-secret-value', 'SECRET_KEY'],
+        },
+      },
+      {
+        path: '/__varlock/public-env',
+        fileEditDelay: 2500,
+        fileEdits: {
+          '.env.dev': [
+            'APP_ENV=dev',
+            'PUBLIC_DYNAMIC_VAR=public-dynamic-dev-updated',
+          ].join('\n'),
+        },
+        bodyAssertions: {
+          shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-dev-updated"'],
+          shouldNotContain: ['super-secret-value', 'SECRET_KEY'],
+        },
+      },
+    ],
+  });
+
+  // TODO: build/prerender-time guard for dynamic access is not wired up for
+  // SvelteKit yet — the vite plugin sets __VARLOCK_EXECUTION_PHASE=build, but
+  // prerendering happens in a separate child process spawned by SvelteKit.
+  env.describeScenario('prerender + dynamic access is rejected (TODO)', {
+    skip: true,
+    command: 'vite build',
+    timeout: 180_000,
+    templateFiles: {
+      'src/routes/+page.svelte': 'pages/prerender-dynamic-page.svelte',
+    },
+    expectSuccess: false,
+    outputAssertions: [
+      {
+        description: 'build error mentions dynamic var in prerender context',
+        shouldContain: ['PUBLIC_DYNAMIC_VAR', 'prerender'],
       },
     ],
   });

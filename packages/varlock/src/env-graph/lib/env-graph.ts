@@ -7,7 +7,7 @@ import {
   keyPassesImportFilter,
 } from './data-source';
 import { type KeyFilter } from './key-filter';
-import { computeFilteredKeys } from './item-filter';
+import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -87,6 +87,8 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
+    /** whether the value must stay runtime-resolved (never inlined at build time). Omitted when it matches `isSensitive` (the default linkage), so consumers should read `isDynamic ?? isSensitive`. */
+    isDynamic?: boolean;
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
@@ -433,6 +435,7 @@ export class EnvGraph {
       // internal def has no decorators and no source with root-level defaults.
       item._isRequired = false;
       item._isSensitive = false;
+      item._isDynamic = false;
       // Set dataType directly since registerBuiltinVar is called synchronously
       // during resolver processing, and the item may not get a process() call
       // from the finishLoad loop (for...in doesn't reliably visit new keys).
@@ -779,6 +782,56 @@ export class EnvGraph {
     return expanded;
   }
 
+  /**
+   * Resolve only what a `--filter` selects, so items outside the filter are neither resolved
+   * nor validated (an unrelated broken item won't block the load, and excluded items' value
+   * resolvers — exec calls, secrets managers, etc. — never run).
+   *
+   * Filters with only key/glob/tag selectors match immediately from the schema. Decorator
+   * selectors (`@sensitive`/`@required`/`@dynamic`) match on *computed* state, so for those
+   * this goes metadata-first:
+   * 1. items the filter definitely excludes regardless of decorator state are skipped entirely
+   * 2. for the rest, any values their decorators reference are resolved (they're true
+   *    dependencies of evaluating the filter), then their metadata is resolved (cheap - no
+   *    value resolvers run)
+   * 3. the filter is evaluated exactly against the resolved metadata, and only matched items
+   *    (plus transitive deps) get their values resolved and validated
+   */
+  async resolveEnvValuesForFilter(filter: ParsedItemFilter): Promise<void> {
+    const allItems = Object.values(this.configSchema);
+
+    if (!filter.usesDecoratorSelector) {
+      const matchedKeys = filter.computeKeys(allItems);
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+      return;
+    }
+
+    // pre-evaluate with decorator state unknown - definite yes/no verdicts need no metadata
+    const definitelyIncluded: Array<string> = [];
+    const undecidedItems: Array<ConfigItem> = [];
+    for (const item of allItems) {
+      const verdict = filter.preEvaluate(item);
+      if (verdict === 'yes') definitelyIncluded.push(item.key);
+      else if (verdict === 'unknown') undecidedItems.push(item);
+    }
+
+    // resolve any values the undecided items' decorators reference - true dependencies of
+    // evaluating the filter (e.g. `@required=eq($OTHER, x)` needs OTHER's value)
+    const metadataDepKeys = new Set<string>(undecidedItems.flatMap((item) => item.metadataDependencyKeys));
+    if (metadataDepKeys.size) {
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(metadataDepKeys)]);
+    }
+    for (const item of undecidedItems) {
+      await item.resolveMetadata();
+    }
+
+    const matchedKeys = new Set([
+      ...definitelyIncluded,
+      ...undecidedItems.filter((item) => filter.matches(item)).map((item) => item.key),
+    ]);
+    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+  }
+
   /** config keys with builtin vars first, then user-defined in schema order */
   get sortedConfigKeys() {
     const builtinKeys: Array<string> = [];
@@ -880,6 +933,9 @@ export class EnvGraph {
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
+        // only emit when it diverges from the sensitivity linkage (the default), so
+        // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
+        ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.

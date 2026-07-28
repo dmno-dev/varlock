@@ -223,9 +223,6 @@ On Unix, secrets are passed to wrangler commands via a named pipe (FIFO) and nev
 Generates Cloudflare Worker types (the `Env` interface) including all varlock-managed environment variables, so your `env.MY_VAR` access is properly typed alongside other Cloudflare bindings (KV, D1, etc.).
 </div>
 </div>
-
-----
-
 ## Log redaction and leak prevention
 
 Both integration approaches automatically enable **log redaction** (sensitive values are masked in console output) and **response leak detection** (responses are scanned for accidentally exposed secrets). These are enabled by default and can be disabled in your `.env.schema` using root decorators:
@@ -263,6 +260,13 @@ APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, /.*/, preview, undefined, 
 For more information, see the [environments guide](/guides/environments).
 
 ----
+
+## Dynamic+public config
+
+On Workers, [`@dynamic`](/reference/item-decorators/#dynamic) usually changes nothing in practice. Worker values are fixed at deploy time (`varlock-wrangler deploy` resolves your env and uploads it), and client assets are typically rebuilt in the same pipeline, so a static public value and a dynamic one change at exactly the same moment. If you build and deploy together, you can ignore this section; there is no downside to leaving `@dynamic` markers in a schema shared with other platforms (worker-side code reads `ENV.KEY` the same either way).
+
+Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. For that setup, use your framework's recipe from the [guide](/guides/dynamic-config/#loading-from-a-server-endpoint) (most apps on Workers run a framework like Astro or SvelteKit); on a plain worker, add a route in your fetch handler that returns `getPublicDynamicEnv()`. Either way the endpoint serves whatever the worker was deployed with, not per-request-fresh values.
+
 
 ## Cloudflare Workers Builds (CI/CD)
 

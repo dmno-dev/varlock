@@ -12,7 +12,8 @@
   "exports": {
     ".": "./dist/next-env-compat.js",
     "./plugin": "./dist/plugin.js",
-    "./loader": "./dist/loader.js"
+    "./loader": "./dist/loader.js",
+    "./dynamic-access": "./dist/dynamic-access.js"
   },
   "files": ["dist"],
   "scripts": {

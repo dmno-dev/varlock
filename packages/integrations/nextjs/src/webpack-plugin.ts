@@ -27,7 +27,8 @@ function createStaticReplacementsProxy(debug: (...args: Array<any>) => void) {
       const replaceKeys = [] as Array<string>;
       for (const itemKey in latestLoadedVarlockEnv.config) {
         const item = latestLoadedVarlockEnv.config[itemKey];
-        if (!item.isSensitive) replaceKeys.push(`ENV.${itemKey}`);
+        const isDynamic = item.isDynamic ?? item.isSensitive;
+        if (!isDynamic) replaceKeys.push(`ENV.${itemKey}`);
       }
       debug('reloaded static replacements keys', replaceKeys);
       return replaceKeys;
@@ -35,7 +36,9 @@ function createStaticReplacementsProxy(debug: (...args: Array<any>) => void) {
     getOwnPropertyDescriptor(_target, prop) {
       const itemKey = prop.toString().split('.')[1];
       const item = latestLoadedVarlockEnv?.config[itemKey];
-      if (!item || item.isSensitive) return;
+      if (!item) return;
+      const isDynamic = item.isDynamic ?? item.isSensitive;
+      if (isDynamic) return;
       return {
         value: '', // this value is not used, the get handler will return the value
         writable: false,
@@ -46,7 +49,9 @@ function createStaticReplacementsProxy(debug: (...args: Array<any>) => void) {
     get(_target, prop) {
       const itemKey = prop.toString().split('.')[1];
       const item = latestLoadedVarlockEnv?.config[itemKey];
-      if (item && !item.isSensitive) return JSON.stringify(item.value);
+      if (!item) return;
+      const isDynamic = item.isDynamic ?? item.isSensitive;
+      if (!isDynamic) return JSON.stringify(item.value);
     },
   });
 }
@@ -244,6 +249,34 @@ export function createWebpackConfigFn(
                 for (const name of ['webpack-runtime.js', '../webpack-runtime.js', 'webpack-api-runtime.js', '../webpack-api-runtime.js']) {
                   if (compilation.getAsset(name)) {
                     compilation.updateAsset(name, injectVarlockInitIntoWebpackRuntime());
+                  }
+                }
+              } else {
+                // Client (browser) compilation — inject the declared public+dynamic key
+                // list into the client webpack runtime chunk (loaded before any app
+                // chunk), so the runtime hydration helpers (loadPublicDynamicEnv,
+                // payload filtering, hydration-state checks) work in the browser.
+                // Key NAMES only - never values. Client compilations have no loader,
+                // so this is the webpack analog of the loader's client-component
+                // injection used by turbopack.
+                let publicDynamicKeys: Array<string> = [];
+                try {
+                  const graph = JSON.parse(process.env.__VARLOCK_ENV || '{}') as SerializedEnvGraph;
+                  publicDynamicKeys = Object.entries(graph.config || {})
+                    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive)
+                    .map(([key]) => key);
+                } catch {
+                  // bad/missing blob - skip injection rather than break the build
+                }
+                if (publicDynamicKeys.length) {
+                  const snippet = `globalThis.__varlockPublicDynamicKeys ??= ${JSON.stringify(publicDynamicKeys)};`;
+                  for (const assetName of Object.keys(compilation.assets)) {
+                    // prod: static/chunks/webpack-<hash>.js, dev: static/chunks/webpack.js
+                    if (/(^|\/)webpack(-[^/]*)?\.js$/.test(assetName)) {
+                      compilation.updateAsset(assetName, (origSource: any) => (
+                        new webpack.sources.RawSource(`${snippet}\n${origSource.source()}`)
+                      ));
+                    }
                   }
                 }
               }

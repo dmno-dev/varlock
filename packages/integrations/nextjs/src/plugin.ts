@@ -80,6 +80,7 @@ function debug(...args: Array<any>) {
 }
 debug('✨ LOADED @varlock/next-integration/plugin module!');
 
+
 type VarlockPluginOptions = {
   // injectResolvedConfigAtBuildTime: boolean,
 };
