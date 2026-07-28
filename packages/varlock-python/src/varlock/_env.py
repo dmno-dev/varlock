@@ -82,6 +82,12 @@ class Env(Mapping):
         # makes `ENV.<TAB>` complete env keys in notebooks and REPLs
         return sorted(set(super().__dir__()) | set(self._state.values))
 
+    def _ipython_key_completions_(self):
+        # makes `ENV["<TAB>"]` complete env keys. IPython only infers keys for real `dict`
+        # instances, so a Mapping has to advertise them explicitly or subscript completion
+        # comes back empty.
+        return list(self._state.values)
+
     # -- display -------------------------------------------------------------------------
 
     def to_dict(self, *, redact_sensitive: bool = False) -> Dict[str, Any]:

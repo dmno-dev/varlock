@@ -50,6 +50,22 @@ Any subprocess you spawn from the notebook inherits the resolved values too, the
 
 Reading a key that is not in your schema raises `VarlockMissingKeyError` rather than returning `None`, so a typo fails in the cell that has it instead of somewhere further down.
 
+## Types and completion
+
+`env["` and `env.` complete your schema's keys in Jupyter and IPython with no setup, so you can see what is available without leaving the notebook.
+
+Type checking is separate. VS Code checks notebook cells with Pylance, which is static and so cannot know what `load()` returned. To have it check your keys and types, cast to the generated `Env` TypedDict, exactly as you would in a script:
+
+```python
+from typing import cast
+
+from env import Env
+
+env = cast(Env, varlock.load())
+```
+
+See [Types](/integrations/python/#types) for the schema decorator that generates it. This is optional: everything else on this page works without it.
+
 ## Reloading
 
 A kernel outlives many edits. After changing your schema, rotating a secret, or switching environments, re-resolve without restarting:

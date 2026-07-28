@@ -87,7 +87,16 @@ def test_to_dict(loaded):
 
 
 def test_dir_includes_keys_for_tab_completion(loaded):
+    # drives `env.<TAB>`
     assert "APP_ENV" in dir(loaded)
+
+
+def test_key_completions_are_advertised_to_ipython(loaded):
+    # drives `env["<TAB>"]`. IPython only infers keys for real dict instances, so without
+    # this hook subscript completion silently returns nothing.
+    completions = loaded._ipython_key_completions_()
+    assert "APP_ENV" in completions
+    assert "OPTIONAL_UNSET" not in completions
 
 
 def test_sensitive_keys(loaded):
