@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  describe, test, beforeAll, afterAll,
+  describe, test, expect, beforeAll, afterAll,
 } from 'vitest';
 import outdent from 'outdent';
 import { pluginTest } from 'varlock/test-helpers';
@@ -35,6 +35,8 @@ afterAll(() => {
 type DlTestOpts = {
   /** Map of dl:// references to their resolved values */
   dcliResponses?: Record<string, string>;
+  /** Misbehavior mode for the fake dcli `read` subcommand (see fake-dcli.sh) */
+  readBehavior?: 'hang' | 'prompt-stdin' | 'locked';
   /** Schema items section (after ---). Required unless fullSchema is provided. */
   schema?: string;
   /** Extra @initDashlane params (e.g., `autoSync=true`) */
@@ -52,6 +54,7 @@ type DlTestOpts = {
 function dlTest(opts: DlTestOpts) {
   const {
     dcliResponses = {},
+    readBehavior,
     schema,
     initParams = '',
     headless = false,
@@ -61,7 +64,7 @@ function dlTest(opts: DlTestOpts) {
 
   return async () => {
     // Write the dcli config for this test and point the fake script at it
-    fs.writeFileSync(DCLI_CONFIG_PATH, JSON.stringify({ responses: dcliResponses }));
+    fs.writeFileSync(DCLI_CONFIG_PATH, JSON.stringify({ responses: dcliResponses, readBehavior }));
 
     const origPath = process.env.PATH;
     process.env.PATH = `${FAKE_BIN_DIR}:${origPath}`;
@@ -83,7 +86,7 @@ function dlTest(opts: DlTestOpts) {
         ${schema}
       `;
 
-      await pluginTest({
+      return await pluginTest({
         ...rest,
         schema: fullSchema,
         ...(headless ? { injectValues: { DL_SERVICE_KEYS: 'dls_test_key_data_1234', ...rest.injectValues } } : {}),
@@ -238,6 +241,83 @@ describe('dashlane plugin', () => {
         # @initDashlane(id=prod)
         # ---
       `,
+      expectSchemaError: true,
+    }));
+  });
+
+  describe('locked vault handling', () => {
+    // On a locked vault, dcli prompts for the master password and blocks on
+    // stdin. These tests ensure every dcli call is bounded (stdin closed +
+    // timeout) and that onLocked=warn lets a load pass with optional
+    // dashlane items left empty.
+
+    test('master password prompt fails immediately instead of hanging (stdin closed)', dlTest({
+      readBehavior: 'prompt-stdin',
+      schema: 'SECRET=dashlane("dl://abc/password")',
+      expectValues: { SECRET: Error },
+    }), 5000);
+
+    test('hung dcli call fails within the configured timeout', dlTest({
+      readBehavior: 'hang',
+      initParams: 'timeoutMs=500',
+      schema: 'SECRET=dashlane("dl://abc/password")',
+      expectValues: { SECRET: Error },
+    }), 5000);
+
+    test('locked vault fails the item by default', async () => {
+      const g = await dlTest({
+        readBehavior: 'locked',
+        schema: outdent`
+          # @optional
+          SECRET=dashlane("dl://abc/password")
+        `,
+      })();
+      const item = g!.configSchema.SECRET;
+      expect(item.validationState).toBe('error');
+      expect(item.errors[0].message).toContain('locked');
+    });
+
+    test('onLocked=warn: optional item resolves empty with a warning, load stays valid', async () => {
+      const g = await dlTest({
+        readBehavior: 'locked',
+        initParams: 'onLocked=warn',
+        schema: outdent`
+          # @optional
+          SECRET=dashlane("dl://abc/password")
+          OTHER=hello
+        `,
+      })();
+      const secretItem = g!.configSchema.SECRET;
+      expect(secretItem.validationState).toBe('warn');
+      expect(secretItem.resolvedValue).toBeUndefined();
+      // non-dashlane items are unaffected
+      expect(g!.configSchema.OTHER.resolvedValue).toBe('hello');
+      expect(g!.configSchema.OTHER.validationState).toBe('valid');
+    });
+
+    test('onLocked=warn: required item still fails', async () => {
+      const g = await dlTest({
+        readBehavior: 'locked',
+        initParams: 'onLocked=warn',
+        schema: outdent`
+          # @required
+          SECRET=dashlane("dl://abc/password")
+        `,
+      })();
+      const item = g!.configSchema.SECRET;
+      expect(item.validationState).toBe('error');
+      expect(item.errors.some((e) => e.name === 'EmptyRequiredValueError')).toBe(true);
+    });
+
+    test('invalid onLocked value is a schema error', dlTest({
+      initParams: 'onLocked=bogus',
+      schema: 'SECRET=dashlane("dl://abc/password")',
+      expectSchemaError: true,
+    }));
+
+    test('invalid timeoutMs value is a schema error', dlTest({
+      initParams: 'timeoutMs=soon',
+      schema: 'SECRET=dashlane("dl://abc/password")',
       expectSchemaError: true,
     }));
   });
