@@ -191,7 +191,7 @@ Sprites add two things to this shape:
     -d '{"rules":[{"action":"allow","domain":"vl-broker-myorg.sprites.app"},{"action":"deny","domain":"*"}]}'
   ```
 
-- **Sleep/wake**: sprites scale to zero after ~30s idle. The service config above restarts the proxy on wake (incoming tunnel connections wake it via `--http-port`), but a proxy restart mints a new CA and session, so a long-running agent started against the old broker session will not trust the new one. Fresh `proxy run --url` invocations pull the current CA from the broker and are unaffected. Keep the broker awake while a fleet is running (open tunnel connections count as activity), and treat wake events like a broker restart.
+- **Sleep/wake**: sprites hibernate when idle (in practice we have seen a broker with a running service stay up well past the documented ~30s threshold, but do not rely on that). The service config above restarts the proxy on wake (incoming tunnel connections wake it via `--http-port`), and a restart mints a new CA and session: a long-running agent started against the old broker session will not trust the new one, while fresh `proxy run --url` invocations pull the current CA from the broker and are unaffected. Keep the broker awake while a fleet is running (open tunnel connections count as activity), and treat wake events like a broker restart.
 
 ### Alternative: Sprites Connectors and Fly tokenizer
 
