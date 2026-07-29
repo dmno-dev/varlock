@@ -5,7 +5,7 @@ description: One-shot and daemon modes, sessions, wiring, auditing, and sandboxi
 
 ## Running modes
 
-There are three ways to drive the proxy, trading convenience for interactivity.
+There are a few ways to drive the proxy, trading convenience for interactivity.
 
 ### One-shot: `proxy run`
 
@@ -38,6 +38,10 @@ node agent.js                       # now routed through the proxy
 ```
 
 `proxy env` prints the proxy + CA environment for an existing session so you can source it into any shell or tool.
+
+### Remote: `proxy start --tunnel` + `proxy run --url`
+
+The workload does not have to be on the same machine. `proxy start --tunnel` serves a built-in WebSocket tunnel on the proxy port, gated by a per-session token, and `proxy run --url wss://<host> --token <token>` runs a command through that broker from anywhere, self-wiring the placeholder env and CA certs over the tunnel. This is how cloud sandboxes reach a broker; see the [E2B](/sandboxes/e2b/) and [Fly.io](/sandboxes/flyio/) guides for full recipes and the [proxy CLI reference](/reference/cli/proxy/) for the flags.
 
 ## Sessions
 
