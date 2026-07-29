@@ -178,6 +178,8 @@ Initialize a Dashlane plugin instance.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 - `autoSync?: boolean` - If `true`, runs `dcli sync` once before the first read (default `false`)
 - `lockOnExit?: boolean` - Lock the vault on process exit. Defaults to `true` in headless mode, `false` in interactive mode.
+- `onLocked?: 'error' | 'warn'` - Behavior when the vault appears locked or a `dcli` call times out. `error` (default) fails the item. With `warn`, the item resolves empty with a warning instead, so optional items do not block the load. Required items still fail as empty.
+- `timeoutMs?: number` - Maximum time in milliseconds to wait for each `dcli` call (default `30000`)
 
 ### Resolver functions
 
@@ -244,6 +246,9 @@ Install the Dashlane CLI following the [installation docs](https://cli.dashlane.
 
 - Run `dcli sync` to sync and unlock your vault
 - If the vault is locked, you may need to enter your master password
+- Set `onLocked=warn` in `@initDashlane` if a locked vault should not block loading optional items
+
+The plugin never waits on a locked vault: `dcli` calls run with stdin closed (so interactive prompts fail immediately) and are killed after `timeoutMs` (default 30 seconds) as a backstop.
 
 ### Stale secrets
 

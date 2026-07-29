@@ -3,7 +3,7 @@ import { DashlanePluginInstance } from './dashlane-instance';
 /** Shared error class stubs -- replaced with plugin.ERRORS at runtime */
 export interface PluginErrors {
   SchemaError: new (msg: string, opts?: { tip?: string }) => Error;
-  ResolutionError: new (msg: string, opts?: { tip?: string }) => Error;
+  ResolutionError: new (msg: string, opts?: { tip?: string; isWarning?: boolean }) => Error;
 }
 
 /** Simulates the shape of a varlock decorator arg value */
@@ -48,12 +48,37 @@ export class DashlaneManager {
       ? (objArgs.lockOnExit.staticValue === true || objArgs.lockOnExit.staticValue === 'true')
       : undefined;
 
+    if (objArgs?.onLocked && !objArgs.onLocked.isStatic) {
+      throw new SchemaError('Expected onLocked to be static');
+    }
+    let onLocked: 'error' | 'warn' | undefined;
+    if (objArgs?.onLocked) {
+      const onLockedVal = objArgs.onLocked.staticValue;
+      if (onLockedVal !== 'error' && onLockedVal !== 'warn') {
+        throw new SchemaError('Expected onLocked to be either "error" or "warn"');
+      }
+      onLocked = onLockedVal;
+    }
+
+    if (objArgs?.timeoutMs && !objArgs.timeoutMs.isStatic) {
+      throw new SchemaError('Expected timeoutMs to be static');
+    }
+    let timeoutMs: number | undefined;
+    if (objArgs?.timeoutMs) {
+      timeoutMs = Number(objArgs.timeoutMs.staticValue);
+      if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new SchemaError('Expected timeoutMs to be a positive integer (milliseconds)');
+      }
+    }
+
     this.instances[id] = new DashlanePluginInstance(id, this.errors.ResolutionError);
 
     return {
       id,
       autoSync,
       lockOnExit,
+      onLocked,
+      timeoutMs,
       serviceDeviceKeysResolver: objArgs?.serviceDeviceKeys,
     };
   }
@@ -63,11 +88,13 @@ export class DashlaneManager {
    * Called at resolution time.
    */
   async executeInit({
-    id, autoSync, lockOnExit, serviceDeviceKeysResolver,
+    id, autoSync, lockOnExit, onLocked, timeoutMs, serviceDeviceKeysResolver,
   }: {
     id: string;
     autoSync?: boolean;
     lockOnExit?: boolean;
+    onLocked?: 'error' | 'warn';
+    timeoutMs?: number;
     serviceDeviceKeysResolver?: ArgValue;
   }) {
     const serviceDeviceKeys = serviceDeviceKeysResolver
@@ -78,7 +105,9 @@ export class DashlaneManager {
       serviceDeviceKeys && typeof serviceDeviceKeys === 'string'
         ? serviceDeviceKeys
         : undefined,
-      { autoSync, lockOnExit },
+      {
+        autoSync, lockOnExit, onLocked, timeoutMs,
+      },
     );
   }
 

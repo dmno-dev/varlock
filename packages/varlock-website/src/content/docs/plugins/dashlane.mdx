@@ -132,6 +132,8 @@ Initialize a Dashlane plugin instance for `dashlane()` resolver.
 - `serviceDeviceKeys` (optional): service device keys for headless authentication
 - `autoSync` (optional): if `true`, runs `dcli sync` once before the first read
 - `lockOnExit` (optional): lock the vault on process exit. Defaults to `true` in headless mode, `false` in interactive mode.
+- `onLocked` (optional): behavior when the vault appears locked or a `dcli` call times out. `error` (default) fails the item. With `warn`, the item resolves empty with a warning instead, so optional items do not block the load. Required items still fail as empty.
+- `timeoutMs` (optional): maximum time in milliseconds to wait for each `dcli` call (default `30000`)
 
 ```env-spec "@initDashlane"
 # Interactive (local dev)
@@ -202,6 +204,7 @@ DB_PASSWORD=dashlane(prod, "dl://abc123/password")
 ### Vault locked or not synced
 - Run `dcli sync` to sync your vault
 - Set `autoSync=true` in `@initDashlane` to sync automatically before reads
+- Set `onLocked=warn` in `@initDashlane` if a locked vault should not block loading optional items
 
 ## Resources
 
