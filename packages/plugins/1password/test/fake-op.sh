@@ -15,17 +15,33 @@ case "$1" in
     echo "Test User <test@example.com>"
     ;;
   inject)
-    # op inject [--account X]
-    # Reads a template from stdin, resolves {{ op://... }} references from
-    # config, and prints the substituted template. Mimics real op inject
-    # behavior: fails the whole batch on the first bad reference, strips
-    # control characters (except newline/tab) from output, and appends a
+    # op inject -i <template-file> [--account X]
+    # Resolves {{ op://... }} references from config and prints the substituted
+    # template. Mimics real op inject behavior: requires the template to come
+    # from a file, fails the whole batch on the first bad reference, strips
+    # control characters (except \t \n \v \f \r) from output, and appends a
     # trailing newline.
+    #
+    # Real `op inject` only accepts stdin when it is a true pipe (it checks for
+    # os.ModeNamedPipe), and node/bun hand spawned children a socketpair, so a
+    # template written to the child's stdin is never seen. Reject that here so
+    # tests fail the same way real op does instead of silently passing.
+    TEMPLATE_FILE=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -i) TEMPLATE_FILE="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    if [ -z "$TEMPLATE_FILE" ]; then
+      echo "[ERROR] 2024/01/01 00:00:00 expected data on stdin but none found" >&2
+      exit 1
+    fi
     node -e "
       const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
       const responses = cfg.responses || {};
       const errors = cfg.errors || {};
-      const template = require('fs').readFileSync(0, 'utf-8');
+      const template = require('fs').readFileSync('$TEMPLATE_FILE', 'utf-8');
 
       const refs = [...template.matchAll(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g)].map((m) => m[1]);
 
@@ -40,7 +56,7 @@ case "$1" in
       const output = template.replace(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g, (match, ref) => {
         return ref in responses ? responses[ref] : match;
       });
-      process.stdout.write(output.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '') + '\n');
+      process.stdout.write(output.replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '') + '\n');
     "
     ;;
   environment)
