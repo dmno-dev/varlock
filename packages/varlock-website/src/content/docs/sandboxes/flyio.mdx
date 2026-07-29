@@ -74,17 +74,17 @@ Set up the broker once; its filesystem persists:
 sprite create vl-broker
 sprite exec -s vl-broker -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
 
-# schema + real values (the only place real secrets live)
+# the schema is the only file the broker needs; real values ride the service env
 sprite exec -s vl-broker --dir /home/sprite/proj \
-  --file .env.schema:/home/sprite/proj/.env.schema \
-  --file .env.local:/home/sprite/proj/.env.local -- true
+  --file .env.schema:/home/sprite/proj/.env.schema -- true
 
 # run the proxy as a sprite service: it restarts on wake, and --http-port routes
-# the sprite's URL to it (waking the sprite when a connection arrives)
+# the sprite's URL to it (waking the sprite when a connection arrives). Schema
+# keys resolve from the process env, so the values ride along with the service.
 sprite exec -s vl-broker -- sprite-env services create varlock-proxy \
   --cmd /home/sprite/.local/bin/varlock \
   --args "proxy,start,--tunnel,--port,8080" \
-  --env VARLOCK_PROXY_TOKEN=$PROXY_TOKEN \
+  --env "VARLOCK_PROXY_TOKEN=$PROXY_TOKEN,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY,STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY" \
   --dir /home/sprite/proj --http-port 8080
 
 # the tunnel URL must be public: `proxy run --url` cannot present the sprites
@@ -94,7 +94,7 @@ sprite url update -s vl-broker --auth public
 
 Making the URL public is the same trust posture as exposing a local proxy through ngrok in the [E2B guide](/sandboxes/e2b/#proxy-on-your-machine): an unauthenticated caller cannot open the tunnel or reach the proxy.
 
-Writing `.env.local` from your machine is the simplest bootstrap. If you would rather resolve secrets inside the broker, install a [plugin](/guides/plugins/) there and provide its service-account token instead; either way there is one bootstrap credential for the broker, instead of real secrets in every agent sprite.
+Passing values through the service env keeps them off the broker's filesystem and makes no assumption about where they live on your side: run the setup under `varlock run` and they are your orchestrator's own resolved values (plugins, `.env.local`, CI-injected env, whatever your schema says) passing through. The env persists with the service definition, which is also what lets the proxy come back with its values after a wake. If you would rather resolve secrets inside the broker, install a [plugin](/guides/plugins/) there and pass only its service-account token as the one secret-zero; either way agent sprites hold no real secrets at all.
 
 Agent sprites need nothing but varlock and the broker's URL (shown by `sprite url -s vl-broker`). `proxy run --url` pulls the placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass:
 

@@ -106,15 +106,24 @@ const broker = await Sandbox.create({ timeoutMs: 60 * 60 * 1000 });
 
 await broker.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
 
-// schema + real values (the only place real secrets live)
+// the schema is the only file the broker needs; real values arrive via envs below
 await broker.files.write('/home/user/proj/.env.schema', envSchemaContents);
-await broker.files.write('/home/user/proj/.env.local', `ANTHROPIC_API_KEY=${realAnthropicKey}\nSTRIPE_SECRET_KEY=${realStripeKey}\n`);
 
 // start the proxy bound off-loopback so the tunnel is reachable; the token is
-// pinned via VARLOCK_PROXY_TOKEN so we already know it.
+// pinned via VARLOCK_PROXY_TOKEN so we already know it. Real secrets ride E2B's
+// own env machinery: schema keys resolve from the process env, so nothing is
+// written to the broker's disk.
 await broker.commands.run(
   `cd /home/user/proj && ${VARLOCK} proxy start --tunnel --port 8080 > /home/user/proxy.log 2>&1`,
-  { background: true, timeoutMs: 0, envs: { VARLOCK_PROXY_TOKEN: PROXY_TOKEN } },
+  {
+    background: true,
+    timeoutMs: 0,
+    envs: {
+      VARLOCK_PROXY_TOKEN: PROXY_TOKEN,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY!,
+    },
+  },
 );
 // ready once the port answers (a bare GET returns 400, which is fine; we only
 // need the listener up, so no -f).
@@ -123,7 +132,7 @@ await broker.commands.run("until curl -s -o /dev/null http://127.0.0.1:8080 --pr
 const brokerHost = broker.getHost(8080); // e.g. 8080-<id>.e2b.app
 ```
 
-Writing `.env.local` from the orchestrator is the simplest bootstrap. If you would rather resolve secrets inside the broker, install a [plugin](/guides/plugins/) and provide its service-account token instead; either way there is one bootstrap credential for the broker, instead of real secrets in every agent sandbox.
+Passing values through `envs` makes no assumption about where they live on your side: the orchestrator runs under `varlock run`, so these are its own resolved values (from plugins, `.env.local`, CI-injected env, whatever your schema says) passing through. If you would rather resolve secrets inside the broker, install a [plugin](/guides/plugins/) and pass only its service-account token as the one secret-zero; either way agent sandboxes hold no real secrets at all.
 
 #### Start agent sandboxes
 
