@@ -535,9 +535,7 @@ export abstract class EnvGraphDataSource {
                 if (fsStat.isDirectory()) {
                   // eslint-disable-next-line no-use-before-define
                   const dirChild = new DirectoryDataSource(fullImportPath);
-                  await this.addChild(dirChild, {
-                    isImport: true, importKeys, isConditionallyEnabled,
-                  });
+                  await this.addChild(dirChild, importMeta);
                   this.graph.recordLoadedImportPath(fullImportPath, dirChild);
                 } else {
                   this._errors.push(new LoadingError(`Imported path ending with "/" is not a directory: ${fullImportPath}`));
