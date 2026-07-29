@@ -21,6 +21,13 @@
 
 
 
+
+## 1.14.1
+<sub>2026-07-29</sub>
+
+- [#939](https://github.com/dmno-dev/varlock/pull/939)  *(patch)* - fix stray backtick in local-encryption docs URL shown by varlock init --agent
+- [#956](https://github.com/dmno-dev/varlock/pull/956)  *(patch)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)! - Apply pick and omit filters to directory imports.
+
 ## 1.14.0
 <sub>2026-07-28</sub>
 
