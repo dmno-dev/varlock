@@ -7,6 +7,13 @@
 
 
 
+
+## 2.0.2
+<sub>2026-07-29</sub>
+
+- [#957](https://github.com/dmno-dev/varlock/pull/957)  *(patch)*
+  Fix 1Password CLI batch reads failing with "expected data on stdin but none found". The op inject template is now passed as a file rather than on stdin, which op only accepts from a true pipe.
+
 ## 2.0.1
 <sub>2026-07-28</sub>
 
