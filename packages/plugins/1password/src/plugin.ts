@@ -3,6 +3,9 @@ import {
 } from 'varlock/plugin-lib';
 
 import { createHash, randomUUID } from 'node:crypto';
+import { writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
@@ -42,6 +45,30 @@ function buildInjectTemplate(opReferences: Array<string>) {
     return `${key}={{ ${ref} }}${separator}`;
   }).join('');
   return { template, separator, keyToRef };
+}
+
+/*
+  The template is handed to `op inject` as a file (`-i`) rather than on stdin.
+
+  `op inject` requires its stdin to be a real pipe (it checks for `os.ModeNamedPipe`), and
+  node/bun both hand spawned children a socketpair instead, so writing the template to the
+  child's stdin always fails with "expected data on stdin but none found" on every platform.
+  A regular file redirected onto stdin fails that check too, so `-i` is the portable option.
+
+  The template holds only `op://` references, never resolved secret values, so it is safe to
+  write to disk. Resolved values still come back over stdout and never touch the filesystem.
+*/
+async function runOpInject(extraArgs: Array<string>, template: string, env: NodeJS.ProcessEnv) {
+  const templatePath = join(tmpdir(), `varlock-1p-inject-${randomUUID()}.tpl`);
+  // `wx` = O_CREAT|O_EXCL, so this refuses to follow a pre-existing file or symlink
+  // planted at the path on a shared tmpdir, and 0600 keeps it owner-only while it exists.
+  await writeFile(templatePath, template, { mode: 0o600, flag: 'wx' });
+  try {
+    return await spawnAsync('op', ['inject', '-i', templatePath, ...extraArgs], { env });
+  } finally {
+    // a cleanup failure should never mask the batch result
+    await rm(templatePath, { force: true }).catch(() => undefined);
+  }
 }
 
 /** Parse `op inject` output back into op-ref → value (dangling segments, e.g. a trailing newline, are ignored). */
@@ -97,16 +124,13 @@ async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatc
   const startAt = new Date();
 
   const authCompletedFn = await checkAppCliAuth();
-  await spawnAsync('op', ['inject', ...lockCliToOpAccount ? ['--account', lockCliToOpAccount] : []], {
-    env: {
-      PATH: process.env.PATH!,
-      ...process.env.USER && { USER: process.env.USER },
-      ...process.env.HOME && { HOME: process.env.HOME },
-      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-      ...pickProxyEnv(),
-      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-    },
-    input: template,
+  await runOpInject(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : [], template, {
+    PATH: process.env.PATH!,
+    ...process.env.USER && { USER: process.env.USER },
+    ...process.env.HOME && { HOME: process.env.HOME },
+    ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    ...pickProxyEnv(),
+    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
   })
     .then((result) => {
       authCompletedFn?.(true);
@@ -397,22 +421,19 @@ class OpPluginInstance {
     const startAt = new Date();
 
     const authCompletedFn = await this.checkCliAuth();
-    await spawnAsync('op', ['inject', ...this.account ? ['--account', this.account] : []], {
-      env: {
-        // have to pass a few things through at least path so it can find `op` and related config files
-        PATH: process.env.PATH!,
-        ...process.env.USER && { USER: process.env.USER },
-        ...process.env.HOME && { HOME: process.env.HOME },
-        ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-        // proxy env vars so `op` can connect through HTTP/SOCKS proxies
-        ...pickProxyEnv(),
-        // forward service account token when the instance opted into CLI-based service account auth
-        ...this.useCliWithServiceAccount && this.token && { OP_SERVICE_ACCOUNT_TOKEN: this.token },
-        // this setting actually just enables the CLI + Desktop App integration
-        // which in some cases op has a hard time detecting via app setting
-        OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-      },
-      input: template,
+    await runOpInject(this.account ? ['--account', this.account] : [], template, {
+      // have to pass a few things through at least path so it can find `op` and related config files
+      PATH: process.env.PATH!,
+      ...process.env.USER && { USER: process.env.USER },
+      ...process.env.HOME && { HOME: process.env.HOME },
+      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+      // proxy env vars so `op` can connect through HTTP/SOCKS proxies
+      ...pickProxyEnv(),
+      // forward service account token when the instance opted into CLI-based service account auth
+      ...this.useCliWithServiceAccount && this.token && { OP_SERVICE_ACCOUNT_TOKEN: this.token },
+      // this setting actually just enables the CLI + Desktop App integration
+      // which in some cases op has a hard time detecting via app setting
+      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
     })
       .then(async (result) => {
         authCompletedFn?.(true);
