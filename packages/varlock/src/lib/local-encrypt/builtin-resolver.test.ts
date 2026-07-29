@@ -85,6 +85,19 @@ describe('VarlockResolver with file fallback', () => {
     await expect(resolver.resolve()).rejects.toThrow(/Decryption failed/);
   });
 
+  // Serialized output branches on `code`, so a decrypt failure has to be
+  // distinguishable from any other resolver blowing up (both would otherwise
+  // surface as the generic `resolution_failed`).
+  it('tags decrypt failures with a specific error code', async () => {
+    await localEncrypt.ensureKey();
+
+    const payloadResolver = new StaticValueResolver('local:garbage-data');
+    const resolver = new VarlockResolver([payloadResolver]);
+    resolver.process();
+
+    await expect(resolver.resolve()).rejects.toMatchObject({ code: 'decrypt_failed' });
+  });
+
   it('throws a SchemaError when no arguments are provided', () => {
     const resolver = new VarlockResolver([]);
     resolver.process();

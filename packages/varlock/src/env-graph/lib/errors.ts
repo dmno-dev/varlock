@@ -54,6 +54,14 @@ export class VarlockError extends Error {
   static defaultIcon = '❌';
   icon: string;
 
+  /**
+   * Stable machine-readable code for this error class, emitted as `code` in
+   * serialized output so tools can branch on it instead of matching message
+   * text. Set explicitly per subclass rather than derived from the class name,
+   * so renaming a class can't silently change a published contract.
+   */
+  static defaultCode = 'unknown_error';
+
   private _severity: ErrorSeverity = 'error';
 
   constructor(errOrMessage: string | Error, readonly more?: {
@@ -97,8 +105,8 @@ export class VarlockError extends Error {
     return this.more?.location;
   }
 
-  get code() {
-    return this.more?.code;
+  get code(): string {
+    return this.more?.code ?? (this.constructor as typeof VarlockError).defaultCode;
   }
   get extraMetadata() {
     return this.more?.extraMetadata;
@@ -120,6 +128,7 @@ export class VarlockError extends Error {
       icon: this.icon,
       type: this.type,
       name: this.name,
+      code: this.code,
       message: this.message,
       severity: this.severity,
       isUnexpected: this.isUnexpected,
@@ -130,6 +139,7 @@ export class VarlockError extends Error {
 }
 
 export class ConfigLoadError extends VarlockError {
+  static defaultCode = 'config_load_failed';
   readonly cleanedStack: Array<string>;
   constructor(err: Error) {
     super(err);
@@ -162,21 +172,27 @@ export class ConfigLoadError extends VarlockError {
 
 export class LoadingError extends VarlockError {
   static defaultIcon = '📂';
+  static defaultCode = 'loading_failed';
 }
 export class ParseError extends VarlockError {
   static defaultIcon = '😵‍💫';
+  static defaultCode = 'parse_error';
 }
 export class SchemaError extends VarlockError {
   static defaultIcon = '🧰';
+  static defaultCode = 'schema_error';
 }
 export class ValidationError extends VarlockError {
   static defaultIcon = '❌';
+  static defaultCode = 'validation_failed';
 }
 export class CoercionError extends VarlockError {
   static defaultIcon = '🛑';
+  static defaultCode = 'coercion_failed';
 }
 export class ResolutionError extends VarlockError {
   static defaultIcon = '⛔';
+  static defaultCode = 'resolution_failed';
   protected _retryable?: boolean = false;
   set retryable(val: boolean) { this._retryable = val; }
   get retryable() {
@@ -188,7 +204,26 @@ export class ResolutionError extends VarlockError {
 
 export class EmptyRequiredValueError extends ValidationError {
   icon = '❓';
+  static defaultCode = 'empty_required_value';
   constructor(_val: undefined | null | '') {
     super('Value is required but is currently empty');
   }
+}
+
+/**
+ * No `.env*` files were found at all. A project does not need a `.env.schema`
+ * (plain `.env` files are enough), but it does need at least one file to load.
+ */
+export class NoEnvFilesError extends VarlockError {
+  static defaultIcon = '🚨';
+  static defaultCode = 'no_env_files';
+}
+
+/**
+ * Env files loaded, but they define no config items. Distinct from
+ * `no_env_files` because the fix is different: add items, not create a file.
+ */
+export class NoConfigItemsError extends VarlockError {
+  static defaultIcon = '🚨';
+  static defaultCode = 'no_config_items';
 }
