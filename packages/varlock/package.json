@@ -151,7 +151,6 @@
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
-    "@types/ws": "^8.18.1",
     "@varlock/ci-env-info": "workspace:^",
     "@vitest/coverage-v8": "^4.1.8",
     "ansis": "catalog:",
@@ -166,7 +165,6 @@
     "reflect-metadata": "^0.2.2",
     "semver": "^7.7.4",
     "tsup": "catalog:",
-    "vitest": "catalog:",
-    "ws": "^8.21.0"
+    "vitest": "catalog:"
   }
 }
