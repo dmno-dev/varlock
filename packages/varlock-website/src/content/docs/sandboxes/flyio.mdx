@@ -44,7 +44,7 @@ This is the standard posture on both: the workload holds real values. That is fi
 If the code running remotely is itself a varlock project (it has a `.env.schema`), install varlock there and use `varlock run`, the same way you would in a [Docker container](/integrations/docker/).
 
 - **Machines** boot an OCI image you control, so bake varlock into the image (see the [Docker guide](/integrations/docker/)).
-- **Sprites** use a fixed base image with a persistent filesystem: install once with `curl -sSfL https://varlock.dev/install.sh | sh -s`, then [checkpoint](https://docs.sprites.dev/) so every restore has it. This is the Sprites equivalent of baking a template.
+- **Sprites** use a fixed base image with a persistent filesystem: install once (`npm i -g varlock` works, sprites ship Node 24+; or `curl -sSfL https://varlock.dev/install.sh | sh -s` for the binary), then [checkpoint](https://docs.sprites.dev/) so every restore has it. This is the Sprites equivalent of baking a template.
 
 Values can come in via env (the schema validates them at load), or the machine/sprite can resolve its own secrets with a [plugin](/guides/plugins/) and a service-account token passed in as the only bootstrap credential.
 
@@ -144,34 +144,54 @@ Note that WireGuard peers are per-network: create the peer against the same cust
 
 ### Broker sprite (for Sprite fleets)
 
-Sprites live on isolated per-sprite networks, not your org's 6PN, so neither shape above applies. Instead the broker runs in a sprite and serves the tunnel on the sprite's public URL, which carries the WebSocket. This mirrors the [E2B broker sandbox](/sandboxes/e2b/#broker-sandbox) recipe:
+Sprites live on isolated per-sprite networks, not your org's 6PN, so neither shape above applies. Instead the broker runs in a sprite and serves the tunnel on the sprite's public URL, which carries the WebSocket. This mirrors the [E2B broker sandbox](/sandboxes/e2b/#broker-sandbox) recipe.
+
+Sprites ship Node 24+, so `npm i -g varlock` works (the npm global bin dir is not on the non-login `PATH`, hence the symlink). Set up the broker once; its filesystem persists:
 
 ```bash
-# one-time broker setup
 sprite create vl-broker
-sprite exec vl-broker -- sh -c 'curl -sSfL https://varlock.dev/install.sh | sh -s'
-# write .env.schema and .env.local into the sprite (sprite exec --file, or the filesystem API)
+sprite exec -s vl-broker -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
 
-# run the proxy as a sprite service so it survives sleep/wake
-sprite exec vl-broker --env VARLOCK_PROXY_TOKEN=$PROXY_TOKEN -- \
-  sprite-env services create varlock-proxy \
-  --cmd /home/sprite/.config/varlock/bin/varlock \
-  --args proxy,start,--tunnel,--port,8080
+# schema + real values (the only place real secrets live)
+sprite exec -s vl-broker --dir /home/sprite/proj \
+  --file .env.schema:/home/sprite/proj/.env.schema \
+  --file .env.local:/home/sprite/proj/.env.local -- true
+
+# run the proxy as a sprite service: it restarts on wake, and --http-port routes
+# the sprite's URL to it (waking the sprite when a connection arrives)
+sprite exec -s vl-broker -- sprite-env services create varlock-proxy \
+  --cmd /home/sprite/.local/bin/varlock \
+  --args "proxy,start,--tunnel,--port,8080" \
+  --env VARLOCK_PROXY_TOKEN=$PROXY_TOKEN \
+  --dir /home/sprite/proj --http-port 8080
+
+# the tunnel URL must be public: `proxy run --url` cannot present the sprites
+# token, and varlock's own data-plane token gates the tunnel instead
+sprite url update -s vl-broker --auth public
 ```
 
-Agent sprites connect over the broker sprite's URL (`https://<name>-<org>.sprites.app` routes to port 8080):
+Making the URL public is the same trust posture as exposing a local proxy through ngrok in the [E2B guide](/sandboxes/e2b/#proxy-on-your-machine): an unauthenticated caller cannot open the tunnel or reach the proxy.
+
+Agent sprites connect over the broker sprite's URL (shown by `sprite url -s vl-broker`):
 
 ```bash
-sprite exec vl-agent-1 -- /home/sprite/.config/varlock/bin/varlock proxy run \
+sprite create vl-agent-1
+sprite exec -s vl-agent-1 -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
+sprite exec -s vl-agent-1 -- varlock proxy run \
   --url wss://vl-broker-myorg.sprites.app --token $PROXY_TOKEN -- your-agent-command
 ```
 
-Sprite URLs are token-authenticated by default (callers present the sprites token in the `Authorization` header). Varlock's tunnel token rides its own `x-varlock-tunnel-token` header, so the two compose; alternatively make the broker URL public (`sprite url update --auth public`) and rely on varlock's token alone, which is the same trust posture as the E2B recipe.
-
 Sprites add two things to this shape:
 
-- **Egress lockdown**: each sprite has a [network policy](https://sprites.dev/api) (domain allow/deny, set from outside the sprite) you can clamp so an agent sprite's only allowed egress is the broker's domain. The default policy allows common dev and AI endpoints, so a real lockdown needs an explicit deny-all rule after allowing the broker.
-- **Sleep/wake**: sprites scale to zero after ~30s idle. Running the proxy as a service restarts it on wake, but a proxy restart mints a new CA, so agents started against the old broker session will not trust the new one. Keep the broker awake while a fleet is running (open tunnel connections count as activity), and treat wake events like a broker restart.
+- **Egress lockdown**: each sprite has a network policy (domain allow/deny, set only from outside the sprite) you can clamp so an agent sprite's only allowed egress is the broker's URL. A fresh sprite has no rules and open egress, so the lockdown is one explicit policy. It applies immediately to a running sprite, and it blocks IP-literal connections too, not just DNS lookups:
+
+  ```bash
+  sprite api /v1/sprites/vl-agent-1/policy/network -- -X POST \
+    -H 'Content-Type: application/json' \
+    -d '{"rules":[{"action":"allow","domain":"vl-broker-myorg.sprites.app"},{"action":"deny","domain":"*"}]}'
+  ```
+
+- **Sleep/wake**: sprites scale to zero after ~30s idle. The service config above restarts the proxy on wake (incoming tunnel connections wake it via `--http-port`), but a proxy restart mints a new CA and session, so a long-running agent started against the old broker session will not trust the new one. Fresh `proxy run --url` invocations pull the current CA from the broker and are unaffected. Keep the broker awake while a fleet is running (open tunnel connections count as activity), and treat wake events like a broker restart.
 
 ### Alternative: Sprites Connectors and Fly tokenizer
 
