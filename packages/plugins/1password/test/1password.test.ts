@@ -249,6 +249,17 @@ describe('1password plugin', () => {
       },
     }));
 
+    test('resolves a one-time password reference', opTest({
+      opConfig: {
+        responses: { 'op://vault/npm/one-time password?attribute=otp': '123456' },
+      },
+      schema: outdent`
+        # @internal
+        NPM_OTP=op("op://vault/npm/one-time password?attribute=otp")
+      `,
+      expectValues: { NPM_OTP: '123456' },
+    }));
+
     test('bad vault reference rejects that item and retries the rest', opTest({
       opConfig: {
         responses: { 'op://good-vault/item/field': 'good-value' },

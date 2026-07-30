@@ -488,6 +488,12 @@ export const RESOLVERS: Array<ResolverInfo> = [
     insertText: 'isEmpty(${1:$$OPTIONAL_KEY})',
   },
   {
+    name: 'generateOtp',
+    summary: 'Generates a time-based one-time password (TOTP) code.',
+    documentation: 'Takes the base32 seed or an `otpauth://totp/...` URI. Options: `digits`, `period` (seconds), `algorithm`, `encoding`.',
+    insertText: 'generateOtp(${1:$$TOTP_SECRET})',
+  },
+  {
     name: 'inferFromPrefix',
     summary: 'Special helper for `@defaultSensitive`.',
     documentation: 'Used as `@defaultSensitive=inferFromPrefix(PUBLIC_)`.',
