@@ -3,7 +3,9 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync, mkdtempSync, readFileSync, rmSync, statSync,
+} from 'node:fs';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
@@ -289,6 +291,55 @@ describe('startLocalProxyRuntime', () => {
     // A loopback client (the test) is exempt, so proxying still works with a token set.
     expect(runtime.env.HTTP_PROXY).toBeDefined();
     await runtime.stop();
+  });
+
+  test('--persist-ca reuses the CA across restarts, and keeps it (0600) after stop', async () => {
+    // A broker restart (including a sandbox waking from hibernation) must not
+    // invalidate agents that already trust this CA.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'varlock-persist-ca-'));
+    try {
+      const first = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir, persistCa: true,
+      });
+      const firstCert = readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8');
+      await first.stop();
+
+      // survives stop, unlike the non-persisted case
+      const keyPath = path.join(dir, 'ca-key.pem');
+      expect(existsSync(keyPath)).toBe(true);
+      expect(existsSync(path.join(dir, 'ca-cert.pem'))).toBe(true);
+      // eslint-disable-next-line no-bitwise -- mode bits
+      expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+
+      const second = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir, persistCa: true,
+      });
+      expect(readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8')).toBe(firstCert);
+      await second.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('without --persist-ca each start mints a fresh CA and cleans up', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'varlock-ephemeral-ca-'));
+    try {
+      const first = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir,
+      });
+      const firstCert = readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8');
+      await first.stop();
+      expect(existsSync(path.join(dir, 'ca-cert.pem'))).toBe(false);
+      expect(existsSync(path.join(dir, 'ca-key.pem'))).toBe(false);
+
+      const second = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir,
+      });
+      expect(readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8')).not.toBe(firstCert);
+      await second.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('returns proxy env vars and can be stopped', async () => {

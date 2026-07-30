@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
-  mkdir, mkdtemp, rm, writeFile,
+  mkdir, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -16,7 +16,9 @@ import {
   createApprovalRequest, isApprovalValid, type ApprovalProvider,
 } from './approval';
 import type { ProxyActivity } from './audit';
-import { createEphemeralCa, createHostCert } from './cert-authority';
+import {
+  createEphemeralCa, createHostCert, exportCaPrivateKeyPem, loadCa,
+} from './cert-authority';
 import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost,
   type RequestFacts, type RequestScopedManagedItem,
@@ -113,6 +115,13 @@ export type StartLocalProxyRuntimeInput = {
    * wrote are removed (an ephemeral temp dir is removed whole).
    */
   certDir?: string;
+  /**
+   * Keep the CA (cert **and private key**) in `certDir` and reuse it on the next
+   * start, so a restart doesn't invalidate clients that already trust this CA.
+   * For long-lived brokers; requires `certDir`. Off by default: the key normally
+   * never touches disk.
+   */
+  persistCa?: boolean;
   /**
    * Address the proxy listener binds. Defaults to loopback (`127.0.0.1`). Binding
    * a non-loopback address (e.g. `0.0.0.0`, to reach the proxy from a remote
@@ -886,6 +895,34 @@ async function readBody(req: http.IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+/** How long a persisted CA is valid: long enough that a broker isn't rotating
+ * constantly, short enough that a leaked key isn't useful forever. */
+const PERSISTED_CA_VALIDITY_DAYS = 30;
+/** Rotate a persisted CA this far ahead of expiry, so it can't lapse mid-session. */
+const PERSISTED_CA_ROTATE_BEFORE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Reuse the CA in `certDir` if it's still valid, else mint one and persist it.
+ * Reusing keeps clients that already trust this CA working across a restart —
+ * what a long-lived broker needs, and why the private key is written (0600)
+ * rather than kept in memory. An unreadable/corrupt/expiring pair is replaced
+ * rather than fatal: a broker should still come up.
+ */
+async function loadOrCreatePersistedCa(caCertPath: string, caKeyPath: string) {
+  try {
+    const [certPem, keyPem] = await Promise.all([
+      readFile(caCertPath, 'utf8'),
+      readFile(caKeyPath, 'utf8'),
+    ]);
+    const existing = await loadCa(certPem, keyPem);
+    if (existing.notAfter.getTime() - Date.now() > PERSISTED_CA_ROTATE_BEFORE_MS) return existing;
+  } catch { /* no usable CA on disk — mint one below */ }
+
+  const ca = await createEphemeralCa(PERSISTED_CA_VALIDITY_DAYS);
+  await writeFile(caKeyPath, await exportCaPrivateKeyPem(ca), { encoding: 'utf8', mode: 0o600 });
+  return ca;
+}
+
 /**
  * Local MITM proxy runtime for `varlock proxy run`.
  * Rewrites placeholder values to real values for requests matching @proxy domains.
@@ -900,6 +937,7 @@ export async function startLocalProxyRuntime({
   internalEndpoint,
   port,
   certDir,
+  persistCa,
   listenHost,
   dataPlaneToken,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
@@ -926,9 +964,15 @@ export async function startLocalProxyRuntime({
   const certDirIsUserProvided = certDir !== undefined;
   const certsDir = certDir ?? await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
   if (certDirIsUserProvided) await mkdir(certsDir, { recursive: true });
-  const ca = await createEphemeralCa();
   const caCertPath = path.join(certsDir, 'ca-cert.pem');
   const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
+  const caKeyPath = path.join(certsDir, 'ca-key.pem');
+  if (persistCa && !certDirIsUserProvided) {
+    throw new Error('varlock proxy: persisting the CA requires a cert directory to keep it in.');
+  }
+  const ca = persistCa
+    ? await loadOrCreatePersistedCa(caCertPath, caKeyPath)
+    : await createEphemeralCa();
   await writeFile(caCertPath, ca.certPem, 'utf8');
   await writeFile(combinedCaPath, `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`, 'utf8');
 
@@ -1510,7 +1554,11 @@ export async function startLocalProxyRuntime({
       ]);
       // A temp dir we created is removed wholesale; for a caller-provided dir,
       // remove only the cert files we wrote so we don't delete a dir the user owns.
-      if (certDirIsUserProvided) {
+      // With --persist-ca the whole point is that they outlive the session, so
+      // everything (including ca-key.pem) stays put.
+      if (persistCa) {
+        // keep the persisted CA for the next start
+      } else if (certDirIsUserProvided) {
         await rm(caCertPath, { force: true });
         await rm(combinedCaPath, { force: true });
       } else {

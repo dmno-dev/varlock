@@ -661,6 +661,8 @@ async function createRuntimeAndSession(opts: {
   port?: number;
   /** Directory to write the CA cert into (else a fresh temp dir). */
   certDir?: string;
+  /** Keep + reuse the CA (incl. private key) in certDir across restarts. */
+  persistCa?: boolean;
   /** Address the proxy binds (default loopback). Non-loopback mints a data-plane token. */
   listenHost?: string;
 }): Promise<{
@@ -709,6 +711,7 @@ async function createRuntimeAndSession(opts: {
     egressMode: opts.policy.egressMode,
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(opts.certDir !== undefined ? { certDir: opts.certDir } : {}),
+    ...(opts.persistCa ? { persistCa: true } : {}),
     ...(opts.listenHost !== undefined ? { listenHost: opts.listenHost } : {}),
     ...(dataPlaneToken !== undefined ? { dataPlaneToken } : {}),
     approvalProvider,
@@ -1372,8 +1375,10 @@ function startSchemaDriftWatcher(opts: {
  * bind otherwise); they let a caller wire tools to a known proxy endpoint / CA
  * path before the proxy boots, and serve the tunnel off-loopback for a remote client.
  */
-function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string; listenHost?: string } {
-  const out: { port?: number; certDir?: string; listenHost?: string } = {};
+function resolveProxyBindOptions(ctx: any): {
+  port?: number; certDir?: string; listenHost?: string; persistCa?: boolean;
+} {
+  const out: { port?: number; certDir?: string; listenHost?: string; persistCa?: boolean } = {};
   const portRaw = ctx.values.port;
   if (portRaw !== undefined && portRaw !== '') {
     const port = Number(portRaw);
@@ -1384,6 +1389,12 @@ function resolveProxyBindOptions(ctx: any): { port?: number; certDir?: string; l
   }
   const certDir = ctx.values['cert-dir'];
   if (certDir) out.certDir = path.resolve(String(certDir));
+  if (ctx.values['persist-ca']) {
+    if (!out.certDir) {
+      throw new CliExitError('`--persist-ca` needs `--cert-dir <dir>`: the CA is kept there for the next start.');
+    }
+    out.persistCa = true;
+  }
   // `--tunnel` (custom-parsed: bare → 0.0.0.0) is the off-loopback bind that also
   // serves the WS tunnel + mints the data-plane token.
   const tunnel = ctx.values.tunnel;
@@ -1848,8 +1859,9 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
     throw new CliExitError('Missing --token (or VARLOCK_PROXY_TOKEN). It is the broker\'s data-plane token (minted by `proxy start --tunnel`).');
   }
   // Local-proxy flags don't apply when the proxy runs elsewhere.
-  if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined || ctx.values.tunnel !== undefined) {
-    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, and `--tunnel` describe a local proxy and cannot be combined with `--url`.');
+  if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined
+    || ctx.values.tunnel !== undefined || ctx.values['persist-ca']) {
+    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, `--persist-ca`, and `--tunnel` describe a local proxy and cannot be combined with `--url`.');
   }
 
   // 1. Fetch the bootstrap (encoded child-view payload + CA certs) over the WS.
@@ -2387,6 +2399,12 @@ const bindArgs = {
     type: 'string',
     description: 'Directory to write the CA cert into (`ca-cert.pem` + `combined-ca.pem`), so tools can trust a '
       + 'known CA path before the proxy starts (else a fresh temp dir).',
+  },
+  'persist-ca': {
+    type: 'boolean',
+    description: 'Keep the CA in `--cert-dir` (including `ca-key.pem`, mode 0600) and reuse it on the next start, '
+      + 'so a restart does not invalidate clients that already trust it. For long-lived brokers; the private key '
+      + 'normally never touches disk, so only use this where the proxy runs alone.',
   },
   tunnel: {
     type: 'custom',

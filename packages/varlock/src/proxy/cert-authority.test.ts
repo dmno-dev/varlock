@@ -10,7 +10,9 @@ import https from 'node:https';
 
 import * as x509 from '@peculiar/x509';
 
-import { createEphemeralCa, createHostCert } from './cert-authority';
+import {
+  createEphemeralCa, createHostCert, exportCaPrivateKeyPem, loadCa,
+} from './cert-authority';
 
 /** Parse the CA's PEM with the x509 oracle to recover its public key for verification. */
 function caPublicKey(ca: Awaited<ReturnType<typeof createEphemeralCa>>) {
@@ -147,5 +149,33 @@ describe('cert-authority (in-memory CA)', () => {
         server.close(() => resolve());
       });
     }
+  });
+});
+
+describe('persisted CA (proxy start --persist-ca)', () => {
+  test('a reloaded CA mints leaves that still verify against the original cert', async () => {
+    // What a broker restart depends on: clients keep trusting the CA they
+    // already have, so the reloaded key must chain to the same cert.
+    const original = await createEphemeralCa();
+    const keyPem = await exportCaPrivateKeyPem(original);
+
+    const reloaded = await loadCa(original.certPem, keyPem);
+    expect(reloaded.certPem).toBe(original.certPem);
+    expect(Buffer.from(reloaded.subjectKeyId)).toEqual(Buffer.from(original.subjectKeyId));
+
+    const leaf = await createHostCert(reloaded, 'api.example.com');
+    const leafCert = new x509.X509Certificate(leaf.certPem);
+    // Verified against the ORIGINAL cert's public key: what a client holds.
+    await expect(leafCert.verify({ publicKey: caPublicKey(original) })).resolves.toBe(true);
+    expect(() => tls.createSecureContext({ key: leaf.keyPem, cert: leaf.certPem })).not.toThrow();
+  });
+
+  test('exposes notAfter so an expiring persisted CA can be rotated', async () => {
+    const shortLived = await createEphemeralCa(3);
+    const longLived = await createEphemeralCa(30);
+    expect(longLived.notAfter.getTime()).toBeGreaterThan(shortLived.notAfter.getTime());
+    // survives the PEM round trip (the runtime reads it back to decide on rotation)
+    const reloaded = await loadCa(longLived.certPem, await exportCaPrivateKeyPem(longLived));
+    expect(Math.abs(reloaded.notAfter.getTime() - longLived.notAfter.getTime())).toBeLessThan(1000);
   });
 });

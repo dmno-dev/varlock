@@ -60,14 +60,19 @@ sprite exec -s varlock-broker --dir /home/sprite/proj \
   --file .env.schema:/home/sprite/proj/.env.schema -- true
 
 # run the proxy as a sprite service: it restarts on wake, and http_port routes
-# the sprite's URL to it (waking the sprite when a connection arrives). Schema
-# keys resolve from the process env, so the env map carries the bootstrap:
-# usually just your plugin's secret-zero (shown: a 1Password service account).
+# the sprite's URL to it (waking the sprite when a connection arrives).
+# --persist-ca keeps the CA on the persistent filesystem so a wake or restart
+# doesn't invalidate agents that already trust it. Schema keys resolve from the
+# process env, so the env map carries the bootstrap: usually just your plugin's
+# secret-zero (shown: a 1Password service account).
 sprite api /v1/sprites/varlock-broker/services/varlock-proxy -- -X PUT \
   -H 'Content-Type: application/json' -d @- <<EOF
 {
   "cmd": "/home/sprite/.local/bin/varlock",
-  "args": ["proxy", "start", "--tunnel", "--port", "8080"],
+  "args": [
+    "proxy", "start", "--tunnel", "--port", "8080",
+    "--cert-dir", "/home/sprite/proj/.varlock-ca", "--persist-ca"
+  ],
   "dir": "/home/sprite/proj",
   "http_port": 8080,
   "needs": [],
@@ -114,7 +119,9 @@ This is enforced by Sprites' infrastructure outside the VM, so nothing the agent
 
 ### Sleep/wake and trust model
 
-Sprites hibernate when idle (in practice we have seen a broker with a running service stay up well past the documented ~30s threshold, but do not rely on that). The service config above restarts the proxy on wake (incoming tunnel connections wake it via `http_port`), and a restart mints a new CA and session: a long-running agent started against the old broker session will not trust the new one, while fresh `proxy run --url` invocations pull the current CA from the broker and are unaffected. Keep the broker awake while a fleet is running (open tunnel connections count as activity), and treat wake events like a broker restart.
+Sprites hibernate when idle (in practice we have seen a broker with a running service stay up well past the documented ~30s threshold, but do not rely on that). The service config above restarts the proxy on wake, and incoming tunnel connections wake the sprite via `http_port`.
+
+A restart normally mints a new CA, which running agents would not trust. That is what `--persist-ca` in the service args prevents: the CA is kept in `--cert-dir` on the sprite's persistent filesystem and reused, so a wake is invisible to agents. Reserve it for brokers, where the proxy runs alone: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
 The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one.
 
