@@ -1,0 +1,203 @@
+---
+title: Vercel Sandbox
+description: Using varlock with Vercel Sandbox, from resolving and validating sandbox env vars to running the credential proxy so sandboxes only hold placeholders.
+---
+
+[Vercel Sandbox](https://vercel.com/docs/sandbox) runs untrusted code in Firecracker microVMs, commonly as the execution layer for AI agents. Sandboxes get their env vars from the code that creates them (`env` at sandbox creation or per command), which makes that orchestrator code the natural place for varlock to do its job.
+
+For workloads you trust with the credentials they use, [pass resolved values](#passing-resolved-values). For agentic workloads, the recommended shape is the [broker sandbox](#credential-proxy-the-broker-sandbox): one sandbox runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent sandboxes route through it holding only [placeholders](/guides/proxy/rules/#placeholders). The other [topologies](/sandboxes/overview/#topologies) get a brief mention at the end.
+
+## Passing resolved values
+
+Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator. Varlock resolves your values (from plugins, `.env.local`, etc.), validates them against your schema, and sets up log redaction, with no wrapper command; Vercel delivery stays plain `env`:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { Sandbox } from '@vercel/sandbox';
+
+const sandbox = await Sandbox.create({
+  env: {
+    STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY,
+  },
+});
+```
+
+(Running the orchestrator under `varlock run -- node orchestrate.ts` works too, and is the option when the orchestrator is not a Node program. `runCommand({ env })` takes per-command values the same way.)
+
+This is the standard Sandbox posture: sandboxes hold real values, and the values transit Vercel's API. Note that create-time `env` persists with the sandbox: it comes back after a stop/resume cycle and is inherited by [forks](https://vercel.com/docs/sandbox/sdk-reference#sandbox.fork). If the sandboxed project is itself a varlock project (it has a `.env.schema`), you can instead install varlock in the sandbox (`npm i -g varlock` works on the default `node24` runtime) and use `varlock run` there, the same way you would in a [Docker container](/integrations/docker/).
+
+## Credential proxy: the broker sandbox
+
+One long-lived sandbox (the broker) runs `varlock proxy start --expose`, which serves the built-in WebSocket tunnel on its proxy port (Vercel's public sandbox URLs carry it). Agent sandboxes reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
+
+```
+[agent sandbox]                          [broker sandbox]
+  varlock proxy run --url  ── ws ──▶  proxy :8080 + tunnel
+  (loopback proxy + agent)              (public sb-*.vercel.run URL)
+```
+
+### Schema setup
+
+Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each one an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=
+
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=
+```
+
+An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
+
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+
+The orchestrator also needs [Sandbox SDK auth](https://vercel.com/docs/sandbox/concepts/authentication): automatic OIDC when it runs on Vercel, or a Vercel access token plus team and project IDs elsewhere. An access token is a varlock-managed secret like any other.
+
+### Start the broker
+
+`Sandbox.getOrCreate` is Vercel's pattern for long-lived sandboxes, and it fits the broker exactly: `onCreate` provisions it once, and `onResume` brings the proxy back whenever the sandbox wakes from a stop:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { Sandbox } from '@vercel/sandbox';
+
+// One data-plane token, shared by the broker and every agent; generate it
+// yourself (or let the broker mint one and read it back with `varlock proxy
+// token`). It is the credential to USE the broker over the tunnel, not to read
+// its secrets.
+const PROXY_TOKEN = crypto.randomUUID();
+
+// start (or restart after a wake) the proxy as a headless daemon, bound
+// off-loopback so the tunnel is reachable. --persist-ca keeps the CA on the
+// sandbox filesystem, which persists across stop/resume, so agents that
+// already trust it keep working after a wake.
+async function startProxy(sbx: Sandbox) {
+  await sbx.runCommand({
+    cmd: 'bash',
+    args: ['-c', 'cd proj && varlock proxy start --expose --port 8080'
+      + ' --cert-dir /vercel/sandbox/proj/.varlock-ca --persist-ca'
+      + ' > /vercel/sandbox/proxy.log 2>&1'],
+    detached: true,
+  });
+  // ready once the port answers (a bare GET returns 400, which is fine; we
+  // only need the listener up)
+  await sbx.runCommand({
+    cmd: 'bash',
+    args: ['-c', "until curl -s -o /dev/null http://127.0.0.1:8080 --proxy ''; do sleep 0.2; done"],
+  });
+}
+
+const broker = await Sandbox.getOrCreate({
+  name: 'varlock-broker',
+  runtime: 'node24',
+  ports: [8080],
+  timeout: 60 * 60 * 1000, // default is only 5 minutes; max 45m (Hobby) / 24h (Pro)
+  // sandbox-wide env persists across stop/resume, so the proxy restarted by
+  // onResume inherits it. It carries the bootstrap: the pinned tunnel token,
+  // plus whatever resolves your schema (usually one plugin secret-zero;
+  // shown: a 1Password service account).
+  env: {
+    VARLOCK_PROXY_TOKEN: PROXY_TOKEN,
+    OP_SERVICE_ACCOUNT_TOKEN: ENV.OP_SERVICE_ACCOUNT_TOKEN,
+  },
+  onCreate: async (sbx) => {
+    await sbx.runCommand('npm', ['i', '-g', 'varlock']);
+    // upload the schema (plus any other .env files your project loads);
+    // real values arrive via env above instead
+    await sbx.writeFiles([
+      { path: 'proj/.env.schema', content: Buffer.from(envSchemaContents) },
+    ]);
+    await startProxy(sbx);
+  },
+  onResume: startProxy,
+  resume: true,
+});
+
+const brokerHost = new URL(broker.domain(8080)).host; // e.g. sb-xxxx.vercel.run
+```
+
+The `env` map carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them instead (`ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY`, ...), so they are the orchestrator's own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
+
+### Start agent sandboxes
+
+An agent needs nothing but varlock and `proxy run --url`. It pulls its placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass:
+
+```ts title="orchestrate.ts (continued)"
+const agent = await Sandbox.create({
+  runtime: 'node24',
+  timeout: 60 * 60 * 1000,
+  // the token rides the env rather than the command line, so it stays out of
+  // process listings and logs
+  env: { VARLOCK_PROXY_TOKEN: PROXY_TOKEN },
+});
+await agent.runCommand('npm', ['i', '-g', 'varlock']);
+
+// connect to the broker and run the workload through the tunnel. The agent only
+// ever holds placeholders; the broker injects real values at the wire.
+await agent.runCommand({
+  cmd: 'varlock',
+  args: ['proxy', 'run', '--url', `wss://${brokerHost}`, '--', 'your-agent-command'],
+});
+```
+
+:::note[Installing varlock]
+The default runtimes ship Node 22/24/26 with a user-writable npm global prefix already on the `PATH`, so `npm i -g varlock` just works (~9 MB). The `curl -sSfL https://varlock.dev/install.sh | sh -s` binary install works too on any image, including `python3.13`. To skip the per-sandbox install entirely, bake varlock into a [snapshot](https://vercel.com/docs/sandbox/concepts/snapshots) or a [custom image](https://vercel.com/docs/sandbox/concepts/images), which matters most when a fleet spawns many sandboxes.
+:::
+
+To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
+
+### Lock down agent egress
+
+So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake, but Vercel can close the gap entirely with its [network firewall](https://vercel.com/docs/sandbox/concepts/firewall): restrict the agent to the broker's URL and every request has to go through varlock policy.
+
+Apply the restriction **after** provisioning, not at `Sandbox.create`. The agent needs open egress briefly to install varlock (skip that by baking it into a snapshot or image), and the clamp applies live without disturbing anything:
+
+```ts
+await agent.update({
+  networkPolicy: { allow: [brokerHost] },
+});
+```
+
+This is enforced by Vercel's infrastructure outside the VM, so nothing the agent does from inside can lift it. Non-allowed hosts fail at DNS resolution, and allowed domains match by SNI, so only TLS traffic matches domain rules; add `subnets` rules for IP-literal or non-TLS traffic.
+
+### Broker lifecycle and trust model
+
+Vercel sandboxes are persistent by default: on stop, the filesystem is snapshotted and restored on the next resume, and helpfully for the broker, the public port URL stays the same across stop/resume, as does the create-time `env`. Combined with `--persist-ca` (the CA lives on that persisted filesystem) and the `onResume` restart above, a broker wake is invisible to agents: same URL, same token, same CA. Two lifecycle facts to plan around: the **default session timeout is 5 minutes**, so always pass an explicit `timeout` (max 45 minutes on Hobby, 24 hours on Pro/Enterprise; `sandbox.extendTimeout()` stretches a live session), and if a broker's snapshot expires (30 days unused by default), `getOrCreate` recreates it fresh, which mints a new CA and needs a re-provision, handled by `onCreate` refiring.
+
+Be clear-eyed about what this shape protects against. The broker holds real secrets inside Vercel's cloud, so Vercel's infrastructure is inside your trust boundary, same as it would be for secrets passed to any sandbox. What changes is the blast radius on your side: agents never hold secrets, so a compromised agent sandbox yields placeholders and only whatever requests your rules and egress mode allow. Rotation, policy, and audit live in one place instead of N sandboxes.
+
+Two practical notes:
+
+- No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, [edit the schema and reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) from the orchestrator, or restart the broker.
+- The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one). The sandbox URL itself is public and unauthenticated, which is the same trust posture as exposing a local proxy through a tunnel service: an unauthenticated caller cannot open the tunnel or reach the proxy.
+
+## Other topologies
+
+For local development, run the proxy on your machine instead: secrets, resolver plugins, biometric unlock, and the interactive request log stay local. Expose it through any tunnel service that carries WebSockets and reuse the same agent-side command:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+ngrok http 8080          # or cloudflared, Tailscale funnel, ...
+# agents: VARLOCK_PROXY_TOKEN=… varlock proxy run --url wss://abc123.ngrok.app -- <command>
+```
+
+The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. The same pattern reaches a proxy on any infrastructure you run; see the [topologies overview](/sandboxes/overview/#topologies).
+
+:::note[Compared to Vercel firewall transforms]
+Vercel's firewall has its own credential-brokering feature: per-domain [`transform` rules](https://vercel.com/docs/sandbox/concepts/firewall) inject headers into matching egress requests at the gateway, and `forwardURL` routes matching requests to a proxy you host, so a sandbox can call an API without holding the key.
+
+The varlock proxy covers the same ground and more:
+
+- **Seamless.** Substitution happens anywhere in a request, not one static header per rule, and the same placeholder mechanism works on every platform your agents run on, not only inside Vercel Sandbox.
+- **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) and stay in your custody, instead of being embedded in per-sandbox firewall config.
+- **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents.
+- Plus [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, and your own audit log.
+
+The two compose well: the `networkPolicy` clamp above is Vercel's firewall doing what only the platform can do (egress enforcement outside the VM), while varlock handles custody, policy, and injection.
+:::

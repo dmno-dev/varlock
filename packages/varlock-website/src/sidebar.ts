@@ -259,6 +259,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             items: [
               { label: 'E2B', slug: 'sandboxes/e2b' },
               { label: 'Fly.io', slug: 'sandboxes/flyio' },
+              { label: 'Vercel Sandbox', slug: 'sandboxes/vercel' },
             ],
           },
           {
