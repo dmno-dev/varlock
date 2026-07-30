@@ -28,9 +28,6 @@ One sprite (the broker) runs `varlock proxy start --tunnel` as a sprite *service
 Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each one an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
 
 ```env-spec title=".env.schema"
-# @proxyConfig={egress="strict"}
-# ---
-
 # @proxy(domain="api.anthropic.com")
 # @placeholder=sk-ant-api03-000000000000000000000000
 ANTHROPIC_API_KEY=
@@ -40,24 +37,33 @@ ANTHROPIC_API_KEY=
 STRIPE_SECRET_KEY=
 ```
 
-[`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) blocks any proxied request that does not match a rule. Start with the default permissive mode if your agents need broad internet access through the proxy, and tighten later.
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
 
 ### Set up the broker
 
-Set up the broker once; its filesystem persists. Sprites ship Node 24+, so `npm i -g varlock` works (the npm global bin dir is not on the non-login `PATH`, hence the symlink):
+Set up the broker once; its filesystem persists. The steps use the sprite CLI for readability, but each one is a plain REST call (the `sprite api` steps show the shape), so an orchestrator can drive the same setup from code.
 
 ```bash
-sprite create vl-broker
-sprite exec -s vl-broker -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
+# one data-plane token, shared by the broker and every agent; generate it yourself.
+# it is the credential to USE the broker over the tunnel, not to read its secrets.
+export PROXY_TOKEN=$(uuidgen)
 
-# the schema is the only file the broker needs; real values ride the service env
-sprite exec -s vl-broker --dir /home/sprite/proj \
+# sprites ship Node 24+, so npm works. Node lives under nvm here, and nvm's bin
+# dir is only on the PATH in login shells; ~/.local/bin is always on the PATH,
+# so the symlink makes varlock visible to services and `sprite exec`.
+sprite create varlock-broker
+sprite exec -s varlock-broker -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
+
+# upload the schema (plus any other .env files your project loads);
+# real values ride the service env instead
+sprite exec -s varlock-broker --dir /home/sprite/proj \
   --file .env.schema:/home/sprite/proj/.env.schema -- true
 
 # run the proxy as a sprite service: it restarts on wake, and http_port routes
 # the sprite's URL to it (waking the sprite when a connection arrives). Schema
-# keys resolve from the process env, so real values ride the service's env map.
-sprite api /v1/sprites/vl-broker/services/varlock-proxy -- -X PUT \
+# keys resolve from the process env, so the env map carries the bootstrap:
+# usually just your plugin's secret-zero (shown: a 1Password service account).
+sprite api /v1/sprites/varlock-broker/services/varlock-proxy -- -X PUT \
   -H 'Content-Type: application/json' -d @- <<EOF
 {
   "cmd": "/home/sprite/.local/bin/varlock",
@@ -67,30 +73,29 @@ sprite api /v1/sprites/vl-broker/services/varlock-proxy -- -X PUT \
   "needs": [],
   "env": {
     "VARLOCK_PROXY_TOKEN": "$PROXY_TOKEN",
-    "ANTHROPIC_API_KEY": "$ANTHROPIC_API_KEY",
-    "STRIPE_SECRET_KEY": "$STRIPE_SECRET_KEY"
+    "OP_SERVICE_ACCOUNT_TOKEN": "$OP_SERVICE_ACCOUNT_TOKEN"
   }
 }
 EOF
 
 # the tunnel URL must be public: `proxy run --url` cannot present the sprites
 # token, and varlock's own data-plane token gates the tunnel instead
-sprite url update -s vl-broker --auth public
+sprite url update -s varlock-broker --auth public
 ```
 
 Making the URL public is the same trust posture as exposing a local proxy through a tunnel service: an unauthenticated caller cannot open the tunnel or reach the proxy.
 
-Which entries the `env` map needs depends on your schema. In most setups secrets resolve from a manager via a [plugin](/guides/plugins/), and then the broker needs exactly **one** value besides the proxy token: the plugin's service-account token, its secret zero (e.g. `OP_SERVICE_ACCOUNT_TOKEN` for 1Password), and the schema resolves everything else inside the broker. Enumerating values as above is the fallback for values that only exist on your side, like the example schema's; run the setup under `varlock run` and they are your orchestrator's own resolved values passing through. The env persists with the service definition, which is what lets the proxy come back with its values after a wake (`sprite-env services create --env` inside the sprite does the same thing with comma-separated `KEY=value` pairs). Either way agent sprites hold no real secrets at all.
+The `env` map carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them in the map instead (`"ANTHROPIC_API_KEY": "$ANTHROPIC_API_KEY"`, ...), running the setup under `varlock run` so they are your orchestrator's own resolved values. The env persists with the service definition, which is what lets the proxy come back with its values after a wake. Either way agent sprites hold no real secrets at all.
 
 ### Connect agent sprites
 
-An agent needs nothing but varlock and the broker's URL (shown by `sprite url -s vl-broker`). `proxy run --url` pulls the placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass:
+An agent needs nothing but varlock and the broker's URL (shown by `sprite url -s varlock-broker`). `proxy run --url` pulls the placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass:
 
 ```bash
-sprite create vl-agent-1
-sprite exec -s vl-agent-1 -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
-sprite exec -s vl-agent-1 -- varlock proxy run \
-  --url wss://vl-broker-myorg.sprites.app --token $PROXY_TOKEN -- your-agent-command
+sprite create agent-1
+sprite exec -s agent-1 -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
+sprite exec -s agent-1 -- varlock proxy run \
+  --url wss://varlock-broker-myorg.sprites.app --token $PROXY_TOKEN -- your-agent-command
 ```
 
 To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
@@ -100,9 +105,9 @@ To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/)
 So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake, but Sprites can close the gap entirely: each sprite has a network policy (domain allow/deny, set only from outside the sprite) you can clamp so an agent sprite's only allowed egress is the broker's URL. A fresh sprite has no rules and open egress, so the lockdown is one explicit policy. It applies immediately to a running sprite, and it blocks IP-literal connections too, not just DNS lookups:
 
 ```bash
-sprite api /v1/sprites/vl-agent-1/policy/network -- -X POST \
+sprite api /v1/sprites/agent-1/policy/network -- -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"rules":[{"action":"allow","domain":"vl-broker-myorg.sprites.app"},{"action":"deny","domain":"*"}]}'
+  -d '{"rules":[{"action":"allow","domain":"varlock-broker-myorg.sprites.app"},{"action":"deny","domain":"*"}]}'
 ```
 
 This is enforced by Sprites' infrastructure outside the VM, so nothing the agent does from inside can lift it.
@@ -121,7 +126,7 @@ For local development, run the proxy on your machine instead: secrets, resolver 
 export VARLOCK_PROXY_TOKEN=$(uuidgen)
 varlock proxy start --tunnel --port 8080
 ngrok http 8080          # or cloudflared, Tailscale funnel, ...
-# agents: sprite exec -s vl-agent-1 -- varlock proxy run --url wss://abc123.ngrok.app --token $VARLOCK_PROXY_TOKEN -- <command>
+# agents: sprite exec -s agent-1 -- varlock proxy run --url wss://abc123.ngrok.app --token $VARLOCK_PROXY_TOKEN -- <command>
 ```
 
 The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. See the [topologies overview](/sandboxes/overview/#topologies) for the full menu.

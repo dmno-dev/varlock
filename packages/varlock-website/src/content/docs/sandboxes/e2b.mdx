@@ -42,9 +42,6 @@ One long-lived sandbox (the broker) runs `varlock proxy start --tunnel`, which s
 Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each one an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
 
 ```env-spec title=".env.schema"
-# @proxyConfig={egress="strict"}
-# ---
-
 # @proxy(domain="api.anthropic.com")
 # @placeholder=sk-ant-api03-000000000000000000000000
 ANTHROPIC_API_KEY=
@@ -56,7 +53,7 @@ STRIPE_SECRET_KEY=
 
 An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
 
-[`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) blocks any proxied request that does not match a rule. Start with the default permissive mode if your agents need broad internet access through the proxy, and tighten later.
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
 
 You will also need an [E2B API key](https://e2b.dev/docs) for the orchestrator that creates sandboxes. It can be a varlock-managed secret like any other.
 
@@ -73,13 +70,14 @@ const broker = await Sandbox.create({ timeoutMs: 60 * 60 * 1000 });
 
 await broker.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
 
-// the schema is the only file the broker needs; real values arrive via envs below
+// upload the schema (plus any other .env files your project loads);
+// real values arrive via envs below instead
 await broker.files.write('/home/user/proj/.env.schema', envSchemaContents);
 
 // start the proxy bound off-loopback so the tunnel is reachable; the token is
-// pinned via VARLOCK_PROXY_TOKEN so we already know it. Real secrets ride E2B's
-// own env machinery: schema keys resolve from the process env, so nothing is
-// written to the broker's disk.
+// pinned via VARLOCK_PROXY_TOKEN so we already know it. Schema keys resolve
+// from the process env, so envs carries the bootstrap: usually just your
+// plugin's secret-zero (shown: a 1Password service account).
 await broker.commands.run(
   `cd /home/user/proj && ${VARLOCK} proxy start --tunnel --port 8080 > /home/user/proxy.log 2>&1`,
   {
@@ -87,8 +85,7 @@ await broker.commands.run(
     timeoutMs: 0,
     envs: {
       VARLOCK_PROXY_TOKEN: PROXY_TOKEN,
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!,
-      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY!,
+      OP_SERVICE_ACCOUNT_TOKEN: process.env.OP_SERVICE_ACCOUNT_TOKEN!,
     },
   },
 );
@@ -99,7 +96,7 @@ await broker.commands.run("until curl -s -o /dev/null http://127.0.0.1:8080 --pr
 const brokerHost = broker.getHost(8080); // e.g. 8080-<id>.e2b.app
 ```
 
-Which env vars the broker needs depends on your schema. In most setups secrets resolve from a manager via a [plugin](/guides/plugins/), and then the broker needs exactly **one** value besides the proxy token: the plugin's service-account token, its secret zero (e.g. `OP_SERVICE_ACCOUNT_TOKEN` for 1Password), and the schema resolves everything else inside the broker. Enumerating values through `envs` as above is the fallback for values that only exist on your side, like the example schema's; run the orchestrator under `varlock run` and they are its own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
+The `envs` block carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them instead (`ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!`, ...), running the orchestrator under `varlock run` so they are its own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
 
 ### Start agent sandboxes
 
