@@ -12,10 +12,19 @@ For workloads you trust with the credentials they use, [pass resolved values](#p
 Run the orchestrator under `varlock run` and pass values through. Varlock resolves them (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs. Sprite env is per exec, so credentials exist only for the duration of one command:
 
 ```bash
-varlock run -- sprite exec -s my-sprite --env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" -- node agent.js
+varlock run -- sh -c 'sprite exec -s my-sprite --env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" -- node agent.js'
 ```
 
-The same applies through the SDKs (`spawn(cmd, args, { env })` in JS, `env=` in Python) when the orchestrator itself runs under `varlock run`.
+The `sh -c` wrapper matters: `varlock run` execs the command directly, so a bare `--env KEY="$KEY"` would be [expanded by your own shell](/reference/cli/load-and-run/#printenv) before varlock resolved anything, and the sprite would get an empty value. The quoted wrapper defers expansion to a shell running inside varlock's env.
+
+From a Node orchestrator, import [`varlock/auto-load`](/integrations/javascript/) instead and read values off `ENV`, with no wrapper command or quoting to think about:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+
+await sprite.spawn('node', ['agent.js'], { env: { STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY } });
+```
 
 This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. If the code in the sprite is itself a varlock project (it has a `.env.schema`), install varlock there instead and use `varlock run` in the sprite, the way you would in a [Docker container](/integrations/docker/): sprites ship Node 24+, so `npm i -g varlock` works, and a [checkpoint](https://docs.sprites.dev/) makes the install stick (sprites have no custom images; the persistent filesystem is the customization story).
 
