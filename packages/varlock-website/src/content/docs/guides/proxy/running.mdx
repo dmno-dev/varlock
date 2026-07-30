@@ -106,9 +106,11 @@ varlock proxy start --port 8080 --cert-dir ./.varlock-proxy
 
 `--port <n>` fixes the loopback port, so `HTTP_PROXY` is `http://127.0.0.1:<n>`. If that port is already in use the proxy refuses to start instead of falling back to a random one.
 
-`--cert-dir <dir>` writes `ca-cert.pem` (and `combined-ca.pem`, the CA plus system roots) into `<dir>`, creating it if missing. The CA is still ephemeral and regenerated on each start; on stop, only the cert files varlock wrote are removed, never the directory itself.
+`--cert-dir <dir>` writes `ca-cert.pem` (and `combined-ca.pem`, the CA plus system roots) into `<dir>`, creating it if missing. The CA itself is ephemeral and regenerated on each start; on stop, only the cert files varlock wrote are removed, never the directory itself.
 
-Both flags apply only when **starting** a proxy. They also work on `proxy run` when it starts its own proxy (with `--new`, or when no daemon is running for the directory). On a `proxy run` that attaches to an existing daemon they are rejected, since that daemon already fixed the port and cert location.
+`--persist-ca` (with `--cert-dir`) changes that: the CA is kept, private key included, and reused on the next start, so a restart does not invalidate clients that already trust it. This matters for a long-lived [broker](/sandboxes/overview/#topologies) serving remote sandboxes, where a restart would otherwise break every running agent. It writes `ca-key.pem` (mode 0600), which the proxy otherwise never does, so use it only where the proxy runs alone rather than alongside the agent it proxies. A persisted CA lasts 30 days and rotates automatically a day before expiring.
+
+These flags apply only when **starting** a proxy. They also work on `proxy run` when it starts its own proxy (with `--new`, or when no daemon is running for the directory). On a `proxy run` that attaches to an existing daemon they are rejected, since that daemon already fixed the port and cert location.
 
 ## Auditing
 
