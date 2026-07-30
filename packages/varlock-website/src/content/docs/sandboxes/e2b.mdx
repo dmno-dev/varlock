@@ -9,21 +9,21 @@ For workloads you trust with the credentials they use, [pass resolved values](#p
 
 ## Passing resolved values
 
-Run the orchestrator under `varlock run` and pass values through. Varlock resolves them (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs; E2B delivery stays plain `envs`:
-
-```bash
-varlock run -- node orchestrate.ts
-```
+Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator. Varlock resolves your values (from plugins, `.env.local`, etc.), validates them against your schema, and sets up log redaction, with no wrapper command; E2B delivery stays plain `envs`:
 
 ```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
 import { Sandbox } from 'e2b';
 
 const sandbox = await Sandbox.create({
   envs: {
-    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY!,
+    STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY,
   },
 });
 ```
+
+(Running the orchestrator under `varlock run -- node orchestrate.ts` works too, and is the option when the orchestrator is not a Node program.)
 
 This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. If the sandboxed project is itself a varlock project (it has a `.env.schema`), you can instead install varlock in the sandbox and use `varlock run` there, the same way you would in a [Docker container](/integrations/docker/): values come in via `envs` (the schema validates them at load), or the sandbox resolves its own secrets with a [plugin](/guides/plugins/) and a service-account token as the only bootstrap credential.
 
@@ -60,9 +60,13 @@ You will also need an [E2B API key](https://e2b.dev/docs) for the orchestrator t
 ### Start the broker
 
 ```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
 import { Sandbox } from 'e2b';
 
-// One token, shared by the broker and every agent. Generate it yourself.
+// One data-plane token, shared by the broker and every agent; generate it
+// yourself. It is the credential to USE the broker over the tunnel, not to
+// read its secrets.
 const PROXY_TOKEN = crypto.randomUUID();
 const VARLOCK = '/home/user/.config/varlock/bin/varlock';
 
@@ -86,7 +90,7 @@ await broker.commands.run(
     timeoutMs: 0,
     envs: {
       VARLOCK_PROXY_TOKEN: PROXY_TOKEN,
-      OP_SERVICE_ACCOUNT_TOKEN: process.env.OP_SERVICE_ACCOUNT_TOKEN!,
+      OP_SERVICE_ACCOUNT_TOKEN: ENV.OP_SERVICE_ACCOUNT_TOKEN,
     },
   },
 );
@@ -97,7 +101,7 @@ await broker.commands.run("until curl -s -o /dev/null http://127.0.0.1:8080 --pr
 const brokerHost = broker.getHost(8080); // e.g. 8080-<id>.e2b.app
 ```
 
-The `envs` block carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them instead (`ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY!`, ...), running the orchestrator under `varlock run` so they are its own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
+The `envs` block carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them instead (`ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY`, ...), so they are the orchestrator's own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
 
 ### Start agent sandboxes
 
