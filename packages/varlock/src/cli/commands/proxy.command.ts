@@ -2444,10 +2444,11 @@ const bindArgs = {
     type: 'custom',
     // Bare `--expose` → bind 0.0.0.0; `--expose=<addr>` → a specific interface.
     parse: (value: string) => (value === '' || value == null ? '0.0.0.0' : value),
-    description: 'Serve the built-in WebSocket tunnel so a client elsewhere can run through this proxy '
+    description: 'Make this proxy reachable from another machine, so a client elsewhere can run through it '
       + '(`proxy run --url`). Binds off-loopback (bare `--expose` = 0.0.0.0; `--expose=<addr>` picks an interface) '
-      + 'and mints a per-session data-plane token clients must present (pin it with VARLOCK_PROXY_TOKEN). The '
-      + 'control endpoint stays loopback-only.',
+      + 'and serves the built-in WebSocket tunnel for clients behind HTTP-only ingress. Mints a per-session '
+      + 'data-plane token clients must present (pin it with VARLOCK_PROXY_TOKEN, or read it back with `proxy '
+      + 'token`). The control endpoint stays loopback-only.',
   },
 } as const;
 
