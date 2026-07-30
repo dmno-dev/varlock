@@ -3,7 +3,7 @@
  *
  * Powers the `generateOtp()` resolver function, so a TOTP seed held in your env
  * schema (usually `@internal` and encrypted) can be turned into the 6-digit code
- * a CLI like `npm publish --otp=...` asks for.
+ * a CLI like `aws sts get-session-token --token-code ...` asks for.
  *
  * Error messages here must never echo any part of the secret, since resolver
  * errors are printed unredacted.
