@@ -403,10 +403,6 @@ To get the seed in the first place, you generally have to enroll (or re-enroll) 
 A code covers one authenticated call, and providers generally reject a reused one. If a command makes several authenticated calls in a run, prefer handing it the seed and letting it mint a code per call. [fledgling](https://github.com/dmno-dev/fledgling), for example, takes `FLEDGLING_OTP_SECRET`.
 :::
 
-:::caution[Not for npm]
-npm no longer issues new authenticator-app secrets, and only offers passkeys and security keys for new 2FA setups. Existing secrets still work for now, so `NPM_CONFIG_OTP=generateOtp($NPM_TOTP_SECRET)` covers `npm publish` if you have a grandfathered one, but do not build new automation on it. Use [trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers) instead, and see the [OIDC guide](/guides/oidc/) for how varlock handles workload identity.
-:::
-
 :::caution[Codes cannot be cached]
 Wrapping this in [`cache()`](#cache) is an error, since a cached code is expired by definition. Cache the *secret* instead: `generateOtp(cache(op("op://vault/aws/mfa seed")))`.
 :::
