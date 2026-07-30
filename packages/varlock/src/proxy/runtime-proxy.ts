@@ -895,9 +895,21 @@ async function readBody(req: http.IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-/** How long a persisted CA is valid: long enough that a broker isn't rotating
- * constantly, short enough that a leaked key isn't useful forever. */
-const PERSISTED_CA_VALIDITY_DAYS = 30;
+/**
+ * How long a persisted CA is valid. Effectively indefinite (10 years, the same
+ * convention as mkcert/Caddy local roots): any expiry is a scheduled outage for
+ * agents still running when it hits, which is exactly what persisting the CA is
+ * meant to prevent, and it buys no security here. Nothing checks revocation for
+ * this CA, and it is only ever trusted by clients that fetched it from this
+ * broker over an authenticated tunnel, so a leaked key is answered by deleting
+ * the file and restarting, not by waiting. The short-lived material that does
+ * matter is the per-host leaf certs.
+ *
+ * Not literally "no expiry" (RFC 5280's 9999-12-31): a year past 2049 has to be
+ * encoded as GeneralizedTime, a far less trodden path through TLS verifiers, and
+ * a bounded life means a forgotten cert directory does not stay valid forever.
+ */
+const PERSISTED_CA_VALIDITY_DAYS = 3650;
 /** Rotate a persisted CA this far ahead of expiry, so it can't lapse mid-session. */
 const PERSISTED_CA_ROTATE_BEFORE_MS = 24 * 60 * 60 * 1000;
 

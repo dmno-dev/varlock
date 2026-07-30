@@ -172,8 +172,11 @@ describe('persisted CA (proxy start --persist-ca)', () => {
 
   test('exposes notAfter so an expiring persisted CA can be rotated', async () => {
     const shortLived = await createEphemeralCa(3);
-    const longLived = await createEphemeralCa(30);
+    const longLived = await createEphemeralCa(3650);
     expect(longLived.notAfter.getTime()).toBeGreaterThan(shortLived.notAfter.getTime());
+    // a 10-year CA stays inside UTCTime's range (RFC 5280 switches to
+    // GeneralizedTime past 2049), so it takes the well-trodden encoding path
+    expect(longLived.notAfter.getUTCFullYear()).toBeLessThan(2050);
     // survives the PEM round trip (the runtime reads it back to decide on rotation)
     const reloaded = await loadCa(longLived.certPem, await exportCaPrivateKeyPem(longLived));
     expect(Math.abs(reloaded.notAfter.getTime() - longLived.notAfter.getTime())).toBeLessThan(1000);

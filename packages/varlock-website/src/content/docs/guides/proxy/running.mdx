@@ -64,7 +64,7 @@ Sessions are durable records: they persist after the proxy stops (visible with `
 
 The proxy URL carries no credentials, and the proxy never asks clients for proxy authentication (no `407` challenges). Session scoping is enforced by the proxy itself, so clients with limited proxy-auth support (like Python's `urllib`) work with the plain `HTTPS_PROXY` url.
 
-The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory.
+The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory. (The one exception is [`--persist-ca`](#pinning-the-port-and-ca-location), an opt-in for long-lived brokers.)
 
 **Stdout/stderr redaction** is decided per stream: a stream attached to an interactive terminal passes through raw (so TUIs like `claude` render correctly), while a piped or redirected stream is scrubbed of sensitive values, including the real values the proxy injects at the wire, in case an upstream response echoes one back. Override with `--redact-stdout` / `--no-redact-stdout`.
 
@@ -108,7 +108,7 @@ varlock proxy start --port 8080 --cert-dir ./.varlock-proxy
 
 `--cert-dir <dir>` writes `ca-cert.pem` (and `combined-ca.pem`, the CA plus system roots) into `<dir>`, creating it if missing. The CA itself is ephemeral and regenerated on each start; on stop, only the cert files varlock wrote are removed, never the directory itself.
 
-`--persist-ca` (with `--cert-dir`) changes that: the CA is kept, private key included, and reused on the next start, so a restart does not invalidate clients that already trust it. This matters for a long-lived [broker](/sandboxes/overview/#topologies) serving remote sandboxes, where a restart would otherwise break every running agent. It writes `ca-key.pem` (mode 0600), which the proxy otherwise never does, so use it only where the proxy runs alone rather than alongside the agent it proxies. A persisted CA lasts 30 days and rotates automatically a day before expiring.
+`--persist-ca` (with `--cert-dir`) changes that: the CA is kept, private key included, and reused on the next start, so a restart does not invalidate clients that already trust it. This matters for a long-lived [broker](/sandboxes/overview/#topologies) serving remote sandboxes, where a restart would otherwise break every running agent. It writes `ca-key.pem` (mode 0600), which the proxy otherwise never does, so use it only where the proxy runs alone rather than alongside the agent it proxies. A persisted CA lasts 10 years, effectively the life of the broker: an expiry would break agents still running when it came around, and it would buy nothing, since nothing checks revocation for this CA and only clients that fetched it from this broker trust it. To retire one, delete the cert directory and restart.
 
 These flags apply only when **starting** a proxy. They also work on `proxy run` when it starts its own proxy (with `--new`, or when no daemon is running for the directory). On a `proxy run` that attaches to an existing daemon they are rejected, since that daemon already fixed the port and cert location.
 
