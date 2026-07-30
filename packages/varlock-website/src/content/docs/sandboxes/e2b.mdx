@@ -25,6 +25,24 @@ const sandbox = await Sandbox.create({
 
 (Running the orchestrator under `varlock run -- node orchestrate.ts` works too, and is the option when the orchestrator is not a Node program.)
 
+Rather than enumerating keys, you can forward varlock's own serialized env blob, so there is one variable to pass no matter how many secrets are involved:
+
+```ts title="orchestrate.ts"
+const sandbox = await Sandbox.create({
+  envs: { __VARLOCK_ENV: process.env.__VARLOCK_ENV! },
+});
+```
+
+Inside the sandbox, importing `varlock/env` unpacks it: no `.env` files, no varlock CLI, and no second resolve (so no plugin credentials in the sandbox either).
+
+```js title="agent.js (in the sandbox)"
+import { ENV } from 'varlock/env';
+
+ENV.STRIPE_SECRET_KEY; // ✨ typed, and also re-injected into process.env
+```
+
+Scope the blob with [`--filter`](/reference/cli-commands/#common-options) so a sandbox only receives what it needs (`varlock run --filter="STRIPE_*" -- ...`). The sandbox needs `varlock` as a dependency for the import; to also get log redaction there, call [`patchGlobalConsole()`](/integrations/javascript/) from `varlock/patch-console`.
+
 This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. If the sandboxed project is itself a varlock project (it has a `.env.schema`), you can instead install varlock in the sandbox and use `varlock run` there, the same way you would in a [Docker container](/integrations/docker/): values come in via `envs` (the schema validates them at load), or the sandbox resolves its own secrets with a [plugin](/guides/plugins/) and a service-account token as the only bootstrap credential.
 
 ## Credential proxy: the broker sandbox

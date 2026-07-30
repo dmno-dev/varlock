@@ -9,22 +9,35 @@ For workloads you trust with the credentials they use, [pass resolved values](#p
 
 ## Passing resolved values
 
-Run the orchestrator under `varlock run` and pass values through. Varlock resolves them (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs. Sprite env is per exec, so credentials exist only for the duration of one command:
+Run the orchestrator under `varlock run` and pass values through. Varlock resolves them (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs. Sprite env is per exec, so credentials exist only for the duration of one command.
+
+The tidiest way to hand values over is to pass varlock's own serialized env blob, so there is exactly one variable to forward no matter how many secrets are involved:
 
 ```bash
-varlock run -- sh -c 'sprite exec -s my-sprite --env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" -- node agent.js'
+varlock run --inject blob -- sh -c 'sprite exec -s my-sprite --env __VARLOCK_ENV="$__VARLOCK_ENV" -- node agent.js'
 ```
 
-The `sh -c` wrapper matters: `varlock run` execs the command directly, so a bare `--env KEY="$KEY"` would be [expanded by your own shell](/reference/cli/load-and-run/#printenv) before varlock resolved anything, and the sprite would get an empty value. The quoted wrapper defers expansion to a shell running inside varlock's env.
+`--inject blob` puts only `__VARLOCK_ENV` in the environment. Inside the sprite, importing `varlock/env` unpacks it: no `.env` files, no varlock CLI, and no second resolve (so no plugin credentials in the sprite either).
 
-From a Node orchestrator, import [`varlock/auto-load`](/integrations/javascript/) instead and read values off `ENV`, with no wrapper command or quoting to think about:
+```js title="agent.js (in the sprite)"
+import { ENV } from 'varlock/env';
+
+ENV.STRIPE_SECRET_KEY; // ✨ typed, and also re-injected into process.env
+```
+
+Scope the blob with [`--filter`](/reference/cli-commands/#common-options) so a sandbox only receives what it needs: `varlock run --filter="STRIPE_*" --inject blob`. The sprite needs `varlock` as a dependency for the import; to also get log redaction there, call [`patchGlobalConsole()`](/integrations/javascript/) from `varlock/patch-console`.
+
+From a Node orchestrator the same thing needs no shell quoting at all:
 
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
-import { ENV } from 'varlock/env';
 
-await sprite.spawn('node', ['agent.js'], { env: { STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY } });
+await sprite.spawn('node', ['agent.js'], { env: { __VARLOCK_ENV: process.env.__VARLOCK_ENV } });
 ```
+
+:::caution[Quoting]
+If you do pass individual values from a shell, keep the expansion **inside** the wrapper: `varlock run -- sh -c 'sprite exec --env KEY="$KEY" ...'`. `varlock run` execs its command directly, so an unwrapped `--env KEY="$KEY"` is [expanded by your own shell](/reference/cli/load-and-run/#printenv) before varlock resolves anything and the sprite gets an empty value. Splicing a whole file in (`--env $(varlock load --format env)`) does not work either: the output is one `KEY="value"` pair per line, so it word-splits into stray arguments, and the quotes arrive as part of the value.
+:::
 
 This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. If the code in the sprite is itself a varlock project (it has a `.env.schema`), install varlock there instead and use `varlock run` in the sprite, the way you would in a [Docker container](/integrations/docker/): sprites ship Node 24+, so `npm i -g varlock` works, and a [checkpoint](https://docs.sprites.dev/) makes the install stick (sprites have no custom images; the persistent filesystem is the customization story).
 
