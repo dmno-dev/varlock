@@ -253,12 +253,26 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         badge: 'new',
         items: [
           { label: 'Overview', slug: 'sandboxes/overview' },
-          { label: 'Minimal', slug: 'sandboxes/minimal' },
-          { label: 'Fence', slug: 'sandboxes/fence' },
-          { label: 'yolobox', slug: 'sandboxes/yolobox' },
-          { label: 'Agent Safehouse', slug: 'sandboxes/agent-safehouse' },
-          { label: 'bubblewrap', slug: 'sandboxes/bubblewrap' },
-          { label: 'MXC (Windows)', slug: 'sandboxes/mxc' },
+          {
+            label: 'Cloud sandboxes',
+            collapsed: true,
+            items: [
+              { label: 'E2B', slug: 'sandboxes/e2b' },
+              { label: 'Fly.io', slug: 'sandboxes/flyio' },
+            ],
+          },
+          {
+            label: 'Local tools',
+            collapsed: true,
+            items: [
+              { label: 'Minimal', slug: 'sandboxes/minimal' },
+              { label: 'Fence', slug: 'sandboxes/fence' },
+              { label: 'yolobox', slug: 'sandboxes/yolobox' },
+              { label: 'Agent Safehouse', slug: 'sandboxes/agent-safehouse' },
+              { label: 'bubblewrap', slug: 'sandboxes/bubblewrap' },
+              { label: 'MXC (Windows)', slug: 'sandboxes/mxc' },
+            ],
+          },
         ],
       },
     ],

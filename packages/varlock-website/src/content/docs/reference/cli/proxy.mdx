@@ -20,10 +20,11 @@ varlock proxy <subcommand> [options]
 Every subcommand operates on a [session](/guides/proxy/running/#sessions). Target one with `--session <id>`, or let it auto-resolve: `run` attaches to the daemon for the current directory (else starts its own), and the other subcommands use the single active session (asking for `--session` if more than one is running).
 
 **Subcommands:**
-- `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained.
+- `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained. With `--url` it instead runs through a proxy on **another machine** (a broker started with `--expose`), reached over the built-in WebSocket tunnel, self-wiring the placeholder env and CA certs from the broker. See the [E2B guide](/sandboxes/e2b/).
 - `start`: Start a long-lived proxy session that owns the terminal (a live request log appears here). Stop with `Ctrl+C`.
 - `rules`: Print a static summary of the effective `@proxy` configuration: the rules (host/path/method, block) and each secret's mode (proxied / placeholder / passthrough / omit), without starting a proxy.
-- `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`).
+- `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`). Add `--full` to emit the whole child-view env a proxied agent runs with (placeholders for secrets, real values for non-secrets), with `--proxy-url` / `--cert-dir` to repoint it for a remote sandbox.
+- `token`: Print a session's data-plane token, for handing to `proxy run --url`. Its own verb because the token is a credential: it is never included in `status` or `env` output, and the startup banner withholds it unless stdout is a terminal.
 - `status`: List active proxy sessions.
 - `audit`: Print a session's request audit log (no secret values).
 - `reload`: Re-resolve the schema and swap a running proxy's live policy without restarting, after an intentional schema edit. Must be run from a **trusted terminal**: a reload requested from inside the proxied agent is refused and logged. Requires the proxy's reload posture to allow it (see `--allow-reload` / [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig)); otherwise restart the proxy to apply schema changes.
@@ -34,6 +35,10 @@ Every subcommand operates on a [session](/guides/proxy/running/#sessions). Targe
 - `--new`: For `run`, force a fresh proxy instead of attaching to a running one.
 - `--port <n>`: For `start`/`run` (when it starts a proxy), bind a fixed loopback port instead of a random one, so you can point tools at a known `HTTP_PROXY` before the proxy starts. Refuses to start if the port is already in use.
 - `--cert-dir <dir>`: For `start`/`run` (when it starts a proxy), write the CA cert (`ca-cert.pem` + `combined-ca.pem`) into a known directory instead of a temp one, so tools can trust it at a fixed path. Created if missing; only the cert files are removed on stop.
+- `--persist-ca`: For `start`/`run`, keep the CA in `--cert-dir` (including `ca-key.pem`, mode 0600) and reuse it on the next start, so a restart does not invalidate clients that already trust it. Requires `--cert-dir`. Intended for long-lived brokers: the CA private key normally never touches disk, so only use this where the proxy runs alone (not alongside the agent it proxies). A persisted CA is valid for 10 years (effectively for the life of the broker), since any expiry would break agents still running when it hits; to retire one, delete the cert directory and restart.
+- `--expose` (optionally `--expose=<addr>`): For `start`/`run`, make the proxy reachable from another machine: it binds off-loopback (bare `--expose` = `0.0.0.0`; `--expose=<addr>` picks an interface) and serves the built-in WebSocket tunnel for clients behind HTTP-only ingress. Mints a per-session data-plane token (pin it with `VARLOCK_PROXY_TOKEN`) that off-loopback clients must present; loopback clients stay exempt and the control endpoint stays loopback-only.
+- `--url <wss>` + `--token <token>`: For `run`, target a proxy on another machine (a broker started with `--expose`) over the tunnel, instead of a local session. Prefer passing the token as `VARLOCK_PROXY_TOKEN` rather than `--token`, so it stays out of process listings and shell history. The local-proxy flags (`--sandbox`, `--port`, `--cert-dir`, `--persist-ca`, `--expose`) don't apply with `--url`.
+- `--token` also pins `start`'s minted token to a known value (via `VARLOCK_PROXY_TOKEN`), so an orchestrator can hand the same token to the broker and its agents.
 - `--all`: For `status`/`stop`, include all sessions (`status` also shows ended sessions).
 - `--allow-reload` / `--no-allow-reload`: For `start`/`run`, override the reload posture. `--allow-reload` forces `manual` (human-applied from a trusted terminal; agent-context reloads refused), `--no-allow-reload` forces `off`. Otherwise [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) applies, defaulting to `auto` (manual for an interactive `proxy start`, off for headless or one-shot `proxy run`). On a shared uid this is a bar-raiser, not a hard boundary, so prefer a sandbox.
 - `--inject <all｜vars｜blob>`: For `run`, control what is injected into the child env (default `all`).
@@ -53,6 +58,11 @@ varlock proxy run -- node agent.js
 # Inspect activity
 varlock proxy status
 varlock proxy audit --format json
+
+# Reach a broker proxy from another machine / a remote sandbox (see the E2B guide)
+varlock proxy start --expose
+varlock proxy token                  # read the minted token to hand to clients
+VARLOCK_PROXY_TOKEN=… varlock proxy run --url wss://8080-abc.e2b.app -- claude
 ```
 
 See the [credential proxy guide](/guides/proxy/) for the full workflow.

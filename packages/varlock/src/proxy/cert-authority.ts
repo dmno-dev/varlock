@@ -56,6 +56,8 @@ export type EphemeralCa = {
   /** The CA's subject key identifier, embedded as each minted leaf's AKI so chains build under strict verifiers. */
   subjectKeyId: ArrayBuffer;
   certPem: string;
+  /** When this CA stops being trusted, so a persisted one can be rotated before it expires. */
+  notAfter: Date;
 };
 
 export type MintedHostCert = {
@@ -63,9 +65,9 @@ export type MintedHostCert = {
   certPem: string;
 };
 
-function validityWindow(): { notBefore: Date; notAfter: Date } {
+function validityWindow(days = VALIDITY_DAYS): { notBefore: Date; notAfter: Date } {
   const notBefore = new Date();
-  const notAfter = new Date(notBefore.getTime() + VALIDITY_DAYS * 24 * 60 * 60 * 1000);
+  const notAfter = new Date(notBefore.getTime() + days * 24 * 60 * 60 * 1000);
   return { notBefore, notAfter };
 }
 
@@ -156,10 +158,14 @@ async function keyIdentifierFor(publicKey: CryptoKey): Promise<ArrayBuffer> {
   return cryptoApi.subtle.digest('SHA-1', spki.subjectPublicKey);
 }
 
-/** Generate a fresh in-memory CA. Private key stays in memory; only the cert is exported. */
-export async function createEphemeralCa(): Promise<EphemeralCa> {
+/**
+ * Generate a fresh in-memory CA. Private key stays in memory; only the cert is
+ * exported. `validityDays` is longer for a persisted broker CA, which outlives
+ * a single session (see `exportCaPrivateKeyPem` / `loadCa`).
+ */
+export async function createEphemeralCa(validityDays = VALIDITY_DAYS): Promise<EphemeralCa> {
   const keys = await generateKeyPair();
-  const { notBefore, notAfter } = validityWindow();
+  const { notBefore, notAfter } = validityWindow(validityDays);
   const issuerName = commonNameDn('varlock-proxy-ca');
   const subjectKeyId = await keyIdentifierFor(keys.publicKey);
 
@@ -183,7 +189,44 @@ export async function createEphemeralCa(): Promise<EphemeralCa> {
 
   const certPem = await signCertificate(tbs, keys.privateKey);
   return {
-    privateKey: keys.privateKey, issuerName, subjectKeyId, certPem,
+    privateKey: keys.privateKey, issuerName, subjectKeyId, certPem, notAfter,
+  };
+}
+
+/**
+ * Export a CA's private key as PKCS#8 PEM, for the one case where it must
+ * outlive the process: a long-lived broker whose CA has to survive a restart
+ * (see `proxy start --persist-ca`). Writing it to disk is a real tradeoff, so
+ * it is opt-in and only sound where the proxy runs alone.
+ */
+export async function exportCaPrivateKeyPem(ca: EphemeralCa): Promise<string> {
+  return exportPrivateKeyPem(ca.privateKey);
+}
+
+function pemDecode(pem: string): ArrayBuffer {
+  const body = pem.replace(/-----(BEGIN|END)[^-]+-----/g, '').replace(/\s+/g, '');
+  const buf = Buffer.from(body, 'base64');
+  // Buffer.from can allocate from a shared pool, so `.buffer` is not the DER on
+  // its own — slice to this buffer's own range.
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+}
+
+/**
+ * Rebuild a CA from a previously exported cert + private key. Issuer DN and
+ * subject key identifier are read back off the cert, so a reloaded CA mints
+ * leaves that chain exactly like the original.
+ */
+export async function loadCa(certPem: string, keyPem: string): Promise<EphemeralCa> {
+  const privateKey = await cryptoApi.subtle.importKey('pkcs8', pemDecode(keyPem), KEY_ALG, true, ['sign']);
+  const cert = AsnConvert.parse(pemDecode(certPem), Certificate);
+  const { tbsCertificate: tbs } = cert;
+  const subjectKeyId = await cryptoApi.subtle.digest('SHA-1', tbs.subjectPublicKeyInfo.subjectPublicKey);
+  return {
+    privateKey,
+    issuerName: tbs.subject,
+    subjectKeyId,
+    certPem,
+    notAfter: tbs.validity.notAfter.getTime(),
   };
 }
 

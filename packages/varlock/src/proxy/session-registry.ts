@@ -47,6 +47,15 @@ export type ProxySessionRecord = {
    * so a pasted status output or shared screen can't leak endpoint access.
    */
   endpointToken?: string;
+  /**
+   * Per-session data-plane credential, present only when the proxy binds a
+   * non-loopback address (so a remote sandbox can reach it). A non-loopback peer
+   * must present it as `Proxy-Authorization: Basic base64(varlock:<token>)`;
+   * loopback peers are exempt. Like `endpointToken`, never displayed — lives only
+   * in this 0600 record and owner memory. `proxy guest-env` embeds it into the
+   * guest proxy URL so the sandbox authenticates automatically.
+   */
+  dataPlaneToken?: string;
   schemaFingerprint?: string;
   /**
    * Sensitive item key → placeholder shown to the child. Covers `@proxy`-managed
@@ -147,6 +156,7 @@ function parseSessionRecord(raw: string): ProxySessionRecord | undefined {
         : {}),
       egressMode: parsed.egressMode as ProxyEgressMode,
       ...(parsed.endpointToken ? { endpointToken: String(parsed.endpointToken) } : {}),
+      ...(parsed.dataPlaneToken ? { dataPlaneToken: String(parsed.dataPlaneToken) } : {}),
       ...(parsed.schemaFingerprint ? { schemaFingerprint: String(parsed.schemaFingerprint) } : {}),
       ...(parsed.placeholderOverrides && typeof parsed.placeholderOverrides === 'object'
         ? {

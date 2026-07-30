@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
-  mkdir, mkdtemp, rm, writeFile,
+  mkdir, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -16,7 +16,9 @@ import {
   createApprovalRequest, isApprovalValid, type ApprovalProvider,
 } from './approval';
 import type { ProxyActivity } from './audit';
-import { createEphemeralCa, createHostCert } from './cert-authority';
+import {
+  createEphemeralCa, createHostCert, exportCaPrivateKeyPem, loadCa,
+} from './cert-authority';
 import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost,
   type RequestFacts, type RequestScopedManagedItem,
@@ -24,6 +26,7 @@ import {
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
 } from './session-env-payload';
+import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
 import {
   isNeverAutoSubstituteHeader, proxySubstitutionTargetKey,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
@@ -112,6 +115,27 @@ export type StartLocalProxyRuntimeInput = {
    * wrote are removed (an ephemeral temp dir is removed whole).
    */
   certDir?: string;
+  /**
+   * Keep the CA (cert **and private key**) in `certDir` and reuse it on the next
+   * start, so a restart doesn't invalidate clients that already trust this CA.
+   * For long-lived brokers; requires `certDir`. Off by default: the key normally
+   * never touches disk.
+   */
+  persistCa?: boolean;
+  /**
+   * Address the proxy listener binds. Defaults to loopback (`127.0.0.1`). Binding
+   * a non-loopback address (e.g. `0.0.0.0`, to reach the proxy from a remote
+   * sandbox) exposes the data plane off-host, so it REQUIRES `dataPlaneToken` —
+   * the runtime throws otherwise. The control endpoint stays loopback-only
+   * regardless of this.
+   */
+  listenHost?: string;
+  /**
+   * Per-session data-plane credential. When set, a non-loopback peer must present
+   * it as `Proxy-Authorization: Basic base64(varlock:<token>)`; loopback peers are
+   * exempt (same-uid trust, unchanged). Distinct from the control-endpoint token.
+   */
+  dataPlaneToken?: string;
 };
 
 /** Command-side metadata attached to the served payload (for owner-terminal visibility). */
@@ -562,6 +586,46 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   return addr === '::1' || addr === '::ffff:127.0.0.1' || addr.startsWith('127.');
 }
 
+/** True if a listen host binds only loopback (so remote peers can't reach it). */
+function isLoopbackBind(host: string): boolean {
+  return host === 'localhost' || isLoopbackAddress(host);
+}
+
+/** Extract the token from a `Proxy-Authorization: Basic base64(user:token)` header. */
+export function parseProxyAuthToken(header: string | Array<string> | undefined): string | undefined {
+  const value = Array.isArray(header) ? header[0] : header;
+  if (typeof value !== 'string') return undefined;
+  const spaceIdx = value.indexOf(' ');
+  if (spaceIdx === -1) return undefined;
+  const scheme = value.slice(0, spaceIdx);
+  const encoded = value.slice(spaceIdx + 1).trim();
+  if (scheme.toLowerCase() !== 'basic' || !encoded) return undefined;
+  let decoded: string;
+  try {
+    decoded = Buffer.from(encoded, 'base64').toString('utf8');
+  } catch {
+    return undefined;
+  }
+  const colon = decoded.indexOf(':');
+  // Basic is `user:pass`; the token is the password half (username is cosmetic).
+  return colon === -1 ? decoded : decoded.slice(colon + 1);
+}
+
+/**
+ * Data-plane gate. Loopback peers are same-uid-trusted and always pass (the
+ * historical model). A non-loopback peer — only reachable when the listener is
+ * bound off-loopback — must present the session's `Proxy-Authorization` token.
+ */
+export function dataPlaneAuthOk(
+  peerAddr: string | undefined,
+  header: string | Array<string> | undefined,
+  token: string | undefined,
+): boolean {
+  if (isLoopbackAddress(peerAddr)) return true;
+  if (!token) return false; // non-loopback bind without a token: fail closed
+  return tokenMatches(parseProxyAuthToken(header), token);
+}
+
 /** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
  * absolute-form (plain http) handlers so the policy/approval/injection/forwarding
  * logic lives in one place. */
@@ -832,6 +896,46 @@ async function readBody(req: http.IncomingMessage): Promise<Buffer> {
 }
 
 /**
+ * How long a persisted CA is valid. Effectively indefinite (10 years, the same
+ * convention as mkcert/Caddy local roots): any expiry is a scheduled outage for
+ * agents still running when it hits, which is exactly what persisting the CA is
+ * meant to prevent, and it buys no security here. Nothing checks revocation for
+ * this CA, and it is only ever trusted by clients that fetched it from this
+ * broker over an authenticated tunnel, so a leaked key is answered by deleting
+ * the file and restarting, not by waiting. The short-lived material that does
+ * matter is the per-host leaf certs.
+ *
+ * Not literally "no expiry" (RFC 5280's 9999-12-31): a year past 2049 has to be
+ * encoded as GeneralizedTime, a far less trodden path through TLS verifiers, and
+ * a bounded life means a forgotten cert directory does not stay valid forever.
+ */
+const PERSISTED_CA_VALIDITY_DAYS = 3650;
+/** Rotate a persisted CA this far ahead of expiry, so it can't lapse mid-session. */
+const PERSISTED_CA_ROTATE_BEFORE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Reuse the CA in `certDir` if it's still valid, else mint one and persist it.
+ * Reusing keeps clients that already trust this CA working across a restart —
+ * what a long-lived broker needs, and why the private key is written (0600)
+ * rather than kept in memory. An unreadable/corrupt/expiring pair is replaced
+ * rather than fatal: a broker should still come up.
+ */
+async function loadOrCreatePersistedCa(caCertPath: string, caKeyPath: string) {
+  try {
+    const [certPem, keyPem] = await Promise.all([
+      readFile(caCertPath, 'utf8'),
+      readFile(caKeyPath, 'utf8'),
+    ]);
+    const existing = await loadCa(certPem, keyPem);
+    if (existing.notAfter.getTime() - Date.now() > PERSISTED_CA_ROTATE_BEFORE_MS) return existing;
+  } catch { /* no usable CA on disk — mint one below */ }
+
+  const ca = await createEphemeralCa(PERSISTED_CA_VALIDITY_DAYS);
+  await writeFile(caKeyPath, await exportCaPrivateKeyPem(ca), { encoding: 'utf8', mode: 0o600 });
+  return ca;
+}
+
+/**
  * Local MITM proxy runtime for `varlock proxy run`.
  * Rewrites placeholder values to real values for requests matching @proxy domains.
  */
@@ -845,7 +949,17 @@ export async function startLocalProxyRuntime({
   internalEndpoint,
   port,
   certDir,
+  persistCa,
+  listenHost,
+  dataPlaneToken,
 }: StartLocalProxyRuntimeInput): Promise<ProxyRuntimeContext> {
+  const bindHost = listenHost ?? LOCALHOST;
+  if (!isLoopbackBind(bindHost) && !dataPlaneToken) {
+    // Belt-and-suspenders: the command layer mints a token whenever it passes a
+    // non-loopback listenHost. If we got here without one, refuse to expose an
+    // unauthenticated proxy off-loopback rather than fail open.
+    throw new Error('varlock proxy: serving the tunnel off-loopback requires a data-plane token.');
+  }
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them
   // changes behavior on the next request (in-flight requests already snapshotted).
@@ -862,9 +976,15 @@ export async function startLocalProxyRuntime({
   const certDirIsUserProvided = certDir !== undefined;
   const certsDir = certDir ?? await mkdtemp(path.join(os.tmpdir(), 'varlock-proxy-certs-'));
   if (certDirIsUserProvided) await mkdir(certsDir, { recursive: true });
-  const ca = await createEphemeralCa();
   const caCertPath = path.join(certsDir, 'ca-cert.pem');
   const combinedCaPath = path.join(certsDir, 'combined-ca.pem');
+  const caKeyPath = path.join(certsDir, 'ca-key.pem');
+  if (persistCa && !certDirIsUserProvided) {
+    throw new Error('varlock proxy: persisting the CA requires a cert directory to keep it in.');
+  }
+  const ca = persistCa
+    ? await loadOrCreatePersistedCa(caCertPath, caKeyPath)
+    : await createEphemeralCa();
   await writeFile(caCertPath, ca.certPem, 'utf8');
   await writeFile(combinedCaPath, `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`, 'utf8');
 
@@ -1220,6 +1340,13 @@ export async function startLocalProxyRuntime({
 
   // Handles absolute-form proxy requests (mostly plain HTTP).
   const proxyServer = http.createServer(async (clientReq, clientRes) => {
+    if (!dataPlaneAuthOk(clientReq.socket.remoteAddress, clientReq.headers['proxy-authorization'], dataPlaneToken)) {
+      clientRes.statusCode = 407;
+      clientRes.setHeader('Proxy-Authenticate', 'Basic realm="varlock"');
+      clientRes.end('Proxy authentication required');
+      return;
+    }
+
     const urlRaw = clientReq.url;
     if (!urlRaw) {
       clientRes.statusCode = 400;
@@ -1266,6 +1393,15 @@ export async function startLocalProxyRuntime({
     if (normalizeHost(hostInfo.host) === VARLOCK_INTERNAL_HOST && !isLoopbackAddress(connectPeer)) {
       internalEndpoint?.onAuthFailure?.();
       clientSocket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      clientSocket.destroy();
+      return;
+    }
+
+    // Data-plane auth for CONNECT: loopback is exempt, a non-loopback peer must
+    // present the session token. Checked after the varlock.internal loopback gate
+    // (which already rejected non-loopback control-plane attempts).
+    if (!dataPlaneAuthOk(connectPeer, req.headers['proxy-authorization'], dataPlaneToken)) {
+      clientSocket.write('HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="varlock"\r\nConnection: close\r\n\r\n');
       clientSocket.destroy();
       return;
     }
@@ -1335,7 +1471,7 @@ export async function startLocalProxyRuntime({
       }
     };
     proxyServer.once('error', onListenError);
-    proxyServer.listen(port ?? 0, LOCALHOST, () => {
+    proxyServer.listen(port ?? 0, bindHost, () => {
       proxyServer.off('error', onListenError);
       resolve();
     });
@@ -1349,6 +1485,29 @@ export async function startLocalProxyRuntime({
     throw new Error('Failed to start local proxy runtime');
   }
   const proxyUrl = `http://${LOCALHOST}:${address.port}`;
+
+  // With a data-plane token (off-loopback bind), also serve the CONNECT-over-WS
+  // tunnel on this same listener so a remote sandbox can reach the proxy through
+  // provider HTTP ingress. The bootstrap hands the guest its child-view values
+  // and the CA certs; each `connect` stream is bridged to this proxy's loopback
+  // port (where it's exempt from the token check — the WS handshake already
+  // authenticated it). The combined bundle mirrors what's written to disk.
+  const combinedCaPem = `${ca.certPem}\n${tls.rootCertificates.join('\n')}\n`;
+  const buildTunnelBootstrap = (): TunnelBootstrap => ({
+    // The same encoded child-view payload the control endpoint serves, so a
+    // remote guest adopts exactly what a local attach would (incl. the graph for
+    // redaction). Empty-but-valid until the first setSessionEnvPayloadJson.
+    payloadJson: sessionEnvPayloadJson ?? '{"env":{},"omittedKeys":[],"serializedGraph":{"config":{}}}',
+    certs: { 'ca-cert.pem': ca.certPem, 'combined-ca.pem': combinedCaPem },
+  });
+  const tunnel = dataPlaneToken
+    ? attachTunnelServer(proxyServer, {
+      token: dataPlaneToken,
+      proxyPort: address.port,
+      buildBootstrap: buildTunnelBootstrap,
+      onAuthFailure: () => internalEndpoint?.onAuthFailure?.(),
+    })
+    : undefined;
 
   return {
     env: {
@@ -1385,6 +1544,8 @@ export async function startLocalProxyRuntime({
       egressMode = next.egressMode;
     },
     stop: async () => {
+      // Detach the tunnel WS server first so it stops accepting upgrades.
+      tunnel?.close();
       // `server.close()` only calls back once every connection has drained, and
       // an idle keep-alive socket never closes on its own — so without forcing
       // connections closed, stop() (and the daemon's SIGTERM cleanup) hangs
@@ -1405,7 +1566,11 @@ export async function startLocalProxyRuntime({
       ]);
       // A temp dir we created is removed wholesale; for a caller-provided dir,
       // remove only the cert files we wrote so we don't delete a dir the user owns.
-      if (certDirIsUserProvided) {
+      // With --persist-ca the whole point is that they outlive the session, so
+      // everything (including ca-key.pem) stays put.
+      if (persistCa) {
+        // keep the persisted CA for the next start
+      } else if (certDirIsUserProvided) {
         await rm(caCertPath, { force: true });
         await rm(combinedCaPath, { force: true });
       } else {

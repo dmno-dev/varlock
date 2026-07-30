@@ -1,0 +1,177 @@
+---
+title: Fly.io
+description: Using varlock with Fly.io Sprites, from resolving and validating sandbox env vars to running the credential proxy so sprites only hold placeholders.
+---
+
+[Sprites](https://fly.io/sprites/) are Fly.io's agent sandboxes: persistent, hardware-isolated Linux microVMs with their own CLI and SDKs. Sprites get env vars from the code that creates and execs into them, which makes that orchestrator code the natural place for varlock to do its job.
+
+For workloads you trust with the credentials they use, [pass resolved values](#passing-resolved-values). For agentic workloads, the recommended shape is the [broker sprite](#credential-proxy-the-broker-sprite): one sprite runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent sprites route through it holding only [placeholders](/guides/proxy/rules/#placeholders). The other [topologies](/sandboxes/overview/#topologies) get a brief mention at the end, along with notes for raw [Fly Machines](#raw-fly-machines).
+
+## Passing resolved values
+
+Sprite env is per exec, so credentials exist only for the duration of one command. Import [`varlock/auto-load`](/integrations/javascript/) in the orchestrator and pass the values that sprite needs; varlock resolves them (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { SpritesClient } from '@fly/sprites';
+
+const sprite = new SpritesClient(ENV.SPRITES_TOKEN).sprite('my-sprite');
+
+await sprite.exec('node agent.js', { env: { STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY } });
+```
+
+Your Sprites token is a varlock-managed secret like any other, hence `ENV.SPRITES_TOKEN`. (`sprite.spawn(cmd, args, { env })` takes the same options and streams output instead of resolving.)
+
+From a shell, wrap the command so the value is expanded **inside** varlock's env rather than by your own shell first:
+
+```bash
+varlock run -- sh -c 'sprite exec -s my-sprite --env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" -- node agent.js'
+```
+
+This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. If the code in the sprite is itself a varlock project (it has a `.env.schema`), install varlock there instead and use `varlock run` in the sprite, the way you would in a [Docker container](/integrations/docker/): sprites ship Node 24+, so `npm i -g varlock` works, and a [checkpoint](https://docs.sprites.dev/) makes the install stick (sprites have no custom images; the persistent filesystem is the customization story).
+
+## Credential proxy: the broker sprite
+
+One sprite (the broker) runs `varlock proxy start --expose` as a sprite *service*, serving the built-in WebSocket tunnel on the sprite's public URL. Agent sprites reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
+
+### Schema setup
+
+Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each one an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=
+
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=
+```
+
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+
+### Set up the broker
+
+Set up the broker once; its filesystem persists. The steps use the sprite CLI for readability, but each one is a plain REST call (the `sprite api` steps show the shape), so an orchestrator can drive the same setup from code.
+
+```bash
+# one data-plane token, shared by the broker and every agent; generate it yourself
+# (or let the broker mint one and read it back with `varlock proxy token`). It is
+# the credential to USE the broker over the tunnel, not to read its secrets, and
+# it travels as an env var rather than an argument so it stays out of process
+# listings and logs.
+export PROXY_TOKEN=$(uuidgen)
+
+# sprites ship Node 24+, so npm works. Node lives under nvm here, and nvm's bin
+# dir is only on the PATH in login shells; ~/.local/bin is always on the PATH,
+# so the symlink makes varlock visible to services and `sprite exec`.
+sprite create varlock-broker
+sprite exec -s varlock-broker -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
+
+# upload the schema (plus any other .env files your project loads);
+# real values ride the service env instead
+sprite exec -s varlock-broker --dir /home/sprite/proj \
+  --file .env.schema:/home/sprite/proj/.env.schema -- true
+
+# run the proxy as a sprite service: it restarts on wake, and http_port routes
+# the sprite's URL to it (waking the sprite when a connection arrives).
+# --persist-ca keeps the CA on the persistent filesystem so a wake or restart
+# doesn't invalidate agents that already trust it. Schema keys resolve from the
+# process env, so the env map carries the bootstrap: usually just your plugin's
+# secret-zero (shown: a 1Password service account).
+sprite api /v1/sprites/varlock-broker/services/varlock-proxy -- -X PUT \
+  -H 'Content-Type: application/json' -d @- <<EOF
+{
+  "cmd": "/home/sprite/.local/bin/varlock",
+  "args": [
+    "proxy", "start", "--expose", "--port", "8080",
+    "--cert-dir", "/home/sprite/proj/.varlock-ca", "--persist-ca"
+  ],
+  "dir": "/home/sprite/proj",
+  "http_port": 8080,
+  "needs": [],
+  "env": {
+    "VARLOCK_PROXY_TOKEN": "$PROXY_TOKEN",
+    "OP_SERVICE_ACCOUNT_TOKEN": "$OP_SERVICE_ACCOUNT_TOKEN"
+  }
+}
+EOF
+
+# the tunnel URL must be public: `proxy run --url` cannot present the sprites
+# token, and varlock's own data-plane token gates the tunnel instead
+sprite url update -s varlock-broker --auth public
+```
+
+Making the URL public is the same trust posture as exposing a local proxy through a tunnel service: an unauthenticated caller cannot open the tunnel or reach the proxy.
+
+The `env` map carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them in the map instead (`"ANTHROPIC_API_KEY": "$ANTHROPIC_API_KEY"`, ...), running the setup under `varlock run` so they are your orchestrator's own resolved values. The env persists with the service definition, which is what lets the proxy come back with its values after a wake. Either way agent sprites hold no real secrets at all.
+
+### Connect agent sprites
+
+An agent needs nothing but varlock and the broker's URL (shown by `sprite url -s varlock-broker`). `proxy run --url` pulls the placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass:
+
+```bash
+sprite create agent-1
+sprite exec -s agent-1 -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
+sprite exec -s agent-1 --env VARLOCK_PROXY_TOKEN="$PROXY_TOKEN" -- \
+  varlock proxy run --url wss://varlock-broker-myorg.sprites.app -- your-agent-command
+```
+
+To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
+
+### Lock down agent egress
+
+So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake, but Sprites can close the gap entirely: each sprite has a network policy (domain allow/deny, set only from outside the sprite) you can clamp so an agent sprite's only allowed egress is the broker's URL. A fresh sprite has no rules and open egress, so the lockdown is one explicit policy. It applies immediately to a running sprite, and it blocks IP-literal connections too, not just DNS lookups:
+
+```bash
+sprite api /v1/sprites/agent-1/policy/network -- -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"rules":[{"action":"allow","domain":"varlock-broker-myorg.sprites.app"},{"action":"deny","domain":"*"}]}'
+```
+
+This is enforced by Sprites' infrastructure outside the VM, so nothing the agent does from inside can lift it.
+
+### Sleep/wake and trust model
+
+Sprites hibernate when idle (in practice we have seen a broker with a running service stay up well past the documented ~30s threshold, but do not rely on that). The service config above restarts the proxy on wake, and incoming tunnel connections wake the sprite via `http_port`.
+
+A restart normally mints a new CA, which running agents would not trust. That is what `--persist-ca` in the service args prevents: the CA is kept in `--cert-dir` on the sprite's persistent filesystem and reused, so a wake is invisible to agents. Reserve it for brokers, where the proxy runs alone: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
+
+The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one.
+
+## Other topologies
+
+For local development, run the proxy on your machine instead: secrets, resolver plugins, biometric unlock, and the interactive request log stay local. Sprites live on their own isolated networks (not your Fly org's private 6PN network, so WireGuard peering does not reach them); expose the proxy through any tunnel service that carries WebSockets and reuse the same agent-side command:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+ngrok http 8080          # or cloudflared, Tailscale funnel, ...
+# agents: sprite exec -s agent-1 --env VARLOCK_PROXY_TOKEN="$VARLOCK_PROXY_TOKEN" -- \
+#           varlock proxy run --url wss://abc123.ngrok.app -- <command>
+```
+
+The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. See the [topologies overview](/sandboxes/overview/#topologies) for the full menu.
+
+:::note[Compared to Sprites Connectors]
+[Connectors](https://sprites.dev/api/connectors) are Sprites' native credential feature: credentials live in your Sprites org, and sprites call APIs through `api.sprites.dev/v1/gateway/...` URLs where the gateway injects the real credential.
+
+The varlock proxy covers the same ground and more:
+
+- **Seamless.** Substitution happens transparently at the wire, so SDKs, CLIs, and agent tools work unmodified. Connectors rewrite the base URL, so anything calling an API has to be changed to point at the gateway.
+- **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...), rather than being copied into one platform's store, and they stay in your custody.
+- **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents. Connector policy lives in the platform's API, separate from your project.
+- Plus response scrubbing, your own audit log, and the same setup on any other platform.
+:::
+
+## Raw Fly Machines
+
+If you run agent workloads on [Fly Machines](https://fly.io/docs/machines/) directly (custom OCI images, existing Fly infra), the varlock basics carry over with a few Machines-specific facts:
+
+- Env goes in at create time (`config.env`, or `--env` on `fly machine run`); there is no per-exec env. [Fly app secrets](https://fly.io/docs/apps/secrets/) are app-level, delivered as plain env at boot, and setting them restarts every machine in the app.
+- The Machines exec API buffers output and caps commands at 60 seconds; run real workloads as the machine's boot command.
+- Bake varlock into your image (see the [Docker guide](/integrations/docker/)) and wrap the entrypoint in `varlock run`.
+- Machines have no destination-level egress filtering (network policies are port/protocol only), so there is no Sprites-style "only the broker" clamp.
+
+Machines also open two proxy topologies that Sprites cannot use, because machines sit on your org's private IPv6 network (6PN), which carries any port with no HTTP ingress in the path: a broker machine on a dedicated [custom network](https://fly.io/docs/networking/custom-private-networks/) is reachable directly at `ws://<broker-app>.internal:8080` (bind with `--expose=::`; 6PN is IPv6), and [WireGuard peering](https://fly.io/docs/blueprints/connect-private-network-wireguard/) is bidirectional, so machines can dial a proxy on your laptop at `<peer>._peer.internal` with no tunnel service and nothing exposed publicly. We have not yet validated these end to end the way the sprite recipes above are; if you want them written up as full recipes, [tell us](https://github.com/dmno-dev/varlock/discussions).

@@ -3,12 +3,15 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync, mkdtempSync, readFileSync, rmSync, statSync,
+} from 'node:fs';
 import { URL } from 'node:url';
 
 import type { ProxyActivity } from './audit';
 import {
-  checkSubstitutionGuards, findUninjectedPlaceholder, replacePlaceholdersWithReal, startLocalProxyRuntime,
+  checkSubstitutionGuards, dataPlaneAuthOk, findUninjectedPlaceholder, parseProxyAuthToken,
+  replacePlaceholdersWithReal, startLocalProxyRuntime,
   type SubstitutionGuardRequest,
 } from './runtime-proxy';
 import type { RequestScopedManagedItem } from './policy';
@@ -231,7 +234,114 @@ async function requestViaProxy(proxyUrl: string, targetUrl: string, headers?: Re
   });
 }
 
+function basicAuthHeader(user: string, token: string): string {
+  return `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}`;
+}
+
+describe('parseProxyAuthToken', () => {
+  test('extracts the password half of a Basic credential', () => {
+    expect(parseProxyAuthToken(basicAuthHeader('varlock', 'tok-abc'))).toBe('tok-abc');
+  });
+
+  test('ignores the (cosmetic) username', () => {
+    expect(parseProxyAuthToken(basicAuthHeader('anything', 'tok-xyz'))).toBe('tok-xyz');
+  });
+
+  test('returns undefined for a non-Basic scheme, missing header, or garbage', () => {
+    expect(parseProxyAuthToken('Bearer tok')).toBeUndefined();
+    expect(parseProxyAuthToken(undefined)).toBeUndefined();
+    expect(parseProxyAuthToken('Basic')).toBeUndefined();
+  });
+});
+
+describe('dataPlaneAuthOk', () => {
+  const token = 'session-token-123';
+
+  test('loopback peers are exempt regardless of header/token', () => {
+    expect(dataPlaneAuthOk('127.0.0.1', undefined, token)).toBe(true);
+    expect(dataPlaneAuthOk('::1', undefined, undefined)).toBe(true);
+    expect(dataPlaneAuthOk('::ffff:127.0.0.1', 'garbage', token)).toBe(true);
+  });
+
+  test('a non-loopback peer with the correct token passes', () => {
+    expect(dataPlaneAuthOk('10.0.0.9', basicAuthHeader('varlock', token), token)).toBe(true);
+  });
+
+  test('a non-loopback peer with a wrong or missing token is rejected', () => {
+    expect(dataPlaneAuthOk('10.0.0.9', basicAuthHeader('varlock', 'wrong'), token)).toBe(false);
+    expect(dataPlaneAuthOk('10.0.0.9', undefined, token)).toBe(false);
+  });
+
+  test('a non-loopback peer fails closed when no token is configured', () => {
+    expect(dataPlaneAuthOk('10.0.0.9', basicAuthHeader('varlock', 'anything'), undefined)).toBe(false);
+  });
+});
+
 describe('startLocalProxyRuntime', () => {
+  test('refuses a non-loopback bind without a data-plane token', async () => {
+    await expect(startLocalProxyRuntime({
+      managedItems: [], rules: [], egressMode: 'permissive', listenHost: '0.0.0.0',
+    })).rejects.toThrow(/serving the tunnel off-loopback requires a data-plane token/);
+  });
+
+  test('accepts a non-loopback bind when a token is supplied, and can be stopped', async () => {
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [], rules: [], egressMode: 'permissive', listenHost: '127.0.0.1', dataPlaneToken: 'tok',
+    });
+    // A loopback client (the test) is exempt, so proxying still works with a token set.
+    expect(runtime.env.HTTP_PROXY).toBeDefined();
+    await runtime.stop();
+  });
+
+  test('--persist-ca reuses the CA across restarts, and keeps it (0600) after stop', async () => {
+    // A broker restart (including a sandbox waking from hibernation) must not
+    // invalidate agents that already trust this CA.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'varlock-persist-ca-'));
+    try {
+      const first = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir, persistCa: true,
+      });
+      const firstCert = readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8');
+      await first.stop();
+
+      // survives stop, unlike the non-persisted case
+      const keyPath = path.join(dir, 'ca-key.pem');
+      expect(existsSync(keyPath)).toBe(true);
+      expect(existsSync(path.join(dir, 'ca-cert.pem'))).toBe(true);
+      // eslint-disable-next-line no-bitwise -- mode bits
+      expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+
+      const second = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir, persistCa: true,
+      });
+      expect(readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8')).toBe(firstCert);
+      await second.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('without --persist-ca each start mints a fresh CA and cleans up', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'varlock-ephemeral-ca-'));
+    try {
+      const first = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir,
+      });
+      const firstCert = readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8');
+      await first.stop();
+      expect(existsSync(path.join(dir, 'ca-cert.pem'))).toBe(false);
+      expect(existsSync(path.join(dir, 'ca-key.pem'))).toBe(false);
+
+      const second = await startLocalProxyRuntime({
+        managedItems: [], rules: [], egressMode: 'permissive', certDir: dir,
+      });
+      expect(readFileSync(path.join(dir, 'ca-cert.pem'), 'utf8')).not.toBe(firstCert);
+      await second.stop();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('returns proxy env vars and can be stopped', async () => {
     const runtime = await startLocalProxyRuntime({
       managedItems: [],
