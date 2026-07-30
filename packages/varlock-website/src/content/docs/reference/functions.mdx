@@ -22,7 +22,7 @@ CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
 ```
 
 
-There are built-in utility functions, [random value generators](#random-value-generators), a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), [`generateOtp()`](#generateotp) for 2FA codes, a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 ## Core
 <div class="reference-docs">
@@ -355,6 +355,63 @@ PIN_CODE=cache(randomString(8, charset="0123456789"))
 # One-off random string
 TEMP_LABEL=randomString(10)
 ```
+</div>
+</div>
+
+## One-time passwords
+
+<div class="reference-docs">
+<div>
+### `generateOtp()`
+
+Generates a time-based one-time password (TOTP) code from a shared secret, the same codes an authenticator app shows. Useful for CLIs that require a 2FA code on every invocation, e.g. `aws sts get-session-token --token-code 123456`.
+
+- First arg: the shared secret. Either the base32 seed from your 2FA setup, or a full `otpauth://totp/...` URI. Spaces, hyphens, lowercase, and padding in a base32 seed are all fine.
+- `digits=N` option: code length, 6 to 10 (default: 6)
+- `period=N` option: how long each code is valid, **in seconds** (default: 30). A duration string like `"60s"` also works.
+- `algorithm=S` option: `SHA1` (default), `SHA256`, or `SHA512`
+- `encoding=S` option: how the secret itself is encoded, `base32` (default), `hex`, or `ascii`
+
+When the secret is an `otpauth://` URI, any `digits`, `period`, and `algorithm` params in the URI are used, and explicitly passed options override them.
+
+The seed is a long-lived credential, so keep it [`@internal`](/reference/item-decorators/#internal) (resolved by varlock, never injected into your app or child processes) and [`@sensitive`](/reference/item-decorators/#sensitive). Only the generated code gets injected.
+
+```env-spec "generateOtp"
+# TOTP seed from your provider's 2FA setup, encrypted at rest
+# @internal @sensitive
+MFA_SECRET=varlock(local:abc123...)
+
+# @sensitive
+MFA_CODE=generateOtp($MFA_SECRET)
+
+# non-default params
+# @sensitive
+LEGACY_CODE=generateOtp($LEGACY_SEED, digits=8, period=60, algorithm=SHA256)
+```
+
+Then hand the code to whatever needs it. Tools that take a flag need the expansion to happen in the child shell, so use single quotes:
+
+```bash
+varlock run -- sh -c 'aws sts get-session-token --serial-number $AWS_MFA_ARN --token-code $MFA_CODE'
+```
+
+Tools that read a code from the environment need no extra wrapping, since varlock injects it directly.
+
+To get the seed in the first place, you generally have to enroll (or re-enroll) the second factor: on the "scan this QR code" screen, take the manual-entry / setup-key option and save that string. Most authenticator apps will not show you a seed after the fact.
+
+:::note[One code per command]
+A code covers one authenticated call, and providers generally reject a reused one. If a command makes several authenticated calls in a run, prefer handing it the seed and letting it mint a code per call. [fledgling](https://github.com/dmno-dev/fledgling), for example, takes `FLEDGLING_OTP_SECRET`.
+:::
+
+:::caution[Codes cannot be cached]
+Wrapping this in [`cache()`](#cache) is an error, since a cached code is expired by definition. Cache the *secret* instead: `generateOtp(cache(op("op://vault/aws/mfa seed")))`.
+:::
+
+A few other things to know:
+
+- **Codes expire.** They rotate every `period` seconds, so generate at the moment of use. A long command that only needs the code at the very end can outlive it.
+- **Your clock has to be right.** Codes are derived from the current time. Check clock sync before assuming the seed is wrong.
+- **This weakens your second factor.** A seed sitting next to the token it protects, on the same machine, is no longer an independent factor. That can be a reasonable trade for a local workflow where the seed is encrypted at rest and never injected into your app. It is a bad trade in CI, where [OIDC workload identity](/guides/oidc/) or credentials that do not require 2FA are the better answer.
 </div>
 </div>
 

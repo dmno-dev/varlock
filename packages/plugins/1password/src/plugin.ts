@@ -276,6 +276,14 @@ interface ConnectVault {
   name?: string;
 }
 
+/**
+ * Detects references that generate a one-time password code, e.g.
+ * `op://vault/item/one-time password?attribute=otp`
+ */
+function isOtpReference(ref: string) {
+  return /[?&](?:attribute|attr)=(otp|totp)(&|$)/i.test(ref);
+}
+
 /** Parse an `op://vault/item/[section/]field` reference into its parts */
 function parseOpReference(ref: string): {
   vault: string; item: string; section?: string; field: string;
@@ -656,6 +664,14 @@ class OpPluginInstance {
   }
 
   private async readItemViaConnect(opReference: string): Promise<string> {
+    if (isOtpReference(opReference)) {
+      throw new ResolutionError('1Password Connect cannot generate one-time password codes', {
+        tip: [
+          '`?attribute=otp` is only supported by the `op` CLI and the 1Password SDKs.',
+          'Instead, store the TOTP seed in a normal field and generate the code with `generateOtp()`.',
+        ].join('\n'),
+      });
+    }
     const parsed = parseOpReference(opReference);
     const vaultId = await this.connectResolveVaultId(parsed.vault);
     const itemId = await this.connectResolveItemId(vaultId, parsed.item);
@@ -989,7 +1005,8 @@ plugin.registerResolverFunction({
     const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
 
     // check cache if cacheTtl is configured and cache is available
-    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+    // (one-time password codes are skipped - a cached code is expired by definition)
+    if (selectedInstance.cacheTtl !== undefined && pluginCache && !isOtpReference(opReference)) {
       const cacheKey = `op:${instanceId}:${selectedInstance.cacheKeyIdentity}:${opReference}`;
       return await pluginCache.getOrSet(cacheKey, selectedInstance.cacheTtl, async () => {
         try {

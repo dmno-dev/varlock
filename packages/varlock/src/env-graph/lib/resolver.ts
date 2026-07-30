@@ -14,6 +14,11 @@ import { ConfigItem } from './config-item';
 import { SimpleQueue } from './simple-queue';
 import { ResolutionError, SchemaError, VarlockError } from './errors';
 import { parseTtl, TTL_FOREVER } from '../../lib/cache/ttl-parser';
+import { parseDuration } from '../../lib/duration';
+import {
+  generateTotp, normalizeOtpAlgorithm, OTP_ALGORITHMS, OTP_SECRET_ENCODINGS,
+  type GeneratedTotp, type OtpAlgorithm, type OtpSecretEncoding,
+} from '../../lib/otp';
 import { assertValidCacheKey, hasInvalidCacheKeyChars, MAX_CACHE_KEY_LENGTH } from '../../lib/cache/cache-store';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
@@ -898,6 +903,116 @@ export const RandomStringResolver: typeof Resolver = createResolver({
   },
 });
 
+// ── One-time passwords ─────────────────────────────────────────────────
+
+export const GenerateOtpResolver: typeof Resolver = createResolver({
+  name: 'generateOtp',
+  description: 'Generate a time-based one-time password (TOTP) code from a shared secret',
+  icon: 'mdi:timer-lock-outline',
+  inferredType: 'string',
+  argsSchema: {
+    type: 'mixed',
+    arrayExactLength: 1,
+  },
+  process() {
+    // note that the secret itself is usually not static (a ref, encrypted value,
+    // or plugin fn call) so it only gets validated at resolution time
+    const secretResolver = this.arrArgs![0];
+
+    let digits: number | undefined;
+    const digitsResolver = this.objArgs?.digits;
+    if (digitsResolver) {
+      if (!digitsResolver.isStatic || typeof digitsResolver.staticValue !== 'number') {
+        throw new SchemaError('digits must be a static number');
+      }
+      digits = digitsResolver.staticValue as number;
+      if (!Number.isInteger(digits) || digits < 6 || digits > 10) {
+        throw new SchemaError('digits must be an integer in [6, 10]');
+      }
+    }
+
+    let period: number | undefined;
+    const periodResolver = this.objArgs?.period;
+    if (periodResolver) {
+      if (!periodResolver.isStatic) {
+        throw new SchemaError('period must be a static value');
+      }
+      const periodVal = periodResolver.staticValue;
+      if (typeof periodVal === 'number') {
+        // bare numbers are seconds here (not ms like `cache()` ttl) since that is
+        // how every TOTP setup screen expresses it
+        period = periodVal;
+      } else if (typeof periodVal === 'string') {
+        try {
+          period = parseDuration(periodVal) / 1000;
+        } catch (err) {
+          throw new SchemaError(err instanceof Error ? err.message : String(err));
+        }
+      } else {
+        throw new SchemaError('period must be a number of seconds or a duration string like "60s"');
+      }
+      // sub-second windows are never a real TOTP config, and catch `period="60"`,
+      // which the duration parser reads as 60ms
+      if (!Number.isFinite(period) || period < 1) {
+        throw new SchemaError('period must be at least 1 second');
+      }
+    }
+
+    let algorithm: OtpAlgorithm | undefined;
+    const algorithmResolver = this.objArgs?.algorithm;
+    if (algorithmResolver) {
+      if (!algorithmResolver.isStatic || typeof algorithmResolver.staticValue !== 'string') {
+        throw new SchemaError('algorithm must be a static string');
+      }
+      algorithm = normalizeOtpAlgorithm(algorithmResolver.staticValue as string);
+      if (!algorithm) {
+        throw new SchemaError(`algorithm must be one of: ${OTP_ALGORITHMS.join(', ')}`);
+      }
+    }
+
+    let encoding: OtpSecretEncoding | undefined;
+    const encodingResolver = this.objArgs?.encoding;
+    if (encodingResolver) {
+      if (!encodingResolver.isStatic || typeof encodingResolver.staticValue !== 'string') {
+        throw new SchemaError('encoding must be a static string');
+      }
+      const encodingVal = String(encodingResolver.staticValue).toLowerCase();
+      if (!(OTP_SECRET_ENCODINGS as ReadonlyArray<string>).includes(encodingVal)) {
+        throw new SchemaError(`encoding must be one of: ${OTP_SECRET_ENCODINGS.join(', ')}`);
+      }
+      encoding = encodingVal as OtpSecretEncoding;
+    }
+
+    return {
+      secretResolver, digits, period, algorithm, encoding,
+    };
+  },
+  async resolve({
+    secretResolver, digits, period, algorithm, encoding,
+  }) {
+    const secret = await secretResolver.resolve();
+    if (typeof secret !== 'string' || !secret) {
+      throw new ResolutionError('expects a non-empty string secret', {
+        tip: 'The secret should be the base32 seed (or `otpauth://totp/...` URI) from your 2FA setup',
+      });
+    }
+
+    let generated: GeneratedTotp;
+    try {
+      generated = generateTotp({
+        secret, digits, period, algorithm, encoding,
+      });
+    } catch (err) {
+      // error messages from otp.ts never contain the secret itself
+      throw new ResolutionError(`failed to generate code: ${err instanceof Error ? err.message : String(err)}`, {
+        tip: 'The secret should be the base32 seed (or `otpauth://totp/...` URI) from your 2FA setup',
+      });
+    }
+
+    return generated.code;
+  },
+});
+
 // ── Cache resolver ─────────────────────────────────────────────────────
 
 export const CacheResolver: typeof Resolver = createResolver({
@@ -922,6 +1037,14 @@ export const CacheResolver: typeof Resolver = createResolver({
         'wraps a static value which never changes — caching has no effect',
         { isWarning: true },
       ));
+    }
+
+    // a one-time password is only valid within its current time window, so a
+    // cached one is always either stale or about to be
+    if (childResolver?.fnName === 'generateOtp') {
+      throw new SchemaError('cannot cache generateOtp(), since codes expire', {
+        tip: 'Cache the secret instead, e.g. `generateOtp(cache(op("op://vault/item/totp seed")))`',
+      });
     }
 
     // optional explicit cache key
@@ -1039,6 +1162,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   RandomUuidResolver,
   RandomHexResolver,
   RandomStringResolver,
+  GenerateOtpResolver,
   CacheResolver,
   RemapResolver,
   IfsResolver,
