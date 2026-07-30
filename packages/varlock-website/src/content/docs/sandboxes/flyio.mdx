@@ -14,9 +14,14 @@ Sprite env is per exec, so credentials exist only for the duration of one comman
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
 import { ENV } from 'varlock/env';
+import { SpritesClient } from '@fly/sprites';
 
-await sprite.spawn('node', ['agent.js'], { env: { STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY } });
+const sprite = new SpritesClient(ENV.SPRITES_TOKEN).sprite('my-sprite');
+
+await sprite.exec('node agent.js', { env: { STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY } });
 ```
+
+Your Sprites token is a varlock-managed secret like any other, hence `ENV.SPRITES_TOKEN`. (`sprite.spawn(cmd, args, { env })` takes the same options and streams output instead of resolving.)
 
 From a shell, wrap the command so the value is expanded **inside** varlock's env rather than by your own shell first:
 
