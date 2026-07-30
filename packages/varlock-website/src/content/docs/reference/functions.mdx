@@ -383,16 +383,11 @@ NPM_TOTP_SECRET=varlock(local:abc123...)
 
 # npm reads NPM_CONFIG_OTP as if you passed --otp=<code>
 # @sensitive
-NPM_CONFIG_OTP=generateOtp(ref(NPM_TOTP_SECRET))
-
-# seed from a password manager, as a full otpauth:// URI
-# (digits/period/algorithm come from the URI)
-# @sensitive
-OTHER_OTP=generateOtp(op("op://vault/some-service/otpauth uri"))
+NPM_CONFIG_OTP=generateOtp($NPM_TOTP_SECRET)
 
 # non-default params
 # @sensitive
-LEGACY_OTP=generateOtp(ref(LEGACY_SEED), digits=8, period=60, algorithm=SHA256)
+LEGACY_OTP=generateOtp($LEGACY_SEED, digits=8, period=60, algorithm=SHA256)
 ```
 
 Then `varlock run -- npm publish` picks up the code. For tools with no env var for it, expand the value in the child shell instead: `varlock run -- sh -c 'some-cli --otp=$OTP_CODE'` (single quotes matter, so the expansion happens after injection).

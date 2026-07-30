@@ -52,10 +52,12 @@ describe('generateOtp()', () => {
     const g = await loadAndResolve(outdent`
       # @internal
       TOTP_SECRET=${TEST_SECRET}
-      OTP=generateOtp("\${TOTP_SECRET}")
+      BARE=generateOtp($TOTP_SECRET)
+      BRACED=generateOtp("\${TOTP_SECRET}")
     `);
-    expect(g.configSchema.OTP.errors).toEqual([]);
-    expect(g.configSchema.OTP.resolvedValue).toMatch(/^\d{6}$/);
+    expect(g.configSchema.BARE.errors).toEqual([]);
+    expect(g.configSchema.BARE.resolvedValue).toMatch(/^\d{6}$/);
+    expect(g.configSchema.BRACED.resolvedValue).toEqual(g.configSchema.BARE.resolvedValue);
   });
 
   it('accepts an otpauth:// URI', async () => {
