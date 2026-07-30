@@ -28,7 +28,7 @@ This is the standard Sprites posture, and what Fly recommends: the workload hold
 
 ## Credential proxy: the broker sprite
 
-One sprite (the broker) runs `varlock proxy start --tunnel` as a sprite *service*, serving the built-in WebSocket tunnel on the sprite's public URL. Agent sprites reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
+One sprite (the broker) runs `varlock proxy start --expose` as a sprite *service*, serving the built-in WebSocket tunnel on the sprite's public URL. Agent sprites reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
 
 ### Schema setup
 
@@ -51,8 +51,11 @@ Egress is permissive by default: proxied requests to hosts without a rule pass t
 Set up the broker once; its filesystem persists. The steps use the sprite CLI for readability, but each one is a plain REST call (the `sprite api` steps show the shape), so an orchestrator can drive the same setup from code.
 
 ```bash
-# one data-plane token, shared by the broker and every agent; generate it yourself.
-# it is the credential to USE the broker over the tunnel, not to read its secrets.
+# one data-plane token, shared by the broker and every agent; generate it yourself
+# (or let the broker mint one and read it back with `varlock proxy token`). It is
+# the credential to USE the broker over the tunnel, not to read its secrets, and
+# it travels as an env var rather than an argument so it stays out of process
+# listings and logs.
 export PROXY_TOKEN=$(uuidgen)
 
 # sprites ship Node 24+, so npm works. Node lives under nvm here, and nvm's bin
@@ -77,7 +80,7 @@ sprite api /v1/sprites/varlock-broker/services/varlock-proxy -- -X PUT \
 {
   "cmd": "/home/sprite/.local/bin/varlock",
   "args": [
-    "proxy", "start", "--tunnel", "--port", "8080",
+    "proxy", "start", "--expose", "--port", "8080",
     "--cert-dir", "/home/sprite/proj/.varlock-ca", "--persist-ca"
   ],
   "dir": "/home/sprite/proj",
@@ -106,8 +109,8 @@ An agent needs nothing but varlock and the broker's URL (shown by `sprite url -s
 ```bash
 sprite create agent-1
 sprite exec -s agent-1 -- sh -c 'npm i -g varlock && ln -sf "$(npm prefix -g)/bin/varlock" ~/.local/bin/varlock'
-sprite exec -s agent-1 -- varlock proxy run \
-  --url wss://varlock-broker-myorg.sprites.app --token $PROXY_TOKEN -- your-agent-command
+sprite exec -s agent-1 --env VARLOCK_PROXY_TOKEN="$PROXY_TOKEN" -- \
+  varlock proxy run --url wss://varlock-broker-myorg.sprites.app -- your-agent-command
 ```
 
 To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
@@ -138,9 +141,10 @@ For local development, run the proxy on your machine instead: secrets, resolver 
 
 ```bash
 export VARLOCK_PROXY_TOKEN=$(uuidgen)
-varlock proxy start --tunnel --port 8080
+varlock proxy start --expose --port 8080
 ngrok http 8080          # or cloudflared, Tailscale funnel, ...
-# agents: sprite exec -s agent-1 -- varlock proxy run --url wss://abc123.ngrok.app --token $VARLOCK_PROXY_TOKEN -- <command>
+# agents: sprite exec -s agent-1 --env VARLOCK_PROXY_TOKEN="$VARLOCK_PROXY_TOKEN" -- \
+#           varlock proxy run --url wss://abc123.ngrok.app -- <command>
 ```
 
 The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. See the [topologies overview](/sandboxes/overview/#topologies) for the full menu.
@@ -165,4 +169,4 @@ If you run agent workloads on [Fly Machines](https://fly.io/docs/machines/) dire
 - Bake varlock into your image (see the [Docker guide](/integrations/docker/)) and wrap the entrypoint in `varlock run`.
 - Machines have no destination-level egress filtering (network policies are port/protocol only), so there is no Sprites-style "only the broker" clamp.
 
-Machines also open two proxy topologies that Sprites cannot use, because machines sit on your org's private IPv6 network (6PN), which carries any port with no HTTP ingress in the path: a broker machine on a dedicated [custom network](https://fly.io/docs/networking/custom-private-networks/) is reachable directly at `ws://<broker-app>.internal:8080` (bind the tunnel with `--tunnel=::`; 6PN is IPv6), and [WireGuard peering](https://fly.io/docs/blueprints/connect-private-network-wireguard/) is bidirectional, so machines can dial a proxy on your laptop at `<peer>._peer.internal` with no tunnel service and nothing exposed publicly. We have not yet validated these end to end the way the sprite recipes above are; if you want them written up as full recipes, [tell us](https://github.com/dmno-dev/varlock/discussions).
+Machines also open two proxy topologies that Sprites cannot use, because machines sit on your org's private IPv6 network (6PN), which carries any port with no HTTP ingress in the path: a broker machine on a dedicated [custom network](https://fly.io/docs/networking/custom-private-networks/) is reachable directly at `ws://<broker-app>.internal:8080` (bind with `--expose=::`; 6PN is IPv6), and [WireGuard peering](https://fly.io/docs/blueprints/connect-private-network-wireguard/) is bidirectional, so machines can dial a proxy on your laptop at `<peer>._peer.internal` with no tunnel service and nothing exposed publicly. We have not yet validated these end to end the way the sprite recipes above are; if you want them written up as full recipes, [tell us](https://github.com/dmno-dev/varlock/discussions).

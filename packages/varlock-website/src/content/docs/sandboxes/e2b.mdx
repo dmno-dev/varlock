@@ -29,7 +29,7 @@ This is the standard E2B posture: sandboxes hold real values, and the values tra
 
 ## Credential proxy: the broker sandbox
 
-One long-lived sandbox (the broker) runs `varlock proxy start --tunnel`, which serves the built-in WebSocket tunnel on its proxy port (E2B's public sandbox URLs carry it). Agent sandboxes reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
+One long-lived sandbox (the broker) runs `varlock proxy start --expose`, which serves the built-in WebSocket tunnel on its proxy port (E2B's public sandbox URLs carry it). Agent sandboxes reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
 
 ```
 [agent sandbox]                          [broker sandbox]
@@ -65,8 +65,9 @@ import { ENV } from 'varlock/env';
 import { Sandbox } from 'e2b';
 
 // One data-plane token, shared by the broker and every agent; generate it
-// yourself. It is the credential to USE the broker over the tunnel, not to
-// read its secrets.
+// yourself (or let the broker mint one and read it back with `varlock proxy
+// token`). It is the credential to USE the broker over the tunnel, not to read
+// its secrets.
 const PROXY_TOKEN = crypto.randomUUID();
 const VARLOCK = '/home/user/.config/varlock/bin/varlock';
 
@@ -84,7 +85,7 @@ await broker.files.write('/home/user/proj/.env.schema', envSchemaContents);
 // Schema keys resolve from the process env, so envs carries the bootstrap:
 // usually just your plugin's secret-zero (shown: a 1Password service account).
 await broker.commands.run(
-  `cd /home/user/proj && ${VARLOCK} proxy start --tunnel --port 8080 --cert-dir /home/user/proj/.varlock-ca --persist-ca > /home/user/proxy.log 2>&1`,
+  `cd /home/user/proj && ${VARLOCK} proxy start --expose --port 8080 --cert-dir /home/user/proj/.varlock-ca --persist-ca > /home/user/proxy.log 2>&1`,
   {
     background: true,
     timeoutMs: 0,
@@ -114,7 +115,10 @@ await agent.commands.run('curl -sSfL https://varlock.dev/install.sh | sh -s');
 // connect to the broker and run the workload through the tunnel. The agent only
 // ever holds placeholders; the broker injects real values at the wire.
 await agent.commands.run(
-  `${VARLOCK} proxy run --url wss://${brokerHost} --token ${PROXY_TOKEN} -- your-agent-command`,
+  `${VARLOCK} proxy run --url wss://${brokerHost} -- your-agent-command`,
+  // the token rides the env rather than the command line, so it stays out of
+  // process listings and E2B's command logs
+  { envs: { VARLOCK_PROXY_TOKEN: PROXY_TOKEN } },
 );
 ```
 
@@ -155,9 +159,9 @@ For local development, run the proxy on your machine instead: secrets, resolver 
 
 ```bash
 export VARLOCK_PROXY_TOKEN=$(uuidgen)
-varlock proxy start --tunnel --port 8080
+varlock proxy start --expose --port 8080
 ngrok http 8080          # or cloudflared, Tailscale funnel, ...
-# agents: varlock proxy run --url wss://abc123.ngrok.app --token $VARLOCK_PROXY_TOKEN -- <command>
+# agents: VARLOCK_PROXY_TOKEN=… varlock proxy run --url wss://abc123.ngrok.app -- <command>
 ```
 
 The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. The same pattern reaches a proxy on any infrastructure you run; see the [topologies overview](/sandboxes/overview/#topologies).

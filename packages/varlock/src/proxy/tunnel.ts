@@ -532,7 +532,7 @@ export function fetchTunnelBootstrap(url: string, token: string, timeoutMs = 150
     // rejecting after resolve is a no-op.
     ws.addEventListener('error', () => {
       clearTimeout(timer);
-      reject(new Error('tunnel handshake failed. Check the URL and --token, and that the broker started with `--tunnel`.'));
+      reject(new Error('tunnel handshake failed. Check the URL and --token, and that the broker started with `--expose`.'));
     });
     ws.addEventListener('close', () => {
       clearTimeout(timer);

@@ -17,13 +17,13 @@ There are a handful of ways to combine varlock with sandboxed agents, ordered he
 
 1. **Inject resolved values.** Run the orchestrator under [`varlock run`](/reference/cli/load-and-run/) and pass values through the provider's env machinery (or install varlock inside the sandbox and let it resolve its own). You get resolution, validation, and log redaction; the sandbox holds real values. Right for workloads you trust with the credentials they use.
 2. **Proxy inside the agent's own sandbox.** Running [`proxy run`](/guides/proxy/) on the same host as an untrusted agent is **not recommended**: the agent and the broker share a machine, so the boundary is a bar-raiser, not a wall (see [why sandbox + proxy](/guides/proxy/sandboxing/#why-sandbox--proxy)). Use a broker instance instead.
-3. **Broker instance.** The proxy runs in one dedicated sandbox holding the real secrets (or a plugin secret-zero); agent sandboxes connect over the [built-in tunnel](/guides/proxy/running/#remote-proxy-start---tunnel--proxy-run---url) and hold only placeholders. The recommended shape for cloud fleets, and what each provider guide shows.
+3. **Broker instance.** The proxy runs in one dedicated sandbox holding the real secrets (or a plugin secret-zero); agent sandboxes connect over the [built-in tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url) and hold only placeholders. The recommended shape for cloud fleets, and what each provider guide shows.
 4. **Proxy on infrastructure you run.** The same broker shape, but on a VM or container platform you already operate, reachable at a URL that carries WebSockets. Useful when one broker should serve fleets across providers, or outlive any one provider's sandbox lifecycle.
 5. **Proxy on your machine.** For the dev loop: secrets, resolver plugins, biometric unlock, and the interactive request log stay local, and sandboxes reach the proxy through a tunnel service (or the platform's private networking where it exists).
 
 ## Cloud sandboxes
 
-Cloud sandbox providers run the agent in a remote VM, so the proxy is reached over the built-in tunnel ([`proxy start --tunnel` + `proxy run --url`](/reference/cli/proxy/)) instead of loopback. Each guide leads with the recommended path for that platform and keeps the rest short.
+Cloud sandbox providers run the agent in a remote VM, so the proxy is reached over the built-in tunnel ([`proxy start --expose` + `proxy run --url`](/reference/cli/proxy/)) instead of loopback. Each guide leads with the recommended path for that platform and keeps the rest short.
 
 <CardGrid>
   <LinkCard title="E2B" href="/sandboxes/e2b/" description="Broker sandbox or tunnel to your machine; egress lockdown via network rules" />

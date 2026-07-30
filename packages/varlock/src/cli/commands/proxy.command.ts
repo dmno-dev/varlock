@@ -1370,7 +1370,7 @@ function startSchemaDriftWatcher(opts: {
 }
 
 /**
- * Read the fixed `--port`, `--cert-dir`, and `--tunnel` bind address from a
+ * Read the fixed `--port`, `--cert-dir`, and `--expose` bind address from a
  * run/start invocation. All optional (ephemeral port + temp cert dir + loopback
  * bind otherwise); they let a caller wire tools to a known proxy endpoint / CA
  * path before the proxy boots, and serve the tunnel off-loopback for a remote client.
@@ -1395,10 +1395,10 @@ function resolveProxyBindOptions(ctx: any): {
     }
     out.persistCa = true;
   }
-  // `--tunnel` (custom-parsed: bare → 0.0.0.0) is the off-loopback bind that also
+  // `--expose` (custom-parsed: bare → 0.0.0.0) is the off-loopback bind that also
   // serves the WS tunnel + mints the data-plane token.
-  const tunnel = ctx.values.tunnel;
-  if (tunnel !== undefined && tunnel !== '') out.listenHost = String(tunnel);
+  const expose = ctx.values.expose;
+  if (expose !== undefined && expose !== '') out.listenHost = String(expose);
   return out;
 }
 
@@ -1688,10 +1688,19 @@ async function startAction(ctx: any) {
     // Off-loopback bind: the WS tunnel is live. Surface the credential a remote
     // guest needs — it is meant to travel (unlike the endpoint token), so it is
     // shown here so an orchestrator can hand it to `proxy run --url`.
+    // The token is a credential, so only print it to a human at a terminal. A
+    // headless broker's stdout is usually a log file (a sandbox service log,
+    // a redirect), and a token sitting in there is readable by anything that
+    // can read logs — point at `proxy token` instead.
+    const tokenIsSafeToPrint = process.stdout.isTTY;
     logLines([
-      `· tunnel: serving off-loopback (${bindOptions.listenHost})`,
+      `· exposed off-loopback (${bindOptions.listenHost}), serving the tunnel`,
       ansis.dim('  a client elsewhere runs through it with:'),
-      ansis.dim(`  varlock proxy run --url wss://<this-host> --token ${session.dataPlaneToken} -- <command>`),
+      tokenIsSafeToPrint
+        ? ansis.dim(`  varlock proxy run --url wss://<this-host> --token ${session.dataPlaneToken} -- <command>`)
+        : ansis.dim('  varlock proxy run --url wss://<this-host> --token "$(varlock proxy token)" -- <command>'),
+      !tokenIsSafeToPrint
+        && ansis.dim('  (token withheld from non-terminal output; read it with `varlock proxy token`)'),
     ]);
   }
   if (allowReload) {
@@ -1791,6 +1800,31 @@ async function startAction(ctx: any) {
   });
 }
 
+/**
+ * Print a session's data-plane token. Deliberately its own verb rather than a
+ * field in `proxy status`: the token is a credential (it opens the tunnel and,
+ * over it, the placeholder env), so reading it should be an explicit act and
+ * never something that lands in output people paste or screenshot.
+ */
+async function tokenAction(ctx: any) {
+  const session = await resolveProxySessionForCommand({
+    explicitSession: ctx.values.session,
+    env: process.env,
+    defaultToSingleActive: true,
+  }).catch((error) => {
+    throw new CliExitError((error as Error).message);
+  });
+
+  if (!session.dataPlaneToken) {
+    throw new CliExitError(
+      `Session ${session.id} has no data-plane token: it is bound to loopback only.`,
+      { suggestion: 'Start the broker with `--expose` to serve the tunnel and mint a token.' },
+    );
+  }
+  // bare value on stdout so `TOKEN=$(varlock proxy token)` works
+  console.log(session.dataPlaneToken);
+}
+
 async function envAction(ctx: any) {
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
@@ -1842,7 +1876,7 @@ async function envAction(ctx: any) {
 
 /**
  * Remote path of `proxy run`: reach a proxy running elsewhere (a broker started
- * with `--tunnel`) over the built-in tunnel, then run the command through it.
+ * with `--expose`) over the built-in tunnel, then run the command through it.
  * Self-wires from the broker's bootstrap (the same child-view payload a local
  * attach adopts, plus CA certs), so the guest holds only placeholders and no env
  * or certs need to be supplied out of band. Shares the spawn/redaction/teardown
@@ -1856,19 +1890,19 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   const url = String(ctx.values.url);
   const token = ctx.values.token ?? process.env.VARLOCK_PROXY_TOKEN;
   if (!token) {
-    throw new CliExitError('Missing --token (or VARLOCK_PROXY_TOKEN). It is the broker\'s data-plane token (minted by `proxy start --tunnel`).');
+    throw new CliExitError('Missing --token (or VARLOCK_PROXY_TOKEN). It is the broker\'s data-plane token (minted by `proxy start --expose`).');
   }
   // Local-proxy flags don't apply when the proxy runs elsewhere.
   if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined
-    || ctx.values.tunnel !== undefined || ctx.values['persist-ca']) {
-    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, `--persist-ca`, and `--tunnel` describe a local proxy and cannot be combined with `--url`.');
+    || ctx.values.expose !== undefined || ctx.values['persist-ca']) {
+    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, `--persist-ca`, and `--expose` describe a local proxy and cannot be combined with `--url`.');
   }
 
   // 1. Fetch the bootstrap (encoded child-view payload + CA certs) over the WS.
   const bootstrap = await fetchTunnelBootstrap(url, token).catch((error) => {
     throw new CliExitError(`Could not reach the broker tunnel at ${url}.`, {
       details: (error as Error).message,
-      suggestion: 'Check the URL and --token, and that the broker started with `--tunnel`.',
+      suggestion: 'Check the URL and --token, and that the broker started with `--expose`.',
     });
   });
   const payload = decodeSessionEnvPayload(bootstrap.payloadJson);
@@ -2406,12 +2440,12 @@ const bindArgs = {
       + 'so a restart does not invalidate clients that already trust it. For long-lived brokers; the private key '
       + 'normally never touches disk, so only use this where the proxy runs alone.',
   },
-  tunnel: {
+  expose: {
     type: 'custom',
-    // Bare `--tunnel` → bind 0.0.0.0; `--tunnel=<addr>` → a specific interface.
+    // Bare `--expose` → bind 0.0.0.0; `--expose=<addr>` → a specific interface.
     parse: (value: string) => (value === '' || value == null ? '0.0.0.0' : value),
     description: 'Serve the built-in WebSocket tunnel so a client elsewhere can run through this proxy '
-      + '(`proxy run --url`). Binds off-loopback (bare `--tunnel` = 0.0.0.0; `--tunnel=<addr>` picks an interface) '
+      + '(`proxy run --url`). Binds off-loopback (bare `--expose` = 0.0.0.0; `--expose=<addr>` picks an interface) '
       + 'and mints a per-session data-plane token clients must present (pin it with VARLOCK_PROXY_TOKEN). The '
       + 'control endpoint stays loopback-only.',
   },
@@ -2421,7 +2455,7 @@ const bindArgs = {
 const remoteArgs = {
   url: {
     type: 'string',
-    description: 'Run through a proxy running elsewhere (a broker started with `--tunnel`): its tunnel URL '
+    description: 'Run through a proxy running elsewhere (a broker started with `--expose`): its tunnel URL '
       + '(wss://... or ws://...). Reached over the built-in WebSocket tunnel. Requires --token.',
   },
   token: {
@@ -2601,6 +2635,13 @@ const pruneCommand = define({
   run: (ctx: any) => pruneAction(ctx),
 });
 
+const tokenCommand = define({
+  name: 'token',
+  description: 'Print a session\'s data-plane token (for `proxy run --url`)',
+  args: { ...sessionArg },
+  run: (ctx: any) => tokenAction(ctx),
+});
+
 export const commandSpec = define({
   name: 'proxy',
   description: 'Manage proxy sessions for placeholder-based agent workflows',
@@ -2609,6 +2650,7 @@ export const commandSpec = define({
     start: startCommand,
     rules: rulesCommand,
     env: envCommand,
+    token: tokenCommand,
     status: statusCommand,
     audit: auditCommand,
     reload: reloadCommand,
@@ -2626,8 +2668,9 @@ Proxy command surface:
   varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
   varlock proxy env --session abc12             # this session's wiring env (source locally)
   varlock proxy env --full --proxy-url http://127.0.0.1:8888 --cert-dir /home/user/certs --format json   # full env for a remote sandbox
-  varlock proxy start --tunnel                                  # broker: serve the WS tunnel off-loopback
-  varlock proxy run --url wss://8000-abc.e2b.app --token TOKEN -- claude   # guest: run through a remote broker
+  varlock proxy start --expose                  # broker: reachable off-loopback, serving the WS tunnel
+  varlock proxy token                           # read the broker's data-plane token
+  varlock proxy run --url wss://8000-abc.e2b.app -- claude   # guest: run through a remote broker (token via VARLOCK_PROXY_TOKEN)
   varlock proxy status
   varlock proxy audit --session abc12
   varlock proxy reload --session abc12
