@@ -157,6 +157,13 @@ ngrok http 8080          # or cloudflared, Tailscale funnel, ...
 
 The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. The same pattern reaches a proxy on any infrastructure you run; see the [topologies overview](/sandboxes/overview/#topologies).
 
-## Alternative: E2B request transforms
+:::note[Compared to E2B request transforms]
+E2B has a beta feature ([`network.rules`](https://e2b.dev/docs/sandbox/internet-access)) that injects headers into egress requests for matching hosts at their gateway, so a sandbox can call an API without holding the key.
 
-E2B has a beta feature ([`network.rules`](https://e2b.dev/docs/sandbox/internet-access)) that injects headers into egress requests for matching hosts at their gateway, so a sandbox can call an API without holding the key. The difference is custody and control: with `network.rules` you hand the real secret to E2B's control plane, and the injection rule is static per sandbox. With the varlock proxy, secrets stay in the broker (or on your machine), and you keep schema-driven policy, path and method rules, strict egress, [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, and a per-request audit log. If all you need is one static header on one host and you are comfortable with E2B holding the key, `network.rules` is less machinery; past that, use the proxy.
+The varlock proxy covers the same ground and more:
+
+- **Seamless.** Substitution happens anywhere in a request, not just one static header per host, and policy can match on path and method.
+- **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) and stay in your custody, instead of being handed to E2B's control plane.
+- **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents. `network.rules` are static per sandbox, set at creation.
+- Plus [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, your own audit log, and the same setup on any other platform.
+:::

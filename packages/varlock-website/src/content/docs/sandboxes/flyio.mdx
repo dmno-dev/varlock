@@ -131,9 +131,16 @@ ngrok http 8080          # or cloudflared, Tailscale funnel, ...
 
 The data-plane token gates the tunnel, so a public URL is safe, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. See the [topologies overview](/sandboxes/overview/#topologies) for the full menu.
 
-## Alternative: Sprites Connectors
+:::note[Compared to Sprites Connectors]
+[Connectors](https://sprites.dev/api/connectors) are Sprites' native credential feature: credentials live in your Sprites org, and sprites call APIs through `api.sprites.dev/v1/gateway/...` URLs where the gateway injects the real credential.
 
-[Connectors](https://sprites.dev/api/connectors) are Sprites' native credential feature: credentials (OAuth connections or raw API keys) live in your Sprites org, and sprites call APIs through `api.sprites.dev/v1/gateway/...` URLs; the gateway injects the real credential, identifying the calling sprite automatically, with per-connector access policy (sprite labels, name prefixes, endpoint allow/block lists). The differences from the varlock proxy are custody and transparency: Connectors hold the real secret in the Sprites platform and require code to call the gateway URL instead of the real API, while the varlock proxy keeps secrets in the broker (or on your machine) and is transparent to SDKs, with schema-driven policy, strict egress, response scrubbing, and your own audit log. If your workload is Sprites-only and gateway URLs fit your code, Connectors is less machinery; past that, use the proxy.
+The varlock proxy covers the same ground and more:
+
+- **Seamless.** Substitution happens transparently at the wire, so SDKs, CLIs, and agent tools work unmodified. Connectors rewrite the base URL, so anything calling an API has to be changed to point at the gateway.
+- **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...), rather than being copied into one platform's store, and they stay in your custody.
+- **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents. Connector policy lives in the platform's API, separate from your project.
+- Plus response scrubbing, your own audit log, and the same setup on any other platform.
+:::
 
 ## Raw Fly Machines
 
