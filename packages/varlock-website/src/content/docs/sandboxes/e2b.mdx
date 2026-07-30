@@ -132,7 +132,7 @@ await broker.commands.run("until curl -s -o /dev/null http://127.0.0.1:8080 --pr
 const brokerHost = broker.getHost(8080); // e.g. 8080-<id>.e2b.app
 ```
 
-Passing values through `envs` makes no assumption about where they live on your side: the orchestrator runs under `varlock run`, so these are its own resolved values (from plugins, `.env.local`, CI-injected env, whatever your schema says) passing through. If you would rather resolve secrets inside the broker, install a [plugin](/guides/plugins/) and pass only its service-account token as the one secret-zero; either way agent sandboxes hold no real secrets at all.
+Which env vars the broker needs depends on your schema. In most setups secrets resolve from a manager via a [plugin](/guides/plugins/), and then the broker needs exactly **one** value besides the proxy token: the plugin's service-account token, its secret zero (e.g. `OP_SERVICE_ACCOUNT_TOKEN` for 1Password), and the schema resolves everything else inside the broker. Enumerating values through `envs` as above is the fallback for values that only exist on your side, like the example schema's; run the orchestrator under `varlock run` and they are its own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
 
 #### Start agent sandboxes
 
