@@ -121,7 +121,7 @@ export function parseOtpAuthUri(uri: string): ParsedOtpAuthUri {
     throw new Error('counter-based (HOTP) otpauth:// URIs are not supported, only time-based (TOTP)');
   }
   if (otpType !== 'totp') {
-    throw new Error(`unsupported otpauth:// URI type "${otpType}", expected "totp"`);
+    throw new Error('unsupported otpauth:// URI type, expected "totp"');
   }
 
   const secret = parsed.searchParams.get('secret');
@@ -132,7 +132,9 @@ export function parseOtpAuthUri(uri: string): ParsedOtpAuthUri {
   const digits = parsed.searchParams.get('digits');
   if (digits) {
     const digitsNum = Number(digits);
-    if (!Number.isInteger(digitsNum)) throw new Error('otpauth:// URI has an invalid `digits` param');
+    if (!Number.isInteger(digitsNum) || digitsNum < 6 || digitsNum > 10) {
+      throw new Error('otpauth:// URI has an invalid `digits` param (must be between 6 and 10)');
+    }
     result.digits = digitsNum;
   }
 
@@ -148,7 +150,7 @@ export function parseOtpAuthUri(uri: string): ParsedOtpAuthUri {
   const algorithm = parsed.searchParams.get('algorithm');
   if (algorithm) {
     const normalized = normalizeOtpAlgorithm(algorithm);
-    if (!normalized) throw new Error(`otpauth:// URI has an unsupported \`algorithm\` param "${algorithm}"`);
+    if (!normalized) throw new Error('otpauth:// URI has an unsupported `algorithm` param');
     result.algorithm = normalized;
   }
 

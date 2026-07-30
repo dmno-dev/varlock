@@ -281,7 +281,7 @@ interface ConnectVault {
  * `op://vault/item/one-time password?attribute=otp`
  */
 function isOtpReference(ref: string) {
-  return /[?&]attribute=(otp|totp)(&|$)/i.test(ref);
+  return /[?&](?:attribute|attr)=(otp|totp)(&|$)/i.test(ref);
 }
 
 /** Parse an `op://vault/item/[section/]field` reference into its parts */

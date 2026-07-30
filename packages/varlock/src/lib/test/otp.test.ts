@@ -199,6 +199,11 @@ describe('generateTotp() with otpauth:// URIs', () => {
     expect(() => parseOtpAuthUri(`otpauth://totp/x?secret=${secret}&algorithm=MD5`))
       .toThrowError(/unsupported `algorithm` param/);
   });
+
+  it.each([5, 11])('rejects digits=%i', (digits) => {
+    expect(() => parseOtpAuthUri(`otpauth://totp/x?secret=${secret}&digits=${digits}`))
+      .toThrowError(/invalid `digits` param/);
+  });
 });
 
 describe('normalizeOtpAlgorithm()', () => {

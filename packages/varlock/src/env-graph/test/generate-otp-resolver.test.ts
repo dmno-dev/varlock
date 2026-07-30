@@ -125,6 +125,15 @@ describe('generateOtp()', () => {
     expect(g.configSchema.A.resolutionError!.message).not.toContain('not-a-valid-secret');
   });
 
+  it.each([
+    `otpauth://totp/x?secret=${TEST_SECRET}&algorithm=SENSITIVE_MARKER`,
+    `otpauth://SENSITIVE_MARKER/x?secret=${TEST_SECRET}`,
+  ])('does not leak malformed URI values in resolution errors', async (secret) => {
+    const g = await loadAndResolve(`A=generateOtp("${secret}")`);
+    expect(g.configSchema.A.resolutionError).toBeInstanceOf(ResolutionError);
+    expect(g.configSchema.A.resolutionError!.message).not.toContain('SENSITIVE_MARKER');
+  });
+
   it('fails resolution when the secret is empty', async () => {
     const g = await loadAndResolve(outdent`
       # @internal
