@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import readline from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 
-import type { ProxyApprovalEach } from './types';
+import type { ProxyApprovalEach } from '@varlock/proxy-core/types';
 
 /**
  * A request-bound approval request (Invariant #8). It commits to the EXACT

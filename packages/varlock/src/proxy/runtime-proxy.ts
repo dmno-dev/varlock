@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'node:crypto';
 import {
   mkdir, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
@@ -13,6 +12,26 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 
 import {
+  dataPlaneAuthOk, isLoopbackAddress, isLoopbackBind, tokenMatches,
+} from '@varlock/proxy-core/auth';
+import {
+  getHeaderValue, isTextLikeResponse, isUncompressedResponse,
+  redactOutgoingHeaders, shouldRedactResponseBody, transformHeaders,
+} from '@varlock/proxy-core/headers';
+import {
+  evaluateProxiedRequestPreBody, evaluateProxiedRequestWithBody, hostMatchesProxyRules,
+  type ApprovalGateFn, type ProxiedRequestFacts, type ProxyPolicyState,
+} from '@varlock/proxy-core/pipeline';
+import { normalizeHost } from '@varlock/proxy-core/policy';
+import {
+  detectScrubbedKeys, findRealLeak, StreamingScrubber,
+} from '@varlock/proxy-core/scrub';
+import { replaceRealWithPlaceholders } from '@varlock/proxy-core/substitution';
+import type {
+  ProxyEgressMode, ProxyManagedItem, ProxyRule,
+} from '@varlock/proxy-core/types';
+
+import {
   createApprovalRequest, isApprovalValid, type ApprovalProvider,
 } from './approval';
 import type { ProxyActivity } from './audit';
@@ -20,18 +39,9 @@ import {
   createEphemeralCa, createHostCert, exportCaPrivateKeyPem, loadCa,
 } from './cert-authority';
 import {
-  describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost,
-  type RequestFacts, type RequestScopedManagedItem,
-} from './policy';
-import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
 } from './session-env-payload';
 import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
-import {
-  isNeverAutoSubstituteHeader, proxySubstitutionTargetKey,
-  type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
-  type ProxySubstitutionLocation, type ProxySubstitutionTarget,
-} from './types';
 
 const LOCALHOST = '127.0.0.1';
 
@@ -146,8 +156,6 @@ export type SessionEnvPayloadMeta = {
 
 type HostInfo = { host: string, port: number };
 
-type HeaderTransformFn = (value: string) => string;
-
 function parseHostPort(value: string): HostInfo | null {
   // Parse via URL so bracketed IPv6 literals (`[::1]:443`) are handled — a plain
   // `split(':')` mangles them. The hostname comes back bracketed for IPv6; strip
@@ -163,10 +171,6 @@ function parseHostPort(value: string): HostInfo | null {
   } catch {
     return null;
   }
-}
-
-function hostMatchesProxyRules(host: string, rules: Array<ProxyRule>): boolean {
-  return rules.some((rule) => rule.domain.some((d) => domainMatches(d, host)));
 }
 
 /**
@@ -235,315 +239,6 @@ function verifyUpstreamIdentity(host: string, port: number): Promise<{ address: 
 }
 
 /**
- * Run the request-bound approval gate (Invariant #8). Builds an ApprovalRequest
- * committed to this exact request, asks the provider, and returns whether the
- * decision actually authorizes it. Fails closed: no provider, a throwing
- * provider, a nonce mismatch, or an expired/denied decision all return false.
- */
-async function runApprovalGate(input: {
-  approvalProvider: ApprovalProvider | undefined;
-  method: string;
-  host: string;
-  path: string;
-  body: Buffer;
-  ruleId?: string;
-  each?: ProxyApprovalEach;
-  maxDurationMs?: number;
-  injectedKeys: Array<string>;
-}): Promise<boolean> {
-  if (!input.approvalProvider) return false;
-  const request = createApprovalRequest({
-    method: input.method,
-    host: input.host,
-    path: input.path,
-    body: input.body,
-    ruleId: input.ruleId,
-    each: input.each,
-    maxDurationMs: input.maxDurationMs,
-    injectedKeys: input.injectedKeys,
-  });
-  try {
-    const decision = await input.approvalProvider.requestApproval(request);
-    return isApprovalValid(request, decision);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Number of non-overlapping occurrences of `needle` in `haystack`. Uses an
- * indexOf scan rather than `split` so it stays O(n) time / O(1) extra space: an
- * untrusted agent controls the request and could repeat a placeholder many times,
- * and `split` would allocate an array proportional to the match count.
- */
-function countOccurrences(haystack: string, needle: string): number {
-  if (!needle) return 0;
-  let count = 0;
-  let idx = haystack.indexOf(needle);
-  while (idx !== -1) {
-    count += 1;
-    idx = haystack.indexOf(needle, idx + needle.length);
-  }
-  return count;
-}
-
-/** A request decomposed into the parts the substitution guards inspect. */
-export type SubstitutionGuardRequest = {
-  /** Header name (lower-cased) + value, one entry per header. */
-  headers: Array<{ name: string; value: string }>;
-  /** Request target: path + query string. */
-  requestTarget: string;
-  /** Raw request body text. */
-  body: string;
-  /** Content-type header value, if any (selects the body parser). */
-  contentType?: string;
-};
-
-export type SubstitutionGuardViolation = | { kind: 'location'; item: RequestScopedManagedItem; location: ProxySubstitutionLocation; suggestion: string }
-  | { kind: 'occurrences'; item: RequestScopedManagedItem; count: number };
-
-/** A string value in a request body, with the dotted path that locates it. */
-type BodyLeaf = { path: string; value: string };
-
-/**
- * String leaves of a request body, each with its dotted path, so a body-path
- * target can be checked. JSON objects/arrays produce paths like `client_secret`,
- * `data.token`, `items[0].key`; form bodies produce one leaf per field (path =
- * field name). Returns null when the body can't be parsed for the content type —
- * the guard treats that as "no allowed body occurrences" and fails closed.
- */
-function bodyStringLeaves(body: string, contentType: string | undefined): Array<BodyLeaf> | null {
-  const ct = (contentType ?? '').toLowerCase();
-  if (ct.includes('application/x-www-form-urlencoded')) {
-    return [...new URLSearchParams(body)].map(([name, value]) => ({ path: name, value }));
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return null;
-  }
-  const out: Array<BodyLeaf> = [];
-  const walk = (node: unknown, prefix: string) => {
-    if (typeof node === 'string') {
-      out.push({ path: prefix, value: node });
-    } else if (Array.isArray(node)) {
-      node.forEach((el, i) => walk(el, `${prefix}[${i}]`));
-    } else if (node && typeof node === 'object') {
-      for (const [k, v] of Object.entries(node)) walk(v, prefix ? `${prefix}.${k}` : k);
-    }
-    // numbers/booleans/null can't contain a placeholder string — skip.
-  };
-  walk(parsed, '');
-  return out;
-}
-
-/** A copy-pasteable `substituteIn=[...]` that keeps the current targets and adds `entry`. */
-function substituteInExample(targets: Array<ProxySubstitutionTarget>, entry: string): string {
-  return `substituteIn=[${[...targets.map(proxySubstitutionTargetKey), entry].join(', ')}]`;
-}
-
-/** Human hint naming the current targets and the exact substituteIn edit to allow the offending location. */
-function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<ProxySubstitutionTarget>): string {
-  const current = targets.map(proxySubstitutionTargetKey);
-  const entry = location === 'body' ? 'body:<path>' : location;
-  const extraByLocation: Partial<Record<ProxySubstitutionLocation, string>> = {
-    body: ' (name the field, e.g. body:client_secret, or body:* to allow anywhere in the body)',
-    query: ' (or query:<param> to pin one parameter)',
-  };
-  const extra = extraByLocation[location] ?? '';
-  return `currently allowed: [${current.join(', ')}]. To allow it in the ${location}, set ${substituteInExample(targets, entry)} on the @proxy rule${extra}`;
-}
-
-/** Header-specific hint: names the offending header, the exact substituteIn edit, and any denylist note. */
-function headerSuggestion(name: string | undefined, denied: boolean, targets: Array<ProxySubstitutionTarget>): string {
-  const current = targets.map(proxySubstitutionTargetKey);
-  const where = name ? `the "${name}" header` : 'that header';
-  const entry = name ? `header:${name}` : 'header:<name>';
-  const deniedNote = denied
-    ? ` (${name} is excluded from the any-header default because it's commonly forwarded or logged)`
-    : '';
-  return `currently allowed: [${current.join(', ')}]${deniedNote}. To allow it in ${where}, set ${substituteInExample(targets, entry)} on the @proxy rule`;
-}
-
-/**
- * Enforce the substitution guards on the injected items for a request, *before*
- * any placeholder is swapped for its real value. Returns the first violation, or
- * undefined if every injected placeholder sits only where its rule allows and
- * within its occurrence cap.
- *
- *  - placement guard: a placeholder occurrence anywhere the item's `targets` don't
- *    allow is an anomaly (default: any header). Each occurrence is checked against
- *    the exact target (specific header name, query param, or body path), which is
- *    what stops an injected secret from being swapped into a request body/query — a
- *    placeholder the agent was tricked into placing in, say, an email body on an
- *    otherwise-allowed host, even one whose body IS a substitution target at a
- *    different path.
- *  - cardinality guard: a valid request uses the secret a fixed number of times
- *    (default 1). An extra occurrence suggests an exfiltration copy (duplicate the
- *    token into an attacker-visible field while still making a valid call).
- *
- * Because placeholders are unique high-entropy tokens, the guard alone decides
- * placement; the actual substitution can stay a blind string-replace, since a
- * passing request has every occurrence at an allowed spot.
- *
- * Both fail closed: the caller blocks the request rather than substituting.
- */
-export function checkSubstitutionGuards(
-  req: SubstitutionGuardRequest,
-  hostItems: Array<RequestScopedManagedItem>,
-): SubstitutionGuardViolation | undefined {
-  for (const item of hostItems) {
-    const ph = item.placeholder;
-    if (!ph) continue;
-    const { targets } = item;
-    const anyHeader = targets.some((t) => t.location === 'header' && !t.name);
-    const headerNames = new Set(targets.flatMap((t) => (t.location === 'header' && t.name ? [t.name] : [])));
-    const anyPath = targets.some((t) => t.location === 'path');
-    const anyQuery = targets.some((t) => t.location === 'query' && !t.name);
-    const queryNames = targets.flatMap((t) => (t.location === 'query' && t.name ? [t.name] : []));
-    const bodyPaths = targets.flatMap((t) => (t.location === 'body' ? [t.path] : []));
-    // `body:*` is the explicit escape hatch for bodies we can't parse into a path.
-    const bodyAnywhere = bodyPaths.includes('*');
-
-    // Split the request target into the URL path and the query string: they are
-    // separate substitution locations (`path` vs `query`/`query:<param>`).
-    const queryStart = req.requestTarget.indexOf('?');
-    const pathPart = queryStart === -1 ? req.requestTarget : req.requestTarget.slice(0, queryStart);
-    const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
-
-    // Headers: total occurrences vs. those in an allowed header. The any-header
-    // default excludes a denylist of never-secret forward/log headers; an explicit
-    // header:<name> target still wins (so a named denied header is allowed).
-    let headerTotal = 0;
-    let headerAllowed = 0;
-    let offendingHeader: string | undefined;
-    for (const h of req.headers) {
-      const c = countOccurrences(h.value, ph);
-      if (!c) continue;
-      headerTotal += c;
-      const allowed = headerNames.has(h.name) || (anyHeader && !isNeverAutoSubstituteHeader(h.name));
-      if (allowed) headerAllowed += c;
-      else offendingHeader ||= h.name;
-    }
-    if (headerAllowed < headerTotal) {
-      const denied = anyHeader && !!offendingHeader && isNeverAutoSubstituteHeader(offendingHeader);
-      return {
-        kind: 'location', item, location: 'header', suggestion: headerSuggestion(offendingHeader, denied, targets),
-      };
-    }
-
-    // URL path: all-or-nothing (`path` allows a token anywhere in the path).
-    const pathTotal = countOccurrences(pathPart, ph);
-    if (pathTotal > 0 && !anyPath) {
-      return {
-        kind: 'location', item, location: 'path', suggestion: locationSuggestion('path', targets),
-      };
-    }
-
-    // Query string: total occurrences vs. those in an allowed param.
-    const queryTotal = countOccurrences(queryPart, ph);
-    let queryAllowed = 0;
-    if (queryTotal) {
-      if (anyQuery) {
-        queryAllowed = queryTotal;
-      } else if (queryNames.length) {
-        const params = new URLSearchParams(queryPart);
-        for (const name of queryNames) for (const v of params.getAll(name)) queryAllowed += countOccurrences(v, ph);
-      }
-    }
-    if (queryAllowed < queryTotal) {
-      return {
-        kind: 'location', item, location: 'query', suggestion: locationSuggestion('query', targets),
-      };
-    }
-
-    // Body: total occurrences vs. those at an allowed path. `body:*` allows anywhere
-    // (no parse needed); otherwise an unparseable body (leaves === null) allows
-    // nothing, so a `body:<path>` target fails closed on a body we can't parse.
-    const bodyTotal = countOccurrences(req.body, ph);
-    let bodyAllowed = 0;
-    if (bodyTotal && bodyAnywhere) {
-      bodyAllowed = bodyTotal;
-    } else if (bodyTotal && bodyPaths.length) {
-      const leaves = bodyStringLeaves(req.body, req.contentType);
-      if (leaves) {
-        for (const leaf of leaves) if (bodyPaths.includes(leaf.path)) bodyAllowed += countOccurrences(leaf.value, ph);
-      }
-    }
-    if (bodyAllowed < bodyTotal) {
-      return {
-        kind: 'location', item, location: 'body', suggestion: locationSuggestion('body', targets),
-      };
-    }
-
-    const total = headerTotal + pathTotal + queryTotal + bodyTotal;
-    if (total > item.maxOccurrences) return { kind: 'occurrences', item, count: total };
-  }
-  return undefined;
-}
-
-export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
-  let next = value;
-  // Longest placeholder first, mirroring the scrub direction: if one placeholder
-  // is a substring of another (e.g. `vlk_x` and `vlk_x_1`), replacing the shorter
-  // one first would corrupt the longer one and splice in the wrong real value.
-  const sortedByPlaceholderLength = [...managedItems]
-    .filter((item) => !!item.placeholder)
-    .sort((a, b) => b.placeholder.length - a.placeholder.length);
-  for (const item of sortedByPlaceholderLength) {
-    next = next.split(item.placeholder).join(item.realValue);
-  }
-  return next;
-}
-
-/**
- * Which managed items' placeholders actually appear in this request — i.e. the
- * secrets that will really be injected. Used for the audit log so it records
- * what was injected (keys only), not merely what was in scope.
- */
-function detectInjectedKeys(parts: Array<string>, hostItems: Array<ProxyManagedItem>): Array<string> {
-  const keys: Array<string> = [];
-  for (const item of hostItems) {
-    if (!item.placeholder) continue;
-    if (parts.some((part) => part.includes(item.placeholder))) keys.push(item.key);
-  }
-  return keys;
-}
-
-/**
- * Find a managed placeholder present in the outbound request that is NOT being
- * injected on this route (`injectHere`). Such a placeholder would reach the
- * upstream un-substituted and fail with a cryptic auth error, and the cause is
- * the proxy rules (wrong path/method, or wrong host) — so we catch it and
- * explain, rather than forwarding a doomed request. Placeholders are unique
- * per item, so a match is unambiguous (no false positives).
- */
-export function findUninjectedPlaceholder(
-  parts: Array<string>,
-  managedItems: Array<ProxyManagedItem>,
-  injectHere: Array<ProxyManagedItem>,
-): ProxyManagedItem | undefined {
-  const injectedKeys = new Set(injectHere.map((item) => item.key));
-  return managedItems.find(
-    (item) => item.placeholder.length > 0
-      && !injectedKeys.has(item.key)
-      && parts.some((part) => part.includes(item.placeholder)),
-  );
-}
-
-function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyManagedItem>): string {
-  let next = value;
-  const sortedByRealLength = [...managedItems]
-    .filter((item) => !!item.realValue && !!item.placeholder)
-    .sort((a, b) => b.realValue.length - a.realValue.length);
-  for (const item of sortedByRealLength) {
-    next = next.split(item.realValue).join(item.placeholder);
-  }
-  return next;
-}
-
-/**
  * Fail-closed response for a blocked/failed request. When `teardown` is set (the
  * MITM tunnel path), short status-only responses don't reliably flush through the
  * CONNECT tunnel, so we write a best-effort response and destroy the socket. The
@@ -572,60 +267,6 @@ function respondBlocked(
   if (teardown) res.socket?.destroy();
 }
 
-/** Constant-time token comparison (length leak is fine; the token is a uuid, not a password). */
-function tokenMatches(provided: unknown, expected: string): boolean {
-  if (typeof provided !== 'string') return false;
-  const providedBuf = Buffer.from(provided);
-  const expectedBuf = Buffer.from(expected);
-  if (providedBuf.length !== expectedBuf.length) return false;
-  return timingSafeEqual(providedBuf, expectedBuf);
-}
-
-function isLoopbackAddress(addr: string | undefined): boolean {
-  if (!addr) return false;
-  return addr === '::1' || addr === '::ffff:127.0.0.1' || addr.startsWith('127.');
-}
-
-/** True if a listen host binds only loopback (so remote peers can't reach it). */
-function isLoopbackBind(host: string): boolean {
-  return host === 'localhost' || isLoopbackAddress(host);
-}
-
-/** Extract the token from a `Proxy-Authorization: Basic base64(user:token)` header. */
-export function parseProxyAuthToken(header: string | Array<string> | undefined): string | undefined {
-  const value = Array.isArray(header) ? header[0] : header;
-  if (typeof value !== 'string') return undefined;
-  const spaceIdx = value.indexOf(' ');
-  if (spaceIdx === -1) return undefined;
-  const scheme = value.slice(0, spaceIdx);
-  const encoded = value.slice(spaceIdx + 1).trim();
-  if (scheme.toLowerCase() !== 'basic' || !encoded) return undefined;
-  let decoded: string;
-  try {
-    decoded = Buffer.from(encoded, 'base64').toString('utf8');
-  } catch {
-    return undefined;
-  }
-  const colon = decoded.indexOf(':');
-  // Basic is `user:pass`; the token is the password half (username is cosmetic).
-  return colon === -1 ? decoded : decoded.slice(colon + 1);
-}
-
-/**
- * Data-plane gate. Loopback peers are same-uid-trusted and always pass (the
- * historical model). A non-loopback peer — only reachable when the listener is
- * bound off-loopback — must present the session's `Proxy-Authorization` token.
- */
-export function dataPlaneAuthOk(
-  peerAddr: string | undefined,
-  header: string | Array<string> | undefined,
-  token: string | undefined,
-): boolean {
-  if (isLoopbackAddress(peerAddr)) return true;
-  if (!token) return false; // non-loopback bind without a token: fail closed
-  return tokenMatches(parseProxyAuthToken(header), token);
-}
-
 /** Transport-specific inputs for a proxied request, shared by the MITM-tunnel and
  * absolute-form (plain http) handlers so the policy/approval/injection/forwarding
  * logic lives in one place. */
@@ -644,154 +285,28 @@ type ProxiedRequestTransport = {
   tunnelTeardown: boolean;
 };
 
-function transformHeaders(
-  headers: http.IncomingHttpHeaders,
-  transformValue: HeaderTransformFn,
-): Record<string, string | Array<string>> {
-  const out: Record<string, string | Array<string>> = {};
-  for (const [key, val] of Object.entries(headers)) {
-    if (val === undefined) continue;
-    if (Array.isArray(val)) {
-      out[key] = val.map((v) => transformValue(v));
-    } else {
-      out[key] = transformValue(String(val));
-    }
-  }
-  return out;
-}
-
-function getHeaderValue(
-  headers: http.IncomingHttpHeaders,
-  key: string,
-): string | undefined {
-  const raw = headers[key.toLowerCase()];
-  if (raw === undefined) return undefined;
-  if (Array.isArray(raw)) return raw[0];
-  return String(raw);
-}
-
-function isUncompressedResponse(headers: http.IncomingHttpHeaders): boolean {
-  const contentEncoding = getHeaderValue(headers, 'content-encoding');
-  if (!contentEncoding) return true;
-  const tokens = contentEncoding.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean);
-  if (!tokens.length) return true;
-  return tokens.every((token) => token === 'identity');
-}
-
-function isTextLikeResponse(headers: http.IncomingHttpHeaders): boolean {
-  const contentType = getHeaderValue(headers, 'content-type')?.toLowerCase();
-  if (!contentType) return false;
-  return contentType.startsWith('text/')
-    || contentType.includes('json')
-    || contentType.includes('xml')
-    || contentType.includes('javascript')
-    || contentType.includes('x-www-form-urlencoded')
-    || contentType.includes('graphql');
-}
-
-// Only buffer-and-redact bounded, reasonably small text bodies. Anything we
-// can't size up front (SSE, chunked streams) or that's too large is streamed
-// straight through — buffering it would break streaming (e.g. LLM token-by-token
-// responses hang until complete) for a low-value protection: the injected secret
-// is in the request, not the response. Header redaction still applies regardless.
-const MAX_REDACT_BODY_BYTES = 2 * 1024 * 1024;
-
-function isStreamingResponse(headers: http.IncomingHttpHeaders): boolean {
-  const contentType = getHeaderValue(headers, 'content-type')?.toLowerCase() ?? '';
-  return contentType.includes('text/event-stream');
-}
-
-function isBoundedRedactableBody(headers: http.IncomingHttpHeaders): boolean {
-  const lenRaw = getHeaderValue(headers, 'content-length');
-  if (lenRaw === undefined) return false; // unknown size — treat as a stream, never buffer
-  const len = Number(lenRaw);
-  return Number.isFinite(len) && len >= 0 && len <= MAX_REDACT_BODY_BYTES;
-}
-
-function shouldRedactResponseBody(headers: http.IncomingHttpHeaders): boolean {
-  return isUncompressedResponse(headers)
-    && isTextLikeResponse(headers)
-    && !isStreamingResponse(headers)
-    && isBoundedRedactableBody(headers);
-}
-
-function redactOutgoingHeaders(
-  headers: http.IncomingHttpHeaders,
-  managedItems: Array<ProxyManagedItem>,
-): Record<string, string | Array<string>> {
-  return transformHeaders(
-    headers,
-    (value) => replaceRealWithPlaceholders(value, managedItems),
-  );
-}
-
-/** Returns the first managed item whose real value still appears in `text` (a leak), if any. */
-function findRealLeak(text: string, managedItems: Array<ProxyManagedItem>): ProxyManagedItem | undefined {
-  return managedItems.find((item) => item.realValue.length > 0 && text.includes(item.realValue));
-}
-
-/** Item keys whose real value appears in `text` — i.e. the keys that get scrubbed back to placeholders. */
-function detectScrubbedKeys(text: string, managedItems: Array<ProxyManagedItem>): Array<string> {
-  const keys: Array<string> = [];
-  for (const item of managedItems) {
-    if (item.realValue.length > 0 && text.includes(item.realValue)) keys.push(item.key);
-  }
-  return keys;
-}
-
-/**
- * Length of the longest suffix of `text` that is a strict prefix of some real
- * value — i.e. a partial real value that might complete in the next chunk and
- * so must be held back. Returns 0 (emit everything) when the text doesn't end
- * mid-secret, which keeps streaming responsive instead of buffering a fixed
- * window every chunk.
- */
-function pendingRealPrefixLen(text: string, managedItems: Array<ProxyManagedItem>): number {
-  let best = 0;
-  for (const item of managedItems) {
-    const real = item.realValue;
-    if (!real) continue;
-    const maxK = Math.min(real.length - 1, text.length);
-    for (let k = maxK; k > best; k -= 1) {
-      if (text.endsWith(real.slice(0, k))) {
-        best = k;
-        break;
-      }
-    }
-  }
-  return best;
-}
-
 /**
  * Scrub real values back to placeholders on an *unbounded text stream* (e.g.
  * SSE), chunk by chunk, so a reflected secret in a streamed response is still
  * replaced for the child without buffering the whole stream. A StringDecoder
- * keeps multi-byte UTF-8 chars intact across chunks; only a trailing *partial*
- * real value is held back, so complete chunks flow through immediately.
+ * keeps multi-byte UTF-8 chars intact across chunks; the hold-back of trailing
+ * partial real values lives in the shared StreamingScrubber.
  */
 function createScrubbingTransform(
   managedItems: Array<ProxyManagedItem>,
   matchedKeys?: Set<string>,
 ): Transform {
   const decoder = new StringDecoder('utf8');
-  let carry = '';
-  const note = (text: string) => {
-    if (matchedKeys) for (const key of detectScrubbedKeys(text, managedItems)) matchedKeys.add(key);
-  };
+  const scrubber = new StreamingScrubber(
+    managedItems,
+    matchedKeys ? (key) => matchedKeys.add(key) : undefined,
+  );
   return new Transform({
     transform(chunk, _enc, cb) {
-      const decoded = carry + decoder.write(chunk as Buffer);
-      note(decoded);
-      const scrubbed = replaceRealWithPlaceholders(decoded, managedItems);
-      const hold = pendingRealPrefixLen(scrubbed, managedItems);
-      const emitLen = scrubbed.length - hold;
-      carry = scrubbed.slice(emitLen);
-      cb(null, Buffer.from(scrubbed.slice(0, emitLen), 'utf8'));
+      cb(null, Buffer.from(scrubber.push(decoder.write(chunk as Buffer)), 'utf8'));
     },
     flush(cb) {
-      const decoded = carry + decoder.end();
-      note(decoded);
-      cb(null, Buffer.from(replaceRealWithPlaceholders(decoded, managedItems), 'utf8'));
+      cb(null, Buffer.from(scrubber.flush(decoder.end()), 'utf8'));
     },
   });
 }
@@ -1027,10 +542,13 @@ export async function startLocalProxyRuntime({
     } catch { /* client went away */ }
   };
 
-  // Shared request pipeline for both transports (MITM tunnel + absolute-form http):
-  // egress gate → per-call policy (block) → cleartext guard → approval gate →
-  // scrub+inject → forward upstream (verified identity) → scrub response. Every
-  // failure path fails closed via respondBlocked.
+  // Shared request pipeline for both transports (MITM tunnel + absolute-form http).
+  // The decision order — egress gate → per-call policy (block) → cleartext guard →
+  // uninjected-placeholder guard → substitution guards → approval gate →
+  // scrub+inject — lives in @varlock/proxy-core's two-phase pipeline; this
+  // adapter buffers the body between phases, records activity, responds to
+  // blocked outcomes (every failure path fails closed via respondBlocked), and
+  // forwards allowed requests upstream over a verified-identity connection.
   const processProxiedRequest = async (
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -1041,172 +559,60 @@ export async function startLocalProxyRuntime({
       return;
     }
 
-    const baseActivity = {
-      host: t.host, method: t.method, path: t.pathOnly, url: t.requestTarget,
+    // One policy snapshot per request: `reconfigure` swaps the bindings, and a
+    // request must not see a mix of old and new policy across its phases.
+    const policy: ProxyPolicyState = { rules, managedItems, egressMode };
+    const facts: ProxiedRequestFacts = {
+      host: t.host,
+      isHttps: t.isHttps,
+      method: t.method,
+      pathOnly: t.pathOnly,
+      requestTarget: t.requestTarget,
     };
 
-    const shouldRewrite = hostMatchesProxyRules(t.host, rules);
-    const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
-    if (!shouldAllowEgress) {
-      onActivity?.({
-        ...baseActivity, matched: shouldRewrite, blocked: true, decision: 'blocked-egress',
-      });
-      respondBlocked(res, 403, `Blocked by the varlock credential proxy: ${t.host} is not allowed by your egress policy (strict mode only permits hosts with a matching @proxy rule). Add a @proxy rule for this host, or use permissive egress, to allow it.`, false);
-      return;
-    }
-
-    // Per-call policy (static authorization): evaluate host + method + path; a
-    // matching `block` rule denies the request and it never reaches upstream.
-    const facts: RequestFacts = { host: t.host, method: t.method, path: t.pathOnly };
-    const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules, egressMode) : undefined;
-    const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
-    const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
-    if (policyDecision?.verdict === 'deny') {
-      // Two deny kinds: an explicit `block` rule (denylist), or strict egress with
-      // no allow rule matching this method/path on an otherwise-ruled host.
-      const egressStrictDeny = policyDecision.denyKind === 'egress-strict';
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: egressStrictDeny ? 'blocked-egress' : 'deny',
-      });
-      const message = egressStrictDeny
-        ? `Blocked by the varlock credential proxy: no @proxy rule matches ${t.method} ${t.host}${t.pathOnly}. `
-          + 'The host has a @proxy rule, but none matches this method and path, and egress is strict. '
-          + 'Add a matching (or broader) @proxy rule, or use permissive egress.'
-        : `Blocked by the varlock credential proxy: a @proxy block rule denies ${t.method} ${t.host}${t.pathOnly}.`;
-      respondBlocked(res, 403, message, t.tunnelTeardown);
-      return;
-    }
-
-    // Approval-gated keys (contributed only by `@proxy(approval)` rules) are
-    // withheld unless the verdict actually routes through the approval gate below.
-    // A plain-`allow` verdict from a more-specific rule must NOT smuggle a broader
-    // approval rule's secret in without a prompt (see getRequestScopedManagedItems).
-    const hostItems = shouldRewrite
-      ? getRequestScopedManagedItems(facts, rules, managedItems, {
-        includeApprovalGatedKeys: policyDecision?.verdict === 'require-approval',
-      })
-      : [];
-
-    // Invariant #2/#5: never inject a secret into a cleartext (non-TLS) connection —
-    // no cert means no verifiable identity. Fail closed. (MITM is always https, so
-    // this only fires on the absolute-form http path.)
-    if (hostItems.length > 0 && !t.isHttps) {
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
-      });
-      respondBlocked(res, 403, `Blocked by the varlock credential proxy: refusing to inject a secret into a cleartext (non-TLS) connection to ${t.host}.`, false);
+    const pre = evaluateProxiedRequestPreBody(facts, policy);
+    if (pre.kind === 'blocked') {
+      onActivity?.(pre.activity);
+      respondBlocked(res, pre.status, pre.message, pre.teardownOnTunnel && t.tunnelTeardown);
       return;
     }
 
     const body = await readBody(req);
     const bodyText = body.toString('utf8');
-    const scanParts = [t.requestTarget, JSON.stringify(req.headers), bodyText];
-    const injectedKeys = shouldRewrite ? detectInjectedKeys(scanParts, hostItems) : [];
 
-    // Helpful-failure guard: when NO rule injects anything on this route yet the
-    // request carries a managed placeholder, the real value won't be substituted
-    // and the upstream would reject it with a cryptic auth error — and the cause
-    // is the proxy rules (wrong path/method, or wrong host). Explain it instead of
-    // forwarding a doomed request. Scoped to `hostItems.length === 0` so a request
-    // that DOES inject on this route can still carry an unrelated placeholder
-    // (e.g. another item's, bound for a different host) through untouched.
-    const leaked = hostItems.length === 0
-      ? findUninjectedPlaceholder(scanParts, managedItems, hostItems)
+    // Bridge the transport's approval provider into the pipeline's gate: build an
+    // ApprovalRequest committed to this exact request (body hash included) and
+    // honor only a decision bound to it (Invariant #8). The pipeline fails closed
+    // around this (missing gate or thrown error ⇒ denied).
+    const approvalGate: ApprovalGateFn | undefined = approvalProvider
+      ? async (input) => {
+        const request = createApprovalRequest({ ...input, body });
+        const decision = await approvalProvider.requestApproval(request);
+        return isApprovalValid(request, decision);
+      }
       : undefined;
-    if (leaked) {
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: shouldRewrite, blocked: true, decision: 'blocked-uninjected',
-      });
-      respondBlocked(res, 403, `Blocked by the varlock credential proxy: this request to ${t.host}${t.pathOnly} carries the placeholder for ${leaked.key}, `
-        + 'but no @proxy rule injects it here — the real value was not substituted and the request would fail upstream. '
-        + 'Add or broaden a @proxy rule so it matches this request (host + path + method).', t.tunnelTeardown);
+
+    const outcome = await evaluateProxiedRequestWithBody(
+      pre,
+      facts,
+      policy,
+      { headers: req.headers, bodyText },
+      { approvalGate },
+    );
+    if (outcome.kind === 'blocked') {
+      onActivity?.(outcome.activity);
+      respondBlocked(res, outcome.status, outcome.message, outcome.teardownOnTunnel && t.tunnelTeardown);
       return;
     }
+    onActivity?.(outcome.activity);
+    const { hostItems, shouldRewrite } = outcome;
 
-    // Substitution guards: before any placeholder is swapped for its real value,
-    // enforce *where* (target: header / header:name / query:param / body:path) and
-    // *how often* (occurrence cap) each injected secret may appear. Default is any
-    // header, once. This is what keeps a clever request from moving the real secret
-    // into an exfiltration-friendly spot (an email body, a duplicated field) on an
-    // otherwise-allowed host — the secret is only ever substituted where the rule
-    // explicitly allows.
-    if (shouldRewrite && hostItems.length > 0) {
-      const guardReq: SubstitutionGuardRequest = {
-        headers: Object.entries(req.headers).map(([name, value]) => ({
-          name: name.toLowerCase(),
-          value: Array.isArray(value) ? value.join('\n') : String(value ?? ''),
-        })),
-        requestTarget: t.requestTarget,
-        body: bodyText,
-        contentType: getHeaderValue(req.headers, 'content-type'),
-      };
-      const violation = checkSubstitutionGuards(guardReq, hostItems);
-      if (violation) {
-        const decision = violation.kind === 'location' ? 'blocked-location' : 'blocked-occurrences';
-        onActivity?.({
-          ...baseActivity, ...ruleId, matched: true, blocked: true, decision,
-        });
-        const message = violation.kind === 'location'
-          ? `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears in the ${violation.location} of this request, which its @proxy rule doesn't allow. `
-            + `${violation.suggestion}. `
-            + 'If that placement was not intentional, it may be an attempt to place the secret somewhere it could leak.'
-          : `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears ${violation.count} times in this request, but at most ${violation.item.maxOccurrences} is allowed. `
-            + 'A valid request uses the secret once; extra copies can exfiltrate it. If this API legitimately repeats it, raise maxOccurrences on the @proxy rule.';
-        respondBlocked(res, 403, message, t.tunnelTeardown);
-        return;
-      }
-    }
-
-    // Invariant #8: a require-approval rule holds the request for an out-of-band,
-    // request-bound decision. Fail closed (deny) unless explicitly approved.
-    if (policyDecision?.verdict === 'require-approval') {
-      const approved = await runApprovalGate({
-        approvalProvider,
-        method: t.method,
-        host: t.host,
-        path: t.pathOnly,
-        body,
-        ruleId: ruleIdStr,
-        each: policyDecision.matchedRule?.approval?.each,
-        maxDurationMs: policyDecision.matchedRule?.approval?.maxDurationMs,
-        injectedKeys,
-      });
-      if (!approved) {
-        onActivity?.({
-          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'approval-denied',
-        });
-        respondBlocked(res, 403, `Blocked by the varlock credential proxy: this request to ${t.host} required approval and it was not granted.`, t.tunnelTeardown);
-        return;
-      }
-    }
-
-    onActivity?.({
-      ...baseActivity,
-      ...ruleId,
-      matched: shouldRewrite,
-      blocked: false,
-      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
-      ...(injectedKeys.length ? { injectedKeys } : {}),
-    });
-
-    // Substitute placeholder → real value. The guards above already proved every
-    // occurrence sits at an allowed target for its item, and placeholders are unique
-    // per item, so a blind string-replace across all three parts only ever hits the
-    // approved spot — no need to re-scope per location (which would also risk
-    // re-serializing/altering the body).
     const rewrittenBody = shouldRewrite
-      ? Buffer.from(replacePlaceholdersWithReal(bodyText, hostItems), 'utf8')
+      ? Buffer.from(outcome.rewrittenBodyText, 'utf8')
       : body;
-    const rewrittenPath = shouldRewrite
-      ? replacePlaceholdersWithReal(t.requestTarget, hostItems)
-      : t.requestTarget;
+    const rewrittenPath = outcome.rewrittenTarget;
 
-    const upstreamHeaders = transformHeaders(
-      req.headers,
-      shouldRewrite
-        ? (value) => replacePlaceholdersWithReal(value, hostItems)
-        : (value) => value,
-    );
+    const upstreamHeaders = transformHeaders(req.headers, outcome.transformHeaderValue);
     delete upstreamHeaders['proxy-connection'];
     delete upstreamHeaders.connection;
     // Hop-by-hop: addressed to this proxy, never the upstream. A client with
@@ -1226,7 +632,7 @@ export async function startLocalProxyRuntime({
     // a handed-in socket), so we pin by IP — the secret only ever reaches an
     // address already proven to hold a valid cert for the rule host, defeating
     // DNS-poison/rebind. Cleartext (http) upstreams never carry an injected secret
-    // — the cleartext guard above fails closed when hostItems.length > 0 && !isHttps.
+    // — the pipeline's cleartext guard fails closed when items are in scope.
     let verifiedAddress: string | undefined;
     if (t.isHttps) {
       try {

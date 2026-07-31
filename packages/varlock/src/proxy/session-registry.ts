@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { getUserVarlockDir } from '../lib/user-config-dir';
 import { getAncestorPids } from './process-ancestry';
 import type { ProxyResolutionView } from '../env-graph';
-import type { ProxyEgressMode } from './types';
+import type { ProxyEgressMode } from '@varlock/proxy-core/types';
 import {
   PROXY_CHILD_ENV_VAR,
   PROXY_SCHEMA_FINGERPRINT_ENV_VAR,

@@ -1,0 +1,24 @@
+{
+  "name": "@varlock/proxy-core",
+  "private": true,
+  "version": "0.0.0",
+  "description": "transport-agnostic core of the varlock credential proxy (policy, substitution, guards, scrubbing) - shared by the node runtime and hosted gateway adapters",
+  "files": ["src"],
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest",
+    "test:ci": "vitest --run",
+    "typecheck": "tsc --noEmit"
+  },
+  "author": "dmno-dev",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "vitest": "catalog:"
+  }
+}

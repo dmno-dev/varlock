@@ -14,7 +14,7 @@ import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
-import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget } from '../../proxy/types';
+import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget } from '@varlock/proxy-core/types';
 
 
 export abstract class DecoratorInstance {

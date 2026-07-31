@@ -84,7 +84,7 @@ import { fetchTunnelBootstrap, startTunnelClientListener } from '../../proxy/tun
 import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
-import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
+import type { ProxyManagedItem, ProxyRule } from '@varlock/proxy-core/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
