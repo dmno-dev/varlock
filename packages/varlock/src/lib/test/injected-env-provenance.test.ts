@@ -3,6 +3,7 @@ import {
   normalizeOverrideKeys,
   parseBlobOverrideKeys,
   selectOverrideValuesFromEnv,
+  selectOverridesFromInjectedEnv,
 } from '../injected-env-provenance';
 
 describe('injected env override keys', () => {
@@ -57,5 +58,61 @@ describe('injected env override keys', () => {
     expect(selected).toEqual({
       B: '2',
     });
+  });
+});
+
+describe('selectOverridesFromInjectedEnv', () => {
+  const blob = JSON.stringify({
+    overrideKeys: ['RECORDED'],
+    config: {
+      RECORDED: { value: 'recorded-override', isSensitive: false },
+      INJECTED: { value: 'injected-val', isSensitive: false },
+      LIST: { value: ['a', 'b'], envStr: 'a,b', isSensitive: false },
+      UNSET: { value: undefined, isSensitive: false },
+    },
+    settings: {},
+    sources: [],
+  });
+
+  test('returns undefined without a blob or without override provenance', () => {
+    expect(selectOverridesFromInjectedEnv(undefined, { A: '1' })).toBeUndefined();
+    expect(selectOverridesFromInjectedEnv(JSON.stringify({ config: {} }), { A: '1' })).toBeUndefined();
+  });
+
+  test('recorded override keys are re-read from the env (changed values honored)', () => {
+    expect(selectOverridesFromInjectedEnv(blob, {
+      RECORDED: 'changed-later',
+      INJECTED: 'injected-val',
+    })).toEqual({ RECORDED: 'changed-later' });
+  });
+
+  test('unchanged parent-injected values are NOT treated as overrides', () => {
+    expect(selectOverridesFromInjectedEnv(blob, {
+      INJECTED: 'injected-val',
+      LIST: 'a,b',
+    })).toEqual({});
+  });
+
+  test('a value introduced after the parent resolved IS treated as an override', () => {
+    // INJECTED was not overridden at the parent, but its ambient value no longer
+    // matches what the parent injected - someone set it deliberately in between
+    expect(selectOverridesFromInjectedEnv(blob, {
+      INJECTED: 'introduced-later',
+    })).toEqual({ INJECTED: 'introduced-later' });
+  });
+
+  test('composite values compare via their envStr form', () => {
+    expect(selectOverridesFromInjectedEnv(blob, { LIST: 'a,b' })).toEqual({});
+    expect(selectOverridesFromInjectedEnv(blob, { LIST: 'a,b,c' })).toEqual({ LIST: 'a,b,c' });
+  });
+
+  test('keys absent from the env are not overrides (--inject blob mode)', () => {
+    expect(selectOverridesFromInjectedEnv(blob, {})).toEqual({});
+  });
+
+  test('an undefined-valued blob item set to a real value counts as introduced', () => {
+    // `varlock run` drops undefined-valued keys from the child env, so presence
+    // with any non-empty value means it was set after the parent resolved
+    expect(selectOverridesFromInjectedEnv(blob, { UNSET: 'now-set' })).toEqual({ UNSET: 'now-set' });
   });
 });

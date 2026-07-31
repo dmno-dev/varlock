@@ -176,6 +176,17 @@ describe('evaluateInjectedEnvReuse', () => {
         expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('FOO') });
       });
 
+      test('drift on a key that was NOT an override at the parent still blocks reuse', () => {
+        // FOO was resolved (not overridden) at the parent; setting it between the parent
+        // run and the app boot is a newly introduced override that reuse would clobber
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob() }, // overrideKeys: []
+          preInjectionEnv: { FOO: 'introduced-later' },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('FOO') });
+      });
+
       test('an override key absent from the env is not drift (--inject blob mode)', () => {
         const decision = evaluateInjectedEnvReuse({
           env: { __VARLOCK_ENV: makeBlob({ overrideKeys: ['FOO'] }) },

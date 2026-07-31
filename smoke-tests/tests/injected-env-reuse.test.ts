@@ -83,6 +83,19 @@ describe('auto-load reuse of injected env blob', () => {
     expect(result.output).toContain('OVERRIDE_ME=changed-later');
   });
 
+  test.skipIf(process.platform === 'win32')('an override INTRODUCED between run and app (not overridden at the parent) is honored', () => {
+    // OVERRIDE_ME resolves from the .env file at the parent (no ambient override), so the
+    // blob does not record it as an override; setting it mid-chain must still win
+    const result = varlockRun(['sh', '-c', 'OVERRIDE_ME=introduced-later node app.mjs'], {
+      cwd: SCENARIO,
+      env: { DEBUG: 'varlock:auto-load' },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain(RESOLVED_MSG);
+    expect(result.output).not.toContain(REUSED_MSG);
+    expect(result.output).toContain('OVERRIDE_ME=introduced-later');
+  });
+
   test('without a wrapping varlock run, auto-load resolves via the CLI as before', () => {
     const result = runNodeApp();
     expect(result.exitCode).toBe(0);

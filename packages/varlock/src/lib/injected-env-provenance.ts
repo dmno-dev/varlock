@@ -50,3 +50,50 @@ export function selectOverrideValuesFromEnv(
   }
   return selected;
 }
+
+/**
+ * The string form a blob config item takes when injected into process.env
+ * (same formula as initVarlockEnv / `varlock run`'s individual-var injection).
+ */
+export function injectedEnvStringForm(item: { envStr?: string, value?: any }): string {
+  return item.envStr ?? (item.value === undefined ? '' : String(item.value));
+}
+
+/**
+ * Select the env values that should act as overrides for a fresh resolution running
+ * under an injected `__VARLOCK_ENV` blob:
+ *
+ *  - keys the blob RECORDS as genuine overrides at the parent invocation (their current
+ *    env value is re-read, so a changed value is honored)
+ *  - any other blob config key whose current env value DIFFERS from what the parent
+ *    injected. A parent echo is by definition equal to the blob's injected value, so a
+ *    differing value must have been introduced deliberately after the parent resolved
+ *    (e.g. `varlock run -- sh -c 'FOO=x node app.js'` where FOO was not overridden at
+ *    the parent) and is a genuine override, even though the parent didn't record it.
+ *
+ * Unchanged parent-injected values match the blob and are excluded, preserving the core
+ * rule that parent-injected values must not shadow fresh resolution.
+ *
+ * Returns undefined when the blob is missing/unparseable or carries no override
+ * provenance at all (older producers), so callers can fall back to default behavior.
+ */
+export function selectOverridesFromInjectedEnv(
+  blob: string | undefined,
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> | undefined {
+  const overrideKeys = parseBlobOverrideKeys(blob);
+  if (!overrideKeys) return undefined;
+
+  const selected = selectOverrideValuesFromEnv(env, overrideKeys);
+
+  // blob is known-parseable here (parseBlobOverrideKeys succeeded)
+  const config = (JSON.parse(blob!) as { config?: unknown }).config;
+  if (config && typeof config === 'object' && !Array.isArray(config)) {
+    for (const [key, item] of Object.entries(config as Record<string, { envStr?: string, value?: any }>)) {
+      if (key in selected) continue;
+      if (!(key in env)) continue; // absent (e.g. `--inject blob` mode) is not a divergence
+      if (env[key] !== injectedEnvStringForm(item)) selected[key] = env[key];
+    }
+  }
+  return selected;
+}

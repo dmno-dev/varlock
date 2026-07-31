@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { SerializedEnvGraph } from '../env-graph';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
+import { injectedEnvStringForm } from './injected-env-provenance';
 
 /**
  * Decides whether `varlock/auto-load` can reuse an already-injected `__VARLOCK_ENV` blob
@@ -79,11 +80,6 @@ function isSamePath(a: string, b: string): boolean {
     }
   };
   return normalize(a) === normalize(b);
-}
-
-/** the string form a value takes when injected into process.env (see initVarlockEnv) */
-function injectedEnvString(item: SerializedEnvGraph['config'][string]): string {
-  return item.envStr ?? (item.value === undefined ? '' : String(item.value));
 }
 
 export function evaluateInjectedEnvReuse(opts: {
@@ -166,18 +162,17 @@ export function evaluateInjectedEnvReuse(opts: {
     };
   }
 
-  // Override drift: the blob records which keys were genuine user overrides at the parent
-  // invocation. If one of those has since been changed in the ambient env (e.g.
-  // `varlock run -- sh -c 'FOO=x node app.js'`), reusing the blob would clobber FOO back
-  // to the stale value - re-resolving picks the new value up via the normal
-  // nested-invocation override handling. A key *absent* from the env is not drift
-  // (`--inject blob` mode injects no individual vars at all).
-  for (const overrideKey of parsedEnv.overrideKeys ?? []) {
-    const item = parsedEnv.config[overrideKey];
-    if (!item) continue;
-    if (!(overrideKey in preInjectionEnv)) continue;
-    if (preInjectionEnv[overrideKey] !== injectedEnvString(item)) {
-      return { reuse: false, reason: `env override for ${overrideKey} changed since the blob was created` };
+  // Env drift: if ANY blob config key's ambient value differs from what the parent
+  // injected (e.g. `varlock run -- sh -c 'FOO=x node app.js'`, whether or not FOO was
+  // already an override at the parent), reusing the blob would clobber FOO back to the
+  // stale value - re-resolving honors the new value via the nested-invocation override
+  // handling in load-graph. An unchanged value is just the parent's own injection echoing
+  // back, and a key *absent* from the env is not drift (`--inject blob` mode injects no
+  // individual vars at all).
+  for (const itemKey of Object.keys(parsedEnv.config)) {
+    if (!(itemKey in preInjectionEnv)) continue;
+    if (preInjectionEnv[itemKey] !== injectedEnvStringForm(parsedEnv.config[itemKey])) {
+      return { reuse: false, reason: `env value for ${itemKey} changed since the blob was created` };
     }
   }
 
