@@ -106,29 +106,27 @@ SECRET_OPENAI=sk-proj-bench-openainnnnnnnn
 SECRET_SENTRY=sntrys_bench_oooooooooooooo
 `;
 
-/** Apply preventLeaks / redactLogs root flags onto a schema body. */
+const HEADER_DIVIDER = '# ---';
+
+/**
+ * Apply preventLeaks / redactLogs root flags onto a schema body — replacing an
+ * existing flag, or adding it to the header section when absent.
+ */
 export function withSchemaFlags(
   schema: string,
   preventLeaks: boolean,
   redactLogs: boolean,
 ): string {
-  const flags = `# @preventLeaks=${preventLeaks}\n# @redactLogs=${redactLogs}`;
-  if (!schema.includes('@preventLeaks=') && !schema.includes('@redactLogs=')) {
-    return schema.replace(
-      '# @defaultSensitive=false @defaultRequired=infer',
-      `# @defaultSensitive=false @defaultRequired=infer\n${flags}`,
-    );
-  }
   let out = schema;
-  if (out.includes('@preventLeaks=')) {
-    out = out.replace(/@preventLeaks=\w+/, `@preventLeaks=${preventLeaks}`);
-  } else {
-    out = `# @preventLeaks=${preventLeaks}\n${out}`;
-  }
-  if (out.includes('@redactLogs=')) {
-    out = out.replace(/@redactLogs=\w+/, `@redactLogs=${redactLogs}`);
-  } else {
-    out = `# @redactLogs=${redactLogs}\n${out}`;
+  for (const [flag, value] of [['preventLeaks', preventLeaks], ['redactLogs', redactLogs]] as const) {
+    const existing = new RegExp(`@${flag}=\\w+`);
+    if (existing.test(out)) {
+      out = out.replace(existing, `@${flag}=${value}`);
+    } else if (out.includes(HEADER_DIVIDER)) {
+      out = out.replace(HEADER_DIVIDER, `# @${flag}=${value}\n${HEADER_DIVIDER}`);
+    } else {
+      throw new Error(`withSchemaFlags: schema has no "${HEADER_DIVIDER}" header divider to add @${flag} to`);
+    }
   }
   return out;
 }

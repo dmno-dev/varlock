@@ -1,11 +1,10 @@
-import {
-  cpSync, mkdirSync, rmSync, existsSync,
-} from 'node:fs';
+import { rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { BenchContext, ScenarioResult } from '../types.ts';
 import { measureCommand, repeatMeasure } from '../measure.ts';
 import { telemetryEnv } from '../telemetry.ts';
+import { cliScenarioId, fixtureWorkDir } from './util.ts';
 
 function hasBinary(name: string): boolean {
   const result = spawnSync(name, ['version'], { encoding: 'utf8' });
@@ -14,19 +13,20 @@ function hasBinary(name: string): boolean {
 
 export async function runGoScenarios(ctx: BenchContext): Promise<Array<ScenarioResult>> {
   if (!hasBinary('go')) {
+    ctx.note('lang-go skipped: go not found on the runner');
     console.log('  skipping go: go not found');
     return [];
   }
 
   const results: Array<ScenarioResult> = [];
   const cli = ctx.clis.find((c) => c.label === 'npm') ?? ctx.clis[0];
-  if (!cli) return [];
+  if (!cli) {
+    ctx.note('lang-go skipped: no usable varlock CLI');
+    return [];
+  }
   const env = telemetryEnv('off');
 
-  const dest = join(ctx.workDir, 'lang-go');
-  rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dest, { recursive: true });
-  cpSync(join(ctx.fixturesDir, 'lang-go'), dest, { recursive: true });
+  const dest = fixtureWorkDir(ctx, 'lang-go');
 
   const codegen = await repeatMeasure(
     async () => {
@@ -39,7 +39,7 @@ export async function runGoScenarios(ctx: BenchContext): Promise<Array<ScenarioR
     { iterations: ctx.iterations, warmup: ctx.warmup },
   );
   results.push({
-    id: 'lang.go.load-codegen',
+    id: cliScenarioId('lang.go.load-codegen', cli),
     facet: 'lang-go',
     installMethod: cli.label,
     packageManager: cli.packageManager,
@@ -64,7 +64,7 @@ export async function runGoScenarios(ctx: BenchContext): Promise<Array<ScenarioR
     { iterations: ctx.iterations, warmup: ctx.warmup },
   );
   results.push({
-    id: 'lang.go.run',
+    id: cliScenarioId('lang.go.run', cli),
     facet: 'lang-go',
     installMethod: cli.label,
     packageManager: cli.packageManager,

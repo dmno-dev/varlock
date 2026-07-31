@@ -1,21 +1,43 @@
 import { rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
 import { FrameworkTestEnv } from '../../../framework-tests/harness/fixture-env.ts';
-import type { BenchContext, ScenarioResult } from '../types.ts';
+import type { BenchContext, ScenarioResult, TelemetryMode } from '../types.ts';
 import { measureCommand, repeatMeasure } from '../measure.ts';
-import { TELEMETRY_MODES, telemetryEnv } from '../telemetry.ts';
+import { telemetryEnv } from '../telemetry.ts';
+import { measurePathLatency, withServer } from '../server.ts';
 import { VITE_MANY_SECRETS_SCHEMA, withSchemaFlags } from '../many-secrets-schema.ts';
+import { LEAK_SCAN_BODY_BYTES, REDACT_LOG_LINES } from './util.ts';
 
 const VITE_TEST_DIR = resolve(import.meta.dirname, '../../../framework-tests/frameworks/vite');
 
+/** Identical apart from the plugin — see the note in integration-next.ts. */
 const BASELINE_VITE_CONFIG = `import { defineConfig } from 'vite';
 
 export default defineConfig({});
 `;
 
-const BASELINE_MAIN = `document.querySelector('#app')!.textContent = 'bench';
+const VARLOCK_VITE_CONFIG = `import { defineConfig } from 'vite';
+import { varlockVitePlugin } from '@varlock/vite-integration';
+
+export default defineConfig({
+  plugins: [varlockVitePlugin()],
+});
 `;
+
+function mainSource(read: (key: string) => string): string {
+  return `document.getElementById('app')!.innerHTML = \`
+  <h1>bench</h1>
+  <p class="public-var">\${${read('PUBLIC_VAR')}}</p>
+  <p class="api-url">\${${read('API_URL')}}</p>
+  <p class="env-specific">\${${read('ENV_SPECIFIC_VAR')}}</p>
+\`;
+`;
+}
+
+const BASELINE_MAIN = mainSource((key) => `import.meta.env.${key}`);
+const VARLOCK_MAIN = `import { ENV } from 'varlock/env';
+
+${mainSource((key) => `ENV.${key}`)}`;
 
 /**
  * Dev-server middleware used for latency benches:
@@ -55,10 +77,10 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use('/api/echo', (_req, res) => {
           res.setHeader('content-type', 'text/plain');
-          res.end(\`ok padding=\${'x'.repeat(16_384)}\`);
+          res.end(\`ok padding=\${'x'.repeat(${LEAK_SCAN_BODY_BYTES})}\`);
         });
         server.middlewares.use('/api/log', (_req, res) => {
-          for (let i = 0; i < 200; i++) {
+          for (let i = 0; i < ${REDACT_LOG_LINES}; i++) {
             const key = SECRET_KEYS[i % SECRET_KEYS.length];
             console.log(\`bench-log-\${i}:\`, ENV[key]);
           }
@@ -71,15 +93,12 @@ export default defineConfig({
 });
 `;
 
-function createViteEnv(
-  ctx: BenchContext,
-  mode: 'baseline' | 'varlock',
-  labelSuffix = '',
-): FrameworkTestEnv {
+function createViteEnv(ctx: BenchContext, mode: 'baseline' | 'varlock'): FrameworkTestEnv {
   const withVarlock = mode === 'varlock';
+  const integrationVersion = ctx.integrationVersions.vite ?? 'latest';
   return new FrameworkTestEnv({
     testDir: VITE_TEST_DIR,
-    framework: `bench-vite-${mode}${labelSuffix}`,
+    framework: `bench-vite-${mode}`,
     packageManager: 'npm',
     usePublished: true,
     installTimeout: 180_000,
@@ -88,7 +107,7 @@ function createViteEnv(
       ...(withVarlock
         ? {
           varlock: ctx.version,
-          '@varlock/vite-integration': 'latest',
+          '@varlock/vite-integration': integrationVersion,
         }
         : {}),
     },
@@ -100,109 +119,40 @@ function createViteEnv(
   });
 }
 
-function prepareViteFiles(env: FrameworkTestEnv, mode: 'baseline' | 'varlock'): void {
-  if (mode === 'baseline') {
-    env.prepareFiles({
-      templateFiles: {
-        '.env.dev': 'schemas/.env.dev',
-        'index.html': 'html/basic.html',
-      },
-      files: [
-        { path: '.env.schema', content: VITE_MANY_SECRETS_SCHEMA },
-        { path: 'vite.config.ts', content: BASELINE_VITE_CONFIG },
-        { path: 'src/main.ts', content: BASELINE_MAIN },
-      ],
-    });
-    return;
-  }
-
+function prepareBuildFiles(env: FrameworkTestEnv, mode: 'baseline' | 'varlock'): void {
   env.prepareFiles({
     templateFiles: {
       '.env.dev': 'schemas/.env.dev',
-      'vite.config.ts': 'vite-configs/vite.config.ts',
       'index.html': 'html/basic.html',
-      'src/main.ts': 'pages/basic-page.ts',
     },
-    files: [{ path: '.env.schema', content: VITE_MANY_SECRETS_SCHEMA }],
+    files: [
+      { path: '.env.schema', content: VITE_MANY_SECRETS_SCHEMA },
+      {
+        path: 'vite.config.ts',
+        content: mode === 'baseline' ? BASELINE_VITE_CONFIG : VARLOCK_VITE_CONFIG,
+      },
+      { path: 'src/main.ts', content: mode === 'baseline' ? BASELINE_MAIN : VARLOCK_MAIN },
+    ],
   });
 }
 
-async function waitForUrl(url: string, timeoutMs: number): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.status > 0) return;
-    } catch {
-      // retry
-    }
-    await new Promise<void>((r) => {
-      setTimeout(r, 250);
-    });
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function measurePathLatency(
-  baseUrl: string,
-  path: string,
+async function measureBuild(
+  fixture: FrameworkTestEnv,
   iterations: number,
-  warmup: number,
-): Promise<ScenarioResult['metrics']> {
+  telemetry: TelemetryMode,
+  mockEnv: Record<string, string>,
+) {
   return repeatMeasure(
     async () => {
-      const start = performance.now();
-      const res = await fetch(`${baseUrl}${path}`);
-      const wallMs = performance.now() - start;
-      if (!res.ok) {
-        throw new Error(`Request failed: ${res.status} ${await res.text()}`);
-      }
-      await res.text();
-      return { wallMs, rssPeakBytes: null, exitCode: 0 };
+      rmSync(join(fixture.dir, 'dist'), { recursive: true, force: true });
+      return measureCommand(['npx', 'vite', 'build'], {
+        cwd: fixture.dir,
+        timeoutMs: 180_000,
+        env: { ...telemetryEnv(telemetry, mockEnv), APP_ENV: 'dev', CI: '1' },
+      });
     },
-    { iterations, warmup },
+    { iterations, warmup: 0 },
   );
-}
-
-async function withViteDevServer<T>(
-  projectDir: string,
-  port: number,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const server = spawn('npx', ['vite', 'dev', '--host', '127.0.0.1', '--port', String(port)], {
-    cwd: projectDir,
-    env: {
-      ...process.env,
-      ...Object.fromEntries(
-        Object.entries(telemetryEnv('off')).filter(([, v]) => v !== undefined),
-      ),
-      APP_ENV: 'dev',
-      CI: '1',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  let stderr = '';
-  let stdout = '';
-  server.stderr?.on('data', (c: Buffer) => {
-    stderr += c.toString();
-  });
-  server.stdout?.on('data', (c: Buffer) => {
-    stdout += c.toString();
-  });
-
-  try {
-    await waitForUrl(`http://127.0.0.1:${port}/api/echo`, 90_000);
-    return await fn();
-  } catch (err) {
-    throw new Error(`${String(err)}\nvite dev stdout:\n${stdout}\nstderr:\n${stderr}`);
-  } finally {
-    server.kill('SIGTERM');
-    await new Promise<void>((r) => {
-      setTimeout(r, 500);
-    });
-    if (!server.killed) server.kill('SIGKILL');
-  }
 }
 
 export async function runViteScenarios(ctx: BenchContext): Promise<Array<ScenarioResult>> {
@@ -210,92 +160,71 @@ export async function runViteScenarios(ctx: BenchContext): Promise<Array<Scenari
   const buildIterations = Math.max(2, Math.min(4, ctx.iterations));
   const requestIterations = Math.max(10, ctx.iterations * 2);
 
-  // Baseline: telemetry N/A (no varlock CLI). Tag as off for schema consistency.
   console.log('  preparing vite baseline (framework-tests)...');
-  {
-    const fixture = createViteEnv(ctx, 'baseline');
-    await fixture.setup();
-    prepareViteFiles(fixture, 'baseline');
-    const build = await repeatMeasure(
-      async () => {
-        rmSync(join(fixture.dir, 'dist'), { recursive: true, force: true });
-        return measureCommand(['npx', 'vite', 'build'], {
-          cwd: fixture.dir,
-          timeoutMs: 180_000,
-          env: { ...telemetryEnv('off'), APP_ENV: 'dev', CI: '1' },
-        });
-      },
-      { iterations: buildIterations, warmup: 0 },
-    );
+  const baseline = createViteEnv(ctx, 'baseline');
+  await baseline.setup();
+  try {
+    prepareBuildFiles(baseline, 'baseline');
     results.push({
       id: 'integration.vite.build.baseline',
       facet: 'integration-vite',
       installMethod: 'npm',
       packageManager: 'npm',
       telemetry: 'off',
-      metrics: build,
+      metrics: await measureBuild(baseline, buildIterations, 'off', ctx.telemetryMockEnv),
+      notes: 'Cold vite build, no varlock installed',
     });
-    await fixture.teardown();
+  } finally {
+    await baseline.teardown();
   }
 
-  // Varlock build: telemetry on/off (plugin shells out to `varlock load`)
-  for (const telemetry of TELEMETRY_MODES) {
-    console.log(`  preparing vite varlock telemetry.${telemetry} (framework-tests)...`);
-    const fixture = createViteEnv(ctx, 'varlock', `-telemetry-${telemetry}`);
-    await fixture.setup();
-    prepareViteFiles(fixture, 'varlock');
-    const build = await repeatMeasure(
-      async () => {
-        rmSync(join(fixture.dir, 'dist'), { recursive: true, force: true });
-        return measureCommand(['npx', 'vite', 'build'], {
+  console.log('  preparing vite varlock (framework-tests)...');
+  const fixture = createViteEnv(ctx, 'varlock');
+  await fixture.setup();
+  try {
+    prepareBuildFiles(fixture, 'varlock');
+    for (const telemetry of ctx.telemetryModes) {
+      console.log(`  vite varlock build, telemetry=${telemetry}...`);
+      results.push({
+        id: `integration.vite.build.varlock.telemetry.${telemetry}`,
+        facet: 'integration-vite',
+        installMethod: 'npm',
+        packageManager: 'npm',
+        telemetry,
+        metrics: await measureBuild(fixture, buildIterations, telemetry, ctx.telemetryMockEnv),
+        notes: 'Cold vite build; telemetry affects sync varlock load spawn',
+      });
+    }
+
+    console.log('  measuring vite request latency (preventLeaks / redactLogs)...');
+    for (const [label, preventLeaks, redactLogs, port, path] of [
+      ['preventLeaks.on', true, true, 3461, '/api/echo'],
+      ['preventLeaks.off', false, true, 3462, '/api/echo'],
+      ['redactLogs.on', true, true, 3463, '/api/log'],
+      ['redactLogs.off', true, false, 3464, '/api/log'],
+    ] as const) {
+      fixture.prepareFiles({
+        templateFiles: {
+          '.env.dev': 'schemas/.env.dev',
+          'index.html': 'html/basic.html',
+          'src/main.ts': 'pages/minimal-page.ts',
+        },
+        files: [
+          { path: '.env.schema', content: withSchemaFlags(VITE_MANY_SECRETS_SCHEMA, preventLeaks, redactLogs) },
+          { path: 'vite.config.ts', content: LATENCY_VITE_CONFIG },
+        ],
+      });
+
+      const latency = await withServer(
+        ['npx', 'vite', 'dev', '--host', '127.0.0.1', '--port', String(port)],
+        {
           cwd: fixture.dir,
-          timeoutMs: 180_000,
-          env: { ...telemetryEnv(telemetry), APP_ENV: 'dev', CI: '1' },
-        });
-      },
-      { iterations: buildIterations, warmup: 0 },
-    );
-    results.push({
-      id: `integration.vite.build.varlock.telemetry.${telemetry}`,
-      facet: 'integration-vite',
-      installMethod: 'npm',
-      packageManager: 'npm',
-      telemetry,
-      metrics: build,
-      notes: 'Cold vite build; telemetry affects sync varlock load spawn',
-    });
-    await fixture.teardown();
-  }
+          env: { ...telemetryEnv('off'), APP_ENV: 'dev', CI: '1' },
+          readyUrl: `http://127.0.0.1:${port}${path}`,
+        },
+        () => measurePathLatency(`http://127.0.0.1:${port}`, path, requestIterations, 3),
+      );
 
-  console.log('  measuring vite request latency (preventLeaks / redactLogs)...');
-  for (const [label, preventLeaks, redactLogs, port, path] of [
-    ['preventLeaks.on', true, true, 3461, '/api/echo'],
-    ['preventLeaks.off', false, true, 3462, '/api/echo'],
-    ['redactLogs.on', true, true, 3463, '/api/log'],
-    ['redactLogs.off', true, false, 3464, '/api/log'],
-  ] as const) {
-    const fixture = createViteEnv(ctx, 'varlock', `-${label}`);
-    await fixture.setup();
-
-    fixture.prepareFiles({
-      templateFiles: {
-        '.env.dev': 'schemas/.env.dev',
-        'index.html': 'html/basic.html',
-        'src/main.ts': 'pages/minimal-page.ts',
-      },
-      files: [
-        { path: '.env.schema', content: withSchemaFlags(VITE_MANY_SECRETS_SCHEMA, preventLeaks, redactLogs) },
-        { path: 'vite.config.ts', content: LATENCY_VITE_CONFIG },
-      ],
-    });
-
-    try {
-      const latency = await withViteDevServer(fixture.dir, port, () => measurePathLatency(
-        `http://127.0.0.1:${port}`,
-        path,
-        requestIterations,
-        3,
-      ));
       results.push({
         id: `integration.vite.request.${label}`,
         facet: 'integration-vite',
@@ -304,12 +233,12 @@ export async function runViteScenarios(ctx: BenchContext): Promise<Array<Scenari
         telemetry: 'off',
         metrics: latency,
         notes: path === '/api/echo'
-          ? 'Large safe body; preventLeaks scan cost'
-          : '200 console.log lines with secret; redactLogs cost',
+          ? `${(LEAK_SCAN_BODY_BYTES / 1024 / 1024).toFixed(0)}MiB safe body; preventLeaks scan cost`
+          : `${REDACT_LOG_LINES} console.log lines with secret; redactLogs cost`,
       });
-    } finally {
-      await fixture.teardown();
     }
+  } finally {
+    await fixture.teardown();
   }
 
   return results;

@@ -1,11 +1,10 @@
-import {
-  cpSync, mkdirSync, rmSync, existsSync,
-} from 'node:fs';
+import { rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { BenchContext, ScenarioResult } from '../types.ts';
 import { measureCommand, repeatMeasure } from '../measure.ts';
 import { telemetryEnv } from '../telemetry.ts';
+import { cliScenarioId, fixtureWorkDir } from './util.ts';
 
 function hasBinary(name: string): boolean {
   const result = spawnSync(name, ['--version'], { encoding: 'utf8' });
@@ -14,6 +13,7 @@ function hasBinary(name: string): boolean {
 
 export async function runPythonScenarios(ctx: BenchContext): Promise<Array<ScenarioResult>> {
   if (!hasBinary('python3')) {
+    ctx.note('lang-python skipped: python3 not found on the runner');
     console.log('  skipping python: python3 not found');
     return [];
   }
@@ -21,13 +21,13 @@ export async function runPythonScenarios(ctx: BenchContext): Promise<Array<Scena
   const results: Array<ScenarioResult> = [];
   // Use npm-installed CLI for lang scenarios (one representative install method)
   const cli = ctx.clis.find((c) => c.label === 'npm') ?? ctx.clis[0];
-  if (!cli) return [];
+  if (!cli) {
+    ctx.note('lang-python skipped: no usable varlock CLI');
+    return [];
+  }
   const env = telemetryEnv('off');
 
-  const dest = join(ctx.workDir, 'lang-python');
-  rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dest, { recursive: true });
-  cpSync(join(ctx.fixturesDir, 'lang-python'), dest, { recursive: true });
+  const dest = fixtureWorkDir(ctx, 'lang-python');
 
   const codegen = await repeatMeasure(
     async () => {
@@ -41,7 +41,7 @@ export async function runPythonScenarios(ctx: BenchContext): Promise<Array<Scena
     { iterations: ctx.iterations, warmup: ctx.warmup },
   );
   results.push({
-    id: 'lang.python.load-codegen',
+    id: cliScenarioId('lang.python.load-codegen', cli),
     facet: 'lang-python',
     installMethod: cli.label,
     packageManager: cli.packageManager,
@@ -58,7 +58,7 @@ export async function runPythonScenarios(ctx: BenchContext): Promise<Array<Scena
     { iterations: ctx.iterations, warmup: ctx.warmup },
   );
   results.push({
-    id: 'lang.python.run',
+    id: cliScenarioId('lang.python.run', cli),
     facet: 'lang-python',
     installMethod: cli.label,
     packageManager: cli.packageManager,

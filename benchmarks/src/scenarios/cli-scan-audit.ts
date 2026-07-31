@@ -1,10 +1,10 @@
-import { join } from 'node:path';
 import type { BenchContext, ScenarioResult } from '../types.ts';
 import { measureCommand, repeatMeasure } from '../measure.ts';
 import { telemetryEnv } from '../telemetry.ts';
+import { cliScenarioId, fixtureWorkDir } from './util.ts';
 
 export async function runCliScanAuditScenarios(ctx: BenchContext): Promise<Array<ScenarioResult>> {
-  const cwd = join(ctx.fixturesDir, 'cli-basic');
+  const cwd = fixtureWorkDir(ctx, 'cli-basic', '-scan');
   const results: Array<ScenarioResult> = [];
   const env = telemetryEnv('off');
 
@@ -22,7 +22,7 @@ export async function runCliScanAuditScenarios(ctx: BenchContext): Promise<Array
       { iterations: lightIterations, warmup: lightWarmup },
     );
     results.push({
-      id: 'cli.scan',
+      id: cliScenarioId('cli.scan', cli),
       facet: 'cli-scan',
       installMethod: cli.label,
       packageManager: cli.packageManager,
@@ -40,7 +40,7 @@ export async function runCliScanAuditScenarios(ctx: BenchContext): Promise<Array
       { iterations: lightIterations, warmup: lightWarmup },
     );
     results.push({
-      id: 'cli.audit',
+      id: cliScenarioId('cli.audit', cli),
       facet: 'cli-audit',
       installMethod: cli.label,
       packageManager: cli.packageManager,

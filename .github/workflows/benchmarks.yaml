@@ -60,43 +60,37 @@ jobs:
 
       - name: Install benchmarks package deps
         working-directory: benchmarks
-        run: bun install
+        # Frozen so the run cannot leave a modified bun.lock behind, which would
+        # block the rebase in the commit step at the very end of a long run.
+        run: bun install --frozen-lockfile
 
+      # Workflow inputs go through `env:` rather than being interpolated straight
+      # into the script, so a crafted input value cannot become shell syntax.
       - name: Resolve varlock version
         id: ver
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.varlock_version }}
         run: |
-          INPUT="${{ github.event.inputs.varlock_version }}"
-          if [[ -z "$INPUT" || "$INPUT" == "latest" ]]; then
+          set -euo pipefail
+          if [[ -z "$INPUT_VERSION" || "$INPUT_VERSION" == "latest" ]]; then
             V=$(npm view varlock version)
           else
-            V="$INPUT"
+            V="$INPUT_VERSION"
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Resolved varlock@$V"
 
-      - name: Wait for npm package
-        run: |
-          set -euo pipefail
-          V="${{ steps.ver.outputs.version }}"
-          for i in $(seq 1 30); do
-            if npm view "varlock@${V}" version >/dev/null 2>&1; then
-              echo "varlock@${V} is on npm"
-              exit 0
-            fi
-            echo "waiting for varlock@${V} on npm ($i)..."
-            sleep 10
-          done
-          echo "::error::Timed out waiting for varlock@${V} on npm"
-          exit 1
+      # Note: the suite itself waits for the version to appear on npm, so a
+      # release-triggered run can start before the registry has caught up.
 
       - name: Download SEA binary (linux-x64)
         id: sea
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          V="${{ steps.ver.outputs.version }}"
-          TAG="varlock@${V}"
+          TAG="varlock@${VERSION}"
           DEST="$RUNNER_TEMP/varlock-sea"
           mkdir -p "$DEST"
           if gh release download "$TAG" --pattern 'varlock-linux-x64.tar.gz' --dir "$DEST"; then
@@ -114,39 +108,58 @@ jobs:
 
       - name: Run benchmarks
         working-directory: benchmarks
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          ONLY: ${{ github.event.inputs.only }}
+          ITERATIONS: ${{ github.event.inputs.iterations }}
+          RELEASE_DISPATCH: ${{ github.event.inputs.release_dispatch }}
+          SEA_FOUND: ${{ steps.sea.outputs.found }}
+          SEA_PATH: ${{ steps.sea.outputs.path }}
         run: |
           set -euo pipefail
-          V="${{ steps.ver.outputs.version }}"
-          if [[ "${{ github.event.inputs.release_dispatch }}" == "true" ]]; then
+          if [[ "$RELEASE_DISPATCH" == "true" ]]; then
             TRIGGER=release
           else
             TRIGGER=workflow_dispatch
           fi
-          ARGS=(--version "$V" --trigger "$TRIGGER" --iterations "${{ github.event.inputs.iterations }}")
-          ONLY="${{ github.event.inputs.only }}"
+          ARGS=(--version "$VERSION" --trigger "$TRIGGER")
+          if [[ -n "$ITERATIONS" ]]; then
+            ARGS+=(--iterations "$ITERATIONS")
+          fi
           if [[ -n "$ONLY" ]]; then
             ARGS+=(--only "$ONLY")
           fi
-          if [[ "${{ steps.sea.outputs.found }}" == "true" ]]; then
-            ARGS+=(--sea-path "${{ steps.sea.outputs.path }}")
+          if [[ "$SEA_FOUND" == "true" ]]; then
+            ARGS+=(--sea-path "$SEA_PATH")
           fi
           bun run src/run.ts "${ARGS[@]}"
 
       - name: Commit results
-        working-directory: benchmarks
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          RESULT_PATH=$(cat .work/last-result-path.txt)
-          REL="${RESULT_PATH#"$GITHUB_WORKSPACE"/}"
+          # Absolute path — `git add` resolves pathspecs against the cwd, so a
+          # repo-relative path only works from the repo root.
+          RESULT_PATH=$(cat benchmarks/.work/last-result-path.txt)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Fetch latest main in case other commits landed during the long bench run
-          git pull --rebase origin main
-          git add -- "$REL"
+          git add -- "$RESULT_PATH"
           if git diff --staged --quiet; then
             echo "No results to commit"
             exit 0
           fi
-          V="${{ steps.ver.outputs.version }}"
-          git commit -m "chore(benchmarks): record varlock@${V} [skip ci]"
-          git push origin HEAD:main
+          git commit -m "chore(benchmarks): record varlock@${VERSION} [skip ci]"
+          # Commit first, then rebase: a rebase refuses to run with staged or
+          # unstaged changes present, and other commits may have landed on main
+          # during the (long) bench run.
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then
+              echo "Pushed results"
+              exit 0
+            fi
+            echo "Push rejected, retrying ($attempt/3)..."
+          done
+          echo "::error::Failed to push benchmark results after 3 attempts"
+          exit 1

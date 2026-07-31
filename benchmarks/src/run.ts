@@ -1,21 +1,33 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import {
   installVarlockBun,
   installVarlockNpm,
-  npmViewVersion,
+  npmInstallDir,
+  bunInstallDir,
+  probeCli,
   readInstalledVersion,
   seaInvocation,
+  tryNpmViewVersion,
+  waitForNpmPackage,
 } from './install.ts';
 import { runAllScenarios, SCENARIO_GROUPS } from './scenarios/index.ts';
 import { formatSummaryMarkdown } from './report.ts';
-import type { BenchContext, BenchRunResult, TriggerKind } from './types.ts';
+import { measureCommand } from './measure.ts';
+import { startTelemetryMock } from './telemetry-mock.ts';
+import { ALL_TELEMETRY_MODES, telemetryEnv } from './telemetry.ts';
+import type {
+  BenchContext, BenchRunResult, CliInvocation, TelemetryMode, TriggerKind,
+} from './types.ts';
 
 const ROOT_DIR = resolve(import.meta.dirname, '..');
 const FIXTURES_DIR = join(ROOT_DIR, 'fixtures');
 const RESULTS_DIR = join(ROOT_DIR, 'results');
 const WORK_DIR = join(ROOT_DIR, '.work');
+
+const TRIGGER_KINDS: Array<TriggerKind> = ['release', 'workflow_dispatch', 'local'];
 
 type Args = {
   version: string;
@@ -29,6 +41,15 @@ type Args = {
   help: boolean;
 };
 
+function parsePositiveInt(raw: string | undefined, flag: string, { allowZero = false } = {}): number {
+  const n = Number(raw);
+  const min = allowZero ? 0 : 1;
+  if (raw === undefined || raw === '' || !Number.isInteger(n) || n < min) {
+    throw new Error(`${flag} expects an integer >= ${min}, got ${JSON.stringify(raw)}`);
+  }
+  return n;
+}
+
 function parseArgs(argv: Array<string>): Args {
   const args: Args = {
     version: 'latest',
@@ -38,9 +59,17 @@ function parseArgs(argv: Array<string>): Args {
     warmup: 1,
     only: [],
     skipInstall: false,
-    trigger: (process.env.BENCH_TRIGGER as TriggerKind | undefined) ?? 'local',
+    trigger: 'local',
     help: false,
   };
+
+  const envTrigger = process.env.BENCH_TRIGGER;
+  if (envTrigger) {
+    if (!TRIGGER_KINDS.includes(envTrigger as TriggerKind)) {
+      throw new Error(`BENCH_TRIGGER must be one of ${TRIGGER_KINDS.join(', ')}, got ${JSON.stringify(envTrigger)}`);
+    }
+    args.trigger = envTrigger as TriggerKind;
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -48,13 +77,26 @@ function parseArgs(argv: Array<string>): Args {
     else if (a === '--version') args.version = argv[++i] ?? args.version;
     else if (a === '--sea-path') args.seaPath = argv[++i] ?? null;
     else if (a === '--out') args.out = argv[++i] ?? null;
-    else if (a === '--iterations') args.iterations = Number(argv[++i]);
-    else if (a === '--warmup') args.warmup = Number(argv[++i]);
-    else if (a === '--only') args.only = (argv[++i] ?? '').split(',').filter(Boolean);
+    else if (a === '--iterations') args.iterations = parsePositiveInt(argv[++i], '--iterations');
+    else if (a === '--warmup') args.warmup = parsePositiveInt(argv[++i], '--warmup', { allowZero: true });
+    else if (a === '--only') args.only = (argv[++i] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--skip-install') args.skipInstall = true;
-    else if (a === '--trigger') args.trigger = (argv[++i] as TriggerKind) ?? args.trigger;
-    else throw new Error(`Unknown argument: ${a}`);
+    else if (a === '--trigger') {
+      const value = argv[++i];
+      if (!value || !TRIGGER_KINDS.includes(value as TriggerKind)) {
+        throw new Error(`--trigger must be one of ${TRIGGER_KINDS.join(', ')}, got ${JSON.stringify(value)}`);
+      }
+      args.trigger = value as TriggerKind;
+    } else throw new Error(`Unknown argument: ${a}`);
   }
+
+  // Unknown group names used to produce an empty run that still looked successful.
+  const knownGroups = SCENARIO_GROUPS.map((g) => g.name);
+  const unknown = args.only.filter((name) => !knownGroups.includes(name));
+  if (unknown.length > 0) {
+    throw new Error(`--only got unknown scenario group(s): ${unknown.join(', ')}\nKnown groups: ${knownGroups.join(', ')}`);
+  }
+
   return args;
 }
 
@@ -70,9 +112,20 @@ Options:
   --warmup <n>        Warmup iterations (default: 1)
   --only <groups>     Comma-separated scenario groups: ${groups}
   --skip-install      Reuse .work/installs from a previous run
-  --trigger <kind>    release | workflow_dispatch | local
+  --trigger <kind>    ${TRIGGER_KINDS.join(' | ')}
   --help
 `;
+}
+
+/** Bad flags are user error, not a crash — print the problem and the usage, no stack. */
+function parseArgsOrExit(argv: Array<string>): Args {
+  try {
+    return parseArgs(argv);
+  } catch (err) {
+    console.error(`${(err as Error).message}\n`);
+    console.error(usage());
+    process.exit(1);
+  }
 }
 
 function gitSha(): string | null {
@@ -83,39 +136,75 @@ function gitSha(): string | null {
 function defaultOutPath(version: string): string {
   const iso = new Date().toISOString().replace(/[:.]/g, '-');
   const runId = process.env.GITHUB_RUN_ID ?? 'local';
-  mkdirSync(RESULTS_DIR, { recursive: true });
   return join(RESULTS_DIR, `${iso}-varlock@${version}-${runId}.json`);
 }
 
+/**
+ * Confirm the tested varlock build honours VARLOCK_POSTHOG_HOST before running any
+ * telemetry-on scenario. A version published before that override existed would
+ * send real events to the production collector instead, so those scenarios get
+ * dropped rather than measured.
+ */
+async function checkTelemetryMockable(
+  cli: CliInvocation,
+  cwd: string,
+  mockEnv: Record<string, string>,
+  received: () => number,
+): Promise<boolean> {
+  const before = received();
+  const result = await measureCommand([...cli.command, 'load'], {
+    cwd,
+    env: telemetryEnv('on', mockEnv),
+    timeoutMs: 60_000,
+  });
+  if (result.exitCode !== 0) return false;
+  // The CLI's exit hook only waits ~500ms on the in-flight request; give the
+  // loopback round-trip a moment longer before concluding nothing arrived.
+  for (let i = 0; i < 20 && received() === before; i++) {
+    await new Promise<void>((r) => {
+      setTimeout(r, 100);
+    });
+  }
+  return received() > before;
+}
+
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgsOrExit(process.argv.slice(2));
   if (args.help) {
     console.log(usage());
     return;
   }
 
-  const resolvedVersion = args.version === 'latest'
-    ? npmViewVersion('varlock')
-    : args.version;
+  // Waits when the version is not on npm yet — a release-triggered run can start
+  // before the registry has caught up.
+  const resolvedVersion = await waitForNpmPackage(
+    args.version === 'latest' ? 'varlock@latest' : `varlock@${args.version}`,
+  );
 
   console.log(`Benchmarking varlock@${resolvedVersion}`);
   mkdirSync(WORK_DIR, { recursive: true });
 
-  const clis = [];
+  const notes: Array<string> = [];
+  const note = (message: string) => {
+    notes.push(message);
+    console.log(`  note: ${message}`);
+  };
+
+  const clis: Array<CliInvocation> = [];
   if (args.skipInstall) {
-    const npmCli = join(WORK_DIR, 'installs', 'npm', 'node_modules', 'varlock', 'bin', 'cli.js');
-    const bunCli = join(WORK_DIR, 'installs', 'bun', 'node_modules', 'varlock', 'bin', 'cli.js');
+    const npmCli = join(npmInstallDir(WORK_DIR), 'node_modules', 'varlock', 'bin', 'cli.js');
+    const bunCli = join(bunInstallDir(WORK_DIR), 'node_modules', 'varlock', 'bin', 'cli.js');
     if (!existsSync(npmCli) || !existsSync(bunCli)) {
       throw new Error('--skip-install requires existing .work/installs/{npm,bun}');
     }
     clis.push(
-      { command: [process.execPath, npmCli], label: 'npm' as const, packageManager: 'npm' as const },
-      { command: [process.execPath, bunCli], label: 'bun' as const, packageManager: 'bun' as const },
+      { command: [process.execPath, npmCli], label: 'npm', packageManager: 'npm' },
+      { command: ['bun', bunCli], label: 'bun', packageManager: 'bun' },
     );
   } else {
-    console.log('Installing varlock via npm...');
+    console.log('Installing varlock via npm (run with node)...');
     clis.push(installVarlockNpm(WORK_DIR, resolvedVersion));
-    console.log('Installing varlock via bun...');
+    console.log('Installing varlock via bun (run with bun)...');
     clis.push(installVarlockBun(WORK_DIR, resolvedVersion));
   }
 
@@ -123,67 +212,106 @@ async function main(): Promise<void> {
     console.log(`Using SEA binary at ${args.seaPath}`);
     clis.push(seaInvocation(resolve(args.seaPath)));
   } else {
-    console.log('No --sea-path; skipping SEA scenarios');
+    note('SEA scenarios skipped: no --sea-path given');
   }
 
-  const ctx: BenchContext = {
-    version: resolvedVersion,
-    rootDir: ROOT_DIR,
-    fixturesDir: FIXTURES_DIR,
-    workDir: WORK_DIR,
-    iterations: args.iterations,
-    warmup: args.warmup,
-    clis,
-    seaPath: args.seaPath,
-  };
+  // A CLI that cannot even print its version would fail every scenario it appears
+  // in. Drop it with a recorded note rather than taking the whole suite down.
+  const usableClis = clis.filter((cli) => {
+    const probe = probeCli(cli);
+    if (!probe.ok) {
+      note(`${cli.label} install skipped: \`varlock --version\` failed (${probe.error})`);
+      return false;
+    }
+    return true;
+  });
+  if (usableClis.length === 0) {
+    throw new Error('No usable varlock CLI invocations — nothing to benchmark');
+  }
 
-  const scenarios = await runAllScenarios(ctx, args.only.length ? args.only : undefined);
+  const telemetryMock = await startTelemetryMock();
+  const telemetryMockEnv = { VARLOCK_POSTHOG_HOST: telemetryMock.url };
+  let telemetryModes: Array<TelemetryMode> = ['off'];
 
-  const npmRoot = join(WORK_DIR, 'installs', 'npm');
-  const result: BenchRunResult = {
-    meta: {
-      timestamp: new Date().toISOString(),
-      gitSha: gitSha(),
-      githubRunId: process.env.GITHUB_RUN_ID ?? null,
-      runnerOs: process.platform,
-      runnerArch: process.arch,
-      versions: {
-        varlock: resolvedVersion,
-        nextjsIntegration: (() => {
-          try {
-            return npmViewVersion('@varlock/nextjs-integration');
-          } catch {
-            return undefined;
-          }
-        })(),
-        viteIntegration: (() => {
-          try {
-            return npmViewVersion('@varlock/vite-integration');
-          } catch {
-            return undefined;
-          }
-        })(),
-        '@env-spec/parser': readInstalledVersion(npmRoot, '@env-spec/parser') ?? undefined,
+  try {
+    const mockable = await checkTelemetryMockable(
+      usableClis[0]!,
+      join(FIXTURES_DIR, 'cli-basic'),
+      telemetryMockEnv,
+      telemetryMock.requestCount,
+    );
+    if (mockable) {
+      telemetryModes = ALL_TELEMETRY_MODES;
+      console.log(`Telemetry mock reachable at ${telemetryMock.url} — telemetry-on scenarios enabled`);
+    } else {
+      note(
+        `telemetry-on scenarios skipped: varlock@${resolvedVersion} does not honour VARLOCK_POSTHOG_HOST, `
+        + 'and benchmarks never send real telemetry',
+      );
+    }
+
+    const ctx: BenchContext = {
+      version: resolvedVersion,
+      integrationVersions: {
+        nextjs: tryNpmViewVersion('@varlock/nextjs-integration'),
+        vite: tryNpmViewVersion('@varlock/vite-integration'),
       },
-      trigger: args.trigger,
-    },
-    scenarios,
-  };
+      rootDir: ROOT_DIR,
+      fixturesDir: FIXTURES_DIR,
+      workDir: WORK_DIR,
+      iterations: args.iterations,
+      warmup: args.warmup,
+      clis: usableClis,
+      seaPath: args.seaPath,
+      telemetryModes,
+      telemetryMockEnv: telemetryModes.includes('on') ? telemetryMockEnv : {},
+      // Enables the on-disk resolver cache even in CI, where varlock otherwise
+      // falls back to a per-process memory cache that cannot survive between
+      // invocations — which would make the warm-load scenario measure nothing.
+      cacheKey: randomBytes(32).toString('hex'),
+      note,
+    };
 
-  const outPath = args.out ? resolve(args.out) : defaultOutPath(resolvedVersion);
-  mkdirSync(join(outPath, '..'), { recursive: true });
-  writeFileSync(outPath, `${JSON.stringify(result, null, 2)}\n`);
-  console.log(`\nWrote ${outPath}`);
+    const scenarios = await runAllScenarios(ctx, args.only.length ? args.only : undefined);
 
-  const summary = formatSummaryMarkdown(result);
-  console.log(`\n${summary}`);
+    const result: BenchRunResult = {
+      meta: {
+        timestamp: new Date().toISOString(),
+        gitSha: gitSha(),
+        githubRunId: process.env.GITHUB_RUN_ID ?? null,
+        runnerOs: process.platform,
+        runnerArch: process.arch,
+        nodeVersion: process.version,
+        versions: {
+          varlock: resolvedVersion,
+          nextjsIntegration: ctx.integrationVersions.nextjs,
+          viteIntegration: ctx.integrationVersions.vite,
+          '@env-spec/parser': readInstalledVersion(npmInstallDir(WORK_DIR), '@env-spec/parser') ?? undefined,
+        },
+        trigger: args.trigger,
+        telemetryMocked: telemetryModes.includes('on'),
+        notes,
+      },
+      scenarios,
+    };
 
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    writeFileSync(process.env.GITHUB_STEP_SUMMARY, summary, { flag: 'a' });
+    const outPath = args.out ? resolve(args.out) : defaultOutPath(resolvedVersion);
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, `${JSON.stringify(result, null, 2)}\n`);
+    console.log(`\nWrote ${outPath}`);
+
+    const summary = formatSummaryMarkdown(result);
+    console.log(`\n${summary}`);
+
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      writeFileSync(process.env.GITHUB_STEP_SUMMARY, summary, { flag: 'a' });
+    }
+
+    // Also write a pointer file used by CI commit step
+    writeFileSync(join(WORK_DIR, 'last-result-path.txt'), `${outPath}\n`);
+  } finally {
+    await telemetryMock.close();
   }
-
-  // Also write a pointer file used by CI commit step
-  writeFileSync(join(WORK_DIR, 'last-result-path.txt'), `${outPath}\n`);
 }
 
 main().catch((err) => {

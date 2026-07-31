@@ -1,3 +1,9 @@
+/**
+ * How the measured CLI was installed and invoked:
+ * - `npm`  — installed with npm, run with node
+ * - `bun`  — installed with bun, run with the bun runtime
+ * - `sea`  — the standalone compiled binary
+ */
 export type InstallMethod = 'npm' | 'bun' | 'sea';
 
 export type TelemetryMode = 'on' | 'off';
@@ -20,13 +26,21 @@ export type Sample = {
 };
 
 export type ScenarioMetrics = {
+  /** Number of measured (non-warmup) iterations behind these numbers. */
+  iterations: number;
+  wallMsMin: number;
   wallMsMedian: number;
+  /** Collapses onto the max at low iteration counts — read with wallMsStdDev. */
   wallMsP95: number;
+  wallMsStdDev: number;
   rssPeakBytesMedian: number | null;
+  /** How many iterations produced an RSS reading (0 means RSS was never sampled). */
+  rssSampleCount: number;
   samples: Array<Sample>;
 };
 
 export type ScenarioResult = {
+  /** Unique within a run — includes the install method for CLI scenarios. */
   id: string;
   facet: ScenarioFacet;
   installMethod: InstallMethod;
@@ -43,6 +57,7 @@ export type BenchRunMeta = {
   githubRunId: string | null;
   runnerOs: string;
   runnerArch: string;
+  nodeVersion: string;
   versions: {
     varlock: string;
     nextjsIntegration?: string;
@@ -50,6 +65,13 @@ export type BenchRunMeta = {
     '@env-spec/parser'?: string;
   };
   trigger: TriggerKind;
+  /**
+   * True when telemetry-on scenarios were pointed at a local mock collector.
+   * When false those scenarios are skipped — benchmarks never emit real telemetry.
+   */
+  telemetryMocked: boolean;
+  /** Anything skipped, degraded, or otherwise worth knowing when reading the numbers. */
+  notes: Array<string>;
 };
 
 export type BenchRunResult = {
@@ -66,6 +88,14 @@ export type CliInvocation = {
 
 export type BenchContext = {
   version: string;
+  /**
+   * Resolved (not floating) integration versions, so a run records the exact pair
+   * of packages it measured.
+   */
+  integrationVersions: {
+    nextjs?: string;
+    vite?: string;
+  };
   rootDir: string;
   fixturesDir: string;
   workDir: string;
@@ -73,4 +103,12 @@ export type BenchContext = {
   warmup: number;
   clis: Array<CliInvocation>;
   seaPath: string | null;
+  /** Telemetry modes to measure — 'on' is dropped when the mock is unavailable. */
+  telemetryModes: Array<TelemetryMode>;
+  /** Env overlay that points telemetry at the local mock (empty when unavailable). */
+  telemetryMockEnv: Record<string, string>;
+  /** 64-char hex key that enables the on-disk resolver cache, including in CI. */
+  cacheKey: string;
+  /** Record a skip / degradation so it shows up in the committed results. */
+  note: (message: string) => void;
 };

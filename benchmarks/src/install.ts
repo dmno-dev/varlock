@@ -23,6 +23,14 @@ function runOrThrow(
   }
 }
 
+export function npmInstallDir(workDir: string): string {
+  return join(workDir, 'installs', 'npm');
+}
+
+export function bunInstallDir(workDir: string): string {
+  return join(workDir, 'installs', 'bun');
+}
+
 /**
  * Install published `varlock@version` with npm into workDir/installs/npm
  * and return a CliInvocation that runs it via node.
@@ -31,7 +39,7 @@ export function installVarlockNpm(
   workDir: string,
   version: string,
 ): CliInvocation {
-  const dir = join(workDir, 'installs', 'npm');
+  const dir = npmInstallDir(workDir);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   runOrThrow('npm', ['init', '-y'], { cwd: dir });
@@ -48,13 +56,18 @@ export function installVarlockNpm(
 }
 
 /**
- * Install published `varlock@version` with bun into workDir/installs/bun.
+ * Install published `varlock@version` with bun into workDir/installs/bun and run
+ * it with the bun runtime.
+ *
+ * Running it under node would execute byte-identical code to the npm invocation
+ * above, so the two would measure the same thing twice. Bun as the runtime is the
+ * axis worth measuring.
  */
 export function installVarlockBun(
   workDir: string,
   version: string,
 ): CliInvocation {
-  const dir = join(workDir, 'installs', 'bun');
+  const dir = bunInstallDir(workDir);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   runOrThrow('bun', ['init', '-y'], { cwd: dir });
@@ -64,7 +77,7 @@ export function installVarlockBun(
     throw new Error(`bun install did not produce CLI at ${cliJs}`);
   }
   return {
-    command: [process.execPath, cliJs],
+    command: ['bun', cliJs],
     label: 'bun',
     packageManager: 'bun',
   };
@@ -79,6 +92,17 @@ export function seaInvocation(seaPath: string): CliInvocation {
     command: [seaPath],
     label: 'sea',
   };
+}
+
+/** Check that an invocation actually runs, so a broken one skips instead of failing the suite. */
+export function probeCli(cli: CliInvocation): { ok: true } | { ok: false; error: string } {
+  const [bin, ...args] = cli.command;
+  const result = spawnSync(bin!, [...args, '--version'], { encoding: 'utf8' });
+  if (result.error) return { ok: false, error: result.error.message };
+  if (result.status !== 0) {
+    return { ok: false, error: `exit ${result.status}: ${(result.stderr || result.stdout || '').trim().slice(0, 500)}` };
+  }
+  return { ok: true };
 }
 
 /** Resolve package version of an installed package under an install root. */
@@ -100,6 +124,18 @@ export function npmViewVersion(pkgSpec: string): string {
   return result.stdout.trim();
 }
 
+export function tryNpmViewVersion(pkgSpec: string): string | undefined {
+  try {
+    return npmViewVersion(pkgSpec) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Wait for a version to be resolvable on npm. Returns immediately when it already
+ * is — release-triggered runs can start before the registry has caught up.
+ */
 export async function waitForNpmPackage(pkgSpec: string, attempts = 30, delayMs = 10_000): Promise<string> {
   for (let i = 1; i <= attempts; i++) {
     const result = spawnSync('npm', ['view', pkgSpec, 'version'], { encoding: 'utf8' });
