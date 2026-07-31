@@ -421,7 +421,7 @@ A few other things to know:
 <div>
 ### `oauth()`
 
-Exchanges a long-lived OAuth credential for a short-lived access token by calling the provider's token endpoint. The item resolves to a fresh access token, and only that token is injected. The refresh token and client secret stay in your vault, referenced as [`@internal`](/reference/item-decorators/#internal) items that never reach your app or child processes.
+Exchanges a long-lived OAuth credential for a short-lived access token by calling the provider's token endpoint. The item resolves to a fresh access token, and only that token is injected. The refresh token and client secret stay in your vault, referenced as [`@internal`](/reference/item-decorators/#internal) items that never reach your app or child processes. See the [OAuth guide](/guides/oauth/) for the full workflow.
 
 Tokens are cached (encrypted, according to your [cache mode](/reference/root-decorators/#cache)) and reused until the provider-reported expiry, so repeated invocations do not hit the token endpoint. When a provider rotates refresh tokens on each use (Google and Slack do), the rotated token is stored in the cache and used for the next refresh automatically; the configured refresh token is just the bootstrap.
 

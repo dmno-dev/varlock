@@ -47,6 +47,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
           { label: 'Local encryption', slug: 'guides/local-encryption' },
           { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments' },
           { label: 'Caching', slug: 'guides/caching' },
+          { label: 'OAuth tokens', slug: 'guides/oauth', badge: 'new' },
           { label: 'OIDC Workload Identity', slug: 'guides/oidc' },
         ],
       },

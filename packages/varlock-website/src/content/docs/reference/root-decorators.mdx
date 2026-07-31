@@ -530,7 +530,7 @@ WEBHOOK_SECRET=yourPreferredPlugin()
 ### `@oauthProvider()`
 **Arg types:** `(id?: string, preset?: string, tokenUrl?: string, authorizationUrl?: string, deviceAuthorizationUrl?: string, clientAuth?: string, clientId, clientSecret?, scopes?)`
 
-Defines a named OAuth provider that [`oauth()`](/reference/functions/#oauth) items reference by id, so client config is written once and shared by every token minted from it. Can be declared multiple times with different ids.
+Defines a named OAuth provider that [`oauth()`](/reference/functions/#oauth) items reference by id, so client config is written once and shared by every token minted from it. Can be declared multiple times with different ids. See the [OAuth guide](/guides/oauth/) for the full workflow.
 
 - `id`: name used by `oauth(<id>, ...)` and `varlock oauth login <id>` (defaults to `_default`)
 - `preset`: fills in endpoints and quirks for a known provider: `google`, `github`, `microsoft`, or `slack`. Explicit args override preset values.
