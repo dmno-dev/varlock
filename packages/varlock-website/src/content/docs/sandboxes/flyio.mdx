@@ -9,31 +9,7 @@ For workloads you trust with the credentials they use, [pass resolved values](#p
 
 ## Passing resolved values
 
-Sprite env is per exec, so credentials exist only for the duration of one command. Import [`varlock/auto-load`](/integrations/javascript/) in the orchestrator and pass the values that sprite needs; varlock resolves them (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs:
-
-```ts title="orchestrate.ts"
-import 'varlock/auto-load';
-import { ENV } from 'varlock/env';
-import { SpritesClient } from '@fly/sprites';
-
-const sprite = new SpritesClient(ENV.SPRITES_TOKEN).sprite('my-sprite');
-
-await sprite.exec('node agent.js', { env: { STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY } });
-```
-
-Your Sprites token is a varlock-managed secret like any other, hence `ENV.SPRITES_TOKEN`. (`sprite.spawn(cmd, args, { env })` takes the same options and streams output instead of resolving.)
-
-From a shell, wrap the command so the value is expanded **inside** varlock's env rather than by your own shell first:
-
-```bash
-varlock run -- sh -c 'sprite exec -s my-sprite --env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" -- node agent.js'
-```
-
-This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. If the code in the sprite is itself a varlock project (it has a `.env.schema`), install varlock there instead and use `varlock run` in the sprite, the way you would in a [Docker container](/integrations/docker/): sprites ship Node 24+, so `npm i -g varlock` works, and a [checkpoint](https://docs.sprites.dev/) makes the install stick (sprites have no custom images; the persistent filesystem is the customization story).
-
-### Passing the env as a blob
-
-When the code in the sprite is a Node app that imports [`varlock/auto-load`](/integrations/javascript/), you can skip enumerating values entirely: capture varlock's serialized env as a single blob, scoped with [`--filter`](/reference/cli-commands/#filtering-items) to just the items that workload should see, and set [`_VARLOCK_USE_INJECTED_ENV=1`](/reference/reserved-variables/#_varlock_use_injected_env) so auto-load in the sprite hydrates from the blob instead of looking for `.env` files:
+Sprite env is per exec, so credentials exist only for the duration of one command. Import [`varlock/auto-load`](/integrations/javascript/) in the orchestrator: varlock resolves your values (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs. Then hand the sprite its env in one shot:
 
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
@@ -41,28 +17,36 @@ import { ENV } from 'varlock/env';
 import { execSync } from 'node:child_process';
 import { SpritesClient } from '@fly/sprites';
 
+// capture the resolved env as one blob, --filter scoping it to
+// just the items this sprite should see
 const envBlob = execSync(
   'varlock load --format json-full --compact --filter "STRIPE_*,SENTRY_DSN"',
   { encoding: 'utf8' },
 ).trim();
 
+// your Sprites token is a varlock-managed secret like any other
 const sprite = new SpritesClient(ENV.SPRITES_TOKEN).sprite('my-sprite');
+
 await sprite.exec('node agent.js', {
-  env: { __VARLOCK_ENV: envBlob, _VARLOCK_USE_INJECTED_ENV: '1' },
+  env: {
+    // a Node app that imports varlock hydrates process.env, the ENV object,
+    // and log redaction from the blob - no .env files or CLI in the sprite
+    __VARLOCK_ENV: envBlob,
+    _VARLOCK_USE_INJECTED_ENV: '1',
+    // for workloads that don't import varlock, enumerate plain vars instead:
+    // STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY,
+  },
 });
 ```
 
-From a shell, `varlock run --inject blob` produces the same filtered blob as an env var you can forward. If your schema sets [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv), the blob it injects is already ciphertext; forward `_VARLOCK_ENV_KEY` alongside it to decrypt in the sprite:
+From a shell, wrap the command so the blob is expanded **inside** varlock's env rather than by your own shell first:
 
 ```bash
 varlock run --inject blob --filter "STRIPE_*,SENTRY_DSN" -- sh -c \
-  'sprite exec -s my-sprite \
-     --env __VARLOCK_ENV="$__VARLOCK_ENV" \
-     --env _VARLOCK_USE_INJECTED_ENV=1 \
-     -- node agent.js'
+  'sprite exec -s my-sprite --env __VARLOCK_ENV="$__VARLOCK_ENV" --env _VARLOCK_USE_INJECTED_ENV=1 -- node agent.js'
 ```
 
-The project in the sprite needs the `varlock` npm package, but no `.env` files and no varlock CLI: importing `varlock/auto-load` hydrates `process.env`, the `ENV` object, log redaction, and leak detection straight from the blob, since sensitivity metadata travels with the values. Compared to enumerating `--env` flags, the filter is the single place that decides what the sprite sees, and the schema's validation and redaction behavior come along for free.
+This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. The blob route needs the `varlock` npm package in the sprite's project (sprites ship Node 24+); see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details.
 
 ## Credential proxy: the broker sprite
 
