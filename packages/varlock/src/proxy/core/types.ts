@@ -164,3 +164,26 @@ export type ProxyManagedItem = {
   /** True when the placeholder is the generic format-agnostic fallback (may fail SDK key-format checks). */
   placeholderIsGenericFallback?: boolean;
 };
+
+export const PROXY_STATIC_CONFIG_VERSION = 1;
+
+/**
+ * The proxy's static policy compiled from a schema, as emitted by
+ * `varlock proxy config`: everything a hosted gateway (e.g. a Cloudflare
+ * Worker) needs EXCEPT real values, which are delivered separately (worker
+ * secrets, a secret store) and looked up by item key at request time. Plain
+ * data - serializes as JSON and diffs cleanly in review.
+ */
+export type ProxyStaticConfig = {
+  version: typeof PROXY_STATIC_CONFIG_VERSION;
+  /**
+   * Fingerprint of the schema's proxy-relevant definition (never values). Lets
+   * a gateway detect drift between its baked config and separately-synced
+   * secrets or a launching orchestrator's schema.
+   */
+  schemaFingerprint: string;
+  egressMode: ProxyEgressMode;
+  rules: Array<ProxyRule>;
+  /** Managed item key → the placeholder the workload holds. */
+  placeholders: Record<string, string>;
+};

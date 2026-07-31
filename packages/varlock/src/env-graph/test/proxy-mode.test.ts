@@ -373,6 +373,51 @@ describe('proxy decorators', () => {
     expect(byKey.TYPE_KEY?.realValue).toBe('tok_real_secret');
     expect(byKey.NO_HINT_KEY?.realValue).toBe('whatever_real_secret');
   });
+
+  test('placeholder map + egress mode derive from the schema alone, without value resolution', async () => {
+    const schema = outdent`
+      # @proxyConfig={egress="strict"}
+      # ---
+      BASELINE=1
+
+      # @proxy(domain="api.example.com")
+      # @placeholder=sk_test_explicit
+      EXPLICIT_KEY=sk_live_real_explicit
+
+      # @proxy(domain="api.example.com")
+      # @type=string(startsWith=tok_, isLength=12)
+      TYPE_KEY=tok_real_secret
+
+      # a resolver that would fail in a low-trust environment - it must never run here
+      # @proxy(domain="api.stripe.com")
+      # @type=string(startsWith=sk_)
+      UNRESOLVABLE_KEY=exec('definitely-not-a-real-binary-xyz')
+    `;
+
+    // Load WITHOUT resolveEnvValues - the whole point is no resolver ever runs.
+    const graph = new EnvGraph();
+    const source = new DotEnvFileDataSource('.env.schema', { overrideContents: schema });
+    await graph.setRootDataSource(source);
+    await graph.finishLoad();
+
+    expect(graph.proxyEgressMode).toBe('strict');
+
+    const placeholderMap = await graph.getProxyPlaceholderMap();
+    expect(placeholderMap.EXPLICIT_KEY?.placeholder).toBe('sk_test_explicit');
+    expect(placeholderMap.TYPE_KEY?.placeholder).toMatch(/^tok_[0-9a-f]{8}$/);
+    // An item whose value can't resolve locally still gets its placeholder:
+    // for a hosted gateway the value lives remotely (worker secrets), so the
+    // compiling machine may hold no values at all.
+    expect(placeholderMap.UNRESOLVABLE_KEY?.placeholder).toMatch(/^sk_vlk-placeholder-unresolvable-key-/);
+
+    // And the same schema resolved (as the local proxy does it) yields the SAME
+    // placeholders - resolution state must never shift them.
+    const resolvedGraph = await loadGraph(schema.replace("exec('definitely-not-a-real-binary-xyz')", 'sk_resolved'));
+    const managed = await resolvedGraph.getProxyManagedItems();
+    for (const item of managed) {
+      expect(item.placeholder).toBe(placeholderMap[item.key]?.placeholder);
+    }
+  });
 });
 
 describe('proxy resolution view (proxied re-resolution)', () => {

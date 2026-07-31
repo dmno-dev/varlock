@@ -4,6 +4,17 @@ import type { ProxyActivity, ProxyEgressMode, ProxyRule } from 'varlock/proxy-co
 export type WaitUntilContext = { waitUntil?: (promise: Promise<unknown>) => void };
 
 export type VarlockGatewayConfig = {
+  /**
+   * Static-config artifact version, present when this config was emitted by
+   * `varlock proxy config` (the whole JSON file drops in as this config object).
+   */
+  version?: number;
+  /**
+   * Fingerprint of the schema's proxy-relevant definition (from
+   * `varlock proxy config`) - lets deploy tooling detect drift between the
+   * baked config and separately-synced secrets.
+   */
+  schemaFingerprint?: string;
   /** Proxy routing rules (same shape the local proxy enforces, compiled from `@proxy(...)` decorators). */
   rules: Array<ProxyRule>;
   /**

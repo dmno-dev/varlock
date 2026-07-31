@@ -31,7 +31,7 @@ import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
-import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
+import { generateProxyPlaceholderForItem, type GeneratedProxyPlaceholder } from '../../proxy/placeholder';
 import {
   PROXY_APPROVAL_EACH_VALUES,
   parseProxySubstitutionTarget,
@@ -958,7 +958,7 @@ export class EnvGraph {
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
     const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
-    serializedGraph.settings.proxyEgress = proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
+    serializedGraph.settings.proxyEgress = this.proxyEgressMode;
     // Store the raw reload posture (off/manual/auto); the proxy command resolves `auto`
     // at launch from context. Absent = undefined, and the command defaults it to `auto`.
     if (proxyConfig?.reload) serializedGraph.settings.proxyReload = proxyConfig.reload;
@@ -1307,6 +1307,15 @@ export class EnvGraph {
     return out;
   }
 
+  /**
+   * Egress mode from `@proxyConfig={egress=...}`. Root decorators resolve
+   * during finishLoad(), so this needs no value resolution.
+   */
+  get proxyEgressMode(): ProxyEgressMode {
+    const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
+    return proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
+  }
+
   async getProxyRules(): Promise<Array<ProxyRule>> {
     const rules: Array<ProxyRule> = [];
 
@@ -1337,25 +1346,45 @@ export class EnvGraph {
     return rules;
   }
 
-  async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
+  /**
+   * Placeholders for every rule-referenced item, derived from the schema alone
+   * (@placeholder decorators / data types / @type constraints) - value
+   * resolution is NOT required. This is what compiles into a hosted gateway's
+   * static config: there the real values live where the gateway runs (e.g.
+   * worker secrets), so the compiling machine may not hold any values at all.
+   */
+  async getProxyPlaceholderMap(): Promise<Record<string, GeneratedProxyPlaceholder>> {
     const rules = await this.getProxyRules();
     const managedKeys = _.uniq(rules.flatMap((r) => r.itemKeys));
-    const managedItems: Array<ProxyManagedItem> = [];
 
     const usedPlaceholders = new Set<string>();
+    const out: Record<string, GeneratedProxyPlaceholder> = {};
     for (const key of managedKeys) {
       const item = this.configSchema[key];
       if (!item) {
         throw new SchemaError(`@proxy references unknown item "${key}"`);
       }
+      out[key] = await generateProxyPlaceholderForItem(item, usedPlaceholders);
+    }
+    return out;
+  }
+
+  async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
+    // Derive from the full schema-only map so a key's placeholder is identical
+    // however it is consumed (local runtime vs compiled gateway config), even in
+    // the uniqueness-suffix edge case - resolution state must not shift them.
+    const placeholderMap = await this.getProxyPlaceholderMap();
+    const managedItems: Array<ProxyManagedItem> = [];
+
+    for (const [key, generated] of Object.entries(placeholderMap)) {
+      const item = this.configSchema[key];
       if (!_.isString(item.resolvedValue) || item.resolvedValue.length === 0) continue;
 
-      const { placeholder, isGenericFallback } = await generateProxyPlaceholderForItem(item, usedPlaceholders);
       managedItems.push({
         key,
-        placeholder,
+        placeholder: generated.placeholder,
         realValue: item.resolvedValue,
-        ...(isGenericFallback ? { placeholderIsGenericFallback: true } : {}),
+        ...(generated.isGenericFallback ? { placeholderIsGenericFallback: true } : {}),
       });
     }
 

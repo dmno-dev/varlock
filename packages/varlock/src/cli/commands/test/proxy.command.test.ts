@@ -2,7 +2,8 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
 import {
-  buildProxiedChildEnv, computeProxyChildView, isCwdWithin, resolveReloadMode, createReloadKeypressHandler,
+  buildProxiedChildEnv, buildProxyStaticConfig, computeProxyChildView, isCwdWithin, resolveReloadMode,
+  createReloadKeypressHandler,
 } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
@@ -367,5 +368,49 @@ describe('buildProxiedChildEnv', () => {
     });
     expect(env.API_KEY).toBe('vlk_placeholder_API_KEY_abc');
     expect(env.__VARLOCK_ENV).toBeUndefined();
+  });
+});
+
+describe('buildProxyStaticConfig (varlock proxy config)', () => {
+  test('emits rules + placeholders + egress + fingerprint from an UNRESOLVED graph', async () => {
+    const graph = new EnvGraph();
+    const source = new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @proxyConfig={egress="strict"}
+        # ---
+        BASELINE=1
+
+        # @proxy(domain="api.stripe.com", substituteIn=[header, "body:client_secret"], maxOccurrences=2)
+        # @placeholder=sk_test_placeholder
+        STRIPE_KEY=exec('would-fail-in-ci')
+
+        # @proxy(domain="api.other.com")
+        NO_HINT_KEY=whatever
+      `,
+    });
+    await graph.setRootDataSource(source);
+    await graph.finishLoad();
+    // deliberately NO resolveEnvValues - the compile must not run resolvers
+
+    const { staticConfig, genericPlaceholderKeys } = await buildProxyStaticConfig(graph);
+
+    expect(staticConfig.version).toBe(1);
+    expect(staticConfig.schemaFingerprint).toMatch(/^[0-9a-f]{16,}$/i);
+    expect(staticConfig.egressMode).toBe('strict');
+    expect(staticConfig.rules).toMatchObject([
+      {
+        domain: ['api.stripe.com'],
+        itemKeys: ['STRIPE_KEY'],
+        substituteIn: ['header', 'body:client_secret'],
+        maxOccurrences: 2,
+      },
+      { domain: ['api.other.com'], itemKeys: ['NO_HINT_KEY'] },
+    ]);
+    expect(staticConfig.placeholders.STRIPE_KEY).toBe('sk_test_placeholder');
+    expect(staticConfig.placeholders.NO_HINT_KEY).toMatch(/^vlk_placeholder_NO_HINT_KEY_/);
+    expect(genericPlaceholderKeys).toEqual(['NO_HINT_KEY']);
+
+    // the artifact is pure data - JSON round-trips losslessly
+    expect(JSON.parse(JSON.stringify(staticConfig))).toEqual(staticConfig);
   });
 });
