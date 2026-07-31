@@ -266,6 +266,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             collapsed: true,
             items: [
               { label: 'Minimal', slug: 'sandboxes/minimal' },
+              { label: 'smolvm', slug: 'sandboxes/smolvm' },
               { label: 'Fence', slug: 'sandboxes/fence' },
               { label: 'yolobox', slug: 'sandboxes/yolobox' },
               { label: 'Agent Safehouse', slug: 'sandboxes/agent-safehouse' },
