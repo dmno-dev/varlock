@@ -115,4 +115,38 @@ describe('selectOverridesFromInjectedEnv', () => {
     // with any non-empty value means it was set after the parent resolved
     expect(selectOverridesFromInjectedEnv(blob, { UNSET: 'now-set' })).toEqual({ UNSET: 'now-set' });
   });
+
+  test('the raw pre-coercion override string is recognized as an echo, not a new override', () => {
+    // FLAG=YES was coerced to boolean true at the parent (injected form "true"); the
+    // raw "YES" can survive in the ambient env under --inject blob
+    const coercedBlob = JSON.stringify({
+      overrideKeys: ['FLAG'],
+      config: {
+        FLAG: {
+          value: true, overrideStr: 'YES', isSensitive: false,
+        },
+      },
+      settings: {},
+      sources: [],
+    });
+    // recorded override keys are always re-read, so the raw form is selected - and
+    // re-coerces to the same value during resolution
+    expect(selectOverridesFromInjectedEnv(coercedBlob, { FLAG: 'YES' })).toEqual({ FLAG: 'YES' });
+
+    // for a NON-recorded item (hypothetical old/new producer mix), the raw form must
+    // not be misread as a newly introduced override
+    const nonRecordedBlob = JSON.stringify({
+      overrideKeys: [],
+      config: {
+        FLAG: {
+          value: true, overrideStr: 'YES', isSensitive: false,
+        },
+      },
+      settings: {},
+      sources: [],
+    });
+    expect(selectOverridesFromInjectedEnv(nonRecordedBlob, { FLAG: 'YES' })).toEqual({});
+    expect(selectOverridesFromInjectedEnv(nonRecordedBlob, { FLAG: 'true' })).toEqual({});
+    expect(selectOverridesFromInjectedEnv(nonRecordedBlob, { FLAG: 'no' })).toEqual({ FLAG: 'no' });
+  });
 });

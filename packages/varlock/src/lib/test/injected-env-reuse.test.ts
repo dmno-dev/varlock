@@ -196,6 +196,38 @@ describe('evaluateInjectedEnvReuse', () => {
         expect(decision.reuse).toBe(true);
       });
 
+      test('a coerced override\'s raw string form is an echo, not drift', () => {
+        // parent ran with FLAG=YES (coerced to boolean true); under --inject blob the
+        // raw "YES" survives in the child env and must not block reuse
+        const blob = makeBlob({
+          config: {
+            FLAG: {
+              value: true, overrideStr: 'YES', isSensitive: false,
+            },
+          },
+          overrideKeys: ['FLAG'],
+        });
+        const rawForm = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: blob },
+          preInjectionEnv: { FLAG: 'YES' },
+          cwd: tempDir,
+        });
+        expect(rawForm.reuse).toBe(true);
+        const coercedForm = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: blob },
+          preInjectionEnv: { FLAG: 'true' },
+          cwd: tempDir,
+        });
+        expect(coercedForm.reuse).toBe(true);
+        // a value matching NEITHER form is a genuine change
+        const changed = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: blob },
+          preInjectionEnv: { FLAG: 'no' },
+          cwd: tempDir,
+        });
+        expect(changed.reuse).toBe(false);
+      });
+
       test('composite values compare via their envStr form', () => {
         const blob = makeBlob({
           config: {

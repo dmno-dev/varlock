@@ -87,6 +87,15 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
+    /**
+     * The raw pre-coercion string of the process.env override that produced this value,
+     * present only when it differs from the injected string form (e.g. `FLAG=YES` coerced
+     * to boolean `true` injects as "true"). Lets consumers comparing ambient env values
+     * against the blob (nested invocations, auto-load reuse) recognize the raw form as
+     * this same value rather than a new override. Omitted for sensitive items so the blob
+     * never carries a value variant the redaction map doesn't know about.
+     */
+    overrideStr?: string;
     /** whether the value must stay runtime-resolved (never inlined at build time). Omitted when it matches `isSensitive` (the default linkage), so consumers should read `isDynamic ?? isSensitive`. */
     isDynamic?: boolean;
   }>;
@@ -923,12 +932,21 @@ export class EnvGraph {
       if (item.isInternal && !opts?.includeInternal) continue;
       // when set (e.g. via the CLI `--filter` flag), only include selected keys
       if (opts?.filterKeys && !opts.filterKeys.has(itemKey)) continue;
+      // raw pre-coercion form of a process.env override, when it differs from the
+      // injected string form (see the SerializedEnvGraph type for why this travels)
+      let overrideStr: string | undefined;
+      if (!item.isSensitive && itemKey in this.overrideValues) {
+        const rawOverride = this.overrideValues[itemKey];
+        const injectedForm = item.resolvedEnvStringValue ?? (item.resolvedValue === undefined ? '' : String(item.resolvedValue));
+        if (rawOverride !== undefined && rawOverride !== injectedForm) overrideStr = rawOverride;
+      }
       serializedGraph.config[itemKey] = {
         value: item.resolvedValue,
         // composite values carry their flat string form, since re-deriving it requires
         // the item's type settings (separator vs JSON) which don't travel in the blob
         ...(typeof item.resolvedValue === 'object' && item.resolvedValue !== null)
           ? { envStr: item.resolvedEnvStringValue } : {},
+        ...(overrideStr !== undefined) ? { overrideStr } : {},
         isSensitive: item.isSensitive,
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller

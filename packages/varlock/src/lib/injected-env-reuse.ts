@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { SerializedEnvGraph } from '../env-graph';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
-import { injectedEnvStringForm } from './injected-env-provenance';
+import { envValueMatchesBlobItem } from './injected-env-provenance';
 
 /**
  * Decides whether `varlock/auto-load` can reuse an already-injected `__VARLOCK_ENV` blob
@@ -166,12 +166,13 @@ export function evaluateInjectedEnvReuse(opts: {
   // injected (e.g. `varlock run -- sh -c 'FOO=x node app.js'`, whether or not FOO was
   // already an override at the parent), reusing the blob would clobber FOO back to the
   // stale value - re-resolving honors the new value via the nested-invocation override
-  // handling in load-graph. An unchanged value is just the parent's own injection echoing
-  // back, and a key *absent* from the env is not drift (`--inject blob` mode injects no
-  // individual vars at all).
+  // handling in load-graph. An unchanged value is just this blob's own value echoing back
+  // (injected form, or the raw pre-coercion override string the parent recorded), and a
+  // key *absent* from the env is not drift (`--inject blob` mode injects no individual
+  // vars at all).
   for (const itemKey of Object.keys(parsedEnv.config)) {
     if (!(itemKey in preInjectionEnv)) continue;
-    if (preInjectionEnv[itemKey] !== injectedEnvStringForm(parsedEnv.config[itemKey])) {
+    if (!envValueMatchesBlobItem(preInjectionEnv[itemKey], parsedEnv.config[itemKey])) {
       return { reuse: false, reason: `env value for ${itemKey} changed since the blob was created` };
     }
   }

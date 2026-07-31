@@ -60,6 +60,22 @@ export function injectedEnvStringForm(item: { envStr?: string, value?: any }): s
 }
 
 /**
+ * Whether an ambient env value is just this blob item's own value echoing back - either
+ * the injected string form, or the raw pre-coercion override string the parent recorded
+ * (e.g. `FLAG=YES` coerced to boolean `true`: the raw "YES" survives in the child env
+ * under `--inject blob`, where no individual vars are injected over it).
+ */
+type BlobConfigItem = { envStr?: string, value?: any, overrideStr?: string };
+
+export function envValueMatchesBlobItem(
+  envValue: string | undefined,
+  item: BlobConfigItem,
+): boolean {
+  if (envValue === injectedEnvStringForm(item)) return true;
+  return item.overrideStr !== undefined && envValue === item.overrideStr;
+}
+
+/**
  * Select the env values that should act as overrides for a fresh resolution running
  * under an injected `__VARLOCK_ENV` blob:
  *
@@ -89,10 +105,10 @@ export function selectOverridesFromInjectedEnv(
   // blob is known-parseable here (parseBlobOverrideKeys succeeded)
   const config = (JSON.parse(blob!) as { config?: unknown }).config;
   if (config && typeof config === 'object' && !Array.isArray(config)) {
-    for (const [key, item] of Object.entries(config as Record<string, { envStr?: string, value?: any }>)) {
+    for (const [key, item] of Object.entries(config as Record<string, BlobConfigItem>)) {
       if (key in selected) continue;
       if (!(key in env)) continue; // absent (e.g. `--inject blob` mode) is not a divergence
-      if (env[key] !== injectedEnvStringForm(item)) selected[key] = env[key];
+      if (!envValueMatchesBlobItem(env[key], item)) selected[key] = env[key];
     }
   }
   return selected;

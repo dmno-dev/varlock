@@ -5,3 +5,4 @@ import { ENV } from 'varlock/env';
 console.log(`PUBLIC_VAR=${ENV.PUBLIC_VAR}`);
 console.log(`SECRET_OK=${ENV.SECRET_TOKEN === 'secret-token-val' && process.env.SECRET_TOKEN === 'secret-token-val'}`);
 console.log(`OVERRIDE_ME=${ENV.OVERRIDE_ME}`);
+console.log(`COERCED_FLAG=${ENV.COERCED_FLAG}`);

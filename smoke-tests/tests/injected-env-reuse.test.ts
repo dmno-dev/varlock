@@ -24,7 +24,7 @@ function runNodeApp(opts: { cwd?: string; env?: Record<string, string | undefine
   };
   // an inherited value (e.g. if the test runner itself runs under varlock) must not
   // accidentally satisfy or flip the scenario under test
-  for (const key of ['__VARLOCK_ENV', '_VARLOCK_ENV_KEY', '_VARLOCK_USE_INJECTED_ENV', 'OVERRIDE_ME']) {
+  for (const key of ['__VARLOCK_ENV', '_VARLOCK_ENV_KEY', '_VARLOCK_USE_INJECTED_ENV', 'OVERRIDE_ME', 'COERCED_FLAG']) {
     if (!(opts.env && key in opts.env)) delete env[key];
   }
   const result = spawnSync(process.execPath, ['app.mjs'], {
@@ -60,6 +60,19 @@ describe('auto-load reuse of injected env blob', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain(REUSED_MSG);
     expect(result.output).toContain('SECRET_OK=true');
+  });
+
+  test('a COERCED ambient override does not block reuse under --inject blob', () => {
+    // COERCED_FLAG=YES coerces to boolean true (injected form "true"); in blob-only mode
+    // no individual vars are injected, so the raw "YES" survives in the child env. The
+    // blob's recorded raw override string must be recognized as an echo, not drift.
+    const result = runVarlock(['run', '--inject', 'blob', '--', 'node', 'app.mjs'], {
+      cwd: SCENARIO,
+      env: { DEBUG: 'varlock:auto-load', COERCED_FLAG: 'YES' },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain(REUSED_MSG);
+    expect(result.output).toContain('COERCED_FLAG=true');
   });
 
   test('an ambient override at the parent invocation still reuses (value already in the blob)', () => {
