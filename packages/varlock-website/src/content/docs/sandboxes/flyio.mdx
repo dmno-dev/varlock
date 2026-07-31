@@ -44,7 +44,7 @@ await sprite.exec('node agent.js', {
 // });
 ```
 
-This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. One sprite CLI caveat: `sprite exec --env` treats its value as comma-delimited `KEY=v,KEY2=v2` pairs, so it cannot carry the JSON blob from a shell; use the SDK/API env map as above, or upload the blob with `--file` and read it in the command (`sh -c '__VARLOCK_ENV="$(cat /tmp/blob)" _VARLOCK_USE_INJECTED_ENV=1 varlock run -- ./my-agent'`).
+This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. One sprite CLI caveat: `sprite exec --env` treats its value as comma-delimited `KEY=v,KEY2=v2` pairs, so a JSON blob passed through it gets silently truncated at the first comma; use the SDK/API env map as above, or upload the blob with `--file` and read it in the command (`sh -c '__VARLOCK_ENV="$(cat /tmp/blob)" _VARLOCK_USE_INJECTED_ENV=1 varlock run -- ./my-agent'`).
 
 ## Credential proxy: the broker sprite
 
