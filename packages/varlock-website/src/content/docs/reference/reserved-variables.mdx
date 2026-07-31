@@ -52,6 +52,16 @@ Set to `warn` to downgrade the build/prerender-time guard on [public+dynamic](/g
 
 When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporting-load-failures) throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it via its `uncaughtException` handler. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior. See [Reporting load failures](/integrations/javascript/#reporting-load-failures).
 
+### `_VARLOCK_USE_INJECTED_ENV`
+
+Controls whether [`varlock/auto-load`](/integrations/javascript/#reusing-an-injected-env-blob) reuses an already-injected [`__VARLOCK_ENV`](#__varlock_env) blob (e.g. from a parent `varlock run`) instead of re-resolving via the CLI:
+
+- unset (default): reuse the blob only when it was resolved in the same directory the app would resolve in anyway, and nothing relevant has changed since
+- `1` / `true`: always trust the blob, skipping the directory check. Use this to hand a blob into an environment with no `.env` files at all (e.g. a sandbox). Missing or unusable blobs become hard errors.
+- `0` / `false`: always re-resolve via the CLI
+
+See [Reusing an injected env blob](/integrations/javascript/#reusing-an-injected-env-blob).
+
 {/*
   Intentionally NOT documented for end users; internal/testing only.
   Kept here (and in VARLOCK_CONFIG_ENV_VARS with internal:true) for maintainer reference.

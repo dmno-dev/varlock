@@ -50,6 +50,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Set to `warn` to downgrade the build/prerender-time public+dynamic access guard from an error to a one-time warning per key (e.g. while migrating an existing app).',
   },
   {
+    name: '_VARLOCK_USE_INJECTED_ENV',
+    description: 'Controls whether `varlock/auto-load` reuses an already-injected `__VARLOCK_ENV` blob instead of re-resolving via the CLI. `1`/`true` always trusts the blob (e.g. handing a blob into a sandbox with no .env files); `0`/`false` always re-resolves. Unset, auto-load reuses the blob only when it was resolved in the same directory.',
+  },
+  {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
     description: 'Forces the file-based local encryption fallback instead of the native binary. Intended for testing/debugging.',
     internal: true,
