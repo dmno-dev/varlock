@@ -177,6 +177,17 @@ Some practical notes:
 - The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one). On the link network it matters doubly: any linked agent can reach any broker port, and the token is what stands between an agent and the tunnel.
 - A broker sandbox is a single point of failure for its fleet, and its linked agents live and die with it: deleting the broker cascades to them, and linked agents are always ephemeral. Manage the broker's lifetime explicitly (`autoStopInterval: 0` plus your own teardown, or `ttlMinutes` as a backstop); `proxy run --url` opens a fresh tunnel per connection, so transient blips recover, and `--persist-ca` above keeps the CA stable across a broker restart. Reserve that flag for brokers: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
+### Broker lifetime and cost
+
+Daytona has no wake-on-request: a stopped sandbox's ports are dead until something calls `start()` through the API, so an agent cannot wake the broker by connecting to it. Plan the broker's lifetime around that:
+
+- **Fleet-scoped (what the code above does).** The orchestrator creates the broker, runs its agents, and deletes it. Compute is billed only while the fleet is up, and deleting the broker cascade-deletes its linked agents, so nothing is left running. This is the shape Daytona's billing fits best.
+- **Standing broker.** Either keep it running (compute is billed continuously; see [Daytona's pricing](https://www.daytona.io/pricing)) or have the orchestrator `start()` and `stop()` it around fleet runs. A stopped broker costs only storage, and its sandbox id, link-network alias, and (with `--persist-ca`) CA all survive the stop/start cycle, but stopping is teardown for its linked agents, not a pause: ephemeral children are deleted when stopped. Also note a sandbox stopped for 7 days is archived by default, which makes the next start slower.
+
+Keep `autoStopInterval: 0` in either model. Do not rely on Daytona's idle detection to count tunnel traffic as activity: an auto-stopped broker takes its fleet down with it.
+
+For a broker that should be always reachable or outlive any one fleet, consider running the proxy on infrastructure you operate (or your machine) instead, and treat Daytona as the agent layer only; see [other topologies](#other-topologies) below.
+
 ## Other topologies
 
 Linked sandboxes share one runner. To serve agents the broker is not linked to (across runners, regions, or from outside Daytona), expose the broker's proxy port through Daytona's [preview URLs](https://www.daytona.io/docs/en/preview/) instead: create the broker with `public: true` and point agents at `wss://<preview-host>`. varlock's data-plane token still gates the tunnel, so a public preview URL is safe. Two caveats: the port has to be public because Daytona's own preview auth (the `x-daytona-preview-token` header) cannot gate the tunnel, since the tunnel client does not attach custom headers; and on tiers 1 and 2 sandboxes cannot reach preview URLs from inside Daytona, so sandbox-to-sandbox traffic over preview URLs needs tier 3+.
