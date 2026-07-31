@@ -7,9 +7,9 @@ import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
 These are recipes for running an agent inside a third-party sandbox while varlock holds the real credentials. The sandbox contains the agent; the [credential proxy](/guides/proxy/) gives it placeholders and swaps in real secrets only on verified connections to hosts you allow.
 
-Read the [sandboxing guide](/guides/proxy/sandboxing/) first. It covers why the two layers belong together, varlock's own [built-in `--sandbox`](/guides/proxy/sandboxing/#built-in-sandbox) (macOS jail or a container, no third-party install), and the [shared setup](/guides/proxy/sandboxing/#shared-setup) every local-tool recipe below assumes.
+Read the [sandboxing guide](/guides/proxy/sandboxing/) first. It covers why the two layers belong together, varlock's own [built-in `--sandbox`](/guides/proxy/sandboxing/#built-in-sandbox) (macOS jail or a container, no third-party install), and the [shared setup](/guides/proxy/sandboxing/#shared-setup) most local-tool recipes below assume.
 
-Filesystem, process, and network isolation varies by tool, so check each recipe for its actual boundaries. None of these tools broker credentials, so varlock stays the wire injector. Reach for one when you already run that tool, need Windows, or want a different isolation model than the built-in sandbox offers.
+Filesystem, process, and network isolation varies by tool, so check each recipe for its actual boundaries. Most don't broker credentials themselves, so varlock stays the wire injector. Reach for one when you already run that tool, need Windows, or want a different isolation model than the built-in sandbox offers.
 
 ## Topologies
 
@@ -32,7 +32,10 @@ Cloud sandbox providers run the agent in a remote VM, so the proxy is reached ov
 
 ## Local tools
 
+These run on your own machine. Most reach the proxy over loopback via the [shared setup](/guides/proxy/sandboxing/#shared-setup). Docker Sandboxes is the exception: a local microVM with its own egress gateway, so its agent reaches the proxy over the tunnel (like the cloud shapes above), and its guide differs accordingly.
+
 <CardGrid>
+  <LinkCard title="Docker Sandboxes" href="/sandboxes/docker-sandboxes/" description="Local microVMs (sbx); agent reaches a host or remote broker through the gateway. macOS, Windows, Linux" />
   <LinkCard title="Minimal" href="/sandboxes/minimal/" description="Task / microVM or process sandbox. macOS, Linux" />
   <LinkCard title="smolvm" href="/sandboxes/smolvm/" description="libkrun microVM; guest loopback reaches the host proxy. macOS, Linux, Windows" />
   <LinkCard title="Fence" href="/sandboxes/fence/" description="Seatbelt / bubblewrap + domain allowlist. macOS, Linux" />
@@ -42,4 +45,4 @@ Cloud sandbox providers run the agent in a remote VM, so the proxy is reached ov
   <LinkCard title="MXC" href="/sandboxes/mxc/" description="Windows AppContainer (processcontainer). Windows 11" />
 </CardGrid>
 
-Tools that already broker credentials at the network boundary (Docker Sandboxes, microsandbox, Anthropic `srt` credential `mask`, and similar) are out of scope here. Use those on their own, or wait for varlock host bridging if you want varlock as the broker inside a microVM that cannot reach host loopback.
+Some tools already broker credentials at their own network boundary (microsandbox, Anthropic `srt` credential `mask`, and similar). You can use those on their own; varlock adds schema-driven policy, response scrubbing, your own audit log, and custody in your secret manager on top. [Docker Sandboxes](/sandboxes/docker-sandboxes/) is one such tool with a guide here, because its policy can also route the agent through a varlock broker (host or remote), keeping varlock as the injector.

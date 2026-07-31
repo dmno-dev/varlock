@@ -265,6 +265,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             label: 'Local tools',
             collapsed: true,
             items: [
+              { label: 'Docker Sandboxes', slug: 'sandboxes/docker-sandboxes' },
               { label: 'Minimal', slug: 'sandboxes/minimal' },
               { label: 'smolvm', slug: 'sandboxes/smolvm' },
               { label: 'Fence', slug: 'sandboxes/fence' },

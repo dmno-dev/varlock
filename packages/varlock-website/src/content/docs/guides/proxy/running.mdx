@@ -43,6 +43,8 @@ node agent.js                       # now routed through the proxy
 
 The workload does not have to be on the same machine. `proxy start --expose` makes the proxy reachable off-loopback and serves a built-in WebSocket tunnel, gated by a per-session data-plane token, and `proxy run --url wss://<host>` runs a command through that broker from anywhere, self-wiring the placeholder env and CA certs over the tunnel. The token is a credential: pin it with `VARLOCK_PROXY_TOKEN` or read it back with `varlock proxy token`, and prefer passing it to clients as an env var rather than a `--token` argument. This is how cloud sandboxes reach a broker; see the [E2B](/sandboxes/e2b/) and [Fly.io](/sandboxes/flyio/) guides for full recipes and the [proxy CLI reference](/reference/cli/proxy/) for the flags.
 
+When the guest's only egress is an explicit HTTP proxy (a corporate proxy, or a sandbox gateway like [Docker Sandboxes](/sandboxes/docker-sandboxes/)), `proxy run --url` dials the tunnel through it automatically: it honors `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` and `NO_PROXY` (a loopback or `NO_PROXY`-matched broker still dials direct). Only a plaintext `http://` `CONNECT` proxy is supported (an `https://` proxy, meaning TLS to the proxy itself, and SOCKS are not); a `wss://` broker still works through it, since the tunnel's own TLS runs end to end inside the `CONNECT`. That end-to-end TLS also means a proxy that terminates TLS only ever sees the encrypted tunnel.
+
 ## Sessions
 
 Every `varlock proxy` command operates on a **session**: one running proxy with its own short id (printed by `proxy start`, listed by `proxy status`). You target a session in one of two ways:
