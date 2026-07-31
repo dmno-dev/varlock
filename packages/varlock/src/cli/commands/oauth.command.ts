@@ -10,14 +10,14 @@ import { trackCommand } from '../helpers/telemetry';
 import { logLines } from '../helpers/pretty-format';
 import { runDeviceCodeLogin, runPkceLogin, OauthLoginError } from '../../lib/oauth-login';
 import {
-  buildOauthProviderCacheKey, formatOauthScopesForDisplay,
-  type OauthProviderCacheEntry,
+  buildOauthClientCacheKey, formatOauthScopesForDisplay,
+  type OauthClientCacheEntry,
 } from '../../lib/oauth';
 import { TTL_FOREVER } from '../../lib/cache/ttl-parser';
 import { InMemoryCacheStore } from '../../lib/cache';
 import { formatTimeAgo } from '../../lib/formatting';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import type { OauthProviderInstanceRecord } from '../../env-graph';
+import type { OauthClientRecord } from '../../env-graph';
 
 const PATH_ARG = {
   type: 'string',
@@ -29,9 +29,9 @@ const PATH_ARG = {
 async function loadGraphWithProviders(paths?: Array<string>) {
   const envGraph = await loadVarlockEnvGraph({ entryFilePaths: paths });
   checkForSchemaErrors(envGraph);
-  if (!Object.keys(envGraph.oauthProviders).length) {
-    throw new CliExitError('No oauth providers are defined in your schema', {
-      suggestion: 'Define one with a root decorator, e.g. `# @oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)`',
+  if (!Object.keys(envGraph.oauthClients).length) {
+    throw new CliExitError('No oauth clients are defined in your schema', {
+      suggestion: 'Define one with a root decorator, e.g. `# @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)`',
     });
   }
   return envGraph;
@@ -50,28 +50,28 @@ function requirePersistentStore(envGraph: Awaited<ReturnType<typeof loadVarlockE
 function pickProvider(
   envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>,
   requestedId: string | undefined,
-): OauthProviderInstanceRecord {
-  const providers = envGraph.oauthProviders;
-  const ids = Object.keys(providers);
+): OauthClientRecord {
+  const clients = envGraph.oauthClients;
+  const ids = Object.keys(clients);
   if (requestedId) {
-    const record = providers[requestedId];
+    const record = clients[requestedId];
     if (!record) {
-      throw new CliExitError(`Unknown oauth provider "${requestedId}"`, {
-        suggestion: `Defined providers: ${ids.join(', ')}`,
+      throw new CliExitError(`Unknown oauth client "${requestedId}"`, {
+        suggestion: `Defined clients: ${ids.join(', ')}`,
       });
     }
     return record;
   }
-  if (ids.length === 1) return providers[ids[0]];
-  throw new CliExitError('Multiple oauth providers are defined - specify which one to log in to', {
-    suggestion: `e.g. \`varlock oauth login ${ids[0]}\` (defined providers: ${ids.join(', ')})`,
+  if (ids.length === 1) return clients[ids[0]];
+  throw new CliExitError('Multiple oauth clients are defined - specify which one to log in to', {
+    suggestion: `e.g. \`varlock oauth login ${ids[0]}\` (defined clients: ${ids.join(', ')})`,
   });
 }
 
-/** union of provider-level scopes, preset-required scopes, and every login-provisioned item's scopes */
+/** union of client-level scopes, provider-required scopes, and every login-provisioned item's scopes */
 async function collectLoginScopes(
   envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>,
-  record: OauthProviderInstanceRecord,
+  record: OauthClientRecord,
 ): Promise<string | undefined> {
   const delim = record.scopesDelimiter;
   const scopeSet = new Set<string>();
@@ -104,10 +104,10 @@ const loginCommand = define({
   name: 'login',
   description: 'Run a browser login flow and store the resulting refresh token in the encrypted cache',
   args: {
-    provider: {
+    client: {
       type: 'positional',
       required: false,
-      description: 'The @oauthProvider id to log in to (optional when only one is defined)',
+      description: 'The @oauthClient id to log in to, e.g. google or google/dev (optional when only one is defined)',
     },
     flow: {
       type: 'string',
@@ -120,8 +120,8 @@ const loginCommand = define({
     path: PATH_ARG,
   },
   examples: `
-  varlock oauth login                    # log in (single provider defined)
-  varlock oauth login google             # log in to a specific provider
+  varlock oauth login                    # log in (single client defined)
+  varlock oauth login google             # log in to a specific client
   varlock oauth login google --flow browser
   varlock oauth login google --scopes "scope-a scope-b"
 `.trim(),
@@ -130,9 +130,9 @@ const loginCommand = define({
 
     const envGraph = await loadGraphWithProviders(ctx.values.path);
     const store = requirePersistentStore(envGraph);
-    const record = pickProvider(envGraph, ctx.values.provider);
+    const record = pickProvider(envGraph, ctx.values.client);
     if (!record.resolved) {
-      throw new CliExitError(`oauth provider "${record.id}" failed to initialize - fix schema errors first`);
+      throw new CliExitError(`oauth client "${record.id}" failed to initialize - fix schema errors first`);
     }
 
     const scope = ctx.values.scopes ?? await collectLoginScopes(envGraph, record);
@@ -144,13 +144,13 @@ const loginCommand = define({
     flow ||= record.deviceAuthorizationUrl ? 'device' : 'browser';
     if (flow === 'device' && !record.deviceAuthorizationUrl) {
       throw new CliExitError(`Provider "${record.id}" has no device authorization endpoint`, {
-        suggestion: 'Use --flow browser, or set deviceAuthorizationUrl on the @oauthProvider',
+        suggestion: 'Use --flow browser, or set deviceAuthorizationUrl on the @oauthClient',
       });
     }
     if (flow === 'browser' && !record.authorizationUrl) {
       throw new CliExitError(`Provider "${record.id}" has no authorization endpoint configured`, {
         suggestion: [
-          'Set authorizationUrl on the @oauthProvider (or use a preset that provides one)',
+          'Set authorizationUrl on the @oauthClient (or use a provider that provides one)',
           ...record.notes ? [`Note for this provider: ${record.notes}`] : [],
         ].join('\n'),
       });
@@ -158,7 +158,7 @@ const loginCommand = define({
 
     // state intent up front so the terminal can be compared against the provider's consent screen
     logLines([
-      `🔑 Logging in to oauth provider ${ansis.bold(record.id)}`,
+      `🔑 Logging in to oauth client ${ansis.bold(record.id)}`,
       '',
       `  token endpoint: ${record.tokenUrl}`,
       `  client id:      ${record.resolved.clientId}`,
@@ -215,17 +215,17 @@ const loginCommand = define({
       throw err;
     }
 
-    const providerCacheKey = buildOauthProviderCacheKey({
+    const clientEntryCacheKey = buildOauthClientCacheKey({
       tokenUrl: record.tokenUrl,
       clientId: record.resolved.clientId,
     });
-    const entry: OauthProviderCacheEntry = {
+    const entry: OauthClientCacheEntry = {
       refreshToken: loginResult.refreshToken,
       grantedScope: loginResult.grantedScope ?? scope,
       updatedAt: Date.now(),
       source: 'login',
     };
-    const stored = await store.set(providerCacheKey, entry, TTL_FOREVER);
+    const stored = await store.set(clientEntryCacheKey, entry, TTL_FOREVER);
     if (!stored) {
       throw new CliExitError('Login succeeded but the refresh token could not be written to the cache', {
         suggestion: 'Check `varlock cache status` - local encryption may not be set up',
@@ -246,7 +246,7 @@ const loginCommand = define({
 
 const statusCommand = define({
   name: 'status',
-  description: 'Show defined oauth providers and whether a refresh token has been provisioned',
+  description: 'Show defined oauth clients and whether a refresh token has been provisioned',
   args: {
     path: PATH_ARG,
   },
@@ -255,8 +255,8 @@ const statusCommand = define({
     const envGraph = await loadGraphWithProviders(ctx.values.path);
     const store = envGraph._cacheStore;
 
-    for (const record of Object.values(envGraph.oauthProviders)) {
-      console.log(`${ansis.bold(record.id)}${record.presetName ? ansis.gray(` (preset: ${record.presetName})`) : ''}`);
+    for (const record of Object.values(envGraph.oauthClients)) {
+      console.log(`${ansis.bold(record.id)}${record.providerName ? ansis.gray(` (provider: ${record.providerName})`) : ''}`);
       console.log(ansis.gray(`  token endpoint: ${record.tokenUrl}`));
       const loginConsumers = record.usedBy.filter((u) => !u.hasOwnRefreshToken && u.grantType === 'refresh_token');
       if (record.usedBy.length) {
@@ -266,12 +266,12 @@ const statusCommand = define({
       if (!record.resolved) {
         console.log(ansis.red('  ⚠️ failed to initialize'));
       } else if (store && !(store instanceof InMemoryCacheStore)) {
-        const providerCacheKey = buildOauthProviderCacheKey({
+        const clientEntryCacheKey = buildOauthClientCacheKey({
           tokenUrl: record.tokenUrl,
           clientId: record.resolved.clientId,
         });
-        const cached = await store.get(providerCacheKey);
-        const entry = cached?.value as OauthProviderCacheEntry | undefined;
+        const cached = await store.get(clientEntryCacheKey);
+        const entry = cached?.value as OauthClientCacheEntry | undefined;
         if (entry?.refreshToken) {
           const sourceLabel = entry.source === 'login' ? 'via login' : 'rotated';
           console.log(`  ✅ refresh token provisioned ${ansis.gray(`(${sourceLabel}, updated ${formatTimeAgo(entry.updatedAt)})`)}`);
@@ -293,18 +293,18 @@ const statusCommand = define({
 
 export const commandSpec = define({
   name: 'oauth',
-  description: 'Manage OAuth providers and login-provisioned refresh tokens',
+  description: 'Manage OAuth clients and login-provisioned refresh tokens',
   subCommands: {
     login: loginCommand,
     status: statusCommand,
   },
   examples: `
-Provision and inspect refresh tokens for @oauthProvider instances used by oauth().
+Provision and inspect refresh tokens for @oauthClient instances used by oauth().
 
 Examples:
-  varlock oauth status                   # show providers and provisioning state
-  varlock oauth login                    # run the login flow (single provider defined)
-  varlock oauth login google             # log in to a specific provider
+  varlock oauth status                   # show clients and provisioning state
+  varlock oauth login                    # run the login flow (single client defined)
+  varlock oauth login google             # log in to a specific client
 `.trim(),
 });
 

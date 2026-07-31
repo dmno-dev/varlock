@@ -117,7 +117,7 @@ export type OauthItemCacheEntry = {
 };
 
 /** provider-level entry - the live home of a login-provisioned refresh token, shared across items */
-export type OauthProviderCacheEntry = {
+export type OauthClientCacheEntry = {
   refreshToken: string;
   /** scopes granted at login (may be broader than any one item's request) */
   grantedScope?: string;
@@ -143,7 +143,7 @@ export function buildOauthItemCacheKey(parts: {
 }
 
 /** key for the shared provider-level refresh-token entry, written by `varlock oauth login` */
-export function buildOauthProviderCacheKey(parts: { tokenUrl: string; clientId: string }): string {
+export function buildOauthClientCacheKey(parts: { tokenUrl: string; clientId: string }): string {
   const keyMaterial = [parts.tokenUrl, parts.clientId].join('\n');
   const digest = createHash('sha256').update(keyMaterial).digest('hex').slice(0, 16);
   return `oauth:${new URL(parts.tokenUrl).hostname}:provider-${digest}`;

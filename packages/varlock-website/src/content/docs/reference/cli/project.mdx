@@ -172,20 +172,20 @@ The output directory is a generated artifact: add it to `.gitignore`, and rerun 
 
 ## `varlock oauth` ||oauth||
 
-Manages OAuth providers defined with [`@oauthProvider`](/reference/root-decorators/#oauthprovider) and the refresh tokens used by [`oauth()`](/reference/functions/#oauth) items.
+Manages OAuth clients defined with [`@oauthClient`](/reference/root-decorators/#oauthclient) and the refresh tokens used by [`oauth()`](/reference/functions/#oauth) items.
 
 ```bash
-varlock oauth [status|login] [provider-id]
+varlock oauth [status|login] [client-id]
 ```
 
 ### `varlock oauth login`
 
 Runs a browser login flow against a provider and stores the resulting refresh token in the encrypted cache. Items using `oauth(<id>, ...)` without an explicit `refreshToken` resolve using this stored token from then on. Requires a persistent (disk) cache.
 
-The requested scopes default to the union of scopes used by items referencing the provider, plus any provider-level `scopes` and preset-required scopes (e.g. `offline_access` for Microsoft).
+The requested scopes default to the union of scopes used by items referencing the provider, plus any client-level `scopes` and provider-required scopes (e.g. `offline_access` for Microsoft).
 
 **Positional arguments:**
-- `[provider-id]`: which `@oauthProvider` to log in to (optional when only one is defined)
+- `[client-id]`: which `@oauthClient` to log in to, e.g. `google` or `google/dev` (optional when only one is defined)
 
 **Flags:**
 - `--flow <device|browser>`: `device` shows a short code to enter on the provider's site (default when supported); `browser` opens the provider's consent page and catches the redirect on a local loopback server. The browser flow requires the OAuth app to allow loopback redirects (register it as a native/desktop app type).

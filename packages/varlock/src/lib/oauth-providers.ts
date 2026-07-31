@@ -1,7 +1,7 @@
 /**
- * Data-driven presets for well-known OAuth providers, used by the
- * `@oauthProvider` root decorator. A preset fills in endpoints and quirks so
- * users only supply their own client credentials.
+ * Data-driven definitions of well-known OAuth providers, used by the
+ * `@oauthClient` root decorator's `provider=` arg. A provider def fills in
+ * endpoints and quirks so users only supply their own client credentials.
  *
  * Keep these entries pure data - anything requiring provider-specific code
  * belongs in a plugin instead.
@@ -9,7 +9,7 @@
 
 import type { OauthClientAuthMethod } from './oauth';
 
-export type OauthProviderPreset = {
+export type OauthProviderDef = {
   /** display label */
   label: string;
   tokenUrl: string;
@@ -31,7 +31,7 @@ export type OauthProviderPreset = {
   notes?: string;
 };
 
-export const OAUTH_PROVIDER_PRESETS: Record<string, OauthProviderPreset> = {
+export const OAUTH_PROVIDERS: Record<string, OauthProviderDef> = {
   google: {
     label: 'Google',
     tokenUrl: 'https://oauth2.googleapis.com/token',
@@ -69,4 +69,4 @@ export const OAUTH_PROVIDER_PRESETS: Record<string, OauthProviderPreset> = {
   },
 };
 
-export const OAUTH_PRESET_NAMES = Object.keys(OAUTH_PROVIDER_PRESETS);
+export const OAUTH_PROVIDER_NAMES = Object.keys(OAUTH_PROVIDERS);

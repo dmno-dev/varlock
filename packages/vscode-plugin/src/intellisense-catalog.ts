@@ -188,11 +188,11 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     isFunction: true,
   },
   {
-    name: 'oauthProvider',
+    name: 'oauthClient',
     scope: 'root',
-    summary: 'Defines a named OAuth provider for oauth() items to reference.',
-    documentation: 'Example: `# @oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)`. Presets: google, github, microsoft, slack. Provision a refresh token with `varlock oauth login <id>`.',
-    insertText: '@oauthProvider(id=${1:google}, preset=${2:google}, clientId=$${3:CLIENT_ID}, clientSecret=$${4:CLIENT_SECRET})',
+    summary: 'Defines an OAuth client (app registration) for oauth() items to reference.',
+    documentation: 'Example: `# @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)`. Known providers: google, github, microsoft, slack. The id defaults to the provider name; provision a refresh token with `varlock oauth login <id>`.',
+    insertText: '@oauthClient(provider=${1:google}, clientId=$${2:CLIENT_ID}, clientSecret=$${3:CLIENT_SECRET})',
     isFunction: true,
   },
 ];

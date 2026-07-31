@@ -425,14 +425,14 @@ Exchanges a long-lived OAuth credential for a short-lived access token by callin
 
 Tokens are cached (encrypted, according to your [cache mode](/reference/root-decorators/#cache)) and reused until the provider-reported expiry, so repeated invocations do not hit the token endpoint. When a provider rotates refresh tokens on each use (Google and Slack do), the rotated token is stored in the cache and used for the next refresh automatically; the configured refresh token is just the bootstrap.
 
-An optional first positional arg references an [`@oauthProvider`](/reference/root-decorators/#oauthprovider) instance by id, which supplies `tokenUrl`, `clientId`, `clientSecret`, and `clientAuth` so several items can share one client config. Item-level args override provider-level ones.
+An optional first positional arg references an [`@oauthClient`](/reference/root-decorators/#oauthclient) instance by id, which supplies `tokenUrl`, `clientId`, `clientSecret`, and `clientAuth` so several items can share one client config. Item-level args override client-level ones.
 
 Options:
 
-- `tokenUrl=S`: the provider's token endpoint (required unless a provider instance or service account key supplies it). Must be https (plain http is allowed for localhost).
+- `tokenUrl=S`: the provider's token endpoint (required unless a client instance or service account key supplies it). Must be https (plain http is allowed for localhost).
 - `grant=S` option: `refresh_token` (default), `client_credentials`, or `jwt_bearer`
-- `refreshToken=R`: the refresh token, usually a reference to another item. Required for the `refresh_token` grant unless a provider instance is referenced, in which case omitting it means "use the login-provisioned token" (see below).
-- `clientId=R`: the OAuth client id (required unless a provider instance supplies it; optional for `jwt_bearer`)
+- `refreshToken=R`: the refresh token, usually a reference to another item. Required for the `refresh_token` grant unless a client instance is referenced, in which case omitting it means "use the login-provisioned token" (see below).
+- `clientId=R`: the OAuth client id (required unless a client instance supplies it; optional for `jwt_bearer`)
 - `clientSecret=R` option: the OAuth client secret. Not needed for public (PKCE) clients.
 - `clientAuth=S` option: how client credentials are sent, `body` (default) or `basic` for HTTP basic auth. Some providers (e.g. Notion) require `basic`.
 - `scopes=R` option: a space-delimited string or an array of scope strings
@@ -447,7 +447,7 @@ Options:
 - `audience=S` option: `aud` claim override (defaults to the token endpoint)
 
 ```env-spec "oauth"
-# @oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
+# @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
 # ---
 # @internal
 GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com
@@ -464,7 +464,7 @@ GOOGLE_REFRESH_TOKEN=op("op://dev/google-oauth/refresh token")
 # @sensitive
 SHEETS_TOKEN=oauth(google, refreshToken=$GOOGLE_REFRESH_TOKEN, scopes="https://www.googleapis.com/auth/spreadsheets.readonly")
 
-# fully inline, no provider instance
+# fully inline, no client instance
 # @sensitive
 API_TOKEN=oauth(tokenUrl="https://myorg.auth0.com/oauth/token", grant="client_credentials", clientId=$AUTH0_CLIENT_ID, clientSecret=$AUTH0_CLIENT_SECRET, params={ audience="https://api.myorg.com" })
 

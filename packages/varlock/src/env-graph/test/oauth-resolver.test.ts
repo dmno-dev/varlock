@@ -12,7 +12,7 @@ import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { InMemoryCacheStore } from '../../lib/cache';
 import type { CacheStoreLike } from '../../lib/cache/cache-store';
-import { buildOauthProviderCacheKey, type OauthProviderCacheEntry } from '../../lib/oauth';
+import { buildOauthClientCacheKey, type OauthClientCacheEntry } from '../../lib/oauth';
 import { TTL_FOREVER } from '../../lib/cache/ttl-parser';
 
 /** Minimal token endpoint that issues sequential tokens and records requests */
@@ -207,9 +207,9 @@ describe('oauth()', () => {
     });
   });
 
-  describe('@oauthProvider instances', () => {
+  describe('@oauthClient instances', () => {
     function providerHeader(extraArgs = '') {
-      return `# @oauthProvider(id=test, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET${extraArgs})`;
+      return `# @oauthClient(id=test, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET${extraArgs})`;
     }
     const clientItems = outdent`
       # @internal
@@ -219,8 +219,8 @@ describe('oauth()', () => {
     `;
 
     function seedProviderEntry(store: CacheStoreLike, refreshToken: string) {
-      const key = buildOauthProviderCacheKey({ tokenUrl: endpoint.url, clientId: 'client-1' });
-      const entry: OauthProviderCacheEntry = {
+      const key = buildOauthClientCacheKey({ tokenUrl: endpoint.url, clientId: 'client-1' });
+      const entry: OauthClientCacheEntry = {
         refreshToken, grantedScope: 'read write', updatedAt: Date.now(), source: 'login',
       };
       return store.set(key, entry, TTL_FOREVER).then(() => key);
@@ -289,7 +289,7 @@ describe('oauth()', () => {
       `, store);
       expect(endpoint.requests[0].get('refresh_token')).toBe('rt-from-login');
 
-      const updated = (await store.get(providerKey))?.value as OauthProviderCacheEntry;
+      const updated = (await store.get(providerKey))?.value as OauthClientCacheEntry;
       expect(updated.refreshToken).toBe('rt-rotated-0');
       expect(updated.source).toBe('rotation');
 
@@ -322,55 +322,80 @@ describe('oauth()', () => {
         TOKEN_A=oauth(test, scopes="read")
         TOKEN_B=oauth(test, refreshToken=$RT)
       `, store);
-      const record = g.oauthProviders.test;
+      const record = g.oauthClients.test;
       expect(record.usedBy.map((u) => u.itemKey).sort()).toEqual(['TOKEN_A', 'TOKEN_B']);
       expect(record.usedBy.find((u) => u.itemKey === 'TOKEN_A')?.hasOwnRefreshToken).toBe(false);
       expect(record.usedBy.find((u) => u.itemKey === 'TOKEN_B')?.hasOwnRefreshToken).toBe(true);
     });
 
-    it('applies preset endpoints and clientAuth, with explicit args overriding', async () => {
+    it('applies provider endpoints and clientAuth, with explicit args overriding', async () => {
       const g = await loadAndResolveWithHeader(
-        // tokenUrl overrides the preset so resolution hits the mock endpoint
-        `# @oauthProvider(id=goog, preset=google, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET)`,
+        // tokenUrl overrides the provider def so resolution hits the mock endpoint
+        `# @oauthClient(id=goog, provider=google, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET)`,
         outdent`
           ${clientItems}
           # @internal @sensitive
           RT=rt-1
-          TOKEN=oauth(goog, refreshToken=$RT)
+          TOKEN=oauth(google/goog, refreshToken=$RT)
         `,
       );
       expect(g.configSchema.TOKEN.errors).toEqual([]);
-      const record = g.oauthProviders.goog;
+      const record = g.oauthClients['google/goog'];
       expect(record.tokenUrl).toBe(endpoint.url);
       expect(record.authorizationUrl).toBe('https://accounts.google.com/o/oauth2/v2/auth');
       expect(record.deviceAuthorizationUrl).toBe('https://oauth2.googleapis.com/device/code');
       expect(record.extraAuthParams.access_type).toBe('offline');
     });
 
-    it('rejects unknown provider ids, listing defined ones', async () => {
+    it('defaults the address to the provider name when no id is given', async () => {
+      const g = await loadAndResolveWithHeader(
+        `# @oauthClient(provider=google, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET)`,
+        outdent`
+          ${clientItems}
+          # @internal @sensitive
+          RT=rt-1
+          TOKEN=oauth(google, refreshToken=$RT)
+        `,
+      );
+      expect(g.configSchema.TOKEN.errors).toEqual([]);
+      expect(g.configSchema.TOKEN.resolvedValue).toBe('at-0');
+      expect(Object.keys(g.oauthClients)).toEqual(['google']);
+    });
+
+    it('rejects two default clients for the same provider, suggesting explicit ids', async () => {
+      const g = await loadAndResolveWithHeader(outdent`
+        # @oauthClient(provider=google, clientId="c1")
+        # @oauthClient(provider=google, clientId="c2")
+      `, 'A=1');
+      const dupError = g.rootDataSource!.schemaErrors.find((e) => e.message.includes('already defined'));
+      expect(dupError).toBeTruthy();
+      expect(String(dupError?.more?.tip)).toContain('google/dev');
+    });
+
+    it('rejects unknown client ids, listing defined ones', async () => {
       const g = await loadAndResolveWithHeader(providerHeader(), outdent`
         ${clientItems}
         TOKEN=oauth(nope)
       `);
-      expect(g.configSchema.TOKEN.errors[0]?.message).toMatch(/unknown oauth provider "nope".*test/);
+      expect(g.configSchema.TOKEN.errors[0]?.message).toMatch(/unknown oauth client "nope".*test/);
     });
 
-    it('rejects duplicate provider ids and unknown presets/args', async () => {
+    it('rejects duplicate client ids and unknown providers/args', async () => {
       const dupG = await loadAndResolveWithHeader(outdent`
-        # @oauthProvider(id=test, tokenUrl="${endpoint.url}", clientId="c")
-        # @oauthProvider(id=test, tokenUrl="${endpoint.url}", clientId="c")
+        # @oauthClient(id=test, tokenUrl="${endpoint.url}", clientId="c")
+        # @oauthClient(id=test, tokenUrl="${endpoint.url}", clientId="c")
       `, 'A=1');
       const rootErrors = dupG.rootDataSource!.schemaErrors;
       expect(rootErrors.some((e) => e.message.includes('already defined'))).toBe(true);
 
       const presetG = await loadAndResolveWithHeader(
-        '# @oauthProvider(id=x, preset=bogus, clientId="c")',
+        '# @oauthClient(id=x, provider=bogus, clientId="c")',
         'A=1',
       );
-      expect(presetG.rootDataSource!.schemaErrors.some((e) => e.message.includes('unknown preset'))).toBe(true);
+      expect(presetG.rootDataSource!.schemaErrors.some((e) => e.message.includes('unknown provider'))).toBe(true);
 
       const argG = await loadAndResolveWithHeader(
-        `# @oauthProvider(id=x, tokenUrl="${endpoint.url}", clientId="c", bogus=1)`,
+        `# @oauthClient(id=x, tokenUrl="${endpoint.url}", clientId="c", bogus=1)`,
         'A=1',
       );
       expect(argG.rootDataSource!.schemaErrors.some((e) => e.message.includes('unknown arg "bogus"'))).toBe(true);
