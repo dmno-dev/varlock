@@ -421,14 +421,6 @@
         "varlock": "workspace:^",
       },
     },
-    "packages/proxy-core": {
-      "name": "@varlock/proxy-core",
-      "version": "0.0.0",
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "packages/tsconfig": {
       "name": "@varlock/tsconfig",
       "version": "0.0.0",
@@ -469,7 +461,6 @@
         "@types/node": "catalog:",
         "@types/semver": "^7.7.1",
         "@varlock/ci-env-info": "workspace:^",
-        "@varlock/proxy-core": "workspace:*",
         "@vitest/coverage-v8": "^4.1.8",
         "ansis": "catalog:",
         "browser-or-node": "^3.0.0",
@@ -1517,8 +1508,6 @@
     "@varlock/passbolt-plugin": ["@varlock/passbolt-plugin@workspace:packages/plugins/passbolt"],
 
     "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
-
-    "@varlock/proxy-core": ["@varlock/proxy-core@workspace:packages/proxy-core"],
 
     "@varlock/tsconfig": ["@varlock/tsconfig@workspace:packages/tsconfig"],
 

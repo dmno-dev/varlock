@@ -8,12 +8,12 @@ import {
 } from 'node:fs';
 import { URL } from 'node:url';
 
-import { dataPlaneAuthOk, parseProxyAuthToken } from '@varlock/proxy-core/auth';
-import type { RequestScopedManagedItem } from '@varlock/proxy-core/policy';
+import { dataPlaneAuthOk, parseProxyAuthToken } from './core/auth';
+import type { RequestScopedManagedItem } from './core/policy';
 import {
   checkSubstitutionGuards, findUninjectedPlaceholder, replacePlaceholdersWithReal,
   type SubstitutionGuardRequest,
-} from '@varlock/proxy-core/substitution';
+} from './core/substitution';
 import type { ProxyActivity } from './audit';
 import { startLocalProxyRuntime } from './runtime-proxy';
 

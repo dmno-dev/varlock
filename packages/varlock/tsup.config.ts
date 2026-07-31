@@ -22,7 +22,7 @@ export default defineConfig([
       'src/plugin-lib.ts',
     ],
 
-    noExternal: ['@env-spec/utils', '@varlock/proxy-core'],
+    noExternal: ['@env-spec/utils'],
 
     dts: {
       resolve: true,

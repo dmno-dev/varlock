@@ -13,23 +13,23 @@ import { URL } from 'node:url';
 
 import {
   dataPlaneAuthOk, isLoopbackAddress, isLoopbackBind, tokenMatches,
-} from '@varlock/proxy-core/auth';
+} from './core/auth';
 import {
   getHeaderValue, isTextLikeResponse, isUncompressedResponse,
   redactOutgoingHeaders, shouldRedactResponseBody, transformHeaders,
-} from '@varlock/proxy-core/headers';
+} from './core/headers';
 import {
   evaluateProxiedRequestPreBody, evaluateProxiedRequestWithBody, hostMatchesProxyRules,
   type ApprovalGateFn, type ProxiedRequestFacts, type ProxyPolicyState,
-} from '@varlock/proxy-core/pipeline';
-import { normalizeHost } from '@varlock/proxy-core/policy';
+} from './core/pipeline';
+import { normalizeHost } from './core/policy';
 import {
   detectScrubbedKeys, findRealLeak, StreamingScrubber,
-} from '@varlock/proxy-core/scrub';
-import { replaceRealWithPlaceholders } from '@varlock/proxy-core/substitution';
+} from './core/scrub';
+import { replaceRealWithPlaceholders } from './core/substitution';
 import type {
   ProxyEgressMode, ProxyManagedItem, ProxyRule,
-} from '@varlock/proxy-core/types';
+} from './core/types';
 
 import {
   createApprovalRequest, isApprovalValid, type ApprovalProvider,

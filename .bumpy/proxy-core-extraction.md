@@ -1,5 +1,5 @@
 ---
-varlock: patch
+varlock: minor
 ---
 
-internal refactor: proxy policy/substitution/scrubbing logic extracted into a shared transport-agnostic core (no behavior change)
+new `varlock/proxy-core` subpath export: the credential proxy's transport-agnostic core (policy evaluation, substitution guards, response scrubbing, request pipeline), usable from non-node runtimes like Cloudflare Workers

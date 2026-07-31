@@ -14,7 +14,7 @@
     "directory": "packages/varlock"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsup --config tsup.proxy-core.config.ts",
     "build:binary": "bun run scripts/build-binaries.ts --dev",
     "build:binaries": "bun run scripts/build-binaries.ts",
     "test:local-encrypt:reset": "bun run scripts/reset-local-encrypt-state.ts",
@@ -131,6 +131,11 @@
       "types": "./dist/plugin-lib.d.ts",
       "default": "./dist/plugin-lib.js"
     },
+    "./proxy-core": {
+      "ts-src": "./src/proxy/core/index.ts",
+      "types": "./dist/proxy-core.d.ts",
+      "default": "./dist/proxy-core.js"
+    },
     "./test-helpers": {
       "ts-src": "./src/test-helpers/plugin-test.ts",
       "default": "./src/test-helpers/plugin-test.ts"
@@ -152,7 +157,6 @@
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",
     "@varlock/ci-env-info": "workspace:^",
-    "@varlock/proxy-core": "workspace:*",
     "@vitest/coverage-v8": "^4.1.8",
     "ansis": "catalog:",
     "browser-or-node": "^3.0.0",

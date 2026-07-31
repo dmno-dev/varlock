@@ -36,7 +36,7 @@ import {
   PROXY_APPROVAL_EACH_VALUES,
   parseProxySubstitutionTarget,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
-} from '@varlock/proxy-core/types';
+} from '../../proxy/core/types';
 import { parseDuration } from '../../lib/duration';
 
 const processExists = !!globalThis.process;

@@ -3,12 +3,12 @@ import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import type { ProxyActivity, ProxyAuditDecision } from '@varlock/proxy-core/activity';
+import type { ProxyActivity, ProxyAuditDecision } from './core/activity';
 import { getProxySessionDir } from './session-registry';
 
 // The activity types live in @varlock/proxy-core (the transport-agnostic
 // pipeline emits them); re-exported here so audit consumers keep one import.
-export type { ProxyActivity, ProxyAuditDecision } from '@varlock/proxy-core/activity';
+export type { ProxyActivity, ProxyAuditDecision } from './core/activity';
 
 /** First line of every audit file — makes the file self-describing after the session record is gone. */
 export type ProxyAuditHeader = {
