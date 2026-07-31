@@ -429,15 +429,22 @@ An optional first positional arg references an [`@oauthProvider`](/reference/roo
 
 Options:
 
-- `tokenUrl=S`: the provider's token endpoint (required unless a provider instance supplies it). Must be https (plain http is allowed for localhost).
-- `grant=S` option: `refresh_token` (default) or `client_credentials`
+- `tokenUrl=S`: the provider's token endpoint (required unless a provider instance or service account key supplies it). Must be https (plain http is allowed for localhost).
+- `grant=S` option: `refresh_token` (default), `client_credentials`, or `jwt_bearer`
 - `refreshToken=R`: the refresh token, usually a reference to another item. Required for the `refresh_token` grant unless a provider instance is referenced, in which case omitting it means "use the login-provisioned token" (see below).
-- `clientId=R`: the OAuth client id (required unless a provider instance supplies it)
+- `clientId=R`: the OAuth client id (required unless a provider instance supplies it; optional for `jwt_bearer`)
 - `clientSecret=R` option: the OAuth client secret. Not needed for public (PKCE) clients.
 - `clientAuth=S` option: how client credentials are sent, `body` (default) or `basic` for HTTP basic auth. Some providers (e.g. Notion) require `basic`.
 - `scopes=R` option: a space-delimited string or an array of scope strings
 - `params={...}` option: extra form params for the token request, e.g. `params={ audience="..." }` for Auth0
 - `skew=N` option: refresh this long before the reported expiry, in seconds or a duration string (default: `60s`)
+
+`jwt_bearer`-only options (RFC 7523, e.g. Google service accounts): instead of a stored credential, varlock signs a short-lived RS256 assertion with a private key and exchanges it for an access token.
+
+- `serviceAccountKey=R`: a Google-style service account key JSON (supplies the signing key, issuer, and token endpoint)
+- `privateKey=R` + `issuer=R`: raw PEM key and `iss` claim, for non-Google providers
+- `subject=R` option: `sub` claim, for providers that support impersonation (e.g. Google domain-wide delegation)
+- `audience=S` option: `aud` claim override (defaults to the token endpoint)
 
 ```env-spec "oauth"
 # @oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
@@ -460,6 +467,12 @@ SHEETS_TOKEN=oauth(google, refreshToken=$GOOGLE_REFRESH_TOKEN, scopes="https://w
 # fully inline, no provider instance
 # @sensitive
 API_TOKEN=oauth(tokenUrl="https://myorg.auth0.com/oauth/token", grant="client_credentials", clientId=$AUTH0_CLIENT_ID, clientSecret=$AUTH0_CLIENT_SECRET, params={ audience="https://api.myorg.com" })
+
+# Google service account (jwt_bearer): the key file supplies everything
+# @internal @sensitive
+GCP_SA_KEY=op("op://infra/gcp-sa/key json")
+# @sensitive
+GCP_TOKEN=oauth(grant="jwt_bearer", serviceAccountKey=$GCP_SA_KEY, scopes="https://www.googleapis.com/auth/cloud-platform")
 ```
 
 A few things to know:

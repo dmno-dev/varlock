@@ -12,10 +12,11 @@
 import { createHash } from 'node:crypto';
 
 /** grant types usable from the oauth() resolver */
-export const OAUTH_GRANT_TYPES = ['refresh_token', 'client_credentials'] as const;
+export const OAUTH_GRANT_TYPES = ['refresh_token', 'client_credentials', 'jwt_bearer'] as const;
 export type OauthGrantType = typeof OAUTH_GRANT_TYPES[number];
 
 export const OAUTH_DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+export const OAUTH_JWT_BEARER_GRANT_URN = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 /** all grants the token client can send - provisioning grants included */
 export type OauthTokenRequestGrantType = OauthGrantType | 'authorization_code' | typeof OAUTH_DEVICE_CODE_GRANT;
 
@@ -80,6 +81,8 @@ export type OauthTokenRequestOpts = {
   codeVerifier?: string;
   /** required for the device_code grant */
   deviceCode?: string;
+  /** required for the jwt_bearer grant - a signed JWT (see oauth-jwt.ts) */
+  assertion?: string;
   /** already delimiter-joined per the OAuth wire format */
   scope?: string;
   /** additional form body params (e.g. audience, resource) */
@@ -126,12 +129,15 @@ export type OauthProviderCacheEntry = {
 export function buildOauthItemCacheKey(parts: {
   tokenUrl: string;
   grantType: string;
+  /** client id, or the assertion issuer for the jwt_bearer grant */
   clientId: string;
   scope?: string;
   /** the CONFIGURED bootstrap refresh token (not a rotated one); empty for login-provisioned */
   refreshToken?: string;
+  /** jwt_bearer impersonation subject */
+  subject?: string;
 }): string {
-  const keyMaterial = [parts.tokenUrl, parts.grantType, parts.clientId, parts.scope ?? '', parts.refreshToken ?? ''].join('\n');
+  const keyMaterial = [parts.tokenUrl, parts.grantType, parts.clientId, parts.scope ?? '', parts.refreshToken ?? '', parts.subject ?? ''].join('\n');
   const digest = createHash('sha256').update(keyMaterial).digest('hex').slice(0, 16);
   return `oauth:${new URL(parts.tokenUrl).hostname}:${digest}`;
 }
@@ -174,8 +180,12 @@ export async function requestOauthToken(opts: OauthTokenRequestOpts): Promise<Oa
   const url = assertValidTokenUrl(opts.tokenUrl);
 
   const body = new URLSearchParams();
-  body.set('grant_type', opts.grantType);
-  if (opts.grantType === 'refresh_token') {
+  // jwt_bearer is the resolver-facing name; the wire format wants the URN
+  body.set('grant_type', opts.grantType === 'jwt_bearer' ? OAUTH_JWT_BEARER_GRANT_URN : opts.grantType);
+  if (opts.grantType === 'jwt_bearer') {
+    if (!opts.assertion) throw new OauthTokenRequestError('jwt_bearer grant requires an assertion');
+    body.set('assertion', opts.assertion);
+  } else if (opts.grantType === 'refresh_token') {
     if (!opts.refreshToken) throw new OauthTokenRequestError('refresh_token grant requires a refresh token');
     body.set('refresh_token', opts.refreshToken);
   } else if (opts.grantType === 'authorization_code') {

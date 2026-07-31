@@ -4,6 +4,7 @@
  */
 
 import http from 'node:http';
+import { generateKeyPairSync } from 'node:crypto';
 import {
   describe, it, expect, beforeEach, afterEach,
 } from 'vitest';
@@ -373,6 +374,95 @@ describe('oauth()', () => {
         'A=1',
       );
       expect(argG.rootDataSource!.schemaErrors.some((e) => e.message.includes('unknown arg "bogus"'))).toBe(true);
+    });
+  });
+
+  describe('jwt_bearer grant', () => {
+    const PRIVATE_KEY_PEM = generateKeyPairSync('rsa', { modulusLength: 2048 })
+      .privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
+
+    function decodeAssertionClaims(assertion: string) {
+      return JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString());
+    }
+
+    function serviceAccountKeyItem(tokenUri: string) {
+      // single-quoted values are literal, so the JSON's own \n escapes survive
+      // for JSON.parse to expand
+      const keyJson = JSON.stringify({
+        client_email: 'sa@proj.iam.gserviceaccount.com',
+        private_key: PRIVATE_KEY_PEM,
+        token_uri: tokenUri,
+      });
+      return outdent`
+        # @internal @sensitive
+        SA_KEY='${keyJson}'
+      `;
+    }
+
+    it('signs an assertion from a service account key, using its token_uri', async () => {
+      const g = await loadAndResolve(outdent`
+        ${serviceAccountKeyItem(endpoint.url)}
+        TOKEN=oauth(grant="jwt_bearer", serviceAccountKey=$SA_KEY, scopes="cloud.readonly")
+      `);
+      expect(g.configSchema.TOKEN.errors).toEqual([]);
+      expect(g.configSchema.TOKEN.resolvedValue).toBe('at-0');
+
+      const req = endpoint.requests[0];
+      expect(req.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+      const claims = decodeAssertionClaims(req.get('assertion')!);
+      expect(claims.iss).toBe('sa@proj.iam.gserviceaccount.com');
+      expect(claims.aud).toBe(endpoint.url);
+      expect(claims.scope).toBe('cloud.readonly');
+    });
+
+    it('supports raw privateKey + issuer + subject with an explicit tokenUrl', async () => {
+      // double-quoted values expand \n escapes into real newlines for the PEM
+      const g = await loadAndResolveWithHeader('', outdent`
+        # @internal @sensitive
+        SIGNING_KEY="${PRIVATE_KEY_PEM.replaceAll('\n', '\\n')}"
+        TOKEN=oauth(grant="jwt_bearer", tokenUrl="${endpoint.url}", privateKey=$SIGNING_KEY, issuer="client-abc", subject="user@example.com")
+      `);
+      expect(g.configSchema.TOKEN.errors).toEqual([]);
+      expect(g.configSchema.TOKEN.resolvedValue).toBe('at-0');
+      const claims = decodeAssertionClaims(endpoint.requests[0].get('assertion')!);
+      expect(claims.iss).toBe('client-abc');
+      expect(claims.sub).toBe('user@example.com');
+    });
+
+    it('caches minted tokens until expiry', async () => {
+      const store = new InMemoryCacheStore();
+      const schema = outdent`
+        ${serviceAccountKeyItem(endpoint.url)}
+        TOKEN=oauth(grant="jwt_bearer", serviceAccountKey=$SA_KEY, scopes="s1")
+      `;
+      const g1 = await loadAndResolve(schema, store);
+      const g2 = await loadAndResolve(schema, store);
+      expect(g1.configSchema.TOKEN.resolvedValue).toBe('at-0');
+      expect(g2.configSchema.TOKEN.resolvedValue).toBe('at-0');
+      expect(endpoint.requests.length).toBe(1);
+    });
+
+    it('fails with a clear error when the key file has no token_uri and none is set', async () => {
+      const keyJson = JSON.stringify({ client_email: 'sa@x', private_key: PRIVATE_KEY_PEM });
+      const g = await loadAndResolve(outdent`
+        # @internal @sensitive
+        SA_KEY='${keyJson}'
+        TOKEN=oauth(grant="jwt_bearer", serviceAccountKey=$SA_KEY)
+      `);
+      expect(g.configSchema.TOKEN.resolutionError?.message).toContain('token_uri');
+    });
+
+    it('validates jwt args at schema load', async () => {
+      const cases: Array<[string, RegExp]> = [
+        [`TOKEN=oauth(grant="jwt_bearer", tokenUrl="${endpoint.url}")`, /requires serviceAccountKey/],
+        [`TOKEN=oauth(grant="jwt_bearer", tokenUrl="${endpoint.url}", privateKey="pk")`, /issuer is required/],
+        [`TOKEN=oauth(grant="jwt_bearer", tokenUrl="${endpoint.url}", serviceAccountKey="k", refreshToken="rt")`, /refreshToken does not apply/],
+        [`TOKEN=oauth(tokenUrl="${endpoint.url}", clientId="c", refreshToken="rt", serviceAccountKey="k")`, /only applies to the jwt_bearer grant/],
+      ];
+      for (const [envContent, errMatch] of cases) {
+        const g = await loadAndResolve(envContent);
+        expect(g.configSchema.TOKEN.errors[0]?.message).toMatch(errMatch);
+      }
     });
   });
 

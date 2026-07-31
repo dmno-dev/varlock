@@ -1188,20 +1188,6 @@ export const OauthResolver: typeof Resolver = createResolver({
       }
     }
 
-    const tokenUrlResolver = this.objArgs?.tokenUrl;
-    if (tokenUrlResolver && (!tokenUrlResolver.isStatic || typeof tokenUrlResolver.staticValue !== 'string')) {
-      throw new SchemaError('tokenUrl must be a static string');
-    }
-    const tokenUrl = (tokenUrlResolver?.staticValue as string | undefined) ?? provider?.tokenUrl;
-    if (!tokenUrl) {
-      throw new SchemaError('tokenUrl is required (or reference an @oauthProvider instance that provides one)');
-    }
-    try {
-      assertValidTokenUrl(tokenUrl);
-    } catch (err) {
-      throw new SchemaError(err instanceof Error ? err.message : String(err));
-    }
-
     let grantType: OauthGrantType = 'refresh_token';
     const grantResolver = this.objArgs?.grant;
     if (grantResolver) {
@@ -1212,6 +1198,61 @@ export const OauthResolver: typeof Resolver = createResolver({
         throw new SchemaError(`grant must be one of: ${OAUTH_GRANT_TYPES.join(', ')}`);
       }
       grantType = grantResolver.staticValue as OauthGrantType;
+    }
+
+    // jwt_bearer signs an assertion with a private key instead of presenting
+    // a stored credential - key material comes from a Google-style service
+    // account key JSON, or a raw PEM key + issuer
+    const serviceAccountKeyResolver = this.objArgs?.serviceAccountKey;
+    const privateKeyResolver = this.objArgs?.privateKey;
+    const issuerResolver = this.objArgs?.issuer;
+    const subjectResolver = this.objArgs?.subject;
+    if (grantType === 'jwt_bearer') {
+      if (!serviceAccountKeyResolver && !privateKeyResolver) {
+        throw new SchemaError('jwt_bearer grant requires serviceAccountKey (Google-style key JSON) or privateKey + issuer');
+      }
+      if (serviceAccountKeyResolver && privateKeyResolver) {
+        throw new SchemaError('pass either serviceAccountKey or privateKey, not both');
+      }
+      if (privateKeyResolver && !issuerResolver) {
+        throw new SchemaError('issuer is required when using privateKey');
+      }
+    } else {
+      for (const [argKey, argResolver] of Object.entries({
+        serviceAccountKey: serviceAccountKeyResolver,
+        privateKey: privateKeyResolver,
+        issuer: issuerResolver,
+        subject: subjectResolver,
+      })) {
+        if (argResolver) throw new SchemaError(`${argKey} only applies to the jwt_bearer grant`);
+      }
+    }
+
+    let audience: string | undefined;
+    const audienceResolver = this.objArgs?.audience;
+    if (audienceResolver) {
+      if (grantType !== 'jwt_bearer') throw new SchemaError('audience only applies to the jwt_bearer grant');
+      if (!audienceResolver.isStatic || typeof audienceResolver.staticValue !== 'string') {
+        throw new SchemaError('audience must be a static string');
+      }
+      audience = audienceResolver.staticValue as string;
+    }
+
+    const tokenUrlResolver = this.objArgs?.tokenUrl;
+    if (tokenUrlResolver && (!tokenUrlResolver.isStatic || typeof tokenUrlResolver.staticValue !== 'string')) {
+      throw new SchemaError('tokenUrl must be a static string');
+    }
+    const tokenUrl = (tokenUrlResolver?.staticValue as string | undefined) ?? provider?.tokenUrl;
+    // a service account key file carries its own token_uri, discovered at resolve time
+    if (!tokenUrl && !serviceAccountKeyResolver) {
+      throw new SchemaError('tokenUrl is required (or reference an @oauthProvider instance that provides one)');
+    }
+    if (tokenUrl) {
+      try {
+        assertValidTokenUrl(tokenUrl);
+      } catch (err) {
+        throw new SchemaError(err instanceof Error ? err.message : String(err));
+      }
     }
 
     let clientAuth: OauthClientAuthMethod = provider?.clientAuth ?? 'body';
@@ -1254,12 +1295,15 @@ export const OauthResolver: typeof Resolver = createResolver({
         tip: 'Or reference an @oauthProvider instance and provision a refresh token with `varlock oauth login`',
       });
     }
-    if (grantType === 'client_credentials' && refreshTokenResolver) {
-      throw new SchemaError('refreshToken does not apply to the client_credentials grant');
+    if (grantType !== 'refresh_token' && refreshTokenResolver) {
+      throw new SchemaError(`refreshToken does not apply to the ${grantType} grant`);
     }
 
     const clientIdResolver = this.objArgs?.clientId;
-    if (!clientIdResolver && !provider) throw new SchemaError('clientId is required');
+    // jwt_bearer identifies via the signed assertion; client_id is optional there
+    if (!clientIdResolver && !provider && grantType !== 'jwt_bearer') {
+      throw new SchemaError('clientId is required');
+    }
     const clientSecretResolver = this.objArgs?.clientSecret;
 
     const scopesResolver = this.objArgs?.scopes;
@@ -1288,7 +1332,22 @@ export const OauthResolver: typeof Resolver = createResolver({
       }
     }
 
-    const knownArgs = ['tokenUrl', 'grant', 'clientAuth', 'skew', 'refreshToken', 'clientId', 'clientSecret', 'scopes', 'params'];
+    const knownArgs = [
+      'tokenUrl',
+      'grant',
+      'clientAuth',
+      'skew',
+      'refreshToken',
+      'clientId',
+      'clientSecret',
+      'scopes',
+      'params',
+      'serviceAccountKey',
+      'privateKey',
+      'issuer',
+      'subject',
+      'audience',
+    ];
     for (const argKey of Object.keys(this.objArgs ?? {})) {
       if (!knownArgs.includes(argKey)) {
         throw new SchemaError(`unknown arg "${argKey}" (expected one of: ${knownArgs.join(', ')})`);
@@ -1301,11 +1360,16 @@ export const OauthResolver: typeof Resolver = createResolver({
       grantType,
       clientAuth,
       skewMs,
+      audience,
       refreshTokenResolver,
       clientIdResolver,
       clientSecretResolver,
       scopesResolver,
       paramsResolver,
+      serviceAccountKeyResolver,
+      privateKeyResolver,
+      issuerResolver,
+      subjectResolver,
     };
   },
   async resolve(state) {
@@ -1320,15 +1384,54 @@ export const OauthResolver: typeof Resolver = createResolver({
       throw new ResolutionError(`@oauthProvider "${provider.id}" failed to initialize`);
     }
 
-    let clientId: string;
-    if (state.clientIdResolver) {
-      const resolved = await state.clientIdResolver.resolve();
+    const resolveRequiredString = async (resolver: Resolver, argName: string): Promise<string> => {
+      const resolved = await resolver.resolve();
       if (typeof resolved !== 'string' || !resolved) {
-        throw new ResolutionError('clientId resolved to an empty value');
+        throw new ResolutionError(`${argName} resolved to an empty value`);
       }
-      clientId = resolved;
+      return resolved;
+    };
+
+    // jwt_bearer key material - from a service account key file or raw PEM + issuer
+    let jwtKeyMaterial: import('../../lib/oauth-jwt').JwtBearerKeyMaterial | undefined;
+    if (state.grantType === 'jwt_bearer') {
+      const { parseServiceAccountKey } = await import('../../lib/oauth-jwt');
+      if (state.serviceAccountKeyResolver) {
+        const keyJson = await resolveRequiredString(state.serviceAccountKeyResolver, 'serviceAccountKey');
+        try {
+          jwtKeyMaterial = parseServiceAccountKey(keyJson);
+        } catch (err) {
+          throw new ResolutionError(err instanceof Error ? err.message : String(err));
+        }
+      } else {
+        jwtKeyMaterial = {
+          issuer: await resolveRequiredString(state.issuerResolver!, 'issuer'),
+          privateKeyPem: await resolveRequiredString(state.privateKeyResolver!, 'privateKey'),
+        };
+      }
+      if (state.subjectResolver) {
+        jwtKeyMaterial.subject = await resolveRequiredString(state.subjectResolver, 'subject');
+      }
+    }
+
+    const tokenUrl = state.tokenUrl ?? jwtKeyMaterial?.tokenUrl;
+    if (!tokenUrl) {
+      throw new ResolutionError('the service account key has no token_uri - set tokenUrl explicitly');
+    }
+    if (!state.tokenUrl) {
+      // statically-declared tokenUrls were validated at schema load
+      try {
+        assertValidTokenUrl(tokenUrl);
+      } catch (err) {
+        throw new ResolutionError(err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    let clientId: string | undefined;
+    if (state.clientIdResolver) {
+      clientId = await resolveRequiredString(state.clientIdResolver, 'clientId');
     } else {
-      clientId = provider!.resolved!.clientId;
+      clientId = provider?.resolved?.clientId;
     }
     let clientSecret = provider?.resolved?.clientSecret;
     if (state.clientSecretResolver) {
@@ -1374,19 +1477,20 @@ export const OauthResolver: typeof Resolver = createResolver({
     // keyed on the *configured* credentials - a rotated refresh token stored in
     // the entry maps back to the same key, a re-provisioned bootstrap gets a new one
     const itemCacheKey = buildOauthItemCacheKey({
-      tokenUrl: state.tokenUrl,
+      tokenUrl,
       grantType: state.grantType,
-      clientId,
+      clientId: clientId ?? jwtKeyMaterial?.issuer ?? '',
       scope,
       refreshToken: configuredRefreshToken,
+      subject: jwtKeyMaterial?.subject,
     });
 
     // no item-level refresh token + refresh_token grant means the refresh token
     // was provisioned via `varlock oauth login` and lives in a provider-level
     // cache entry shared by every item using this provider
     const usesProviderToken = state.grantType === 'refresh_token' && !configuredRefreshToken;
-    const providerCacheKey = usesProviderToken
-      ? buildOauthProviderCacheKey({ tokenUrl: state.tokenUrl, clientId })
+    const providerCacheKey = usesProviderToken && clientId
+      ? buildOauthProviderCacheKey({ tokenUrl, clientId })
       : undefined;
     const loginTip = `Run \`varlock oauth login${provider && provider.id !== '_default' ? ` ${provider.id}` : ''}\` to provision a refresh token`;
     if (usesProviderToken && !cacheStore) {
@@ -1431,15 +1535,31 @@ export const OauthResolver: typeof Resolver = createResolver({
         refreshToken = providerEntry.refreshToken;
       }
 
+      // jwt_bearer signs a fresh short-lived assertion per exchange
+      let assertion: string | undefined;
+      if (jwtKeyMaterial) {
+        const { buildJwtBearerAssertion } = await import('../../lib/oauth-jwt');
+        try {
+          assertion = buildJwtBearerAssertion({
+            keyMaterial: jwtKeyMaterial,
+            audience: state.audience ?? tokenUrl,
+            scope,
+          });
+        } catch (err) {
+          throw new ResolutionError(err instanceof Error ? err.message : String(err));
+        }
+      }
+
       let result: OauthTokenResult;
       try {
         result = await requestOauthToken({
-          tokenUrl: state.tokenUrl,
+          tokenUrl,
           grantType: state.grantType,
           clientId,
           clientSecret,
           clientAuth: state.clientAuth,
           refreshToken,
+          assertion,
           scope,
           extraParams,
         });
@@ -1447,13 +1567,17 @@ export const OauthResolver: typeof Resolver = createResolver({
         if (err instanceof OauthTokenRequestError) {
           const tip: Array<string> = [];
           if (err.details.oauthErrorCode === 'invalid_grant') {
-            tip.push('The refresh token is likely expired or revoked');
-            if (usesProviderToken) {
-              tip.push(loginTip);
-            } else {
-              tip.push('Re-provision it from the provider');
-              if (entry?.refreshToken) {
-                tip.push('A previously rotated refresh token from the varlock cache was used - clearing the cache will retry with the configured one');
+            if (state.grantType === 'jwt_bearer') {
+              tip.push('The signed assertion was rejected - check that the key is still valid, the issuer/subject are authorized, and your clock is in sync');
+            } else if (state.grantType === 'refresh_token') {
+              tip.push('The refresh token is likely expired or revoked');
+              if (usesProviderToken) {
+                tip.push(loginTip);
+              } else {
+                tip.push('Re-provision it from the provider');
+                if (entry?.refreshToken) {
+                  tip.push('A previously rotated refresh token from the varlock cache was used - clearing the cache will retry with the configured one');
+                }
               }
             }
           }
