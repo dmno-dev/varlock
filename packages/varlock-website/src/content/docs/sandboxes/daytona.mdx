@@ -15,7 +15,7 @@ Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orches
 import 'varlock/auto-load';
 import { ENV } from 'varlock/env';
 import { execSync } from 'node:child_process';
-import { Daytona } from '@daytonaio/sdk';
+import { Daytona } from '@daytona/sdk';
 
 const daytona = new Daytona(); // reads DAYTONA_API_KEY, itself a varlock-managed secret
 
@@ -77,7 +77,7 @@ You will also need a [Daytona API key](https://www.daytona.io/docs/en/getting-st
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
 import { ENV } from 'varlock/env';
-import { Daytona } from '@daytonaio/sdk';
+import { Daytona } from '@daytona/sdk';
 
 // One data-plane token, shared by the broker and every agent; generate it
 // yourself (or let the broker mint one and read it back with `varlock proxy
