@@ -34,11 +34,17 @@ export type InjectedEnvReuseDecision = | {
 
 type EnvRecord = Record<string, string | undefined>;
 
+/**
+ * Same accepted values as `parseEnvToggle` (see `_VARLOCK_REDACT_STDOUT`): only `1`/`true`
+ * and `0`/`false`, case-insensitive. Anything else falls back to auto rather than being
+ * treated as an opt-in - `=f`/`=no`/`=off` must never silently grant blob trust.
+ */
 function parseMode(rawValue: string | undefined): 'auto' | 'force' | 'never' {
-  if (rawValue === undefined || rawValue === '') return 'auto';
-  const normalized = rawValue.toLowerCase();
+  if (rawValue === undefined) return 'auto';
+  const normalized = rawValue.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true') return 'force';
   if (normalized === '0' || normalized === 'false') return 'never';
-  return 'force';
+  return 'auto';
 }
 
 /**

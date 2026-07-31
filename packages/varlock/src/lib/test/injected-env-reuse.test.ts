@@ -292,5 +292,46 @@ describe('evaluateInjectedEnvReuse', () => {
         cwd: tempDir,
       })).toThrow(/not a valid serialized env graph/);
     });
+
+    test('accepts true/false (case-insensitive) as aliases for 1/0', () => {
+      const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-other-'));
+      try {
+        const forced = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob(), [USE_INJECTED_ENV_VAR]: 'TRUE' },
+          cwd: otherDir, // would fail the dir check in auto mode
+        });
+        expect(forced.reuse).toBe(true);
+      } finally {
+        fs.rmSync(otherDir, { recursive: true, force: true });
+      }
+      const disabled = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob(), [USE_INJECTED_ENV_VAR]: 'False' },
+        cwd: tempDir, // would reuse in auto mode
+      });
+      expect(disabled.reuse).toBe(false);
+    });
+
+    test('unrecognized values fall back to auto mode, never force-trust', () => {
+      // `f`, `no`, `off`, etc. must not be treated as either opt-in or opt-out
+      const otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-other-'));
+      try {
+        for (const rawValue of ['f', 'no', 'off', 'yes', 'anything']) {
+          // dir mismatch: auto mode declines, so force-trust would be visible here
+          const decision = evaluateInjectedEnvReuse({
+            env: { __VARLOCK_ENV: makeBlob(), [USE_INJECTED_ENV_VAR]: rawValue },
+            cwd: otherDir,
+          });
+          expect(decision.reuse).toBe(false);
+        }
+      } finally {
+        fs.rmSync(otherDir, { recursive: true, force: true });
+      }
+      // and in a matching dir, auto mode still reuses (value didn't disable it either)
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob(), [USE_INJECTED_ENV_VAR]: 'yes' },
+        cwd: tempDir,
+      });
+      expect(decision.reuse).toBe(true);
+    });
   });
 });
