@@ -40,7 +40,7 @@ Confirm the agent sees placeholders, not real secrets:
 
 ```bash
 smolvm machine run --net --image your-agent-image "${env_flags[@]}" -- printenv ANTHROPIC_API_KEY
-# expect your @placeholder value (sk-ant-api03-0000...), not the vault value
+# expect your @placeholder value (sk-ant-api03-000000000000000000000000), not the vault value
 ```
 
 On a proxied request you'll see `inject: <KEY>` in the host session log, and responses that echo the secret back are scrubbed to the placeholder before the guest sees them.

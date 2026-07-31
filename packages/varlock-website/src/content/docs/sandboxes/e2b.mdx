@@ -62,7 +62,7 @@ ANTHROPIC_API_KEY=
 STRIPE_SECRET_KEY=
 ```
 
-An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
+An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where the generic `vlk_placeholder_<key>_<hash>` fallback would not.
 
 Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
 

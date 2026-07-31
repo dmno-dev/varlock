@@ -142,8 +142,8 @@ You don't have to define placeholders. If you don't set one, varlock generates a
 The placeholder the agent sees is chosen in priority order:
 
 1. An explicit [`@placeholder`](/reference/item-decorators/#placeholder) value (always wins).
-2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type): e.g. `@type=url` → `https://vlk-placeholder-…invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
-3. A generic fallback (`vlk_placeholder_<KEY>_…`). For a `@proxy`-routed item varlock **warns** about this one, since it's the case that can fail an SDK's format check; if your client doesn't validate the format, it's harmless.
+2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type): e.g. `@type=url` → `https://vlk-placeholder-<key>-<hash>.invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
+3. A generic fallback (`vlk_placeholder_<KEY>_<hash>`). For a `@proxy`-routed item varlock **warns** about this one, since it's the case that can fail an SDK's format check; if your client doesn't validate the format, it's harmless.
 
 Every placeholder is unique per item, so two different secrets can never collide on the wire.
 

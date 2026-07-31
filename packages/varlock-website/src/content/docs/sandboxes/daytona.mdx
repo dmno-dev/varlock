@@ -66,7 +66,7 @@ ANTHROPIC_API_KEY=
 STRIPE_SECRET_KEY=
 ```
 
-An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
+An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where the generic `vlk_placeholder_<key>_<hash>` fallback would not.
 
 Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
 
@@ -193,7 +193,7 @@ ngrok http 8080          # or cloudflared, Tailscale funnel, ...
 The tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. Note the tier caveat above applies here too: on tiers 1 and 2, sandbox egress cannot reach a tunnel service's domain, so this shape needs tier 3+. The same pattern reaches a proxy on any infrastructure you run; see the [topologies overview](/sandboxes/overview/#topologies).
 
 :::note[Compared to Daytona Secrets]
-Daytona has a native [Secrets](https://www.daytona.io/docs/en/secrets/) feature: org-stored values are mounted as `dtn_secret_…` placeholders, and Daytona's egress proxy swaps in the real value for allowlisted hosts, scrubbing echoes out of responses. It is the closest native sibling to the varlock proxy, and a fine fit if Daytona custody works for you.
+Daytona has a native [Secrets](https://www.daytona.io/docs/en/secrets/) feature: org-stored values are mounted as `dtn_secret_<random>` placeholders, and Daytona's egress proxy swaps in the real value for allowlisted hosts, scrubbing echoes out of responses. It is the closest native sibling to the varlock proxy, and a fine fit if Daytona custody works for you.
 
 The varlock proxy covers the same ground and more:
 

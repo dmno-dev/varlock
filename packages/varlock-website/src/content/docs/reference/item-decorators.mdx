@@ -317,7 +317,7 @@ CI_DEPLOY_TOKEN=
 
 Sets an explicit placeholder string for the item, used in place of the real value when the item is routed through the [credential proxy](/guides/proxy/). A placeholder is what an untrusted child process (e.g. an AI agent) sees instead of the secret.
 
-Without an explicit `@placeholder`, varlock derives one from the item's [`@type`](#type) format, falling back to a generic value. Set this when a generic placeholder would fail a client's key-format validation (e.g. an `sk-…` prefix check).
+Without an explicit `@placeholder`, varlock derives one from the item's [`@type`](#type) format, falling back to a generic value. Set this when a generic placeholder would fail a client's key-format validation (e.g. an `sk-` prefix check).
 
 ```env-spec
 # @proxy(domain="api.openai.com")
