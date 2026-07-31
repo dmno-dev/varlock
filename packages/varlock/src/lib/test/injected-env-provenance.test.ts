@@ -3,6 +3,7 @@ import {
   normalizeOverrideKeys,
   parseBlobOverrideKeys,
   selectOverrideValuesFromEnv,
+  selectOverridesFromInjectedEnv,
 } from '../injected-env-provenance';
 
 describe('injected env override keys', () => {
@@ -57,5 +58,95 @@ describe('injected env override keys', () => {
     expect(selected).toEqual({
       B: '2',
     });
+  });
+});
+
+describe('selectOverridesFromInjectedEnv', () => {
+  const blob = JSON.stringify({
+    overrideKeys: ['RECORDED'],
+    config: {
+      RECORDED: { value: 'recorded-override', isSensitive: false },
+      INJECTED: { value: 'injected-val', isSensitive: false },
+      LIST: { value: ['a', 'b'], envStr: 'a,b', isSensitive: false },
+      UNSET: { value: undefined, isSensitive: false },
+    },
+    settings: {},
+    sources: [],
+  });
+
+  test('returns undefined without a blob or without override provenance', () => {
+    expect(selectOverridesFromInjectedEnv(undefined, { A: '1' })).toBeUndefined();
+    expect(selectOverridesFromInjectedEnv(JSON.stringify({ config: {} }), { A: '1' })).toBeUndefined();
+  });
+
+  test('recorded override keys are re-read from the env (changed values honored)', () => {
+    expect(selectOverridesFromInjectedEnv(blob, {
+      RECORDED: 'changed-later',
+      INJECTED: 'injected-val',
+    })).toEqual({ RECORDED: 'changed-later' });
+  });
+
+  test('unchanged parent-injected values are NOT treated as overrides', () => {
+    expect(selectOverridesFromInjectedEnv(blob, {
+      INJECTED: 'injected-val',
+      LIST: 'a,b',
+    })).toEqual({});
+  });
+
+  test('a value introduced after the parent resolved IS treated as an override', () => {
+    // INJECTED was not overridden at the parent, but its ambient value no longer
+    // matches what the parent injected - someone set it deliberately in between
+    expect(selectOverridesFromInjectedEnv(blob, {
+      INJECTED: 'introduced-later',
+    })).toEqual({ INJECTED: 'introduced-later' });
+  });
+
+  test('composite values compare via their envStr form', () => {
+    expect(selectOverridesFromInjectedEnv(blob, { LIST: 'a,b' })).toEqual({});
+    expect(selectOverridesFromInjectedEnv(blob, { LIST: 'a,b,c' })).toEqual({ LIST: 'a,b,c' });
+  });
+
+  test('keys absent from the env are not overrides (--inject blob mode)', () => {
+    expect(selectOverridesFromInjectedEnv(blob, {})).toEqual({});
+  });
+
+  test('an undefined-valued blob item set to a real value counts as introduced', () => {
+    // `varlock run` drops undefined-valued keys from the child env, so presence
+    // with any non-empty value means it was set after the parent resolved
+    expect(selectOverridesFromInjectedEnv(blob, { UNSET: 'now-set' })).toEqual({ UNSET: 'now-set' });
+  });
+
+  test('the raw pre-coercion override string is recognized as an echo, not a new override', () => {
+    // FLAG=YES was coerced to boolean true at the parent (injected form "true"); the
+    // raw "YES" can survive in the ambient env under --inject blob
+    const coercedBlob = JSON.stringify({
+      overrideKeys: ['FLAG'],
+      config: {
+        FLAG: {
+          value: true, overrideStr: 'YES', isSensitive: false,
+        },
+      },
+      settings: {},
+      sources: [],
+    });
+    // recorded override keys are always re-read, so the raw form is selected - and
+    // re-coerces to the same value during resolution
+    expect(selectOverridesFromInjectedEnv(coercedBlob, { FLAG: 'YES' })).toEqual({ FLAG: 'YES' });
+
+    // for a NON-recorded item (hypothetical old/new producer mix), the raw form must
+    // not be misread as a newly introduced override
+    const nonRecordedBlob = JSON.stringify({
+      overrideKeys: [],
+      config: {
+        FLAG: {
+          value: true, overrideStr: 'YES', isSensitive: false,
+        },
+      },
+      settings: {},
+      sources: [],
+    });
+    expect(selectOverridesFromInjectedEnv(nonRecordedBlob, { FLAG: 'YES' })).toEqual({});
+    expect(selectOverridesFromInjectedEnv(nonRecordedBlob, { FLAG: 'true' })).toEqual({});
+    expect(selectOverridesFromInjectedEnv(nonRecordedBlob, { FLAG: 'no' })).toEqual({ FLAG: 'no' });
   });
 });

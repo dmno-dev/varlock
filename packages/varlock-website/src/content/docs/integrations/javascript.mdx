@@ -13,7 +13,7 @@ Some tools/frameworks may require an additional package, or have more specific i
 
 ## Node.js - `varlock/auto-load`
 
-The best way to integrate varlock into a plain Node.js application (⚠️ version 22 or higher) is to import the `varlock/auto-load` module. This uses `execSync` to call out to the varlock CLI, sets resolved env vars into `process.env`, and initializes varlock's runtime code, including:
+The best way to integrate varlock into a plain Node.js application (⚠️ version 22 or higher) is to import the `varlock/auto-load` module. This uses `execSync` to call out to the varlock CLI (or [reuses env injected by a parent `varlock run`](#reusing-an-injected-env-blob)), sets resolved env vars into `process.env`, and initializes varlock's runtime code, including:
 
 - varlock's `ENV` object
 - log redaction (if enabled)
@@ -65,6 +65,18 @@ Two things to keep in mind:
 - Reporting is best-effort. auto-load does not `await` your hook (that would change how env is injected), so it gives async work a short window and then forces the process to exit. Return a promise from the hook and auto-load will exit as soon as it settles.
 
 Only resolved values are available to the hook, so this does not help with `.env` **parse or schema errors**, where resolution is skipped entirely. To report those, the DSN must come from a real environment variable and be picked up by an already-initialized reporter.
+
+### Reusing an injected env blob
+
+When the process was launched by [`varlock run`](/reference/cli/load-and-run/#run), the resolved env is already present as the `__VARLOCK_ENV` blob. auto-load reuses it instead of calling the CLI again, so wrapping an auto-load app in `varlock run` does not cost a second resolution.
+
+Reuse only happens when a fresh resolution would produce the same result:
+
+- the blob was resolved in the same directory the app would resolve in (a root-level `varlock run` in a monorepo does not stop per-package resolution)
+- it resolved without errors
+- no env override recorded in the blob has changed since (`varlock run -- sh -c 'FOO=x node app.js'` re-resolves, so the new `FOO` wins)
+
+If any check fails, auto-load falls back to the CLI. Control it explicitly with [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env): `0` always re-resolves, `1` always trusts the blob, skipping the directory check. `varlock run` applies the same rules when it finds a blob, which covers non-Node workloads. Trust mode is how you hand an env into an environment with no `.env` files at all, like a remote sandbox; see the [E2B](/sandboxes/e2b/#passing-resolved-values) and [Fly.io](/sandboxes/flyio/#passing-resolved-values) guides.
 
 
 ## Boot via `varlock run`

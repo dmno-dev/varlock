@@ -1,10 +1,14 @@
 import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
-import { encryptEnvBlobSync, generateEncryptionKeyHex } from './runtime/crypto';
+import { encryptEnvBlobSync, generateEncryptionKeyHex, isEncryptedBlob } from './runtime/crypto';
+import { evaluateInjectedEnvReuse } from './lib/injected-env-reuse';
+import { createDebug } from './lib/debug';
 
-import { initVarlockEnv } from './runtime/env';
+import { initVarlockEnv, getPreInjectionProcessEnv } from './runtime/env';
 import { patchGlobalConsole } from './runtime/patch-console';
 import { patchGlobalServerResponse } from './runtime/patch-server-response';
 import { patchGlobalResponse } from './runtime/patch-response';
+
+const debug = createDebug('varlock:auto-load');
 
 // The varlock loading process uses async calls, but we need this to run synchronously.
 // because even with top level await, we run into hoisting issues where things happen out of order
@@ -31,30 +35,73 @@ function getPartialResolvedEnv(err: unknown): Record<string, unknown> {
   }
 }
 
+// `@internal` keys stripped from a reused blob - their ambient env values are scrubbed
+// after init (see the bottom of this module)
+let strippedInternalKeys: Array<string> = [];
+
 try {
-  const { stdout } = execSyncVarlock('load --format json-full --compact', {
-    fullResult: true,
-    // Pass the directory of this module so that in monorepos the binary search
-    // starts from inside the varlock package (e.g. apps/web/node_modules/varlock)
-    // rather than from process.cwd(), which may be an unrelated workspace root.
-    callerDir: import.meta.dirname ?? new URL('.', import.meta.url).pathname,
+  // An already-injected __VARLOCK_ENV blob (e.g. from a parent `varlock run`, or handed
+  // into a sandbox) can be reused directly instead of re-resolving via the CLI - see
+  // evaluateInjectedEnvReuse for the conditions. Throws in explicit-trust mode
+  // (_VARLOCK_USE_INJECTED_ENV=1) when the blob is missing/unusable, which flows into
+  // the same load-failure handling below.
+  const reuseDecision = evaluateInjectedEnvReuse({
+    env: process.env,
+    preInjectionEnv: getPreInjectionProcessEnv(),
+    cwd: process.cwd(),
   });
 
-  const parsed = JSON.parse(stdout);
+  let parsed: any;
+  let parsedJsonStr: string;
+  if (reuseDecision.reuse) {
+    debug('reusing injected env blob - skipping resolution');
+    parsed = reuseDecision.parsedEnv;
+    parsedJsonStr = reuseDecision.blobJson;
+    strippedInternalKeys = reuseDecision.strippedInternalKeys;
+  } else {
+    debug('resolving env via CLI (%s)', reuseDecision.reason);
+    const { stdout } = execSyncVarlock('load --format json-full --compact', {
+      fullResult: true,
+      // Pass the directory of this module so that in monorepos the binary search
+      // starts from inside the varlock package (e.g. apps/web/node_modules/varlock)
+      // rather than from process.cwd(), which may be an unrelated workspace root.
+      callerDir: import.meta.dirname ?? new URL('.', import.meta.url).pathname,
+      // Spawn the CLI with the env as it was BEFORE the runtime auto-init re-injected the
+      // parent blob's values into process.env (that injection happens during our own import
+      // chain, when a plaintext blob is present). Otherwise a command-local override under a
+      // parent `varlock run` (e.g. `varlock run -- sh -c 'FOO=x node app.js'`) reaches the
+      // CLI already clobbered back to the parent's value, and the nested override handling
+      // in load-graph can never see the user's real value.
+      env: getPreInjectionProcessEnv() as NodeJS.ProcessEnv,
+    });
+    parsed = JSON.parse(stdout);
+    parsedJsonStr = stdout;
+  }
+
   // set parsed object on globalThis so initVarlockEnv() picks it up directly
   (globalThis as any).__varlockLoadedEnv = parsed;
 
   // encrypt the blob in process.env so sensitive values aren't sitting
   // in plaintext in process.env.__VARLOCK_ENV
-  let encryptionKey = process.env._VARLOCK_ENV_KEY;
-  if (parsed.settings?.encryptInjectedEnv && !encryptionKey) {
-    encryptionKey = generateEncryptionKeyHex();
-    process.env._VARLOCK_ENV_KEY = encryptionKey;
-  }
-  if (encryptionKey) {
-    process.env.__VARLOCK_ENV = encryptEnvBlobSync(stdout, encryptionKey);
-  } else {
-    process.env.__VARLOCK_ENV = stdout;
+  // (a REUSED blob that arrived already encrypted stays exactly as-is - never write the
+  // decrypted form back into process.env. after a fresh resolution the env blob is always
+  // replaced, even if a stale encrypted parent blob was sitting there. a reused blob that
+  // had @internal items stripped must also be re-written, so children never inherit them -
+  // the ambient key is guaranteed present in that case, since decryption succeeded)
+  const reusedEncryptedBlob = reuseDecision.reuse
+    && reuseDecision.strippedInternalKeys.length === 0
+    && !!process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV);
+  if (!reusedEncryptedBlob) {
+    let encryptionKey = process.env._VARLOCK_ENV_KEY;
+    if (parsed.settings?.encryptInjectedEnv && !encryptionKey) {
+      encryptionKey = generateEncryptionKeyHex();
+      process.env._VARLOCK_ENV_KEY = encryptionKey;
+    }
+    if (encryptionKey) {
+      process.env.__VARLOCK_ENV = encryptEnvBlobSync(parsedJsonStr, encryptionKey);
+    } else {
+      process.env.__VARLOCK_ENV = parsedJsonStr;
+    }
   }
 } catch (err) {
   if (err instanceof VarlockExecError && err.stderr) {
@@ -128,6 +175,16 @@ try {
 
 // initialize varlock and patch globals as necessary
 initVarlockEnv();
+// An ambient value for an @internal key stripped from a reused blob must not stay readable
+// via process.env (matching `varlock run`'s ambient-carry stripping). This has to happen
+// AFTER initVarlockEnv, whose reload cleanup restores the pre-injection snapshot - and the
+// snapshot itself is scrubbed too, so a later re-init cannot bring the value back. Safe to
+// drop from the snapshot: its only legitimate consumer is a fresh resolution needing the
+// bootstrap secret, which by definition is not happening when a blob was reused.
+for (const internalKey of strippedInternalKeys) {
+  delete process.env[internalKey];
+  delete getPreInjectionProcessEnv()[internalKey];
+}
 // these will be no-ops if these are disabled by settings
 patchGlobalConsole();
 patchGlobalServerResponse();
