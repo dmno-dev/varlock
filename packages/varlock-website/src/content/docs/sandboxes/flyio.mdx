@@ -138,7 +138,7 @@ Sprites hibernate when idle (in practice we have seen a broker with a running se
 
 A restart normally mints a new CA, which running agents would not trust. That is what `--persist-ca` in the service args prevents: the CA is kept in `--cert-dir` on the sprite's persistent filesystem and reused, so a wake is invisible to agents. Reserve it for brokers, where the proxy runs alone: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
-The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one.
+The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one. To change policy, upload the edited schema the same way and restart the service: a restart re-reads the schema, and `--persist-ca` plus the pinned token mean running agents just reconnect.
 
 ## Other topologies
 
