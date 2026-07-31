@@ -33,20 +33,18 @@ await sprite.exec('node agent.js', {
     // and log redaction from the blob - no .env files or CLI in the sprite
     __VARLOCK_ENV: envBlob,
     _VARLOCK_USE_INJECTED_ENV: '1',
-    // for workloads that don't import varlock, enumerate plain vars instead:
-    // STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY,
+    // or enumerate plain vars: STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY,
   },
 });
+
+// non-Node workload? install varlock in the sprite (npm i -g varlock) and
+// wrap the command instead - varlock run injects plain env vars from the blob:
+// await sprite.exec('varlock run -- ./my-agent', {
+//   env: { __VARLOCK_ENV: envBlob, _VARLOCK_USE_INJECTED_ENV: '1' },
+// });
 ```
 
-From a shell, wrap the command so the blob is expanded **inside** varlock's env rather than by your own shell first:
-
-```bash
-varlock run --inject blob --filter "STRIPE_*,SENTRY_DSN" -- sh -c \
-  'sprite exec -s my-sprite --env __VARLOCK_ENV="$__VARLOCK_ENV" --env _VARLOCK_USE_INJECTED_ENV=1 -- node agent.js'
-```
-
-This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. In the sprite, the blob works with either the `varlock` npm package (imported by the app as above; sprites ship Node 24+) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload); see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details.
+This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. One sprite CLI caveat: `sprite exec --env` treats its value as comma-delimited `KEY=v,KEY2=v2` pairs, so it cannot carry the JSON blob from a shell; use the SDK/API env map as above, or upload the blob with `--file` and read it in the command (`sh -c '__VARLOCK_ENV="$(cat /tmp/blob)" _VARLOCK_USE_INJECTED_ENV=1 varlock run -- ./my-agent'`).
 
 ## Credential proxy: the broker sprite
 

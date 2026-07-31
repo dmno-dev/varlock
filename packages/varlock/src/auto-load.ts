@@ -80,8 +80,11 @@ try {
   // in plaintext in process.env.__VARLOCK_ENV
   // (a REUSED blob that arrived already encrypted stays exactly as-is - never write the
   // decrypted form back into process.env. after a fresh resolution the env blob is always
-  // replaced, even if a stale encrypted parent blob was sitting there)
+  // replaced, even if a stale encrypted parent blob was sitting there. a reused blob that
+  // had @internal items stripped must also be re-written, so children never inherit them -
+  // the ambient key is guaranteed present in that case, since decryption succeeded)
   const reusedEncryptedBlob = reuseDecision.reuse
+    && reuseDecision.strippedInternalKeys.length === 0
     && !!process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV);
   if (!reusedEncryptedBlob) {
     let encryptionKey = process.env._VARLOCK_ENV_KEY;

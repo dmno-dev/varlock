@@ -163,6 +163,47 @@ describe('auto-load reuse of injected env blob', () => {
       expect(result.output).toContain('COERCED_FLAG=true');
     });
 
+    test('_VARLOCK_FILTER disables reuse so the filter is honored', () => {
+      // the outer run filters the blob and child env to the selected keys; the child
+      // auto-load must NOT reuse blindly but re-resolve, honoring the inherited filter
+      const result = varlockRun(['node', 'app.mjs'], {
+        cwd: SCENARIO,
+        env: { DEBUG: 'varlock:auto-load', _VARLOCK_FILTER: 'PUBLIC_VAR,OVERRIDE_ME,COERCED_FLAG' },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain(RESOLVED_MSG);
+      expect(result.output).not.toContain(REUSED_MSG);
+      expect(result.output).toContain('PUBLIC_VAR=public-value');
+      expect(result.output).toContain('SECRET_OK=false'); // filtered out
+    });
+
+    test.skipIf(process.platform === 'win32')('@internal items in a blob are stripped on reuse and not forwarded', () => {
+      // an inspection blob (load --include-internal) can carry internal items; a reused
+      // run must not inject them, and the forwarded blob must be sanitized
+      const blob = JSON.stringify({
+        basePath: '/nonexistent',
+        sources: [],
+        settings: {},
+        overrideKeys: [],
+        config: {
+          NORMAL_VAR: { value: 'normal-val', isSensitive: false },
+          SECRET_ZERO: { value: 'internal-val', isSensitive: false, isInternal: true },
+        },
+      });
+      const result = runVarlock(
+        ['run', '--', 'sh', '-c', 'echo "NORMAL=$NORMAL_VAR BLOB=$__VARLOCK_ENV"; if [ -z "$SECRET_ZERO" ]; then echo INTERNAL_UNSET; fi'],
+        {
+          cwd: `${SCENARIO}/sandbox`,
+          env: { __VARLOCK_ENV: blob, _VARLOCK_USE_INJECTED_ENV: '1' },
+        },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain('NORMAL=normal-val');
+      expect(result.output).toContain('INTERNAL_UNSET');
+      expect(result.output).not.toContain('internal-val');
+      expect(result.output).not.toContain('SECRET_ZERO');
+    });
+
     test('forced mode with no blob is a clear error', () => {
       const result = runVarlock(['run', '--', 'node', '--version'], {
         cwd: `${SCENARIO}/sandbox`,

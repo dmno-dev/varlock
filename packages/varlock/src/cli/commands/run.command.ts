@@ -14,6 +14,7 @@ import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
+import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
 import { createDebug } from '../../lib/debug';
 import type { EnvGraph, SerializedEnvGraph } from '../../env-graph';
@@ -293,8 +294,18 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ambientEnvKey: process.env._VARLOCK_ENV_KEY,
     });
   } else if (injectBlob) {
+    // normally the ambient blob is forwarded byte-for-byte; if @internal items were
+    // stripped from it on consumption, forward the sanitized form instead (re-encrypted
+    // with the ambient key when the original was encrypted - the key must have been
+    // present for decryption to have succeeded)
+    let childBlob = process.env.__VARLOCK_ENV!;
+    if (reuseDecision.strippedInternalKeys.length) {
+      childBlob = isEncryptedBlob(childBlob)
+        ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
+        : reuseDecision.blobJson;
+    }
     injectedBlobEnv = {
-      __VARLOCK_ENV: process.env.__VARLOCK_ENV,
+      __VARLOCK_ENV: childBlob,
       ...(process.env._VARLOCK_ENV_KEY ? { _VARLOCK_ENV_KEY: process.env._VARLOCK_ENV_KEY } : {}),
     };
   }
@@ -309,11 +320,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // @internal items must not reach the application. The spread of process.env above can carry
   // an ambiently-set value (e.g. `OP_TOKEN=xxx varlock run ...`), so strip those keys here —
   // unless --include-internal was passed, in which case they were intentionally injected above.
-  // (reuse path: the blob never carries internal items, and --include-internal disables reuse)
+  // (reuse path: internal items were already stripped from the blob itself on consumption,
+  // and --include-internal disables reuse - but the same ambient-carry hole applies)
   if (envGraph && !includeInternal) {
     for (const itemKey of envGraph.sortedConfigKeys) {
       if (envGraph.configSchema[itemKey].isInternal) delete fullInjectedEnv[itemKey];
     }
+  } else if (reuseDecision.reuse) {
+    for (const itemKey of reuseDecision.strippedInternalKeys) delete fullInjectedEnv[itemKey];
   }
 
   // Same ambient-carry problem for --filter: an excluded schema key set in the calling env

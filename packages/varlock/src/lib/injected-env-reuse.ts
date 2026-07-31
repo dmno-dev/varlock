@@ -29,8 +29,17 @@ export const USE_INJECTED_ENV_VAR = '_VARLOCK_USE_INJECTED_ENV';
 export type InjectedEnvReuseDecision = | {
   reuse: true,
   parsedEnv: SerializedEnvGraph,
-  /** plaintext JSON of the blob (post-decryption) - used if it needs re-encryption into process.env */
+  /** plaintext JSON of the (sanitized) blob - used when it needs re-serialization/re-encryption */
   blobJson: string,
+  /**
+   * `@internal` item keys that were stripped from the blob on consumption. Fresh-resolution
+   * blobs never carry internal items, but the inspection command (`load --format json-full
+   * --include-internal`) is a supported producer, and a secret-zero value must never reach
+   * the app or a child process through reuse. Non-empty means parsedEnv/blobJson were
+   * rewritten without those entries; consumers must also drop any ambient env values for
+   * these keys before handing env to a child.
+   */
+  strippedInternalKeys: Array<string>,
 }
   | { reuse: false, reason: string };
 
@@ -103,6 +112,16 @@ export function evaluateInjectedEnvReuse(opts: {
   const mode = getUseInjectedEnvMode(env);
   if (mode === 'never') return { reuse: false, reason: `${USE_INJECTED_ENV_VAR} disabled reuse` };
 
+  // _VARLOCK_FILTER is the env-var form of --filter, honored by any fresh resolution
+  // (see getCliItemFilter) - reusing an unscoped blob would bypass it and hand over
+  // values the caller expected to exclude
+  if (env._VARLOCK_FILTER) {
+    if (mode === 'force') {
+      throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} cannot be combined with _VARLOCK_FILTER - capture the blob with --filter instead`);
+    }
+    return { reuse: false, reason: '_VARLOCK_FILTER is set' };
+  }
+
   const rawBlob = env.__VARLOCK_ENV;
   if (!rawBlob) {
     if (mode === 'force') {
@@ -143,9 +162,26 @@ export function evaluateInjectedEnvReuse(opts: {
     return { reuse: false, reason: 'blob is not a valid serialized env graph' };
   }
 
+  // @internal items are never handed to the app/child by any fresh resolution path, but a
+  // blob produced by the inspection command (`load --format json-full --include-internal`)
+  // can carry them - strip on consumption, in every mode, and re-serialize so a forwarded
+  // blob is clean too
+  const strippedInternalKeys: Array<string> = [];
+  for (const itemKey of Object.keys(parsedEnv.config)) {
+    if (parsedEnv.config[itemKey].isInternal) {
+      strippedInternalKeys.push(itemKey);
+      delete parsedEnv.config[itemKey];
+    }
+  }
+  if (strippedInternalKeys.length) blobJson = JSON.stringify(parsedEnv);
+
   // explicit trust - the sandbox path. The blob is authoritative regardless of where it
   // was resolved; directory/drift checks make no sense for a blob from another machine.
-  if (mode === 'force') return { reuse: true, parsedEnv, blobJson };
+  if (mode === 'force') {
+    return {
+      reuse: true, parsedEnv, blobJson, strippedInternalKeys,
+    };
+  }
 
   // -- automatic path: reuse only when a fresh resolution would clearly produce the same result
 
@@ -179,5 +215,7 @@ export function evaluateInjectedEnvReuse(opts: {
     }
   }
 
-  return { reuse: true, parsedEnv, blobJson };
+  return {
+    reuse: true, parsedEnv, blobJson, strippedInternalKeys,
+  };
 }

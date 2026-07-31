@@ -290,6 +290,68 @@ describe('evaluateInjectedEnvReuse', () => {
     });
   });
 
+  describe('_VARLOCK_FILTER interaction', () => {
+    test('a set _VARLOCK_FILTER disables reuse (fresh resolution honors the filter)', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob(), _VARLOCK_FILTER: 'FOO' },
+        cwd: tempDir,
+      });
+      expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('_VARLOCK_FILTER') });
+    });
+
+    test('forced mode rejects _VARLOCK_FILTER instead of silently ignoring it', () => {
+      expect(() => evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob(), _VARLOCK_FILTER: 'FOO', [USE_INJECTED_ENV_VAR]: '1' },
+        cwd: tempDir,
+      })).toThrow(/_VARLOCK_FILTER/);
+    });
+  });
+
+  describe('@internal items in the blob', () => {
+    const blobWithInternal = () => makeBlob({
+      config: {
+        FOO: { value: 'foo-val', isSensitive: false },
+        SECRET_ZERO: { value: 'internal-val', isSensitive: false, isInternal: true },
+      },
+    });
+
+    test('internal items are stripped on reuse and reported', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: blobWithInternal() },
+        cwd: tempDir,
+      });
+      expect(decision.reuse).toBe(true);
+      if (decision.reuse) {
+        expect(decision.strippedInternalKeys).toEqual(['SECRET_ZERO']);
+        expect(decision.parsedEnv.config).not.toHaveProperty('SECRET_ZERO');
+        expect(decision.parsedEnv.config.FOO.value).toBe('foo-val');
+        // the re-serialized blob is clean too, so forwarding it cannot leak the value
+        expect(decision.blobJson).not.toContain('internal-val');
+      }
+    });
+
+    test('internal items are stripped in forced mode too', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: blobWithInternal(), [USE_INJECTED_ENV_VAR]: '1' },
+        cwd: tempDir,
+      });
+      expect(decision.reuse).toBe(true);
+      if (decision.reuse) {
+        expect(decision.strippedInternalKeys).toEqual(['SECRET_ZERO']);
+        expect(decision.blobJson).not.toContain('SECRET_ZERO');
+      }
+    });
+
+    test('blobs without internal items report an empty stripped list', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob() },
+        cwd: tempDir,
+      });
+      expect(decision.reuse).toBe(true);
+      if (decision.reuse) expect(decision.strippedInternalKeys).toEqual([]);
+    });
+  });
+
   describe(`explicit modes (${USE_INJECTED_ENV_VAR})`, () => {
     test('=0 disables reuse even for a matching blob', () => {
       const decision = evaluateInjectedEnvReuse({
