@@ -270,10 +270,10 @@ function getRunCommandArgs(): Array<string> {
 }
 
 /**
- * Load + resolve + validate the schema in the proxy command's own (trusted)
- * context, throwing on any schema/config error. This is the part `proxy reload`
- * needs to fail loudly on a broken edit; `prepareProxyPolicy` builds the full
- * policy on top of it.
+ * Load + resolve + validate the schema in the proxy owner's own (trusted)
+ * context, throwing on any schema/config error. This is what makes the owner
+ * refuse a broken edit when applying a reload; `prepareProxyPolicy` builds the
+ * full policy on top of it.
  */
 async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
   const envGraph = await loadVarlockEnvGraph({
@@ -2030,14 +2030,13 @@ async function reloadAction(ctx: any) {
     throw new CliExitError(`Proxy session ${session.id} is no longer running.`);
   }
 
-  // Validate the new schema here (in this context) so an obviously broken edit
-  // fails loudly at the call site, not only in the owner's logs. Only the
-  // load/resolve/validate is needed; the owner recomputes the full policy when
-  // it applies the reload.
-  const reloadPaths = ctx.values.path ?? session.entryPaths;
-  await loadResolvedProxyGraph(reloadPaths).catch((error) => {
-    throw new CliExitError(`Schema does not resolve: ${(error as Error).message}`);
-  });
+  // Deliberately NO schema resolution in this (requesting) process. The owner
+  // validates with its own context before applying and round-trips the result,
+  // so a local check adds nothing it can only mislead or harm: this context may
+  // differ from the owner's (a provider exec on a remote broker has neither the
+  // project cwd nor the bootstrap env), resolution duplicates side effects
+  // (codegen writes, plugin fetches, unlock prompts), and a hung resolver here
+  // would keep the request from ever being sent.
 
   // Hand the reload to the process that owns the runtime via the file channel,
   // then block until it reports a result. (When the native/phone approver lands,
@@ -2104,7 +2103,9 @@ async function reloadAction(ctx: any) {
     );
   }
   if (result.status === 'error') {
-    throw new CliExitError(`Proxy reload failed: ${result.error ?? 'unknown error'}`);
+    throw new CliExitError(`Proxy reload failed: ${result.error ?? 'unknown error'}`, {
+      suggestion: 'The proxy validates the schema in its own context before applying; see its log for details.',
+    });
   }
 
   console.log(`✓ Schema change reloaded for proxy session ${session.id}.`);
