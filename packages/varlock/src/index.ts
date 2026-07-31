@@ -39,7 +39,8 @@ export function getBuildTimeReplacements(opts?: {
   const replacements = {} as Record<string, string>;
   for (const key in envInfo.config) {
     const itemInfo = envInfo.config[key];
-    const replaceItem = !itemInfo.isSensitive || opts?.includeSensitive;
+    const isDynamic = itemInfo.isDynamic ?? itemInfo.isSensitive;
+    const replaceItem = !isDynamic || opts?.includeSensitive;
     if (!replaceItem) continue;
     replacements[`${opts?.objectKey || 'ENV'}.${key}`] = JSON.stringify(envInfo.config[key].value);
   }
@@ -71,6 +72,5 @@ export const internal = {
 export { patchGlobalConsole } from './runtime/patch-console';
 export { patchGlobalServerResponse } from './runtime/patch-server-response';
 export { patchGlobalResponse } from './runtime/patch-response';
-export { ENV } from './runtime/env';
 export { createDebug, type Debugger } from './lib/debug';
 export type { SerializedEnvGraph };

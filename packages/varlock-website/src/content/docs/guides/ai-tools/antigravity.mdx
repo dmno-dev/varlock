@@ -1,0 +1,37 @@
+---
+title: Antigravity CLI
+description: Run Antigravity CLI (agy) with varlock for validated env
+---
+
+[Antigravity CLI](https://antigravity.google/docs/cli-getting-started) is Google's agent-first terminal experience, the successor to [Gemini CLI](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), which has been phased out.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Launch command:** `agy`
+
+**Authentication:** Antigravity signs in via Google OAuth on first launch (credentials live in your system keyring).
+
+```bash
+varlock run -- agy
+```
+
+## From any directory
+
+Personal schema at `~/.env.antigravity` for project-agnostic defaults:
+
+```env-spec title="~/.env.antigravity"
+# @type=enum(development, staging, production)
+APP_ENV=development
+```
+
+```bash
+varlock run -p ~/.env.antigravity -- agy
+```
+
+## Shell alias (optional)
+
+```bash
+alias vagy='varlock run -p ~/.env.antigravity --no-redact-stdout -- agy'
+```
+
+See the [Antigravity CLI getting started guide](https://antigravity.google/docs/cli-getting-started) and [installation and auth docs](https://antigravity.google/docs/cli-overview) for OAuth, enterprise, and headless setup.

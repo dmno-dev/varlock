@@ -42,6 +42,16 @@ const QUICK_TEST_PATHS: Record<string, string> = {
   nextjs: 'nextjs/nextjs-v16.test.ts',
 };
 
+// Full suites slow enough to split into parallel matrix jobs — each part
+// becomes its own matrix entry and runs on its own runner.
+const SPLIT_TEST_PATHS: Record<string, Record<string, string>> = {
+  nextjs: {
+    v14: 'nextjs/nextjs-v14.test.ts',
+    v15: 'nextjs/nextjs-v15.test.ts',
+    v16: 'nextjs/nextjs-v16.test.ts',
+  },
+};
+
 type IntegrationEntry = { name: string; testPath: string };
 
 const ALL_INTEGRATIONS = Object.keys(INTEGRATION_PACKAGES);
@@ -57,11 +67,15 @@ function writeGithubOutputs(outputs: Record<string, string>) {
 
 const REPO_ROOT = join(import.meta.dirname, '..');
 
-function toEntry(name: string, mode: 'full' | 'quick' = 'full'): IntegrationEntry {
+function toEntries(name: string, mode: 'full' | 'quick' = 'full'): Array<IntegrationEntry> {
   if (mode === 'quick' && QUICK_TEST_PATHS[name]) {
-    return { name: `${name} (quick)`, testPath: QUICK_TEST_PATHS[name] };
+    return [{ name: `${name} (quick)`, testPath: QUICK_TEST_PATHS[name] }];
   }
-  return { name, testPath: `${name}/` };
+  if (SPLIT_TEST_PATHS[name]) {
+    return Object.entries(SPLIT_TEST_PATHS[name])
+      .map(([part, testPath]) => ({ name: `${name} (${part})`, testPath }));
+  }
+  return [{ name, testPath: `${name}/` }];
 }
 
 function writeResults(entries: Array<IntegrationEntry>) {
@@ -77,7 +91,7 @@ function writeResults(entries: Array<IntegrationEntry>) {
 
 // --all flag: test everything (full suite)
 if (forceAll) {
-  writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
+  writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
   process.exit(0);
 }
 
@@ -98,7 +112,7 @@ if (isReleasePR) {
     });
   } catch (e) {
     console.error('Failed to diff against origin/main:', e);
-    writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
+    writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
     process.exit(0);
   }
 
@@ -133,7 +147,7 @@ if (isReleasePR) {
   } catch (e) {
     console.error('Failed to diff against origin/main:', e);
     // If we can't diff, fall back to running all tests
-    writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
+    writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
     process.exit(0);
   }
 
@@ -173,7 +187,7 @@ if (isReleasePR) {
 if (changedPackages.has('varlock')) {
   if (isReleasePR) {
     console.log('Core varlock package changed on release PR — running all integration tests');
-    writeResults(ALL_INTEGRATIONS.map((name) => toEntry(name, 'full')));
+    writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
     process.exit(0);
   } else {
     console.log('Core varlock package changed — triggering core-only test suites');
@@ -212,18 +226,18 @@ const entries: Array<IntegrationEntry> = [];
 for (const [name, packages] of Object.entries(INTEGRATION_PACKAGES)) {
   // Test files changed or integration package changed → full suite
   if (changedTestIntegrations.has(name) || packages.some((pkg) => changedPackages.has(pkg))) {
-    entries.push(toEntry(name, 'full'));
+    entries.push(...toEntries(name, 'full'));
     continue;
   }
   // Harness changed → run all integrations, but only full if the integration's
   // own package also changed (already handled above), otherwise quick
   if (harnessChanged) {
-    entries.push(toEntry(name, 'quick'));
+    entries.push(...toEntries(name, 'quick'));
     continue;
   }
   // Suites with no integration packages are triggered by core varlock changes (quick)
   if (packages.length === 0 && changedPackages.has('varlock')) {
-    entries.push(toEntry(name, 'quick'));
+    entries.push(...toEntries(name, 'quick'));
     continue;
   }
 }

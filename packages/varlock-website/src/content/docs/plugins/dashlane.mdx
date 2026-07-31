@@ -77,7 +77,7 @@ The plugin does not sync the vault by default. To run `dcli sync` once before th
 # @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS, autoSync=true)
 ```
 
-Sync failures are non-blocking -- if the sync fails (e.g. network issues), the plugin still reads from the existing local vault.
+Sync failures are non-blocking. If the sync fails (e.g. network issues), the plugin still reads from the existing local vault.
 
 ### Multiple instances
 
@@ -152,7 +152,7 @@ Initialize a Dashlane plugin instance for `dashlane()` resolver.
 <div>
 #### `dashlaneDeviceKeys`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Service device keys for non-interactive Dashlane CLI authentication. Must start with `dls_`.

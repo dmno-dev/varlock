@@ -40,9 +40,10 @@ jobs:
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
 
-      # Note: the bumpy release-plan comment now lives in its own hardened
-      # workflow (.github/workflows/bumpy-check.yaml) so it can post on fork PRs
-      # without running PR-defined code with write permissions.
+      # Note: the bumpy release-plan check + comment live in their own workflows
+      # (bumpy-check.yaml emits the comment on `pull_request`; bumpy-comment.yaml
+      # posts it on `workflow_run`) so it can post on fork PRs without running
+      # PR-defined code with write permissions.
 
       # lint, build, tests  ---------------------------------
       - name: ESLint
@@ -53,6 +54,11 @@ jobs:
         run: bun run build:libs
       - name: Run tests
         run: bun run test:ci
+      # The vitest suite runs under Node; this check runs the proxy's verified-TLS
+      # injection (Invariant #1) under Bun, the runtime the compiled binary uses —
+      # Node cannot catch the Bun-specific pre-write leak it guards against.
+      - name: Proxy verified-TLS injection (Bun)
+        run: bun run --filter varlock test:proxy:bun
 
       # Determine which packages will be preview-released (used to gate native builds)
       - name: Check release packages

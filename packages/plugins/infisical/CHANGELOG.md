@@ -6,6 +6,12 @@
 
 
 
+
+## 2.1.0
+<sub>2026-07-15</sub>
+
+- [#878](https://github.com/dmno-dev/varlock/pull/878)  *(minor)* - Add allowMissing flag to infisical() and @initInfisical() for optional secrets
+
 ## 2.0.1
 <sub>2026-06-25</sub>
 

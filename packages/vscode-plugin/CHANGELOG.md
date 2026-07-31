@@ -5,6 +5,45 @@
 
 
 
+
+
+
+
+
+
+## 0.3.2
+<sub>2026-07-31</sub>
+
+- [#960](https://github.com/dmno-dev/varlock/pull/960)  *(patch)* - Add generateOtp() to autocomplete
+
+## 0.3.1
+<sub>2026-07-28</sub>
+
+- [#944](https://github.com/dmno-dev/varlock/pull/944)  *(patch)* - Fix false "can only be used once" diagnostic for multiline plugin init decorators (e.g. `@initInfisical(`)
+
+## 0.3.0
+<sub>2026-07-21</sub>
+
+- [#917](https://github.com/dmno-dev/varlock/pull/917)  *(minor)*
+  Add array and object value types: `@type=array(...)` and `@type=record(...)` with per-element validation, native `[a, b]` / `{k=v}` literal values, JSON and separator string input, configurable serialization back to process.env, per-element redaction, and typed code generation across languages
+
+## 0.2.7
+<sub>2026-07-20</sub>
+
+- [#892](https://github.com/dmno-dev/varlock/pull/892)  *(patch)* - Add `@generateJavaEnv` and `@generateCsharpEnv` loadable env modules (typed Env, loader, sensitive keys)
+
+## 0.2.6
+<sub>2026-07-15</sub>
+
+- [#873](https://github.com/dmno-dev/varlock/pull/873)  *(patch)*
+  Add editor autocomplete and hover docs for the new `@tag()` decorator, the `filter=` arg on `@generate*` decorators, and `@internal`
+
+## 0.2.5
+<sub>2026-07-06</sub>
+
+- [#849](https://github.com/dmno-dev/varlock/pull/849)  *(patch)*
+  Generate code for Python, Rust, Go, and PHP with new per-language decorators (`@generatePythonEnv`, `@generateRustEnv`, `@generateGoEnv`, `@generatePhpEnv`). Each emits a self-contained, idiomatic module — typed coerced values, a loader that parses the injected env, and a `SENSITIVE_KEYS` constant — so it's usable out of the box. The TypeScript generator moves to `@generateTsTypes` and gains options to control `process.env`/`import.meta.env` augmentation and a monorepo-friendly `exposeEnv=local` mode. `@generateTypes(lang=ts)` still works as a deprecated alias. The `varlock typegen` command is renamed to `varlock codegen` (with `typegen` kept as a deprecated alias). Note: `@disableProcessEnvInjection` now requires a static `true`/`false` value — env-dependent values like `forEnv(prod)` are a schema error, since generated code must not differ per environment.
+
 ## 0.2.4
 <sub>2026-06-23</sub>
 

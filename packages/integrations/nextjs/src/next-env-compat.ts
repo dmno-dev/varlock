@@ -93,9 +93,40 @@ function debugHash(hash: string | undefined) {
   return hash.slice(0, 10);
 }
 
+// Env sources may not be regular files — e.g. 1Password Environments serves
+// `.env` as a FIFO (named pipe) that `op` re-serves on every read. Reading such
+// a file from our reload machinery makes the serving process write to the pipe
+// again, which fires a new fs event, which triggers another reload check...
+// an endless loop of reloads/logs. So these files must never be read, watched,
+// or written to outside of the actual `varlock load` call.
+function isExistingNonRegularFile(filePath: string): boolean {
+  try {
+    return !fs.statSync(filePath).isFile();
+  } catch {
+    return false; // missing files are handled as "missing" by callers
+  }
+}
+
+// deduped via env var because Next.js loads duplicate copies of this module
+// (and spawns worker processes that would each log the same notice)
+const WARNED_NON_REGULAR_ENV_KEY = '__VARLOCK_NEXT_WARNED_NON_REGULAR_FILES';
+function warnNonRegularSourceOnce(filePath: string) {
+  const warnedList = (process.env[WARNED_NON_REGULAR_ENV_KEY] || '').split(',');
+  if (warnedList.includes(filePath)) return;
+  process.env[WARNED_NON_REGULAR_ENV_KEY] = [...warnedList.filter(Boolean), filePath].join(',');
+  const displayPath = rootDir ? (path.relative(rootDir, filePath) || filePath) : filePath;
+  logUserInfo(`ℹ️ [varlock] ${displayPath} is not a regular file (FIFO/pipe), live reload is disabled for it`);
+}
+
 function readFileHash(filePath: string): string | undefined {
   try {
     if (!fs.existsSync(filePath)) return undefined;
+    if (isExistingNonRegularFile(filePath)) {
+      // treat as opaque + constant — content is generated on read, so hashing it
+      // is meaningless and the read itself would re-trigger fs events
+      warnNonRegularSourceOnce(filePath);
+      return '(non-regular-file)';
+    }
     const contents = fs.readFileSync(filePath, 'utf-8');
     const hash = createHash('sha256');
     hash.update(contents, 'utf8');
@@ -136,6 +167,27 @@ const NEXT_WATCHED_ENV_FILES = ['.env', '.env.local', '.env.development', '.env.
 const watchedExtraFiles = new Set<string>();
 const pendingReloadFiles = new Set<string>();
 
+// Next's own env watcher fires on FIFO mtime churn (every read/serve of the
+// pipe updates it), so "change detected" events for those files carry no signal
+function nextWatchedEnvFilesIncludeNonRegular(): boolean {
+  if (!rootDir) return false;
+  return NEXT_WATCHED_ENV_FILES.some((f) => isExistingNonRegularFile(path.join(rootDir!, f)));
+}
+
+// Exactly one process should own the extra-file watchers. Which process calls
+// loadEnvConfig varies by Next version: on next <= 15 the router server loads
+// env itself (before spawning render workers), but on next 16 ONLY the render
+// worker ever calls loadEnvConfig. The first process to install watchers claims
+// ownership via this env var — child processes inherit it at spawn and skip,
+// so we don't end up with multiple processes touching the trigger file.
+const WATCHER_OWNER_ENV_KEY = '__VARLOCK_NEXT_ENV_WATCHER_PID';
+function claimExtraFileWatcherOwnership(): boolean {
+  const ownerPid = process.env[WATCHER_OWNER_ENV_KEY];
+  if (ownerPid && ownerPid !== String(process.pid)) return false;
+  process.env[WATCHER_OWNER_ENV_KEY] = String(process.pid);
+  return true;
+}
+
 function formatChangedFilesSummary(paths: Array<string>): string {
   if (!paths.length) return 'no files';
   const displayPaths = paths.map((filePath) => {
@@ -162,7 +214,8 @@ function getEnvFromNextCommand(dev: boolean): string {
 }
 
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
-  if (IS_WORKER || !rootDir) return;
+  if (!rootDir) return;
+  if (!claimExtraFileWatcherOwnership()) return;
 
   // Collect absolute paths of source files that Next.js does NOT already watch
   const nextWatchedAbsolute = new Set(NEXT_WATCHED_ENV_FILES.map((f) => path.join(rootDir!, f)));
@@ -170,9 +223,13 @@ function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePat
   for (const source of sources) {
     if (!source.enabled || !source.path) continue;
     const absPath = basePath ? path.resolve(basePath, source.path) : path.resolve(rootDir!, source.path);
-    if (!nextWatchedAbsolute.has(absPath) && !watchedExtraFiles.has(absPath)) {
-      extraFilePaths.push(absPath);
+    if (nextWatchedAbsolute.has(absPath) || watchedExtraFiles.has(absPath)) continue;
+    if (isExistingNonRegularFile(absPath)) {
+      // watching a FIFO/pipe is meaningless (stat churns on every read/serve)
+      warnNonRegularSourceOnce(absPath);
+      continue;
     }
+    extraFilePaths.push(absPath);
   }
   // Also always watch .env.schema even if it wasn't in sources (it may not exist yet)
   const envSchemaPath = path.join(rootDir!, '.env.schema');
@@ -183,17 +240,34 @@ function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePat
   if (!extraFilePaths.length) return;
 
   // Find a Next-watched file to touch as the reload trigger.
-  // Prefer an existing file (cheaper), otherwise we'll create+destroy .env
+  // Prefer an existing regular file (cheaper) — a FIFO/pipe must never be
+  // written to (it would block and interfere with whatever serves it).
+  // Otherwise we'll create+destroy the first watched name that doesn't exist.
   let triggerFilePath: string | null = null;
+  let mustDestroyTriggerFile = false;
   for (const envFileName of NEXT_WATCHED_ENV_FILES) {
     const filePath = path.join(rootDir!, envFileName);
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(filePath) && !isExistingNonRegularFile(filePath)) {
       triggerFilePath = filePath;
       break;
     }
   }
-  const mustDestroyTriggerFile = !triggerFilePath;
-  triggerFilePath ||= path.join(rootDir!, '.env');
+  if (!triggerFilePath) {
+    for (const envFileName of NEXT_WATCHED_ENV_FILES) {
+      const filePath = path.join(rootDir!, envFileName);
+      if (!fs.existsSync(filePath)) {
+        triggerFilePath = filePath;
+        mustDestroyTriggerFile = true;
+        break;
+      }
+    }
+  }
+  if (!triggerFilePath) {
+    // all Next-watched env files exist but none are regular files — nothing we
+    // can safely touch to trigger a reload, so skip installing watchers
+    debug('no usable reload trigger file, skipping extra file watchers');
+    return;
+  }
 
   const pendingWatchChanges = new Set<string>();
   const watchedFileHashes = new Map<string, string | undefined>();
@@ -382,7 +456,9 @@ function replaceProcessEnv(sourceEnv: Env) {
   Object.keys(process.env).forEach((key) => {
     // Allow mutating internal Next.js env variables after the server has initiated.
     // This is necessary for dynamic things like the IPC server port.
-    if (!key.startsWith('__NEXT_PRIVATE')) {
+    // Also preserve varlock's own control flags (watcher ownership, dedupe markers)
+    // which are set after the initialEnv snapshot was taken.
+    if (!key.startsWith('__NEXT_PRIVATE') && !key.startsWith('__VARLOCK_NEXT_')) {
       if (sourceEnv[key] === undefined || sourceEnv[key] === '') {
         delete process.env[key];
       }
@@ -481,7 +557,12 @@ export function loadEnvConfig(
     if (currentSourceStateHash && currentSourceStateHash === lastLoadedSourceStateHash) {
       useCachedEnv = true;
       if (loadCount >= 2 && effectiveReloadSummary) {
-        if (Date.now() >= suppressSkipLogUntil) {
+        if (!reloadSummary && nextWatchedEnvFilesIncludeNonRegular()) {
+          // event came from Next's own watcher (not one of our tracked files) and
+          // a natively-watched env file is a FIFO — it's just churn from the pipe
+          // being read, not a user edit
+          debug('suppressing skip log for non-regular file watch churn');
+        } else if (Date.now() >= suppressSkipLogUntil) {
           logUserInfo(`ℹ️ [varlock] change detected in ${effectiveReloadSummary}; file contents unchanged, skipping reload.`);
         } else {
           debug('suppressing immediate follow-up skip log');
@@ -531,19 +612,23 @@ export function loadEnvConfig(
     const { stdout } = execSyncVarlock(`load --format json-full --env ${envFromNextCommand}`, {
       fullResult: true,
       env: cleanEnv as any,
+      cwd: rootDir || dir,
       integrationTelemetry: {
         name: __VARLOCK_INTEGRATION_NAME__,
         version: __VARLOCK_INTEGRATION_VERSION__,
       },
     });
+    // The load itself reads every source file — for FIFO-backed sources (e.g.
+    // 1Password Environments) that read makes the pipe get re-served, firing
+    // new fs events. Suppress the "unchanged, skipping" log those immediate
+    // follow-up events would produce.
+    suppressSkipLogUntil = Date.now() + 1200;
     if (loadCount >= 2 && forceReload) {
       const envChanged = stdout !== previousSerializedEnv;
       if (effectiveReloadSummary) {
         if (envChanged) {
-          suppressSkipLogUntil = Date.now() + 1200;
           logUserInfo(`✅ [varlock] change detected in ${effectiveReloadSummary}; reloaded env, changes found.`);
         } else {
-          suppressSkipLogUntil = Date.now() + 1200;
           logUserInfo(`✅ [varlock] change detected in ${effectiveReloadSummary}; reloaded env, no changes found.`);
         }
       }

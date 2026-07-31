@@ -27,7 +27,7 @@ export type ReservedVarInfo = {
 export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '_VARLOCK_ENV_KEY',
-    description: 'Encryption key used to decrypt the injected env blob and any `encrypted()` values at runtime. Typically set in deploy environments.',
+    description: 'Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments.',
   },
   {
     name: '_VARLOCK_CACHE_KEY',
@@ -36,6 +36,18 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '_VARLOCK_REDACT_STDOUT',
     description: 'Overrides `varlock run` output redaction. `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence.',
+  },
+  {
+    name: '_VARLOCK_FILTER',
+    description: 'Fallback for the `--filter` flag on `varlock load`/`run`, for use when a CLI flag can\'t easily be passed (e.g. a wrapper script, CI config, or build-time integration). The `--filter` flag takes precedence when both are set.',
+  },
+  {
+    name: '_VARLOCK_THROW_ON_LOAD_ERROR',
+    description: 'When set (`1`/`true`), `varlock/auto-load` throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior.',
+  },
+  {
+    name: '_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE',
+    description: 'Set to `warn` to downgrade the build/prerender-time public+dynamic access guard from an error to a one-time warning per key (e.g. while migrating an existing app).',
   },
   {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
@@ -54,6 +66,11 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '__VARLOCK_RUN',
     description: 'Marker set so a child process can detect it is running under `varlock run`.',
+    internal: true,
+  },
+  {
+    name: '__VARLOCK_EXECUTION_PHASE',
+    description: 'Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the ENV proxy can detect app code executing during build/prerender and guard public+dynamic access. An env var (not a global) because prerendering may run in a child process.',
     internal: true,
   },
 ];

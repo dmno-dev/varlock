@@ -1,0 +1,62 @@
+name: Bumpy comment
+
+# Privileged half of bumpy's fork-safe release-plan comment (the 1.18+ split).
+#
+# The unprivileged "Bumpy check" workflow runs on `pull_request` (executing PR
+# code with a read-only token) and uploads the rendered comment as the
+# `bumpy-comment` artifact. This workflow runs on `workflow_run` — a trusted
+# context that NEVER checks out or executes PR code — and posts that comment.
+#
+# SECURITY: the artifact body is untrusted (a fork produced it). Two things keep
+# this safe: (1) it is downloaded to runner.temp, OUTSIDE the checkout, so it
+# can't overwrite the trusted files (package.json etc.) we read below; and (2)
+# bumpy uses the body only as comment TEXT and resolves the target PR from the
+# trusted `workflow_run` event (head_sha) — never from the artifact — so a fork
+# can't redirect the comment onto another PR.
+on:
+  workflow_run:
+    workflows: ["Bumpy check"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: bumpy-comment-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  comment:
+    # Only act on check runs that came from a PR; skip anything else.
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Trusted base checkout (default branch) — provides the package.json we
+      # read the pinned bumpy version from. PR code is never checked out here.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Pull the rendered comment from the triggering check run. Download to
+      # runner.temp (OUTSIDE the checkout) so the untrusted artifact can't
+      # overwrite trusted files — this is what CodeQL's actions/artifact-poisoning
+      # query wants. `continue-on-error` so a missing artifact just means there's
+      # nothing to post (ci comment no-ops).
+      - name: Download release-plan comment
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: bumpy-comment
+          path: ${{ runner.temp }}/bumpy-comment
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Post release-plan comment
+        run: |
+          VERSION=$(jq -r '.devDependencies["@varlock/bumpy"] // .dependencies["@varlock/bumpy"]' package.json | sed 's/[\^~]//')
+          bunx "@varlock/bumpy@$VERSION" ci comment --body-file "$RUNNER_TEMP/bumpy-comment/comment.md"
+        env:
+          GH_TOKEN: ${{ github.token }}

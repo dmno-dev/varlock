@@ -16,12 +16,12 @@ It supports two modes of operation: **file mode** (default) reads `.kdbx` files 
 
 ## Features
 
-- **KDBX 4.0 support** — reads KeePass database files directly via [kdbxweb](https://github.com/keeweb/kdbxweb) with pure WASM argon2
-- **KeePassXC CLI integration** — use `keepassxc-cli` for development workflows
-- **Key file support** — authenticate with password + optional key file
-- **`#attribute` syntax** — read any entry field (Password, UserName, URL, Notes, or custom fields)
+- **KDBX 4.0 support**: reads KeePass database files directly via [kdbxweb](https://github.com/keeweb/kdbxweb) with pure WASM argon2
+- **KeePassXC CLI integration**: use `keepassxc-cli` for development workflows
+- **Key file support**: authenticate with password + optional key file
+- **`#attribute` syntax**: read any entry field (Password, UserName, URL, Notes, or custom fields)
 - **Auto-infer entry paths** from variable names for convenience
-- **Custom attributes object** — load all custom fields from a single entry for `@setValuesBulk`
+- **Custom attributes object**: load all custom fields from a single entry for `@setValuesBulk`
 - **Bulk loading** with `kpBulk()` via `@setValuesBulk` to load all entries in a group
 - **Multiple instances** for accessing different databases
 
@@ -48,9 +48,9 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 
 ### CLI mode
 
-When `useCli=true`, the plugin uses `keepassxc-cli` to read entries instead of reading the file directly. This is useful during development when you want to leverage KeePassXC's system integration.
+When `useCli=true`, the plugin uses `keepassxc-cli` to read entries instead of reading the file directly. This is useful during development when you want to use KeePassXC's system integration.
 
-The `useCli` option can be dynamic — for example, `useCli=forEnv(dev)` to only use the CLI in development:
+The `useCli` option can be dynamic. For example, `useCli=forEnv(dev)` uses the CLI only in development:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/keepass-plugin)
@@ -155,7 +155,7 @@ PORT=
 DB_NAME=
 ```
 
-Standard fields (Title, Password, UserName, URL, Notes) are excluded — only custom fields are included.
+Standard fields (Title, Password, UserName, URL, Notes) are excluded; only custom fields are included.
 
 ### Bulk loading secrets
 
@@ -223,7 +223,7 @@ Initialize a KeePass plugin instance for accessing secrets from a KDBX database.
 <div>
 #### `kdbxPassword`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 A sensitive string type for KeePass database master passwords. Validates that the value is a non-empty string and is automatically marked as sensitive.
@@ -381,12 +381,12 @@ DB_PASSWORD=kp("Database/production")
 - Ensure `keepassxc-cli` is in your `PATH`
 
 ### Database file not found
-- Check the `dbPath` value — it's resolved relative to the working directory
+- Check the `dbPath` value; it's resolved relative to the working directory
 - Use an absolute path if needed
 
 ## Resources
 
-- [KeePassXC](https://keepassxc.org/) — cross-platform KeePass-compatible password manager
-- [KeePass](https://keepass.info/) — original KeePass Password Safe
-- [KDBX format](https://keepass.info/help/kb/kdbx.html) — KeePass database format specification
-- [kdbxweb](https://github.com/keeweb/kdbxweb) — JavaScript KDBX reader library
+- [KeePassXC](https://keepassxc.org/): cross-platform KeePass-compatible password manager
+- [KeePass](https://keepass.info/): original KeePass Password Safe
+- [KDBX format](https://keepass.info/help/kb/kdbx.html): KeePass database format specification
+- [kdbxweb](https://github.com/keeweb/kdbxweb): JavaScript KDBX reader library

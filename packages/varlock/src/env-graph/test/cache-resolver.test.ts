@@ -231,6 +231,110 @@ describe('cache() resolver', () => {
       expect(g.configSchema.A.resolvedValue).toBeDefined();
     });
 
+    it('supports refs in the @cache value via if()', async () => {
+      // @cache is resolved before config items, so its ref deps ($USE_MEM here)
+      // must be early-resolved; previously they silently read as undefined
+      const g = new EnvGraph();
+      g.registerResolver(RandomResolver);
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false
+          # @cache=if($USE_MEM, "memory", "disabled")
+          # ---
+          USE_MEM=true
+          A=cache(random(), ttl="1h")
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      expect(g._cacheStore).toBeInstanceOf(InMemoryCacheStore);
+      expect(g.configSchema.A.resolvedValue).toBeDefined();
+    });
+
+    it('supports refs in the @cache value via eq()', async () => {
+      const loadWithTarget = async (targetVal: string) => {
+        const g = new EnvGraph();
+        g.registerResolver(RandomResolver);
+        const source = new DotEnvFileDataSource('.env.schema', {
+          overrideContents: outdent`
+            # @defaultRequired=false
+            # @cache=if(eq($TARGET, "local"), "memory", "disabled")
+            # ---
+            TARGET=${targetVal}
+            A=cache(random(), ttl="1h")
+          `,
+        });
+        await g.setRootDataSource(source);
+        await g.finishLoad();
+        await g.resolveEnvValues();
+        return g;
+      };
+
+      const gLocal = await loadWithTarget('local');
+      expect(gLocal._cacheStore).toBeInstanceOf(InMemoryCacheStore);
+
+      const gOther = await loadWithTarget('ci');
+      expect(gOther._skipCacheMode).toBe(true);
+      expect(gOther._cacheStore).toBeUndefined();
+    });
+
+    it('supports a bare ref as the @cache value', async () => {
+      const g = new EnvGraph();
+      g.registerResolver(RandomResolver);
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false
+          # @cache=$CACHE_MODE
+          # ---
+          CACHE_MODE=memory
+          A=cache(random(), ttl="1h")
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      expect(g._cacheStore).toBeInstanceOf(InMemoryCacheStore);
+    });
+
+    it('supports forEnv() inside the @cache value', async () => {
+      const g = new EnvGraph();
+      g.registerResolver(RandomResolver);
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false
+          # @envFlag=APP_ENV
+          # @cache=if(forEnv(production), "disabled", "memory")
+          # ---
+          APP_ENV=production
+          A=cache(random(), ttl="1h")
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      expect(g._skipCacheMode).toBe(true);
+      expect(g._cacheStore).toBeUndefined();
+    });
+
+    it('errors when a @cache ref points at a non-existent item', async () => {
+      const g = new EnvGraph();
+      g.registerResolver(RandomResolver);
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false
+          # @cache=if($NOPE, "memory", "disabled")
+          # ---
+          A=random()
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      const cacheDec = g.getRootDec('cache');
+      expect(cacheDec).toBeDefined();
+      expect(cacheDec!.errors.some((e) => e.message.includes('invalid dependency: NOPE'))).toBe(true);
+    });
+
     it('errors when dynamic @cache resolves to an invalid value', async () => {
       const g = new EnvGraph();
       g.registerResolver(RandomResolver);

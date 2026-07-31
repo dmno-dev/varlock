@@ -20,15 +20,21 @@ export class ParsedEnvSpecStaticValue {
     rawValue: any;
     quote?: '"' | "'" | '`' | undefined;
     isImplicit?: boolean;
+    /** Keep leading/trailing spaces (used by expansion slices so `$VAR` splits do not drop adjacent whitespace). */
+    skipTrim?: boolean;
     _location?: any;
   }) {
     if (!data.quote) {
-      // unquoted strings will get trimmed (leading/trailing spaces)
+      // unquoted strings will get trimmed (leading/trailing spaces), unless skipTrim is set
       if (typeof data.rawValue === 'string') {
-        const trimmed = data.rawValue.trim();
-        // trimmed empty string without quotes gets treated as undefined
-        if (trimmed === '') this.value = undefined;
-        else this.value = autoCoerce(trimmed);
+        if (data.skipTrim) {
+          this.value = autoCoerce(data.rawValue);
+        } else {
+          const trimmed = data.rawValue.trim();
+          // trimmed empty string without quotes gets treated as undefined
+          if (trimmed === '') this.value = undefined;
+          else this.value = autoCoerce(trimmed);
+        }
       } else {
         this.value = autoCoerce(data.rawValue);
       }
@@ -377,12 +383,15 @@ export class ParsedEnvSpecBlankLine {
 }
 
 
+export type ParsedEnvSpecConfigItemValue = ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
+  | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
+
 export class ParsedEnvSpecConfigItem {
-  value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+  value: ParsedEnvSpecConfigItemValue | undefined;
 
   constructor(public data: {
     key: string;
-    value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall | undefined;
+    value: ParsedEnvSpecConfigItemValue | undefined;
     preComments: Array<ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment>;
     postComment: ParsedEnvSpecDecoratorComment | ParsedEnvSpecComment | undefined;
     _location?: any;
@@ -393,8 +402,6 @@ export class ParsedEnvSpecConfigItem {
         throw new Error('Nested key-value pair found in config item');
       } else if (expanded instanceof ParsedEnvSpecFunctionArgs) {
         throw new Error('Top-level config item cannot be a bare function args');
-      } else if (expanded instanceof ParsedEnvSpecObjectLiteral || expanded instanceof ParsedEnvSpecArrayLiteral) {
-        throw new Error('Top-level config item value cannot be a bare object or array literal');
       }
       this.value = expanded;
     }

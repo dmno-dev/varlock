@@ -1,0 +1,265 @@
+---
+title: Load and run
+description: CLI reference for varlock load, run, printenv, and explain
+---
+
+import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
+
+<div class="reference-docs">
+
+<div>
+
+## `varlock load` ||load||
+
+Loads and validates environment variables according to your .env files, and prints the results. Default prints a nicely formatted, colorized summary of the results, but can also print out machine-readable formats.
+
+Useful for debugging locally, and in CI to print out a summary of env vars.
+
+```bash
+varlock load [options]
+```
+
+**Options:**
+- `--format`:     Format of output [pretty|json|env|shell|json-full]
+- `--agent`:      Agent-safe mode: defaults to JSON output and redacts sensitive values. Not compatible with `--format env` or `--format shell`.
+- `--compact`:    Compact output (json-full: no indentation, env/shell: skip undefined values)
+- `--show-all`:   Shows all items, not just failing ones, when validation is failing
+- `--include-internal`: Include [`@internal`](/reference/item-decorators/#internal) items in `--format json-full` output. Excluded by default (`json-full` is commonly consumed programmatically, e.g. by framework integrations, not just for local human inspection) - pass this for local debugging of a secret-zero credential.
+- [Common options](/reference/cli-commands/#common-options): `--env`, `--path` / `-p`, `--clear-cache`, `--skip-cache`, `--filter`
+
+**Examples:**
+```bash
+# Load and validate environment variables
+varlock load
+
+# Load and validate for a specific environment (when not using @currentEnv in .env.schema)
+varlock load --env production
+
+# Output validation results in JSON format
+varlock load --format json
+
+# Output full serialized graph (including errors/configErrors fields)
+varlock load --format json-full
+
+# Compact output
+varlock load --format json-full --compact
+
+# Output as shell export statements (useful for direnv / eval)
+eval "$(varlock load --format shell)"
+
+# When validation is failing, will show all items, rather than just failing ones
+varlock load --show-all
+
+# Load from a specific .env file
+varlock load --path .env.prod
+
+# Load from a specific directory
+varlock load --path ./config/
+
+# Load from multiple directories (later paths take higher precedence)
+varlock load -p ./envs -p ./overrides
+
+# Agent-safe JSON output with sensitive values redacted
+varlock load --agent
+
+# Only show STRIPE_* keys, excluding one
+varlock load --filter="STRIPE_*,!STRIPE_DEBUG_KEY"
+
+# Only show items marked @sensitive
+varlock load --filter="@sensitive"
+
+# Only show items tagged with @tag(billing)
+varlock load --filter="#billing"
+```
+
+**Exit codes:**
+- `0` when all config is valid
+- non-zero when validation fails (missing required values, failed coercion, or resolver errors)
+
+### Output formats (for scripts & agents)
+
+- `--format json`: a flat `{ "KEY": value }` map of resolved values on stdout
+- `--agent`: the same flat map, but `@sensitive` values are redacted (e.g. `"su▒▒▒▒▒"`), so it is safe to print in logs or agent transcripts. Implies JSON output; not compatible with `--format env`/`shell`. Combine with `--agent --format json-full` to get the redacted full graph.
+- `--format json-full`: the full serialized graph: top-level `basePath`, `sources`, `config` (per-item metadata including resolved value, validation state, and sensitivity), `settings`. Use this when you need per-item validation/error detail rather than just values. ⚠️ This includes **raw resolved secret values**, so add `--agent` (`--agent --format json-full`) to redact them before logging or feeding to an agent. [`@internal`](/reference/item-decorators/#internal) items are excluded unless you pass `--include-internal`.
+- `--format env` / `--format shell`: dotenv lines / shell `export` statements with **raw** values. Never pipe these somewhere that gets logged when secrets are involved.
+
+When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout**. This is handy for agents and CI.
+
+:::caution
+Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
+:::
+
+</div>
+
+<div>
+
+## `varlock run` ||run||
+
+Executes a command in a child process, injecting your resolved and validated environment variables from your .env files. This is useful when a code-level integration is not possible.
+
+```bash
+varlock run -- <command>
+```
+
+**Exit codes:** `varlock run` exits with the child command's exit code, so it is transparent in scripts and CI. If varlock itself fails before the command starts (e.g. invalid config or a failed resolver), it exits non-zero without running the command.
+
+**Options:**
+- `--redact-stdout` / `--no-redact-stdout`: Override automatic stdout/stderr redaction. `--redact-stdout` forces redaction of piped/redirected output (e.g., to override `@redactLogs=false`) and errors if output is attached to an interactive terminal, where redaction is not possible without breaking TTY behavior. `--no-redact-stdout` disables redaction entirely.
+- `--inject <mode>` / `-i`: Control what gets injected into the child process environment: `all` (default: individual vars plus the `__VARLOCK_ENV` serialized config graph blob), `vars` (individual vars only, no blob), or `blob` (only the `__VARLOCK_ENV` blob, no individual vars)
+- `--include-internal`: Pass [`@internal`](/reference/item-decorators/#internal) items through to the child process. By default they are stripped from the child env, even if set in the ambient environment, so a secret-zero token never reaches your app. Use this for a _nested_ `varlock run` whose own resolution needs the internal value.
+- [Common options](/reference/cli-commands/#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`, `--filter`
+
+**Examples:**
+```bash
+varlock run -- node app.js      # Run a Node.js application
+varlock run -- python script.py # Run a Python script
+
+# Use a specific .env file as entry point
+varlock run --path .env.prod -- node app.js
+
+# Use a specific directory as entry point
+varlock run --path ./config/ -- node app.js
+
+# Use multiple directories as entry points
+varlock run -p ./envs -p ./overrides -- node app.js
+
+# Only inject STRIPE_* keys, excluding one (also strips them from the __VARLOCK_ENV blob)
+varlock run --filter="STRIPE_*,!STRIPE_DEBUG_KEY" -- node app.js
+```
+
+:::note[Shell expansion of env vars in commands]
+Because of the way that shell expansion works, you may need to use use `sh -c` to properly expand environment variables in your command _after_ varlock has injected them.
+```bash
+varlock run -- echo $MY_VAR # ❌ will not work
+varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
+```
+:::
+
+:::note[Interactive tools and TTY detection]
+`varlock run` automatically detects where each output stream is going:
+
+- **Interactive terminal (TTY)**: output passes straight through, preserving raw TTY behavior. Interactive tools like `psql` and `claude` work with no flags needed. A human at the terminal already has access to the secrets, so redaction adds little there.
+- **Piped or redirected output** (CI logs, files, `| tee`, etc.): output is piped through a redaction filter, since that's where leaked secrets would persist.
+
+Detection is per stream. For example `varlock run -- node app.js | tee log.txt` redacts stdout (piped) while stderr (still attached to your terminal) passes through.
+
+To override the auto-detection:
+```bash
+# force-disable redaction even when output is piped/redirected
+varlock run --no-redact-stdout -- node app.js | tee log.txt
+
+# force redaction of piped output even when @redactLogs=false is set
+varlock run --redact-stdout -- node app.js > log.txt
+```
+
+Redacting a TTY-attached stream is not possible without piping it (which would break interactive tools), so `--redact-stdout` errors if output is attached to an interactive terminal rather than silently degrading the experience.
+
+The same override can be set via the [`_VARLOCK_REDACT_STDOUT`](/reference/reserved-variables/#_varlock_redact_stdout) environment variable (`true`/`1` to force on, `false`/`0` to force off), which is handy when you can't easily change the command being run, for example in a wrapper script or CI config. The CLI flag always takes precedence over the env var.
+:::
+
+:::note[Preventing sensitive value exposure via env inspection]
+By default, `varlock run` injects a `__VARLOCK_ENV` variable containing the full serialized config graph (including resolved sensitive values) into the child process environment. This is used by framework integrations to obtain sensitivity metadata without re-invoking the CLI.
+
+For long-lived processes, interactive shells, or any workflow where subprocesses may inspect their environment (e.g., `env`, `printenv`, or an LLM-driven agent), use `--inject vars` to inject only the individual vars and omit this blob:
+```bash
+varlock run --inject vars -- bash
+varlock run --inject vars -- claude
+```
+
+Note: When the `__VARLOCK_ENV` blob is omitted, framework integrations that rely on it will need to fall back to re-invoking the CLI. `__VARLOCK_RUN=1` is always set regardless of this flag.
+:::
+
+:::note[Signals and exit codes]
+`varlock run` stays resident while your command runs, but it gets out of the way of process termination:
+
+- Terminating signals (`SIGTERM`, `SIGINT`, `SIGHUP`, `SIGQUIT`) are **forwarded** to the child so it can run its own shutdown handlers, rather than being killed abruptly. When no terminal is attached (containers, CI, background/agent runs), the child runs in its own process group and the signal is forwarded to the whole group, so grandchildren are terminated too.
+- The child's exit status is **propagated faithfully**: a normal exit code passes through unchanged, and a child terminated by signal N exits with `128+N` (e.g. `143` for `SIGTERM`), matching shell conventions.
+
+This makes `varlock run` safe to use as a container `ENTRYPOINT` (including PID 1), so `docker stop` / pod termination reaches your app gracefully instead of waiting out the grace period and being `SIGKILL`ed.
+
+By default varlock forwards and then waits indefinitely for the child. It does **not** impose its own kill deadline, leaving that decision to the orchestrator or operator (a forwarded signal isn't always terminal, since many programs use `SIGHUP` to reload). If you want varlock to escalate to `SIGKILL` when the child hasn't exited within a grace period, set the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable to a number of milliseconds.
+
+Because the parent stays alive, container memory is roughly **CLI process + child process**. For the leanest footprint when you only need env injection at boot (no long-lived parent), resolve once and replace the shell with your app: `eval "$(varlock load --format shell --compact)" && exec node dist/server.js`.
+:::
+
+</div>
+
+<div>
+
+## `varlock printenv` ||printenv||
+
+Resolves and prints the value of a single environment variable to stdout. Only the requested item and its transitive dependencies are resolved, making this faster than loading the full graph.
+
+This is useful within larger shell commands where you need to embed a single resolved env var value.
+
+**Exit codes:** `0` when the value resolves; non-zero when no variable name is given, the variable is not in the schema, or it fails to resolve.
+
+```bash
+varlock printenv <VAR_NAME> [options]
+```
+
+**Positional arguments:**
+- `<VAR_NAME>`: The variable to print. Required; printenv errors if omitted.
+
+**Options:**
+- [Common options](/reference/cli-commands/#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
+
+**Examples:**
+```bash
+# Print the resolved value of MY_VAR
+varlock printenv MY_VAR
+
+# Use a specific .env file as entry point
+varlock printenv --path .env.prod MY_VAR
+
+# Use multiple directories as entry points
+varlock printenv -p ./envs -p ./overrides MY_VAR
+
+# Embed in a shell command using subshell expansion
+sh -c 'some-tool --token $(varlock printenv MY_TOKEN)'
+```
+
+:::note[Why not use `varlock run -- echo $MY_VAR`?]
+Shell expansion happens *before* varlock runs, so `$MY_VAR` is substituted by the shell with whatever value it already has (likely empty). `varlock printenv` avoids this by printing the value directly to stdout, letting you capture it with `$(...)` *after* varlock has resolved it.
+
+```bash
+varlock run -- echo $MY_VAR         # ❌ shell expands $MY_VAR before varlock runs
+varlock printenv MY_VAR             # ✅ varlock resolves and prints the value
+sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
+```
+:::
+
+</div>
+
+<div>
+
+## `varlock explain` ||explain||
+
+Shows detailed information about how a single config item is resolved: all of its definitions, sources, overrides, and the final resolved value. This is the go-to command for debugging *why* a value is what it is (and an agent-friendly way to inspect resolution without dumping every value).
+
+Sensitive values are redacted in the output.
+
+**Exit codes:** `0` when the item is found and explained; non-zero when no key is given or the key is not in the schema.
+
+```bash
+varlock explain <VAR_NAME> [options]
+```
+
+**Positional arguments:**
+- `<VAR_NAME>`: The config item to explain. Required; explain errors if omitted.
+
+**Options:**
+- [Common options](/reference/cli-commands/#common-options): `--env`, `--path` / `-p`
+
+**Examples:**
+```bash
+# Explain how a value is resolved
+varlock explain DATABASE_URL
+
+# Explain in the context of a specific environment
+varlock explain --env production API_KEY
+```
+
+</div>
+
+</div>

@@ -1,0 +1,74 @@
+name: Real Deployment Tests
+
+# Deploys the nextjs smoke app to a throwaway Vercel project (remote build) and
+# asserts runtime behavior on real infrastructure: lambda SSR, the real Edge
+# runtime for middleware, runtime leak detection, and log redaction in Vercel's
+# log pipeline. Catches platform-side drift that local framework tests (which
+# emulate prod with `next start`) structurally cannot.
+#
+# Runs on a weekly schedule / manual dispatch — failures are informational and
+# never block PRs.
+#
+# Secrets: dogfoods varlock — the Vercel token is resolved from 1Password via
+# framework-tests/deploy/.env.schema, so the only GitHub secret needed is the
+# existing OP_CI_TOKEN (1Password service account). The `varlock run` wrapper
+# also redacts the token from CI logs. If this ever grows multiple steps that
+# need the Vercel auth, switch to dmno-dev/varlock-action (which exports the
+# resolved env to the job) instead of wrapping each step.
+
+on:
+  schedule:
+    - cron: '47 6 * * 1' # weekly, monday morning UTC (after the nextjs canary run)
+  workflow_dispatch:
+    inputs:
+      use-published:
+        description: 'Test latest published packages instead of workspace code'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  vercel:
+    name: Vercel Deployment Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+
+      # builds the packed tarballs under test AND the varlock CLI used below
+      - name: Build libraries
+        run: bun run build:libs
+
+      - name: Run Vercel deployment tests
+        # varlock resolves VERCEL_TOKEN (+ project scoping vars) from 1Password
+        # via deploy/.env.schema and injects them into the test process
+        run: |
+          cd framework-tests && bun install
+          node ../packages/varlock/dist/cli/cli-executable.js run --path ./deploy -- bun run test -- --reporter=verbose deploy/
+        timeout-minutes: 25
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+          VERCEL_DEPLOY_TESTS: '1'
+          DEPLOY_TESTS_PUBLISHED: ${{ github.event.inputs.use-published == 'true' && '1' || '' }}
+          NEXT_TELEMETRY_DISABLED: '1'
+          VERCEL_TELEMETRY_DISABLED: '1'

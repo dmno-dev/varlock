@@ -2,7 +2,10 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
@@ -20,6 +23,65 @@ const OP_ICON = 'simple-icons:1password';
 type OpAuthCompletedFn = (success: boolean) => void;
 
 const CLI_BATCH_READ_TIMEOUT = 50;
+
+/*
+  Batched CLI reads go through `op inject`: we feed it a template of
+  `KEY={{ op://ref }}` entries on stdin and it prints the template with refs
+  resolved, in a single authenticated call. Previously this used
+  `op run -- env -0`, but that depends on a unix `env` binary which does not
+  exist on windows (unless git's usr/bin happens to be on PATH).
+
+  Entries are joined with a random per-call separator string because secret
+  values can contain newlines, and `op inject` strips control characters
+  (e.g. \0, \x1e) from its output so a non-printable separator would be lost.
+*/
+function buildInjectTemplate(opReferences: Array<string>) {
+  const separator = `__VARLOCK_1P_SEP_${randomUUID()}__`;
+  const keyToRef: Record<string, string> = {};
+  let i = 1;
+  const template = opReferences.map((ref) => {
+    const key = `VARLOCK_1P_INJECT_${i++}`;
+    keyToRef[key] = ref;
+    return `${key}={{ ${ref} }}${separator}`;
+  }).join('');
+  return { template, separator, keyToRef };
+}
+
+/*
+  The template is handed to `op inject` as a file (`-i`) rather than on stdin.
+
+  `op inject` requires its stdin to be a real pipe (it checks for `os.ModeNamedPipe`), and
+  node/bun both hand spawned children a socketpair instead, so writing the template to the
+  child's stdin always fails with "expected data on stdin but none found" on every platform.
+  A regular file redirected onto stdin fails that check too, so `-i` is the portable option.
+
+  The template holds only `op://` references, never resolved secret values, so it is safe to
+  write to disk. Resolved values still come back over stdout and never touch the filesystem.
+*/
+async function runOpInject(extraArgs: Array<string>, template: string, env: NodeJS.ProcessEnv) {
+  const templatePath = join(tmpdir(), `varlock-1p-inject-${randomUUID()}.tpl`);
+  // `wx` = O_CREAT|O_EXCL, so this refuses to follow a pre-existing file or symlink
+  // planted at the path on a shared tmpdir, and 0600 keeps it owner-only while it exists.
+  await writeFile(templatePath, template, { mode: 0o600, flag: 'wx' });
+  try {
+    return await spawnAsync('op', ['inject', '-i', templatePath, ...extraArgs], { env });
+  } finally {
+    // a cleanup failure should never mask the batch result
+    await rm(templatePath, { force: true }).catch(() => undefined);
+  }
+}
+
+/** Parse `op inject` output back into op-ref → value (dangling segments, e.g. a trailing newline, are ignored). */
+function parseInjectResult(result: string, separator: string, keyToRef: Record<string, string>) {
+  const valuesByRef: Record<string, string> = {};
+  for (const segment of result.split(separator)) {
+    const eqPos = segment.indexOf('=');
+    const key = segment.substring(0, eqPos);
+    if (!keyToRef[key]) continue;
+    valuesByRef[keyToRef[key]] = segment.substring(eqPos + 1);
+  }
+  return valuesByRef;
+}
 
 /*
   ! IMPORTANT INFO ON CLI APP AUTH
@@ -58,39 +120,25 @@ async function checkAppCliAuth(): Promise<OpAuthCompletedFn> {
 
 async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatch>) {
   debug('execute op read batch (app auth)', Object.keys(batchToExecute));
-  const envMap = {} as Record<string, string>;
-  let i = 1;
-  Object.keys(batchToExecute).forEach((opReference) => {
-    envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
-  });
+  const { template, separator, keyToRef } = buildInjectTemplate(Object.keys(batchToExecute));
   const startAt = new Date();
 
   const authCompletedFn = await checkAppCliAuth();
-  // `env -0` splits values by a null character instead of newlines
-  // because otherwise we'll have trouble dealing with values that contain newlines
-  await spawnAsync('op', `run --no-masking ${lockCliToOpAccount ? `--account ${lockCliToOpAccount} ` : ''}-- env -0`.split(' '), {
-    env: {
-      PATH: process.env.PATH!,
-      ...process.env.USER && { USER: process.env.USER },
-      ...process.env.HOME && { HOME: process.env.HOME },
-      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-      ...pickProxyEnv(),
-      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-      ...envMap,
-    },
+  await runOpInject(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : [], template, {
+    PATH: process.env.PATH!,
+    ...process.env.USER && { USER: process.env.USER },
+    ...process.env.HOME && { HOME: process.env.HOME },
+    ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    ...pickProxyEnv(),
+    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
   })
     .then((result) => {
       authCompletedFn?.(true);
       debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-      const lines = result.split('\0');
-      for (const line of lines) {
-        const eqPos = line.indexOf('=');
-        const key = line.substring(0, eqPos);
-        if (!envMap[key]) continue;
-        const val = line.substring(eqPos + 1);
-        const opRef = envMap[key];
-        batchToExecute[opRef].deferredPromises.forEach((p) => {
+      const valuesByRef = parseInjectResult(result, separator, keyToRef);
+      for (const [opRef, val] of Object.entries(valuesByRef)) {
+        batchToExecute[opRef]?.deferredPromises.forEach((p) => {
           p.resolve(val);
         });
       }
@@ -226,6 +274,14 @@ interface ConnectItem {
 interface ConnectVault {
   id: string;
   name?: string;
+}
+
+/**
+ * Detects references that generate a one-time password code, e.g.
+ * `op://vault/item/one-time password?attribute=otp`
+ */
+function isOtpReference(ref: string) {
+  return /[?&](?:attribute|attr)=(otp|totp)(&|$)/i.test(ref);
 }
 
 /** Parse an `op://vault/item/[section/]field` reference into its parts */
@@ -369,48 +425,32 @@ class OpPluginInstance {
   /** Executes the per-instance CLI read batch using `op run` with a service account token. */
   private async executeCliBatch(batchToExecute: NonNullable<typeof this.cliBatch>) {
     debug('execute op read batch (service account CLI)', Object.keys(batchToExecute));
-    const envMap = {} as Record<string, string>;
-    let i = 1;
-    Object.keys(batchToExecute).forEach((opReference) => {
-      envMap[`VARLOCK_1P_INJECT_${i++}`] = opReference;
-    });
+    const { template, separator, keyToRef } = buildInjectTemplate(Object.keys(batchToExecute));
     const startAt = new Date();
 
     const authCompletedFn = await this.checkCliAuth();
-    // `env -0` splits values by a null character instead of newlines
-    // because otherwise we'll have trouble dealing with values that contain newlines
-    await spawnAsync('op', `run --no-masking ${this.account ? `--account ${this.account} ` : ''}-- env -0`.split(' '), {
-      env: {
-        // have to pass a few things through at least path so it can find `op` and related config files
-        PATH: process.env.PATH!,
-        ...process.env.USER && { USER: process.env.USER },
-        ...process.env.HOME && { HOME: process.env.HOME },
-        ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-        // proxy env vars so `op` can connect through HTTP/SOCKS proxies
-        ...pickProxyEnv(),
-        // forward service account token when the instance opted into CLI-based service account auth
-        ...this.useCliWithServiceAccount && this.token && { OP_SERVICE_ACCOUNT_TOKEN: this.token },
-        // this setting actually just enables the CLI + Desktop App integration
-        // which in some cases op has a hard time detecting via app setting
-        OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-        ...envMap,
-      },
+    await runOpInject(this.account ? ['--account', this.account] : [], template, {
+      // have to pass a few things through at least path so it can find `op` and related config files
+      PATH: process.env.PATH!,
+      ...process.env.USER && { USER: process.env.USER },
+      ...process.env.HOME && { HOME: process.env.HOME },
+      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+      // proxy env vars so `op` can connect through HTTP/SOCKS proxies
+      ...pickProxyEnv(),
+      // forward service account token when the instance opted into CLI-based service account auth
+      ...this.useCliWithServiceAccount && this.token && { OP_SERVICE_ACCOUNT_TOKEN: this.token },
+      // this setting actually just enables the CLI + Desktop App integration
+      // which in some cases op has a hard time detecting via app setting
+      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
     })
       .then(async (result) => {
         authCompletedFn?.(true);
         debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-        const lines = result.split('\0');
-        for (const line of lines) {
-          const eqPos = line.indexOf('=');
-          const key = line.substring(0, eqPos);
-
-          if (!envMap[key]) continue;
-          const val = line.substring(eqPos + 1);
-          const opRef = envMap[key];
-
+        const valuesByRef = parseInjectResult(result, separator, keyToRef);
+        for (const [opRef, val] of Object.entries(valuesByRef)) {
           // resolve the deferred promises with the value
-          batchToExecute[opRef].deferredPromises.forEach((p) => {
+          batchToExecute[opRef]?.deferredPromises.forEach((p) => {
             p.resolve(val);
           });
         }
@@ -624,6 +664,14 @@ class OpPluginInstance {
   }
 
   private async readItemViaConnect(opReference: string): Promise<string> {
+    if (isOtpReference(opReference)) {
+      throw new ResolutionError('1Password Connect cannot generate one-time password codes', {
+        tip: [
+          '`?attribute=otp` is only supported by the `op` CLI and the 1Password SDKs.',
+          'Instead, store the TOTP seed in a normal field and generate the code with `generateOtp()`.',
+        ].join('\n'),
+      });
+    }
     const parsed = parseOpReference(opReference);
     const vaultId = await this.connectResolveVaultId(parsed.vault);
     const itemId = await this.connectResolveItemId(vaultId, parsed.item);
@@ -957,7 +1005,8 @@ plugin.registerResolverFunction({
     const shouldAllowMissing = allowMissing ?? selectedInstance.allowMissing;
 
     // check cache if cacheTtl is configured and cache is available
-    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+    // (one-time password codes are skipped - a cached code is expired by definition)
+    if (selectedInstance.cacheTtl !== undefined && pluginCache && !isOtpReference(opReference)) {
       const cacheKey = `op:${instanceId}:${selectedInstance.cacheKeyIdentity}:${opReference}`;
       return await pluginCache.getOrSet(cacheKey, selectedInstance.cacheTtl, async () => {
         try {

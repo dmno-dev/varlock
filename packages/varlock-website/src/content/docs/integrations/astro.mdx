@@ -21,7 +21,7 @@ While Astro has [`astro:env`](https://docs.astro.build/en/guides/environment-var
 - More data types and options available
 - Leak detection, log redaction, and more security guardrails
 
-To integrate varlock into an Astro application, you must use our [`@varlock/astro-integration`](https://www.npmjs.com/package/@varlock/astro-integration) package, which is an [Astro integration](https://docs.astro.build/en/guides/integrations-guide/).
+To integrate varlock into an Astro application, you must use our [`@varlock/astro-integration`](https://npmx.dev/package/@varlock/astro-integration) package, which is an [Astro integration](https://docs.astro.build/en/guides/integrations-guide/).
 
 ## Setup
 
@@ -76,7 +76,7 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 - Enables future DX improvements and tighter control over what is bundled
 
 ### Within `astro.config.*`
-It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it dead simple - in fact it's already available! Just import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it easy. In fact it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 
 ```diff lang="ts" title="astro.config.ts"
 import { defineConfig } from 'astro/config';
@@ -96,16 +96,16 @@ If you find you are not getting type completion on `ENV`, you may need to add yo
 
 Even in a static front-end project, you may have other scripts in your project that rely on sensitive config.
 
-You can use [`varlock run`](/reference/cli-commands/#run) to inject resolved config into other scripts as regular env vars.
+You can use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved config into other scripts as regular env vars.
 
 <ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
 
 ### Type-safety and IntelliSense
 
-To enable type-safety and IntelliSense for your env vars, enable the [`@generateTypes` root decorator](/reference/root-decorators/#generatetypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
 
 ```diff lang="env-spec" title=".env.schema"
-+# @generateTypes(lang='ts', path='env.d.ts')
++# @generateTsTypes(path='env.d.ts')
 # ---
 # your config items...
 ```
@@ -171,7 +171,9 @@ When deploying SSR Astro apps to serverless platforms, varlock injects the resol
 
 ## Deploying to Cloudflare Workers
 
-If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/), install [`@varlock/cloudflare-integration`](/integrations/cloudflare/) alongside the Astro integration. The Astro integration **auto-detects** the Cloudflare adapter and wires up env injection into the worker — there's no extra Vite or adapter config to write, and you keep using `astro dev` as normal.
+If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare`](https://docs.astro.build/en/guides/integrations-guide/cloudflare/), install [`@varlock/cloudflare-integration`](/integrations/cloudflare/) alongside the Astro integration. The Astro integration **auto-detects** the Cloudflare adapter and wires up env injection into the worker. There's no extra Vite or adapter config to write, and you keep using `astro dev` as normal.
+
+Static and prerendered pages work too: they are rendered at build time with your resolved env, so a fully static site (`output: 'static'`) needs no vars or secrets uploaded to Cloudflare at all.
 
 <Steps>
 
@@ -181,7 +183,7 @@ If you deploy your SSR Astro app to Cloudflare Workers via [`@astrojs/cloudflare
 
 1. **Use the Cloudflare adapter as usual**
 
-    No varlock-specific Cloudflare setup is needed — just the standard adapter alongside `varlockAstroIntegration()`:
+    No varlock-specific Cloudflare setup is needed. Use the standard adapter alongside `varlockAstroIntegration()`:
 
     ```ts title="astro.config.ts"
     import { defineConfig } from 'astro/config';
@@ -216,13 +218,47 @@ Varlock relies on a handful of `node:*` built-ins at runtime, so your worker mus
 :::
 
 :::caution[Remove `.dev.vars`]
-Varlock manages env injection automatically — delete any `.dev.vars` file in your project root, or the dev server will error.
+Varlock manages env injection automatically. Delete any `.dev.vars` file in your project root, or the dev server will error.
 :::
 
 See the [Cloudflare Workers integration docs](/integrations/cloudflare/) for full details on how dev injection, deployment, CI/CD, and `varlock-wrangler` work.
 
----
+## Dynamic+public config
 
+Use [`@dynamic`](/reference/item-decorators/#dynamic) to keep selected public values runtime-resolved; server-rendered code keeps reading `ENV.KEY` with no extra setup. See the [Static vs Dynamic Config guide](/guides/dynamic-config/) for the full model.
+
+```env-spec title=".env.schema"
+PUBLIC_STATIC_FLAG=enabled  # @public
+PUBLIC_RUNTIME_FLAG=enabled # @public @dynamic
+```
+
+### Client-side usage
+
+When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only) that serves them to the browser. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
+
+:::note[Static output]
+With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
+:::
+
+
+### Route injection options
+
+You can control endpoint injection:
+
+```ts title="astro.config.ts"
+import { defineConfig } from 'astro/config';
+import varlockAstroIntegration from '@varlock/astro-integration';
+
+export default defineConfig({
+  integrations: [
+    varlockAstroIntegration({
+      publicDynamicEndpoint: true, // auto by default
+      // or: { path: '/my-public-env' }
+      // or: false (disable auto endpoint)
+    }),
+  ],
+});
+```
 ## Reference
 - [Root decorators reference](/reference/root-decorators)
 - [Item decorators reference](/reference/item-decorators)

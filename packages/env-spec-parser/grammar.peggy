@@ -44,7 +44,10 @@ ConfigItem =
 
 ConfigItemKey = $([a-zA-Z_] [a-zA-Z0-9_.-]*)
 
-ConfigItemValue = FunctionCall / multiLineString / quotedString / unquotedString
+// ObjectLiteral / ArrayLiteral must come before unquotedString so a value starting
+// with `{` or `[` parses as a literal rather than a string. Values that fail to parse
+// as a literal (e.g. `{not-env-spec-syntax}`) still fall through to unquotedString.
+ConfigItemValue = FunctionCall / ObjectLiteral / ArrayLiteral / multiLineString / quotedString / unquotedString
 
 CommentBlock =
   // not sure if we want to treat these as decorators if within comment block?
@@ -220,13 +223,15 @@ ArrayLiteral =
     return new ParsedEnvSpecArrayLiteral({ values, _location: location() });
   }
 
-// Values inside `{}`/`[]` — like function-arg values but must also stop at `}`/`]`
+// Values inside `{}`/`[]` — like function-arg values but must also stop at `}`/`]`.
+// The unquoted fallback allows `${REF}` sequences as an atomic unit — without that,
+// the `}` would terminate the element early (it otherwise ends an enclosing literal).
 LiteralElementValue =
   ObjectLiteral
   / ArrayLiteral
   / FunctionCall
   / quotedString
-  / $([^ \n,)}\]]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
+  / $(("${" [^}\n]* "}" / [^ \n,)}\]])+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 // ~ decorator-context literals (multi-line via `#` continuation, like DecoratorFunctionArgs) ~
 DecoratorObjectLiteral =
@@ -255,7 +260,7 @@ DecoratorLiteralElementValue =
   / DecoratorArrayLiteral
   / DecoratorFunctionCall
   / quotedString
-  / $([^ \n,)}\]]+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
+  / $(("${" [^}\n]* "}" / [^ \n,)}\]])+) { return new ParsedEnvSpecStaticValue({ rawValue: text(), _location: location() }) }
 
 
 FunctionCall =

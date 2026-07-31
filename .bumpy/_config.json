@@ -27,6 +27,10 @@
         "@env-spec/parser": {
           "trigger": "patch",
           "bumpAs": "patch"
+        },
+        "@varlock/ci-env-info": {
+          "trigger": "patch",
+          "bumpAs": "patch"
         }
       }
     }

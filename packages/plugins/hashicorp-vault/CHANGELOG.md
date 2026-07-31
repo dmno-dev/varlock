@@ -4,6 +4,12 @@
 
 
 
+
+## 2.1.0
+<sub>2026-07-22</sub>
+
+- [#928](https://github.com/dmno-dev/varlock/pull/928)  *(minor)* - Add vaultToken() resolver to expose the authenticated Vault client token
+
 ## 2.0.0
 <sub>2026-06-23</sub>
 

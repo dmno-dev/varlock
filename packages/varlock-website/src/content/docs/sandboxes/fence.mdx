@@ -1,0 +1,63 @@
+---
+title: Fence
+description: Wire Fence through varlock proxy
+---
+
+## Fence
+
+[Fence](https://github.com/fencesandbox/fence) wraps agents in Seatbelt (macOS) or bubblewrap (Linux), with filesystem rules, command denies, and a domain allowlist proxy. It does **not** inject credentials; that stays varlock's job.
+
+### Install
+
+```bash
+brew tap fencesandbox/tap
+brew install fencesandbox/tap/fence
+```
+
+On Linux, also install `bubblewrap` and `socat` (for example `sudo apt install bubblewrap socat`).
+
+### Wire Fence through varlock
+
+Fence's own proxy enforces domain policy. Important detail from Fence's [upstream proxy docs](https://github.com/fencesandbox/fence/blob/main/docs/configuration.md): traffic that matches `allowedDomains` goes **direct** to the origin and **bypasses** `upstreamProxy`. Hosts that need varlock injection must therefore sit in the grey zone (not listed in `allowedDomains`), with `defaultAction: "proxy"` and `upstreamProxy` pointed at varlock.
+
+1. Start varlock on a fixed port, so `fence.json` can name the proxy address without per-session editing:
+
+```bash
+varlock proxy start --port 54321
+```
+
+2. Project `fence.json` (extends the `code` template; keep package registries on the allowlist so they stay direct; leave model API hosts for varlock):
+
+```json title="fence.json"
+{
+  "$schema": "https://raw.githubusercontent.com/fencesandbox/fence/main/docs/schema/fence.schema.json",
+  "extends": "code",
+  "network": {
+    "allowedDomains": [
+      "github.com",
+      "*.npmjs.org",
+      "registry.yarnpkg.com",
+      "registry.npmjs.org"
+    ],
+    "deniedDomains": ["169.254.169.254"],
+    "defaultAction": "proxy",
+    "upstreamProxy": "http://127.0.0.1:54321"
+  }
+}
+```
+
+`--port` keeps that address stable across sessions, so `fence.json` can be committed as-is (match `upstreamProxy` to the port you chose). Only `http://` upstream URLs are supported by Fence today.
+
+3. Export placeholders + CA trust, then launch:
+
+```bash
+eval "$(varlock proxy env)"
+fence --settings ./fence.json -- claude
+```
+
+The agent talks to Fence's local proxy first. Grey-zone hosts (including `api.anthropic.com` when it is not in `allowedDomains`) forward to varlock, which injects secrets under your `@proxy` rules. Keep `@proxyConfig={egress="strict"}` so unmatched grey-zone destinations die at varlock instead of leaking outbound.
+
+:::note[CA trust]
+Varlock MITMs HTTPS with an ephemeral CA. Keep the CA env vars from `proxy env` in the process Fence launches (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, and related). If TLS handshakes fail after wiring `upstreamProxy`, confirm those vars survived into the sandboxed agent, and that Fence's filesystem rules let it read the cert file. If the default temp-dir path is blocked, add `--cert-dir ./.varlock-proxy` to the `proxy start` in step 1 so the CA lives inside your project.
+:::
+

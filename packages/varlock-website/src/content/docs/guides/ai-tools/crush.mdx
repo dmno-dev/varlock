@@ -1,0 +1,68 @@
+---
+title: Crush
+description: Inject provider API keys into Crush with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Crush](https://github.com/charmbracelet/crush) is Charm's terminal coding agent. It supports many model providers and reads API keys from the environment. Use varlock to inject those keys at runtime so they never sit in a plain text `.env` or shell history.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Launch command:** `crush`
+
+**Environment variables** (from the [Crush README](https://github.com/charmbracelet/crush?tab=readme-ov-file#api-keys)):
+
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, and many other provider keys
+- `HYPER_API_KEY` for Charm Hyper (Crush's built-in provider)
+
+You can also paste a key in the TUI model picker (`ctrl+l`). Prefer env injection so the key is not typed into the UI or stored in project config.
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+
+# @sensitive
+OPENROUTER_API_KEY=op(op://api-local/openrouter/api-key)
+```
+
+<OpExamplesTip />
+
+```bash
+varlock run -- crush
+```
+
+## From any directory
+
+Personal schema at `~/.env.crush`:
+
+```env-spec title="~/.env.crush"
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+
+# @sensitive
+OPENAI_API_KEY=op(op://api-local/openai/api-key)
+```
+
+```bash
+varlock run -p ~/.env.crush -- crush
+```
+
+## Shell alias (optional)
+
+```bash
+alias vcrush='varlock run -p ~/.env.crush --no-redact-stdout -- crush'
+```
+
+`--no-redact-stdout` keeps Crush's own terminal output unredacted while secrets stay out of your shell history.
+
+:::tip
+Treat project `crush.json` as trusted code. Review it before running Crush in a directory you did not author.
+:::

@@ -1,0 +1,161 @@
+---
+title: Running the proxy
+description: One-shot and daemon modes, sessions, wiring, auditing, and sandboxing
+---
+
+## Running modes
+
+There are a few ways to drive the proxy, trading convenience for interactivity.
+
+### One-shot: `proxy run`
+
+```bash
+varlock proxy run -- <command>
+```
+
+Starts a proxy, runs the command through it, and tears down when the command exits. The single most common way to use the feature. If a `proxy start` daemon is already running for this directory, `proxy run` **attaches** to it (so its terminal owns the live request log); otherwise it runs a self-contained proxy. Pass `--new` to force a fresh, separate proxy.
+
+### Daemon + attach: `proxy start`
+
+```bash
+# Terminal 1: owns the proxy and its live request log
+varlock proxy start
+
+# Terminal 2: attaches automatically
+varlock proxy run -- claude
+```
+
+`proxy start` is a long-lived session that owns its terminal, where the live per-request log appears. Attach to it from another terminal (or shell) so the agent's stdio doesn't compete with the daemon's output.
+
+An attaching `proxy run` **adopts the running session's env**: it fetches the child view (placeholders, non-secret values, omitted keys) directly from the daemon instead of resolving anything itself. That means no second unlock prompt, and the session's own overrides and env selection apply (attaching means "run me in that session's env"). Your shell's ambient values for schema-managed keys are ignored in favor of the session's; everything else (`PATH`, etc.) passes through as usual.
+
+### Manual env: `proxy start` + `proxy env`
+
+```bash
+varlock proxy start                 # in one terminal
+eval "$(varlock proxy env)"         # in another shell
+node agent.js                       # now routed through the proxy
+```
+
+`proxy env` prints the proxy + CA environment for an existing session so you can source it into any shell or tool.
+
+### Remote: `proxy start --expose` + `proxy run --url`
+
+The workload does not have to be on the same machine. `proxy start --expose` makes the proxy reachable off-loopback and serves a built-in WebSocket tunnel, gated by a per-session data-plane token, and `proxy run --url wss://<host>` runs a command through that broker from anywhere, self-wiring the placeholder env and CA certs over the tunnel. The token is a credential: pin it with `VARLOCK_PROXY_TOKEN` or read it back with `varlock proxy token`, and prefer passing it to clients as an env var rather than a `--token` argument. This is how cloud sandboxes reach a broker; see the [E2B](/sandboxes/e2b/) and [Fly.io](/sandboxes/flyio/) guides for full recipes and the [proxy CLI reference](/reference/cli/proxy/) for the flags.
+
+## Sessions
+
+Every `varlock proxy` command operates on a **session**: one running proxy with its own short id (printed by `proxy start`, listed by `proxy status`). You target a session in one of two ways:
+
+- **By id:** pass `--session <id>` to any command (`proxy env --session abc12`, `proxy stop --session abc12`, etc.).
+- **Auto-discovered:** with no `--session`, the command resolves one for you:
+  - `proxy run` attaches to the running `proxy start` daemon **for the current directory** (a session whose directory is this one or a parent of it). If there isn't one it starts its own proxy; pass `--new` to always start a fresh, separate one.
+  - `env` / `status` / `audit` / `reload` / `stop` use the **single active session**. If more than one is running they ask you to pass `--session <id>`; commands run from inside a proxied child target that child's own session automatically.
+
+Sessions are durable records: they persist after the proxy stops (visible with `proxy status --all`) so their [audit log](#auditing) stays available.
+
+## How the child is wired
+
+`proxy run` (and `proxy env`) inject a standard set of environment variables into the child so common HTTP clients trust the proxy with no manual setup:
+
+- **Proxy address:** `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` (and lowercase), with `NO_PROXY` excluding localhost.
+- **CA trust:** `NODE_EXTRA_CA_CERTS` (Node.js), `REQUESTS_CA_BUNDLE` (Python `requests`), `CURL_CA_BUNDLE` (curl), `GIT_SSL_CAINFO` (git), `CARGO_HTTP_CAINFO` (cargo), `DENO_CERT` (Deno), and `SSL_CERT_FILE` (OpenSSL-based tools).
+- **Runtime opt-ins:** `NODE_USE_ENV_PROXY=1`, so Node's built-in `fetch` (Node 24+) routes through the proxy. Without it, `fetch` ignores the proxy env vars entirely and sends requests (with placeholder values) directly to the upstream. On older Node versions the flag is ignored and `fetch` still bypasses the proxy; use an env-proxy-aware client (axios, got) or Node 24+.
+
+The proxy URL carries no credentials, and the proxy never asks clients for proxy authentication (no `407` challenges). Session scoping is enforced by the proxy itself, so clients with limited proxy-auth support (like Python's `urllib`) work with the plain `HTTPS_PROXY` url.
+
+The proxy uses an **ephemeral, in-memory certificate authority** generated per run; only its public certificate is written to a temp file for the child to trust. The CA private key and all per-host certificates never leave memory. (The one exception is [`--persist-ca`](#pinning-the-port-and-ca-location), an opt-in for long-lived brokers.)
+
+**Stdout/stderr redaction** is decided per stream: a stream attached to an interactive terminal passes through raw (so TUIs like `claude` render correctly), while a piped or redirected stream is scrubbed of sensitive values, including the real values the proxy injects at the wire, in case an upstream response echoes one back. Override with `--redact-stdout` / `--no-redact-stdout`.
+
+### Client compatibility
+
+The proxy works with any client that honors the standard proxy and CA env vars above. Status of common clients:
+
+| Client | Works? | Notes |
+| --- | --- | --- |
+| curl, git, wget | yes | `--http2` is fine: ALPN negotiates down to HTTP/1.1 |
+| Python: python.org, Homebrew, pyenv, `uv` builds | yes | urllib, requests, and httpx all verified, including python 3.13+ strict verification |
+| Python: macOS system (`/usr/bin/python3`) | partial | proxied, but ignores `SSL_CERT_FILE` so urllib fails TLS verification; see workarounds below |
+| Node built-in `fetch` (Node 24+) | yes | via the injected `NODE_USE_ENV_PROXY=1` |
+| Node built-in `fetch` (Node < 24) | no | silently bypasses the proxy and sends placeholders directly upstream; use axios/got or Node 24+ |
+| Node axios, got | yes | implement env-proxy support themselves |
+| Bun `fetch` | yes | |
+| Deno | yes | via the injected `DENO_CERT` |
+| Go programs (incl. `gh`, `terraform`, `kubectl`) | Linux yes, macOS no | on macOS Go verifies against the system keychain and rejects the proxy CA |
+| .NET | Linux yes, macOS no | same system-keychain issue as Go |
+| Ruby | build-dependent | OpenSSL-linked builds work; macOS system Ruby has the same `SSL_CERT_FILE` issue as system Python |
+| Rust (reqwest etc.) | build-dependent | `native-tls`/OpenSSL backends honor `SSL_CERT_FILE`; `rustls` platform-verifier or bundled-roots builds reject the proxy CA |
+| JVM tools (java, gradle, maven) | no | the JVM ignores both the proxy and CA env vars on every platform; needs `-Dhttps.proxyHost`/`-Dhttps.proxyPort` and a custom truststore |
+| gRPC clients | no on matched hosts | gRPC requires HTTP/2 and the proxy's TLS interception is HTTP/1.1 only; hosts without a `@proxy` rule tunnel through untouched |
+| WebSockets (`wss://`) | no on matched hosts | upgrades through the interception path are unsupported; hosts without a `@proxy` rule tunnel through untouched |
+
+:::note[Workarounds]
+- **macOS system Python:** use `requests` (reads `REQUESTS_CA_BUNDLE`), or pass the bundle explicitly: `ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])`. Pythons from python.org, Homebrew, pyenv, or `uv` need nothing.
+- **macOS system-keychain clients (Go, .NET, Rust platform verifiers):** these honor `HTTPS_PROXY` but verify TLS against the system keychain, which does not contain the proxy's ephemeral CA. There is no env-var fix; run those tools on Linux (e.g. [`--sandbox=docker`](/guides/proxy/sandboxing/), where they read `SSL_CERT_FILE`) or outside the proxy.
+- **GUI apps and browsers** generally ignore these env vars entirely; the target here is CLI tools and agents.
+:::
+
+### Pinning the port and CA location
+
+By default the proxy binds a random loopback port and writes its CA cert to a fresh temp dir. Both are discoverable after startup with `proxy env` / `proxy status`. When something needs to be wired up **before** the proxy starts (a config that points at a fixed `HTTP_PROXY`, or a tool told to trust a CA at a known path), pin them:
+
+```bash
+varlock proxy start --port 8080 --cert-dir ./.varlock-proxy
+```
+
+`--port <n>` fixes the loopback port, so `HTTP_PROXY` is `http://127.0.0.1:<n>`. If that port is already in use the proxy refuses to start instead of falling back to a random one.
+
+`--cert-dir <dir>` writes `ca-cert.pem` (and `combined-ca.pem`, the CA plus system roots) into `<dir>`, creating it if missing. The CA itself is ephemeral and regenerated on each start; on stop, only the cert files varlock wrote are removed, never the directory itself.
+
+`--persist-ca` (with `--cert-dir`) changes that: the CA is kept, private key included, and reused on the next start, so a restart does not invalidate clients that already trust it. This matters for a long-lived [broker](/sandboxes/overview/#topologies) serving remote sandboxes, where a restart would otherwise break every running agent. It writes `ca-key.pem` (mode 0600), which the proxy otherwise never does, so use it only where the proxy runs alone rather than alongside the agent it proxies. A persisted CA lasts 10 years, effectively the life of the broker: an expiry would break agents still running when it came around, and it would buy nothing, since nothing checks revocation for this CA and only clients that fetched it from this broker trust it. To retire one, delete the cert directory and restart.
+
+These flags apply only when **starting** a proxy. They also work on `proxy run` when it starts its own proxy (with `--new`, or when no daemon is running for the directory). On a `proxy run` that attaches to an existing daemon they are rejected, since that daemon already fixed the port and cert location.
+
+## Auditing
+
+Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected, never any values).
+
+```bash
+varlock proxy audit                       # current/most-recent session
+varlock proxy audit --session <id>        # a specific session
+varlock proxy audit --format json         # machine-readable
+```
+
+Sessions are kept as durable records after they end. List them with:
+
+```bash
+varlock proxy status            # active sessions
+varlock proxy status --all      # include ended sessions
+varlock proxy status --watch    # live updates
+```
+
+## Editing the schema while a session is running
+
+For safety, a proxied command refuses to run if your env schema has changed since the proxy session started. This prevents an agent from editing the schema mid-session (downgrading `@sensitive`, or adding a new item that resolves a secret) to recover real values. After an intentional edit, **restart the proxy** from a trusted (non-proxied) shell so it re-resolves the new schema:
+
+```bash
+varlock proxy stop --all
+varlock proxy start            # or: varlock proxy run -- <command>
+```
+
+A one-shot `varlock proxy run` already re-reads the schema on its next invocation, so just re-run it.
+
+A running `varlock proxy start` also **warns in its live log** when it detects your env schema changed on disk (any of the loaded `.env*` files, not just `.env.schema`). It keeps serving the previous policy (it does not block your agent's in-flight requests just because a file changed), so reload or restart to apply the change, and if you did not make the edit, a proxied process may have.
+
+:::note[Hot-reload]
+A running proxy can hot-reload your schema without a restart: run `varlock proxy reload` from a **trusted terminal** and it re-resolves the schema and swaps the live policy. In an interactive `varlock proxy start`, you can also just press **`r`** in its terminal (then **`y`** to confirm) to reload in place. A reload requested from **inside** the proxied agent is refused (so the agent can't self-approve its own schema edit) and the attempt is surfaced in the `proxy start` log.
+
+Whether reload is available is set by [`@proxyConfig={reload=...}`](/reference/root-decorators/#proxyconfig) (`off` / `manual` / `auto`, default `auto`), and can be overridden per run with `--allow-reload` / `--no-allow-reload`. `auto` is conservative: it enables `manual` reload only for an interactive `varlock proxy start` (a human is there to apply it and watch the log) and stays `off` for headless runs or a one-shot `varlock proxy run`. On a shared uid the agent-refusal is a bar-raiser, not a hard boundary (a marker-stripping agent evades it), so `auto` only widens toward agent-triggered reload once containment (a sandbox) or a real out-of-band approver makes it safe.
+:::
+
+## Sandboxing
+
+On its own the proxy raises the bar but is not a hard boundary: a determined same-uid agent can still reach a secret's source. Close that with `--sandbox` so the child's only network path is the proxy:
+
+```bash
+varlock proxy run --sandbox -- claude
+```
+
+Bare `--sandbox` is a built-in macOS jail (loopback-only egress + credential-path and keychain denials). Use `--sandbox=docker` (or `=podman`) for a container whose only egress is the host proxy. Details, flags, and third-party recipes: [Sandboxing](/guides/proxy/sandboxing/).
+

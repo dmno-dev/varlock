@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import {
-  describe, test, beforeAll, afterAll,
+  describe, test, beforeAll, afterAll, expect, vi,
 } from 'vitest';
 import outdent from 'outdent';
 import { pluginTest } from 'varlock/test-helpers';
+import { InMemoryCacheStore } from '../../../varlock/src/lib/cache/in-memory-cache-store';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = path.join(__dirname, '..');
@@ -231,6 +232,59 @@ describe('1password plugin', () => {
       schema: 'SECRET=op("op://vault/item/field")',
       expectValues: { SECRET: 'p@ss=w0rd&foo' },
     }));
+
+    test('handles multiline values (e.g. private keys)', opTest({
+      opConfig: {
+        responses: {
+          'op://vault/item/key': '-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----',
+          'op://vault/item/other': 'single-line',
+        },
+      },
+      schema: outdent`
+        PRIVATE_KEY=op("op://vault/item/key")
+        OTHER=op("op://vault/item/other")
+      `,
+      expectValues: {
+        PRIVATE_KEY: '-----BEGIN KEY-----\nline1\nline2\n-----END KEY-----',
+        OTHER: 'single-line',
+      },
+    }));
+
+    test('resolves a one-time password reference', opTest({
+      opConfig: {
+        responses: { 'op://vault/npm/one-time password?attribute=otp': '123456' },
+      },
+      schema: outdent`
+        # @internal
+        NPM_OTP=op("op://vault/npm/one-time password?attribute=otp")
+      `,
+      expectValues: { NPM_OTP: '123456' },
+    }));
+
+    test('does not cache an OTP reference using the attr alias', async () => {
+      const cacheSpy = vi.spyOn(InMemoryCacheStore.prototype, 'getOrSet');
+      try {
+        await opTest({
+          opConfig: {
+            responses: { 'op://vault/npm/one-time password?attr=otp': '123456' },
+          },
+          fullSchema: outdent`
+            # @plugin(${PLUGIN_PATH})
+            # @cache=memory
+            # @initOp(token=$OP_SA_TOKEN, useCliWithServiceAccount=true, cacheTtl="1h")
+            # ---
+            # @type=string @sensitive
+            OP_SA_TOKEN=
+            NPM_OTP=op("op://vault/npm/one-time password?attr=otp")
+          `,
+          injectValues: { OP_SA_TOKEN: 'ops_fake_test_token' },
+          expectValues: { NPM_OTP: '123456' },
+        })();
+        expect(cacheSpy).not.toHaveBeenCalled();
+      } finally {
+        cacheSpy.mockRestore();
+      }
+    });
 
     test('bad vault reference rejects that item and retries the rest', opTest({
       opConfig: {

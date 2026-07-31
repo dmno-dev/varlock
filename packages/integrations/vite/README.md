@@ -1,5 +1,7 @@
 # @varlock/vite-integration
 
+[![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmx.dev/package/@varlock/vite-integration) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/vite-integration.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
 This package helps you integrate [varlock](https://varlock.dev) into a [Vite](https://vite.dev)-powered project.
 
 It is designed as a [Vite plugin](https://vite.dev/guide/using-plugins.html), which will override Vite's default `.env` file loading logic, and instead use varlock.

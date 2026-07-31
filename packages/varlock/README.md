@@ -1,6 +1,6 @@
 # Varlock
 
-[![npm version](https://img.shields.io/npm/v/varlock.svg)](https://www.npmjs.com/package/varlock) [![npm downloads](https://img.shields.io/npm/dm/varlock.svg)](https://www.npmjs.com/package/varlock) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/varlock.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/varlock.svg)](https://npmx.dev/package/varlock) [![npm downloads](https://img.shields.io/npm/dm/varlock.svg)](https://npmx.dev/package/varlock) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/varlock.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 > AI-safe .env files: Schemas for agents, Secrets for humans.
 
@@ -9,7 +9,7 @@
 - 🔏 runtime protection — log redaction and leak prevention
 - 🛡️ validation, coercion, type safety w/ IntelliSense
 - 🌐 flexible multi-environment management — auto .env.* loading and explicit import
-- 🔌 8 secret manager plugins (1Password, Infisical, AWS, Azure, GCP, Bitwarden, HashiCorp Vault, Pass)
+- 🔌 [plugins](https://varlock.dev/plugins/overview/) to pull data from various backends (1Password, Infisical, AWS, Azure, GCP, HCP Vault, more!)
 
 See https://varlock.dev for full docs and examples.
 

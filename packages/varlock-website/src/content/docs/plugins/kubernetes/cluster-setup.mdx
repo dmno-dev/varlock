@@ -1,0 +1,117 @@
+---
+title: Kubernetes cluster setup
+description: RBAC, namespaces, and cluster configuration for the varlock Kubernetes plugin
+---
+
+import { Steps, Icon } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+## Kubernetes Setup
+
+### Required RBAC permissions
+
+The identity used by the plugin (your kubeconfig user, an in-cluster service account, or an explicit token) needs read access to Secrets and/or ConfigMaps in the target namespace.
+
+The minimum permissions are `get` on `secrets` and `configmaps`:
+
+```yaml title="varlock-rbac.yaml"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: varlock-reader
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps"]
+    verbs: ["get"]
+```
+
+Apply it with:
+
+```bash
+kubectl apply -f varlock-rbac.yaml
+```
+
+:::tip[Least privilege principle]
+Scope down `resources` to only what you need. If you're only reading ConfigMaps, omit `"secrets"` entirely. For multi-namespace access, use a `ClusterRole` + `ClusterRoleBinding` instead, but prefer namespaced `Role`s whenever possible.
+:::
+
+### Service account for in-cluster use
+
+When running inside a pod, the plugin uses the pod's mounted service account. Create a dedicated service account and bind it to the role above:
+
+<Steps>
+1. **Create a service account**
+    ```bash
+    kubectl create serviceaccount varlock-reader -n default
+    ```
+
+2. **Bind the role to the service account**
+    ```yaml title="varlock-rolebinding.yaml"
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: RoleBinding
+    metadata:
+      name: varlock-reader-binding
+      namespace: default
+    subjects:
+      - kind: ServiceAccount
+        name: varlock-reader
+        namespace: default
+    roleRef:
+      kind: Role
+      name: varlock-reader
+      apiGroup: rbac.authorization.k8s.io
+    ```
+
+    ```bash
+    kubectl apply -f varlock-rolebinding.yaml
+    ```
+
+3. **Use the service account in your pod spec**
+    ```yaml title="deployment.yaml"
+    spec:
+      serviceAccountName: varlock-reader
+      containers:
+        - name: app
+          image: my-app:latest
+    ```
+</Steps>
+
+### Generate a bearer token for explicit auth
+
+For CI/CD or other external use cases that need an explicit token, create a long-lived service account token:
+
+```bash
+# Create a token secret bound to the service account
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: varlock-reader-token
+  namespace: default
+  annotations:
+    kubernetes.io/service-account.name: varlock-reader
+type: kubernetes.io/service-account-token
+EOF
+
+# Read the token
+kubectl get secret varlock-reader-token -n default -o jsonpath='{.data.token}' | base64 -d
+```
+
+Inject the resulting token into your deployment environment as `KUBERNETES_TOKEN` (or whatever name you wire up in `@initKubernetes()`).
+
+### Verify access
+
+You can test that the configured identity can read the resources you expect:
+
+```bash
+# As your current kubeconfig user
+kubectl auth can-i get secrets -n default
+kubectl auth can-i get configmaps -n default
+
+# As a specific service account
+kubectl auth can-i get secrets -n default --as=system:serviceaccount:default:varlock-reader
+```
+
+---
+

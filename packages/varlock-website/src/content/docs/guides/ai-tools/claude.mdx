@@ -1,0 +1,48 @@
+---
+title: Claude Code
+description: Inject ANTHROPIC_API_KEY into Claude Code with varlock run
+---
+
+import OpExamplesTip from '@/components/OpExamplesTip.astro';
+
+[Claude Code](https://docs.claude.com/en/docs/claude-code/overview) is Anthropic's CLI for AI-assisted coding. Use varlock to inject `ANTHROPIC_API_KEY` at runtime so the key never sits in a plain text `.env` or shell history.
+
+For install, schema setup, and shared patterns, see the [AI Tools overview](/guides/ai-tools/).
+
+**Environment variable:** `ANTHROPIC_API_KEY` (see [supported env variables](https://docs.claude.com/en/docs/claude-code/settings#environment-variables)). Use the API key, not `CLAUDE_CODE_OAUTH_TOKEN`: that (from `claude setup-token`) only works for headless `claude -p` requests, not the interactive TUI.
+
+## In a project
+
+Add to `.env.schema`:
+
+```env-spec
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+```
+
+<OpExamplesTip />
+
+```bash
+varlock run -- claude
+```
+
+## From any directory
+
+Personal schema at `~/.env.claude`:
+
+```env-spec title="~/.env.claude"
+# @sensitive @required
+ANTHROPIC_API_KEY=op(op://api-local/anthropic/api-key)
+```
+
+```bash
+varlock run -p ~/.env.claude -- claude
+```
+
+## Shell alias (optional)
+
+```bash
+alias vclaude='varlock run -p ~/.env.claude --no-redact-stdout -- claude'
+```
+
+`--no-redact-stdout` keeps Claude's own terminal output unredacted while secrets stay out of your shell history.

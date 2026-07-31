@@ -157,6 +157,11 @@ describe('varlockExpoBabelPlugin – sensitive values are NOT replaced', () => {
     const replaceWith = visitMemberExpression('ENV', 'SECRET_KEY', false, '/app/api/route+api.ts');
     expect(replaceWith).not.toHaveBeenCalled();
   });
+
+  it('does NOT replace ENV.PUBLIC_DYNAMIC_URL (isDynamic=true)', () => {
+    const replaceWith = visitMemberExpression('ENV', 'PUBLIC_DYNAMIC_URL');
+    expect(replaceWith).not.toHaveBeenCalled();
+  });
 });
 
 describe('varlockExpoBabelPlugin – unknown / irrelevant expressions are skipped', () => {
@@ -191,6 +196,23 @@ describe('varlockExpoBabelPlugin – sensitive var build-time warnings', () => {
   it('does NOT warn when a sensitive var is accessed in a server +api file', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     visitMemberExpression('ENV', 'SECRET_KEY', false, '/app/api/auth+api.ts');
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('warns when a public+dynamic var is accessed in a native (non-server) file', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'PUBLIC_DYNAMIC_URL', false, '/app/screens/Home.tsx');
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const message = warnSpy.mock.calls[0][0] as string;
+    expect(message).toContain('PUBLIC_DYNAMIC_URL');
+    expect(message).toContain('dynamic');
+    warnSpy.mockRestore();
+  });
+
+  it('does NOT warn when a public+dynamic var is accessed in a server +api file', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    visitMemberExpression('ENV', 'PUBLIC_DYNAMIC_URL', false, '/app/api/auth+api.ts');
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });

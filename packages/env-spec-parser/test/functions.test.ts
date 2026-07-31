@@ -100,6 +100,35 @@ describe('exec expansion', functionValueTests({
     input: 'ITEM=$(echo "foo bar")',
     expected: { ITEM: 'foo bar' },
   },
+  'exec expansion with nested parentheses': {
+    input: "ITEM=$(printf %s 'foo(bar)')",
+    expected: { ITEM: 'foo(bar)' },
+  },
+  'exec expansion with paren inside quotes': {
+    input: 'ITEM=$(printf %s \'join(".")\')',
+    expected: { ITEM: 'join(".")' },
+  },
+  'exec expansion preserves space before simple ref': {
+    input: outdent`
+      HOST=localhost
+      ITEM=$(echo hello $HOST)
+    `,
+    expected: { ITEM: 'hello localhost' },
+  },
+  'exec expansion preserves space before bracketed ref': {
+    input: outdent`
+      HOST=localhost
+      ITEM=$(echo hello \${HOST})
+    `,
+    expected: { ITEM: 'hello localhost' },
+  },
+  'exec expansion preserves space before ref - quoted': {
+    input: outdent`
+      HOST=localhost
+      ITEM="$(echo hello $HOST)"
+    `,
+    expected: { ITEM: 'hello localhost' },
+  },
 }));
 
 describe('ref expansion', functionValueTests({

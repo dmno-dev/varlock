@@ -1,6 +1,6 @@
 # @varlock/keepass-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/keepass-plugin.svg)](https://www.npmjs.com/package/@varlock/keepass-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/keepass-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/keepass-plugin.svg)](https://npmx.dev/package/@varlock/keepass-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/keepass-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [KeePass](https://keepass.info/) / [KeePassXC](https://keepassxc.org/) databases (KDBX 4.0) into your configuration.
 

@@ -22,7 +22,7 @@ Our main focus was our new plugin system, including a first-party plugin for 1Pa
 
 ## Docs Updates
 
-- **[Docs MCP](https://varlock.dev/guides/mcp/#docs-mcp)** - Search our docs from the comfort of your favourite AI agent.
+- **[Docs MCP](https://varlock.dev/guides/mcp/docs-mcp/)** - Search our docs from the comfort of your favourite AI agent.
 - **[1Password Plugin](https://varlock.dev/plugins/1password/)** - Secure your secrets with everyone's favourite password manager.
 - **[Plugins](https://varlock.dev/guides/plugins/)** - Read more about how our plugin system works.
 - **[AI Tools](https://varlock.dev/guides/ai-tools/#securely-inject-secrets-into-ai-cli-tools)** - Updated docs about securely loading secrets into your favorite AI tools with Varlock.

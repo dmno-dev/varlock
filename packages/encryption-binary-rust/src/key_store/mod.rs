@@ -1,7 +1,8 @@
 //! Key storage abstraction.
 //!
 //! Each platform backend stores the P-256 private key in a protected manner:
-//!   - Windows: DPAPI (CryptProtectData) — encrypted to the current user session
+//!   - Windows (preferred): NCrypt TPM seal via Platform Crypto Provider
+//!   - Windows (fallback): DPAPI (CryptProtectData) — encrypted to the current user session
 //!   - Linux (preferred): Secret Service (libsecret / GNOME Keyring / KWallet),
 //!     optionally layered with TPM2 sealing for defense-in-depth on hardware
 //!     that supports it
@@ -15,7 +16,7 @@
 //!     "keyId": "varlock-default",
 //!     "publicKey": "<base64 uncompressed SEC1>",
 //!     "protectedPrivateKey": "<base64 platform-encrypted PKCS8 or empty>",
-//!     "protection": "dpapi" | "tpm2" | "secret-service" | "secret-service-tpm2" | "none",
+//!     "protection": "dpapi" | "ncrypt" | "tpm2" | "secret-service" | "secret-service-tpm2" | "none",
 //!     "createdAt": "2024-01-01T00:00:00Z"
 //!   }
 //!
@@ -27,14 +28,11 @@
 //! equivalent to the JS file-based backend. Used as an absolute fallback.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-#[cfg(target_os = "linux")]
-use p256::SecretKey as P256SecretKey;
-#[cfg(target_os = "linux")]
-use elliptic_curve::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+pub(crate) mod scalar;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
 #[cfg(target_os = "linux")]
@@ -44,6 +42,8 @@ pub(crate) mod secret_service;
 #[cfg(target_os = "windows")]
 mod windows;
 #[cfg(target_os = "windows")]
+pub(crate) mod windows_tpm;
+#[cfg(target_os = "windows")]
 pub(crate) mod windows_hello;
 
 /// Which protection mechanism is used for the private key.
@@ -52,6 +52,8 @@ pub(crate) mod windows_hello;
 pub enum Protection {
     /// Windows DPAPI — encrypted to current user session
     Dpapi,
+    /// Windows NCrypt — TPM-sealed scalar via Platform Crypto Provider
+    Ncrypt,
     /// Linux TPM2 — sealed to hardware TPM chip (stored on disk)
     Tpm2,
     /// Linux Secret Service (libsecret / GNOME Keyring / KWallet)
@@ -66,6 +68,7 @@ impl std::fmt::Display for Protection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Protection::Dpapi => write!(f, "dpapi"),
+            Protection::Ncrypt => write!(f, "ncrypt"),
             Protection::Tpm2 => write!(f, "tpm2"),
             Protection::SecretService => write!(f, "secret-service"),
             Protection::SecretServiceTpm2 => write!(f, "secret-service-tpm2"),
@@ -153,6 +156,16 @@ fn protect_private_key(key_id: &str, private_key_der: &[u8]) -> (String, Protect
     #[cfg(target_os = "windows")]
     {
         let _ = key_id;
+        if windows_tpm::is_ncrypt_available() {
+            let scalar = scalar::pkcs8_to_raw_scalar(private_key_der)
+                .unwrap_or_else(|| private_key_der.to_vec());
+            match windows_tpm::ncrypt_protect(&scalar) {
+                Ok(sealed) => return (BASE64.encode(&sealed), Protection::Ncrypt),
+                Err(e) => {
+                    eprintln!("Warning: NCrypt TPM seal failed ({e}), trying DPAPI");
+                }
+            }
+        }
         match windows::dpapi_protect(private_key_der) {
             Ok(protected) => (BASE64.encode(&protected), Protection::Dpapi),
             Err(e) => {
@@ -171,7 +184,7 @@ fn protect_private_key(key_id: &str, private_key_der: &[u8]) -> (String, Protect
         if ss_available && tpm2_available {
             // TPM2 can only seal up to 128 bytes; PKCS8 may be larger due to embedded public key.
             // Seal only the raw 32-byte P-256 scalar — it's the actual secret.
-            let tpm_payload = pkcs8_to_raw_scalar(private_key_der)
+            let tpm_payload = scalar::pkcs8_to_raw_scalar(private_key_der)
                 .unwrap_or_else(|| private_key_der.to_vec());
             match linux::tpm2_protect(&tpm_payload) {
                 Ok(sealed) => match secret_service::store(key_id, &sealed) {
@@ -199,7 +212,7 @@ fn protect_private_key(key_id: &str, private_key_der: &[u8]) -> (String, Protect
 
         // Tier 3: TPM2 alone (headless hosts with a TPM)
         if tpm2_available {
-            let tpm_payload = pkcs8_to_raw_scalar(private_key_der)
+            let tpm_payload = scalar::pkcs8_to_raw_scalar(private_key_der)
                 .unwrap_or_else(|| private_key_der.to_vec());
             if let Ok(sealed) = linux::tpm2_protect(&tpm_payload) {
                 return (BASE64.encode(&sealed), Protection::Tpm2);
@@ -243,13 +256,22 @@ fn unprotect_private_key(
             windows::dpapi_unprotect(&bytes)
         }
 
+        #[cfg(target_os = "windows")]
+        Protection::Ncrypt => {
+            let bytes = BASE64
+                .decode(protected_base64)
+                .map_err(|e| format!("Invalid base64: {e}"))?;
+            let raw = windows_tpm::ncrypt_unprotect(&bytes)?;
+            scalar::raw_scalar_to_pkcs8(&raw)
+        }
+
         #[cfg(target_os = "linux")]
         Protection::Tpm2 => {
             let bytes = BASE64
                 .decode(protected_base64)
                 .map_err(|e| format!("Invalid base64: {e}"))?;
             let raw = linux::tpm2_unprotect(&bytes)?;
-            raw_scalar_to_pkcs8(&raw)
+            scalar::raw_scalar_to_pkcs8(&raw)
         }
 
         #[cfg(target_os = "linux")]
@@ -259,7 +281,7 @@ fn unprotect_private_key(
         Protection::SecretServiceTpm2 => {
             let sealed = secret_service::retrieve(key_id)?;
             let raw = linux::tpm2_unprotect(&sealed)?;
-            raw_scalar_to_pkcs8(&raw)
+            scalar::raw_scalar_to_pkcs8(&raw)
         }
 
         #[allow(unreachable_patterns)]
@@ -269,30 +291,36 @@ fn unprotect_private_key(
     }
 }
 
-// ── TPM key format helpers ─────────────────────────────────────
-
-/// Extract the raw 32-byte P-256 private key scalar from PKCS8 DER.
-/// Returns None if parsing fails (caller should fall back to full DER).
-#[cfg(target_os = "linux")]
-fn pkcs8_to_raw_scalar(pkcs8_der: &[u8]) -> Option<Vec<u8>> {
-    let sk = P256SecretKey::from_pkcs8_der(pkcs8_der).ok()?;
-    Some(sk.to_bytes().to_vec())
+/// Relative strength of at-rest protection (higher = better). Used to avoid downgrades on auto-rewrap.
+fn protection_rank(protection: &Protection) -> u8 {
+    match protection {
+        Protection::None => 0,
+        Protection::Dpapi => 1,
+        Protection::Tpm2 => 2,
+        Protection::Ncrypt | Protection::SecretService => 3,
+        Protection::SecretServiceTpm2 => 4,
+    }
 }
 
-/// Reconstruct PKCS8 DER from a raw 32-byte P-256 scalar.
-/// If input is not 32 bytes, return it unchanged (backward compat).
-#[cfg(target_os = "linux")]
-fn raw_scalar_to_pkcs8(raw: &[u8]) -> Result<Vec<u8>, String> {
-    if raw.len() != 32 {
-        // Not a raw scalar — return as-is (may already be PKCS8)
-        return Ok(raw.to_vec());
+/// After a successful unprotect, upgrade on-disk protection when a stronger tier is available.
+/// Best-effort: decrypt still succeeds if the rewrite fails.
+fn maybe_auto_rewrap(key_id: &str, stored: &mut StoredKey, private_key_der: &[u8]) {
+    let (protected, new_protection) = protect_private_key(key_id, private_key_der);
+    if new_protection == stored.protection {
+        return;
     }
-    let scalar = elliptic_curve::ScalarPrimitive::<p256::NistP256>::from_slice(raw)
-        .map_err(|e| format!("Invalid P-256 scalar: {e}"))?;
-    let sk = P256SecretKey::new(scalar);
-    sk.to_pkcs8_der()
-        .map(|d| d.as_bytes().to_vec())
-        .map_err(|e| format!("Failed to encode PKCS8: {e}"))
+    if protection_rank(&new_protection) <= protection_rank(&stored.protection) {
+        return;
+    }
+
+    stored.protected_private_key = protected;
+    stored.protection = new_protection.clone();
+    if let Err(e) = write_stored_key(stored) {
+        eprintln!(
+            "Warning: failed to auto-rewrap key '{}' to {new_protection}: {e}",
+            stored.key_id
+        );
+    }
 }
 
 // ── Public API ───────────────────────────────────────────────────
@@ -302,11 +330,22 @@ pub fn get_platform_info() -> PlatformInfo {
     #[cfg(target_os = "windows")]
     {
         let hello_available = windows_hello::is_hello_available();
+        let ncrypt_available = windows_tpm::is_ncrypt_available();
+        let backend = match (ncrypt_available, hello_available) {
+            (true, true) => "windows-ncrypt+hello",
+            (true, false) => "windows-ncrypt",
+            (false, true) => "windows-hello",
+            (false, false) => "windows-dpapi",
+        };
         PlatformInfo {
-            backend: if hello_available { "windows-hello" } else { "windows-dpapi" }.into(),
-            hardware_backed: false, // DPAPI is software-based; TPM NCrypt is TODO
+            backend: backend.into(),
+            hardware_backed: ncrypt_available,
             biometric_available: hello_available,
-            protection: Protection::Dpapi,
+            protection: if ncrypt_available {
+                Protection::Ncrypt
+            } else {
+                Protection::Dpapi
+            },
         }
     }
 
@@ -343,6 +382,12 @@ pub fn get_platform_info() -> PlatformInfo {
 #[cfg(target_os = "linux")]
 pub fn get_tpm2_setup_hint() -> Option<String> {
     linux::get_tpm2_setup_hint()
+}
+
+/// Get a setup hint for NCrypt/TPM on Windows when sealing is unavailable.
+#[cfg(target_os = "windows")]
+pub fn get_ncrypt_setup_hint() -> Option<String> {
+    windows_tpm::get_ncrypt_setup_hint()
 }
 
 /// Check if a key exists.
@@ -387,41 +432,73 @@ pub fn generate_key(key_id: &str) -> Result<String, String> {
         created_at: now_iso8601(),
     };
 
-    // Write to disk — restrict directory permissions to owner only
+    write_stored_key(&stored)?;
+
+    Ok(key_pair.public_key)
+}
+
+/// Re-wrap an existing key with the best available protection (e.g. DPAPI → NCrypt).
+/// Returns the new protection type. Public key and key id are preserved.
+///
+/// Normally this happens automatically on the next decrypt ([`load_key`]); this command
+/// is for upgrading without decrypting (e.g. audit/migration scripts).
+pub fn rewrap_key(key_id: &str) -> Result<Protection, String> {
+    let path = get_key_file_path(key_id);
+    let data = fs::read_to_string(&path).map_err(|_| format!("Key not found: {key_id}"))?;
+    let mut stored: StoredKey =
+        serde_json::from_str(&data).map_err(|e| format!("Corrupted key file: {e}"))?;
+
+    let private_key_der =
+        unprotect_private_key(key_id, &stored.protected_private_key, &stored.protection)?;
+
+    let (protected, protection) = protect_private_key(key_id, &private_key_der);
+    if protection == stored.protection {
+        return Err(format!(
+            "Key is already using the best available protection ({protection})"
+        ));
+    }
+
+    stored.protected_private_key = protected;
+    stored.protection = protection.clone();
+    write_stored_key(&stored)?;
+
+    Ok(protection)
+}
+
+fn write_stored_key(stored: &StoredKey) -> Result<(), String> {
     let dir = get_key_store_dir();
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create key store: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        // Set key store directory to 0700 — prevents other users from listing key files
         let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
-        // Also restrict parent directories
         if let Some(parent) = dir.parent() {
             let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
         }
     }
 
-    let path = get_key_file_path(key_id);
-    let json = serde_json::to_string_pretty(&stored)
+    let path = get_key_file_path(&stored.key_id);
+    let json = serde_json::to_string_pretty(stored)
         .map_err(|e| format!("Failed to serialize key: {e}"))?;
 
-    // Write with restricted permissions
     #[cfg(unix)]
     {
+        use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
         let mut opts = fs::OpenOptions::new();
         opts.write(true).create(true).truncate(true).mode(0o600);
-        use std::io::Write;
         let mut file = opts.open(&path).map_err(|e| format!("Failed to write key file: {e}"))?;
         file.write_all(json.as_bytes())
             .map_err(|e| format!("Failed to write key file: {e}"))?;
     }
     #[cfg(not(unix))]
     {
-        fs::write(&path, &json).map_err(|e| format!("Failed to write key file: {e}"))?;
+        let tmp = path.with_extension("json.tmp");
+        fs::write(&tmp, &json).map_err(|e| format!("Failed to write key file: {e}"))?;
+        fs::rename(&tmp, &path).map_err(|e| format!("Failed to write key file: {e}"))?;
     }
 
-    Ok(key_pair.public_key)
+    Ok(())
 }
 
 /// Delete a key. Also removes any associated keyring entry on Linux.
@@ -451,11 +528,14 @@ pub fn delete_key(key_id: &str) -> bool {
 pub fn load_key(key_id: &str) -> Result<(Vec<u8>, String), String> {
     let path = get_key_file_path(key_id);
     let data = fs::read_to_string(&path).map_err(|_| format!("Key not found: {key_id}"))?;
-    let stored: StoredKey =
+    let mut stored: StoredKey =
         serde_json::from_str(&data).map_err(|e| format!("Corrupted key file: {e}"))?;
 
     let private_key_der =
         unprotect_private_key(key_id, &stored.protected_private_key, &stored.protection)?;
+
+    maybe_auto_rewrap(key_id, &mut stored, &private_key_der);
+
     Ok((private_key_der, stored.public_key))
 }
 
@@ -512,4 +592,37 @@ fn now_iso8601() -> String {
 
 fn is_leap_year(y: i64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{protection_rank, scalar, Protection};
+    use crate::crypto;
+
+    #[test]
+    fn protection_ncrypt_serializes_as_kebab_case() {
+        let json = serde_json::to_string(&Protection::Ncrypt).unwrap();
+        assert_eq!(json, "\"ncrypt\"");
+    }
+
+    #[test]
+    fn scalar_helpers_round_trip_via_mod() {
+        let kp = crypto::generate_key_pair().unwrap();
+        let pkcs8 = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &kp.private_key,
+        )
+        .unwrap();
+        let scalar_bytes = scalar::pkcs8_to_raw_scalar(&pkcs8).unwrap();
+        assert_eq!(scalar_bytes.len(), 32);
+        let restored = scalar::raw_scalar_to_pkcs8(&scalar_bytes).unwrap();
+        assert_eq!(restored, pkcs8);
+    }
+
+    #[test]
+    fn protection_rank_orders_tiers() {
+        assert!(protection_rank(&Protection::Ncrypt) > protection_rank(&Protection::Dpapi));
+        assert!(protection_rank(&Protection::Dpapi) > protection_rank(&Protection::None));
+        assert!(protection_rank(&Protection::SecretServiceTpm2) > protection_rank(&Protection::Tpm2));
+    }
 }

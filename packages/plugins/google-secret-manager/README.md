@@ -1,6 +1,6 @@
 # @varlock/google-secret-manager-plugin
 
-[![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://www.npmjs.com/package/@varlock/google-secret-manager-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/google-secret-manager-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmx.dev/package/@varlock/google-secret-manager-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/google-secret-manager-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that enables loading secrets from [Google Cloud Secret Manager](https://cloud.google.com/secret-manager) into your configuration.
 

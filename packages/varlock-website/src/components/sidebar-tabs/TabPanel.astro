@@ -1,0 +1,36 @@
+---
+import type { HTMLAttributes } from 'astro/types';
+
+export interface Props {
+  id: string;
+  initial?: boolean;
+}
+const { id, initial } = Astro.props;
+const attributes: HTMLAttributes<'div'> = initial ? { 'data-initial': 'true' } : {};
+---
+
+<div {id} {...attributes}>
+  <slot />
+</div>
+
+<style>
+  /*
+  Avoid layout shift on load. Hide panels initially with a long animation that
+  reveals them if JS never runs; JS usually wins first and toggles via `hidden`.
+  */
+  div {
+    animation: tab-panel-appear 10s steps(2, jump-none) 1;
+  }
+
+  div[data-initial],
+  div[role='tabpanel'] {
+    animation: none;
+  }
+
+  @keyframes tab-panel-appear {
+    from {
+      display: none;
+      content-visibility: hidden;
+    }
+  }
+</style>

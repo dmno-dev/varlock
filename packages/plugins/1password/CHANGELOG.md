@@ -6,6 +6,26 @@
 
 
 
+
+
+
+## 2.0.3
+<sub>2026-07-31</sub>
+
+- [#960](https://github.com/dmno-dev/varlock/pull/960)  *(patch)* - Never cache one-time password codes, and give a clear error when Connect is asked for one
+
+## 2.0.2
+<sub>2026-07-29</sub>
+
+- [#957](https://github.com/dmno-dev/varlock/pull/957)  *(patch)*
+  Fix 1Password CLI batch reads failing with "expected data on stdin but none found". The op inject template is now passed as a file rather than on stdin, which op only accepts from a true pipe.
+
+## 2.0.1
+<sub>2026-07-28</sub>
+
+- [#938](https://github.com/dmno-dev/varlock/pull/938)  *(patch)*
+  CLI batch reads now use op inject instead of op run -- env -0, fixing failures on Windows where no unix env binary exists
+
 ## 2.0.0
 <sub>2026-06-23</sub>
 

@@ -3,39 +3,56 @@ title: Integrations Overview
 description: How Varlock integrates with popular frameworks, bundlers, and runtimes
 ---
 
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
 Varlock ships with official integrations that wire the CLI, runtime helpers, and framework-specific plugins together so your configuration is validated, type-safe, and protected everywhere it runs.
 
-If you are working in a monorepo, start with the [Monorepos guide](/guides/monorepos/) for schema layout, root-level dependency overrides, and CI patterns before picking per-framework integrations below.
+If you are working in a monorepo, start with the [Monorepos guide](/guides/monorepos/) for schema layout, root-level dependency overrides, and CI patterns before picking a per-framework integration below.
 
-Integrations allow you to:
+Integrations let you:
 - load and validate `.env` files automatically during dev and use them in CI/CD and production
 - inject config into your code at build or request time
 - enable runtime protections such as leak prevention, and log redaction
 
-## Official integrations
-- [JavaScript / Node.js](/integrations/javascript/) — use `varlock` in custom toolchains, scripts, and servers
-- [Bun](/integrations/bun/) — instructions to set up Varlock with Bun
-- [Next.js](/integrations/nextjs/) — drop-in replacement for `@next/env`
-- [Vite](/integrations/vite/) — Vite plugin that validates and replaces at build time
-- [Qwik](/integrations/vite/) — use the Vite integration
-- [React Router](/integrations/vite/) — use the Vite integration
-- [Cloudflare Workers](/integrations/cloudflare/) — use the Vite integration or Wrangler vars/secrets directly
-- [Astro](/integrations/astro/) — Astro integration built on top of our Vite plugin
-- [SvelteKit](/integrations/sveltekit/) — use the Vite integration, or the Cloudflare integration's SvelteKit plugin when deploying to Workers
-- [TanStack Start](/integrations/tanstack-start/) — use the Vite integration, or the Cloudflare integration when deploying to Workers
-- [Expo / React Native](/integrations/expo/) — Expo and React Native CLI: Babel plugin + Metro config wrapper with compile-time replacements and server route support (Expo only)
-- [GitHub Actions](/integrations/github-action/) — validate your `.env.schema` in GitHub Actions workflows
-- [Other languages](/integrations/other-languages/) — guidance for piping varlock output into non-JS runtimes
-- [Docker](/guides/docker/) — a Docker wrapper around the varlock CLI including examples
-- [mise](/integrations/mise/) — install varlock and wire validated env vars into your tasks
-- [direnv](/integrations/direnv/) — load validated env vars directly into your shell session
+## JavaScript runtimes and frameworks
 
+<CardGrid>
+  <LinkCard title="JavaScript / Node.js" href="/integrations/javascript/" description="Custom toolchains, scripts, and servers" />
+  <LinkCard title="Bun" href="/integrations/bun/" description="Set up Varlock with Bun" />
+  <LinkCard title="Next.js" href="/integrations/nextjs/" description="Drop-in replacement for @next/env" />
+  <LinkCard title="Vite-based" href="/integrations/vite/" description="Vite plugin (also Qwik, React Router)" />
+  <LinkCard title="Astro" href="/integrations/astro/" description="Astro integration on top of the Vite plugin" />
+  <LinkCard title="SvelteKit" href="/integrations/sveltekit/" description="Vite integration, or Cloudflare Workers plugin" />
+  <LinkCard title="TanStack Start" href="/integrations/tanstack-start/" description="Vite integration, or Cloudflare when on Workers" />
+  <LinkCard title="Cloudflare Workers" href="/integrations/cloudflare/" description="Vite plugin or Wrangler vars/secrets" />
+  <LinkCard title="Expo / React Native" href="/integrations/expo/" description="Babel plugin + Metro config wrapper" />
+</CardGrid>
+
+## Other languages
+
+<CardGrid>
+  <LinkCard title="Python" href="/integrations/python/" description="varlock run + generated typed env module" />
+  <LinkCard title="Rust" href="/integrations/rust/" description="Generated serde-derived env module" />
+  <LinkCard title="Go" href="/integrations/go/" description="Generated env package" />
+  <LinkCard title="PHP" href="/integrations/php/" description="Generated typed env class" />
+  <LinkCard title="Java" href="/integrations/java/" description="Generated typed env class (Jackson)" />
+  <LinkCard title="C#" href="/integrations/csharp/" description="Generated typed env class" />
+  <LinkCard title="Other languages" href="/integrations/other-languages/" description="Generated-module overview for any runtime" />
+</CardGrid>
+
+## Platforms and tooling
+
+<CardGrid>
+  <LinkCard title="Docker" href="/integrations/docker/" description="Official image, entrypoints, compose, monorepos" />
+  <LinkCard title="GitHub Actions" href="/integrations/github-action/" description="Validate .env.schema in workflows" />
+  <LinkCard title="mise" href="/integrations/mise/" description="Install varlock and wire env into tasks" />
+  <LinkCard title="direnv" href="/integrations/direnv/" description="Load validated env into your shell" />
+</CardGrid>
 
 ## Coming soon
-We’re actively working on additional first-party integrations for popular runtimes, frameworks and hosting platforms. If yours isn’t listed yet, let us know!
+
+We're working on more first-party integrations for popular runtimes, frameworks and hosting platforms. If yours isn't listed yet, let us know!
 
 :::note[Request an integration]
 Join us on [Discord](https://chat.dmno.dev) or open a GitHub issue describing your use case so we can prioritize it.
 :::
-
-

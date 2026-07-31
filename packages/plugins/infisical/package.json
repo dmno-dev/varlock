@@ -1,7 +1,7 @@
 {
   "name": "@varlock/infisical-plugin",
   "description": "Varlock plugin to load secrets from Infisical",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/infisical/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
@@ -19,6 +19,7 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
+    "build:test": "tsup --config tsup.test.config.ts",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
@@ -48,6 +49,7 @@
     "@infisical/sdk": "^5.0.2",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
+    "outdent": "catalog:",
     "tsup": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

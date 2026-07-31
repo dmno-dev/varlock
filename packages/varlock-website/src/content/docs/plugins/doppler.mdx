@@ -19,7 +19,7 @@ The plugin uses service tokens for programmatic access to your Doppler secrets, 
 - **Fetch secrets** from Doppler projects and configs
 - **Bulk-load secrets** with `dopplerBulk()` via `@setValuesBulk`
 - **Service token authentication** for secure, scoped API access
-- **Efficient caching** — a single API call is shared across all secret lookups in the same config
+- **Efficient caching**: a single API call is shared across all secret lookups in the same config
 - **Multiple plugin instances** for different projects/configs
 - **Auto-infer secret names** from variable names for convenience
 - **Helpful error messages** with resolution tips
@@ -60,7 +60,7 @@ DOPPLER_TOKEN=
 
 3. **Save the token** (displayed only once!)
 
-    Copy the service token immediately — it will only be displayed once.
+    Copy the service token immediately. It will only be displayed once.
 
     :::caution[Save token securely]
     Store the service token securely. You won't be able to see it again after this step!
@@ -191,7 +191,7 @@ DOPPLER_TOKEN=
 <div>
 #### `dopplerServiceToken`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents a Doppler service token. This type is marked as `@sensitive`.
@@ -309,7 +309,7 @@ SENDGRID_API_KEY=
 - Check that the service token has access to the requested project/config
 
 ### Access denied
-- Service tokens are scoped to a specific config — ensure you're using the right one
+- Service tokens are scoped to a specific config, so ensure you're using the right one
 - Verify the token hasn't been revoked
 
 ### Wrong config

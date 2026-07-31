@@ -10,19 +10,19 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/passbolt-plugin" />
 </div>
 
-Our [Passbolt](https://www.passbolt.com/) plugin enables secure loading of secrets from Passbolt password manager using declarative instructions within your `.env` files.
+Our [Passbolt](https://www.passbolt.com/) plugin loads secrets from Passbolt password manager using declarative instructions within your `.env` files.
 
 Passbolt is an open-source, self-hosted password manager built for teams. This plugin connects to your Passbolt instance's API using your account kit and passphrase, decrypting secrets via OpenPGP.
 
 ## Features
 
-- **Account kit authentication** — just provide your account kit and passphrase
-- **UUID-based secret access** — fetch secrets by their resource UUID
-- **`#field` syntax** — read specific fields (username, password, URI, TOTP, custom fields)
+- **Account kit authentication**: provide your account kit and passphrase
+- **UUID-based secret access**: fetch secrets by their resource UUID
+- **`#field` syntax**: read specific fields (username, password, URI, TOTP, custom fields)
 - **Bulk loading** with `passboltBulk()` to load all passwords from a folder
 - **Custom fields object** with `passboltCustomFieldsObj()` for `@setValuesBulk`
-- **Self-hosted support** — API URL is read from your account kit
-- **Multiple instances** — connect to different Passbolt instances
+- **Self-hosted support**: API URL is read from your account kit
+- **Multiple instances**: connect to different Passbolt instances
 
 ## Installation and setup
 
@@ -107,7 +107,7 @@ LOGIN_PASS=passbolt("01234567-0123-4567-890a-bcdef0123456#password")
 TOTP_SECRET=passbolt("01234567-0123-4567-890a-bcdef0123456#totp.secret")
 TOTP_CODE=passbolt("01234567-0123-4567-890a-bcdef0123456#totp.code")
 
-# Custom fields — any unrecognized name is treated as a custom field
+# Custom fields: any unrecognized name is treated as a custom field
 MY_FIELD=passbolt("01234567-0123-4567-890a-bcdef0123456#MyCustomField")
 ```
 
@@ -176,7 +176,7 @@ To find a resource's UUID:
 <div>
 #### `@initPassbolt()`
 
-Initializes an instance of the Passbolt plugin — setting up authentication and options. Can be called multiple times for different instances.
+Initializes an instance of the Passbolt plugin, setting up authentication and options. Can be called multiple times for different instances.
 
 **Key/value args:**
 - `accountKit` **(required)**: Passbolt account kit (base64-encoded). Should be a reference to a config item of type `passboltAccountKit`.
@@ -202,7 +202,7 @@ PB_PASSPHRASE=
 <div>
 #### `passboltAccountKit`
 
-This type is [`@internal`](/reference/item-decorators/#internal) by default — varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly — for example to write secrets back or fetch additional secrets at runtime.
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly, for example to write secrets back or fetch additional secrets at runtime.
 
 
 Represents a Passbolt account kit (base64-encoded). Validation ensures the value is valid base64. The type is marked as `@sensitive`, so adding an explicit `@sensitive` decorator is optional.
@@ -308,6 +308,6 @@ Fetches all custom fields from a Passbolt resource as a JSON object. Intended fo
 
 ## Resources
 
-- [Passbolt](https://www.passbolt.com/) — open-source password manager for teams
-- [Passbolt Help](https://help.passbolt.com/) — official documentation
-- [Passbolt Community](https://community.passbolt.com/) — community forums
+- [Passbolt](https://www.passbolt.com/): open-source password manager for teams
+- [Passbolt Help](https://help.passbolt.com/): official documentation
+- [Passbolt Community](https://community.passbolt.com/): community forums

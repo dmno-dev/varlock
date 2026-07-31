@@ -1,0 +1,118 @@
+/*
+  AST-based static replacement of expressions (e.g. `ENV.SOME_KEY` -> literal values).
+
+  Used https://www.npmjs.com/package/rollup-plugin-define as a starting point
+  Initially we were using @rollup/plugin-replace, but it would replace text in strings
+
+  This instead replaces nodes in a parsed AST rather than text in a string,
+  so references inside string literals, comments, and template literal text
+  are never touched.
+
+  Shared by the vite integration (which passes rollup's `parse`) and the
+  nextjs integration's turbopack loader (which passes @babel/parser).
+  The parser just needs to produce an estree-compliant tree with node
+  start/end offsets (ast-matcher also accepts @babel/parser `File` nodes).
+*/
+
+import MagicString from 'magic-string';
+import astMatcher from 'ast-matcher';
+
+type Edit = [number, number];
+type AstNode = { start: number; end: number };
+
+/** parse fn producing an estree-compliant AST with start/end offsets on nodes */
+export type AstParseFn = (code: string, opts?: any) => any;
+
+function escapeStringRegexp(string: string) {
+  if (typeof string !== 'string') throw new TypeError('Expected a string');
+
+  // see https://github.com/sindresorhus/escape-string-regexp
+  return string
+    .replace(/[|\\{}()[\]^$+*?.]/g, '\\$&')
+    .replace(/-/g, '\\x2d');
+}
+
+
+function markEdited(node: AstNode, edits: Array<Edit>): number | false {
+  for (const [start, end] of edits) {
+    if ((start <= node.start && node.start < end) || (start < node.end && node.end <= end)) {
+      return false; // Already edited
+    }
+  }
+
+  // Not edited
+  return edits.push([node.start, node.end]);
+}
+
+export const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
+
+type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
+
+export function createReplacerTransformFn(opts: {
+  replacements: Record<string, string>,
+}) {
+  const keys = Object.keys(opts.replacements);
+  let matchers: MatchersArray;
+  const extraMatchersForFileType: Record<string, MatchersArray> = {};
+
+  const findAnyReplacementRegex = new RegExp(`(?:${keys.map(escapeStringRegexp).join('|')})`, 'g');
+
+  return function transform(
+    parserCtx: {
+      parse: AstParseFn;
+    },
+    code: string,
+    id: string,
+  ) {
+    if (keys.length === 0) return null;
+
+    const fileExt = id.split('?')[0].split('#')[0].split('.').pop() || '';
+    if (!SUPPORTED_FILES.includes(fileExt)) return null;
+
+    if (code.search(findAnyReplacementRegex) === -1) return null;
+
+    const parse = (codeToParse: string, source = code): any => {
+      try {
+        return parserCtx.parse(codeToParse, undefined);
+      } catch (error) {
+        (error as Error).message += ` in ${source}`;
+        throw error;
+      }
+    };
+
+    const ast = parse(code, id);
+
+    matchers ||= keys.map((key) => ({
+      matcher: astMatcher(parse(key)),
+      replacement: opts.replacements[key],
+    }));
+
+    if (fileExt === 'vue') {
+      // in vue script+setup files, ENV.X in template blocks gets replaced with `$setup.ENV.X`
+      extraMatchersForFileType.vue ||= keys.map((key) => ({
+        matcher: astMatcher(parse(`$setup.${key}`)),
+        replacement: opts.replacements[key],
+      }));
+    }
+
+    const magicString = new MagicString(code);
+    const edits: Array<Edit> = [];
+
+    Object.values([...matchers, ...extraMatchersForFileType[fileExt] || []]).forEach(({ matcher, replacement }) => {
+      for (const { node } of (matcher(ast) || []) as Array<{ node: AstNode }>) {
+        if (markEdited(node, edits)) {
+          magicString.overwrite(
+            node.start,
+            node.end,
+            replacement,
+          );
+        }
+      }
+    });
+
+    if (edits.length === 0) return null;
+
+    // return the MagicString so the plugin can make further modifications
+    return magicString;
+  };
+}

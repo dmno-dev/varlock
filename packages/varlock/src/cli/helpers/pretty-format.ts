@@ -19,6 +19,7 @@ export const fmt = {
     return ansis.green.italic(s);
   },
   packageName: (s: string) => ansis.green.italic(s),
+  flag: (s: string) => ansis.yellow(s),
 };
 
 export const logLines = (lines: Array<string | false | undefined>) => {

@@ -1,0 +1,51 @@
+---
+title: bubblewrap
+description: Launch bubblewrap with varlock proxy env
+---
+
+## bubblewrap
+
+[bubblewrap](https://github.com/containers/bubblewrap) is the Linux namespace primitive behind Fence and many other sandboxes. Use it directly when you want a minimal DIY jail without Fence's policy layer.
+
+### Install
+
+```bash
+# Debian / Ubuntu
+sudo apt install bubblewrap
+
+# Fedora
+sudo dnf install bubblewrap
+```
+
+For a higher-level wrapper around per-project bubblewrap configs, see [sandbox-run](https://codeberg.org/Grauwolf/sandbox-run).
+
+### Launch with proxy env
+
+Share the host network so the jail can reach varlock on loopback, bind your project read-write, and keep the rest of `$HOME` out:
+
+```bash
+eval "$(varlock proxy env)"
+
+bwrap \
+  --die-with-parent \
+  --unshare-pid \
+  --share-net \
+  --ro-bind /usr /usr \
+  --ro-bind /bin /bin \
+  --ro-bind /lib /lib \
+  --ro-bind /lib64 /lib64 \
+  --ro-bind /etc /etc \
+  --bind "$PWD" "$PWD" \
+  --chdir "$PWD" \
+  --dev /dev \
+  --proc /proc \
+  --tmpfs /tmp \
+  -- claude
+```
+
+Adjust binds for your distro layout and tools (`node`, agent binaries under `/home`, etc.). Prefer Fence if you want packaged agent templates and domain allowlisting without maintaining a long `bwrap` line.
+
+:::note
+`--share-net` is what keeps `HTTP_PROXY=http://127.0.0.1:…` meaningful. A fully unshared network namespace cannot dial the host loopback proxy without extra bridging.
+:::
+

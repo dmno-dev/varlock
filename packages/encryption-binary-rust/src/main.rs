@@ -23,6 +23,7 @@ fn main() {
 
     match command {
         "generate-key" => cmd_generate_key(&args),
+        "rewrap-key" => cmd_rewrap_key(&args),
         "delete-key" => cmd_delete_key(&args),
         "list-keys" => cmd_list_keys(),
         "key-exists" => cmd_key_exists(&args),
@@ -97,6 +98,18 @@ fn cmd_delete_key(args: &[String]) {
         "keyId": key_id,
         "deleted": deleted,
     }));
+}
+
+fn cmd_rewrap_key(args: &[String]) {
+    let key_id = get_key_id(args);
+    match key_store::rewrap_key(&key_id) {
+        Ok(protection) => json_success(json!({
+            "keyId": key_id,
+            "protection": protection.to_string(),
+            "rewrapped": true,
+        })),
+        Err(e) => json_error(&e),
+    }
 }
 
 fn cmd_list_keys() {
@@ -248,10 +261,18 @@ fn cmd_status() {
     }
     #[cfg(target_os = "windows")]
     {
+        if !info.hardware_backed {
+            if let Some(hint) = key_store::get_ncrypt_setup_hint() {
+                result.as_object_mut().unwrap().insert(
+                    "setupHint".to_string(),
+                    serde_json::Value::String(hint),
+                );
+            }
+        }
         if !info.biometric_available {
             if let Some(hint) = key_store::windows_hello::get_setup_hint() {
                 result.as_object_mut().unwrap().insert(
-                    "setupHint".to_string(),
+                    "biometricSetupHint".to_string(),
                     serde_json::Value::String(hint),
                 );
             }
@@ -345,6 +366,7 @@ fn cmd_help() {
 
 COMMANDS:
   generate-key [--key-id <id>]    Create a new encryption key
+  rewrap-key [--key-id <id>]      Re-wrap key with best available protection (optional; auto on decrypt)
   delete-key [--key-id <id>]      Delete an encryption key
   list-keys                       List all Varlock encryption keys
   key-exists [--key-id <id>]      Check if a key exists
@@ -372,7 +394,8 @@ OPTIONS:
   --via-daemon        Route decrypt through daemon for biometric + session caching
 
 PLATFORM PROTECTION:
-  Windows: DPAPI (user-session-scoped encryption)
+  Windows: NCrypt TPM seal (Platform Crypto Provider) when available,
+           otherwise DPAPI (user-session-scoped encryption)
   Linux:   Secret Service (GNOME Keyring / KWallet), layered with TPM2 when
            available; falls back to TPM2-only or plaintext if neither is present
 

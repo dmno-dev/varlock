@@ -15,7 +15,7 @@ OP_TOKEN=
 XYZ_API_KEY=op(op://api-prod/xyz/api-key) # custom resolver function
 ```
 
-This unlocks use cases like:
+This enables use cases like:
 - loading values from cloud providers or locally running services
 - adding domain-specific validation/coercion logic via custom data types
 - generating values dynamically via custom resolver functions
@@ -35,7 +35,7 @@ In a JavaScript project (where a `package.json` file is present), you must insta
 # @plugin(@varlock/a-plugin) # uses the locally installed version
 ```
 
-You can optionally add a version specifier to validate that the installed version satisfies a [semver range](https://devhints.io/semver) — but the local version is always what gets loaded. If the installed version doesn't match the specified range, an error will be thrown.
+You can optionally add a version specifier to validate that the installed version satisfies a [semver range](https://devhints.io/semver), but the local version is always what gets loaded. If the installed version doesn't match the specified range, an error will be thrown.
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/a-plugin@^2.3.4) # validates installed version is >=2.3.4 <3.0.0
@@ -53,10 +53,19 @@ When using the standalone binary (no `package.json` present), you must specify a
 When downloading a third-party (non-`@varlock/*`) plugin for the first time, Varlock will prompt you to confirm before downloading. Once confirmed and cached, subsequent runs will not re-prompt. You can also install the plugin via your `package.json` to skip the prompt entirely.
 :::
 
+### Local plugins
+
+You can point `@plugin()` at a local path instead of an npm package, either a single file or a package directory:
+
+```env-spec title=".env.schema"
+# @plugin(./my-plugin.js)   # single file
+# @plugin(../shared/plugin/) # package directory (trailing slash)
+```
+
+Local plugins must be **self-contained**: a single built file, or a package that bundles its dependencies. Varlock loads a plugin from its file directly and does not install anything for it, so a plugin that relies on separate `node_modules` dependencies will fail to load once it is moved away from where those dependencies live (for example in a compiled binary, or in the output of [`varlock flatten`](/reference/cli/project/#flatten)). If you author a plugin with dependencies, bundle it into a single file first. The official `@varlock/*` plugins are each a single bundled file.
+
 {/*
 INFO TO ADD LATER
-- local single file
-- local path (monorepo)
 - https url
 - git
 - generic npm/jsr

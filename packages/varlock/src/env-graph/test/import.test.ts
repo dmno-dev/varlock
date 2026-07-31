@@ -1,6 +1,8 @@
 import {
   describe, test, expect, vi,
 } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import outdent from 'outdent';
 import { EnvGraph, DirectoryDataSource, LoadingError } from '../index';
@@ -150,6 +152,31 @@ describe('@import', () => {
   });
 
   describe('pick / omit filters', () => {
+    test.each([
+      ['pick', 'pick=[FOO]'],
+      ['omit', 'omit=[BAR]'],
+    ])('%s filters keys from real filesystem directory imports', async (_filterName, filterArg) => {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'varlock-directory-import-filter-'));
+      const appDir = path.join(tempDir, 'app');
+      const sharedDir = path.join(tempDir, 'shared');
+
+      try {
+        await fs.mkdir(appDir);
+        await fs.mkdir(sharedDir);
+        await fs.writeFile(path.join(appDir, '.env.schema'), `# @import(../shared/, ${filterArg})\n# ---\n`);
+        await fs.writeFile(path.join(sharedDir, '.env.schema'), 'FOO=foo\nBAR=bar\n');
+
+        const g = new EnvGraph();
+        await g.setRootDataSource(new DirectoryDataSource(appDir));
+        await g.finishLoad();
+
+        expect(g.sortedDataSources.flatMap((source) => source.errors).filter((error) => !error.isWarning)).toEqual([]);
+        expect(Object.keys(g.configSchema)).toEqual(['FOO']);
+      } finally {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
     test('pick=[...] only imports listed keys', envFilesTest({
       files: {
         '.env.schema': outdent`

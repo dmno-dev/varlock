@@ -18,7 +18,7 @@ The plugin automatically integrates with Azure authentication, including Managed
 
 - **Zero-config authentication** - Just provide your vault URL, authentication happens automatically
 - **Managed Identity support** - No credentials needed for Azure-hosted apps (App Service, Container Instances, VMs, Functions, AKS)
-- **Azure CLI authentication** - Works seamlessly with `az login` for local development
+- **Azure CLI authentication** - Works with `az login` for local development
 - **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
@@ -356,7 +356,7 @@ AZURE_CLIENT_SECRET=
 ```
 
 :::tip[Does your app use these credentials too?]
-The examples here mark the credential [`@internal`](/reference/item-decorators/#internal) so it's used by varlock to fetch your secrets but **not** injected into your app — the recommended posture when varlock is the only consumer. Unlike the dedicated secrets-manager tokens, Azure credentials are **not** `@internal` by default (they're commonly read directly by the Azure SDK), so if you need the credential at runtime for other purposes, opt out with `@internal=false` to keep it injected:
+The examples here mark the credential [`@internal`](/reference/item-decorators/#internal) so it's used by varlock to fetch your secrets but **not** injected into your app. This is the recommended posture when varlock is the only consumer. Unlike the dedicated secrets-manager tokens, Azure credentials are **not** `@internal` by default (they're commonly read directly by the Azure SDK), so if you need the credential at runtime for other purposes, opt out with `@internal=false` to keep it injected:
 
 ```env-spec
 # @type=azureClientSecret @internal=false

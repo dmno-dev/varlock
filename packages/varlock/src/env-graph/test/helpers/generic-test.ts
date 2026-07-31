@@ -42,10 +42,12 @@ export function envFilesTest(spec: {
   expectRequired?: Record<string, boolean | Constructor<Error>>;
   expectRequiredIsDynamic?: Record<string, boolean>;
   expectSensitive?: Record<string, boolean | Constructor<Error>>;
+  expectTags?: Record<string, Array<string>>;
+  expectDynamic?: Record<string, boolean | Constructor<Error>>;
   expectSerializedMatches?: any;
   /**
    * Simulate calling getTypeGenInfo() on all items before resolveEnvValues(),
-   * which mirrors what the CLI does (generateTypesIfNeeded before resolveEnvValues).
+   * which mirrors what the CLI does (runCodeGeneratorsIfNeeded before resolveEnvValues).
    * This is used to reproduce bugs where early type-gen resolution corrupts cached state.
    */
   runTypeGeneration?: boolean;
@@ -183,6 +185,18 @@ export function envFilesTest(spec: {
         for (const key of Object.keys(spec.expectSensitive)) {
           const item = g.configSchema[key];
           expect(item.isSensitive, `expected ${key} to be ${spec.expectSensitive[key] ? 'sensitive' : 'NOT sensitive'}`).toBe(spec.expectSensitive[key]);
+        }
+      }
+      if (spec.expectTags) {
+        for (const key of Object.keys(spec.expectTags)) {
+          const item = g.configSchema[key];
+          expect(item.tags, `${key} tags did not match`).toEqual(spec.expectTags[key]);
+        }
+      }
+      if (spec.expectDynamic) {
+        for (const key of Object.keys(spec.expectDynamic)) {
+          const item = g.configSchema[key];
+          expect(item.isDynamic, `expected ${key} to be ${spec.expectDynamic[key] ? 'dynamic' : 'NOT dynamic'}`).toBe(spec.expectDynamic[key]);
         }
       }
     }

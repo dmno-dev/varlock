@@ -57,6 +57,8 @@ class VaultPluginInstance {
   private jwtAuthPath?: string;
   private oidcToken?: string;
   private cachedToken?: CachedToken;
+  /** in-flight login promise so concurrent callers share one auth request */
+  private loginInFlight?: Promise<string>;
   private secretCache = new Map<string, Promise<Record<string, any>>>();
   /** optional cache TTL - when set, resolved values are cached */
   cacheTtl?: string | number;
@@ -119,7 +121,7 @@ class VaultPluginInstance {
     return this._cacheKeyIdentity;
   }
 
-  private async getVaultToken(): Promise<string> {
+  async getVaultToken(): Promise<string> {
     // Check cached token (with 30s buffer)
     if (this.cachedToken && this.cachedToken.expiresAt > Date.now() + 30_000) {
       debug('Using cached Vault token');
@@ -132,14 +134,26 @@ class VaultPluginInstance {
       return this.token;
     }
 
+    // Share one in-flight AppRole/JWT login across concurrent callers
+    if (this.loginInFlight) {
+      debug('Awaiting in-flight Vault login');
+      return this.loginInFlight;
+    }
+
     // 2. AppRole auth
     if (this.roleId && this.secretId) {
-      return this.loginWithAppRole();
+      this.loginInFlight = this.loginWithAppRole().finally(() => {
+        this.loginInFlight = undefined;
+      });
+      return this.loginInFlight;
     }
 
     // 3. JWT/OIDC auth
     if (this.jwtRole) {
-      return this.loginWithJwt();
+      this.loginInFlight = this.loginWithJwt().finally(() => {
+        this.loginInFlight = undefined;
+      });
+      return this.loginInFlight;
     }
 
     // 4. Vault/OpenBao CLI token helper files
@@ -709,6 +723,55 @@ plugin.registerResolverFunction({
     }
 
     return await selectedInstance.getSecret(fullPath, jsonKey);
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'vaultToken',
+  label: 'HashiCorp Vault client token',
+  icon: VAULT_ICON,
+  impliesSensitive: true,
+  argsSchema: {
+    type: 'array',
+    arrayMaxLength: 1,
+  },
+  process() {
+    // Optional positional arg = instance id
+    let instanceId = '_default';
+    if (this.arrArgs?.length) {
+      if (!this.arrArgs[0].isStatic) {
+        throw new SchemaError('Expected instance id to be a static value');
+      }
+      instanceId = String(this.arrArgs[0].staticValue);
+    }
+
+    if (!Object.values(pluginInstances).length) {
+      throw new SchemaError('No Vault plugin instances found', {
+        tip: 'Initialize at least one Vault instance using the @initHcpVault() root decorator',
+      });
+    }
+
+    const selectedInstance = pluginInstances[instanceId];
+    if (!selectedInstance) {
+      if (instanceId === '_default') {
+        throw new SchemaError('Vault plugin instance (without id) not found', {
+          tip: [
+            'Either remove the `id` param from your @initHcpVault call',
+            'or use `vaultToken(id)` to select an instance by id',
+            `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
+          ].join('\n'),
+        });
+      } else {
+        throw new SchemaError(`Vault plugin instance id "${instanceId}" not found`, {
+          tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
+        });
+      }
+    }
+
+    return { instanceId };
+  },
+  async resolve({ instanceId }) {
+    return pluginInstances[instanceId].getVaultToken();
   },
 });
 

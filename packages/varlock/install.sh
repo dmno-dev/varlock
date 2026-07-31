@@ -27,6 +27,7 @@ INSTALL_DIR="${VARLOCK_CONFIG_DIR}/bin"
 INSTALL_DIR_UNEXPANDED="\${XDG_CONFIG_HOME:-~/.config}/varlock/bin"
 REINSTALL=""
 FORCE_NO_BREW="false"
+SKIP_WIN_EXE="false"
 
 usage() {
   echo "Usage: $0 [options]"
@@ -38,6 +39,7 @@ usage() {
   echo "  --reinstall       reinstall even if already installed (default: false)"
   echo "  --version         version of varlock to install (defaults to latest)"
   echo "  --force-no-brew   force install without homebrew even when detected (default: false)"
+  echo "  --skip-win-exe    on WSL, skip installing the Windows encryption helper (varlock-local-encrypt.exe) (default: false)"
   echo ""
 }
 
@@ -56,6 +58,9 @@ parse_args() {
     ;;
     force-no-brew | --force-no-brew)
       FORCE_NO_BREW="true"
+    ;;
+    skip-win-exe | --skip-win-exe)
+      SKIP_WIN_EXE="true"
     ;;
     help | --help)
       usage
@@ -122,7 +127,8 @@ main() {
   require_cmd mktemp
   require_cmd grep
   require_cmd rm
-  
+  require_cmd awk
+
 
   # check installation directory is writable
   mkdir -p "${INSTALL_DIR}"
@@ -147,12 +153,14 @@ main() {
     echo "Version ${VERSION} will be installed"
   fi
   _url="${GITHUB_RELEASES_URL}/download/varlock@${VERSION}/${_archive_name}"
+  _checksums_url="${GITHUB_RELEASES_URL}/download/varlock@${VERSION}/checksums.txt"
 
   # Installation
   _temp_dir=$(mktemp -d)
   _archive_path="${_temp_dir}/${_archive_name}"
 
   download "${_url}" "${_archive_path}" || return 1
+  verify_checksum "${_archive_path}" "${_archive_name}" "${_checksums_url}" || return 1
 
   case $_archive_path in
     *.zip)
@@ -186,6 +194,11 @@ main() {
         install "${_temp_dir}/varlock-local-encrypt" "${INSTALL_DIR}/"
         chmod u+x "${INSTALL_DIR}/varlock-local-encrypt"
         echo "  Installed native encryption binary (varlock-local-encrypt)"
+      fi
+      if is_wsl && [ "$SKIP_WIN_EXE" != "true" ] && [ -f "${_temp_dir}/varlock-local-encrypt.exe" ]; then
+        install "${_temp_dir}/varlock-local-encrypt.exe" "${INSTALL_DIR}/"
+        chmod u+x "${INSTALL_DIR}/varlock-local-encrypt.exe"
+        echo "  Installed Windows encryption helper for WSL (varlock-local-encrypt.exe)"
       fi
     ;;
     win-*)
@@ -248,6 +261,73 @@ get_architecture() {
   fi
 }
 
+is_wsl() {
+  # Fast path: WSL sets this env var
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    return 0
+  fi
+
+  # Fallback: check /proc/version for Microsoft/WSL signature
+  if [ -r /proc/version ] && grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null; then
+    return 0
+  fi
+
+  # Last resort: kernel release string
+  case "$(uname -r 2>/dev/null)" in
+    *[Mm]icrosoft*|*[Ww][Ss][Ll]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# $1 - path to a file. Prints its sha256 as lowercase hex.
+# Returns 1 if no hashing tool is available.
+sha256_of_file() {
+  if cmd_exists sha256sum; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif cmd_exists shasum; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  elif cmd_exists openssl; then
+    openssl dgst -sha256 "$1" | sed 's/.*= *//'
+  else
+    return 1
+  fi
+}
+
+# $1 - downloaded archive path. $2 - archive name as it appears in checksums.txt.
+# $3 - url of the release's checksums.txt
+#
+# The release publishes `checksums.txt` in `sha256sum` format ("<hash>  <name>"),
+# generated alongside the archives in scripts/build-binaries.ts. We fetch it over
+# the same TLS connection as the archive, so this is an integrity check against a
+# corrupt or truncated download and a tampered release asset - not a defense
+# against a compromised github account. Releases are signed, but this script does
+# not verify the cosign bundle.
+verify_checksum() {
+  _vc_archive_path="$1"
+  _vc_archive_name="$2"
+  _vc_url="$3"
+  _vc_checksums_path="${_temp_dir}/checksums.txt"
+
+  _vc_actual=$(sha256_of_file "${_vc_archive_path}") || err "Unable to verify download: none of \`sha256sum\`, \`shasum\` or \`openssl\` was found.\n> install one of them, or install varlock via homebrew or npm instead"
+
+  download "${_vc_url}" "${_vc_checksums_path}" || err "Failed to download checksums.txt for varlock@${VERSION}"
+
+  # match the name field exactly rather than substring-matching the whole line,
+  # so `varlock-linux-x64.tar.gz` cannot be satisfied by another entry
+  _vc_expected=$(awk -v name="${_vc_archive_name}" '$2 == name { print $1 }' "${_vc_checksums_path}" | head -n 1)
+
+  if [ -z "${_vc_expected}" ]; then
+    err "No checksum published for ${_vc_archive_name} in varlock@${VERSION}"
+  fi
+
+  if [ "${_vc_actual}" != "${_vc_expected}" ]; then
+    rm -f "${_vc_archive_path}"
+    err "Checksum mismatch for ${_vc_archive_name}\n>   expected: ${_vc_expected}\n>   actual:   ${_vc_actual}\n> the download was discarded. Please retry, and report this if it persists @ ${GITHUB_URL}/issues"
+  fi
+
+  echo "  Verified checksum for ${_vc_archive_name}"
+}
+
 # $1 - url for download. $2 - path to download
 # Wrapper function for curl/wget
 download() {
@@ -289,7 +369,8 @@ cmd_exists() {
 }
 
 err() {
-  printf "🚨 VARLOCK INSTALLATION ERROR - %s\n" "$1"
+  # %b (not %s) so callers can use \n to add detail lines
+  printf "🚨 VARLOCK INSTALLATION ERROR - %b\n" "$1"
   exit 1
 }
 

@@ -1,9 +1,9 @@
 ---
 title: OIDC Workload Identity
-description: Authenticate with secret providers using OIDC tokens from your deployment platform — no long-lived credentials needed
+description: Authenticate with secret providers using OIDC tokens from your deployment platform, with no long-lived credentials
 ---
 
-Many deployment platforms issue short-lived [OIDC](https://openid.net/developers/how-connect-works/) tokens that your application can exchange for temporary credentials with secret providers. This eliminates the need to store long-lived API keys or service account credentials in your deployment environment — no "secret zero" needed to fetch the rest of your secrets.
+Many deployment platforms issue short-lived [OIDC](https://openid.net/developers/how-connect-works/) tokens that your application can exchange for temporary credentials with secret providers. This eliminates the need to store long-lived API keys or service account credentials in your deployment environment: no "secret zero" needed to fetch the rest of your secrets.
 
 Varlock supports OIDC workload identity federation across multiple plugins and platforms. In most cases, the OIDC token is **auto-detected** from your deployment platform, so you just need to configure the provider side.
 

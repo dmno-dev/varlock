@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
+import {
+  mkdtempSync, writeFileSync, chmodSync, rmSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { exec } from '../exec.js';
 
 /**
@@ -84,4 +89,38 @@ describe('exec', () => {
     // to avoid flakiness while still catching a premature resolve (e.g. <50ms).
     expect(elapsedMs).toBeGreaterThanOrEqual(200);
   });
+
+  it('should not read whole PATH binaries when probing shebangs', async () => {
+    // Regression: readShebang used readFileSync on the entire file. Resolving a
+    // bare command like `node` (~100MB+ binary) allocated hundreds of MiB.
+    if (process.platform === 'win32') return;
+
+    const dir = mkdtempSync(join(tmpdir(), 'varlock-shebang-'));
+    const binName = 'varlock-shebang-probe';
+    const binPath = join(dir, binName);
+    // Large file with a shebang script that exits before any padding is parsed.
+    // findCommand must probe this via readShebang without loading all 32 MiB.
+    const payload = Buffer.concat([
+      Buffer.from('#!/bin/sh\necho shebang-ok\nexit 0\n'),
+      Buffer.alloc(32 * 1024 * 1024, 0x00),
+    ]);
+    writeFileSync(binPath, payload);
+    chmodSync(binPath, 0o755);
+
+    const before = process.memoryUsage().rss;
+    const childProcess = exec(binName, [], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH || ''}` },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const stdoutData = childProcess.stdout ? streamToString(childProcess.stdout) : Promise.resolve('');
+    const result = await childProcess;
+    const after = process.memoryUsage().rss;
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(result.exitCode).toBe(0);
+    expect((await stdoutData).trim()).toBe('shebang-ok');
+    // Allow some allocator noise, but must not retain anything like the 32MiB file
+    expect(after - before).toBeLessThan(8 * 1024 * 1024);
+  }, 15_000);
 });

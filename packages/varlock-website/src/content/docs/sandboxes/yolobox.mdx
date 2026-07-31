@@ -1,0 +1,46 @@
+---
+title: yolobox
+description: Launch yolobox with varlock proxy env
+---
+
+## yolobox
+
+[yolobox](https://yolobox.dev/) runs the agent inside a container with your project mounted at its real path and your home directory left on the host. It has optional credential *forwarding* (real env into the box); skip that and use varlock placeholders instead.
+
+### Install
+
+```bash
+brew install finbarr/tap/yolobox
+# or: curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
+```
+
+### Launch with proxy env
+
+```bash
+eval "$(varlock proxy env)"
+yolobox claude
+```
+
+By default yolobox can pass host env into the container. That is what you want for `HTTP_PROXY`, CA paths, and placeholders. Do **not** use yolobox flags that forward real API keys or mount host secret dirs for credentials you already marked `@proxy`.
+
+:::tip[CA path inside the container]
+The CA env vars from `proxy env` point at files on the host, which by default live in a temp dir the container cannot see. yolobox mounts your project at its real path, so start the proxy with the CA inside the project to make those paths valid in the container too:
+
+```bash
+varlock proxy start --cert-dir ./.varlock-proxy
+```
+
+Add `.varlock-proxy/` to `.gitignore`; the cert is public but regenerated per run, so there is no reason to commit it.
+:::
+
+:::caution[Container loopback]
+The guest's `127.0.0.1` is not the host's. Varlock binds loopback only today, so `HTTP_PROXY=http://127.0.0.1:<port>` from `proxy env` may not reach the host proxy from inside the container. Verify on your runtime (Docker Desktop `host.docker.internal`, Podman host gateway, or Apple container networking). Until varlock supports non-loopback sandbox bridging, treat yolobox + proxy as "works when the container can dial the host proxy address."
+:::
+
+For a tighter box, still exclude project secret files you do not want the agent to read:
+
+```bash
+eval "$(varlock proxy env)"
+yolobox claude --exclude ".env*" --exclude "secrets/**"
+```
+
