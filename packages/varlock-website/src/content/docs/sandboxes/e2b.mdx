@@ -149,7 +149,7 @@ Be clear-eyed about what this shape protects against. The broker holds real secr
 
 Two practical notes:
 
-- No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, upload the edited schema and restart the proxy: the pinned token and `--persist-ca` mean running agents just reconnect, with no re-wiring.
+- No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, write the edited schema with `files.write`, run `varlock proxy stop` in the broker, and rerun the same proxy start command (and readiness wait) from the setup above: the pinned token and `--persist-ca` mean running agents just reconnect, with no re-wiring.
 - The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one).
 - A broker sandbox is a single point of failure for its fleet. Manage its lifetime explicitly (`timeoutMs`, or E2B's pause/resume); `proxy run --url` opens a fresh tunnel per connection, so transient blips recover, and `--persist-ca` above keeps the CA stable across a broker restart. Reserve that flag for brokers: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
