@@ -270,10 +270,10 @@ function getRunCommandArgs(): Array<string> {
 }
 
 /**
- * Load + resolve + validate the schema in the proxy command's own (trusted)
- * context, throwing on any schema/config error. This is the part `proxy reload`
- * needs to fail loudly on a broken edit; `prepareProxyPolicy` builds the full
- * policy on top of it.
+ * Load + resolve + validate the schema in the proxy owner's own (trusted)
+ * context, throwing on any schema/config error. This is what makes the owner
+ * refuse a broken edit when applying a reload; `prepareProxyPolicy` builds the
+ * full policy on top of it.
  */
 async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
   const envGraph = await loadVarlockEnvGraph({
@@ -289,36 +289,6 @@ async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
   return envGraph;
-}
-
-/**
- * Best-effort schema check `proxy reload` runs in the REQUESTING process, purely as
- * a fast preview for the caller. It must never block the request: this context may
- * not be able to resolve the schema at all (a provider exec on a remote broker has
- * neither the project cwd nor the bootstrap env), and the owner re-validates with
- * its own context before applying anyway. Exported for tests.
- *
- * - `validated`: schema loaded and resolved cleanly here
- * - `no-local-schema`: nothing readable from this context (quiet skip)
- * - `invalid`: schema loaded but did not validate here (details already printed)
- */
-export async function previewReloadSchema(entryFilePaths?: Array<string>): Promise<'validated' | 'no-local-schema' | 'invalid'> {
-  let envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>;
-  try {
-    envGraph = await loadVarlockEnvGraph({ entryFilePaths, skipProxyFingerprintGuard: true });
-  } catch {
-    return 'no-local-schema';
-  }
-  if (Object.keys(envGraph.configSchema).length === 0) return 'no-local-schema';
-  try {
-    checkForSchemaErrors(envGraph);
-    await envGraph.runCodeGeneratorsIfNeeded();
-    await envGraph.resolveEnvValues();
-    checkForConfigErrors(envGraph);
-  } catch {
-    return 'invalid';
-  }
-  return 'validated';
 }
 
 async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<PreparedProxyPolicy> {
@@ -2060,19 +2030,13 @@ async function reloadAction(ctx: any) {
     throw new CliExitError(`Proxy session ${session.id} is no longer running.`);
   }
 
-  // Preview the schema in this context so an obviously broken edit fails fast at
-  // the call site, but never block on it: this process may not be able to resolve
-  // the schema at all (e.g. a provider exec on a remote broker, without the project
-  // cwd or bootstrap env). The owner validates with its own context before applying
-  // and reports the result back, so it is the authority either way.
-  const reloadPaths = ctx.values.path ?? session.entryPaths;
-  const preview = await previewReloadSchema(reloadPaths);
-  if (preview === 'invalid') {
-    console.log(ansis.yellow('⚠️  The schema does not validate in this context (details above). Sending the reload anyway;'));
-    console.log(ansis.yellow('   the proxy re-validates with its own environment before applying.'));
-  } else if (preview === 'no-local-schema') {
-    console.log(ansis.dim('Schema not readable from this context; the proxy validates it before applying.'));
-  }
+  // Deliberately NO schema resolution in this (requesting) process. The owner
+  // validates with its own context before applying and round-trips the result,
+  // so a local check adds nothing it can only mislead or harm: this context may
+  // differ from the owner's (a provider exec on a remote broker has neither the
+  // project cwd nor the bootstrap env), resolution duplicates side effects
+  // (codegen writes, plugin fetches, unlock prompts), and a hung resolver here
+  // would keep the request from ever being sent.
 
   // Hand the reload to the process that owns the runtime via the file channel,
   // then block until it reports a result. (When the native/phone approver lands,

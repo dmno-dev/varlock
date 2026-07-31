@@ -1,14 +1,8 @@
-import {
-  afterEach, beforeEach, describe, expect, test,
-} from 'vitest';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
 import {
   buildProxiedChildEnv, computeProxyChildView, isCwdWithin, resolveReloadMode, createReloadKeypressHandler,
-  previewReloadSchema,
 } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
@@ -373,39 +367,5 @@ describe('buildProxiedChildEnv', () => {
     });
     expect(env.API_KEY).toBe('vlk_placeholder_API_KEY_abc');
     expect(env.__VARLOCK_ENV).toBeUndefined();
-  });
-});
-
-describe('previewReloadSchema', () => {
-  let tempDir: string;
-  beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-reload-preview-'));
-  });
-  afterEach(() => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  function writeSchema(contents: string) {
-    const schemaPath = path.join(tempDir, '.env.schema');
-    fs.writeFileSync(schemaPath, contents);
-    return schemaPath;
-  }
-
-  test('resolvable schema validates', async () => {
-    const schemaPath = writeSchema('# @required\n_VARLOCK_TEST_PREVIEW_KEY=static-value\n');
-    await expect(previewReloadSchema([schemaPath])).resolves.toBe('validated');
-  });
-
-  test('a schema that does not resolve in this context is advisory, not fatal', async () => {
-    // required value with no source in this process env -> invalid here, but the
-    // reload request must still be sendable (the owner validates with its own env)
-    const schemaPath = writeSchema('# @required\n_VARLOCK_TEST_PREVIEW_KEY=\n');
-    await expect(previewReloadSchema([schemaPath])).resolves.toBe('invalid');
-  });
-
-  test('no readable schema in this context is a quiet skip', async () => {
-    await expect(previewReloadSchema([path.join(tempDir, 'does-not-exist', '.env.schema')])).resolves.toBe('no-local-schema');
-    const emptyPath = writeSchema('');
-    await expect(previewReloadSchema([emptyPath])).resolves.toBe('no-local-schema');
   });
 });
