@@ -1,0 +1,65 @@
+---
+title: smolvm
+description: Wire smolvm microVMs through varlock proxy
+---
+
+## smolvm
+
+[smolvm](https://smolmachines.com/) ([GitHub](https://github.com/smol-machines/smolvm)) runs workloads in hardware-isolated microVMs (libkrun, own guest kernel) with fast boots and network off by default. Start varlock on the **host**, pass the proxy/CA/placeholder environment into the VM, and mount the proxy CA so HTTPS clients inside trust it. The agent holds only placeholders; real secrets are injected on the wire by the host proxy.
+
+This recipe was verified against smolvm 1.7.1 on macOS. See [caveats](#caveats) for two version-specific notes that matter here.
+
+### Recipe
+
+Follow the [shared setup](/guides/proxy/sandboxing/#shared-setup), then start a session with a pinned port and CA location (the VM's env is set at creation with `-e`, and the CA dir must be a mountable path):
+
+```bash
+varlock proxy start --port 18080 --cert-dir ./.varlock-proxy
+```
+
+Turn the session's child view into `-e` flags and run the VM. [`varlock proxy env --full`](/reference/cli/proxy/#proxy) prints the complete env a proxied agent runs with: placeholder values for proxied secrets, proxy vars (`HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`, `NO_PROXY`), and CA trust vars, with `--cert-dir /varlock-ca` repointing the CA paths at where the guest will see the mount:
+
+```bash
+env_flags=()
+while IFS= read -r kv; do env_flags+=(-e "$kv"); done \
+  < <(varlock proxy env --full --cert-dir /varlock-ca --format json \
+      | jq -r 'to_entries[] | "\(.key)=\(.value)"')
+
+smolvm machine run --net \
+  --image your-agent-image \
+  --volume ./.varlock-proxy:/varlock-ca \
+  "${env_flags[@]}" \
+  -- claude
+```
+
+`--image` must contain your agent command (smolvm boots OCI images or local rootfs archives; it can't know your toolchain). Images pull from inside the VM, so the first run needs network.
+
+Why `HTTPS_PROXY=http://127.0.0.1:18080` works from inside a VM: with plain `--net`, smolvm uses libkrun's TSI backend (syscall-level socket interception), so guest sockets are executed host-side and the guest's `127.0.0.1` **is** the host's loopback. No forwarder, sidecar, or tunnel is needed. This is the cleanest guest-to-host-proxy path of any sandbox we have integrated.
+
+Confirm the agent sees placeholders, not real secrets:
+
+```bash
+smolvm machine run --net --image your-agent-image "${env_flags[@]}" -- printenv ANTHROPIC_API_KEY
+# expect your @placeholder value (sk-ant-api03-0000...), not the vault value
+```
+
+On a proxied request you'll see `inject: <KEY>` in the host session log, and responses that echo the secret back are scrubbed to the placeholder before the guest sees them.
+
+### Caveats
+
+Two things to know about smolvm's networking backends, verified on 1.7.1:
+
+1. **This recipe gives credential isolation, not egress lockdown.** smolvm's egress controls (`--allow-host`, `--allow-cidr`, `--outbound-localhost-only`) are enforced by its virtio-net gateway backend, and passing any of them switches the VM to that backend (correctly so: the TSI backend does not enforce them). Under plain `--net` (TSI), the guest can reach the network directly, bypassing the proxy. The agent still never holds real secrets, but a misbehaving one could exfiltrate data over its own connections. This is the same tier as credential-only setups; treat egress as open.
+2. **You can't yet combine enforced egress with the host proxy.** Under the virtio-net gateway, guest `127.0.0.1` is the guest's own loopback, and the intended host-access path (dialing the gateway IP `100.96.0.1`, which the relay redirects to host loopback) shipped upstream after the 1.7.1 release ([smol-machines/smolvm#784](https://github.com/smol-machines/smolvm/pull/784), merged 2026-07-30). On a release containing that fix, the locked-down shape becomes: `--allow-cidr 100.96.0.0/30` (making the proxy the VM's only egress path) plus `varlock proxy env --full --proxy-url http://100.96.0.1:18080 --cert-dir /varlock-ca`. That is the VM-grade version of varlock's built-in [`--sandbox`](/guides/proxy/sandboxing/#built-in-sandbox) jail, and the shape to prefer once available.
+
+Also note smolvm's own `--secret-env KEY=HOST_VAR` / `--secret-file` flags copy **real** values into the guest env. For secrets you mark with [`@proxy`](/reference/item-decorators/#proxy), use the placeholder path above instead so the real value never enters the VM.
+
+### smol cloud
+
+smolmachines' hosted offering creates machines over a REST API with env vars at creation and a `network` policy (`blocked` by default, `open`, or `allowCidrs` which accepts hostnames). That is the standard remote shape covered in the [sandboxes overview](/sandboxes/overview/): run a [broker instance](/sandboxes/overview/#topologies) or expose your local proxy over the [built-in tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url), allowlist only the tunnel hostname in `allowCidrs`, and pass the placeholder env at machine creation. We have not yet published a verified cloud recipe.
+
+### Reference
+
+- [Credential proxy](/guides/proxy/)
+- [`varlock proxy`](/reference/cli/proxy/#proxy) CLI
+- [smolvm README](https://github.com/smol-machines/smolvm) (networking flags, image sources)
