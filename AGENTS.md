@@ -68,7 +68,7 @@ Docs content lives in `packages/varlock-website/src/content/docs/` (`.mdx`). Whe
 - Avoid marketing and AI-flavored filler: `seamless`, `comprehensive`, `powerful`, `robust`, `leverage`, `out of the box`, `by design`, `effortless`, `unlock` (metaphorical), "whether you need X, Y, or Z", "instead of wrestling with", and similar. Say what the thing does plainly.
 - Be concise, but never at the cost of completeness. Keep every flag, command, caveat, and link a user or their agent needs to stay unblocked.
 - Never edit code fences, `ansi`/`diff` blocks, generated fixtures, frontmatter structure, or MDX component markup for tone. Prose only.
-- Run `bun run --filter varlock-website astro build` to confirm the docs still build after non-trivial edits.
+- Run `bun run --filter @varlock/website build` to confirm the docs still build after non-trivial edits.
 
 ## Linting
 
