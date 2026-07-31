@@ -319,7 +319,7 @@ function resolveConfig(config: VarlockGatewayConfig): ResolvedConfig {
   }
   return {
     rules: config.rules,
-    egressMode: config.egressMode ?? 'strict',
+    egressMode: config.egressMode ?? 'permissive',
     placeholders: config.placeholders,
     getSecretValue: config.getSecretValue
       ?? ((itemKey, env) => {

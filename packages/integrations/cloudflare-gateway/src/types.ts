@@ -7,9 +7,13 @@ export type VarlockGatewayConfig = {
   /** Proxy routing rules (same shape the local proxy enforces, compiled from `@proxy(...)` decorators). */
   rules: Array<ProxyRule>;
   /**
-   * `strict` (default): only requests matching a `@proxy` rule are forwarded.
-   * A hosted gateway should not be an open forwarder, even behind its token, so
-   * the default here is stricter than the local proxy's.
+   * `permissive` (default, matching the local proxy): requests to hosts without
+   * a `@proxy` rule are forwarded untouched — no secret is ever involved for
+   * those, and in sandbox-outbound mode ALL of the sandbox's egress (package
+   * installs, git, ...) flows through this handler. `strict` forwards only
+   * rule-matched requests. This is meant to be driven by the schema's egress
+   * setting; for infra-enforced lockdown in sandbox mode prefer the Sandbox
+   * SDK's `allowedHosts` alongside it.
    */
   egressMode?: ProxyEgressMode;
   /**

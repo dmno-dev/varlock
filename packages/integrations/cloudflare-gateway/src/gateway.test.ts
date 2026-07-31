@@ -66,7 +66,7 @@ describe('asSandboxOutbound (transparent mode)', () => {
 
   test('strict egress blocks a host with no rule', async () => {
     const calls = stubUpstream();
-    const handler = createVarlockGateway(baseConfig()).asSandboxOutbound();
+    const handler = createVarlockGateway(baseConfig({ egressMode: 'strict' })).asSandboxOutbound();
 
     const res = await handler(new Request('https://evil.example.com/exfil'), ENV);
 
@@ -75,9 +75,9 @@ describe('asSandboxOutbound (transparent mode)', () => {
     expect(calls).toHaveLength(0);
   });
 
-  test('permissive egress forwards unruled hosts untouched', async () => {
+  test('default (permissive) egress forwards unruled hosts untouched', async () => {
     const calls = stubUpstream();
-    const handler = createVarlockGateway(baseConfig({ egressMode: 'permissive' })).asSandboxOutbound();
+    const handler = createVarlockGateway(baseConfig()).asSandboxOutbound();
 
     const res = await handler(new Request('https://example.com/data?q=1'), ENV);
 
