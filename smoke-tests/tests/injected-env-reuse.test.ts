@@ -194,14 +194,49 @@ describe('auto-load reuse of injected env blob', () => {
         ['run', '--', 'sh', '-c', 'echo "NORMAL=$NORMAL_VAR BLOB=$__VARLOCK_ENV"; if [ -z "$SECRET_ZERO" ]; then echo INTERNAL_UNSET; fi'],
         {
           cwd: `${SCENARIO}/sandbox`,
-          env: { __VARLOCK_ENV: blob, _VARLOCK_USE_INJECTED_ENV: '1' },
+          // the ambient value must be stripped from the child env too, not just the blob
+          env: { __VARLOCK_ENV: blob, _VARLOCK_USE_INJECTED_ENV: '1', SECRET_ZERO: 'ambient-secret' },
         },
       );
       expect(result.exitCode).toBe(0);
       expect(result.output).toContain('NORMAL=normal-val');
       expect(result.output).toContain('INTERNAL_UNSET');
       expect(result.output).not.toContain('internal-val');
+      expect(result.output).not.toContain('ambient-secret');
       expect(result.output).not.toContain('SECRET_ZERO');
+    });
+
+    test('@internal items in a reused blob are scrubbed from process.env by auto-load too', () => {
+      // pass the internal key BOTH in the blob and as an ambient env value; after
+      // auto-load initializes, neither form may remain readable via process.env
+      const blob = JSON.stringify({
+        basePath: '/nonexistent',
+        sources: [],
+        settings: {},
+        overrideKeys: [],
+        config: {
+          NORMAL_VAR: { value: 'normal-val', isSensitive: false },
+          SECRET_ZERO: { value: 'internal-val', isSensitive: false, isInternal: true },
+        },
+      });
+      const script = 'import "varlock/auto-load";'
+        + 'console.log("NORMAL=" + process.env.NORMAL_VAR);'
+        + 'console.log("SZ=" + ("SECRET_ZERO" in process.env ? process.env.SECRET_ZERO : "ABSENT"));';
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        cwd: join(SCENARIO_DIR, 'sandbox'),
+        env: {
+          ...process.env,
+          __VARLOCK_ENV: blob,
+          _VARLOCK_USE_INJECTED_ENV: '1',
+          SECRET_ZERO: 'ambient-secret',
+        },
+        encoding: 'utf-8',
+      });
+      const output = (result.stdout ?? '') + (result.stderr ?? '');
+      expect(result.status).toBe(0);
+      expect(output).toContain('NORMAL=normal-val');
+      expect(output).toContain('SZ=ABSENT');
+      expect(output).not.toContain('ambient-secret');
     });
 
     test('forced mode with no blob is a clear error', () => {

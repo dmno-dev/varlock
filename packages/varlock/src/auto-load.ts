@@ -35,6 +35,10 @@ function getPartialResolvedEnv(err: unknown): Record<string, unknown> {
   }
 }
 
+// `@internal` keys stripped from a reused blob - their ambient env values are scrubbed
+// after init (see the bottom of this module)
+let strippedInternalKeys: Array<string> = [];
+
 try {
   // An already-injected __VARLOCK_ENV blob (e.g. from a parent `varlock run`, or handed
   // into a sandbox) can be reused directly instead of re-resolving via the CLI - see
@@ -53,6 +57,7 @@ try {
     debug('reusing injected env blob - skipping resolution');
     parsed = reuseDecision.parsedEnv;
     parsedJsonStr = reuseDecision.blobJson;
+    strippedInternalKeys = reuseDecision.strippedInternalKeys;
   } else {
     debug('resolving env via CLI (%s)', reuseDecision.reason);
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
@@ -170,6 +175,16 @@ try {
 
 // initialize varlock and patch globals as necessary
 initVarlockEnv();
+// An ambient value for an @internal key stripped from a reused blob must not stay readable
+// via process.env (matching `varlock run`'s ambient-carry stripping). This has to happen
+// AFTER initVarlockEnv, whose reload cleanup restores the pre-injection snapshot - and the
+// snapshot itself is scrubbed too, so a later re-init cannot bring the value back. Safe to
+// drop from the snapshot: its only legitimate consumer is a fresh resolution needing the
+// bootstrap secret, which by definition is not happening when a blob was reused.
+for (const internalKey of strippedInternalKeys) {
+  delete process.env[internalKey];
+  delete getPreInjectionProcessEnv()[internalKey];
+}
 // these will be no-ops if these are disabled by settings
 patchGlobalConsole();
 patchGlobalServerResponse();
