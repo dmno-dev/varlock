@@ -36,7 +36,7 @@ const sandbox = await Sandbox.create({
 });
 ```
 
-This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. The blob route needs the `varlock` npm package (Node 22+) in the sandboxed project; see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. From a shell instead of Node, `varlock run --inject blob --filter ... -- sh -c '...'` exposes the same blob as `$__VARLOCK_ENV` for forwarding.
+This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. In the sandbox, the blob works with either the `varlock` npm package (Node 22+, imported by the app as above) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload); see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. From a shell instead of Node, `varlock run --inject blob --filter ... -- sh -c '...'` exposes the same blob as `$__VARLOCK_ENV` for forwarding.
 
 ## Credential proxy: the broker sandbox
 

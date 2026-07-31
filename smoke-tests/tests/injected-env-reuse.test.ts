@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { varlockRun, runVarlock } from '../helpers/run-varlock.js';
+import { varlockRun, runVarlock, VARLOCK_CLI } from '../helpers/run-varlock.js';
 
 // End-to-end tests for `varlock/auto-load` reusing an already-injected __VARLOCK_ENV blob
 // instead of spawning the CLI to re-resolve:
@@ -125,6 +125,65 @@ describe('auto-load reuse of injected env blob', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain(RESOLVED_MSG);
     expect(result.output).not.toContain(REUSED_MSG);
+  });
+
+  describe('varlock run consuming a blob (non-Node workloads)', () => {
+    test.skipIf(process.platform === 'win32')('a nested varlock run reuses the outer blob instead of re-resolving', () => {
+      const result = runVarlock(
+        ['run', '--', 'node', VARLOCK_CLI, 'run', '--', 'sh', '-c', 'echo INNER_PUBLIC_VAR=$PUBLIC_VAR'],
+        { cwd: SCENARIO, env: { DEBUG: 'varlock:run' } },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain(REUSED_MSG);
+      expect(result.output).toContain('INNER_PUBLIC_VAR=public-value');
+    });
+
+    test.skipIf(process.platform === 'win32')('sandbox: varlock run hydrates any workload from the blob with no env files', () => {
+      // capture with a coerced ambient override, so the sandbox side must serialize the
+      // coerced boolean back into the child env
+      const captured = runVarlock(['load', '--format', 'json-full', '--compact'], {
+        cwd: SCENARIO,
+        env: { COERCED_FLAG: 'YES' },
+      });
+      expect(captured.exitCode).toBe(0);
+      const result = runVarlock(
+        ['run', '--', 'sh', '-c', 'echo PUBLIC_VAR=$PUBLIC_VAR COERCED_FLAG=$COERCED_FLAG'],
+        {
+          cwd: `${SCENARIO}/sandbox`,
+          env: {
+            __VARLOCK_ENV: captured.stdout.trim(),
+            _VARLOCK_USE_INJECTED_ENV: '1',
+            DEBUG: 'varlock:run',
+          },
+        },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain(REUSED_MSG);
+      expect(result.output).toContain('PUBLIC_VAR=public-value');
+      expect(result.output).toContain('COERCED_FLAG=true');
+    });
+
+    test('forced mode with no blob is a clear error', () => {
+      const result = runVarlock(['run', '--', 'node', '--version'], {
+        cwd: `${SCENARIO}/sandbox`,
+        env: { _VARLOCK_USE_INJECTED_ENV: '1' },
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('no __VARLOCK_ENV blob');
+    });
+
+    test('forced mode rejects flags that would change what a resolution produces', () => {
+      const captured = runVarlock(['load', '--format', 'json-full', '--compact'], { cwd: SCENARIO });
+      const result = runVarlock(['run', '--filter', 'PUBLIC_VAR', '--', 'node', '--version'], {
+        cwd: `${SCENARIO}/sandbox`,
+        env: {
+          __VARLOCK_ENV: captured.stdout.trim(),
+          _VARLOCK_USE_INJECTED_ENV: '1',
+        },
+      });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('cannot be combined with --filter');
+    });
   });
 
   describe('sandbox mode (blob only, no env files)', () => {

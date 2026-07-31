@@ -46,7 +46,7 @@ varlock run --inject blob --filter "STRIPE_*,SENTRY_DSN" -- sh -c \
   'sprite exec -s my-sprite --env __VARLOCK_ENV="$__VARLOCK_ENV" --env _VARLOCK_USE_INJECTED_ENV=1 -- node agent.js'
 ```
 
-This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. The blob route needs the `varlock` npm package in the sprite's project (sprites ship Node 24+); see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details.
+This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. In the sprite, the blob works with either the `varlock` npm package (imported by the app as above; sprites ship Node 24+) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload); see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details.
 
 ## Credential proxy: the broker sprite
 

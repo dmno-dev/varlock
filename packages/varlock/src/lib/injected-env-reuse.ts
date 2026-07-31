@@ -6,8 +6,9 @@ import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 
 /**
- * Decides whether `varlock/auto-load` can reuse an already-injected `__VARLOCK_ENV` blob
- * (e.g. set by a parent `varlock run`) instead of spawning the CLI to re-resolve.
+ * Decides whether a consumer (`varlock/auto-load`, or a `varlock run` that finds a blob
+ * in its environment) can reuse an already-injected `__VARLOCK_ENV` blob instead of
+ * re-resolving from .env files.
  *
  * Two goals drive this:
  *  1. A command "unnecessarily" wrapped in `varlock run` (same directory the app would
@@ -40,7 +41,8 @@ type EnvRecord = Record<string, string | undefined>;
  * and `0`/`false`, case-insensitive. Anything else falls back to auto rather than being
  * treated as an opt-in - `=f`/`=no`/`=off` must never silently grant blob trust.
  */
-function parseMode(rawValue: string | undefined): 'auto' | 'force' | 'never' {
+export function getUseInjectedEnvMode(env: EnvRecord): 'auto' | 'force' | 'never' {
+  const rawValue = env[USE_INJECTED_ENV_VAR];
   if (rawValue === undefined) return 'auto';
   const normalized = rawValue.trim().toLowerCase();
   if (normalized === '1' || normalized === 'true') return 'force';
@@ -98,7 +100,7 @@ export function evaluateInjectedEnvReuse(opts: {
   const preInjectionEnv = opts.preInjectionEnv ?? env;
   const cwd = opts.cwd ?? process.cwd();
 
-  const mode = parseMode(env[USE_INJECTED_ENV_VAR]);
+  const mode = getUseInjectedEnvMode(env);
   if (mode === 'never') return { reuse: false, reason: `${USE_INJECTED_ENV_VAR} disabled reuse` };
 
   const rawBlob = env.__VARLOCK_ENV;
