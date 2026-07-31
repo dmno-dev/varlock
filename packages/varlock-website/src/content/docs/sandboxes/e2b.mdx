@@ -5,11 +5,11 @@ description: Using varlock with E2B cloud sandboxes, from resolving and validati
 
 [E2B](https://e2b.dev) runs code in cloud microVM sandboxes, commonly as the execution layer for AI agents. Sandboxes get their env vars from the code that creates them (`envs` at sandbox creation or per command), which makes that orchestrator code the natural place for varlock to do its job.
 
-For workloads you trust with the credentials they use, [pass resolved values](#passing-resolved-values). For agentic workloads, the recommended shape is the [broker sandbox](#credential-proxy-the-broker-sandbox): one sandbox runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent sandboxes route through it holding only [placeholders](/guides/proxy/rules/#placeholders). The other [topologies](/sandboxes/overview/#topologies) get a brief mention at the end.
+For workloads you trust with the credentials they use, [pass resolved values](#passing-resolved-values). For agentic workloads, the recommended shape is the [broker sandbox](#credential-proxy-the-broker-sandbox): one sandbox runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent sandboxes route through it holding only [placeholders](/guides/proxy/rules/#placeholders).
 
 ## Passing resolved values
 
-Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator: varlock resolves your values (from plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs. Then hand the sandbox its env in one shot:
+Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator: varlock resolves your values (plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs.
 
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
@@ -17,8 +17,8 @@ import { ENV } from 'varlock/env';
 import { execSync } from 'node:child_process';
 import { Sandbox } from 'e2b';
 
-// capture the resolved env as one blob, --filter scoping it to
-// just the items this sandbox should see
+// one blob with the resolved env, scoped by --filter to what
+// this sandbox should see
 const envBlob = execSync(
   'varlock load --format json-full --compact --filter "STRIPE_*,SENTRY_DSN"',
   { encoding: 'utf8' },
@@ -36,7 +36,7 @@ const sandbox = await Sandbox.create({
 });
 ```
 
-This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. In the sandbox, the blob works with either the `varlock` npm package (Node 22+, imported by the app as above) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload); see [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. From a shell instead of Node, `varlock run --inject blob --filter ... -- sh -c '...'` exposes the same blob as `$__VARLOCK_ENV` for forwarding.
+This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. Consuming the blob needs either the `varlock` npm package (Node 22+) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload). See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env). From a shell, `varlock run --inject blob --filter ... -- sh -c '...'` exposes the blob as `$__VARLOCK_ENV` for forwarding.
 
 ## Credential proxy: the broker sandbox
 
