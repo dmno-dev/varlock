@@ -76,19 +76,7 @@ Reuse only happens when it is safe to assume a fresh resolution would produce th
 - the blob resolved without errors
 - no env var override recorded in the blob has changed since (e.g. `varlock run -- sh -c 'FOO=x node app.js'` re-resolves so the new `FOO` is honored)
 
-If any check fails, auto-load falls back to resolving via the CLI exactly as before. You can also control this explicitly with the [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) env var: `0` always re-resolves, and `1` always trusts the blob.
-
-Setting `_VARLOCK_USE_INJECTED_ENV=1` is how you hand an env into an environment that has no `.env` files at all, for example a remote sandbox:
-
-```bash
-# on the host: capture the resolved env as a blob
-BLOB=$(varlock load --format json-full --compact)
-
-# in the sandbox: provide only the blob - no .env files or varlock CLI needed
-__VARLOCK_ENV="$BLOB" _VARLOCK_USE_INJECTED_ENV=1 node app.js
-```
-
-Everything auto-load normally provides (the `ENV` object, `process.env` injection, redaction, leak detection) is hydrated from the blob. Combine with [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) and `_VARLOCK_ENV_KEY` to pass the blob as ciphertext and deliver the key separately.
+If any check fails, auto-load falls back to resolving via the CLI exactly as before. You can also control this explicitly with the [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) env var: `0` always re-resolves, and `1` always trusts the blob, skipping the directory check. The trust mode is how you hand an env into an environment with no `.env` files at all, for example a remote sandbox; see the [E2B](/sandboxes/e2b/#passing-the-env-as-a-blob) and [Fly.io](/sandboxes/flyio/#passing-the-env-as-a-blob) guides for that recipe.
 
 
 ## Boot via `varlock run`

@@ -27,6 +27,29 @@ const sandbox = await Sandbox.create({
 
 This is the standard E2B posture: sandboxes hold real values, and the values transit E2B's API. If the sandboxed project is itself a varlock project (it has a `.env.schema`), you can instead install varlock in the sandbox and use `varlock run` there, the same way you would in a [Docker container](/integrations/docker/): values come in via `envs` (the schema validates them at load), or the sandbox resolves its own secrets with a [plugin](/guides/plugins/) and a service-account token as the only bootstrap credential.
 
+### Passing the env as a blob
+
+When the code in the sandbox is a Node app that imports [`varlock/auto-load`](/integrations/javascript/), you can skip enumerating values entirely: capture varlock's serialized env as a single blob, scoped with [`--filter`](/reference/cli-commands/#filtering-items) to just the items that workload should see, and set [`_VARLOCK_USE_INJECTED_ENV=1`](/reference/reserved-variables/#_varlock_use_injected_env) so auto-load in the sandbox hydrates from the blob instead of looking for `.env` files:
+
+```ts title="orchestrate.ts"
+import { execSync } from 'node:child_process';
+import { Sandbox } from 'e2b';
+
+const envBlob = execSync(
+  'varlock load --format json-full --compact --filter "STRIPE_*,SENTRY_DSN"',
+  { encoding: 'utf8' },
+).trim();
+
+const sandbox = await Sandbox.create({
+  envs: {
+    __VARLOCK_ENV: envBlob,
+    _VARLOCK_USE_INJECTED_ENV: '1',
+  },
+});
+```
+
+The sandboxed project needs the `varlock` npm package (and Node 22+, see the install note below), but no `.env` files and no varlock CLI: importing `varlock/auto-load` hydrates `process.env`, the `ENV` object, log redaction, and leak detection straight from the blob, since sensitivity metadata travels with the values. Compared to enumerating `envs`, the filter is the single place that decides what the sandbox sees, and the schema's validation and redaction behavior come along for free.
+
 ## Credential proxy: the broker sandbox
 
 One long-lived sandbox (the broker) runs `varlock proxy start --expose`, which serves the built-in WebSocket tunnel on its proxy port (E2B's public sandbox URLs carry it). Agent sandboxes reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.

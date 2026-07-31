@@ -125,6 +125,27 @@ describe('auto-load reuse of injected env blob', () => {
       expect(result.output).toContain('OVERRIDE_ME=default-value');
     });
 
+    test('a --filter scoped blob exposes only the selected items (the documented sandbox recipe)', () => {
+      const captured = runVarlock(
+        ['load', '--format', 'json-full', '--compact', '--filter', 'PUBLIC_VAR,OVERRIDE_ME'],
+        { cwd: SCENARIO },
+      );
+      expect(captured.exitCode).toBe(0);
+      const result = runNodeApp({
+        cwd: join(SCENARIO_DIR, 'sandbox'),
+        env: {
+          __VARLOCK_ENV: captured.stdout.trim(),
+          _VARLOCK_USE_INJECTED_ENV: '1',
+        },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.output).toContain(REUSED_MSG);
+      expect(result.output).toContain('PUBLIC_VAR=public-value');
+      expect(result.output).toContain('OVERRIDE_ME=default-value');
+      // SECRET_TOKEN was filtered out of the blob, so it must not be hydrated
+      expect(result.output).toContain('SECRET_OK=false');
+    });
+
     test('without the explicit flag, a foreign-directory blob is not silently reused', () => {
       const blob = captureBlob();
       const result = runNodeApp({
