@@ -78,7 +78,20 @@ UX trap: `--expose=127.0.0.1` looks like it worked.
    - The in-agent socat shim from variant B disappears once `proxy run` dials the UDS
      itself.
 
-4. **Extend the shipped `--sandbox=docker` instead: no.** The two integration shapes are
+4. **Broker inside a container (the Fly Sprites shape).** Run `varlock proxy start
+   --expose` in its own dual-homed container (internal net + egress net); agents on the
+   internal net reach it directly by container DNS. No socat and no tunnel at all: the WS
+   tunnel exists only for HTTP-only ingress, and plain `HTTPS_PROXY=http://broker:port`
+   CONNECT works container-to-container (variant A proved the reachability; the forwarder
+   was a stand-in for a broker peer). The trade is resolution context: an in-container
+   broker has no secure-enclave local-encrypt, no `op` biometric session (service-account
+   token instead), and no TTY approvals. Right default for CI / teams / service-account
+   secrets; wrong one for local hardware-custody work. Works today with the Linux binary;
+   needs only a compose recipe/guide. (A hybrid where the host resolves and a container
+   broker adopts the session env buys complexity but puts real values in container memory
+   anyway, weaker than a host broker.)
+
+5. **Extend the shipped `--sandbox=docker` instead: no.** The two integration shapes are
    different products:
    - *varlock spawns the container*: already shipped (`proxy run --sandbox=docker`,
      CONNECT proxy + forwarder, env injected via `docker -e`, no varlock needed in-image).
@@ -87,9 +100,42 @@ UX trap: `--expose=127.0.0.1` looks like it worked.
      broker. This is the gap the tunnel/UDS work fills; it should not be folded into
      `--sandbox`.
 
+Which shape fits is mostly "where do secrets resolve":
+
+| Scenario | Best shape |
+|---|---|
+| Local dev, enclave/1P-biometric custody | broker on host + this PR's transport work |
+| Local custody, remote agents | broker on host + existing WS tunnel (unchanged) |
+| CI / teams / service-account secrets | broker-in-container (option 4), no new code |
+| Docker Sandboxes (sbx) | separate track, see below |
+
 Rejected transports: `docker exec` stdio tunnel (inverted initiation, needs muxing,
 docker-only); vsock (not portably exposed by docker); agent-listens/broker-dials (inverts
 the trust model); `--network=host` (no sandbox).
+
+## Docker Sandboxes (sbx) is a different animal
+
+Everything above is about plain `docker run` containers (compose, devcontainers, CI,
+third-party runners). Docker's newer Sandboxes product (`sbx run claude`,
+docs.docker.com/ai/sandboxes/) is a microVM per sandbox with its own Docker daemon, and
+it already ships a miniature of our idea: all egress forced through a host-side HTTP(S)
+proxy with a deny-by-default domain allowlist, plus a keychain-backed secrets manager
+whose credentials are injected into outbound requests by that host proxy ("raw credential
+values never enter the VM"). Loopback and private IPs are blocked, non-HTTP protocols are
+blocked, and sandboxes cannot network with each other.
+
+Consequences:
+
+- Inside sbx, neither a host broker nor a broker-in-a-neighbor-sandbox is reachable, by
+  design. The seams are: (a) a broker at a public allowlisted domain (the Fly/Vercel/CF
+  gateway direction), or (b) `DOCKER_SANDBOXES_PROXY`, which chains sbx's host proxy
+  through an upstream proxy (http/socks5). Pointing that at a varlock proxy on the same
+  host is an unverified spike; TLS/CA handling across the two proxies is the open
+  question.
+- It is also partially a competitor for the local story (same "credentials never enter
+  the sandbox" pitch). Their injection looks like simple domain-to-header rules; no
+  schema, approvals, response scrubbing, or custody options visible in the docs. Deserves
+  a survey pass alongside microsandbox.
 
 ## Recommendation
 
@@ -101,6 +147,8 @@ Do 3 + 2 together, with the docs recipe (1) in the interim:
   tunnel + token (or error loudly instead of silently degrading).
 - Guide: Linux (pure bind-mount, `--network=none`) and macOS (named volume + socat
   sidecar) recipes.
+- In parallel and independent of any code: a broker-in-container compose guide
+  (option 4) for the service-account/CI audience, mirroring the Fly Sprites guide.
 
 ## Repro crumbs
 
