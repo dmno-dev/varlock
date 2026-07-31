@@ -55,6 +55,8 @@ box ssh bx_broker "cd ~/proj && (VARLOCK_PROXY_TOKEN=$PROXY_TOKEN setsid nohup \
   --cert-dir ~/proj/.varlock-ca > ~/proxy.log 2>&1 < /dev/null &)"
 ```
 
+The detached start is fine for a first run; for anything longer-lived, promote it to the systemd unit in [auto-stop, resume, and cost](#auto-stop-resume-and-cost) below.
+
 The env map at create carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token and the schema resolves everything else inside the broker. If some values exist only on your side, pass them the same way (`--env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY"`), running the create under [`varlock run`](/reference/cli/load-and-run/#run) so they are your own resolved values.
 
 ### Make the tunnel reachable
@@ -92,9 +94,46 @@ box ssh bx_agent '~/.config/varlock/bin/varlock proxy run \
 
 This recipe gives credential isolation, not egress lockdown. Box has no platform-level egress controls (no allowlists, no firewall API; outbound from every box is open), so nothing outside the VM can force an agent's traffic through the broker. Direct connections carry placeholders at worst, so no secrets are at stake, but a misbehaving agent could exfiltrate data over its own connections. Providers with a network policy primitive can close this gap (see [E2B](/sandboxes/e2b/) or [Fly.io](/sandboxes/flyio/)); on Box, treat agent egress as open.
 
-### Lifecycle notes
+### Auto-stop, resume, and cost
 
-- `box stop` snapshots and stops billing; files survive, hand-run processes do not. For a broker that survives stop/resume, run the proxy as a systemd service (see Box's [long-running tasks](https://docs.ascii.dev/box/long-running-tasks) guide) and add [`--persist-ca`](/reference/cli/proxy/#proxy) so a restart does not invalidate agents that already trust the CA. Re-run `host` after a resume if the public URL stops routing.
+Boxes bill per second while running, so the broker should not idle. The good news: every box has an auto-stop timer (default 1 hour), so a forgotten broker archives itself and stopped boxes cost nothing. The timer is absolute, counting from creation rather than last activity, and it resets on resume; use `box extend` for longer windows or `--no-auto-stop` for an always-on broker (then it bills continuously: a `small` box runs at half rate and is plenty for the broker).
+
+Resume is a few seconds, but two things do not come back on their own, so plan for the orchestrator to do both:
+
+- There is no wake-on-connect: a tunnel connection does not resume a stopped box. Resume the broker (`box resume <id>`) before launching agents.
+- The box's IP changes on every resume; only the `<subdomain>` is stable. Use the `host` ingress URL for the tunnel, and re-register it after each resume (hosting the same port again returns the same URL).
+
+Run the proxy as an enabled systemd service so it is one command to bring back (and restarts if it crashes). The unit re-registers the `host` route on start:
+
+```ini title="/etc/systemd/system/varlock-broker.service"
+[Unit]
+Description=varlock credential proxy broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=user
+WorkingDirectory=/home/user/proj
+EnvironmentFile=/home/user/.broker-env
+ExecStart=/home/user/.config/varlock/bin/varlock proxy start --expose --port 18080 --cert-dir /home/user/proj/.varlock-ca --persist-ca
+ExecStartPost=-/bin/sh -c 'sleep 2; timeout 10 /home/user/.ascii/host 18080 --public --title varlock-broker'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`EnvironmentFile` (make it `chmod 600`) carries `VARLOCK_PROXY_TOKEN` and your schema's bootstrap values: systemd units do not inherit the per-box `--env` vars, which Box applies to shell sessions. [`--persist-ca`](/reference/cli/proxy/#proxy) keeps the CA on the snapshotted filesystem so a restart does not invalidate agents that already trust it (verified surviving stop/resume).
+
+One caveat from live testing (July 2026): Box's docs say enabled systemd services start again automatically after resume, but in our tests the resumed machine did not re-run boot targets and the service stayed inactive. Until that is fixed platform-side, have the orchestrator kick it after resume; everything (unit, CA, ufw rules, schema) survives the snapshot, so this one command restores the whole broker:
+
+```bash
+box resume bx_broker --json
+box ssh bx_broker 'sudo systemctl start varlock-broker'
+```
+
+### Trust model and policy changes
+
 - The broker holds real secrets inside ASCII's cloud (EU regions), so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any box. What changes is the blast radius: agents never hold secrets, and rotation, policy, and audit live in one place.
 - To change policy, upload the edited schema and restart the proxy (or start the broker with [`--allow-reload`](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) and run `varlock proxy reload` inside it).
 
