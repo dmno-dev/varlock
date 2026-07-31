@@ -76,6 +76,42 @@ Options:
   --skip-win-exe    on WSL, skip installing the Windows encryption helper (varlock-local-encrypt.exe) (default: false)
 ```
 
+### Verifying a release
+
+Both install paths already check integrity for you: the homebrew formula pins a sha256 per archive, and `install.sh` verifies the downloaded archive against the release's `checksums.txt` before installing.
+
+If you are pinning varlock yourself (a container image, a provisioning script, or a tool that installs varlock on a user's behalf), download the archive from the release tag and verify it the same way:
+
+```bash
+VERSION=1.14.0
+BASE="https://github.com/dmno-dev/varlock/releases/download/varlock@${VERSION}"
+ARCHIVE="varlock-linux-x64.tar.gz"
+
+curl -sSfLO "${BASE}/${ARCHIVE}"
+curl -sSfLO "${BASE}/checksums.txt"
+
+grep " ${ARCHIVE}\$" checksums.txt | sha256sum -c -
+# on macOS, which has no sha256sum:
+grep " ${ARCHIVE}\$" checksums.txt | shasum -a 256 -c -
+```
+
+`checksums.txt` is signed with [cosign](https://docs.sigstore.dev/) keyless signing, so you can also confirm it came from varlock's release workflow rather than from someone with write access to the repo's releases. The signature covers `checksums.txt`, which in turn covers every archive by hash:
+
+```bash
+curl -sSfLO "${BASE}/checksums.txt.cosign.bundle"
+
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.cosign.bundle \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/dmno-dev/varlock/\.github/workflows/(release|binary-release)\.yaml@refs/heads/main$'
+```
+
+Both workflow identities are accepted because binaries are normally cut by `release.yaml` alongside the npm publish, and re-cut by `binary-release.yaml` when an already-published version needs new archives.
+
+:::note
+Signing was added after varlock 1.14.0, so older releases have `checksums.txt` but no bundle. If a release has no `checksums.txt.cosign.bundle` asset, it predates signing and only the checksum step applies.
+:::
+
 ## Varlock skill
 
 Then install the Varlock agent skill:
@@ -114,4 +150,3 @@ It provides syntax highlighting, decorator and `@type` IntelliSense, `$KEY` refe
 ### Shell completion
 
 Enable tab completion for varlock commands and flags in bash, zsh, or fish. See the [Shell completion guide](/guides/shell-completion/) for one-time setup. Usually, adding `eval "$(varlock complete)"` to your shell profile is enough.
-

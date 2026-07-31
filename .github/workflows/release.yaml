@@ -440,6 +440,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write # keyless cosign signing of checksums.txt
     steps:
       - uses: actions/checkout@v7
       - name: Setup Bun
@@ -452,6 +453,13 @@ jobs:
         run: bun install
       - name: Enable turborepo build cache
         uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # pin cosign itself, not just the installer action - the bundle format
+          # the signature is written in is a property of the cosign version, and
+          # the documented `verify-blob` command has to keep matching it
+          cosign-release: v3.0.6
 
       - name: Resolve published varlock version
         id: ver
@@ -489,11 +497,19 @@ jobs:
       - name: Build varlock SEA binaries
         run: bun run packages/varlock/scripts/build-binaries.ts
 
+      # Sign checksums.txt rather than each archive: it already covers every
+      # archive by hash, so one signature transitively covers them all, and
+      # verifiers only need one extra asset. Keyless signing binds the signature
+      # to this workflow's OIDC identity - see guides/verifying-releases.
+      - name: Sign checksums with cosign
+        working-directory: packages/varlock/dist-sea
+        run: cosign sign-blob --yes --bundle checksums.txt.cosign.bundle checksums.txt
+
       - name: Upload binaries to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: packages/varlock/dist-sea
-        run: gh release upload "${{ steps.ver.outputs.tag }}" *.{tar.gz,zip} checksums.txt ../SHA256SUMS.txt --clobber
+        run: gh release upload "${{ steps.ver.outputs.tag }}" *.{tar.gz,zip} checksums.txt checksums.txt.cosign.bundle ../SHA256SUMS.txt --clobber
 
       # Update the homebrew tap formula
       - name: Checkout homebrew tap repo
