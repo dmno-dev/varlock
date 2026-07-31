@@ -11,6 +11,8 @@ import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { InMemoryCacheStore } from '../../lib/cache';
 import type { CacheStoreLike } from '../../lib/cache/cache-store';
+import { buildOauthProviderCacheKey, type OauthProviderCacheEntry } from '../../lib/oauth';
+import { TTL_FOREVER } from '../../lib/cache/ttl-parser';
 
 /** Minimal token endpoint that issues sequential tokens and records requests */
 class MockTokenEndpoint {
@@ -52,20 +54,25 @@ class MockTokenEndpoint {
   }
 }
 
-async function loadAndResolve(envContent: string, cacheStore?: CacheStoreLike) {
+async function loadAndResolveWithHeader(headerContent: string, envContent: string, cacheStore?: CacheStoreLike) {
   const g = new EnvGraph();
   const source = new DotEnvFileDataSource('.env.schema', {
     overrideContents: outdent`
       # @defaultRequired=false
+      ${headerContent}
       # ---
       ${envContent}
     `,
   });
   await g.setRootDataSource(source);
-  await g.finishLoad();
   if (cacheStore) g._cacheStore = cacheStore;
+  await g.finishLoad();
   await g.resolveEnvValues();
   return g;
+}
+
+async function loadAndResolve(envContent: string, cacheStore?: CacheStoreLike) {
+  return loadAndResolveWithHeader('', envContent, cacheStore);
 }
 
 describe('oauth()', () => {
@@ -130,7 +137,7 @@ describe('oauth()', () => {
       const g = await loadAndResolve(refreshGrantSchema());
       expect(g.configSchema.TOKEN.resolutionError?.message).toContain('invalid_grant');
       const tip = g.configSchema.TOKEN.resolutionError?.more?.tip;
-      expect(Array.isArray(tip) ? tip.join(' ') : tip).toContain('re-provision');
+      expect(String(tip).toLowerCase()).toContain('re-provision');
     });
   });
 
@@ -196,6 +203,176 @@ describe('oauth()', () => {
         TOKEN=oauth(tokenUrl="${endpoint.url}", refreshToken=$REFRESH_TOKEN, clientId="client-1", clientSecret="secret-1")
       `, store);
       expect(endpoint.requests.length).toBe(2);
+    });
+  });
+
+  describe('@oauthProvider instances', () => {
+    function providerHeader(extraArgs = '') {
+      return `# @oauthProvider(id=test, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET${extraArgs})`;
+    }
+    const clientItems = outdent`
+      # @internal
+      CLIENT_ID=client-1
+      # @internal @sensitive
+      CLIENT_SECRET=secret-1
+    `;
+
+    function seedProviderEntry(store: CacheStoreLike, refreshToken: string) {
+      const key = buildOauthProviderCacheKey({ tokenUrl: endpoint.url, clientId: 'client-1' });
+      const entry: OauthProviderCacheEntry = {
+        refreshToken, grantedScope: 'read write', updatedAt: Date.now(), source: 'login',
+      };
+      return store.set(key, entry, TTL_FOREVER).then(() => key);
+    }
+
+    it('supplies client config from the provider, with explicit refreshToken', async () => {
+      const g = await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        # @internal @sensitive
+        RT=rt-bootstrap
+        TOKEN=oauth(test, refreshToken=$RT, scopes="read")
+      `);
+      expect(g.configSchema.TOKEN.errors).toEqual([]);
+      expect(g.configSchema.TOKEN.resolvedValue).toBe('at-0');
+      const req = endpoint.requests[0];
+      expect(req.get('client_id')).toBe('client-1');
+      expect(req.get('client_secret')).toBe('secret-1');
+      expect(req.get('refresh_token')).toBe('rt-bootstrap');
+      expect(req.get('scope')).toBe('read');
+    });
+
+    it('uses a login-provisioned refresh token from the provider cache entry', async () => {
+      const store = new InMemoryCacheStore();
+      await seedProviderEntry(store, 'rt-from-login');
+      const g = await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        TOKEN=oauth(test, scopes="read")
+      `, store);
+      expect(g.configSchema.TOKEN.errors).toEqual([]);
+      expect(g.configSchema.TOKEN.resolvedValue).toBe('at-0');
+      expect(endpoint.requests[0].get('refresh_token')).toBe('rt-from-login');
+    });
+
+    it('items with different scopes share the provider refresh token but cache tokens separately', async () => {
+      const store = new InMemoryCacheStore();
+      await seedProviderEntry(store, 'rt-from-login');
+      const g = await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        TOKEN_A=oauth(test, scopes="read")
+        TOKEN_B=oauth(test, scopes="write")
+      `, store);
+      expect(g.configSchema.TOKEN_A.errors).toEqual([]);
+      expect(g.configSchema.TOKEN_B.errors).toEqual([]);
+      // two separate exchanges (different scopes), both using the shared token
+      expect(endpoint.requests.length).toBe(2);
+      expect(endpoint.requests[0].get('refresh_token')).toBe('rt-from-login');
+      expect(endpoint.requests[1].get('refresh_token')).toBe('rt-from-login');
+      expect(g.configSchema.TOKEN_A.resolvedValue).not.toBe(g.configSchema.TOKEN_B.resolvedValue);
+    });
+
+    it('stores rotated refresh tokens back into the shared provider entry', async () => {
+      endpoint.respond = (index) => ({
+        status: 200,
+        body: {
+          access_token: `at-${index}`,
+          refresh_token: `rt-rotated-${index}`,
+          expires_in: 30, // always stale, forcing a refresh each resolution
+        },
+      });
+      const store = new InMemoryCacheStore();
+      const providerKey = await seedProviderEntry(store, 'rt-from-login');
+
+      await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        TOKEN=oauth(test, scopes="read")
+      `, store);
+      expect(endpoint.requests[0].get('refresh_token')).toBe('rt-from-login');
+
+      const updated = (await store.get(providerKey))?.value as OauthProviderCacheEntry;
+      expect(updated.refreshToken).toBe('rt-rotated-0');
+      expect(updated.source).toBe('rotation');
+
+      // next resolution uses the rotated token
+      await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        TOKEN=oauth(test, scopes="read")
+      `, store);
+      expect(endpoint.requests[1].get('refresh_token')).toBe('rt-rotated-0');
+    });
+
+    it('fails with a login tip when no refresh token has been provisioned', async () => {
+      const store = new InMemoryCacheStore();
+      const g = await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        TOKEN=oauth(test)
+      `, store);
+      expect(g.configSchema.TOKEN.resolutionError?.message).toContain('no refresh token has been provisioned');
+      const tip = g.configSchema.TOKEN.resolutionError?.more?.tip;
+      expect(String(tip)).toContain('varlock oauth login');
+    });
+
+    it('registers item usage on the provider record', async () => {
+      const store = new InMemoryCacheStore();
+      await seedProviderEntry(store, 'rt-from-login');
+      const g = await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        # @internal @sensitive
+        RT=rt-own
+        TOKEN_A=oauth(test, scopes="read")
+        TOKEN_B=oauth(test, refreshToken=$RT)
+      `, store);
+      const record = g.oauthProviders.test;
+      expect(record.usedBy.map((u) => u.itemKey).sort()).toEqual(['TOKEN_A', 'TOKEN_B']);
+      expect(record.usedBy.find((u) => u.itemKey === 'TOKEN_A')?.hasOwnRefreshToken).toBe(false);
+      expect(record.usedBy.find((u) => u.itemKey === 'TOKEN_B')?.hasOwnRefreshToken).toBe(true);
+    });
+
+    it('applies preset endpoints and clientAuth, with explicit args overriding', async () => {
+      const g = await loadAndResolveWithHeader(
+        // tokenUrl overrides the preset so resolution hits the mock endpoint
+        `# @oauthProvider(id=goog, preset=google, tokenUrl="${endpoint.url}", clientId=$CLIENT_ID, clientSecret=$CLIENT_SECRET)`,
+        outdent`
+          ${clientItems}
+          # @internal @sensitive
+          RT=rt-1
+          TOKEN=oauth(goog, refreshToken=$RT)
+        `,
+      );
+      expect(g.configSchema.TOKEN.errors).toEqual([]);
+      const record = g.oauthProviders.goog;
+      expect(record.tokenUrl).toBe(endpoint.url);
+      expect(record.authorizationUrl).toBe('https://accounts.google.com/o/oauth2/v2/auth');
+      expect(record.deviceAuthorizationUrl).toBe('https://oauth2.googleapis.com/device/code');
+      expect(record.extraAuthParams.access_type).toBe('offline');
+    });
+
+    it('rejects unknown provider ids, listing defined ones', async () => {
+      const g = await loadAndResolveWithHeader(providerHeader(), outdent`
+        ${clientItems}
+        TOKEN=oauth(nope)
+      `);
+      expect(g.configSchema.TOKEN.errors[0]?.message).toMatch(/unknown oauth provider "nope".*test/);
+    });
+
+    it('rejects duplicate provider ids and unknown presets/args', async () => {
+      const dupG = await loadAndResolveWithHeader(outdent`
+        # @oauthProvider(id=test, tokenUrl="${endpoint.url}", clientId="c")
+        # @oauthProvider(id=test, tokenUrl="${endpoint.url}", clientId="c")
+      `, 'A=1');
+      const rootErrors = dupG.rootDataSource!.schemaErrors;
+      expect(rootErrors.some((e) => e.message.includes('already defined'))).toBe(true);
+
+      const presetG = await loadAndResolveWithHeader(
+        '# @oauthProvider(id=x, preset=bogus, clientId="c")',
+        'A=1',
+      );
+      expect(presetG.rootDataSource!.schemaErrors.some((e) => e.message.includes('unknown preset'))).toBe(true);
+
+      const argG = await loadAndResolveWithHeader(
+        `# @oauthProvider(id=x, tokenUrl="${endpoint.url}", clientId="c", bogus=1)`,
+        'A=1',
+      );
+      expect(argG.rootDataSource!.schemaErrors.some((e) => e.message.includes('unknown arg "bogus"'))).toBe(true);
     });
   });
 

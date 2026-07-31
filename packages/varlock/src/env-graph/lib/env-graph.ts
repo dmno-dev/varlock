@@ -22,6 +22,7 @@ import {
   builtInItemDecorators, builtInRootDecorators,
   RootDecoratorInstance,
   type ItemDecoratorDef,
+  type OauthProviderInstanceRecord,
   type RootDecoratorDef,
 } from './decorators';
 import { getErrorLocation } from './error-location';
@@ -112,6 +113,9 @@ export class EnvGraph {
   // (which would mean it's always through the lens of the current directory/package)
 
   basePath?: string;
+
+  /** registered `@oauthProvider(...)` instances, keyed by id */
+  oauthProviders: Record<string, OauthProviderInstanceRecord> = {};
 
   // -- Cache --
   /** @internal cache store instance, initialized during loading */

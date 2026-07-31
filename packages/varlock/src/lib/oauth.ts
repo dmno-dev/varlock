@@ -9,8 +9,15 @@
  * errors are printed unredacted.
  */
 
+import { createHash } from 'node:crypto';
+
+/** grant types usable from the oauth() resolver */
 export const OAUTH_GRANT_TYPES = ['refresh_token', 'client_credentials'] as const;
 export type OauthGrantType = typeof OAUTH_GRANT_TYPES[number];
+
+export const OAUTH_DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+/** all grants the token client can send - provisioning grants included */
+export type OauthTokenRequestGrantType = OauthGrantType | 'authorization_code' | typeof OAUTH_DEVICE_CODE_GRANT;
 
 export const OAUTH_CLIENT_AUTH_METHODS = ['body', 'basic'] as const;
 /** How client credentials are sent: form body params (client_secret_post) or HTTP basic auth (client_secret_basic) */
@@ -39,35 +46,41 @@ export class OauthTokenRequestError extends Error {
 }
 
 /**
- * Validates a token endpoint URL. Must be https, except localhost is allowed
+ * Validates an OAuth endpoint URL. Must be https, except localhost is allowed
  * over plain http (tests, local identity providers).
  */
-export function assertValidTokenUrl(tokenUrl: string): URL {
+export function assertValidTokenUrl(tokenUrl: string, label = 'tokenUrl'): URL {
   let parsed: URL;
   try {
     parsed = new URL(tokenUrl);
   } catch {
-    throw new Error('tokenUrl must be a valid URL');
+    throw new Error(`${label} must be a valid URL`);
   }
   if (parsed.protocol === 'https:') return parsed;
   if (parsed.protocol === 'http:') {
     const host = parsed.hostname;
     if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return parsed;
-    throw new Error('tokenUrl must use https (plain http is only allowed for localhost)');
+    throw new Error(`${label} must use https (plain http is only allowed for localhost)`);
   }
-  throw new Error('tokenUrl must be an http(s) URL');
+  throw new Error(`${label} must be an http(s) URL`);
 }
 
 export type OauthTokenRequestOpts = {
   tokenUrl: string;
-  grantType: OauthGrantType;
+  grantType: OauthTokenRequestGrantType;
   clientId?: string;
   clientSecret?: string;
   /** how to send client credentials - form body (default) or HTTP basic auth */
   clientAuth?: OauthClientAuthMethod;
   /** required for the refresh_token grant */
   refreshToken?: string;
-  /** already space-joined per the OAuth wire format */
+  /** required for the authorization_code grant */
+  code?: string;
+  redirectUri?: string;
+  codeVerifier?: string;
+  /** required for the device_code grant */
+  deviceCode?: string;
+  /** already delimiter-joined per the OAuth wire format */
   scope?: string;
   /** additional form body params (e.g. audience, resource) */
   extraParams?: Record<string, string>;
@@ -83,6 +96,57 @@ export type OauthTokenResult = {
   scope?: string;
   tokenType?: string;
 };
+
+// ── cache keys + entry shapes ──────────────────────────────────────────
+// Shared between the oauth() resolver and the `varlock oauth login` CLI so
+// both compute identical keys.
+
+/** access-token cache entry, one per (item scope-set) */
+export type OauthItemCacheEntry = {
+  accessToken: string;
+  /** epoch ms when the access token stops being usable (provider-reported) */
+  expiresAt: number;
+  /** latest rotated refresh token - only used when the refresh token is item-configured */
+  refreshToken?: string;
+  scope?: string;
+  lastRefreshedAt: number;
+  refreshCount: number;
+};
+
+/** provider-level entry - the live home of a login-provisioned refresh token, shared across items */
+export type OauthProviderCacheEntry = {
+  refreshToken: string;
+  /** scopes granted at login (may be broader than any one item's request) */
+  grantedScope?: string;
+  updatedAt: number;
+  source: 'login' | 'rotation';
+};
+
+/** key for an item's access-token entry, scoped to the exact credentials + scopes */
+export function buildOauthItemCacheKey(parts: {
+  tokenUrl: string;
+  grantType: string;
+  clientId: string;
+  scope?: string;
+  /** the CONFIGURED bootstrap refresh token (not a rotated one); empty for login-provisioned */
+  refreshToken?: string;
+}): string {
+  const keyMaterial = [parts.tokenUrl, parts.grantType, parts.clientId, parts.scope ?? '', parts.refreshToken ?? ''].join('\n');
+  const digest = createHash('sha256').update(keyMaterial).digest('hex').slice(0, 16);
+  return `oauth:${new URL(parts.tokenUrl).hostname}:${digest}`;
+}
+
+/** key for the shared provider-level refresh-token entry, written by `varlock oauth login` */
+export function buildOauthProviderCacheKey(parts: { tokenUrl: string; clientId: string }): string {
+  const keyMaterial = [parts.tokenUrl, parts.clientId].join('\n');
+  const digest = createHash('sha256').update(keyMaterial).digest('hex').slice(0, 16);
+  return `oauth:${new URL(parts.tokenUrl).hostname}:provider-${digest}`;
+}
+
+/** display helper - scopes string or a placeholder when none requested */
+export function formatOauthScopesForDisplay(scope: string | undefined): string {
+  return scope || '(provider default)';
+}
 
 function truncate(str: string, maxLen: number) {
   return str.length > maxLen ? `${str.slice(0, maxLen)}…` : str;
@@ -114,6 +178,16 @@ export async function requestOauthToken(opts: OauthTokenRequestOpts): Promise<Oa
   if (opts.grantType === 'refresh_token') {
     if (!opts.refreshToken) throw new OauthTokenRequestError('refresh_token grant requires a refresh token');
     body.set('refresh_token', opts.refreshToken);
+  } else if (opts.grantType === 'authorization_code') {
+    if (!opts.code || !opts.redirectUri) {
+      throw new OauthTokenRequestError('authorization_code grant requires code and redirectUri');
+    }
+    body.set('code', opts.code);
+    body.set('redirect_uri', opts.redirectUri);
+    if (opts.codeVerifier) body.set('code_verifier', opts.codeVerifier);
+  } else if (opts.grantType === OAUTH_DEVICE_CODE_GRANT) {
+    if (!opts.deviceCode) throw new OauthTokenRequestError('device_code grant requires deviceCode');
+    body.set('device_code', opts.deviceCode);
   }
   if (opts.scope) body.set('scope', opts.scope);
   for (const [key, value] of Object.entries(opts.extraParams ?? {})) {

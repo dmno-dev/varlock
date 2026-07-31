@@ -526,6 +526,34 @@ WEBHOOK_SECRET=yourPreferredPlugin()
 ```
 </div>
 
+<div>
+### `@oauthProvider()`
+**Arg types:** `(id?: string, preset?: string, tokenUrl?: string, authorizationUrl?: string, deviceAuthorizationUrl?: string, clientAuth?: string, clientId, clientSecret?, scopes?)`
+
+Defines a named OAuth provider that [`oauth()`](/reference/functions/#oauth) items reference by id, so client config is written once and shared by every token minted from it. Can be declared multiple times with different ids.
+
+- `id`: name used by `oauth(<id>, ...)` and `varlock oauth login <id>` (defaults to `_default`)
+- `preset`: fills in endpoints and quirks for a known provider: `google`, `github`, `microsoft`, or `slack`. Explicit args override preset values.
+- `tokenUrl`: token endpoint (required unless the preset provides it)
+- `authorizationUrl` / `deviceAuthorizationUrl`: authorization endpoints, used by [`varlock oauth login`](/reference/cli/project/#oauth)
+- `clientAuth`: how client credentials are sent to the token endpoint, `body` (default) or `basic`
+- `clientId` (required) and `clientSecret`: usually references to other items
+- `scopes`: default scopes for items that don't specify their own
+
+```env-spec "@oauthProvider"
+# @oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
+# ---
+# @internal
+GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com
+# @internal @sensitive
+GOOGLE_CLIENT_SECRET=varlock(local:abc123...)
+# @sensitive
+DRIVE_TOKEN=oauth(google, scopes="https://www.googleapis.com/auth/drive.readonly")
+```
+
+Items referencing a provider may omit `refreshToken` entirely: run [`varlock oauth login google`](/reference/cli/project/#oauth) once and the resulting refresh token is stored in the encrypted cache, shared by every item using that provider.
+</div>
+
 </div>
 
 ## Code generation ||code-generation||

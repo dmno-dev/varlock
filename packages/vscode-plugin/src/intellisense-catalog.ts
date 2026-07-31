@@ -187,6 +187,14 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     insertText: '@auditIgnorePaths(${1:path})',
     isFunction: true,
   },
+  {
+    name: 'oauthProvider',
+    scope: 'root',
+    summary: 'Defines a named OAuth provider for oauth() items to reference.',
+    documentation: 'Example: `# @oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)`. Presets: google, github, microsoft, slack. Provision a refresh token with `varlock oauth login <id>`.',
+    insertText: '@oauthProvider(id=${1:google}, preset=${2:google}, clientId=$${3:CLIENT_ID}, clientSecret=$${4:CLIENT_SECRET})',
+    isFunction: true,
+  },
 ];
 
 export const ITEM_DECORATORS: Array<DecoratorInfo> = [

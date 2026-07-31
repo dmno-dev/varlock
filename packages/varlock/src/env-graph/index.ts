@@ -5,6 +5,7 @@ export {
   FileBasedDataSource, DotEnvFileDataSource, DirectoryDataSource, MultiplePathsContainerDataSource,
 } from './lib/data-source';
 export { Resolver, StaticValueResolver } from './lib/resolver';
+export { type OauthProviderInstanceRecord } from './lib/decorators';
 export { ConfigItem, type TypeGenItemInfo } from './lib/config-item';
 export {
   VarlockError,

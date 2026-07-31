@@ -15,6 +15,10 @@ import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
 import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget } from '../../proxy/types';
+import {
+  assertValidTokenUrl, OAUTH_CLIENT_AUTH_METHODS, type OauthClientAuthMethod, type OauthGrantType,
+} from '../../lib/oauth';
+import { OAUTH_PROVIDER_PRESETS, OAUTH_PRESET_NAMES } from '../../lib/oauth-presets';
 
 
 export abstract class DecoratorInstance {
@@ -310,6 +314,41 @@ function parseEnvBulkValues(
 }
 
 // ~ Root decorators ----------------------------------------
+/**
+ * A registered `@oauthProvider(...)` instance, stored on `EnvGraph.oauthProviders`
+ * keyed by id. Static config is captured at process time; dynamic args (client
+ * credentials, default scopes) are resolved once during the decorator's
+ * execute() and stored in `resolved`. The `oauth()` resolver and the
+ * `varlock oauth login` CLI both read from here.
+ */
+export type OauthProviderInstanceRecord = {
+  id: string;
+  presetName?: string;
+  tokenUrl: string;
+  authorizationUrl?: string;
+  deviceAuthorizationUrl?: string;
+  clientAuth: OauthClientAuthMethod;
+  extraAuthParams: Record<string, string>;
+  requiredLoginScopes: Array<string>;
+  scopesDelimiter: string;
+  appSetupUrl?: string;
+  notes?: string;
+  clientIdResolver: Resolver;
+  clientSecretResolver?: Resolver;
+  scopesResolver?: Resolver;
+  /** the decorator's FunctionArgsResolver - its .deps drive item dependency wiring */
+  argsResolver: Resolver;
+  /** items referencing this provider, populated by the oauth() resolver's process() */
+  usedBy: Array<{
+    itemKey: string;
+    grantType: OauthGrantType;
+    scopesResolver?: Resolver;
+    hasOwnRefreshToken: boolean;
+  }>;
+  /** populated by execute() during finishLoad */
+  resolved?: { clientId: string; clientSecret?: string; scope?: string };
+};
+
 export type RootDecoratorDef<Processed = any> = {
   name: string,
   description?: string;
@@ -673,6 +712,131 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     allowDualPlacement: true,
     useFnArgsResolver: true,
     process: (argsVal) => validateProxyFunctionArgs(argsVal),
+  },
+  {
+    name: 'oauthProvider',
+    isFunction: true,
+    process(argsVal) {
+      const graph = argsVal.dataSource!.graph!;
+      if (argsVal.arrArgs?.length) {
+        throw new SchemaError('@oauthProvider expects only key-value args, e.g. `@oauthProvider(id=google, preset=google, clientId=$GOOGLE_CLIENT_ID)`');
+      }
+      const objArgs = argsVal.objArgs ?? {};
+
+      const knownArgs = [
+        'id',
+        'preset',
+        'tokenUrl',
+        'authorizationUrl',
+        'deviceAuthorizationUrl',
+        'clientAuth',
+        'clientId',
+        'clientSecret',
+        'scopes',
+      ];
+      for (const argKey of Object.keys(objArgs)) {
+        if (!knownArgs.includes(argKey)) {
+          throw new SchemaError(`@oauthProvider: unknown arg "${argKey}" (expected one of: ${knownArgs.join(', ')})`);
+        }
+      }
+
+      const getStaticString = (argKey: string): string | undefined => {
+        const r = objArgs[argKey];
+        if (!r) return undefined;
+        if (!r.isStatic || typeof r.staticValue !== 'string' || !r.staticValue) {
+          throw new SchemaError(`@oauthProvider: ${argKey} must be a static string`);
+        }
+        return r.staticValue;
+      };
+
+      const id = getStaticString('id') ?? '_default';
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(id)) {
+        throw new SchemaError('@oauthProvider: id must start with a letter and contain only letters, numbers, dashes, underscores');
+      }
+      if (graph.oauthProviders[id]) {
+        throw new SchemaError(`@oauthProvider: provider id "${id}" is already defined`);
+      }
+
+      const presetName = getStaticString('preset');
+      let preset;
+      if (presetName) {
+        preset = OAUTH_PROVIDER_PRESETS[presetName];
+        if (!preset) {
+          throw new SchemaError(`@oauthProvider: unknown preset "${presetName}" (known presets: ${OAUTH_PRESET_NAMES.join(', ')})`);
+        }
+      }
+
+      const tokenUrl = getStaticString('tokenUrl') ?? preset?.tokenUrl;
+      if (!tokenUrl) {
+        throw new SchemaError('@oauthProvider: tokenUrl is required (or use a preset that provides one)');
+      }
+      const authorizationUrl = getStaticString('authorizationUrl') ?? preset?.authorizationUrl;
+      const deviceAuthorizationUrl = getStaticString('deviceAuthorizationUrl') ?? preset?.deviceAuthorizationUrl;
+      try {
+        assertValidTokenUrl(tokenUrl, 'tokenUrl');
+        if (authorizationUrl) assertValidTokenUrl(authorizationUrl, 'authorizationUrl');
+        if (deviceAuthorizationUrl) assertValidTokenUrl(deviceAuthorizationUrl, 'deviceAuthorizationUrl');
+      } catch (err) {
+        throw new SchemaError(`@oauthProvider: ${err instanceof Error ? err.message : err}`);
+      }
+
+      const clientAuthArg = getStaticString('clientAuth');
+      if (clientAuthArg && !(OAUTH_CLIENT_AUTH_METHODS as ReadonlyArray<string>).includes(clientAuthArg)) {
+        throw new SchemaError(`@oauthProvider: clientAuth must be one of: ${OAUTH_CLIENT_AUTH_METHODS.join(', ')}`);
+      }
+      const clientAuth = (clientAuthArg ?? preset?.clientAuth ?? 'body') as OauthClientAuthMethod;
+
+      if (!objArgs.clientId) {
+        throw new SchemaError('@oauthProvider: clientId is required');
+      }
+
+      const record: OauthProviderInstanceRecord = {
+        id,
+        presetName,
+        tokenUrl,
+        authorizationUrl,
+        deviceAuthorizationUrl,
+        clientAuth,
+        extraAuthParams: preset?.extraAuthParams ?? {},
+        requiredLoginScopes: preset?.requiredLoginScopes ?? [],
+        scopesDelimiter: preset?.scopesDelimiter ?? ' ',
+        appSetupUrl: preset?.appSetupUrl,
+        notes: preset?.notes,
+        clientIdResolver: objArgs.clientId,
+        clientSecretResolver: objArgs.clientSecret,
+        scopesResolver: objArgs.scopes,
+        argsResolver: argsVal,
+        usedBy: [],
+      };
+      graph.oauthProviders[id] = record;
+      return record;
+    },
+    async execute(record: OauthProviderInstanceRecord) {
+      const clientId = await record.clientIdResolver.resolve();
+      if (typeof clientId !== 'string' || !clientId) {
+        throw new ResolutionError('@oauthProvider: clientId resolved to an empty value');
+      }
+      let clientSecret: string | undefined;
+      if (record.clientSecretResolver) {
+        const resolved = await record.clientSecretResolver.resolve();
+        if (typeof resolved !== 'string' || !resolved) {
+          throw new ResolutionError('@oauthProvider: clientSecret resolved to an empty value');
+        }
+        clientSecret = resolved;
+      }
+      let scope: string | undefined;
+      if (record.scopesResolver) {
+        const resolved = await record.scopesResolver.resolve();
+        if (typeof resolved === 'string') {
+          scope = resolved;
+        } else if (Array.isArray(resolved) && resolved.every((s) => typeof s === 'string')) {
+          scope = resolved.join(record.scopesDelimiter);
+        } else {
+          throw new ResolutionError('@oauthProvider: scopes must resolve to a string or an array of strings');
+        }
+      }
+      record.resolved = { clientId, clientSecret, scope };
+    },
   },
   {
     name: 'auditIgnorePaths',
