@@ -140,7 +140,16 @@ Sprites hibernate when idle (in practice we have seen a broker with a running se
 
 A restart normally mints a new CA, which running agents would not trust. That is what `--persist-ca` in the service args prevents: the CA is kept in `--cert-dir` on the sprite's persistent filesystem and reused, so a wake is invisible to agents. Reserve it for brokers, where the proxy runs alone: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
-The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one and restarting it (`sprite api /v1/sprites/varlock-broker/services/varlock-proxy/restart -- -X POST`; updating a service definition does not restart a running service). To change policy, upload the edited schema the same way and run `sprite exec -s varlock-broker -- varlock proxy reload`: rule changes apply to agent traffic immediately, and a newly added key shows up for newly started `proxy run` commands.
+The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one and restarting it (`sprite api /v1/sprites/varlock-broker/services/varlock-proxy/restart -- -X POST`; updating a service definition does not restart a running service).
+
+To change policy, upload the edited schema the same way, then reload. `proxy reload` validates the schema in its own process before handing it to the running proxy, so the exec needs the project dir and the same bootstrap env the service carries:
+
+```bash
+sprite exec -s varlock-broker --dir /home/sprite/proj \
+  --env OP_SERVICE_ACCOUNT_TOKEN="$OP_SERVICE_ACCOUNT_TOKEN" -- varlock proxy reload
+```
+
+Rule changes apply to agent traffic immediately; a newly added key shows up for newly started `proxy run` commands.
 
 ## Other topologies
 
