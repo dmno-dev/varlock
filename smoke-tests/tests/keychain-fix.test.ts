@@ -43,10 +43,10 @@ function writeGeneratedSchema() {
     '# ---',
     '',
     '# @sensitive',
-    `FIXED_API_KEY=keychain(service="${service}", account="${apiAccount}", useFallback=false)`,
+    `FIXED_API_KEY=keychain(service="${service}", account="${apiAccount}")`,
     '',
     '# @sensitive',
-    `FIXED_DATABASE_URL=keychain(service="${service}", account="${databaseAccount}", useFallback=false)`,
+    `FIXED_DATABASE_URL=keychain(service="${service}", account="${databaseAccount}")`,
     '',
   ].join('\n'));
 }

@@ -348,7 +348,6 @@ export class DaemonClient {
     account?: string;
     keychain?: string;
     field?: string;
-    useFallback?: boolean;
   }): Promise<string> {
     return this.withRetry(async () => {
       await this.ensureConnected();

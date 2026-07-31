@@ -107,13 +107,9 @@ You can also fix every explicit `keychain(...)` ref in an env file:
 varlock keychain fix-access --path .env.myenv
 ```
 
-macOS may show one Keychain prompt per secret. Choose **Always Allow** for each prompt. Choosing **Allow Once** lets that single read continue, but future reads will still prompt.
+Varlock reads secrets directly through Apple's Security framework, so macOS evaluates access for VarlockEnclave itself.
 
-By default, `keychain()` may fall back to `/usr/bin/security` when Apple's framework APIs cannot read a generic-password item. To require direct framework access, pass `useFallback=false`:
-
-```env
-API_KEY=keychain(service="varlock", account="my-app:myenv:API_KEY", useFallback=false)
-```
+macOS may show one Keychain prompt per secret. Choose **Always Allow** for each prompt. This adds VarlockEnclave to the item's access control list, so repeated reads no longer prompt. Choosing **Allow Once** lets that single read continue, but future reads will still prompt.
 
 If you want a new Varlock-owned copy instead of relying on the original item's access rules, clone one existing secret into a new item:
 

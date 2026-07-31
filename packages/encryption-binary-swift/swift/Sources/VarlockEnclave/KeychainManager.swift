@@ -212,12 +212,13 @@ final class KeychainManager {
     /// Fetch the password value for a keychain item.
     /// At least one of service or account must be provided.
     /// Throws if not found, access denied, or ambiguous match.
-    static func getItem(service: String? = nil, account: String? = nil, keychainName: String? = nil, useFallback: Bool = true) throws -> String {
-        // Try generic password first, then internet password
-        if let value = try? getItemOfClass(kSecClassGenericPassword, service: service, account: account, keychainName: keychainName, useFallback: useFallback) {
+    static func getItem(service: String? = nil, account: String? = nil, keychainName: String? = nil) throws -> String {
+        // Try generic password first, then internet password. Secret reads intentionally use
+        // Security.framework directly so Keychain evaluates access for VarlockEnclave.
+        if let value = try? getItemOfClass(kSecClassGenericPassword, service: service, account: account, keychainName: keychainName) {
             return value
         }
-        return try getItemOfClass(kSecClassInternetPassword, service: service, account: account, keychainName: keychainName, useFallback: useFallback)
+        return try getItemOfClass(kSecClassInternetPassword, service: service, account: account, keychainName: keychainName)
     }
 
     /// Fetch a metadata field (account, label, etc.) from a keychain item instead of the password.
@@ -265,7 +266,7 @@ final class KeychainManager {
         throw KeychainError.itemNotFound
     }
 
-    private static func getItemOfClass(_ itemClass: CFString, service: String?, account: String?, keychainName: String?, useFallback: Bool = true) throws -> String {
+    private static func getItemOfClass(_ itemClass: CFString, service: String?, account: String?, keychainName: String?) throws -> String {
         // When account is nil and service is set, check for ambiguity
         if account == nil, let service = service {
             var countQuery: [CFString: Any] = [
@@ -328,60 +329,10 @@ final class KeychainManager {
         case errSecItemNotFound:
             throw KeychainError.itemNotFound
         case errSecAuthFailed, errSecInteractionNotAllowed:
-            if useFallback,
-               itemClass == kSecClassGenericPassword,
-               let service = service,
-               let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
-                return value
-            }
             throw KeychainError.accessDenied("Authentication failed or interaction not allowed")
         default:
-            if useFallback,
-               itemClass == kSecClassGenericPassword,
-               let service = service,
-               let value = try? getGenericPasswordViaSecurityCLI(service: service, account: account, keychainName: keychainName) {
-                return value
-            }
             throw KeychainError.unhandledError(status)
         }
-    }
-
-    private static func getGenericPasswordViaSecurityCLI(service: String, account: String?, keychainName: String?) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-
-        var arguments = ["find-generic-password", "-s", service, "-w"]
-        if let account = account {
-            arguments.append(contentsOf: ["-a", account])
-        }
-        if let keychainName = keychainName, let keychainPath = resolveKeychainPath(named: keychainName) {
-            arguments.append(keychainPath)
-        }
-        process.arguments = arguments
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-            if errorOutput.contains("could not be found") || errorOutput.contains("specified item could not be found") {
-                throw KeychainError.itemNotFound
-            }
-            throw KeychainError.unhandledError(OSStatus(process.terminationStatus))
-        }
-
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        guard var value = String(data: data, encoding: .utf8) else {
-            throw KeychainError.unexpectedData
-        }
-        value = value.replacingOccurrences(of: "\r?\n$", with: "", options: .regularExpression)
-        return value
     }
 
     // MARK: - Add Item

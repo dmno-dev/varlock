@@ -219,7 +219,6 @@ async function fixAccessForRefs(refs: Array<KeychainRef>) {
         service: ref.service,
         account: ref.account,
         keychain: ref.keychain,
-        useFallback: false,
       });
       read++;
       const label = ref.key ? `${ref.key} ` : '';
@@ -298,7 +297,6 @@ async function cloneKeychainSecretToOwned(opts: {
     service: opts.source.service,
     account: opts.source.account,
     keychain: opts.source.keychain,
-    useFallback: false,
   });
 
   await client.keychainSet({
