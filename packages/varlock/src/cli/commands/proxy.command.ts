@@ -291,6 +291,36 @@ async function loadResolvedProxyGraph(entryFilePaths?: Array<string>) {
   return envGraph;
 }
 
+/**
+ * Best-effort schema check `proxy reload` runs in the REQUESTING process, purely as
+ * a fast preview for the caller. It must never block the request: this context may
+ * not be able to resolve the schema at all (a provider exec on a remote broker has
+ * neither the project cwd nor the bootstrap env), and the owner re-validates with
+ * its own context before applying anyway. Exported for tests.
+ *
+ * - `validated`: schema loaded and resolved cleanly here
+ * - `no-local-schema`: nothing readable from this context (quiet skip)
+ * - `invalid`: schema loaded but did not validate here (details already printed)
+ */
+export async function previewReloadSchema(entryFilePaths?: Array<string>): Promise<'validated' | 'no-local-schema' | 'invalid'> {
+  let envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>;
+  try {
+    envGraph = await loadVarlockEnvGraph({ entryFilePaths, skipProxyFingerprintGuard: true });
+  } catch {
+    return 'no-local-schema';
+  }
+  if (Object.keys(envGraph.configSchema).length === 0) return 'no-local-schema';
+  try {
+    checkForSchemaErrors(envGraph);
+    await envGraph.runCodeGeneratorsIfNeeded();
+    await envGraph.resolveEnvValues();
+    checkForConfigErrors(envGraph);
+  } catch {
+    return 'invalid';
+  }
+  return 'validated';
+}
+
 async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<PreparedProxyPolicy> {
   const envGraph = await loadResolvedProxyGraph(entryFilePaths);
 
@@ -2030,14 +2060,19 @@ async function reloadAction(ctx: any) {
     throw new CliExitError(`Proxy session ${session.id} is no longer running.`);
   }
 
-  // Validate the new schema here (in this context) so an obviously broken edit
-  // fails loudly at the call site, not only in the owner's logs. Only the
-  // load/resolve/validate is needed; the owner recomputes the full policy when
-  // it applies the reload.
+  // Preview the schema in this context so an obviously broken edit fails fast at
+  // the call site, but never block on it: this process may not be able to resolve
+  // the schema at all (e.g. a provider exec on a remote broker, without the project
+  // cwd or bootstrap env). The owner validates with its own context before applying
+  // and reports the result back, so it is the authority either way.
   const reloadPaths = ctx.values.path ?? session.entryPaths;
-  await loadResolvedProxyGraph(reloadPaths).catch((error) => {
-    throw new CliExitError(`Schema does not resolve: ${(error as Error).message}`);
-  });
+  const preview = await previewReloadSchema(reloadPaths);
+  if (preview === 'invalid') {
+    console.log(ansis.yellow('⚠️  The schema does not validate in this context (details above). Sending the reload anyway;'));
+    console.log(ansis.yellow('   the proxy re-validates with its own environment before applying.'));
+  } else if (preview === 'no-local-schema') {
+    console.log(ansis.dim('Schema not readable from this context; the proxy validates it before applying.'));
+  }
 
   // Hand the reload to the process that owns the runtime via the file channel,
   // then block until it reports a result. (When the native/phone approver lands,
@@ -2104,7 +2139,9 @@ async function reloadAction(ctx: any) {
     );
   }
   if (result.status === 'error') {
-    throw new CliExitError(`Proxy reload failed: ${result.error ?? 'unknown error'}`);
+    throw new CliExitError(`Proxy reload failed: ${result.error ?? 'unknown error'}`, {
+      suggestion: 'The proxy validates the schema in its own context before applying; see its log for details.',
+    });
   }
 
   console.log(`✓ Schema change reloaded for proxy session ${session.id}.`);
