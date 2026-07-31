@@ -20,6 +20,11 @@ import {
   type GeneratedTotp, type OtpAlgorithm, type OtpSecretEncoding,
 } from '../../lib/otp';
 import { assertValidCacheKey, hasInvalidCacheKeyChars, MAX_CACHE_KEY_LENGTH } from '../../lib/cache/cache-store';
+import {
+  assertValidTokenUrl, requestOauthToken, OauthTokenRequestError,
+  OAUTH_GRANT_TYPES, OAUTH_CLIENT_AUTH_METHODS, OAUTH_RESERVED_PARAMS,
+  type OauthGrantType, type OauthClientAuthMethod, type OauthTokenResult,
+} from '../../lib/oauth';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
@@ -1047,6 +1052,14 @@ export const CacheResolver: typeof Resolver = createResolver({
       });
     }
 
+    // oauth() manages its own cache keyed on the provider-reported token expiry;
+    // wrapping it would serve expired access tokens
+    if (childResolver?.fnName === 'oauth') {
+      throw new SchemaError('cannot cache oauth(), since it already caches tokens according to their expiry', {
+        tip: 'Cache the inputs instead, e.g. `oauth(refreshToken=cache(op("op://vault/item/refresh token")), ...)`',
+      });
+    }
+
     // optional explicit cache key
     const keyResolver = this.objArgs?.key;
     let customKey: string | undefined;
@@ -1125,6 +1138,280 @@ export const CacheResolver: typeof Resolver = createResolver({
   },
 });
 
+// ── OAuth ──────────────────────────────────────────────────────────────
+
+/** refresh this long before the provider-reported expiry */
+const OAUTH_DEFAULT_SKEW_MS = 60_000;
+/** assumed token lifetime when a provider omits expires_in from its response */
+const OAUTH_FALLBACK_EXPIRES_IN_MS = 10 * 60 * 1000;
+
+type OauthCacheEntry = {
+  accessToken: string;
+  /** epoch ms when the access token stops being usable (provider-reported) */
+  expiresAt: number;
+  /** latest rotated refresh token, for providers that rotate on every refresh */
+  refreshToken?: string;
+  scope?: string;
+  lastRefreshedAt: number;
+  refreshCount: number;
+};
+
+let warnedOauthRotationNotPersisted = false;
+
+export const OauthResolver: typeof Resolver = createResolver({
+  name: 'oauth',
+  description: 'Exchange a refresh token or client credentials for a fresh OAuth access token',
+  icon: 'mdi:key-chain-variant',
+  inferredType: 'string',
+  impliesSensitive: true,
+  argsSchema: {
+    type: 'object',
+    objKeyMinLength: 1,
+  },
+  process() {
+    const tokenUrlResolver = this.objArgs?.tokenUrl;
+    if (!tokenUrlResolver) throw new SchemaError('tokenUrl is required');
+    if (!tokenUrlResolver.isStatic || typeof tokenUrlResolver.staticValue !== 'string') {
+      throw new SchemaError('tokenUrl must be a static string');
+    }
+    const tokenUrl = tokenUrlResolver.staticValue as string;
+    try {
+      assertValidTokenUrl(tokenUrl);
+    } catch (err) {
+      throw new SchemaError(err instanceof Error ? err.message : String(err));
+    }
+
+    let grantType: OauthGrantType = 'refresh_token';
+    const grantResolver = this.objArgs?.grant;
+    if (grantResolver) {
+      if (!grantResolver.isStatic || typeof grantResolver.staticValue !== 'string') {
+        throw new SchemaError('grant must be a static string');
+      }
+      if (!(OAUTH_GRANT_TYPES as ReadonlyArray<string>).includes(grantResolver.staticValue)) {
+        throw new SchemaError(`grant must be one of: ${OAUTH_GRANT_TYPES.join(', ')}`);
+      }
+      grantType = grantResolver.staticValue as OauthGrantType;
+    }
+
+    let clientAuth: OauthClientAuthMethod = 'body';
+    const clientAuthResolver = this.objArgs?.clientAuth;
+    if (clientAuthResolver) {
+      if (!clientAuthResolver.isStatic || typeof clientAuthResolver.staticValue !== 'string') {
+        throw new SchemaError('clientAuth must be a static string');
+      }
+      if (!(OAUTH_CLIENT_AUTH_METHODS as ReadonlyArray<string>).includes(clientAuthResolver.staticValue)) {
+        throw new SchemaError(`clientAuth must be one of: ${OAUTH_CLIENT_AUTH_METHODS.join(', ')}`);
+      }
+      clientAuth = clientAuthResolver.staticValue as OauthClientAuthMethod;
+    }
+
+    // bare numbers are seconds (matching expires_in and generateOtp's period)
+    let skewMs = OAUTH_DEFAULT_SKEW_MS;
+    const skewResolver = this.objArgs?.skew;
+    if (skewResolver) {
+      if (!skewResolver.isStatic) throw new SchemaError('skew must be a static value');
+      const skewVal = skewResolver.staticValue;
+      if (typeof skewVal === 'number') {
+        skewMs = skewVal * 1000;
+      } else if (typeof skewVal === 'string') {
+        try {
+          skewMs = parseDuration(skewVal);
+        } catch (err) {
+          throw new SchemaError(err instanceof Error ? err.message : String(err));
+        }
+      } else {
+        throw new SchemaError('skew must be a number of seconds or a duration string like "90s"');
+      }
+      if (!Number.isFinite(skewMs) || skewMs < 0) {
+        throw new SchemaError('skew must be a non-negative duration');
+      }
+    }
+
+    const refreshTokenResolver = this.objArgs?.refreshToken;
+    if (grantType === 'refresh_token' && !refreshTokenResolver) {
+      throw new SchemaError('refreshToken is required for the refresh_token grant');
+    }
+    if (grantType === 'client_credentials' && refreshTokenResolver) {
+      throw new SchemaError('refreshToken does not apply to the client_credentials grant');
+    }
+
+    const clientIdResolver = this.objArgs?.clientId;
+    if (!clientIdResolver) throw new SchemaError('clientId is required');
+    const clientSecretResolver = this.objArgs?.clientSecret;
+
+    const scopesResolver = this.objArgs?.scopes;
+
+    const paramsResolver = this.objArgs?.params;
+    if (paramsResolver) {
+      if (!(paramsResolver instanceof ObjectLiteralResolver)) {
+        throw new SchemaError('params must be an object literal, e.g. `params={ audience="..." }`');
+      }
+      for (const paramKey of Object.keys(paramsResolver.objArgs ?? {})) {
+        if (OAUTH_RESERVED_PARAMS.includes(paramKey)) {
+          throw new SchemaError(`params may not override reserved param "${paramKey}"`);
+        }
+      }
+    }
+
+    const knownArgs = ['tokenUrl', 'grant', 'clientAuth', 'skew', 'refreshToken', 'clientId', 'clientSecret', 'scopes', 'params'];
+    for (const argKey of Object.keys(this.objArgs ?? {})) {
+      if (!knownArgs.includes(argKey)) {
+        throw new SchemaError(`unknown arg "${argKey}" (expected one of: ${knownArgs.join(', ')})`);
+      }
+    }
+
+    return {
+      tokenUrl,
+      grantType,
+      clientAuth,
+      skewMs,
+      refreshTokenResolver,
+      clientIdResolver,
+      clientSecretResolver,
+      scopesResolver,
+      paramsResolver,
+    };
+  },
+  async resolve(state) {
+    const { getResolutionContext } = await import('./resolution-context');
+    const ctx = getResolutionContext();
+    const cacheStore = ctx?.cacheStore;
+
+    const clientId = await state.clientIdResolver.resolve();
+    if (typeof clientId !== 'string' || !clientId) {
+      throw new ResolutionError('clientId resolved to an empty value');
+    }
+    let clientSecret: string | undefined;
+    if (state.clientSecretResolver) {
+      const resolved = await state.clientSecretResolver.resolve();
+      if (typeof resolved !== 'string' || !resolved) {
+        throw new ResolutionError('clientSecret resolved to an empty value');
+      }
+      clientSecret = resolved;
+    }
+    let configuredRefreshToken: string | undefined;
+    if (state.refreshTokenResolver) {
+      const resolved = await state.refreshTokenResolver.resolve();
+      if (typeof resolved !== 'string' || !resolved) {
+        throw new ResolutionError('refreshToken resolved to an empty value');
+      }
+      configuredRefreshToken = resolved;
+    }
+    let scope: string | undefined;
+    if (state.scopesResolver) {
+      const resolved = await state.scopesResolver.resolve();
+      if (typeof resolved === 'string') {
+        scope = resolved;
+      } else if (Array.isArray(resolved) && resolved.every((s) => typeof s === 'string')) {
+        // OAuth wire format is a single space-delimited string
+        scope = resolved.join(' ');
+      } else {
+        throw new ResolutionError('scopes must resolve to a string or an array of strings');
+      }
+    }
+    let extraParams: Record<string, string> | undefined;
+    if (state.paramsResolver) {
+      const resolved = await state.paramsResolver.resolve();
+      extraParams = {};
+      for (const [paramKey, paramVal] of Object.entries(resolved ?? {})) {
+        if (paramVal === undefined || paramVal === null) continue;
+        if (typeof paramVal === 'object') {
+          throw new ResolutionError(`params.${paramKey} must resolve to a primitive value`);
+        }
+        extraParams[paramKey] = String(paramVal);
+      }
+    }
+
+    // keyed on the *configured* credentials - a rotated refresh token stored in
+    // the entry maps back to the same key, a re-provisioned bootstrap gets a new one
+    const keyMaterial = [state.tokenUrl, state.grantType, clientId, scope ?? '', configuredRefreshToken ?? ''].join('\n');
+    const digest = createHash('sha256').update(keyMaterial).digest('hex').slice(0, 16);
+    const cacheKey = `oauth:${new URL(state.tokenUrl).hostname}:${digest}`;
+
+    const entryIsFresh = (entry: OauthCacheEntry | undefined): entry is OauthCacheEntry => (
+      !!entry?.accessToken && Date.now() < entry.expiresAt - state.skewMs
+    );
+
+    // fast path - fresh cached token, no lock needed
+    if (cacheStore && !ctx?.skipCache) {
+      const cached = await cacheStore.get(cacheKey);
+      const entry = cached?.value as OauthCacheEntry | undefined;
+      if (entryIsFresh(entry)) {
+        ctx?.cacheHits.push({ cacheKey, cachedAt: entry.lastRefreshedAt, expiresAt: entry.expiresAt });
+        return entry.accessToken;
+      }
+    }
+
+    const doRefresh = async (): Promise<string> => {
+      // re-read inside the lock - a parallel process may have just refreshed;
+      // also needed for the rotated refresh token even when skipCache is set
+      const cached = cacheStore ? await cacheStore.get(cacheKey) : undefined;
+      const entry = cached?.value as OauthCacheEntry | undefined;
+      if (!ctx?.skipCache && entryIsFresh(entry)) {
+        ctx?.cacheHits.push({ cacheKey, cachedAt: entry.lastRefreshedAt, expiresAt: entry.expiresAt });
+        return entry.accessToken;
+      }
+
+      let result: OauthTokenResult;
+      try {
+        result = await requestOauthToken({
+          tokenUrl: state.tokenUrl,
+          grantType: state.grantType,
+          clientId,
+          clientSecret,
+          clientAuth: state.clientAuth,
+          // prefer the latest rotated refresh token over the configured bootstrap
+          refreshToken: entry?.refreshToken || configuredRefreshToken,
+          scope,
+          extraParams,
+        });
+      } catch (err) {
+        if (err instanceof OauthTokenRequestError) {
+          const tip: Array<string> = [];
+          if (err.details.oauthErrorCode === 'invalid_grant') {
+            tip.push('The refresh token is likely expired or revoked - re-provision it from the provider');
+            if (entry?.refreshToken) {
+              tip.push('A previously rotated refresh token from the varlock cache was used - clearing the cache will retry with the configured one');
+            }
+          }
+          throw new ResolutionError(err.message, tip.length ? { tip } : undefined);
+        }
+        throw err;
+      }
+
+      const refreshedAt = Date.now();
+      const newEntry: OauthCacheEntry = {
+        accessToken: result.accessToken,
+        expiresAt: refreshedAt + (
+          result.expiresInSeconds !== undefined ? result.expiresInSeconds * 1000 : OAUTH_FALLBACK_EXPIRES_IN_MS
+        ),
+        // keep the previous rotated token when the provider doesn't rotate
+        refreshToken: result.refreshToken ?? entry?.refreshToken,
+        scope: result.scope ?? scope,
+        lastRefreshedAt: refreshedAt,
+        refreshCount: (entry?.refreshCount ?? 0) + 1,
+      };
+      // entry TTL is forever because it must outlive the access token - it
+      // carries the rotated refresh token; freshness is checked via expiresAt
+      if (cacheStore) {
+        await cacheStore.set(cacheKey, newEntry, TTL_FOREVER);
+      } else if (
+        result.refreshToken && result.refreshToken !== configuredRefreshToken && !warnedOauthRotationNotPersisted
+      ) {
+        warnedOauthRotationNotPersisted = true;
+        // eslint-disable-next-line no-console
+        console.error('oauth(): provider rotated the refresh token but caching is disabled - the rotated token cannot be persisted, and the configured refresh token may stop working');
+      }
+      return result.accessToken;
+    };
+
+    // serialize refreshes across processes when the store supports locking, so
+    // parallel invocations share one token exchange (rotation makes this matter)
+    if (cacheStore?.withKeyLock) return await cacheStore.withKeyLock(cacheKey, doRefresh);
+    return await doRefresh();
+  },
+});
+
 // Special function for `@defaultSensitive=inferFromPrefix(PUBLIC_)`
 // we may want to formalize this pattern of a resolver function used in a root decorator
 // but resolved within the context of a specific item
@@ -1164,6 +1451,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   RandomStringResolver,
   GenerateOtpResolver,
   CacheResolver,
+  OauthResolver,
   RemapResolver,
   IfsResolver,
   ForEnvResolver,

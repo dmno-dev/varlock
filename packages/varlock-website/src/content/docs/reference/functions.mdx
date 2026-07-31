@@ -22,7 +22,7 @@ CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
 ```
 
 
-There are built-in utility functions, [random value generators](#random-value-generators), [`generateOtp()`](#generateotp) for 2FA codes, a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), [`generateOtp()`](#generateotp) for 2FA codes, [`oauth()`](#oauth) for exchanging long-lived OAuth credentials for fresh access tokens, a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 ## Core
 <div class="reference-docs">
@@ -412,6 +412,59 @@ A few other things to know:
 - **Codes expire.** They rotate every `period` seconds, so generate at the moment of use. A long command that only needs the code at the very end can outlive it.
 - **Your clock has to be right.** Codes are derived from the current time. Check clock sync before assuming the seed is wrong.
 - **This weakens your second factor.** A seed sitting next to the token it protects, on the same machine, is no longer an independent factor. That can be a reasonable trade for a local workflow where the seed is encrypted at rest and never injected into your app. It is a bad trade in CI, where [OIDC workload identity](/guides/oidc/) or credentials that do not require 2FA are the better answer.
+</div>
+</div>
+
+## OAuth tokens
+
+<div class="reference-docs">
+<div>
+### `oauth()`
+
+Exchanges a long-lived OAuth credential for a short-lived access token by calling the provider's token endpoint. The item resolves to a fresh access token, and only that token is injected. The refresh token and client secret stay in your vault, referenced as [`@internal`](/reference/item-decorators/#internal) items that never reach your app or child processes.
+
+Tokens are cached (encrypted, according to your [cache mode](/reference/root-decorators/#cache)) and reused until the provider-reported expiry, so repeated invocations do not hit the token endpoint. When a provider rotates refresh tokens on each use (Google and Slack do), the rotated token is stored in the cache and used for the next refresh automatically; the configured refresh token is just the bootstrap.
+
+Options:
+
+- `tokenUrl=S` (required): the provider's token endpoint. Must be https (plain http is allowed for localhost).
+- `grant=S` option: `refresh_token` (default) or `client_credentials`
+- `refreshToken=R`: the refresh token (required for the `refresh_token` grant). Usually a reference to another item.
+- `clientId=R` (required): the OAuth client id
+- `clientSecret=R` option: the OAuth client secret. Not needed for public (PKCE) clients.
+- `clientAuth=S` option: how client credentials are sent, `body` (default) or `basic` for HTTP basic auth. Some providers (e.g. Notion) require `basic`.
+- `scopes=R` option: a space-delimited string or an array of scope strings
+- `params={...}` option: extra form params for the token request, e.g. `params={ audience="..." }` for Auth0
+- `skew=N` option: refresh this long before the reported expiry, in seconds or a duration string (default: `60s`)
+
+```env-spec "oauth"
+# long-lived credentials, resolved by varlock but never injected
+# @internal @sensitive
+GOOGLE_REFRESH_TOKEN=op("op://dev/google-oauth/refresh token")
+# @internal @sensitive
+GOOGLE_CLIENT_SECRET=op("op://dev/google-oauth/client secret")
+# @internal
+GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com
+
+# resolves to a fresh short-lived access token
+# @sensitive
+GOOGLE_ACCESS_TOKEN=oauth(tokenUrl="https://oauth2.googleapis.com/token", refreshToken=$GOOGLE_REFRESH_TOKEN, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
+
+# machine-to-machine (client_credentials) grant, e.g. Auth0
+# @sensitive
+API_TOKEN=oauth(tokenUrl="https://myorg.auth0.com/oauth/token", grant="client_credentials", clientId=$AUTH0_CLIENT_ID, clientSecret=$AUTH0_CLIENT_SECRET, params={ audience="https://api.myorg.com" })
+```
+
+A few things to know:
+
+- **The initial refresh token has to come from somewhere.** Run your provider's authorization flow once (many CLIs and provider consoles can do this) and store the resulting refresh token in your vault. `oauth()` keeps it fresh from there.
+- **Rotation needs a persistent cache.** With caching disabled (`--skip-cache`, or no cache store available), a provider that rotates refresh tokens will invalidate the configured one after the first exchange. varlock prints a warning when this happens.
+- **Concurrent invocations share one refresh.** Parallel `varlock run` processes on the same machine coordinate through a lock, so a rotating provider sees one exchange, not a stampede.
+- **If a refresh fails with `invalid_grant`**, the refresh token is expired or revoked. Re-run the provider's authorization flow and update the stored token.
+
+:::caution[Do not wrap in cache()]
+Wrapping this in [`cache()`](#cache) is an error. `oauth()` already caches tokens according to their provider-reported expiry; a generic cache TTL would serve expired tokens. Wrapping the *inputs* in `cache()` is fine.
+:::
 </div>
 </div>
 
