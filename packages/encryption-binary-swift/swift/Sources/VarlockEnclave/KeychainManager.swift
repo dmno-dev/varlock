@@ -11,7 +11,6 @@ enum KeychainError: LocalizedError {
     case unhandledError(OSStatus)
     case keychainNotFound(String)
     case ambiguousMatch(service: String, accounts: [String])
-    case ownershipTransferFailed(recreateError: Error, restoreError: Error?)
 
     var code: String {
         switch self {
@@ -29,8 +28,6 @@ enum KeychainError: LocalizedError {
             return "keychainNotFound"
         case .ambiguousMatch:
             return "ambiguousMatch"
-        case .ownershipTransferFailed:
-            return "ownershipTransferFailed"
         }
     }
 
@@ -54,21 +51,8 @@ enum KeychainError: LocalizedError {
         case .ambiguousMatch(let service, let accounts):
             let accountList = accounts.map { "\"\($0)\"" }.joined(separator: ", ")
             return "Multiple keychain items found for service \"\(service)\" with accounts: \(accountList). Specify account to disambiguate."
-        case .ownershipTransferFailed(let recreateError, let restoreError):
-            let recreateMessage = keychainErrorDetail(recreateError)
-            if let restoreError = restoreError {
-                return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); restoring the secret value also failed (\(keychainErrorDetail(restoreError)))."
-            }
-            return "Ownership transfer failed while recreating the keychain item (\(recreateMessage)); the secret value was preserved or restored."
         }
     }
-}
-
-private func keychainErrorDetail(_ error: Error) -> String {
-    if let keychainError = error as? KeychainError {
-        return keychainError.localizedDescription
-    }
-    return error.localizedDescription
 }
 
 /// Metadata about a keychain item (no secret values)

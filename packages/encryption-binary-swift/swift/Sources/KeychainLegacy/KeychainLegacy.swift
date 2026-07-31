@@ -52,5 +52,4 @@ public enum LegacyKeychain {
         let status = SecKeychainOpen(path, &keychain)
         return (status, keychain)
     }
-
 }
