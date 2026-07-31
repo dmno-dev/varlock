@@ -23,6 +23,17 @@
 
 
 
+
+## 1.16.0
+<sub>2026-07-31</sub>
+
+- [#968](https://github.com/dmno-dev/varlock/pull/968)  *(minor)*
+  varlock/auto-load and varlock run now reuse an injected __VARLOCK_ENV blob instead of re-resolving, when it was resolved in the same directory. Set _VARLOCK_USE_INJECTED_ENV=1 to always trust an injected blob (e.g. handing env into a sandbox with no .env files), or 0 to always re-resolve.
+- [#965](https://github.com/dmno-dev/varlock/pull/965)  *(minor)*
+  proxy run --url now dials its tunnel through an HTTP proxy (HTTP(S)_PROXY/NO_PROXY), so a sandboxed agent whose only egress is a proxy gateway (e.g. Docker Sandboxes) can reach a broker
+- [#969](https://github.com/dmno-dev/varlock/pull/969)  *(patch)*
+  `varlock proxy reload` no longer requires the schema to resolve in the requesting shell: the proxy validates the edit in its own context before applying and reports failures back, so a remote broker can be reloaded with a bare provider exec
+
 ## 1.15.0
 <sub>2026-07-31</sub>
 
