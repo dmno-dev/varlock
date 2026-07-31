@@ -82,10 +82,12 @@ await broker.files.write('/home/user/proj/.env.schema', envSchemaContents);
 // start the proxy bound off-loopback so the tunnel is reachable; the token is
 // pinned via VARLOCK_PROXY_TOKEN so we already know it. --persist-ca reuses the
 // CA across broker restarts, so agents that already trust it keep working.
+// --allow-reload lets you apply schema edits later without a restart; the
+// reload channel is only reachable from inside the broker, not by agents.
 // Schema keys resolve from the process env, so envs carries the bootstrap:
 // usually just your plugin's secret-zero (shown: a 1Password service account).
 await broker.commands.run(
-  `cd /home/user/proj && ${VARLOCK} proxy start --expose --port 8080 --cert-dir /home/user/proj/.varlock-ca --persist-ca > /home/user/proxy.log 2>&1`,
+  `cd /home/user/proj && ${VARLOCK} proxy start --expose --port 8080 --cert-dir /home/user/proj/.varlock-ca --persist-ca --allow-reload > /home/user/proxy.log 2>&1`,
   {
     background: true,
     timeoutMs: 0,
@@ -149,7 +151,7 @@ Be clear-eyed about what this shape protects against. The broker holds real secr
 
 Two practical notes:
 
-- No human is attached to the broker, so treat its policy as static: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, write the edited schema with `files.write`, run `varlock proxy stop` in the broker, and rerun the same proxy start command (and readiness wait) from the setup above: the pinned token and `--persist-ca` mean running agents just reconnect, with no re-wiring.
+- No human is attached to the broker, so its policy must run unattended: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, write the edited schema with `files.write` and run `varlock proxy reload` via `commands.run`: rule changes apply to agent traffic immediately, and a newly added key shows up for newly started `proxy run` commands.
 - The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one).
 - A broker sandbox is a single point of failure for its fleet. Manage its lifetime explicitly (`timeoutMs`, or E2B's pause/resume); `proxy run --url` opens a fresh tunnel per connection, so transient blips recover, and `--persist-ca` above keeps the CA stable across a broker restart. Reserve that flag for brokers: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
@@ -174,5 +176,5 @@ The varlock proxy covers the same ground and more:
 - **Seamless.** Substitution happens anywhere in a request, not just one static header per host, and policy can match on path and method.
 - **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) and stay in your custody, instead of being handed to E2B's control plane.
 - **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents. `network.rules` are static per sandbox, set at creation.
-- Plus response scrubbing, your own audit log, and the same setup on any other platform.
+- Plus [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, your own audit log, and the same setup on any other platform.
 :::

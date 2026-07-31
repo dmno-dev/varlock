@@ -77,8 +77,10 @@ sprite exec -s varlock-broker --dir /home/sprite/proj \
 # run the proxy as a sprite service: it restarts on wake, and http_port routes
 # the sprite's URL to it (waking the sprite when a connection arrives).
 # --persist-ca keeps the CA on the persistent filesystem so a wake or restart
-# doesn't invalidate agents that already trust it. Schema keys resolve from the
-# process env, so the env map carries the bootstrap: usually just your plugin's
+# doesn't invalidate agents that already trust it. --allow-reload lets you apply
+# schema edits later without a restart; the reload channel is only reachable
+# from inside the sprite, not by agents. Schema keys resolve from the process
+# env, so the env map carries the bootstrap: usually just your plugin's
 # secret-zero (shown: a 1Password service account).
 sprite api /v1/sprites/varlock-broker/services/varlock-proxy -- -X PUT \
   -H 'Content-Type: application/json' -d @- <<EOF
@@ -86,7 +88,7 @@ sprite api /v1/sprites/varlock-broker/services/varlock-proxy -- -X PUT \
   "cmd": "/home/sprite/.local/bin/varlock",
   "args": [
     "proxy", "start", "--expose", "--port", "8080",
-    "--cert-dir", "/home/sprite/proj/.varlock-ca", "--persist-ca"
+    "--cert-dir", "/home/sprite/proj/.varlock-ca", "--persist-ca", "--allow-reload"
   ],
   "dir": "/home/sprite/proj",
   "http_port": 8080,
@@ -138,7 +140,7 @@ Sprites hibernate when idle (in practice we have seen a broker with a running se
 
 A restart normally mints a new CA, which running agents would not trust. That is what `--persist-ca` in the service args prevents: the CA is kept in `--cert-dir` on the sprite's persistent filesystem and reused, so a wake is invisible to agents. Reserve it for brokers, where the proxy runs alone: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
 
-The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one. To change policy, upload the edited schema the same way and restart the service (`sprite api /v1/sprites/varlock-broker/services/varlock-proxy/restart -- -X POST`): a restart re-reads the schema, and `--persist-ca` plus the pinned token mean running agents just reconnect. Note that re-`PUT`ting a service definition does not restart a running service, so the restart call is needed even if you also change the service env.
+The broker holds real secrets inside Fly's cloud, so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any sprite. What changes is the blast radius on your side: agents never hold secrets, and rotation, policy, and audit live in one place instead of N sprites. The tunnel token is the credential to *use* the broker, not to read its secrets; rotate it by recreating the service with a new one and restarting it (`sprite api /v1/sprites/varlock-broker/services/varlock-proxy/restart -- -X POST`; updating a service definition does not restart a running service). To change policy, upload the edited schema the same way and run `sprite exec -s varlock-broker -- varlock proxy reload`: rule changes apply to agent traffic immediately, and a newly added key shows up for newly started `proxy run` commands.
 
 ## Other topologies
 
