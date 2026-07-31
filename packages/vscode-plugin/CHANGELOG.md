@@ -10,6 +10,12 @@
 
 
 
+
+## 0.3.2
+<sub>2026-07-31</sub>
+
+- [#960](https://github.com/dmno-dev/varlock/pull/960)  *(patch)* - Add generateOtp() to autocomplete
+
 ## 0.3.1
 <sub>2026-07-28</sub>
 

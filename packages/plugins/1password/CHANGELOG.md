@@ -8,6 +8,12 @@
 
 
 
+
+## 2.0.3
+<sub>2026-07-31</sub>
+
+- [#960](https://github.com/dmno-dev/varlock/pull/960)  *(patch)* - Never cache one-time password codes, and give a clear error when Connect is asked for one
+
 ## 2.0.2
 <sub>2026-07-29</sub>
 

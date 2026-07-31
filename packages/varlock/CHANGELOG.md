@@ -22,6 +22,17 @@
 
 
 
+
+## 1.15.0
+<sub>2026-07-31</sub>
+
+- [#960](https://github.com/dmno-dev/varlock/pull/960)  *(minor)* - Add generateOtp() for generating TOTP 2FA codes
+- [#931](https://github.com/dmno-dev/varlock/pull/931)  *(minor)* - proxy: `--persist-ca` keeps a broker's CA across restarts so clients that already trust it keep working
+- [#931](https://github.com/dmno-dev/varlock/pull/931)  *(minor)*
+  Reach the credential proxy from another machine or a remote sandbox, with no external tunnel tool. `varlock proxy start` / `run` gain `--expose` (optionally `--expose=<addr>`) to bind off-loopback and serve a built-in CONNECT-over-WebSocket tunnel, so a client behind provider HTTP ingress (E2B, Modal, ...) can route through it. Enabling the tunnel mints a per-session data-plane token that clients must present (pin it with `VARLOCK_PROXY_TOKEN`), while loopback clients stay exempt and the control endpoint stays loopback-only. `varlock proxy run --url <wss-url> -- <command>` (with the token in `VARLOCK_PROXY_TOKEN`, or `--token`) runs the command through a broker running elsewhere: it opens the tunnel, self-wires the env and CA certs from the broker, and only ever holds placeholders. `varlock proxy env` also gains `--full` (emit the whole child-view env, not just the wiring) with `--proxy-url` / `--cert-dir` to repoint it, for wiring a client manually. New `varlock proxy token` prints a session's data-plane token, so a minted one can be read back rather than scraped from logs; the startup banner now withholds it unless stdout is a terminal.
+- [#955](https://github.com/dmno-dev/varlock/pull/955)  *(patch)*
+  The install script now verifies the sha256 of the downloaded archive against the release's published checksums.txt, and fails without installing on a mismatch.
+
 ## 1.14.1
 <sub>2026-07-29</sub>
 
