@@ -44,7 +44,17 @@ await sprite.exec('varlock run -- ./my-agent', {
 });
 ```
 
-This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details. One sprite CLI caveat: `sprite exec --env` treats its value as comma-delimited `KEY=v,KEY2=v2` pairs, so a JSON blob passed through it gets silently truncated at the first comma; use the SDK/API env map as above, or upload the blob with `--file` and read it in the command (`sh -c '__VARLOCK_ENV="$(cat /tmp/blob)" _VARLOCK_USE_INJECTED_ENV=1 varlock run -- ./my-agent'`).
+This is the standard Sprites posture, and what Fly recommends: the workload holds real values transiently. See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env) for details.
+
+From the sprite CLI, `--env` cannot carry the blob: it parses its value as comma-delimited `KEY=v,KEY2=v2` pairs and silently truncates at the first comma. Upload the blob with `--file` instead:
+
+```bash
+varlock load --format json-full --compact --filter "STRIPE_*,SENTRY_DSN" > env-blob
+# read-and-delete inside the command, so the blob does not linger on disk
+sprite exec -s my-sprite --file env-blob:/tmp/env-blob -- sh -c \
+  '__VARLOCK_ENV="$(cat /tmp/env-blob; rm /tmp/env-blob)" _VARLOCK_USE_INJECTED_ENV=1 varlock run -- ./my-agent'
+rm env-blob
+```
 
 ## Credential proxy: the broker sprite
 
