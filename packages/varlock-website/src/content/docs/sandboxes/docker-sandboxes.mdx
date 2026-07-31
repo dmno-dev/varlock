@@ -1,0 +1,104 @@
+---
+title: Docker Sandboxes
+description: Using varlock with Docker Sandboxes (sbx), so an agent in a local microVM routes through the varlock credential proxy and holds only placeholders.
+---
+
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) (the `sbx` CLI) runs agents in local microVMs. Each sandbox gets its own Docker daemon, filesystem, and network, and all egress is forced through a host-side gateway with a deny-by-default domain allowlist (`sbx policy`). That gateway is the seam varlock plugs into: point the agent at a varlock broker, allow the broker in policy, and the agent holds only [placeholders](/guides/proxy/rules/#placeholders) while varlock injects real secrets at the wire.
+
+The recommended shape for local development is a **broker on your own machine**: secrets, resolver [plugins](/guides/plugins/), biometric unlock, and the interactive request log all stay on the host, and the sandbox reaches the broker through the sbx gateway. To share one broker across a fleet, run it on [infrastructure you operate](#remote-broker) and reach it at a public URL instead.
+
+## How sbx egress works
+
+Two facts about the gateway shape the setup:
+
+- **Everything goes through the gateway.** Inside a sandbox, `HTTP_PROXY` / `HTTPS_PROXY` point at `gateway.docker.internal:3128`, the sbx CA is in the trust store, and non-allowed domains do not even resolve. `varlock proxy run --url` [honors those proxy env vars](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url) and dials its tunnel through the gateway automatically, so no shim is needed.
+- **The gateway can reach a host-local service** when you allow it in policy. This is what makes a host broker reachable from the microVM.
+
+## Broker on your machine
+
+```
+[sbx microVM]                         [your host]
+  varlock proxy run --url             varlock proxy start --expose
+    ws://host.docker.internal:PORT      (real secrets, plugins, request log)
+      │                                     ▲
+      └──▶ gateway.docker.internal:3128 ────┘  (allowed by sbx policy)
+```
+
+### 1. Schema
+
+Mark the secrets your agent uses with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=
+```
+
+Egress is permissive by default (unmatched hosts pass through untouched, which is fine because the agent holds only placeholders). To make the broker refuse anything without a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+
+### 2. Start the broker on the host
+
+`--expose` binds off-loopback and serves the [tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url), minting a data-plane token. Pin the token so you can hand the same value to the agent:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+```
+
+### 3. Allow the broker in sbx policy
+
+The gateway rewrites `host.docker.internal` to `localhost` before evaluating policy, so the rule that matches is for **`localhost`**, even though the agent connects to `host.docker.internal`:
+
+```bash
+sbx policy allow network "localhost:8080"
+```
+
+:::caution[sbx quirk]
+Allowing `host.docker.internal:8080` does **not** work (and `sbx policy check` will misleadingly say it is allowed). Allow `localhost:8080`. This is a Docker Sandboxes behavior, not a varlock one.
+:::
+
+### 4. Run the agent through the broker
+
+Install varlock in the sandbox, then wrap the agent command with `proxy run --url`. The agent connects to the broker at `host.docker.internal`, and varlock self-wires its placeholder env and CA certs over the tunnel:
+
+```bash
+# in a shell sandbox (sbx create shell . && sbx exec <name> -- ...):
+curl -sSfL https://varlock.dev/install.sh | sh -s
+
+VARLOCK_PROXY_TOKEN=$YOUR_TOKEN \
+  varlock proxy run --url ws://host.docker.internal:8080 -- your-agent-command
+```
+
+That is the whole path: the agent holds placeholders, the broker on your host injects real values only on verified TLS connections to hosts your schema allows, and every request is checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing).
+
+:::note[Installing varlock in the sandbox]
+The install script drops a self-contained binary and works on any template. Templates on Node 22.3+ (the `shell` template is) can instead `npm i -g varlock`, a lighter install. Baking varlock into a [custom template](https://docs.docker.com/ai/sandboxes/customize/) skips the per-sandbox install, which matters for a fleet. Pass the token via the environment (`sbx exec -e` or a template default), not on the command line, so it stays out of process listings.
+:::
+
+## Remote broker
+
+To share one broker across machines or a fleet, run it on infrastructure you operate and expose it at a URL that carries WebSockets. Because sbx allows direct TLS to allowlisted domains, the agent reaches a public `wss://` broker directly (no gateway asymmetry), so you only allow the broker's domain:
+
+```bash
+sbx policy allow network "broker.example.com"
+# in the sandbox:
+VARLOCK_PROXY_TOKEN=$YOUR_TOKEN \
+  varlock proxy run --url wss://broker.example.com -- your-agent-command
+```
+
+The data-plane token gates the tunnel and the tunnel carries TLS end to end, so a public URL is safe and any intermediary only sees ciphertext. See the [topologies overview](/sandboxes/overview/#topologies) and the [E2B](/sandboxes/e2b/) / [Fly.io](/sandboxes/flyio/) guides for the same broker shape on cloud providers.
+
+## varlock proxy vs sbx secrets
+
+Docker Sandboxes ships its own credential injection (`sbx secret`): the gateway substitutes a stored keychain value into request headers for a matching host. It covers the basic case. Route through a varlock broker when you want:
+
+- **Custody in your secret manager.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) and stay in your custody, instead of being copied into another store.
+- **One schema.** Your `.env.schema` describes every value, its type, and its routing in one declarative layer, legible to people and agents alike.
+- **Response scrubbing.** varlock scans response bodies and redacts injected secret values, so an allowlisted endpoint that echoes a request header cannot hand the real secret back to the agent.
+- **Policy and audit.** Match on path and method, [hot-reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) the schema, and keep your own [audit log](/guides/proxy/running/#auditing).
+
+The two compose: sbx provides microVM isolation and deny-by-default egress; the varlock broker provides custody, injection, and scrubbing.
+
+## Trust model
+
+The broker holds real secrets on whatever machine runs it. For a host broker in local development, that is your own machine, the same place the secrets already live. The agent's microVM never holds them: a compromised or prompt-injected agent yields placeholders and only the requests your rules and egress mode allow. Keep sbx policy tight (allow just the broker, plus whatever hosts the agent legitimately needs), and treat the data-plane token like any shared secret (rotate by restarting the broker with a new one).

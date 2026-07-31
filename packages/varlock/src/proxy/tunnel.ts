@@ -1,7 +1,8 @@
 /* eslint-disable no-bitwise -- RFC 6455 frame codec is inherently bit-level */
 import http from 'node:http';
 import net from 'node:net';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import tls from 'node:tls';
+import { createHash, timingSafeEqual, randomBytes } from 'node:crypto';
 
 /**
  * CONNECT-over-WebSocket tunnel for reaching the proxy from a remote sandbox.
@@ -474,7 +475,8 @@ export function attachTunnelServer(httpServer: http.Server, opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Guest (client) side — the runtime's native WebSocket
+// Guest (client) side — the runtime's native WebSocket, or a CONNECT-proxied
+// hand-rolled client when the guest's only egress is an explicit HTTP proxy.
 // ---------------------------------------------------------------------------
 
 /** The slice of the WHATWG WebSocket API the client uses (typed locally so we
@@ -488,7 +490,364 @@ type NativeWs = {
 };
 const WS_OPEN = 1;
 
+/** True if `host` is covered by a `NO_PROXY` list (`*`, exact, or dot-suffix). */
+function hostInNoProxy(host: string, noProxy: string): boolean {
+  const h = host.toLowerCase();
+  for (const raw of noProxy.split(/[,\s]+/)) {
+    const entry = raw.trim().toLowerCase();
+    if (!entry) continue;
+    if (entry === '*') return true;
+    // Strip a leading `*.`/`.` and any `:port` suffix, then match host or subdomain.
+    const bare = entry.replace(/^\*?\./, '').replace(/:\d+$/, '');
+    if (!bare) continue;
+    if (h === bare || h.endsWith(`.${bare}`)) return true;
+  }
+  return false;
+}
+
+/**
+ * The HTTP(S) proxy the guest must use to reach the tunnel URL, from the standard
+ * env vars, or `undefined` for a direct dial. Selected by the tunnel scheme
+ * (`wss:` → HTTPS_PROXY, `ws:` → HTTP_PROXY), falling back to ALL_PROXY, and
+ * honoring NO_PROXY. Only `http:`/`https:` CONNECT proxies are supported; a
+ * `socks*` proxy is ignored (the native client is used, which will dial direct).
+ */
+export function proxyForTunnelUrl(rawUrl: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(tunnelUrl(rawUrl));
+  } catch {
+    return undefined;
+  }
+  const noProxy = env.NO_PROXY ?? env.no_proxy;
+  if (noProxy && hostInNoProxy(url.hostname, noProxy)) return undefined;
+  const isTls = url.protocol === 'wss:';
+  const candidate = (isTls ? (env.HTTPS_PROXY ?? env.https_proxy) : (env.HTTP_PROXY ?? env.http_proxy))
+    ?? env.ALL_PROXY ?? env.all_proxy;
+  if (!candidate) return undefined;
+  try {
+    const p = new URL(candidate);
+    if (p.protocol !== 'http:' && p.protocol !== 'https:') return undefined;
+  } catch {
+    return undefined;
+  }
+  return candidate;
+}
+
+/** Encode a single client→server frame (clients always mask, RFC 6455 §5.3). */
+function encodeClientFrame(opcode: number, payload: Buffer): Buffer {
+  const mask = randomBytes(4);
+  const len = payload.length;
+  let header: Buffer;
+  if (len < 126) {
+    header = Buffer.from([0x80 | opcode, 0x80 | len]);
+  } else if (len < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = 0x80 | opcode;
+    header[1] = 0x80 | 126;
+    header.writeUInt16BE(len, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x80 | opcode;
+    header[1] = 0x80 | 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+  }
+  const masked = Buffer.allocUnsafe(len);
+  for (let i = 0; i < len; i++) masked[i] = payload[i] ^ mask[i % 4];
+  return Buffer.concat([header, mask, masked]);
+}
+
+/**
+ * A minimal WebSocket client that rides through an HTTP `CONNECT` proxy, used
+ * when the guest can't open a direct socket to the broker (a sandbox whose only
+ * egress is an explicit proxy, e.g. Docker Sandboxes' gateway). The runtime's
+ * native WebSocket ignores proxy env vars and always dials direct, so this
+ * establishes the `CONNECT` tunnel, optional TLS, and the WS handshake itself,
+ * then speaks RFC 6455 over the socket. It exposes the same event surface the
+ * native client does (`NativeWs`), so callers are transport-agnostic.
+ */
+class ProxiedTunnelWs implements NativeWs {
+  binaryType = 'blob';
+  readyState = 0; // CONNECTING
+
+  private sock: net.Socket | undefined;
+  private readonly listeners = new Map<string, Array<(ev: any) => void>>();
+  private buf: Buffer = Buffer.alloc(0);
+  private fragments: Array<Buffer> | undefined;
+  private fragmentsText = false;
+  private fragmentsBytes = 0;
+  private acceptExpected = '';
+  private closed = false;
+
+  constructor(rawUrl: string, token: string, proxyUrl: string) {
+    this.connect(rawUrl, token, proxyUrl).catch((err) => this.fail(err));
+  }
+
+  addEventListener(type: string, listener: (ev: any) => void) {
+    const list = this.listeners.get(type);
+    if (list) list.push(listener);
+    else this.listeners.set(type, [listener]);
+  }
+
+  private emit(type: string, ev: any) {
+    for (const l of this.listeners.get(type) ?? []) l(ev);
+  }
+
+  send(data: string | Uint8Array) {
+    if (this.readyState !== WS_OPEN || !this.sock) return;
+    const opcode = typeof data === 'string' ? WsOpcode.Text : WsOpcode.Binary;
+    this.sock.write(encodeClientFrame(opcode, Buffer.from(data as any)));
+  }
+
+  close() {
+    if (this.closed) return;
+    if (this.sock && this.readyState === WS_OPEN) {
+      try {
+        this.sock.write(encodeClientFrame(WsOpcode.Close, Buffer.alloc(0)));
+      } catch { /* already gone */ }
+    }
+    this.readyState = 2; // CLOSING
+    try {
+      this.sock?.end();
+    } catch { /* already gone */ }
+  }
+
+  private fail(err: unknown) {
+    if (this.closed) return;
+    this.emit('error', { message: err instanceof Error ? err.message : String(err) });
+    this.teardown();
+  }
+
+  private teardown() {
+    if (this.closed) return;
+    this.closed = true;
+    this.readyState = 3; // CLOSED
+    try {
+      this.sock?.destroy();
+    } catch { /* already gone */ }
+    this.emit('close', { code: 1006 });
+  }
+
+  private async connect(rawUrl: string, token: string, proxyUrl: string) {
+    const target = new URL(tunnelUrl(rawUrl));
+    const isTls = target.protocol === 'wss:';
+    const targetPort = Number(target.port) || (isTls ? 443 : 80);
+    const proxy = new URL(proxyUrl);
+    const proxyPort = Number(proxy.port) || (proxy.protocol === 'https:' ? 443 : 80);
+    const hostHeader = `${target.hostname}:${targetPort}`;
+
+    // 1. Open the proxy connection and ask it to CONNECT to the broker.
+    let sock = await new Promise<net.Socket>((resolve, reject) => {
+      const s = net.connect(proxyPort, proxy.hostname);
+      s.once('connect', () => resolve(s));
+      s.once('error', reject);
+    });
+    const connectLines = [`CONNECT ${hostHeader} HTTP/1.1`, `Host: ${hostHeader}`];
+    if (proxy.username) {
+      const cred = Buffer
+        .from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`)
+        .toString('base64');
+      connectLines.push(`Proxy-Authorization: Basic ${cred}`);
+    }
+    connectLines.push('', '');
+    sock.write(connectLines.join('\r\n'));
+    await this.readHttpHead(sock, (status) => (status.startsWith('2')
+      ? undefined
+      : `proxy CONNECT to ${hostHeader} failed: ${status}`));
+    if (this.closed) return;
+
+    // 2. TLS to the broker (through the tunnel) for wss://.
+    if (isTls) {
+      sock = await new Promise<tls.TLSSocket>((resolve, reject) => {
+        const t = tls.connect({ socket: sock, servername: target.hostname }, () => resolve(t));
+        t.once('error', reject);
+      });
+    }
+    this.sock = sock;
+
+    // 3. WebSocket handshake over the tunneled socket.
+    const key = randomBytes(16).toString('base64');
+    this.acceptExpected = createHash('sha1').update(key + WS_GUID).digest('base64');
+    const handshake = [
+      `GET ${target.pathname}${target.search} HTTP/1.1`,
+      `Host: ${hostHeader}`,
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      'Sec-WebSocket-Version: 13',
+      `Sec-WebSocket-Key: ${key}`,
+      `Sec-WebSocket-Protocol: ${TUNNEL_PROTOCOL}, ${tunnelTokenProtocolEntry(token)}`,
+      `${TUNNEL_TOKEN_HEADER}: ${token}`,
+      '',
+      '',
+    ].join('\r\n');
+    sock.write(handshake);
+    const leftover = await this.readHttpHead(sock, (status, headers) => {
+      if (!status.startsWith('101')) return `tunnel handshake rejected: ${status}`;
+      if (headers['sec-websocket-accept'] !== this.acceptExpected) return 'tunnel handshake accept mismatch';
+      return undefined;
+    });
+    if (this.closed) return;
+
+    // 4. Handshake done: switch the socket to frame parsing and go OPEN.
+    sock.removeAllListeners('data');
+    sock.on('data', (chunk: Buffer) => this.onFrameData(chunk));
+    sock.on('close', () => this.teardown());
+    sock.on('error', (err) => this.fail(err));
+    this.readyState = WS_OPEN;
+    this.emit('open', {});
+    if (leftover.length) this.onFrameData(leftover);
+  }
+
+  /**
+   * Read one HTTP response head (`status line + headers`) off `sock`, validate it
+   * with `check` (returns an error string or undefined), and resolve any bytes
+   * that arrived after the `\r\n\r\n`. Rejects on validation failure or socket error.
+   */
+  private readHttpHead(
+    sock: net.Socket,
+    check: (status: string, headers: Record<string, string>) => string | undefined,
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      let buf = Buffer.alloc(0);
+      // Handlers live on a holder so `cleanup` can detach them without a forward
+      // reference (the handlers, in turn, only reference `cleanup`, defined first).
+      const handlers: { data?: (c: Buffer) => void; err?: (e: Error) => void } = {};
+      const cleanup = (err?: Error, leftover?: Buffer) => {
+        if (handlers.data) sock.removeListener('data', handlers.data);
+        if (handlers.err) sock.removeListener('error', handlers.err);
+        if (err) reject(err);
+        else resolve(leftover ?? Buffer.alloc(0));
+      };
+      handlers.data = (chunk: Buffer) => {
+        buf = Buffer.concat([buf, chunk]);
+        const end = buf.indexOf('\r\n\r\n');
+        if (end === -1) {
+          if (buf.length > 64 * 1024) cleanup(new Error('response head too large'));
+          return;
+        }
+        const lines = buf.subarray(0, end).toString().split('\r\n');
+        const status = lines[0].replace(/^HTTP\/1\.[01]\s+/, '');
+        const headers: Record<string, string> = {};
+        for (const line of lines.slice(1)) {
+          const i = line.indexOf(':');
+          if (i > 0) headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+        }
+        const err = check(status, headers);
+        if (err) cleanup(new Error(err));
+        else cleanup(undefined, buf.subarray(end + 4));
+      };
+      handlers.err = (err: Error) => cleanup(err);
+      sock.on('data', handlers.data);
+      sock.once('error', handlers.err);
+    });
+  }
+
+  /** Incremental parser for unmasked server frames (broker never masks). */
+  private onFrameData(chunk: Buffer) {
+    if (this.closed) return;
+    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
+    while (!this.closed) {
+      if (this.buf.length < 2) return;
+      const b0 = this.buf[0];
+      const b1 = this.buf[1];
+      if ((b0 & 0x70) !== 0) {
+        this.fail(new Error('unexpected RSV bits'));
+        return;
+      }
+      const fin = (b0 & 0x80) !== 0;
+      const opcode = b0 & 0x0f;
+      const masked = (b1 & 0x80) !== 0;
+      let len = b1 & 0x7f;
+      let offset = 2;
+      if (len === 126) {
+        if (this.buf.length < 4) return;
+        len = this.buf.readUInt16BE(2);
+        offset = 4;
+      } else if (len === 127) {
+        if (this.buf.length < 10) return;
+        const big = this.buf.readBigUInt64BE(2);
+        if (big > BigInt(MAX_MESSAGE_BYTES)) {
+          this.fail(new Error('frame too large'));
+          return;
+        }
+        len = Number(big);
+        offset = 10;
+      }
+      if (len > MAX_MESSAGE_BYTES) {
+        this.fail(new Error('frame too large'));
+        return;
+      }
+      const maskOffset = offset;
+      if (masked) offset += 4;
+      if (this.buf.length < offset + len) return;
+      const payload = Buffer.allocUnsafe(len);
+      this.buf.copy(payload, 0, offset, offset + len);
+      if (masked) {
+        for (let i = 0; i < len; i++) payload[i] ^= this.buf[maskOffset + (i % 4)];
+      }
+      this.buf = this.buf.subarray(offset + len);
+      this.handleFrame(fin, opcode, payload);
+    }
+  }
+
+  private handleFrame(fin: boolean, opcode: number, payload: Buffer) {
+    switch (opcode) {
+      case WsOpcode.Ping:
+        if (this.sock && this.readyState === WS_OPEN) this.sock.write(encodeClientFrame(WsOpcode.Pong, payload));
+        return;
+      case WsOpcode.Pong:
+        return;
+      case WsOpcode.Close:
+        this.teardown();
+        return;
+      case WsOpcode.Text:
+      case WsOpcode.Binary:
+        if (this.fragments) {
+          this.fail(new Error('interleaved data frame'));
+          return;
+        }
+        if (fin) {
+          this.deliver(opcode === WsOpcode.Text, payload);
+        } else {
+          this.fragments = [payload];
+          this.fragmentsText = opcode === WsOpcode.Text;
+          this.fragmentsBytes = payload.length;
+        }
+        return;
+      case WsOpcode.Continuation: {
+        if (!this.fragments) {
+          this.fail(new Error('unexpected continuation'));
+          return;
+        }
+        this.fragments.push(payload);
+        this.fragmentsBytes += payload.length;
+        if (this.fragmentsBytes > MAX_MESSAGE_BYTES) {
+          this.fail(new Error('message too large'));
+          return;
+        }
+        if (fin) {
+          const whole = Buffer.concat(this.fragments);
+          const isText = this.fragmentsText;
+          this.fragments = undefined;
+          this.deliver(isText, whole);
+        }
+        return;
+      }
+      default:
+        this.fail(new Error(`bad opcode ${opcode}`));
+    }
+  }
+
+  /** Emit a message: text as a string, binary as a Buffer (binaryType is honored
+   * loosely — `messageToBuffer` accepts both). */
+  private deliver(isText: boolean, payload: Buffer) {
+    this.emit('message', { data: isText ? payload.toString() : payload });
+  }
+}
+
 function openTunnelWs(url: string, token: string): NativeWs {
+  const proxy = proxyForTunnelUrl(url);
+  if (proxy) return new ProxiedTunnelWs(tunnelUrl(url), token, proxy);
   const Ctor = (globalThis as any).WebSocket as (new (u: string, protocols?: Array<string>) => NativeWs) | undefined;
   if (!Ctor) throw new Error('global WebSocket is not available in this runtime');
   const ws = new Ctor(tunnelUrl(url), [TUNNEL_PROTOCOL, tunnelTokenProtocolEntry(token)]);

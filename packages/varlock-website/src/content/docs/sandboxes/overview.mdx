@@ -28,6 +28,7 @@ Cloud sandbox providers run the agent in a remote VM, so the proxy is reached ov
 <CardGrid>
   <LinkCard title="E2B" href="/sandboxes/e2b/" description="Broker sandbox or tunnel to your machine; egress lockdown via network rules" />
   <LinkCard title="Fly.io" href="/sandboxes/flyio/" description="Broker sprite or tunnel to your machine; egress lockdown via network policy" />
+  <LinkCard title="Docker Sandboxes" href="/sandboxes/docker-sandboxes/" description="Local microVMs (sbx); reach a host or remote broker through the gateway" />
 </CardGrid>
 
 ## Local tools
@@ -41,4 +42,4 @@ Cloud sandbox providers run the agent in a remote VM, so the proxy is reached ov
   <LinkCard title="MXC" href="/sandboxes/mxc/" description="Windows AppContainer (processcontainer). Windows 11" />
 </CardGrid>
 
-Tools that already broker credentials at the network boundary (Docker Sandboxes, microsandbox, Anthropic `srt` credential `mask`, and similar) are out of scope here. Use those on their own, or wait for varlock host bridging if you want varlock as the broker inside a microVM that cannot reach host loopback.
+Some tools already broker credentials at their own network boundary (microsandbox, Anthropic `srt` credential `mask`, and similar). You can use those on their own; varlock adds schema-driven policy, response scrubbing, your own audit log, and custody in your secret manager on top. [Docker Sandboxes](/sandboxes/docker-sandboxes/) has such a gateway but also lets its policy reach a varlock broker, so it gets its own guide above (host broker or remote broker, with varlock as the injector).

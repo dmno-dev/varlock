@@ -5,11 +5,62 @@ import { randomBytes } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import {
-  attachTunnelServer, fetchTunnelBootstrap, startTunnelClientListener, TUNNEL_TOKEN_HEADER, TUNNEL_PATH,
+  attachTunnelServer, fetchTunnelBootstrap, startTunnelClientListener, proxyForTunnelUrl,
+  TUNNEL_TOKEN_HEADER, TUNNEL_PATH,
   type TunnelBootstrap,
 } from './tunnel';
 
 const TOKEN = 'tunnel-test-token';
+
+/** Set env vars for a test, returning a restore fn that puts the prior values back. */
+function withEnvVars(vars: Record<string, string>): () => void {
+  const prev: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    prev[key] = process.env[key];
+    process.env[key] = value;
+  }
+  return () => {
+    for (const [key, was] of Object.entries(prev)) {
+      if (was === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = was;
+      }
+    }
+  };
+}
+
+/** A minimal HTTP CONNECT proxy standing in for a sandbox egress gateway. Counts
+ * how many CONNECTs it served so tests can assert traffic actually went through it. */
+function startConnectProxy(): Promise<{ port: number; connects: () => number; close: () => void }> {
+  let connects = 0;
+  return new Promise((resolve) => {
+    const srv = http.createServer();
+    srv.on('connect', (req, clientSock, head) => {
+      connects += 1;
+      const [host, port] = (req.url ?? '').split(':');
+      const upstream = net.connect(Number(port), host, () => {
+        clientSock.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head?.length) upstream.write(head);
+        upstream.pipe(clientSock);
+        clientSock.pipe(upstream);
+      });
+      const kill = () => {
+        upstream.destroy();
+        clientSock.destroy();
+      };
+      upstream.on('error', kill);
+      clientSock.on('error', kill);
+    });
+    srv.listen(0, '127.0.0.1', () => {
+      resolve({
+        port: (srv.address() as net.AddressInfo).port,
+        connects: () => connects,
+        close: () => srv.close(),
+      });
+    });
+  });
+}
 
 /** An echo TCP server standing in for the broker's proxy loopback port. */
 function startEcho(): Promise<{ port: number; close: () => void }> {
@@ -227,6 +278,114 @@ describe('server frame codec (raw client)', () => {
     clearTimeout(timer);
     expect(pong.toString()).toBe('marco');
 
+    broker.close();
+    echo.close();
+  });
+});
+
+describe('proxy selection', () => {
+  const base = 'ws://broker.internal:8080';
+  test('picks HTTP_PROXY for ws:// and honors NO_PROXY', () => {
+    expect(proxyForTunnelUrl(base, { HTTP_PROXY: 'http://gw:3128' })).toBe('http://gw:3128');
+    expect(proxyForTunnelUrl(base, { HTTP_PROXY: 'http://gw:3128', NO_PROXY: 'broker.internal' })).toBeUndefined();
+    expect(proxyForTunnelUrl(base, { HTTP_PROXY: 'http://gw:3128', NO_PROXY: '*' })).toBeUndefined();
+  });
+  test('picks HTTPS_PROXY for wss:// and falls back to ALL_PROXY', () => {
+    expect(proxyForTunnelUrl('wss://broker.example.com', { HTTPS_PROXY: 'http://gw:3128' })).toBe('http://gw:3128');
+    expect(proxyForTunnelUrl(base, { ALL_PROXY: 'http://gw:3128' })).toBe('http://gw:3128');
+  });
+  test('ignores socks proxies and a missing proxy (direct dial)', () => {
+    expect(proxyForTunnelUrl(base, {})).toBeUndefined();
+    expect(proxyForTunnelUrl(base, { ALL_PROXY: 'socks5://gw:1080' })).toBeUndefined();
+  });
+  test('dot-suffix NO_PROXY matches subdomains', () => {
+    expect(proxyForTunnelUrl('ws://a.corp.example:8080', { HTTP_PROXY: 'http://gw:3128', NO_PROXY: '.example' })).toBeUndefined();
+    expect(proxyForTunnelUrl('ws://a.corp.example:8080', { HTTP_PROXY: 'http://gw:3128', NO_PROXY: 'other.test' })).toBe('http://gw:3128');
+  });
+});
+
+describe('tunnel through a CONNECT proxy', () => {
+  test('fetches the bootstrap via the proxy when HTTP_PROXY is set', async () => {
+    const echo = await startEcho();
+    const broker = await startBroker(echo.port, { payloadJson: '{"env":{"VIA":"proxy"},"omittedKeys":[],"serializedGraph":{"config":{}}}', certs: { 'ca-cert.pem': 'PX' } });
+    const proxy = await startConnectProxy();
+    const restore = withEnvVars({ HTTP_PROXY: `http://127.0.0.1:${proxy.port}` });
+    try {
+      const boot = await fetchTunnelBootstrap(broker.url, TOKEN);
+      expect(JSON.parse(boot.payloadJson).env.VIA).toBe('proxy');
+      expect(boot.certs['ca-cert.pem']).toBe('PX');
+      expect(proxy.connects()).toBeGreaterThan(0);
+    } finally {
+      restore();
+    }
+    proxy.close();
+    broker.close();
+    echo.close();
+  });
+
+  test('bridges the data path through the proxy (large, both directions)', async () => {
+    const echo = await startEcho();
+    const broker = await startBroker(echo.port);
+    const proxy = await startConnectProxy();
+    const restore = withEnvVars({ HTTP_PROXY: `http://127.0.0.1:${proxy.port}` });
+    let listener: Awaited<ReturnType<typeof startTunnelClientListener>> | undefined;
+    try {
+      listener = await startTunnelClientListener({ url: broker.url, token: TOKEN });
+      const payload = randomBytes(100_000);
+      const received = await new Promise<Buffer>((resolve, reject) => {
+        const chunks: Array<Buffer> = [];
+        let total = 0;
+        const c = net.connect(listener!.port, '127.0.0.1', () => c.write(payload));
+        c.on('data', (d: Buffer) => {
+          chunks.push(d);
+          total += d.length;
+          if (total >= payload.length) {
+            c.destroy();
+            resolve(Buffer.concat(chunks));
+          }
+        });
+        c.on('error', reject);
+        setTimeout(() => reject(new Error(`timed out after ${total}`)), 5000);
+      });
+      expect(received.equals(payload)).toBe(true);
+      expect(proxy.connects()).toBeGreaterThan(0);
+    } finally {
+      restore();
+    }
+    listener?.close();
+    proxy.close();
+    broker.close();
+    echo.close();
+  });
+
+  test('surfaces a bad token through the proxy as an error', async () => {
+    const echo = await startEcho();
+    const broker = await startBroker(echo.port);
+    const proxy = await startConnectProxy();
+    const restore = withEnvVars({ HTTP_PROXY: `http://127.0.0.1:${proxy.port}` });
+    try {
+      await expect(fetchTunnelBootstrap(broker.url, 'wrong-token', 3000)).rejects.toThrow();
+    } finally {
+      restore();
+    }
+    proxy.close();
+    broker.close();
+    echo.close();
+  });
+
+  test('NO_PROXY makes a loopback broker dial direct (proxy unused)', async () => {
+    const echo = await startEcho();
+    const broker = await startBroker(echo.port);
+    const proxy = await startConnectProxy();
+    const restore = withEnvVars({ HTTP_PROXY: `http://127.0.0.1:${proxy.port}`, NO_PROXY: '127.0.0.1' });
+    try {
+      const boot = await fetchTunnelBootstrap(broker.url, TOKEN);
+      expect(boot.certs['ca-cert.pem']).toBe('CA');
+      expect(proxy.connects()).toBe(0);
+    } finally {
+      restore();
+    }
+    proxy.close();
     broker.close();
     echo.close();
   });
