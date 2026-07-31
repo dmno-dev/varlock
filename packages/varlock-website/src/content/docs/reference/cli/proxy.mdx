@@ -23,6 +23,7 @@ Every subcommand operates on a [session](/guides/proxy/running/#sessions). Targe
 - `run -- <command>`: Start a proxy, run `<command>` through it, and tear down on exit. Attaches to a running `proxy start` session for this directory if one exists; otherwise runs self-contained. With `--url` it instead runs through a proxy on **another machine** (a broker started with `--expose`), reached over the built-in WebSocket tunnel, self-wiring the placeholder env and CA certs from the broker. See the [E2B guide](/sandboxes/e2b/).
 - `start`: Start a long-lived proxy session that owns the terminal (a live request log appears here). Stop with `Ctrl+C`.
 - `rules`: Print a static summary of the effective `@proxy` configuration: the rules (host/path/method, block) and each secret's mode (proxied / placeholder / passthrough / omit), without starting a proxy.
+- `config`: Compile the schema's `@proxy` policy into a static config artifact (JSON to stdout, or `--output <file>`): rules, placeholder map, egress mode, and a schema fingerprint. Never values, and no resolver runs, so it is safe anywhere the schema is readable (low-trust CI included). This is the config a hosted gateway adapter bakes into its bundle; real values are delivered separately (for example as worker secrets) and looked up by item key at request time.
 - `env`: Print the proxy + CA environment for a session, to source into another shell (`eval "$(varlock proxy env)"`). Add `--full` to emit the whole child-view env a proxied agent runs with (placeholders for secrets, real values for non-secrets), with `--proxy-url` / `--cert-dir` to repoint it for a remote sandbox.
 - `token`: Print a session's data-plane token, for handing to `proxy run --url`. Its own verb because the token is a credential: it is never included in `status` or `env` output, and the startup banner withholds it unless stdout is a terminal.
 - `status`: List active proxy sessions.
@@ -58,6 +59,9 @@ varlock proxy run -- node agent.js
 # Inspect activity
 varlock proxy status
 varlock proxy audit --format json
+
+# Compile the static gateway config (rules + placeholders, no values)
+varlock proxy config --output varlock-gateway.config.json
 
 # Reach a broker proxy from another machine / a remote sandbox (see the E2B guide)
 varlock proxy start --expose

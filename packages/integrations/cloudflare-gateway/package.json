@@ -1,0 +1,50 @@
+{
+  "name": "@varlock/cloudflare-gateway",
+  "description": "Run the varlock credential proxy as a Cloudflare Worker - transparent outbound handler for Cloudflare Sandboxes, explicit HTTPS gateway for any other sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/integrations/cloudflare-gateway"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "ts-src": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["/dist"],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "test": "vitest",
+    "test:ci": "vitest --run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "varlock",
+    "cloudflare",
+    "cloudflare-workers",
+    "cloudflare-sandbox",
+    "credential-proxy",
+    "secrets",
+    "egress",
+    "varlock-integration"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "peerDependencies": {
+    "varlock": "workspace:^1.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "varlock": "workspace:^1.14.0",
+    "vitest": "catalog:"
+  }
+}

@@ -115,6 +115,19 @@
         "wrangler",
       ],
     },
+    "packages/integrations/cloudflare-gateway": {
+      "name": "@varlock/cloudflare-gateway",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "tsup": "catalog:",
+        "varlock": "workspace:^1.14.0",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^1.14.0",
+      },
+    },
     "packages/integrations/expo": {
       "name": "@varlock/expo-integration",
       "version": "1.2.0",
@@ -1476,6 +1489,8 @@
     "@varlock/bumpy": ["@varlock/bumpy@1.18.1", "", { "bin": { "bumpy": "dist/cli.mjs" } }, "sha512-u6PHUr+laAgWWm/c3wdExHBCcvYkkTb+KsiRNR9GCFIbCDrCN9CyOZO/crtRZ5u4KWMKtUTeA7U/s+AA0k7Dcg=="],
 
     "@varlock/ci-env-info": ["@varlock/ci-env-info@workspace:packages/ci-env-info"],
+
+    "@varlock/cloudflare-gateway": ["@varlock/cloudflare-gateway@workspace:packages/integrations/cloudflare-gateway"],
 
     "@varlock/cloudflare-integration": ["@varlock/cloudflare-integration@workspace:packages/integrations/cloudflare"],
 

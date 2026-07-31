@@ -84,7 +84,10 @@ import { fetchTunnelBootstrap, startTunnelClientListener } from '../../proxy/tun
 import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
-import type { ProxyManagedItem, ProxyRule } from '../../proxy/core/types';
+import {
+  PROXY_STATIC_CONFIG_VERSION,
+  type ProxyManagedItem, type ProxyRule, type ProxyStaticConfig,
+} from '../../proxy/core/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
@@ -2326,6 +2329,66 @@ function describeProxyRuleGate(rule: ProxyRule): string {
  * after the fail-closed validation, and for seeing what an agent would and
  * wouldn't be able to reach.
  */
+/**
+ * Compile the schema's proxy policy into the static config artifact (JSON):
+ * rules + placeholders + egress mode + schema fingerprint, never values. This
+ * is what a hosted gateway (e.g. @varlock/cloudflare-gateway) bakes into its
+ * bundle; real values travel separately (worker secrets) and are looked up by
+ * item key at request time.
+ *
+ * Unlike every other proxy verb this never resolves values, so it runs
+ * anywhere the schema is readable - low-trust CI included - and never triggers
+ * a resolver (no keychain/biometric prompt, no cloud call).
+ */
+export async function buildProxyStaticConfig(
+  envGraph: Awaited<ReturnType<typeof loadVarlockEnvGraph>>,
+): Promise<{ staticConfig: ProxyStaticConfig; genericPlaceholderKeys: Array<string> }> {
+  const placeholderMap = await envGraph.getProxyPlaceholderMap();
+  const staticConfig: ProxyStaticConfig = {
+    version: PROXY_STATIC_CONFIG_VERSION,
+    schemaFingerprint: buildProxySchemaFingerprint(envGraph),
+    egressMode: envGraph.proxyEgressMode,
+    rules: await envGraph.getProxyRules(),
+    placeholders: Object.fromEntries(
+      Object.entries(placeholderMap).map(([key, generated]) => [key, generated.placeholder]),
+    ),
+  };
+  return {
+    staticConfig,
+    genericPlaceholderKeys: Object.entries(placeholderMap)
+      .filter(([, generated]) => generated.isGenericFallback)
+      .map(([key]) => key),
+  };
+}
+
+async function configAction(ctx: any) {
+  const envGraph = await loadVarlockEnvGraph({
+    entryFilePaths: ctx.values.path,
+    // This command inspects the schema; don't subject it to the nested guard.
+    skipProxyFingerprintGuard: true,
+  });
+  checkForSchemaErrors(envGraph);
+  checkForNoEnvFiles(envGraph);
+
+  const { staticConfig, genericPlaceholderKeys } = await buildProxyStaticConfig(envGraph);
+  // warnings on stderr so stdout stays valid JSON for piping
+  if (genericPlaceholderKeys.length) {
+    console.error(`⚠️  Proxy items using a generic placeholder: ${genericPlaceholderKeys.join(', ')}`);
+    console.error(
+      '   A generic placeholder may fail an SDK\'s key-format validation (e.g. an `sk-…` prefix check) '
+        + 'at client construction. Add an explicit `@placeholder` or a data type with a known format.',
+    );
+  }
+
+  const json = `${JSON.stringify(staticConfig, null, 2)}\n`;
+  if (ctx.values.output) {
+    await writeFile(ctx.values.output, json, 'utf8');
+    console.error(`Wrote proxy config to ${ctx.values.output}`);
+  } else {
+    process.stdout.write(json);
+  }
+}
+
 async function rulesAction(ctx: any) {
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: ctx.values.path,
@@ -2529,6 +2592,20 @@ const rulesCommand = define({
   run: (ctx: any) => rulesAction(ctx),
 });
 
+const configCommand = define({
+  name: 'config',
+  description: 'Compile the schema\'s @proxy policy into a static gateway config (JSON: rules + placeholders, never values)',
+  args: {
+    ...pathArg,
+    output: {
+      type: 'string',
+      short: 'o',
+      description: 'Write to a file instead of stdout (e.g. varlock-gateway.config.json)',
+    },
+  },
+  run: (ctx: any) => configAction(ctx),
+});
+
 const envCommand = define({
   name: 'env',
   description: 'Print a running session\'s proxy env (shell exports or json)',
@@ -2650,6 +2727,7 @@ export const commandSpec = define({
     run: runCommand,
     start: startCommand,
     rules: rulesCommand,
+    config: configCommand,
     env: envCommand,
     token: tokenCommand,
     status: statusCommand,
@@ -2667,6 +2745,7 @@ Proxy command surface:
   varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
   varlock proxy start
   varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
+  varlock proxy config -o varlock-gateway.config.json   # compile static gateway config (rules + placeholders, no values)
   varlock proxy env --session abc12             # this session's wiring env (source locally)
   varlock proxy env --full --proxy-url http://127.0.0.1:8888 --cert-dir /home/user/certs --format json   # full env for a remote sandbox
   varlock proxy start --expose                  # broker: reachable off-loopback, serving the WS tunnel
@@ -2687,7 +2766,7 @@ Proxy command surface:
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const positionals = ((ctx as any).positionals ?? []).slice((ctx as any).commandPath?.length ?? 0);
   const unknown = positionals[0];
-  const suggestion = 'Use one of: run, start, rules, env, status, audit, reload, stop, prune';
+  const suggestion = 'Use one of: run, start, rules, config, env, status, audit, reload, stop, prune';
   if (unknown) {
     throw new CliExitError(`Unknown proxy action "${unknown}".`, { suggestion });
   }
