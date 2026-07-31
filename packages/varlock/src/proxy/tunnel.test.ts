@@ -294,9 +294,13 @@ describe('proxy selection', () => {
     expect(proxyForTunnelUrl('wss://broker.example.com', { HTTPS_PROXY: 'http://gw:3128' })).toBe('http://gw:3128');
     expect(proxyForTunnelUrl(base, { ALL_PROXY: 'http://gw:3128' })).toBe('http://gw:3128');
   });
-  test('ignores socks proxies and a missing proxy (direct dial)', () => {
+  test('ignores socks and https proxies and a missing proxy (direct dial)', () => {
     expect(proxyForTunnelUrl(base, {})).toBeUndefined();
     expect(proxyForTunnelUrl(base, { ALL_PROXY: 'socks5://gw:1080' })).toBeUndefined();
+    // https-to-proxy needs a TLS handshake before CONNECT, which this transport
+    // does not do, so it must not be advertised as supported.
+    expect(proxyForTunnelUrl(base, { HTTP_PROXY: 'https://gw:3128' })).toBeUndefined();
+    expect(proxyForTunnelUrl('wss://broker.example.com', { HTTPS_PROXY: 'https://gw:3128' })).toBeUndefined();
   });
   test('dot-suffix NO_PROXY matches subdomains', () => {
     expect(proxyForTunnelUrl('ws://a.corp.example:8080', { HTTP_PROXY: 'http://gw:3128', NO_PROXY: '.example' })).toBeUndefined();
@@ -371,6 +375,45 @@ describe('tunnel through a CONNECT proxy', () => {
     proxy.close();
     broker.close();
     echo.close();
+  });
+
+  test('a stalled CONNECT handshake is cancelled on timeout (socket destroyed, no hang)', async () => {
+    // Proxy accepts the TCP connection but never answers the CONNECT, so the
+    // handshake stalls. The bootstrap timeout must destroy the in-flight socket.
+    let signalAccepted!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      signalAccepted = resolve;
+    });
+    let signalClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      signalClosed = resolve;
+    });
+    const drain = () => { /* read so the peer RST is noticed */ };
+    const srv = net.createServer((sock) => {
+      signalAccepted();
+      // Read (flowing mode) but never answer the CONNECT, so the handshake stalls
+      // while the server still notices when the client tears the socket down. (A
+      // paused/never-read socket would not surface the peer RST under Node.)
+      sock.on('data', drain);
+      sock.on('error', drain);
+      sock.on('close', () => signalClosed());
+    });
+    const port = await new Promise<number>((resolve) => {
+      srv.listen(0, '127.0.0.1', () => resolve((srv.address() as net.AddressInfo).port));
+    });
+    const restore = withEnvVars({ HTTP_PROXY: `http://127.0.0.1:${port}` });
+    try {
+      await expect(fetchTunnelBootstrap('ws://broker.internal:9', TOKEN, 400)).rejects.toThrow();
+      await accepted; // the client did reach the proxy and stall there
+      // the timeout's close() must have destroyed the in-flight socket
+      await Promise.race([
+        closed,
+        new Promise((_r, reject) => { setTimeout(() => reject(new Error('socket not closed after timeout')), 2000); }),
+      ]);
+    } finally {
+      restore();
+    }
+    srv.close();
   });
 
   test('NO_PROXY makes a loopback broker dial direct (proxy unused)', async () => {

@@ -506,11 +506,14 @@ function hostInNoProxy(host: string, noProxy: string): boolean {
 }
 
 /**
- * The HTTP(S) proxy the guest must use to reach the tunnel URL, from the standard
- * env vars, or `undefined` for a direct dial. Selected by the tunnel scheme
+ * The proxy the guest must use to reach the tunnel URL, from the standard env
+ * vars, or `undefined` for a direct dial. Selected by the tunnel scheme
  * (`wss:` → HTTPS_PROXY, `ws:` → HTTP_PROXY), falling back to ALL_PROXY, and
- * honoring NO_PROXY. Only `http:`/`https:` CONNECT proxies are supported; a
- * `socks*` proxy is ignored (the native client is used, which will dial direct).
+ * honoring NO_PROXY. Only a plaintext `http:` CONNECT proxy is supported: an
+ * `https:` proxy (TLS to the proxy itself) and `socks*` are ignored, so the
+ * native client is used and dials direct. The proxy env var can still name an
+ * `https:` upstream for the *destination* (that is the tunnel scheme, handled by
+ * TLS to the broker); this check is only the transport to the proxy hop.
  */
 export function proxyForTunnelUrl(rawUrl: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   let url: URL;
@@ -526,8 +529,10 @@ export function proxyForTunnelUrl(rawUrl: string, env: NodeJS.ProcessEnv = proce
     ?? env.ALL_PROXY ?? env.all_proxy;
   if (!candidate) return undefined;
   try {
-    const p = new URL(candidate);
-    if (p.protocol !== 'http:' && p.protocol !== 'https:') return undefined;
+    // Only plaintext HTTP CONNECT proxies: the client opens a raw TCP socket to
+    // the proxy, so an `https:` proxy (which expects a TLS handshake first) or a
+    // `socks*` proxy would not work and must not be advertised as supported.
+    if (new URL(candidate).protocol !== 'http:') return undefined;
   } catch {
     return undefined;
   }
@@ -601,15 +606,20 @@ class ProxiedTunnelWs implements NativeWs {
 
   close() {
     if (this.closed) return;
-    if (this.sock && this.readyState === WS_OPEN) {
+    // Only OPEN connections get a graceful WS close frame + FIN. While still
+    // connecting/handshaking there is nothing to close politely, and `end()`
+    // does not cancel a stalled TCP/TLS handshake, so destroy the socket outright.
+    if (this.readyState === WS_OPEN && this.sock) {
       try {
         this.sock.write(encodeClientFrame(WsOpcode.Close, Buffer.alloc(0)));
       } catch { /* already gone */ }
+      this.readyState = 2; // CLOSING
+      try {
+        this.sock.end();
+      } catch { /* already gone */ }
+      return;
     }
-    this.readyState = 2; // CLOSING
-    try {
-      this.sock?.end();
-    } catch { /* already gone */ }
+    this.teardown();
   }
 
   private fail(err: unknown) {
@@ -633,15 +643,21 @@ class ProxiedTunnelWs implements NativeWs {
     const isTls = target.protocol === 'wss:';
     const targetPort = Number(target.port) || (isTls ? 443 : 80);
     const proxy = new URL(proxyUrl);
-    const proxyPort = Number(proxy.port) || (proxy.protocol === 'https:' ? 443 : 80);
+    const proxyPort = Number(proxy.port) || 80; // proxyForTunnelUrl only returns http: proxies
     const hostHeader = `${target.hostname}:${targetPort}`;
 
-    // 1. Open the proxy connection and ask it to CONNECT to the broker.
-    let sock = await new Promise<net.Socket>((resolve, reject) => {
-      const s = net.connect(proxyPort, proxy.hostname);
-      s.once('connect', () => resolve(s));
-      s.once('error', reject);
+    // 1. Open the proxy connection. Track the socket on the instance *before*
+    //    awaiting, so a `close()` (e.g. the bootstrap timeout) or a setup failure
+    //    can destroy it even while a TCP/TLS handshake is still stalled.
+    const proxySock = net.connect(proxyPort, proxy.hostname);
+    this.sock = proxySock;
+    await new Promise<void>((resolve, reject) => {
+      proxySock.once('connect', () => resolve());
+      proxySock.once('error', reject);
     });
+    if (this.closed) return;
+
+    // 2. Ask the proxy to CONNECT to the broker.
     const connectLines = [`CONNECT ${hostHeader} HTTP/1.1`, `Host: ${hostHeader}`];
     if (proxy.username) {
       const cred = Buffer
@@ -650,22 +666,27 @@ class ProxiedTunnelWs implements NativeWs {
       connectLines.push(`Proxy-Authorization: Basic ${cred}`);
     }
     connectLines.push('', '');
-    sock.write(connectLines.join('\r\n'));
-    await this.readHttpHead(sock, (status) => (status.startsWith('2')
+    proxySock.write(connectLines.join('\r\n'));
+    await this.readHttpHead(proxySock, (status) => (status.startsWith('2')
       ? undefined
       : `proxy CONNECT to ${hostHeader} failed: ${status}`));
     if (this.closed) return;
 
-    // 2. TLS to the broker (through the tunnel) for wss://.
+    // 3. TLS to the broker (through the tunnel) for wss://. Track the TLS socket
+    //    on the instance before awaiting its handshake, for the same reason.
+    let sock: net.Socket = proxySock;
     if (isTls) {
-      sock = await new Promise<tls.TLSSocket>((resolve, reject) => {
-        const t = tls.connect({ socket: sock, servername: target.hostname }, () => resolve(t));
-        t.once('error', reject);
+      const tlsSock = tls.connect({ socket: proxySock, servername: target.hostname });
+      this.sock = tlsSock;
+      await new Promise<void>((resolve, reject) => {
+        tlsSock.once('secureConnect', () => resolve());
+        tlsSock.once('error', reject);
       });
+      if (this.closed) return;
+      sock = tlsSock;
     }
-    this.sock = sock;
 
-    // 3. WebSocket handshake over the tunneled socket.
+    // 4. WebSocket handshake over the tunneled socket.
     const key = randomBytes(16).toString('base64');
     this.acceptExpected = createHash('sha1').update(key + WS_GUID).digest('base64');
     const handshake = [
@@ -688,7 +709,7 @@ class ProxiedTunnelWs implements NativeWs {
     });
     if (this.closed) return;
 
-    // 4. Handshake done: switch the socket to frame parsing and go OPEN.
+    // 5. Handshake done: switch the socket to frame parsing and go OPEN.
     sock.removeAllListeners('data');
     sock.on('data', (chunk: Buffer) => this.onFrameData(chunk));
     sock.on('close', () => this.teardown());
@@ -701,7 +722,9 @@ class ProxiedTunnelWs implements NativeWs {
   /**
    * Read one HTTP response head (`status line + headers`) off `sock`, validate it
    * with `check` (returns an error string or undefined), and resolve any bytes
-   * that arrived after the `\r\n\r\n`. Rejects on validation failure or socket error.
+   * that arrived after the `\r\n\r\n`. Rejects on validation failure, socket error,
+   * or the socket closing mid-head (e.g. `teardown()` destroying it on timeout),
+   * so a stalled handshake unwinds `connect()` instead of hanging.
    */
   private readHttpHead(
     sock: net.Socket,
@@ -711,10 +734,11 @@ class ProxiedTunnelWs implements NativeWs {
       let buf = Buffer.alloc(0);
       // Handlers live on a holder so `cleanup` can detach them without a forward
       // reference (the handlers, in turn, only reference `cleanup`, defined first).
-      const handlers: { data?: (c: Buffer) => void; err?: (e: Error) => void } = {};
+      const handlers: { data?: (c: Buffer) => void; err?: (e: Error) => void; close?: () => void } = {};
       const cleanup = (err?: Error, leftover?: Buffer) => {
         if (handlers.data) sock.removeListener('data', handlers.data);
         if (handlers.err) sock.removeListener('error', handlers.err);
+        if (handlers.close) sock.removeListener('close', handlers.close);
         if (err) reject(err);
         else resolve(leftover ?? Buffer.alloc(0));
       };
@@ -737,8 +761,10 @@ class ProxiedTunnelWs implements NativeWs {
         else cleanup(undefined, buf.subarray(end + 4));
       };
       handlers.err = (err: Error) => cleanup(err);
+      handlers.close = () => cleanup(new Error('connection closed during handshake'));
       sock.on('data', handlers.data);
       sock.once('error', handlers.err);
+      sock.once('close', handlers.close);
     });
   }
 
