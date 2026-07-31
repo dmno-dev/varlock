@@ -16,6 +16,11 @@ permissions:
 
 jobs:
   pullfrog:
+    # Skip runs triggered by bumpy-bot (the automated "Versioned release" PRs on
+    # bumpy/version-packages). Every push to main refreshes that PR, which would
+    # otherwise trigger a paid re-review each time. Human-triggered runs on that
+    # PR (e.g. an @pullfrog mention) still execute, since the triggerer is the human.
+    if: ${{ !contains(inputs.prompt, '"triggerer":"bumpy-bot"') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
