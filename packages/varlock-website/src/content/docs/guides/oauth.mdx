@@ -3,6 +3,8 @@ title: OAuth tokens
 description: Mint short-lived OAuth access tokens from refresh tokens, client credentials, or service account keys, without handing the long-lived credential to your app
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Many APIs (Google, Slack, GitHub Apps, Microsoft, Auth0, and others) issue short-lived access tokens that expire after about an hour. To keep working, something has to hold a long-lived credential (a refresh token, client secret, or service account key) and exchange it for fresh tokens. Usually that something is your app's SDK, which means the long-lived credential sits in your process env.
 
 Varlock moves that exchange into config resolution. The long-lived credential stays in your vault as an [`@internal`](/reference/item-decorators/#internal) item that is never injected, and your app only ever receives a fresh short-lived access token. If the token leaks (a log line, a compromised agent, a stray error report), the damage window is the token's remaining lifetime, not forever.
@@ -82,6 +84,120 @@ DRIVE_TOKEN=oauth(google, refreshToken=$GOOGLE_REFRESH_TOKEN, scopes="https://ww
 ```
 
 This is the right form for CI, where there is no browser and no persistent login. Note that in CI without a persistent cache, a provider that rotates refresh tokens will invalidate the stored one after the first exchange; varlock prints a warning when this happens. Either use a non-rotating provider credential, or set up a [persistent CI cache](/guides/caching/) via `_VARLOCK_CACHE_KEY`.
+
+## Using the token
+
+The resolved item is a plain env var holding a valid access token, which makes consumption a naming exercise:
+
+- **CLIs**: name the schema item whatever the tool already reads (`GH_TOKEN`, `CLOUDSDK_AUTH_ACCESS_TOKEN`, `SLACK_BOT_TOKEN`), and it just works under `varlock run` with no flags or wrapper scripts.
+- **SDKs**: read the env var and pass it as a static token. You skip the SDK's own OAuth plumbing entirely, since varlock already did the exchange.
+
+<Tabs syncKey="oauth-provider">
+<TabItem label="Google">
+
+`gcloud` reads `CLOUDSDK_AUTH_ACCESS_TOKEN` directly:
+
+```env-spec
+# @sensitive
+CLOUDSDK_AUTH_ACCESS_TOKEN=oauth(google, scopes="https://www.googleapis.com/auth/cloud-platform")
+```
+
+```bash
+varlock run -- gcloud storage ls
+```
+
+With the `googleapis` SDK, hand the token to an `OAuth2` client instead of configuring client secrets in code:
+
+```js
+import { google } from 'googleapis';
+
+const auth = new google.auth.OAuth2();
+auth.setCredentials({ access_token: process.env.CLOUDSDK_AUTH_ACCESS_TOKEN });
+const drive = google.drive({ version: 'v3', auth });
+```
+
+Any Google REST API also accepts the token as a bearer header:
+
+```bash
+varlock run -- sh -c 'curl -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" https://www.googleapis.com/drive/v3/files'
+```
+
+</TabItem>
+<TabItem label="GitHub">
+
+The `gh` CLI (and most GitHub tooling) reads `GH_TOKEN`:
+
+```env-spec
+# @sensitive
+GH_TOKEN=oauth(github)
+```
+
+```bash
+varlock run -- gh pr list
+```
+
+With Octokit:
+
+```js
+import { Octokit } from 'octokit';
+
+const octokit = new Octokit({ auth: process.env.GH_TOKEN });
+```
+
+</TabItem>
+<TabItem label="Microsoft">
+
+```env-spec
+# @sensitive
+MS_GRAPH_TOKEN=oauth(microsoft, scopes="User.Read Mail.Read")
+```
+
+Call Microsoft Graph directly:
+
+```bash
+varlock run -- sh -c 'curl -H "Authorization: Bearer $MS_GRAPH_TOKEN" https://graph.microsoft.com/v1.0/me'
+```
+
+With the Graph SDK, the auth provider is one line:
+
+```js
+import { Client } from '@microsoft/microsoft-graph-client';
+
+const client = Client.init({
+  authProvider: (done) => done(null, process.env.MS_GRAPH_TOKEN),
+});
+```
+
+</TabItem>
+<TabItem label="Slack">
+
+Bolt and most Slack tooling read `SLACK_BOT_TOKEN` (remember Slack needs the [explicit refreshToken form](#option-2-explicit-refreshtoken-ci-and-servers)):
+
+```env-spec
+# @internal @sensitive
+SLACK_REFRESH_TOKEN=op("op://dev/slack-app/refresh token")
+# @sensitive
+SLACK_BOT_TOKEN=oauth(slack, refreshToken=$SLACK_REFRESH_TOKEN)
+```
+
+```js
+import { WebClient } from '@slack/web-api';
+
+const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+```
+
+Or call the Web API directly:
+
+```bash
+varlock run -- sh -c 'curl -H "Authorization: Bearer $SLACK_BOT_TOKEN" https://slack.com/api/auth.test'
+```
+
+</TabItem>
+</Tabs>
+
+:::note[Process lifetime vs token lifetime]
+Tokens are minted fresh when your process starts, so short-lived processes are the sweet spot: CLI invocations, scripts, CI jobs, and agent sessions all finish well within a token's ~1 hour lifetime, and every new `varlock run` gets a fresh token automatically. A long-running server will eventually outlive its token; refreshing mid-run without a restart is part of the planned [credential proxy](/guides/proxy/) integration, where the running process holds only a placeholder and varlock swaps in a fresh token at the network boundary.
+:::
 
 ## Machine-to-machine grants
 
