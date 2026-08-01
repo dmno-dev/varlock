@@ -7,7 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Many APIs (Google, Slack, GitHub Apps, Microsoft, Auth0, and others) issue short-lived access tokens that expire after about an hour. To keep working, something has to hold a long-lived credential (a refresh token, client secret, or service account key) and exchange it for fresh tokens. Usually that something is your app's SDK, which means the long-lived credential sits in your process env.
 
-Varlock moves that exchange into config resolution. The long-lived credential stays in your vault as an [`@internal`](/reference/item-decorators/#internal) item that is never injected, and your app only ever receives a fresh short-lived access token. If the token leaks (a log line, a compromised agent, a stray error report), the damage window is the token's remaining lifetime, not forever.
+Varlock moves that exchange into config resolution. The long-lived credential stays in your vault as an [`@internal`](/reference/item-decorators/#internal) item that is never injected, and your app only ever receives a fresh short-lived access token. If the token leaks (a log line, a compromised dependency, an agent running `printenv`), the damage is bounded to that token's scopes for its remaining lifetime, instead of a permanent credential that can mint anything.
 
 ```env-spec
 # @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
@@ -90,7 +90,7 @@ This is the right form for CI, where there is no browser and no persistent login
 The resolved item is a plain env var holding a valid access token, which makes consumption a naming exercise:
 
 - **CLIs**: name the schema item whatever the tool already reads (`GH_TOKEN`, `CLOUDSDK_AUTH_ACCESS_TOKEN`, `SLACK_BOT_TOKEN`), and it just works under `varlock run` with no flags or wrapper scripts.
-- **SDKs**: read the env var and pass it as a static token. You skip the SDK's own OAuth plumbing entirely, since varlock already did the exchange.
+- **SDKs**: read the env var and pass it as a static token. Nearly every SDK accepts one as an alternative to managing credentials itself, so this is the same code with one line different: the SDK keeps doing everything else, and the only part you bypass is its refresh plumbing, which is exactly the part that needed the permanent credential in your process.
 
 <Tabs syncKey="oauth-provider">
 <TabItem label="Google">
@@ -196,7 +196,7 @@ varlock run -- sh -c 'curl -H "Authorization: Bearer $SLACK_BOT_TOKEN" https://s
 </Tabs>
 
 :::note[Process lifetime vs token lifetime]
-Tokens are minted fresh when your process starts, so short-lived processes are the sweet spot: CLI invocations, scripts, CI jobs, and agent sessions all finish well within a token's ~1 hour lifetime, and every new `varlock run` gets a fresh token automatically. A long-running server will eventually outlive its token; refreshing mid-run without a restart is part of the planned [credential proxy](/guides/proxy/) integration, where the running process holds only a placeholder and varlock swaps in a fresh token at the network boundary.
+Tokens are minted fresh when your process starts, so short-lived processes are the sweet spot: CLI invocations, scripts, CI jobs, and agent sessions all finish well within a token's ~1 hour lifetime, and every new `varlock run` gets a fresh token automatically. A long-running server will eventually outlive its token; refreshing mid-run without a restart is part of the planned [credential proxy](/guides/proxy/) integration, where the running process holds only a placeholder and varlock swaps in a fresh token at the network boundary. Put simply: standalone keeps the durable credentials out of your process, and the proxy keeps all credentials out of it.
 :::
 
 ## Machine-to-machine grants
