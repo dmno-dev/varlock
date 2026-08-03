@@ -7,7 +7,7 @@ authors:
   - name: "Varlock Team"
 ---
 
-July was our biggest month yet: [`varlock@1.10.0`](/reference/cli-commands/) through [`varlock@1.16.0`](/reference/cli-commands/) shipped a credential proxy that hands AI agents placeholder secrets instead of real ones, code generation for Python, Rust, Go, PHP, Java, and C#, array and record value types, and a new `varlock flatten` command for monorepo Docker builds. A new [Sandboxes](/sandboxes/overview/) docs section covers running agents in ten different sandboxing tools with varlock holding the credentials.
+July was a big one. We shipped a credential proxy that hands AI agents placeholder secrets instead of real ones, code generation for Python, Rust, Go, PHP, Java, and C#, array and record value types, and a new `varlock flatten` command for monorepo Docker builds. A new [Sandboxes](/sandboxes/overview/) docs section covers running agents in ten different sandboxing tools with varlock holding the credentials.
 
 ## 🔧 Core Improvements
 
@@ -22,8 +22,6 @@ The headline feature: run an agent (or any untrusted tool) through a local MITM 
 - **Live policy reload** - `varlock proxy reload` no longer requires the schema to resolve in the requesting shell. The proxy validates the edit in its own context before applying and reports failures back, so a remote broker can be reloaded with a bare provider exec. See [editing the schema while a session is running](/guides/proxy/running/#editing-the-schema-while-a-session-is-running).
 - **Client compatibility** - Minted MITM certs now include subject and authority key identifiers so strict TLS verifiers (Python 3.13+ urllib and httpx defaults) accept them; the injected env sets `NODE_USE_ENV_PROXY=1` so Node's built-in fetch routes through the proxy instead of silently bypassing it, and `DENO_CERT` so Deno trusts the proxy CA. Also fixed a roughly 1-in-512 cert failure from non-minimal DER serial numbers. See [client compatibility](/guides/proxy/running/#client-compatibility).
 - **Proxying through a proxy** - `proxy run --url` now dials its tunnel through an HTTP proxy (`HTTP(S)_PROXY` / `NO_PROXY`), so a sandboxed agent whose only egress is a gateway (for example [Docker Sandboxes](/sandboxes/docker-sandboxes/)) can still reach a broker.
-
-Preview caveat: on its own the proxy is same-uid and raises the bar rather than being a boundary. `--sandbox` (or a container) is what makes it one. See [limitations](/guides/proxy/#limitations).
 
 ### Code generation for seven languages
 
@@ -82,8 +80,6 @@ Preview caveat: on its own the proxy is same-uid and raises the bar rather than 
 
 - **New [Sandboxes](/sandboxes/overview/) docs section** - Recipes for running agents in E2B, Fly.io, Docker Sandboxes, smolvm, Fence, yolobox, Agent Safehouse, bubblewrap, MXC, and minimal setups, with varlock holding the real credentials. Start with [topologies](/sandboxes/overview/#topologies) to pick a shape.
 - **[Software Defined Talk #580](https://www.softwaredefinedtalk.com/580)** - The founders sat down with the show to talk about why almost nobody manages their `.env` files well. Thanks [@brandonwhichard.com](https://bsky.app/profile/brandonwhichard.com) for the [conversation](https://bsky.app/profile/varlock.dev/post/3mqcfhdfftc2h).
-- **[Credential brokering announcement](https://bsky.app/profile/theozero.bsky.social/post/3mr6sqf4qgk2m)** - The proxy launch post: your agent gets placeholder credentials, real secrets are swapped in over the wire, and the rules live in your existing `.env.schema`.
-- **[varlock@1.10 codegen post](https://bsky.app/profile/theozero.bsky.social/post/3mq36tsbwz22j)** - Arbitrary code generation plus built-in support for PHP, Python, Go, and Rust.
 - **New guides** - [Code generation](/guides/code-generation/), [static vs dynamic vars](/guides/dynamic-config/), and a reorganized [CLI reference](/reference/cli-commands/) split by command group.
 
 ## 💬 Community
