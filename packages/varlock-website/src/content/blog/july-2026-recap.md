@@ -2,6 +2,7 @@
 title: "July 2026 Recap"
 description: "Varlock ships a credential proxy for AI agents, code generation for seven more languages, array and record value types, and varlock flatten for Docker builds."
 date: 2026-08-01
+image: ../../assets/blog/july-2026-recap.jpeg
 authors:
   - name: "Varlock Team"
 ---
