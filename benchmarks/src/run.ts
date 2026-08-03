@@ -1,4 +1,6 @@
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync,
+} from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -15,9 +17,8 @@ import {
 } from './install.ts';
 import { runAllScenarios, SCENARIO_GROUPS } from './scenarios/index.ts';
 import { formatSummaryMarkdown } from './report.ts';
-import { measureCommand } from './measure.ts';
 import { startTelemetryMock } from './telemetry-mock.ts';
-import { ALL_TELEMETRY_MODES, telemetryEnv } from './telemetry.ts';
+import { ALL_TELEMETRY_MODES } from './telemetry.ts';
 import type {
   BenchContext, BenchRunResult, CliInvocation, TelemetryMode, TriggerKind,
 } from './types.ts';
@@ -139,33 +140,26 @@ function defaultOutPath(version: string): string {
   return join(RESULTS_DIR, `${iso}-varlock@${version}-${runId}.json`);
 }
 
-/**
- * Confirm the tested varlock build honours VARLOCK_POSTHOG_HOST before running any
- * telemetry-on scenario. A version published before that override existed would
- * send real events to the production collector instead, so those scenarios get
- * dropped rather than measured.
- */
-async function checkTelemetryMockable(
-  cli: CliInvocation,
-  cwd: string,
-  mockEnv: Record<string, string>,
-  received: () => number,
-): Promise<boolean> {
-  const before = received();
-  const result = await measureCommand([...cli.command, 'load'], {
-    cwd,
-    env: telemetryEnv('on', mockEnv),
-    timeoutMs: 60_000,
-  });
-  if (result.exitCode !== 0) return false;
-  // The CLI's exit hook only waits ~500ms on the in-flight request; give the
-  // loopback round-trip a moment longer before concluding nothing arrived.
-  for (let i = 0; i < 20 && received() === before; i++) {
-    await new Promise<void>((r) => {
-      setTimeout(r, 100);
-    });
+/** Inspect the installed package without executing telemetry-enabled code. */
+function checkTelemetryMockable(cli: CliInvocation): boolean {
+  const cliScript = cli.command.find((part) => part.endsWith('/bin/cli.js'));
+  if (!cliScript) return false;
+
+  const pending = [join(dirname(dirname(cliScript)), 'dist')];
+  try {
+    while (pending.length > 0) {
+      const dir = pending.pop()!;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) pending.push(path);
+        else if (/\.[cm]?js$/.test(entry.name)
+          && readFileSync(path, 'utf8').includes('VARLOCK_POSTHOG_HOST')) return true;
+      }
+    }
+  } catch {
+    return false;
   }
-  return received() > before;
+  return false;
 }
 
 async function main(): Promise<void> {
@@ -234,15 +228,10 @@ async function main(): Promise<void> {
   let telemetryModes: Array<TelemetryMode> = ['off'];
 
   try {
-    const mockable = await checkTelemetryMockable(
-      usableClis[0]!,
-      join(FIXTURES_DIR, 'cli-basic'),
-      telemetryMockEnv,
-      telemetryMock.requestCount,
-    );
+    const mockable = checkTelemetryMockable(usableClis[0]!);
     if (mockable) {
       telemetryModes = ALL_TELEMETRY_MODES;
-      console.log(`Telemetry mock reachable at ${telemetryMock.url} — telemetry-on scenarios enabled`);
+      console.log(`Telemetry endpoint override supported: telemetry-on scenarios enabled with ${telemetryMock.url}`);
     } else {
       note(
         `telemetry-on scenarios skipped: varlock@${resolvedVersion} does not honour VARLOCK_POSTHOG_HOST, `
