@@ -1,6 +1,6 @@
 ---
 title: "July 2026 Recap"
-description: "Varlock ships a credential proxy for AI agents, code generation for seven more languages, array and record value types, and varlock flatten for Docker builds."
+description: "Varlock ships a credential proxy for AI agents, code generation for seven languages, array and record value types, and varlock flatten for Docker builds."
 date: 2026-08-01
 image: ../../assets/blog/july-2026-recap.jpeg
 authors:
@@ -20,7 +20,7 @@ The headline feature: run an agent (or any untrusted tool) through a local MITM 
 - **Sandboxing** - `proxy run --sandbox` runs the agent in a sandbox whose only egress is the proxy: a built-in macOS credential and egress jail, or `--sandbox=docker` (or `=podman`) to run it in a container while your secrets stay on the host. See the [sandboxing guide](/guides/proxy/sandboxing/#built-in-sandbox).
 - **Remote sandboxes** - `proxy start` and `run` gain `--expose` plus a built-in CONNECT-over-WebSocket tunnel, so a client behind provider HTTP ingress (E2B, Modal, and similar) can route through it. `varlock proxy run --url <wss-url> -- <command>` runs a command through a broker running elsewhere, self-wiring env and CA certs while holding only placeholders. `varlock proxy token` prints a session's data-plane token, and `--persist-ca` keeps a broker's CA across restarts. See [remote proxy setup](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url).
 - **Live policy reload** - `varlock proxy reload` no longer requires the schema to resolve in the requesting shell. The proxy validates the edit in its own context before applying and reports failures back, so a remote broker can be reloaded with a bare provider exec. See [editing the schema while a session is running](/guides/proxy/running/#editing-the-schema-while-a-session-is-running).
-- **Client compatibility** - Minted MITM certs now include subject and authority key identifiers so strict TLS verifiers (Python 3.13+ urllib and httpx defaults) accept them; the injected env sets `NODE_USE_ENV_PROXY=1` so Node's built-in fetch routes through the proxy instead of silently bypassing it, and `DENO_CERT` so Deno trusts the proxy CA. Also fixed a roughly 1-in-512 cert failure from non-minimal DER serial numbers. See [client compatibility](/guides/proxy/running/#client-compatibility).
+- **Client compatibility** - Minted MITM certs now include subject and authority key identifiers so strict TLS verifiers (Python 3.13+ urllib and httpx defaults) accept them; the injected env sets `NODE_USE_ENV_PROXY=1` so Node's built-in fetch (Node 24+) routes through the proxy instead of silently bypassing it, and `DENO_CERT` so Deno trusts the proxy CA. Also fixed a roughly 1-in-512 cert failure from non-minimal DER serial numbers. See [client compatibility](/guides/proxy/running/#client-compatibility).
 - **Proxying through a proxy** - `proxy run --url` now dials its tunnel through an HTTP proxy (`HTTP(S)_PROXY` / `NO_PROXY`), so a sandboxed agent whose only egress is a gateway (for example [Docker Sandboxes](/sandboxes/docker-sandboxes/)) can still reach a broker.
 
 ### Code generation for seven languages
@@ -43,7 +43,7 @@ The headline feature: run an agent (or any untrusted tool) through a local MITM 
 
 ### Platform, runtime, and OS detection
 
-- **[`@varlock/ci-env-info`](https://github.com/dmno-dev/varlock/releases/tag/%40varlock/ci-env-info%400.1.0)** - Now published as its own package. Adds detection for Railway, AWS Amplify, Google Cloud Run, Deno Deploy, Zeabur, and Firebase App Hosting, and detects dev sandboxes (CodeSandbox, StackBlitz, GitHub Codespaces, Gitpod, Replit) with `isCI: false`.
+- **[`@varlock/ci-env-info`](https://github.com/dmno-dev/varlock/releases/tag/%40varlock/ci-env-info%400.1.0)** - The new `0.1.0` release adds detection for Railway, AWS Amplify, Google Cloud Run, Deno Deploy, Zeabur, and Firebase App Hosting, and detects dev sandboxes (CodeSandbox, StackBlitz, GitHub Codespaces, Gitpod, Replit) with `isCI: false`.
 - **`VARLOCK_RUNTIME` and `VARLOCK_OS`** - New builtin variables backed by `detectRuntime` and `detectOs`. See [builtin variables](/reference/builtin-variables/).
 - **Detection fixes** - An audit against `std-env` fixed several wrong env var names (GitHub Actions PR number, GitLab MR IID, Netlify build URL, Semaphore and Azure Pipelines PR numbers, Bitbucket repo owner) and made `vercel dev` / `netlify dev` report `isCI: false`.
 
