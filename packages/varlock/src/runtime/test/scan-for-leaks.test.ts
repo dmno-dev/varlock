@@ -71,6 +71,49 @@ describe('scanForLeaks', () => {
     await expect(reader.read()).rejects.toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
   });
 
+  it('detects a leaked secret split across ReadableStream chunks', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data ${SECRET_VALUE.slice(0, 10)}`));
+        controller.enqueue(new TextEncoder().encode(SECRET_VALUE.slice(10)));
+        controller.close();
+      },
+    });
+
+    const scanned = scanForLeaks(stream as any) as ReadableStream;
+    const reader = scanned.getReader();
+
+    await expect((async () => {
+      // first chunk holds only a partial value, so the read after it is the one that throws
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    })()).rejects.toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('passes a stream whose chunks split a multi-byte character through intact', async () => {
+    const text = 'héllo wörld 🔐';
+    const bytes = new TextEncoder().encode(text);
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 2)); // splits the 2-byte é
+        controller.enqueue(bytes.slice(2));
+        controller.close();
+      },
+    });
+
+    const scanned = scanForLeaks(stream as any) as ReadableStream;
+    const reader = scanned.getReader();
+    const received: Array<number> = [];
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received.push(...value);
+    }
+    expect(new TextDecoder().decode(new Uint8Array(received))).toBe(text);
+  });
+
   it('passes a clean ReadableStream through', async () => {
     const stream = new ReadableStream({
       start(controller) {

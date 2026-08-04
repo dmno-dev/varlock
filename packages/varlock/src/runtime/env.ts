@@ -254,12 +254,25 @@ export function scanForLeaks(
       return toScan;
     }
     const chunkDecoder = new TextDecoder();
+    // a sensitive value can be split across stream chunks, and the scan matches complete
+    // values only - so each chunk is scanned with the tail of the previous one prepended
+    let carry = '';
     return toScan.pipeThrough(
       new TransformStream({
         transform(chunk, controller) {
-          const chunkStr = chunkDecoder.decode(chunk);
-          scanStrForLeaks(chunkStr);
+          // stream mode holds an incomplete multi-byte char until the rest of it arrives
+          const chunkStr = typeof chunk === 'string'
+            ? chunk
+            : chunkDecoder.decode(chunk, { stream: true });
+          const toScanStr = carry + chunkStr;
+          scanStrForLeaks(toScanStr);
+          const carryLength = getRedactionHoldbackLength(toScanStr);
+          carry = carryLength ? toScanStr.slice(-carryLength) : '';
           controller.enqueue(chunk);
+        },
+        flush() {
+          const tail = chunkDecoder.decode();
+          if (tail) scanStrForLeaks(carry + tail);
         },
       }),
     );
