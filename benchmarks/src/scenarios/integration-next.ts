@@ -10,6 +10,14 @@ import { LEAK_SCAN_BODY_BYTES, REDACT_LOG_LINES } from './util.ts';
 
 const NEXT_TEST_DIR = resolve(import.meta.dirname, '../../../framework-tests/frameworks/nextjs');
 
+const BUILD_ENV = {
+  APP_ENV: 'dev',
+  NEXT_PUBLIC_VAR: 'next-prefixed-public-var',
+  PUBLIC_VAR: 'unprefixed-public-var',
+  ENV_SPECIFIC_VAR: 'env-specific-var--dev',
+  SENSITIVE_VAR: 'super-secret-var',
+};
+
 /**
  * Baseline and varlock arms must compile the same app with the same next config,
  * or the "varlock overhead" number also contains a page-content and config diff.
@@ -175,7 +183,7 @@ async function measureBuild(
       return measureCommand(['npx', 'next', 'build'], {
         cwd: fixture.dir,
         timeoutMs: 300_000,
-        env: { ...telemetryEnv(telemetry, mockEnv), APP_ENV: 'dev', CI: '1' },
+        env: { ...telemetryEnv(telemetry, mockEnv), ...BUILD_ENV, CI: '1' },
       });
     },
     { iterations, warmup: 0 },

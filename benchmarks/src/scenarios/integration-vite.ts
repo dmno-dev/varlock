@@ -10,6 +10,16 @@ import { LEAK_SCAN_BODY_BYTES, REDACT_LOG_LINES } from './util.ts';
 
 const VITE_TEST_DIR = resolve(import.meta.dirname, '../../../framework-tests/frameworks/vite');
 
+const BUILD_ENV = {
+  APP_ENV: 'dev',
+  PUBLIC_VAR: 'public-test-value',
+  API_URL: 'https://api.example.com',
+  ENV_SPECIFIC_VAR: 'env-specific-dev',
+  VITE_PUBLIC_VAR: 'public-test-value',
+  VITE_API_URL: 'https://api.example.com',
+  VITE_ENV_SPECIFIC_VAR: 'env-specific-dev',
+};
+
 /** Identical apart from the plugin — see the note in integration-next.ts. */
 const BASELINE_VITE_CONFIG = `import { defineConfig } from 'vite';
 
@@ -34,7 +44,7 @@ function mainSource(read: (key: string) => string): string {
 `;
 }
 
-const BASELINE_MAIN = mainSource((key) => `import.meta.env.${key}`);
+const BASELINE_MAIN = mainSource((key) => `import.meta.env.VITE_${key}`);
 const VARLOCK_MAIN = `import { ENV } from 'varlock/env';
 
 ${mainSource((key) => `ENV.${key}`)}`;
@@ -148,7 +158,7 @@ async function measureBuild(
       return measureCommand(['npx', 'vite', 'build'], {
         cwd: fixture.dir,
         timeoutMs: 180_000,
-        env: { ...telemetryEnv(telemetry, mockEnv), APP_ENV: 'dev', CI: '1' },
+        env: { ...telemetryEnv(telemetry, mockEnv), ...BUILD_ENV, CI: '1' },
       });
     },
     { iterations, warmup: 0 },

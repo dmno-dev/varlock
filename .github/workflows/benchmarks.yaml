@@ -43,6 +43,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           token: ${{ secrets.BUMPY_GH_TOKEN }}
+          ref: main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
