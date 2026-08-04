@@ -1,0 +1,34 @@
+{
+  "name": "tree-sitter-varlock-schema",
+  "version": "0.1.3",
+  "private": true,
+  "description": "Tree-sitter grammar for dotenv and Varlock schema files.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/zed-plugin/tree-sitter-varlock-schema"
+  },
+  "keywords": [
+    "tree-sitter",
+    "dotenv",
+    "env",
+    "varlock",
+    "schema"
+  ],
+  "scripts": {
+    "generate": "tree-sitter generate grammar.js"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.25.10"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.env",
+      "file-types": [
+        "env",
+        "env.schema"
+      ]
+    }
+  ]
+}
