@@ -15,6 +15,10 @@ import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
 import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget } from '../../proxy/types';
+import {
+  assertValidTokenUrl, OAUTH_CLIENT_AUTH_METHODS, type OauthClientAuthMethod, type OauthGrantType,
+} from '../../lib/oauth';
+import { OAUTH_PROVIDERS, OAUTH_PROVIDER_NAMES } from '../../lib/oauth-providers';
 
 
 export abstract class DecoratorInstance {
@@ -310,6 +314,44 @@ function parseEnvBulkValues(
 }
 
 // ~ Root decorators ----------------------------------------
+/**
+ * A registered `@oauthClient(...)` instance, stored on `EnvGraph.oauthClients`
+ * keyed by address: the provider name for a provider's default client
+ * (`google`), `provider/id` when an explicit id nests under a provider
+ * (`google/dev`), or the bare id for provider-less clients. Static config is
+ * captured at process time; dynamic args (client credentials, default scopes)
+ * are resolved once during the decorator's execute() and stored in `resolved`.
+ * The `oauth()` resolver and the `varlock oauth login` CLI both read from here.
+ */
+export type OauthClientRecord = {
+  /** full address (`google`, `google/dev`, or a bare id) */
+  id: string;
+  providerName?: string;
+  tokenUrl: string;
+  authorizationUrl?: string;
+  deviceAuthorizationUrl?: string;
+  clientAuth: OauthClientAuthMethod;
+  extraAuthParams: Record<string, string>;
+  requiredLoginScopes: Array<string>;
+  scopesDelimiter: string;
+  appSetupUrl?: string;
+  notes?: string;
+  clientIdResolver: Resolver;
+  clientSecretResolver?: Resolver;
+  scopesResolver?: Resolver;
+  /** the decorator's FunctionArgsResolver - its .deps drive item dependency wiring */
+  argsResolver: Resolver;
+  /** items referencing this provider, populated by the oauth() resolver's process() */
+  usedBy: Array<{
+    itemKey: string;
+    grantType: OauthGrantType;
+    scopesResolver?: Resolver;
+    hasOwnRefreshToken: boolean;
+  }>;
+  /** populated by execute() during finishLoad */
+  resolved?: { clientId: string; clientSecret?: string; scope?: string };
+};
+
 export type RootDecoratorDef<Processed = any> = {
   name: string,
   description?: string;
@@ -673,6 +715,142 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     allowDualPlacement: true,
     useFnArgsResolver: true,
     process: (argsVal) => validateProxyFunctionArgs(argsVal),
+  },
+  {
+    name: 'oauthClient',
+    isFunction: true,
+    process(argsVal) {
+      const graph = argsVal.dataSource!.graph!;
+      if (argsVal.arrArgs?.length) {
+        throw new SchemaError('@oauthClient expects only key-value args, e.g. `@oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID)`');
+      }
+      const objArgs = argsVal.objArgs ?? {};
+
+      const knownArgs = [
+        'id',
+        'provider',
+        'tokenUrl',
+        'authorizationUrl',
+        'deviceAuthorizationUrl',
+        'clientAuth',
+        'clientId',
+        'clientSecret',
+        'scopes',
+      ];
+      for (const argKey of Object.keys(objArgs)) {
+        if (!knownArgs.includes(argKey)) {
+          throw new SchemaError(`@oauthClient: unknown arg "${argKey}" (expected one of: ${knownArgs.join(', ')})`);
+        }
+      }
+
+      const getStaticString = (argKey: string): string | undefined => {
+        const r = objArgs[argKey];
+        if (!r) return undefined;
+        if (!r.isStatic || typeof r.staticValue !== 'string' || !r.staticValue) {
+          throw new SchemaError(`@oauthClient: ${argKey} must be a static string`);
+        }
+        return r.staticValue;
+      };
+
+      const providerName = getStaticString('provider');
+      let provider;
+      if (providerName) {
+        provider = OAUTH_PROVIDERS[providerName];
+        if (!provider) {
+          throw new SchemaError(`@oauthClient: unknown provider "${providerName}" (known providers: ${OAUTH_PROVIDER_NAMES.join(', ')})`);
+        }
+      }
+
+      // clients are addressed by provider name: `google` is the provider's
+      // default client, and an explicit id nests under it (`id=dev` → `google/dev`).
+      // clients without a provider use their id alone.
+      const rawId = getStaticString('id');
+      if (rawId && !/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(rawId)) {
+        throw new SchemaError('@oauthClient: id must start with a letter and contain only letters, numbers, dashes, underscores');
+      }
+      let id: string;
+      if (providerName) {
+        id = rawId ? `${providerName}/${rawId}` : providerName;
+      } else {
+        id = rawId ?? '_default';
+      }
+      if (graph.oauthClients[id]) {
+        throw new SchemaError(`@oauthClient: a client addressed "${id}" is already defined`, {
+          tip: 'Multiple clients for one provider need distinct ids, e.g. `id=dev` / `id=prod` (addressed as `google/dev` / `google/prod`)',
+        });
+      }
+
+      const tokenUrl = getStaticString('tokenUrl') ?? provider?.tokenUrl;
+      if (!tokenUrl) {
+        throw new SchemaError('@oauthClient: tokenUrl is required (or use a provider that provides one)');
+      }
+      const authorizationUrl = getStaticString('authorizationUrl') ?? provider?.authorizationUrl;
+      const deviceAuthorizationUrl = getStaticString('deviceAuthorizationUrl') ?? provider?.deviceAuthorizationUrl;
+      try {
+        assertValidTokenUrl(tokenUrl, 'tokenUrl');
+        if (authorizationUrl) assertValidTokenUrl(authorizationUrl, 'authorizationUrl');
+        if (deviceAuthorizationUrl) assertValidTokenUrl(deviceAuthorizationUrl, 'deviceAuthorizationUrl');
+      } catch (err) {
+        throw new SchemaError(`@oauthClient: ${err instanceof Error ? err.message : err}`);
+      }
+
+      const clientAuthArg = getStaticString('clientAuth');
+      if (clientAuthArg && !(OAUTH_CLIENT_AUTH_METHODS as ReadonlyArray<string>).includes(clientAuthArg)) {
+        throw new SchemaError(`@oauthClient: clientAuth must be one of: ${OAUTH_CLIENT_AUTH_METHODS.join(', ')}`);
+      }
+      const clientAuth = (clientAuthArg ?? provider?.clientAuth ?? 'body') as OauthClientAuthMethod;
+
+      if (!objArgs.clientId) {
+        throw new SchemaError('@oauthClient: clientId is required');
+      }
+
+      const record: OauthClientRecord = {
+        id,
+        providerName,
+        tokenUrl,
+        authorizationUrl,
+        deviceAuthorizationUrl,
+        clientAuth,
+        extraAuthParams: provider?.extraAuthParams ?? {},
+        requiredLoginScopes: provider?.requiredLoginScopes ?? [],
+        scopesDelimiter: provider?.scopesDelimiter ?? ' ',
+        appSetupUrl: provider?.appSetupUrl,
+        notes: provider?.notes,
+        clientIdResolver: objArgs.clientId,
+        clientSecretResolver: objArgs.clientSecret,
+        scopesResolver: objArgs.scopes,
+        argsResolver: argsVal,
+        usedBy: [],
+      };
+      graph.oauthClients[id] = record;
+      return record;
+    },
+    async execute(record: OauthClientRecord) {
+      const clientId = await record.clientIdResolver.resolve();
+      if (typeof clientId !== 'string' || !clientId) {
+        throw new ResolutionError('@oauthClient: clientId resolved to an empty value');
+      }
+      let clientSecret: string | undefined;
+      if (record.clientSecretResolver) {
+        const resolved = await record.clientSecretResolver.resolve();
+        if (typeof resolved !== 'string' || !resolved) {
+          throw new ResolutionError('@oauthClient: clientSecret resolved to an empty value');
+        }
+        clientSecret = resolved;
+      }
+      let scope: string | undefined;
+      if (record.scopesResolver) {
+        const resolved = await record.scopesResolver.resolve();
+        if (typeof resolved === 'string') {
+          scope = resolved;
+        } else if (Array.isArray(resolved) && resolved.every((s) => typeof s === 'string')) {
+          scope = resolved.join(record.scopesDelimiter);
+        } else {
+          throw new ResolutionError('@oauthClient: scopes must resolve to a string or an array of strings');
+        }
+      }
+      record.resolved = { clientId, clientSecret, scope };
+    },
   },
   {
     name: 'auditIgnorePaths',

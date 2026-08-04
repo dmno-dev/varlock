@@ -288,6 +288,13 @@ export type CacheStoreLike = {
   set(cacheKey: string, value: any, ttlMs: number): Promise<{ cachedAt: number; expiresAt: number } | undefined>;
   delete(cacheKey: string): Promise<void>;
   clearAll(): Promise<number>;
+  /**
+   * Run `fn` holding this key's cross-process lock, for callers that need a
+   * read-check-write critical section that getOrSet's fixed TTL can't express
+   * (e.g. oauth() refreshing based on its own stored expiry). Optional -
+   * single-process stores get correct (if unserialized) behavior without it.
+   */
+  withKeyLock?<T>(cacheKey: string, fn: () => Promise<T> | T): Promise<T>;
 };
 
 /** Compute a concrete expiry timestamp from a TTL (Infinity → far-future) */
@@ -396,6 +403,13 @@ export class CacheStore {
    * Uses a per-key lock so concurrent callers (including across processes)
    * don't stampede the producer for the same cache key.
    */
+  /** Run `fn` holding the cross-process lock for a single cache key */
+  async withKeyLock<T>(cacheKey: string, fn: () => Promise<T> | T): Promise<T> {
+    const keyHash = createHash('sha256').update(cacheKey).digest('hex');
+    const lockPath = path.join(`${this.filePath}.keylocks`, `${keyHash}.lock`);
+    return await withDirLock(lockPath, KEY_LOCK_OPTS, fn);
+  }
+
   async getOrSet(
     cacheKey: string,
     ttlMs: number,
@@ -408,10 +422,7 @@ export class CacheStore {
       return { ...existing, cacheHit: true };
     }
 
-    const keyHash = createHash('sha256').update(cacheKey).digest('hex');
-    const lockPath = path.join(`${this.filePath}.keylocks`, `${keyHash}.lock`);
-
-    return await withDirLock(lockPath, KEY_LOCK_OPTS, async () => {
+    return await this.withKeyLock(cacheKey, async () => {
       const latest = await this.get(cacheKey);
       if (latest) {
         return { ...latest, cacheHit: true };

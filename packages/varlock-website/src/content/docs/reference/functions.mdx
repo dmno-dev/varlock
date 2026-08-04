@@ -22,7 +22,7 @@ CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
 ```
 
 
-There are built-in utility functions, [random value generators](#random-value-generators), [`generateOtp()`](#generateotp) for 2FA codes, a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
+There are built-in utility functions, [random value generators](#random-value-generators), [`generateOtp()`](#generateotp) for 2FA codes, [`oauth()`](#oauth) for exchanging long-lived OAuth credentials for fresh access tokens, a [`cache()`](#cache) function for reusing values according to your global cache mode, encryption functions for device-local secrets, and plugin-provided resolver functions that can fetch data from external providers. See the [Plugins guide](/guides/plugins/) for more information on plugin-provided functions.
 
 ## Core
 <div class="reference-docs">
@@ -412,6 +412,80 @@ A few other things to know:
 - **Codes expire.** They rotate every `period` seconds, so generate at the moment of use. A long command that only needs the code at the very end can outlive it.
 - **Your clock has to be right.** Codes are derived from the current time. Check clock sync before assuming the seed is wrong.
 - **This weakens your second factor.** A seed sitting next to the token it protects, on the same machine, is no longer an independent factor. That can be a reasonable trade for a local workflow where the seed is encrypted at rest and never injected into your app. It is a bad trade in CI, where [OIDC workload identity](/guides/oidc/) or credentials that do not require 2FA are the better answer.
+</div>
+</div>
+
+## OAuth tokens
+
+<div class="reference-docs">
+<div>
+### `oauth()`
+
+Exchanges a long-lived OAuth credential for a short-lived access token by calling the provider's token endpoint. The item resolves to a fresh access token, and only that token is injected. The refresh token and client secret stay in your vault, referenced as [`@internal`](/reference/item-decorators/#internal) items that never reach your app or child processes. See the [OAuth guide](/guides/oauth/) for the full workflow.
+
+Tokens are cached (encrypted, according to your [cache mode](/reference/root-decorators/#cache)) and reused until the provider-reported expiry, so repeated invocations do not hit the token endpoint. When a provider rotates refresh tokens on each use (Google and Slack do), the rotated token is stored in the cache and used for the next refresh automatically; the configured refresh token is just the bootstrap.
+
+An optional first positional arg references an [`@oauthClient`](/reference/root-decorators/#oauthclient) instance by id, which supplies `tokenUrl`, `clientId`, `clientSecret`, and `clientAuth` so several items can share one client config. Item-level args override client-level ones.
+
+Options:
+
+- `tokenUrl=S`: the provider's token endpoint (required unless a client instance or service account key supplies it). Must be https (plain http is allowed for localhost).
+- `grant=S` option: `refresh_token` (default), `client_credentials`, or `jwt_bearer`
+- `refreshToken=R`: the refresh token, usually a reference to another item. Required for the `refresh_token` grant unless a client instance is referenced, in which case omitting it means "use the login-provisioned token" (see below).
+- `clientId=R`: the OAuth client id (required unless a client instance supplies it; optional for `jwt_bearer`)
+- `clientSecret=R` option: the OAuth client secret. Not needed for public (PKCE) clients.
+- `clientAuth=S` option: how client credentials are sent, `body` (default) or `basic` for HTTP basic auth. Some providers (e.g. Notion) require `basic`.
+- `scopes=R` option: a space-delimited string or an array of scope strings
+- `params={...}` option: extra form params for the token request, e.g. `params={ audience="..." }` for Auth0
+- `skew=N` option: refresh this long before the reported expiry, in seconds or a duration string (default: `60s`)
+
+`jwt_bearer`-only options (RFC 7523, e.g. Google service accounts): instead of a stored credential, varlock signs a short-lived RS256 assertion with a private key and exchanges it for an access token.
+
+- `serviceAccountKey=R`: a Google-style service account key JSON (supplies the signing key, issuer, and token endpoint)
+- `privateKey=R` + `issuer=R`: raw PEM key and `iss` claim, for non-Google providers
+- `subject=R` option: `sub` claim, for providers that support impersonation (e.g. Google domain-wide delegation)
+- `audience=S` option: `aud` claim override (defaults to the token endpoint)
+
+```env-spec "oauth"
+# @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
+# ---
+# @internal
+GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com
+# @internal @sensitive
+GOOGLE_CLIENT_SECRET=op("op://dev/google-oauth/client secret")
+
+# no refreshToken: provision once with `varlock oauth login google`
+# @sensitive
+DRIVE_TOKEN=oauth(google, scopes="https://www.googleapis.com/auth/drive.readonly")
+
+# or pass a vault-stored refresh token explicitly (e.g. for CI)
+# @internal @sensitive
+GOOGLE_REFRESH_TOKEN=op("op://dev/google-oauth/refresh token")
+# @sensitive
+SHEETS_TOKEN=oauth(google, refreshToken=$GOOGLE_REFRESH_TOKEN, scopes="https://www.googleapis.com/auth/spreadsheets.readonly")
+
+# fully inline, no client instance
+# @sensitive
+API_TOKEN=oauth(tokenUrl="https://myorg.auth0.com/oauth/token", grant="client_credentials", clientId=$AUTH0_CLIENT_ID, clientSecret=$AUTH0_CLIENT_SECRET, params={ audience="https://api.myorg.com" })
+
+# Google service account (jwt_bearer): the key file supplies everything
+# @internal @sensitive
+GCP_SA_KEY=op("op://infra/gcp-sa/key json")
+# @sensitive
+GCP_TOKEN=oauth(grant="jwt_bearer", serviceAccountKey=$GCP_SA_KEY, scopes="https://www.googleapis.com/auth/cloud-platform")
+```
+
+A few things to know:
+
+- **The initial refresh token has to come from somewhere.** Either run [`varlock oauth login`](/reference/cli/project/#oauth) once (stores it in the encrypted cache, per machine), or run your provider's authorization flow elsewhere and store the token in your vault, passing it via `refreshToken`. The explicit form is the right one for CI.
+- **Login-provisioned tokens are shared per provider.** Items referencing the same provider without their own `refreshToken` share one refresh token; each item still gets its own access token scoped to its `scopes`.
+- **Rotation needs a persistent cache.** With caching disabled (`--skip-cache`, or no cache store available), a provider that rotates refresh tokens will invalidate the configured one after the first exchange. varlock prints a warning when this happens.
+- **Concurrent invocations share one refresh.** Parallel `varlock run` processes on the same machine coordinate through a lock, so a rotating provider sees one exchange, not a stampede.
+- **If a refresh fails with `invalid_grant`**, the refresh token is expired or revoked. Re-run `varlock oauth login` (or re-provision the vault-stored token).
+
+:::caution[Do not wrap in cache()]
+Wrapping this in [`cache()`](#cache) is an error. `oauth()` already caches tokens according to their provider-reported expiry; a generic cache TTL would serve expired tokens. Wrapping the *inputs* in `cache()` is fine.
+:::
 </div>
 </div>
 
