@@ -17,12 +17,14 @@ import { patchGlobalServerResponse } from '../patch-server-response';
 import { resetRedactionMap } from '../env';
 
 const SECRET = 'super-secret-value-abc123';
+const UNICODE_SECRET = 'super-sëcret-value-abc123';
 
 const FAKE_GRAPH = {
   sources: [],
   settings: {},
   config: {
     SECRET_KEY: { value: SECRET, isSensitive: true },
+    UNICODE_SECRET_KEY: { value: UNICODE_SECRET, isSensitive: true },
     PUBLIC_KEY: { value: 'public-value', isSensitive: false },
   },
 } as any;
@@ -39,6 +41,21 @@ function makeRes(headers: Record<string, string> = {}) {
   res.setHeader('content-type', 'text/html');
   for (const [key, value] of Object.entries(headers)) res.setHeader(key, value);
   return res;
+}
+
+async function gzipInTwoFlushes(input: Buffer, splitAt: number) {
+  const gz = zlib.createGzip();
+  const compressed: Array<Buffer> = [];
+  gz.on('data', (chunk) => compressed.push(chunk));
+  const first = await new Promise<Buffer>((resolve) => {
+    gz.write(input.subarray(0, splitAt));
+    gz.flush(zlib.constants.Z_SYNC_FLUSH, () => resolve(Buffer.concat(compressed.splice(0))));
+  });
+  const second = await new Promise<Buffer>((resolve) => {
+    gz.on('end', () => resolve(Buffer.concat(compressed)));
+    gz.end(input.subarray(splitAt));
+  });
+  return [first, second] as const;
 }
 
 beforeAll(() => {
@@ -172,25 +189,34 @@ describe('patched ServerResponse - sensitive values split across chunks', () => 
   });
 
   it('detects a secret split across gzip flush boundaries', async () => {
-    const gz = zlib.createGzip();
-    const compressed: Array<Buffer> = [];
-    gz.on('data', (c) => compressed.push(c));
+    const input = Buffer.from(`<html>leaked: ${SECRET}</html>`);
+    const splitAt = Buffer.byteLength(`<html>leaked: ${head}`);
     // Z_SYNC_FLUSH ends the first block on a byte boundary, which is how a server
     // streaming a compressed response emits a chunk mid-body
-    const first = await new Promise<Buffer>((resolve) => {
-      gz.write(`<html>leaked: ${head}`);
-      gz.flush(zlib.constants.Z_SYNC_FLUSH, () => resolve(Buffer.concat(compressed.splice(0))));
-    });
-    const second = await new Promise<Buffer>((resolve) => {
-      gz.on('end', () => resolve(Buffer.concat(compressed)));
-      gz.end(`${tail}</html>`);
-    });
+    const [first, second] = await gzipInTwoFlushes(input, splitAt);
 
     const res = makeRes({ 'content-encoding': 'gzip' });
     // each half decompresses on its own without ever containing the whole secret
     expect(() => res.write(first)).not.toThrow();
     expect(() => res.write(second)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
   });
+
+  it.each(['write', 'end'] as const)(
+    'detects a Unicode secret when a compressed delta ends mid-character before %s()',
+    async (completionMethod) => {
+      const input = Buffer.from(`<html>leaked: ${UNICODE_SECRET}</html>`);
+      const splitAt = input.indexOf(Buffer.from('ë')) + 1;
+      const [first, second] = await gzipInTwoFlushes(input, splitAt);
+      const firstDecompressed = zlib.unzipSync(first, {
+        finishFlush: zlib.constants.Z_SYNC_FLUSH,
+      });
+      expect(firstDecompressed.subarray(-1)).toEqual(Buffer.from('ë').subarray(0, 1));
+
+      const res = makeRes({ 'content-encoding': 'gzip' });
+      expect(() => res.write(first)).not.toThrow();
+      expect(() => res[completionMethod](second)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    },
+  );
 
   it('does not false-positive on text that merely starts like a secret', () => {
     const res = makeRes();

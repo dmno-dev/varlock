@@ -61,7 +61,9 @@ type ScanState = {
    * (created lazily - responses that never hit the binary path don't need one) */
   decoder: TextDecoder | undefined,
   zlibChunks: Array<Buffer>,
-  /** length of the decompressed output already scanned, so each chunk only rescans the new tail */
+  /** streaming decoder for decompressed deltas, which may end inside a multi-byte character */
+  decompressedDecoder: TextDecoder | undefined,
+  /** byte length of the decompressed output already scanned, so each chunk only scans new bytes */
   decompressedLength: number,
   flushTimer: ReturnType<typeof setTimeout> | undefined,
 };
@@ -72,6 +74,7 @@ function getScanState(res: any): ScanState {
     carry: '',
     decoder: undefined,
     zlibChunks: [],
+    decompressedDecoder: undefined,
     decompressedLength: 0,
     flushTimer: undefined,
   } satisfies ScanState;
@@ -85,6 +88,13 @@ function decodeChunk(state: ScanState, chunk?: Uint8Array, isFinal?: boolean) {
   state.decoder ||= new TextDecoder();
   if (!chunk) return state.decoder.decode();
   return state.decoder.decode(chunk, { stream: !isFinal });
+}
+
+function decodeDecompressedDelta(state: ScanState, decompressed: Buffer, isFinal = false) {
+  state.decompressedDecoder ||= new TextDecoder();
+  const delta = decompressed.subarray(state.decompressedLength);
+  state.decompressedLength = decompressed.byteLength;
+  return state.decompressedDecoder.decode(delta, { stream: !isFinal });
 }
 
 function clearPendingFlush(state: ScanState) {
@@ -201,6 +211,12 @@ export function patchGlobalServerResponse(opts?: {
     const state = getScanState(this);
     clearPendingFlush(state);
 
+    // A later chunk may be redacted to a different length. Once write() sends the
+    // headers, Content-Length cannot be corrected, so use chunked framing instead.
+    if (opts?.redactInsteadOfThrow && !this.headersSent && this.getHeader('content-length') !== undefined) {
+      this.removeHeader('content-length');
+    }
+
     // have to deal with compressed data, which is awkward but possible
     const compressionType = this.getHeader('Content-Encoding');
     let chunkStr;
@@ -223,9 +239,7 @@ export function patchGlobalServerResponse(opts?: {
         // partial stream fails to decode here and gets scanned once more chunks arrive.
         try {
           const decompressedChunk = decompress(Buffer.concat(state.zlibChunks));
-          const fullDecompressedData = decompressedChunk.toString('utf-8');
-          chunkStr = fullDecompressedData.substring(state.decompressedLength);
-          state.decompressedLength = fullDecompressedData.length;
+          chunkStr = decodeDecompressedDelta(state, decompressedChunk);
         } catch (err) {
           // partial compressed data that doesn't decode yet — scanned when more chunks arrive
         }
@@ -296,18 +310,18 @@ export function patchGlobalServerResponse(opts?: {
 
     if (isBinaryChunk && compressionType) {
       const decompress = getDecompressor(String(compressionType).toLowerCase());
-      let decompressed: string | undefined;
+      let decompressed: Buffer | undefined;
       if (decompress) {
         state.zlibChunks.push(endChunk as Buffer);
         try {
-          decompressed = decompress(Buffer.concat(state.zlibChunks)).toString('utf-8');
+          decompressed = decompress(Buffer.concat(state.zlibChunks));
         } catch (err) {
           // stream didn't decode, nothing more we can do at this point
         }
       }
       if (decompressed !== undefined) {
         // compressed output can't be scrubbed, so a detected leak always throws (see write above)
-        scanForLeaks(state.carry + decompressed.substring(state.decompressedLength), {
+        scanForLeaks(state.carry + decodeDecompressedDelta(state, decompressed, true), {
           method: 'patched ServerResponse.end',
           file: (this as any).req?.url,
         });

@@ -64,6 +64,11 @@ beforeAll(async () => {
       const body = `<html>leak: ${SECRET}</html>`;
       res.setHeader('content-length', Buffer.byteLength(body));
       res.end(body);
+    } else if (req.url === '/content-length-split-leak') {
+      const body = `<html>leak: ${SECRET}</html>`;
+      res.setHeader('content-length', Buffer.byteLength(body));
+      res.write(`<html>leak: ${SECRET.slice(0, 10)}`);
+      res.end(`${SECRET.slice(10)}</html>`);
     } else if (req.url === '/partial-lookalike') {
       // ends mid-lookalike but never completes the secret - must arrive intact
       res.write(`<html>${SECRET.slice(0, 12)}`);
@@ -131,6 +136,15 @@ describe('patchGlobalServerResponse with redactInsteadOfThrow', () => {
     expect(body).not.toContain(SECRET);
     expect(body).toContain('▒');
     expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  });
+
+  it('switches from Content-Length when a split response may be redacted', async () => {
+    const resp = await fetch(`${baseUrl}/content-length-split-leak`);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+    expect(resp.headers.get('content-length')).toBeNull();
+    expect(resp.headers.get('transfer-encoding')).toBe('chunked');
   });
 
   it('leaves text that only looks like the start of a secret intact', async () => {
