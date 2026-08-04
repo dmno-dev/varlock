@@ -47,6 +47,32 @@ beforeAll(async () => {
       res.write(gz.subarray(0, 15));
       res.write(gz.subarray(15));
       res.end();
+    } else if (req.url === '/split-write-end') {
+      // secret straddles the write/end boundary - neither chunk contains it on its own
+      res.write(`<html>leak: ${SECRET.slice(0, 10)}`);
+      res.end(`${SECRET.slice(10)}</html>`);
+    } else if (req.url === '/split-write-write') {
+      res.write(`<html>leak: ${SECRET.slice(0, 10)}`);
+      res.write(`${SECRET.slice(10)}</html>`);
+      res.end();
+    } else if (req.url === '/split-char-by-char') {
+      res.write('<html>leak: ');
+      for (const char of SECRET) res.write(char);
+      res.end('</html>');
+    } else if (req.url === '/content-length-leak') {
+      // how next.js sends a non-streamed payload: Content-Length set, then a single end()
+      const body = `<html>leak: ${SECRET}</html>`;
+      res.setHeader('content-length', Buffer.byteLength(body));
+      res.end(body);
+    } else if (req.url === '/content-length-split-leak') {
+      const body = `<html>leak: ${SECRET}</html>`;
+      res.setHeader('content-length', Buffer.byteLength(body));
+      res.write(`<html>leak: ${SECRET.slice(0, 10)}`);
+      res.end(`${SECRET.slice(10)}</html>`);
+    } else if (req.url === '/partial-lookalike') {
+      // ends mid-lookalike but never completes the secret - must arrive intact
+      res.write(`<html>${SECRET.slice(0, 12)}`);
+      res.end('-not-a-secret</html>');
     } else if (req.url === '/gzip-leak') {
       res.setHeader('content-encoding', 'gzip');
       try {
@@ -83,6 +109,47 @@ describe('patchGlobalServerResponse with redactInsteadOfThrow', () => {
     const body = await resp.text();
     expect(body).not.toContain(SECRET);
     expect(body).toContain('▒'); // redaction marker in place of the secret
+  });
+
+  it('redacts a secret split across write() and end()', async () => {
+    const body = await (await fetch(`${baseUrl}/split-write-end`)).text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+  });
+
+  it('redacts a secret split across two write() calls', async () => {
+    const body = await (await fetch(`${baseUrl}/split-write-write`)).text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+  });
+
+  it('redacts a secret written one character at a time', async () => {
+    const body = await (await fetch(`${baseUrl}/split-char-by-char`)).text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+  });
+
+  it('corrects Content-Length when redaction shortens the body', async () => {
+    // a stale Content-Length leaves the client waiting on bytes that never arrive
+    const resp = await fetch(`${baseUrl}/content-length-leak`);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+    expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  });
+
+  it('switches from Content-Length when a split response may be redacted', async () => {
+    const resp = await fetch(`${baseUrl}/content-length-split-leak`);
+    const body = await resp.text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+    expect(resp.headers.get('content-length')).toBeNull();
+    expect(resp.headers.get('transfer-encoding')).toBe('chunked');
+  });
+
+  it('leaves text that only looks like the start of a secret intact', async () => {
+    const body = await (await fetch(`${baseUrl}/partial-lookalike`)).text();
+    expect(body).toBe(`<html>${SECRET.slice(0, 12)}-not-a-secret</html>`);
   });
 
   it('passes a clean gzip response through intact', async () => {
