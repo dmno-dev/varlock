@@ -94,5 +94,8 @@
     "workflow": "release.yaml",
     "environment": "publish",
     "permissions": "publish"
+  },
+  "patchedDependencies": {
+    "kdbxweb@2.1.1": "patches/kdbxweb@2.1.1.patch"
   }
 }

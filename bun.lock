@@ -534,6 +534,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "kdbxweb@2.1.1": "patches/kdbxweb@2.1.1.patch",
+  },
   "overrides": {
     "@modelcontextprotocol/sdk": ">=1.29.0",
     "@xmldom/xmldom": ">=0.9.10",
