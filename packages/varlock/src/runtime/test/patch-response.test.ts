@@ -45,6 +45,49 @@ describe('patchGlobalResponse', () => {
     expect(globalThis.Response).toBe(patchedOnce);
   });
 
+  it('keeps the native prototype reachable by reflection (issue #983)', () => {
+    const nativeProto = globalThis.Response.prototype;
+    const nativeOwnProps = Object.getOwnPropertyNames(nativeProto);
+
+    patchGlobalResponse();
+
+    // srvx's node adapter snapshots globalThis.Response and builds its FastResponse by
+    // walking the *own* properties of `Response.prototype`. If we hand it a subclass
+    // prototype (which owns nothing but `constructor`) it wires up nothing and its
+    // instances fall through to the native getters, which throw on a foreign receiver.
+    expect(globalThis.Response.prototype).toBe(nativeProto);
+    expect(Object.getOwnPropertyNames(globalThis.Response.prototype)).toEqual(nativeOwnProps);
+  });
+
+  it('constructs real native Response instances', () => {
+    const NativeResponse = globalThis.Response;
+    patchGlobalResponse();
+
+    const r = new globalThis.Response('hello');
+    // internal slots are intact only if this is a genuine native instance
+    expect(r.status).toBe(200);
+    expect(r.body).toBeTruthy();
+    expect(Object.getPrototypeOf(r)).toBe(NativeResponse.prototype);
+  });
+
+  it('subclasses of the patched Response still work', () => {
+    patchGlobalResponse();
+
+    class SubResponse extends globalThis.Response {}
+    const r = new SubResponse('hello');
+    expect(r instanceof SubResponse).toBe(true);
+    expect(r instanceof globalThis.Response).toBe(true);
+    expect(r.status).toBe(200);
+  });
+
+  it('Response.json returns a usable response', () => {
+    patchGlobalResponse();
+
+    const r = globalThis.Response.json({ ok: true });
+    expect(r.headers.get('content-type')).toContain('application/json');
+    expect(r instanceof globalThis.Response).toBe(true);
+  });
+
   it('skips patching when preventLeaks is false', () => {
     const original = varlockSettings.preventLeaks;
     try {
