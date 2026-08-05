@@ -59,6 +59,7 @@ const PACKAGE_DIRS: Record<string, string> = {
   '@varlock/vite-integration': 'packages/integrations/vite',
   '@varlock/expo-integration': 'packages/integrations/expo',
   '@varlock/cloudflare-integration': 'packages/integrations/cloudflare',
+  '@varlock/nuxt': 'packages/integrations/nuxt',
 };
 
 /**
