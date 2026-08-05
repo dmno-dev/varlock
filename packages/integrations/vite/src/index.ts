@@ -18,6 +18,9 @@ import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-
 import { ansiToHtml } from './ansi-to-html';
 export { ansiToHtml };
 
+declare const __VARLOCK_INTEGRATION_NAME__: string;
+declare const __VARLOCK_INTEGRATION_VERSION__: string;
+
 export function buildErrorPageHtml(ansiError?: string): string {
   const errorContent = ansiError
     ? ansiToHtml(ansiError)
