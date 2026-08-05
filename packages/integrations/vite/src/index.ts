@@ -253,7 +253,7 @@ export interface VarlockSsrInitCodeOptions {
  * patches the global console/response objects before any user code runs.
  *
  * Exported so integrations can inject the same init sequence into build
- * pipelines that vite does not own. `@varlock/nuxt` uses it for the Nitro
+ * pipelines that vite does not own. `@varlock/nuxt-integration` uses it for the Nitro
  * server bundle, which rollup builds separately from vite's SSR output.
  */
 export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): string {
