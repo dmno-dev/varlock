@@ -16,7 +16,6 @@ While Nuxt has [runtimeConfig](https://nuxt.com/docs/guide/going-further/runtime
 
 - Your `.env.schema` is not tied to JavaScript, and is a better place to store this schema info versus your `nuxt.config.*` file
 - Facilitates loading and composing multiple `.env` files
-- You can use validated env vars right away within your `nuxt.config.*` file
 - Facilitates setting values and handling multiple environments, not just setting defaults
 - More data types and options available
 - Leak detection, log redaction, and more security guardrails
@@ -71,17 +70,26 @@ console.log(ENV.SOMEVAR);         // ✨ recommended
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
 
-### Within `nuxt.config.*`
-It's often useful to be able to access env vars in your Nuxt config. Without varlock, it's a bit awkward, but varlock makes it easy. In fact it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+### Nuxt config timing
+Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not guaranteed to be initialized there.
 
-```diff lang="ts" title="nuxt.config.ts"
-+import { ENV } from 'varlock/env';
+If you need env values in `nuxt.config.ts`, run Nuxt through `varlock run` and read from `process.env`:
 
+```json title="package.json"
+{
+  "scripts": {
+    "dev": "varlock run -- nuxt dev",
+    "build": "varlock run -- nuxt build"
+  }
+}
+```
+
+```ts title="nuxt.config.ts"
 export default defineNuxtConfig({
   modules: ['@varlock/nuxt'],
-+  runtimeConfig: {
-+    apiBaseUrl: ENV.API_BASE_URL,
-+  },
+  runtimeConfig: {
+    apiBaseUrl: process.env.API_BASE_URL,
+  },
 })
 ```
 
