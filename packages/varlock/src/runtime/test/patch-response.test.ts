@@ -88,6 +88,38 @@ describe('patchGlobalResponse', () => {
     expect(r instanceof globalThis.Response).toBe(true);
   });
 
+  it('allows Response.json to be wrapped after patching', () => {
+    patchGlobalResponse();
+    const previousJson = globalThis.Response.json;
+    let wrapperCalled = false;
+
+    globalThis.Response.json = (data, init) => {
+      wrapperCalled = true;
+      return previousJson(data, init);
+    };
+
+    const r = globalThis.Response.json({ ok: true });
+    expect(wrapperCalled).toBe(true);
+    expect(r instanceof globalThis.Response).toBe(true);
+  });
+
+  it('respects a non-configurable Response.json replacement', () => {
+    class FakeResponse {
+      static json() {
+        return 'native';
+      }
+    }
+    globalThis.Response = FakeResponse as unknown as typeof Response;
+    patchGlobalResponse();
+    Object.defineProperty(globalThis.Response, 'json', {
+      value: () => 'replacement',
+      configurable: false,
+      writable: false,
+    });
+
+    expect(globalThis.Response.json({})).toBe('replacement');
+  });
+
   it('skips patching when preventLeaks is false', () => {
     const original = varlockSettings.preventLeaks;
     try {

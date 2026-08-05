@@ -13,11 +13,12 @@ export function patchGlobalResponse() {
   }
 
   const _UnpatchedResponse = globalThis.Response;
+  const _UnpatchedResponseJson = _UnpatchedResponse.json;
 
   function patchedJson(data: any, init: any) {
     debug('⚡️ patched Response.json');
     scanForLeaks(JSON.stringify(data), { method: 'patched Response.json' });
-    return _UnpatchedResponse.json(data, init);
+    return Reflect.apply(_UnpatchedResponseJson, _UnpatchedResponse, [data, init]);
   }
 
   // NOTE - we wrap the native class in a Proxy rather than swapping in a subclass.
@@ -37,8 +38,12 @@ export function patchGlobalResponse() {
     },
     get(target, prop, receiver) {
       if (prop === '_patchedByVarlock') return true;
-      if (prop === 'json') return patchedJson;
-      return Reflect.get(target, prop, receiver);
+      const value = Reflect.get(target, prop, receiver);
+      if (prop !== 'json' || value !== _UnpatchedResponseJson) return value;
+
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
+      if (descriptor?.configurable === false && descriptor.writable === false) return value;
+      return patchedJson;
     },
     has(target, prop) {
       if (prop === '_patchedByVarlock') return true;
