@@ -18,7 +18,7 @@
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vitest",
-    "test:ci": "bun run --filter @varlock/vite-integration build && vitest --run",
+    "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -47,8 +47,10 @@
     "varlock": "workspace:^",
     "nuxt": ">=3"
   },
+  "dependencies": {
+    "@nuxt/kit": "^4.0.3"
+  },
   "devDependencies": {
-    "@nuxt/kit": "^4.0.3",
     "@nuxt/schema": "^4.0.3",
     "@types/node": "catalog:",
     "@varlock/vite-integration": "workspace:*",
