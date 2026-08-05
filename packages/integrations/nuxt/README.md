@@ -6,7 +6,7 @@ This package helps you integrate [varlock](https://varlock.dev) into a [Nuxt](ht
 
 > See [our docs site](https://varlock.dev/integrations/nuxt/) for complete installation and usage instructions.
 
-It is designed as a [Nuxt module](https://nuxt.com/docs/guide/concepts/modules) that hooks into the Vite config to use varlock for `.env` file loading, overriding Nuxt's default env loading behavior.
+It is designed as a [Nuxt module](https://nuxt.com/docs/guide/concepts/modules) that adds varlock to both the Vite config and the Nitro server build, so `.env` files are loaded and validated by varlock across dev, build, and the production server.
 
 Compared to the [default Nuxt behavior](https://nuxt.com/docs/guide/going-further/runtime-config), this package provides:
 
