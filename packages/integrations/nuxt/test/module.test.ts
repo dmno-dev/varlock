@@ -25,15 +25,16 @@ describe('@varlock/nuxt module', () => {
   });
 
   it('registers varlock Vite plugin via addVitePlugin and forwards options', async () => {
-    const { default: nuxtModule } = await import('../src/index');
+    type ModuleDef = {
+      meta: { compatibility: { nuxt: string } },
+      setup?: (...args: Array<unknown>) => void,
+    };
+    const { default: importedModule } = await import('../src/index');
+    const nuxtModule = importedModule as unknown as ModuleDef;
 
     expect(nuxtModule.meta.compatibility.nuxt).toBe('>=3.0.0');
 
-    type SetupFn = NonNullable<typeof nuxtModule.setup>;
-    nuxtModule.setup?.(
-      { ssrInjectMode: 'auto-load' } as Parameters<SetupFn>[0],
-      {} as Parameters<SetupFn>[1],
-    );
+    nuxtModule.setup?.({ ssrInjectMode: 'auto-load' }, {});
 
     expect(addVitePluginMock).toHaveBeenCalledTimes(1);
     const pluginFactory = addVitePluginMock.mock.calls[0][0] as () => unknown;
