@@ -1,10 +1,12 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import pkg from './package.json';
 
 export default defineConfig({
   resolve: {
-    // resolve workspace deps to their TS source so tests don't need a build step
-    conditions: ['ts-src'],
+    alias: {
+      '@varlock/vite-integration': fileURLToPath(new URL('../vite/src/index.ts', import.meta.url)),
+    },
   },
   define: {
     __VARLOCK_INTEGRATION_NAME__: JSON.stringify(pkg.name),
