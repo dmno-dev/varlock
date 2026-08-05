@@ -18,7 +18,7 @@
     "dev": "tsup --watch",
     "build": "tsup",
     "test": "vitest",
-    "test:ci": "vitest --run",
+    "test:ci": "bun run --filter @varlock/vite-integration build && vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
