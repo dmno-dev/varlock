@@ -9,7 +9,7 @@ import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 <div class="page-badges">
-  <Badge npmPackage="@varlock/nuxt-integration" />
+  <Badge npmPackage="@varlock/nuxt" />
 </div>
 
 While Nuxt has [runtimeConfig](https://nuxt.com/docs/guide/going-further/runtime-config) to help with environment variables, we think Varlock has more to offer:
@@ -21,19 +21,19 @@ While Nuxt has [runtimeConfig](https://nuxt.com/docs/guide/going-further/runtime
 - More data types and options available
 - Leak detection, log redaction, and more security guardrails
 
-To integrate varlock into a Nuxt application, you must use our [`@varlock/nuxt-integration`](https://npmx.dev/package/@varlock/nuxt-integration) package, which is a [Nuxt module](https://nuxt.com/docs/guide/concepts/modules).
+To integrate varlock into a Nuxt application, you must use our [`@varlock/nuxt`](https://npmx.dev/package/@varlock/nuxt) package, which is a [Nuxt module](https://nuxt.com/docs/guide/concepts/modules).
 
 ## Setup
 
 :::caution[Requirements]
 - Node.js v22 or higher
-- Nuxt v3 or higher
+- Nuxt v4 or higher (recommended). Module compatibility is `>=3.0.0`.
 :::
 
 <Steps>
 
 1. **Install varlock and the Nuxt module**
-    <InstallJsDepsWidget packages="@varlock/nuxt-integration varlock" />
+    <InstallJsDepsWidget packages="@varlock/nuxt varlock" />
 
 1. **Run `varlock init` to set up your `.env.schema` file**
 
@@ -43,11 +43,11 @@ To integrate varlock into a Nuxt application, you must use our [`@varlock/nuxt-i
 
 1. **Enable the Nuxt module**
 
-    Add `@varlock/nuxt-integration` to your `nuxt.config.ts` modules array:
+    Add `@varlock/nuxt` to your `nuxt.config.ts` modules array:
 
     ```diff lang="ts" title="nuxt.config.ts"
     export default defineNuxtConfig({
-    +  modules: ['@varlock/nuxt-integration'],
+    +  modules: ['@varlock/nuxt'],
     })
     ```
 </Steps>
@@ -78,7 +78,7 @@ It's often useful to be able to access env vars in your Nuxt config. Without var
 +import { ENV } from 'varlock/env';
 
 export default defineNuxtConfig({
-  modules: ['@varlock/nuxt-integration'],
+  modules: ['@varlock/nuxt'],
 +  runtimeConfig: {
 +    apiBaseUrl: ENV.API_BASE_URL,
 +  },
@@ -132,7 +132,7 @@ When building a Nuxt application with server-side rendering, varlock can inject 
 
 ```ts title="nuxt.config.ts"
 export default defineNuxtConfig({
-  modules: ['@varlock/nuxt-integration'],
+  modules: ['@varlock/nuxt'],
   varlock: {
     ssrInjectMode: 'auto-load',
   },
