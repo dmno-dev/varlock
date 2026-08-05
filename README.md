@@ -140,7 +140,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/cloudflare-integration](packages/integrations/cloudflare) | [![npm version](https://img.shields.io/npm/v/@varlock/cloudflare-integration.svg)](https://npmx.dev/package/@varlock/cloudflare-integration) |
 | [@varlock/expo-integration](packages/integrations/expo) | [![npm version](https://img.shields.io/npm/v/@varlock/expo-integration.svg)](https://npmx.dev/package/@varlock/expo-integration) |
 | [@varlock/nextjs-integration](packages/integrations/nextjs) | [![npm version](https://img.shields.io/npm/v/@varlock/nextjs-integration.svg)](https://npmx.dev/package/@varlock/nextjs-integration) |
-| [@varlock/nuxt-integration](packages/integrations/nuxt) | [![npm version](https://img.shields.io/npm/v/@varlock/nuxt-integration.svg)](https://npmx.dev/package/@varlock/nuxt-integration) |
+| [@varlock/nuxt](packages/integrations/nuxt) | [![npm version](https://img.shields.io/npm/v/@varlock/nuxt.svg)](https://npmx.dev/package/@varlock/nuxt) |
 | [@varlock/vite-integration](packages/integrations/vite) | [![npm version](https://img.shields.io/npm/v/@varlock/vite-integration.svg)](https://npmx.dev/package/@varlock/vite-integration) |
 
 

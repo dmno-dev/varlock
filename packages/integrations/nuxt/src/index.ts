@@ -1,9 +1,13 @@
-import { defineNuxtModule } from '@nuxt/kit';
+import { addVitePlugin, defineNuxtModule } from '@nuxt/kit';
+import type { NuxtModule } from '@nuxt/schema';
 import { varlockVitePlugin, type VarlockVitePluginOptions } from '@varlock/vite-integration';
+
+declare const __VARLOCK_INTEGRATION_NAME__: string;
+declare const __VARLOCK_INTEGRATION_VERSION__: string;
 
 export interface VarlockNuxtModuleOptions extends VarlockVitePluginOptions {}
 
-export default defineNuxtModule<VarlockNuxtModuleOptions>({
+const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule<VarlockNuxtModuleOptions>({
   meta: {
     name: 'varlock',
     configKey: 'varlock',
@@ -12,21 +16,15 @@ export default defineNuxtModule<VarlockNuxtModuleOptions>({
     },
   },
   defaults: {},
-  setup(moduleOptions, nuxt) {
-    nuxt.hook('vite:extendConfig', (viteConfig) => {
-      viteConfig.plugins ||= [];
-      viteConfig.plugins.push(
-        varlockVitePlugin({
-          integrationTelemetry: {
-            name: __VARLOCK_INTEGRATION_NAME__,
-            version: __VARLOCK_INTEGRATION_VERSION__,
-          },
-          ...moduleOptions,
-        }),
-      );
-    });
+  setup(moduleOptions) {
+    addVitePlugin(() => varlockVitePlugin({
+      integrationTelemetry: {
+        name: __VARLOCK_INTEGRATION_NAME__,
+        version: __VARLOCK_INTEGRATION_VERSION__,
+      },
+      ...moduleOptions,
+    }));
   },
 });
 
-declare const __VARLOCK_INTEGRATION_NAME__: string;
-declare const __VARLOCK_INTEGRATION_VERSION__: string;
+export default varlockNuxtModule;
