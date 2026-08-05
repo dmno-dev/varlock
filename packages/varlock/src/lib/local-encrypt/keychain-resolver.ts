@@ -109,7 +109,9 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
       if (typeof value !== 'string') {
         throw new SchemaError('keychain() expects a string service name');
       }
-      return { mode: 'get', service: value, field };
+      return {
+        mode: 'get', service: value, field,
+      };
     }
 
     throw new SchemaError(

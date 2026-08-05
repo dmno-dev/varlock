@@ -7,6 +7,7 @@ export default defineConfig({
     tsconfigRaw: '{}',
   },
   test: {
+    globalSetup: ['./helpers/keychain-signature-preflight.ts'],
     testTimeout: 60000, // Some tests involve building frameworks
     hookTimeout: 60000, // Framework builds use 120s per-test overrides
     globals: true,
