@@ -1,6 +1,6 @@
-# @varlock/nuxt
+# @varlock/nuxt-integration
 
-[![npm version](https://img.shields.io/npm/v/@varlock/nuxt.svg)](https://npmx.dev/package/@varlock/nuxt) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/nuxt.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@varlock/nuxt-integration.svg)](https://npmx.dev/package/@varlock/nuxt-integration) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/nuxt-integration.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
 
 This package helps you integrate [varlock](https://varlock.dev) into a [Nuxt](https://nuxt.com) project.
 
@@ -19,9 +19,9 @@ Compared to the [default Nuxt behavior](https://nuxt.com/docs/guide/going-furthe
 ## Installation
 
 ```bash
-npm install @varlock/nuxt varlock
+npm install @varlock/nuxt-integration varlock
 # or
-bun add @varlock/nuxt varlock
+bun add @varlock/nuxt-integration varlock
 ```
 
 ## Setup
@@ -30,7 +30,7 @@ Add the module to your `nuxt.config.ts`:
 
 ```ts title="nuxt.config.ts"
 export default defineNuxtConfig({
-  modules: ['@varlock/nuxt'],
+  modules: ['@varlock/nuxt-integration'],
 })
 ```
 

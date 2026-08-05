@@ -28,7 +28,7 @@ describe('Nuxt', () => {
       vue: '^3',
       'vue-router': '^4',
       varlock: 'will-be-replaced',
-      '@varlock/nuxt': 'will-be-replaced',
+      '@varlock/nuxt-integration': 'will-be-replaced',
     },
     packageJsonMerge: {
       packageManager: 'pnpm@10.17.0',

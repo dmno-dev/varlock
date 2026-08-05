@@ -35,7 +35,7 @@ async function loadModule() {
   return importedModule as unknown as ModuleDef;
 }
 
-describe('@varlock/nuxt module', () => {
+describe('@varlock/nuxt-integration module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

@@ -22,7 +22,7 @@
     "@varlock/cloudflare-integration": {
       "cascadeFrom": ["@varlock/vite-integration"]
     },
-    "@varlock/nuxt": {
+    "@varlock/nuxt-integration": {
       "cascadeFrom": ["@varlock/vite-integration"]
     },
     "varlock": {

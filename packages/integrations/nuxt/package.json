@@ -1,5 +1,5 @@
 {
-  "name": "@varlock/nuxt",
+  "name": "@varlock/nuxt-integration",
   "description": "Nuxt module to use varlock for .env file loading - adds validation, type-safety, and extra security features",
   "version": "0.0.1",
   "repository": {

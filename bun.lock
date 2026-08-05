@@ -147,7 +147,7 @@
       },
     },
     "packages/integrations/nuxt": {
-      "name": "@varlock/nuxt",
+      "name": "@varlock/nuxt-integration",
       "version": "0.0.1",
       "dependencies": {
         "@nuxt/kit": "^4.0.3",
@@ -1629,7 +1629,7 @@
 
     "@varlock/nextjs-integration": ["@varlock/nextjs-integration@workspace:packages/integrations/nextjs"],
 
-    "@varlock/nuxt": ["@varlock/nuxt@workspace:packages/integrations/nuxt"],
+    "@varlock/nuxt-integration": ["@varlock/nuxt-integration@workspace:packages/integrations/nuxt"],
 
     "@varlock/pass-plugin": ["@varlock/pass-plugin@workspace:packages/plugins/pass"],
 
