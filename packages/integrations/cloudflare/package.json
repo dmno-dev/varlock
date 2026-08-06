@@ -13,18 +13,22 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./sveltekit": {
       "types": "./dist/sveltekit.d.ts",
+      "import": "./dist/sveltekit.js",
       "default": "./dist/sveltekit.js"
     },
     "./init": {
       "types": "./dist/init.d.ts",
+      "import": "./dist/init.js",
       "default": "./dist/init.js"
     },
     "./ssr-entry-code": {
       "types": "./dist/shared-ssr-entry-code.d.ts",
+      "import": "./dist/shared-ssr-entry-code.js",
       "default": "./dist/shared-ssr-entry-code.js"
     }
   },
