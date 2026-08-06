@@ -10,10 +10,26 @@
   "main": "dist/next-env-compat.js",
   "types": "dist/next-env-compat.d.ts",
   "exports": {
-    ".": "./dist/next-env-compat.js",
-    "./plugin": "./dist/plugin.js",
-    "./loader": "./dist/loader.js",
-    "./dynamic-access": "./dist/dynamic-access.js"
+    ".": {
+      "types": "./dist/next-env-compat.d.ts",
+      "require": "./dist/next-env-compat.js",
+      "default": "./dist/next-env-compat.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "require": "./dist/plugin.js",
+      "default": "./dist/plugin.js"
+    },
+    "./loader": {
+      "types": "./dist/loader.d.ts",
+      "require": "./dist/loader.js",
+      "default": "./dist/loader.js"
+    },
+    "./dynamic-access": {
+      "types": "./dist/dynamic-access.d.ts",
+      "require": "./dist/dynamic-access.js",
+      "default": "./dist/dynamic-access.js"
+    }
   },
   "files": ["dist"],
   "scripts": {
