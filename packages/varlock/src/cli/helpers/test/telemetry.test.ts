@@ -9,6 +9,7 @@ vi.mock('../js-package-manager-utils', () => ({
 import { detectJsPackageManager } from '../js-package-manager-utils';
 import {
   getJsPackageManagerForTelemetry, normalizeGitRemoteUrl, getProjectSlugFromCi, bucketGitHost,
+  checkIsOptedOutViaEnv,
 } from '../telemetry';
 
 describe('getJsPackageManagerForTelemetry', () => {
@@ -91,6 +92,36 @@ describe('bucketGitHost', () => {
     expect(bucketGitHost(null)).toBeNull();
     expect(bucketGitHost(undefined)).toBeNull();
     expect(bucketGitHost('')).toBeNull();
+  });
+});
+
+describe('checkIsOptedOutViaEnv', () => {
+  it('opts out when DO_NOT_TRACK is set', () => {
+    // `1` is the canonical value from the DO_NOT_TRACK spec
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: '1' })).toBe(true);
+    // and we accept the same true-ish values as our own env var
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: 'true' })).toBe(true);
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: 'TRUE' })).toBe(true);
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: 't' })).toBe(true);
+  });
+
+  it('does not opt out when DO_NOT_TRACK is unset or not true-ish', () => {
+    expect(checkIsOptedOutViaEnv({})).toBe(false);
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: '0' })).toBe(false);
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: '' })).toBe(false);
+    expect(checkIsOptedOutViaEnv({ DO_NOT_TRACK: 'false' })).toBe(false);
+  });
+
+  it('still opts out via VARLOCK_TELEMETRY_DISABLED', () => {
+    expect(checkIsOptedOutViaEnv({ VARLOCK_TELEMETRY_DISABLED: '1' })).toBe(true);
+    expect(checkIsOptedOutViaEnv({ VARLOCK_TELEMETRY_DISABLED: 'true' })).toBe(true);
+    expect(checkIsOptedOutViaEnv({ VARLOCK_TELEMETRY_DISABLED: 't' })).toBe(true);
+    expect(checkIsOptedOutViaEnv({ VARLOCK_TELEMETRY_DISABLED: '0' })).toBe(false);
+  });
+
+  it('still opts out via the legacy PH_OPT_OUT var, which only matches "true"', () => {
+    expect(checkIsOptedOutViaEnv({ PH_OPT_OUT: 'true' })).toBe(true);
+    expect(checkIsOptedOutViaEnv({ PH_OPT_OUT: '1' })).toBe(false);
   });
 });
 

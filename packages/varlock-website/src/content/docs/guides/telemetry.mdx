@@ -48,6 +48,12 @@ export VARLOCK_TELEMETRY_DISABLED=true
 
 This could be set in a specific terminal session, while running a specific command, in a Dockerfile, or in a CI/CD pipeline.
 
+varlock also honors `DO_NOT_TRACK`, a convention shared by many command line tools such as Homebrew, Deno and Turborepo. The convention is described at [donottrack.sh](https://donottrack.sh/). Setting it opts you out of every tool that supports it, so you do not need to remember a separate variable for each one:
+
+```bash
+export DO_NOT_TRACK=1
+```
+
 ### With a project config file
 
 You can also opt out at the project level by creating a `.varlock/config.json` file in your project root with the following content:
