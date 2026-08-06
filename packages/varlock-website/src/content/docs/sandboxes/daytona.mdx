@@ -1,0 +1,215 @@
+---
+title: Daytona
+description: Using varlock with Daytona cloud sandboxes, from resolving and validating sandbox env vars to running the credential proxy so sandboxes only hold placeholders.
+---
+
+[Daytona](https://daytona.io) runs code in cloud sandboxes, commonly as the execution layer for AI agents. Sandboxes get their env vars from the code that creates them (`envVars` at creation or per command), which makes that orchestrator code the natural place for varlock to do its job.
+
+For workloads you trust with the credentials they use, [pass resolved values](#passing-resolved-values). For agentic workloads, the recommended shape is the [broker sandbox](#credential-proxy-the-broker-sandbox): one sandbox runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent sandboxes route through it holding only [placeholders](/guides/proxy/rules/#placeholders). On Daytona the agents connect over the platform's internal [link network](https://www.daytona.io/docs/en/sandboxes/), so the broker needs no public URL at all.
+
+## Passing resolved values
+
+Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator: varlock resolves your values (plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs.
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { execSync } from 'node:child_process';
+import { Daytona } from '@daytona/sdk';
+
+const daytona = new Daytona(); // reads DAYTONA_API_KEY, itself a varlock-managed secret
+
+// one blob with the resolved env, scoped by --filter to what
+// this sandbox should see
+const envBlob = execSync(
+  'varlock load --format json-full --compact --filter "STRIPE_*,SENTRY_DSN"',
+  { encoding: 'utf8' },
+).trim();
+
+const sandbox = await daytona.create({
+  envVars: {
+    // a Node app that imports varlock hydrates process.env, the ENV object,
+    // and log redaction from the blob, with no .env files or CLI in the sandbox
+    __VARLOCK_ENV: envBlob,
+    _VARLOCK_USE_INJECTED_ENV: '1',
+    // for workloads that don't import varlock, enumerate plain vars instead:
+    // STRIPE_SECRET_KEY: ENV.STRIPE_SECRET_KEY,
+  },
+});
+```
+
+This is the standard Daytona posture: sandboxes hold real values, and the values transit Daytona's API. Consuming the blob needs either the `varlock` npm package (Node 22+) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload). See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env).
+
+## Credential proxy: the broker sandbox
+
+One long-lived sandbox (the broker) runs `varlock proxy start --expose`, which serves the built-in WebSocket tunnel on its proxy port. Agent sandboxes are created with `linkedSandbox` pointing at the broker: Daytona schedules them on the same runner and connects them with an internal link network where the broker's sandbox id doubles as a DNS name. Agents reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
+
+```
+[agent sandbox (linked)]                  [broker sandbox]
+  varlock proxy run --url  ── ws ──▶  proxy :8080 + tunnel
+  (loopback proxy + agent)            (internal link network)
+```
+
+Because the link network is internal, this works on every Daytona tier, with no public URL, preview token, or tunnel service involved.
+
+### Schema setup
+
+Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each one an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=
+
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=
+```
+
+An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where the generic `vlk_placeholder_<key>_<hash>` fallback would not.
+
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+
+You will also need a [Daytona API key](https://www.daytona.io/docs/en/getting-started/) for the orchestrator that creates sandboxes. It can be a varlock-managed secret like any other.
+
+### Start the broker
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { Daytona } from '@daytona/sdk';
+
+// One data-plane token, shared by the broker and every agent; generate it
+// yourself (or let the broker mint one and read it back with `varlock proxy
+// token`). It is the credential to USE the broker over the tunnel, not to read
+// its secrets.
+const PROXY_TOKEN = crypto.randomUUID();
+
+const daytona = new Daytona();
+
+// autoStopInterval: 0 keeps Daytona from auto-stopping the broker after its
+// default 15 idle minutes; manage its lifetime explicitly instead.
+// envVars carries the schema's bootstrap: usually just your plugin's
+// secret-zero (shown: a 1Password service account). Create-time envVars are
+// visible to session commands, so the proxy process inherits them.
+const broker = await daytona.create({
+  autoStopInterval: 0,
+  envVars: {
+    VARLOCK_PROXY_TOKEN: PROXY_TOKEN,
+    OP_SERVICE_ACCOUNT_TOKEN: ENV.OP_SERVICE_ACCOUNT_TOKEN,
+  },
+});
+
+await broker.process.executeCommand('npm i -g varlock');
+
+// upload the schema (plus any other .env files your project loads);
+// real values arrive via envVars above instead
+await broker.fs.uploadFile(Buffer.from(envSchemaContents), '/home/daytona/proj/.env.schema');
+
+// start the proxy bound off-loopback so the tunnel is reachable on the link
+// network. --persist-ca reuses the CA across broker restarts, so agents that
+// already trust it keep working. --allow-reload lets you apply schema edits
+// later without a restart; the reload channel is only reachable from inside
+// the broker, not by agents. A session keeps it running in the background.
+await broker.process.createSession('proxy');
+await broker.process.executeSessionCommand('proxy', {
+  command: 'cd /home/daytona/proj && varlock proxy start --expose --port 8080 --cert-dir /home/daytona/proj/.varlock-ca --persist-ca --allow-reload > /home/daytona/proxy.log 2>&1',
+  runAsync: true,
+});
+// ready once the port answers (a bare GET returns an error status, which is
+// fine; we only need the listener up)
+await broker.process.executeCommand(
+  "until curl -s -o /dev/null http://127.0.0.1:8080 --proxy ''; do sleep 0.2; done",
+  undefined, undefined, 30,
+);
+```
+
+With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), `envVars` carries one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side (like the minimal example schema above), enumerate them instead (`ANTHROPIC_API_KEY: ENV.ANTHROPIC_API_KEY`, ...), so they are the orchestrator's own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
+
+### Start agent sandboxes
+
+An agent needs nothing but varlock and `proxy run --url`. It pulls its placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass. `linkedSandbox` puts it on the broker's link network, where the broker's sandbox id resolves as a hostname:
+
+```ts title="orchestrate.ts (continued)"
+// linked sandboxes must be ephemeral (Daytona enforces it): they are deleted
+// when stopped, and deleting the broker cascades to its linked agents
+const agent = await daytona.create({
+  linkedSandbox: broker.id,
+  ephemeral: true,
+});
+await agent.process.executeCommand('npm i -g varlock');
+
+// connect to the broker and run the workload through the tunnel. The agent only
+// ever holds placeholders; the broker injects real values at the wire.
+await agent.process.executeCommand(
+  `varlock proxy run --url ws://${broker.id}:8080 -- your-agent-command`,
+  undefined,
+  // the token rides the env rather than the command line, so it stays out of
+  // process listings and command logs
+  { VARLOCK_PROXY_TOKEN: PROXY_TOKEN },
+);
+```
+
+The tunnel URL is plain `ws://` because the link network is a private, point-to-point network between your own sandboxes; the request payloads inside it are still TLS between the agent and the broker's proxy, and the data-plane token gates every connection.
+
+:::note[Installing varlock]
+Daytona's default snapshot ships Node 25, so `npm i -g varlock` (~9 MB) works out of the gate and is the install path shown above. The `varlock.dev` install script is not reachable from sandboxes on Daytona's lower account tiers, whose egress is limited to an [essential-services allowlist](https://www.daytona.io/docs/en/network-limits/) (npm's registry is on it). For fleets, bake varlock into a [custom snapshot](https://www.daytona.io/docs/en/snapshots/) and skip the per-sandbox install entirely.
+:::
+
+To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
+
+### Egress and account tiers
+
+So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake. What Daytona adds on top depends on your [account tier](https://www.daytona.io/docs/en/limits/):
+
+- On tiers 1 and 2, sandbox egress is already restricted to Daytona's essential-services allowlist (package registries, GitHub, major cloud and model APIs), and cannot be changed per sandbox. That is a meaningful default bar, though not a full lockdown: the allowlisted hosts are still reachable directly.
+- On tier 3 and up, sandboxes get full internet by default, and you can restrict individual sandboxes with `domainAllowList`, `networkAllowList`, or `networkBlockAll` (at creation or live via `sandbox.updateNetworkSettings()`). See [network limits](https://www.daytona.io/docs/en/network-limits/) for the details.
+
+The linked-broker topology above works the same on every tier: the link network is not subject to these egress controls.
+
+### Trust model
+
+Be clear-eyed about what this shape protects against. The broker holds real secrets inside Daytona's cloud, so Daytona's infrastructure is inside your trust boundary, same as it would be for secrets passed to any sandbox. What changes is the blast radius on your side: agents never hold secrets, so a compromised agent sandbox yields placeholders and only whatever requests your rules and egress mode allow. Rotation, policy, and audit live in one place instead of N sandboxes.
+
+Some practical notes:
+
+- No human is attached to the broker, so its policy must run unattended: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, write the edited schema with `fs.uploadFile` and run `varlock proxy reload` via `process.executeCommand`: the proxy validates the edit in its own context before applying, and a broken edit is refused and reported back. Rule changes apply to agent traffic immediately; a newly added key shows up for newly started `proxy run` commands.
+- The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one). On the link network it matters doubly: any linked agent can reach any broker port, and the token is what stands between an agent and the tunnel.
+- A broker sandbox is a single point of failure for its fleet, and its linked agents live and die with it: deleting the broker cascades to them, and linked agents are always ephemeral. Manage the broker's lifetime explicitly (`autoStopInterval: 0` plus your own teardown, or `ttlMinutes` as a backstop); `proxy run --url` opens a fresh tunnel per connection, so transient blips recover, and `--persist-ca` above keeps the CA stable across a broker restart. Reserve that flag for brokers: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
+
+### Broker lifetime and cost
+
+Daytona has no wake-on-request: a stopped sandbox's ports are dead until something calls `start()` through the API, so an agent cannot wake the broker by connecting to it. Plan the broker's lifetime around that:
+
+- **Fleet-scoped (what the code above does).** The orchestrator creates the broker, runs its agents, and deletes it. Compute is billed only while the fleet is up, and deleting the broker cascade-deletes its linked agents, so nothing is left running. This is the shape Daytona's billing fits best.
+- **Standing broker.** Either keep it running (compute is billed continuously; see [Daytona's pricing](https://www.daytona.io/pricing)) or have the orchestrator `start()` and `stop()` it around fleet runs. A stopped broker costs only storage, and its sandbox id, link-network alias, and (with `--persist-ca`) CA all survive the stop/start cycle, but stopping is teardown for its linked agents, not a pause: ephemeral children are deleted when stopped. Also note a sandbox stopped for 7 days is archived by default, which makes the next start slower.
+
+Keep `autoStopInterval: 0` in either model. Do not rely on Daytona's idle detection to count tunnel traffic as activity: an auto-stopped broker takes its fleet down with it.
+
+For a broker that should be always reachable or outlive any one fleet, consider running the proxy on infrastructure you operate (or your machine) instead, and treat Daytona as the agent layer only; see [other topologies](#other-topologies) below.
+
+## Other topologies
+
+Linked sandboxes share one runner. To serve agents the broker is not linked to (across runners, regions, or from outside Daytona), expose the broker's proxy port through Daytona's [preview URLs](https://www.daytona.io/docs/en/preview/) instead: create the broker with `public: true` and point agents at `wss://<preview-host>`. varlock's data-plane token still gates the tunnel, so a public preview URL is safe. Two caveats: the port has to be public because Daytona's own preview auth (the `x-daytona-preview-token` header) cannot gate the tunnel, since the tunnel client does not attach custom headers; and on tiers 1 and 2 sandboxes cannot reach preview URLs from inside Daytona, so sandbox-to-sandbox traffic over preview URLs needs tier 3+.
+
+For local development, run the proxy on your machine instead: secrets, resolver plugins, biometric unlock, and the interactive request log stay local. Expose it through any tunnel service that carries WebSockets and reuse the same agent-side command:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+ngrok http 8080          # or cloudflared, Tailscale funnel, ...
+# agents: VARLOCK_PROXY_TOKEN=… varlock proxy run --url wss://abc123.ngrok.app -- <command>
+```
+
+The tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. Note the tier caveat above applies here too: on tiers 1 and 2, sandbox egress cannot reach a tunnel service's domain, so this shape needs tier 3+. The same pattern reaches a proxy on any infrastructure you run; see the [topologies overview](/sandboxes/overview/#topologies).
+
+:::note[Compared to Daytona Secrets]
+Daytona has a native [Secrets](https://www.daytona.io/docs/en/secrets/) feature: org-stored values are mounted as `dtn_secret_<random>` placeholders, and Daytona's egress proxy swaps in the real value for allowlisted hosts, scrubbing echoes out of responses. It is the closest native sibling to the varlock proxy, and a fine fit if Daytona custody works for you.
+
+The varlock proxy covers the same ground and more:
+
+- **Anywhere in a request.** Daytona substitutes in HTTPS request headers only (no bodies, query params, or plain HTTP, and no transformed values like Basic auth). The varlock proxy substitutes wherever the placeholder appears, and policy can match on path and method.
+- **Any source, your custody.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) and stay in your custody, instead of being handed to Daytona's control plane.
+- **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, legible to both people and agents, and the same setup runs on any other platform, or on your own machine.
+- Plus [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), your own audit log, and strict egress mode.
+:::
