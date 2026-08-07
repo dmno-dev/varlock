@@ -48,12 +48,32 @@ export class DashlaneManager {
       ? (objArgs.lockOnExit.staticValue === true || objArgs.lockOnExit.staticValue === 'true')
       : undefined;
 
+    if (objArgs?.allowMissing && !objArgs.allowMissing.isStatic) {
+      throw new SchemaError('Expected allowMissing to be static');
+    }
+    const allowMissing = objArgs?.allowMissing
+      ? (objArgs.allowMissing.staticValue === true || objArgs.allowMissing.staticValue === 'true')
+      : undefined;
+
+    if (objArgs?.timeoutMs && !objArgs.timeoutMs.isStatic) {
+      throw new SchemaError('Expected timeoutMs to be static');
+    }
+    let timeoutMs: number | undefined;
+    if (objArgs?.timeoutMs) {
+      timeoutMs = Number(objArgs.timeoutMs.staticValue);
+      if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new SchemaError('Expected timeoutMs to be a positive integer (milliseconds)');
+      }
+    }
+
     this.instances[id] = new DashlanePluginInstance(id, this.errors.ResolutionError);
 
     return {
       id,
       autoSync,
       lockOnExit,
+      allowMissing,
+      timeoutMs,
       serviceDeviceKeysResolver: objArgs?.serviceDeviceKeys,
     };
   }
@@ -63,11 +83,13 @@ export class DashlaneManager {
    * Called at resolution time.
    */
   async executeInit({
-    id, autoSync, lockOnExit, serviceDeviceKeysResolver,
+    id, autoSync, lockOnExit, allowMissing, timeoutMs, serviceDeviceKeysResolver,
   }: {
     id: string;
     autoSync?: boolean;
     lockOnExit?: boolean;
+    allowMissing?: boolean;
+    timeoutMs?: number;
     serviceDeviceKeysResolver?: ArgValue;
   }) {
     const serviceDeviceKeys = serviceDeviceKeysResolver
@@ -78,7 +100,9 @@ export class DashlaneManager {
       serviceDeviceKeys && typeof serviceDeviceKeys === 'string'
         ? serviceDeviceKeys
         : undefined,
-      { autoSync, lockOnExit },
+      {
+        autoSync, lockOnExit, allowMissing, timeoutMs,
+      },
     );
   }
 

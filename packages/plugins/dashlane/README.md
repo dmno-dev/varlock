@@ -178,6 +178,8 @@ Initialize a Dashlane plugin instance.
 - `id?: string` - Instance identifier for multiple instances (defaults to `_default`)
 - `autoSync?: boolean` - If `true`, runs `dcli sync` once before the first read (default `false`)
 - `lockOnExit?: boolean` - Lock the vault on process exit. Defaults to `true` in headless mode, `false` in interactive mode.
+- `allowMissing?: boolean` - If `true`, entries that do not exist in the vault resolve as empty instead of failing (default `false`). Only applies to missing entries: a locked vault or timeout still fails. Can be overridden per item.
+- `timeoutMs?: number` - Maximum time in milliseconds to wait for each `dcli` call (default `30000`)
 
 ### Resolver functions
 
@@ -188,6 +190,9 @@ Fetch a secret from Dashlane via a `dl://` reference.
 **Signatures:**
 - `dashlane(dlRef)` - Fetch by `dl://` reference
 - `dashlane(instanceId, dlRef)` - Fetch from a specific instance
+
+**Named parameters:**
+- `allowMissing?: boolean` - If `true`, resolves as empty when the entry does not exist in the vault, instead of failing. Overrides the instance-level `allowMissing` setting. A locked vault or timeout still fails.
 
 **Returns:** The resolved secret value as a string.
 
@@ -244,6 +249,8 @@ Install the Dashlane CLI following the [installation docs](https://cli.dashlane.
 
 - Run `dcli sync` to sync and unlock your vault
 - If the vault is locked, you may need to enter your master password
+
+The plugin never waits on a locked vault: `dcli` calls run with stdin closed (so interactive prompts fail immediately) and are killed after `timeoutMs` (default 30 seconds) as a backstop. A locked vault always fails the affected items, regardless of `allowMissing` or whether they are optional.
 
 ### Stale secrets
 
