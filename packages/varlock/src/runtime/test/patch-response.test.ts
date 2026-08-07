@@ -6,16 +6,21 @@ import { varlockSettings } from '../env';
 
 describe('patchGlobalResponse', () => {
   let _originalResponse: typeof Response;
+  let _originalJsonDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
+    // afterEach restores this reference, so each test starts from the unpatched native class
     _originalResponse = globalThis.Response;
-    // ensure the patch is fresh each test
-    delete (globalThis.Response as any)._patchedByVarlock;
-    globalThis.Response = _originalResponse;
+    _originalJsonDescriptor = Object.getOwnPropertyDescriptor(_originalResponse, 'json');
   });
 
   afterEach(() => {
     globalThis.Response = _originalResponse;
+    // writes through the patched proxy (e.g. `Response.json = wrapper`) land on the native
+    // class itself, so restore its original `json` to avoid cross-test pollution
+    if (_originalJsonDescriptor) {
+      Object.defineProperty(_originalResponse, 'json', _originalJsonDescriptor);
+    }
   });
 
   it('instanceof check passes for native Response instances after patching', () => {
