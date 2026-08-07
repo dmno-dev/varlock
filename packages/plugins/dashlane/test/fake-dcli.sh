@@ -37,6 +37,13 @@ case "$SUBCMD" in
         sleep 30
         exit 1
         ;;
+      hang-ignore-sigterm)
+        # simulate dcli stalling AND ignoring SIGTERM (must be SIGKILLed,
+        # and the plugin must not wait on the process actually exiting)
+        trap '' TERM
+        sleep 30
+        exit 1
+        ;;
       prompt-stdin)
         # simulate dcli prompting for the master password on a locked vault:
         # blocks reading stdin, so it hangs forever unless stdin is closed

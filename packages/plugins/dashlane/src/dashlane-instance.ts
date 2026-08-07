@@ -14,10 +14,13 @@ export const DEFAULT_DCLI_TIMEOUT_MS = 30_000;
 /** dcli output that means the requested entry does not exist in the vault */
 const DCLI_NOT_FOUND_RE = /not found|does not exist|no matching/i;
 
-/** Thrown when a dcli call is killed by our spawn timeout (or an external signal) */
+/** How long to wait after SIGTERM before hard-killing and giving up on the child */
+const KILL_GRACE_MS = 2000;
+
+/** Thrown when a dcli call is killed by our timeout (or an external signal) */
 class DcliTimeoutError extends Error {
-  constructor(readonly signal: NodeJS.Signals) {
-    super(`dcli was killed by ${signal} before completing`);
+  constructor(detail: string) {
+    super(`dcli did not complete: ${detail}`);
   }
 }
 
@@ -78,7 +81,6 @@ export class DashlanePluginInstance {
       const child = spawn('dcli', args, {
         ...this.spawnEnv && { env: this.spawnEnv },
         stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: this.timeoutMs,
       });
       let stdout = '';
       let stderr = '';
@@ -88,16 +90,42 @@ export class DashlanePluginInstance {
       child.stderr!.on('data', (data) => {
         stderr += data.toString();
       });
-      child.on('error', reject);
-      child.on('exit', (exitCode, signal) => {
+
+      let settled = false;
+      const timers: Array<NodeJS.Timeout> = [];
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        for (const t of timers) clearTimeout(t);
+        fn();
+      };
+
+      // own deadline rather than spawn's `timeout` option: that option only
+      // sends the kill signal, so a dcli that ignores SIGTERM would still
+      // leave this promise pending forever
+      timers.push(setTimeout(() => {
+        child.kill('SIGTERM');
+        timers.push(setTimeout(() => {
+          // child ignored SIGTERM: hard-kill, release our ends of the pipes,
+          // and reject without waiting on `exit`
+          child.kill('SIGKILL');
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          child.unref();
+          settle(() => reject(new DcliTimeoutError(`still running ${KILL_GRACE_MS}ms after SIGTERM`)));
+        }, KILL_GRACE_MS));
+      }, this.timeoutMs));
+
+      child.on('error', (err) => settle(() => reject(err)));
+      child.on('exit', (exitCode, signal) => settle(() => {
         if (exitCode === 0) {
           resolve(stdout);
         } else if (signal) {
-          reject(new DcliTimeoutError(signal));
+          reject(new DcliTimeoutError(`killed by ${signal}`));
         } else {
           reject(new ExecError(exitCode ?? 1, signal, stderr));
         }
-      });
+      }));
     });
   }
 

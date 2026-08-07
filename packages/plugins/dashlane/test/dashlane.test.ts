@@ -36,7 +36,7 @@ type DlTestOpts = {
   /** Map of dl:// references to their resolved values */
   dcliResponses?: Record<string, string>;
   /** Misbehavior mode for the fake dcli `read` subcommand (see fake-dcli.sh) */
-  readBehavior?: 'hang' | 'prompt-stdin' | 'locked';
+  readBehavior?: 'hang' | 'hang-ignore-sigterm' | 'prompt-stdin' | 'locked';
   /** Schema items section (after ---). Required unless fullSchema is provided. */
   schema?: string;
   /** Extra @initDashlane params (e.g., `autoSync=true`) */
@@ -260,6 +260,13 @@ describe('dashlane plugin', () => {
     test('hung dcli call fails within the configured timeout', dlTest({
       readBehavior: 'hang',
       initParams: 'timeoutMs=500',
+      schema: 'SECRET=dashlane("dl://abc/password")',
+      expectValues: { SECRET: Error },
+    }), 5000);
+
+    test('dcli that ignores SIGTERM still fails within a bounded time', dlTest({
+      readBehavior: 'hang-ignore-sigterm',
+      initParams: 'timeoutMs=300',
       schema: 'SECRET=dashlane("dl://abc/password")',
       expectValues: { SECRET: Error },
     }), 5000);
