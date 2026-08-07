@@ -19,7 +19,8 @@
   "scripts": {
     "dev": "tsup --watch",
     "build": "tsup",
-    "test": "vitest"
+    "test": "vitest",
+    "test:ci": "vitest --run"
   },
   "keywords": [
     "varlock",

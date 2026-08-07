@@ -18,6 +18,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Workspace deps use `workspace:*` protocol
 - Use catalog for any potentially common dependencies
 - CI workflows use `bun run` to execute scripts and `bunx` for one-off commands
+- Dependency patches live in `patches/` and are registered in the root `package.json`. Read `patches/README.md` before changing an `overrides` entry that a patch depends on
 
 ## Scripts
 

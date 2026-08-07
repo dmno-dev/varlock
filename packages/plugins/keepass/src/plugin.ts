@@ -21,10 +21,30 @@ interface KpReader {
 class KeePassPluginInstance {
   private reader?: KpReader;
   private readerMode?: 'file' | 'cli';
+  /** deferred setup registered by @initKeePass, run on first use */
+  private initFn?: () => Promise<void>;
+  private initPromise?: Promise<void>;
 
   constructor(
     readonly id: string,
   ) {}
+
+  /**
+   * Registers the setup work rather than running it, so an instance that is
+   * never used by kp()/kpBulk() does not fail the whole schema (e.g. when the
+   * master password item is empty in an environment that has no KeePass access).
+   */
+  setInit(initFn: () => Promise<void>) {
+    this.initFn = initFn;
+  }
+
+  /** Runs the deferred setup once, on first read. */
+  private async init() {
+    if (this.reader) return;
+    if (!this.initFn) throw new SchemaError(`KeePass instance "${this.id}" was never initialized`);
+    this.initPromise ??= this.initFn();
+    await this.initPromise;
+  }
 
   configure(dbPath: string, password: string, keyFile?: string, useCli?: boolean) {
     debug('keepass instance', this.id, 'configured - dbPath:', dbPath, 'useCli:', !!useCli);
@@ -44,10 +64,12 @@ class KeePassPluginInstance {
   }
 
   async readEntry(entryPath: string, attribute: string = 'Password'): Promise<string> {
+    await this.init();
     return await this.reader!.readEntry(entryPath, attribute);
   }
 
   async readCustomAttributes(entryPath: string): Promise<string> {
+    await this.init();
     if (this.readerMode === 'cli') {
       throw new ResolutionError('customAttributesObj is not supported in CLI mode (useCli=true)');
     }
@@ -55,6 +77,7 @@ class KeePassPluginInstance {
   }
 
   async readAllEntries(groupPath?: string): Promise<string> {
+    await this.init();
     const entryPaths = await this.reader!.listEntries(groupPath);
     const result: Record<string, string> = {};
     await Promise.all(entryPaths.map(async (entryPath) => {
@@ -147,23 +170,27 @@ plugin.registerRootDecorator({
   async execute({
     id, dbPathResolver, passwordResolver, keyFile, useCliResolver,
   }) {
-    const dbPath = await dbPathResolver.resolve();
-    const password = await passwordResolver.resolve();
-    if (typeof dbPath !== 'string') {
-      throw new SchemaError('Expected dbPath to resolve to a string');
-    }
-    if (typeof password !== 'string') {
-      throw new SchemaError('Expected password to resolve to a string');
-    }
+    // deferred until the first kp()/kpBulk() call - resolving the password here would
+    // make an unset password fatal even when nothing in the schema reads from KeePass
+    pluginInstances[id].setInit(async () => {
+      const dbPath = await dbPathResolver.resolve();
+      const password = await passwordResolver.resolve();
+      if (typeof dbPath !== 'string') {
+        throw new SchemaError('Expected dbPath to resolve to a string');
+      }
+      if (typeof password !== 'string') {
+        throw new SchemaError('Expected password to resolve to a string');
+      }
 
-    // useCli can be dynamic (e.g., forEnv(dev)) so we resolve it at runtime
-    let useCli = false;
-    if (useCliResolver) {
-      const resolved = await useCliResolver.resolve();
-      useCli = resolved === true || resolved === 'true';
-    }
+      // useCli can be dynamic (e.g., forEnv(dev)) so we resolve it at runtime
+      let useCli = false;
+      if (useCliResolver) {
+        const resolved = await useCliResolver.resolve();
+        useCli = resolved === true || resolved === 'true';
+      }
 
-    pluginInstances[id].configure(dbPath, password, keyFile, useCli);
+      pluginInstances[id].configure(dbPath, password, keyFile, useCli);
+    });
   },
 });
 

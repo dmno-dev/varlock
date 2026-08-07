@@ -21,6 +21,7 @@
     "build": "tsup",
     "build:test": "tsup --config tsup.test.config.ts",
     "test": "vitest",
+    "test:ci": "bun run build:test && vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

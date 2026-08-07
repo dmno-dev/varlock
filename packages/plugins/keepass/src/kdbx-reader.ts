@@ -1,4 +1,6 @@
 import { plugin } from 'varlock/plugin-lib';
+// kdbxweb is patched (see patches/README.md) so it works with the @xmldom/xmldom version
+// pinned by the root overrides - it gets bundled into dist/, which is how the patch reaches users
 import * as kdbxweb from 'kdbxweb';
 import { argon2d, argon2id } from 'hash-wasm';
 import fs from 'node:fs';
