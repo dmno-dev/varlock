@@ -18,7 +18,6 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Workspace deps use `workspace:*` protocol
 - Use catalog for any potentially common dependencies
 - CI workflows use `bun run` to execute scripts and `bunx` for one-off commands
-- Entries in the root `overrides` block are usually security floors, but `@xmldom/xmldom` is a ceiling: `@varlock/keepass-plugin` bundles kdbxweb, which cannot use the API that xmldom 0.9 introduced. Raising it breaks every KeePass database. Bun ignores yarn-style scoped overrides (`pkg/subdep`) without warning, so it has to stay global
 
 ## Scripts
 

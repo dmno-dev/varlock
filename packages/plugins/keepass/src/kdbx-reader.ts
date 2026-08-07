@@ -1,7 +1,6 @@
 import { plugin } from 'varlock/plugin-lib';
-// kdbxweb (unmaintained since 2021) passes the `errorHandler` object that @xmldom/xmldom removed
-// in 0.9, so the root package.json pins xmldom to ^0.8.13 - the newest release it can still talk to.
-// Both get bundled into dist/, so that pin is what published users actually run.
+// kdbxweb (unmaintained since 2021) cannot talk to @xmldom/xmldom 0.9+ on its own - its xmldom
+// import is redirected at build time to src/xmldom-compat.ts, which explains the details
 import * as kdbxweb from 'kdbxweb';
 import { argon2d, argon2id } from 'hash-wasm';
 import fs from 'node:fs';

@@ -64,7 +64,7 @@
     "node": ">=22"
   },
   "overrides": {
-    "@xmldom/xmldom": "^0.8.13",
+    "@xmldom/xmldom": ">=0.9.10",
     "@modelcontextprotocol/sdk": ">=1.29.0",
     "esbuild": ">=0.28.1",
     "hono": ">=4.12.21",
