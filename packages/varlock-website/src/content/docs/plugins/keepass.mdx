@@ -205,6 +205,8 @@ Initialize a KeePass plugin instance for accessing secrets from a KDBX database.
 - `useCli` (optional): Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, e.g. `useCli=forEnv(dev)`
 - `id` (optional): Instance identifier for multiple databases
 
+The database is opened the first time a `kp()` or `kpBulk()` resolver runs, not when the schema loads. An instance that nothing reads from will not fail, even if `password` is empty or `dbPath` does not exist.
+
 ```env-spec "@initKeePass"
 # Basic setup
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)

@@ -22,6 +22,7 @@
     "build:test": "tsup --config tsup.test.config.ts",
     "copy-wasm": "mkdir -p dist || true && cp node_modules/@1password/sdk-core/nodejs/core_bg.wasm ./dist",
     "test": "vitest",
+    "test:ci": "bun run build:test && vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

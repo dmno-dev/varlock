@@ -1,4 +1,6 @@
 import { plugin } from 'varlock/plugin-lib';
+// kdbxweb (unmaintained since 2021) cannot talk to @xmldom/xmldom 0.9+ on its own - its xmldom
+// import is redirected at build time to src/xmldom-compat.ts, which explains the details
 import * as kdbxweb from 'kdbxweb';
 import { argon2d, argon2id } from 'hash-wasm';
 import fs from 'node:fs';
