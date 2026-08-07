@@ -6,6 +6,7 @@ import outdent from 'outdent';
 import * as kdbxweb from 'kdbxweb';
 import { argon2d, argon2id } from 'hash-wasm';
 import { pluginTest, type PluginTestSpec } from 'varlock/test-helpers';
+import { DOMParser, XMLSerializer } from '../src/xmldom-compat';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_PATH = path.join(__dirname, '..');
@@ -29,34 +30,48 @@ kdbxweb.CryptoEngine.setArgon2Impl(async (password, salt, memory, iterations, le
 type TestDbEntries = Record<string, Record<string, string>>;
 
 async function buildTestKdbx(password: string, entries: TestDbEntries): Promise<Buffer> {
-  const creds = new kdbxweb.KdbxCredentials(kdbxweb.ProtectedValue.fromString(password));
-  const db = kdbxweb.Kdbx.create(creds, 'TestDB');
-  const root = db.getDefaultGroup();
-  const groups: Record<string, kdbxweb.KdbxGroup> = {};
+  const xmlGlobals = globalThis as typeof globalThis & {
+    DOMParser?: typeof DOMParser;
+    XMLSerializer?: typeof XMLSerializer;
+  };
+  const originalDOMParser = xmlGlobals.DOMParser;
+  const originalXMLSerializer = xmlGlobals.XMLSerializer;
+  xmlGlobals.DOMParser = DOMParser;
+  xmlGlobals.XMLSerializer = XMLSerializer;
 
-  for (const [entryPath, fields] of Object.entries(entries)) {
-    const parts = entryPath.split('/');
-    const title = parts.pop()!;
+  try {
+    const creds = new kdbxweb.KdbxCredentials(kdbxweb.ProtectedValue.fromString(password));
+    const db = kdbxweb.Kdbx.create(creds, 'TestDB');
+    const root = db.getDefaultGroup();
+    const groups: Record<string, kdbxweb.KdbxGroup> = {};
 
-    let parent = root;
-    for (const groupName of parts) {
-      const groupKey = parts.slice(0, parts.indexOf(groupName) + 1).join('/');
-      groups[groupKey] ||= db.createGroup(parent, groupName);
-      parent = groups[groupKey];
-    }
+    for (const [entryPath, fields] of Object.entries(entries)) {
+      const parts = entryPath.split('/');
+      const title = parts.pop()!;
 
-    const entry = db.createEntry(parent);
-    entry.fields.set('Title', title);
-    for (const [fieldName, value] of Object.entries(fields)) {
-      if (fieldName === 'Password') {
-        entry.fields.set(fieldName, kdbxweb.ProtectedValue.fromString(value));
-      } else {
-        entry.fields.set(fieldName, value);
+      let parent = root;
+      for (const groupName of parts) {
+        const groupKey = parts.slice(0, parts.indexOf(groupName) + 1).join('/');
+        groups[groupKey] ||= db.createGroup(parent, groupName);
+        parent = groups[groupKey];
+      }
+
+      const entry = db.createEntry(parent);
+      entry.fields.set('Title', title);
+      for (const [fieldName, value] of Object.entries(fields)) {
+        if (fieldName === 'Password') {
+          entry.fields.set(fieldName, kdbxweb.ProtectedValue.fromString(value));
+        } else {
+          entry.fields.set(fieldName, value);
+        }
       }
     }
-  }
 
-  return Buffer.from(await db.save());
+    return Buffer.from(await db.save());
+  } finally {
+    xmlGlobals.DOMParser = originalDOMParser;
+    xmlGlobals.XMLSerializer = originalXMLSerializer;
+  }
 }
 
 let dbCounter = 0;
