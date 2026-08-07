@@ -29,6 +29,15 @@ kdbxweb.CryptoEngine.setArgon2Impl(async (password, salt, memory, iterations, le
 
 type TestDbEntries = Record<string, Record<string, string>>;
 
+/**
+ * Creating fixture databases calls kdbxweb directly, which does not go through the build-time
+ * xmldom redirect the shipped plugin relies on (see tsup.config.ts), so kdbxweb would build its
+ * own parser with the option shape xmldom dropped in 0.9 and throw. kdbxweb prefers a global
+ * DOMParser when one exists, so the wrapper is installed as a global just for this call.
+ *
+ * It has to come back off immediately: leaving it in place would also satisfy the plugin's own
+ * bundled kdbxweb, and every test here would keep passing even if the redirect broke.
+ */
 async function buildTestKdbx(password: string, entries: TestDbEntries): Promise<Buffer> {
   const xmlGlobals = globalThis as typeof globalThis & {
     DOMParser?: typeof DOMParser;
