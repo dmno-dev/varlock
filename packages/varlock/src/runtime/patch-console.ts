@@ -44,7 +44,7 @@ export function patchGlobalConsole() {
   // ideally we would only turn this when the above method does not work, but it's not trivial to detect when it that is the case
   // so we'll turn it on all the time for now...
 
-  for (const logMethodName of ['trace', 'debug', 'info', 'log', 'info', 'warn', 'error']) {
+  for (const logMethodName of ['trace', 'debug', 'info', 'log', 'warn', 'error']) {
     // @ts-ignore
     const originalLogMethod = globalThis.console[logMethodName];
 
