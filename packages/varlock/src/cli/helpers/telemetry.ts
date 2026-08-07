@@ -27,6 +27,10 @@ const debug = createDebug('varlock:telemetry');
 
 const TRUE_ENV_VAR_VALUES = ['true', '1', 't'];
 
+function isTrueEnvVarValue(value: string | undefined) {
+  return !!value && TRUE_ENV_VAR_VALUES.includes(value.toLowerCase());
+}
+
 
 const userVarlockDirPath = getUserVarlockDir();
 const userVarlockConfigFilePath = join(userVarlockDirPath, 'config.json');
@@ -172,6 +176,25 @@ function getAnonymousId() {
 }
 
 
+/**
+ * Checks the environment variables that opt a user out of telemetry.
+ *
+ * `DO_NOT_TRACK` is a cross-tool convention honored by Homebrew, Deno, Turborepo and
+ * others, described at https://donottrack.sh/. Setting it opts out of every
+ * tool that honors it, not just varlock. Its canonical
+ * value is `1`, but we accept the same true-ish values we already accept for
+ * `VARLOCK_TELEMETRY_DISABLED`.
+ *
+ * @internal exported for unit tests
+ */
+export function checkIsOptedOutViaEnv(env: NodeJS.ProcessEnv = process.env) {
+  return (
+    env.PH_OPT_OUT === 'true' // legacy
+    || isTrueEnvVarValue(env.VARLOCK_TELEMETRY_DISABLED)
+    || isTrueEnvVarValue(env.DO_NOT_TRACK)
+  );
+}
+
 function checkIsOptedOut() {
   // Check if this is a dev build, rather than a published npm package or standalone binary
   if (__VARLOCK_BUILD_TYPE__ === 'dev') {
@@ -179,14 +202,8 @@ function checkIsOptedOut() {
     return true;
   }
 
-  // Check environment variable
-  if (
-    process.env.PH_OPT_OUT === 'true' // legacy
-    || (
-      process.env.VARLOCK_TELEMETRY_DISABLED
-      && TRUE_ENV_VAR_VALUES.includes(process.env.VARLOCK_TELEMETRY_DISABLED.toLowerCase())
-    )
-  ) {
+  // Check environment variables
+  if (checkIsOptedOutViaEnv()) {
     debug('telemetry opted out - env var');
     return true;
   }

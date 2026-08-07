@@ -27,7 +27,7 @@ Examples:
   varlock telemetry disable    # Opt out of telemetry
   varlock telemetry enable     # Opt in to telemetry
 
-💡 Tip: You can also temporarily opt out by setting VARLOCK_TELEMETRY_DISABLED=1
+💡 Tip: You can also temporarily opt out by setting VARLOCK_TELEMETRY_DISABLED=1 or DO_NOT_TRACK=1
 For more information, visit https://varlock.dev/guides/telemetry/
   `.trim(),
 });
