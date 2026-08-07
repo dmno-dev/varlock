@@ -1,0 +1,160 @@
+---
+title: Nuxt
+description: How to integrate varlock with Nuxt for secure, type-safe environment management
+---
+import SyncedCodeTabs from '@/components/SyncedCodeTabs.astro'
+import { TabItem, Tabs, Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/nuxt-integration" />
+</div>
+
+While Nuxt has [runtimeConfig](https://nuxt.com/docs/guide/going-further/runtime-config) to help with environment variables, we think Varlock has more to offer:
+
+- Your `.env.schema` is not tied to JavaScript, and is a better place to store this schema info versus your `nuxt.config.*` file
+- Facilitates loading and composing multiple `.env` files
+- Facilitates setting values and handling multiple environments, not just setting defaults
+- More data types and options available
+- Leak detection, log redaction, and more security guardrails
+
+To integrate varlock into a Nuxt application, you must use our [`@varlock/nuxt-integration`](https://npmx.dev/package/@varlock/nuxt-integration) package, which is a [Nuxt module](https://nuxt.com/docs/guide/concepts/modules).
+
+## Setup
+
+:::caution[Requirements]
+- Node.js v22 or higher
+- Nuxt v4 or higher (recommended). Module compatibility is `>=3.0.0`.
+:::
+
+<Steps>
+
+1. **Install varlock and the Nuxt module**
+    <InstallJsDepsWidget packages="@varlock/nuxt-integration varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema` file**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Enable the Nuxt module**
+
+    Add `@varlock/nuxt-integration` to your `nuxt.config.ts` modules array:
+
+    ```diff lang="ts" title="nuxt.config.ts"
+    export default defineNuxtConfig({
+    +  modules: ['@varlock/nuxt-integration'],
+    })
+    ```
+</Steps>
+
+---
+
+## Accessing environment variables
+
+You can continue to use `process.env.SOMEVAR` or `useRuntimeConfig()` as usual, but we recommend using varlock's imported `ENV` object for better type-safety and improved developer experience:
+
+Note that this module does not disable Nuxt's own `.env` loading. If you keep a plain `.env` file around, Nuxt still reads it into `process.env`, so a value can differ between `process.env.X` and `ENV.X`. Prefer `ENV` as the single source of truth.
+
+```ts title="server/api/example.ts"
+import { ENV } from 'varlock/env';
+
+console.log(process.env.SOMEVAR); // 🆗 still works
+console.log(ENV.SOMEVAR);         // ✨ recommended
+```
+
+#### Why use `ENV` instead of `process.env`?
+- Non-string values (e.g., number, boolean) are properly typed and coerced
+- All non-sensitive items are replaced at build time
+- Better error messages for invalid or unavailable keys
+- Enables future DX improvements and tighter control over what is bundled
+
+### Nuxt config timing
+Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not guaranteed to be initialized there.
+
+If you need env values in `nuxt.config.ts`, run Nuxt through `varlock run` and read from `process.env`:
+
+```json title="package.json"
+{
+  "scripts": {
+    "dev": "varlock run -- nuxt dev",
+    "build": "varlock run -- nuxt build"
+  }
+}
+```
+
+```ts title="nuxt.config.ts"
+export default defineNuxtConfig({
+  modules: ['@varlock/nuxt-integration'],
+  runtimeConfig: {
+    apiBaseUrl: process.env.API_BASE_URL,
+  },
+})
+```
+
+:::caution[TypeScript config]
+If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::
+
+### Within other scripts
+
+You can use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved config into other scripts as regular env vars.
+
+<ExecCommandWidget command="varlock run -- node ./script.js" showBinary={false} />
+
+### Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for your env vars, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. Note that if your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTsTypes(path='env.d.ts')
+# ---
+# your config items...
+```
+
+---
+
+## Managing multiple environments
+
+Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). This is different from Nuxt's default behavior, which relies on its own [environment overrides](https://nuxt.com/docs/getting-started/configuration#environment-overrides).
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# ---
+# @type=enum(development, preview, production, test)
+APP_ENV=development
+```
+
+This will cause varlock to automatically load `.env.development`, `.env.preview`, etc., based on the value of `APP_ENV` at load time.
+
+---
+
+## SSR injection modes
+
+When building a Nuxt application with server-side rendering, varlock injects initialization code into both the Vite SSR bundle and the Nitro server bundle. That init call is what makes `ENV` available to your server routes, and what installs log redaction and response leak prevention. The `ssrInjectMode` option controls where the resolved values come from:
+
+- `'init-only'` (default): initialize from env vars already present in the server process. Your deploy has to supply them, either by launching through `varlock run` or by setting them on the platform.
+- `'auto-load'`: the server loads varlock itself on startup. Use this for Node.js hosting where you run `node .output/server/index.mjs` directly and your `.env` files ship alongside the build.
+- `'resolved-env'`: bake the resolved values into the build artifact. Use this on platforms that build and run in separate steps with no `.env` files at runtime, such as Vercel or Netlify. See [encrypted deployments](/guides/encrypted-deployments/) before shipping sensitive values this way.
+
+```ts title="nuxt.config.ts"
+export default defineNuxtConfig({
+  modules: ['@varlock/nuxt-integration'],
+  varlock: {
+    ssrInjectMode: 'auto-load',
+  },
+})
+```
+
+With the default `'init-only'` mode, start the built server through `varlock run`:
+
+```json title="package.json"
+{
+  "scripts": {
+    "preview": "varlock run -- node .output/server/index.mjs"
+  }
+}
+```
