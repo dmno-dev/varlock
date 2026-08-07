@@ -248,8 +248,8 @@ describe('dashlane plugin', () => {
   describe('locked vault handling', () => {
     // On a locked vault, dcli prompts for the master password and blocks on
     // stdin. These tests ensure every dcli call is bounded (stdin closed +
-    // timeout) and that onLocked=warn lets a load pass with optional
-    // dashlane items left empty.
+    // timeout) and that a locked/unavailable vault always fails the item,
+    // regardless of required/optional or allowMissing.
 
     test('master password prompt fails immediately instead of hanging (stdin closed)', dlTest({
       readBehavior: 'prompt-stdin',
@@ -264,7 +264,7 @@ describe('dashlane plugin', () => {
       expectValues: { SECRET: Error },
     }), 5000);
 
-    test('locked vault fails the item by default', async () => {
+    test('locked vault fails the item even when optional', async () => {
       const g = await dlTest({
         readBehavior: 'locked',
         schema: outdent`
@@ -277,48 +277,69 @@ describe('dashlane plugin', () => {
       expect(item.errors[0].message).toContain('locked');
     });
 
-    test('onLocked=warn: optional item resolves empty with a warning, load stays valid', async () => {
+    test('locked vault fails the item even with allowMissing', async () => {
       const g = await dlTest({
         readBehavior: 'locked',
-        initParams: 'onLocked=warn',
         schema: outdent`
           # @optional
-          SECRET=dashlane("dl://abc/password")
-          OTHER=hello
-        `,
-      })();
-      const secretItem = g!.configSchema.SECRET;
-      expect(secretItem.validationState).toBe('warn');
-      expect(secretItem.resolvedValue).toBeUndefined();
-      // non-dashlane items are unaffected
-      expect(g!.configSchema.OTHER.resolvedValue).toBe('hello');
-      expect(g!.configSchema.OTHER.validationState).toBe('valid');
-    });
-
-    test('onLocked=warn: required item still fails', async () => {
-      const g = await dlTest({
-        readBehavior: 'locked',
-        initParams: 'onLocked=warn',
-        schema: outdent`
-          # @required
-          SECRET=dashlane("dl://abc/password")
+          SECRET=dashlane("dl://abc/password", allowMissing=true)
         `,
       })();
       const item = g!.configSchema.SECRET;
       expect(item.validationState).toBe('error');
-      expect(item.errors.some((e) => e.name === 'EmptyRequiredValueError')).toBe(true);
+      expect(item.errors[0].message).toContain('locked');
     });
-
-    test('invalid onLocked value is a schema error', dlTest({
-      initParams: 'onLocked=bogus',
-      schema: 'SECRET=dashlane("dl://abc/password")',
-      expectSchemaError: true,
-    }));
 
     test('invalid timeoutMs value is a schema error', dlTest({
       initParams: 'timeoutMs=soon',
       schema: 'SECRET=dashlane("dl://abc/password")',
       expectSchemaError: true,
     }));
+  });
+
+  describe('allowMissing', () => {
+    test('missing entry resolves empty when allowMissing is set per call', dlTest({
+      dcliResponses: { 'dl://abc/password': 'pw1' },
+      schema: outdent`
+        SECRET=dashlane("dl://abc/password")
+        # @optional
+        MISSING=dashlane("dl://nope/password", allowMissing=true)
+      `,
+      expectValues: { SECRET: 'pw1', MISSING: undefined },
+    }));
+
+    test('missing entry resolves empty when allowMissing is set on init', dlTest({
+      dcliResponses: { 'dl://abc/password': 'pw1' },
+      initParams: 'allowMissing=true',
+      schema: outdent`
+        SECRET=dashlane("dl://abc/password")
+        # @optional
+        MISSING=dashlane("dl://nope/password")
+      `,
+      expectValues: { SECRET: 'pw1', MISSING: undefined },
+    }));
+
+    test('per-call allowMissing=false overrides instance default', dlTest({
+      dcliResponses: {},
+      initParams: 'allowMissing=true',
+      schema: outdent`
+        # @optional
+        MISSING=dashlane("dl://nope/password", allowMissing=false)
+      `,
+      expectValues: { MISSING: Error },
+    }));
+
+    test('required item with allowMissing still fails as empty', async () => {
+      const g = await dlTest({
+        dcliResponses: {},
+        schema: outdent`
+          # @required
+          SECRET=dashlane("dl://nope/password", allowMissing=true)
+        `,
+      })();
+      const item = g!.configSchema.SECRET;
+      expect(item.validationState).toBe('error');
+      expect(item.errors.some((e) => e.name === 'EmptyRequiredValueError')).toBe(true);
+    });
   });
 });

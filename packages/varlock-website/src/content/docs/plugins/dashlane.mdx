@@ -132,7 +132,7 @@ Initialize a Dashlane plugin instance for `dashlane()` resolver.
 - `serviceDeviceKeys` (optional): service device keys for headless authentication
 - `autoSync` (optional): if `true`, runs `dcli sync` once before the first read
 - `lockOnExit` (optional): lock the vault on process exit. Defaults to `true` in headless mode, `false` in interactive mode.
-- `onLocked` (optional): behavior when the vault appears locked or a `dcli` call times out. `error` (default) fails the item. With `warn`, the item resolves empty with a warning instead, so optional items do not block the load. Required items still fail as empty.
+- `allowMissing` (optional): if `true`, entries that do not exist in the vault resolve as empty instead of failing. Only applies to missing entries: a locked vault or timeout still fails. Can be overridden per item.
 - `timeoutMs` (optional): maximum time in milliseconds to wait for each `dcli` call (default `30000`)
 
 ```env-spec "@initDashlane"
@@ -176,12 +176,20 @@ Fetch a secret from Dashlane by `dl://` reference.
 - `instanceId` (optional, if 2 args): instance identifier
 - `dlReference` (required): `dl://` secret reference URI
 
+**Key/value args:**
+
+- `allowMissing` (optional): if `true`, resolves as empty when the entry does not exist in the vault, instead of failing. Overrides the instance-level `allowMissing` setting. A locked vault or timeout still fails.
+
 ```env-spec /dashlane\\(.*\\)/
 # Default instance
 DB_PASSWORD=dashlane("dl://abc123/password")
 
 # With explicit instance
 DB_PASSWORD=dashlane(prod, "dl://abc123/password")
+
+# Tolerate a missing entry (item must not be required)
+# @optional
+OPTIONAL_TOKEN=dashlane("dl://abc123/token", allowMissing=true)
 ```
 </div>
 </div>
@@ -200,11 +208,13 @@ DB_PASSWORD=dashlane(prod, "dl://abc123/password")
 ### Entry not found
 - Verify the entry exists: `dcli password -o json | jq '.[].title'`
 - Use the entry ID for reliable lookups: `dashlane("dl://<id>/password")`
+- Set `allowMissing=true` (per item or in `@initDashlane`) if a missing entry should resolve as empty instead of failing
 
 ### Vault locked or not synced
 - Run `dcli sync` to sync your vault
 - Set `autoSync=true` in `@initDashlane` to sync automatically before reads
-- Set `onLocked=warn` in `@initDashlane` if a locked vault should not block loading optional items
+
+`dcli` calls run with stdin closed and are killed after `timeoutMs` (default 30 seconds), so a locked vault fails fast instead of hanging the load.
 
 ## Resources
 

@@ -935,10 +935,8 @@ export class ConfigItem {
       this.resolutionError = new ResolutionError('Regex values are meant to be used within function args (e.g., remap()), not as a final resolved value');
     }
 
-    // bail if we have a resolution error, unless it is only a warning -
-    // a warning-severity resolution error leaves the value empty and lets normal
-    // required/optional handling take over (required items still fail as empty)
-    if (this.resolutionError && !this.resolutionError.isWarning) return;
+    // bail if we have an resolution error
+    if (this.resolutionError) return;
 
     this.isResolved = true;
 

@@ -36,7 +36,7 @@ plugin.registerResolverFunction({
   label: 'Fetch secret from Dashlane by dl:// reference',
   icon: DASHLANE_ICON,
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 1,
     arrayMaxLength: 2,
   },
@@ -58,9 +58,11 @@ plugin.registerResolverFunction({
 
     manager.getInstance(instanceId);
 
-    return { instanceId, refResolver };
+    const allowMissingResolver = this.objArgs?.allowMissing;
+
+    return { instanceId, refResolver, allowMissingResolver };
   },
-  async resolve({ instanceId, refResolver }) {
+  async resolve({ instanceId, refResolver, allowMissingResolver }) {
     manager.registerExitHandler();
     const instance = manager.getInstance(instanceId);
     if (!refResolver) {
@@ -70,7 +72,11 @@ plugin.registerResolverFunction({
     if (typeof dlUri !== 'string') {
       throw new SchemaError('Expected dl:// reference to resolve to a string');
     }
-    return await instance.readReference(dlUri);
+    // per-call allowMissing overrides the instance-level default
+    const allowMissing = allowMissingResolver
+      ? !!(await allowMissingResolver.resolve())
+      : undefined;
+    return await instance.readReference(dlUri, { allowMissing });
   },
 });
 

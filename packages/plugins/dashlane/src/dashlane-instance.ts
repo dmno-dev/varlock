@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { ExecError } from '@env-spec/utils/exec-helpers';
 
-type ErrorCtor = new (msg: string, opts?: { tip?: string; isWarning?: boolean }) => Error;
+type ErrorCtor = new (msg: string, opts?: { tip?: string }) => Error;
 
 const FIX_INSTALL_TIP = [
   'The `dcli` command was not found on your system.',
@@ -10,6 +10,9 @@ const FIX_INSTALL_TIP = [
 ].join('\n');
 
 export const DEFAULT_DCLI_TIMEOUT_MS = 30_000;
+
+/** dcli output that means the requested entry does not exist in the vault */
+const DCLI_NOT_FOUND_RE = /not found|does not exist|no matching/i;
 
 /** Thrown when a dcli call is killed by our spawn timeout (or an external signal) */
 class DcliTimeoutError extends Error {
@@ -27,7 +30,7 @@ export class DashlanePluginInstance {
   private syncPromise?: Promise<void>;
   private synced = false;
   private lockAfter = false;
-  private onLocked: 'error' | 'warn' = 'error';
+  private allowMissing = false;
   private timeoutMs = DEFAULT_DCLI_TIMEOUT_MS;
 
   constructor(
@@ -38,13 +41,13 @@ export class DashlanePluginInstance {
   configure(serviceDeviceKeys?: string, opts?: {
     autoSync?: boolean;
     lockOnExit?: boolean;
-    onLocked?: 'error' | 'warn';
+    allowMissing?: boolean;
     timeoutMs?: number;
   }) {
     this.serviceDeviceKeys = serviceDeviceKeys;
     if (opts?.autoSync !== undefined) this.autoSync = opts.autoSync;
     this.lockAfter = opts?.lockOnExit ?? !!serviceDeviceKeys;
-    if (opts?.onLocked !== undefined) this.onLocked = opts.onLocked;
+    if (opts?.allowMissing !== undefined) this.allowMissing = opts.allowMissing;
     if (opts?.timeoutMs !== undefined) this.timeoutMs = opts.timeoutMs;
   }
 
@@ -158,8 +161,13 @@ export class DashlanePluginInstance {
    * Read a secret by dl:// reference.
    * Supports both dl://<id>/field (fast, skips vault decryption)
    * and dl://<title>/field (slower, requires full vault sync).
+   *
+   * With allowMissing (per-call arg, falling back to the instance default),
+   * a reference that does not exist in the vault resolves to undefined
+   * instead of throwing. Any other failure (locked vault, timeout, auth)
+   * still throws.
    */
-  async readReference(dlUri: string): Promise<string> {
+  async readReference(dlUri: string, opts?: { allowMissing?: boolean }): Promise<string | undefined> {
     if (!dlUri.startsWith('dl://') || dlUri === 'dl://') {
       throw new this.ResolutionError(`Invalid Dashlane reference: "${dlUri}"`, {
         tip: 'References must start with dl:// and include a path — e.g. dashlane("dl://<id>/password")',
@@ -179,15 +187,18 @@ export class DashlanePluginInstance {
       this.cache.set(dlUri, value);
       return value;
     } catch (err) {
+      const allowMissing = opts?.allowMissing ?? this.allowMissing;
+      if (
+        allowMissing
+        && err instanceof ExecError
+        && DCLI_NOT_FOUND_RE.test(err.data || err.message)
+      ) {
+        return undefined;
+      }
       return this.handleDcliError(err, dlUri);
     }
   }
 
-  /**
-   * Locked/unsynced vault error. With onLocked=warn this is thrown as a
-   * warning, so the item resolves empty and the load can still pass
-   * (unless the item is required).
-   */
   private throwLockedVaultError(details?: string): never {
     throw new this.ResolutionError(
       `Dashlane vault appears locked or not synced${details ? ` (${details})` : ''}`,
@@ -195,9 +206,7 @@ export class DashlanePluginInstance {
         tip: [
           'Run `dcli sync` to sync and unlock your vault.',
           'Or set autoSync=true in @initDashlane to sync automatically.',
-          'Set onLocked=warn in @initDashlane to downgrade this to a warning.',
         ].join('\n'),
-        ...this.onLocked === 'warn' && { isWarning: true },
       },
     );
   }
@@ -210,11 +219,12 @@ export class DashlanePluginInstance {
     if (err instanceof ExecError) {
       const msg = err.data || err.message;
 
-      if (msg.match(/not found/i) || msg.match(/does not exist/i) || msg.match(/no matching/i)) {
+      if (DCLI_NOT_FOUND_RE.test(msg)) {
         throw new this.ResolutionError(`Entry "${context}" not found in Dashlane vault`, {
           tip: [
             'Verify the entry exists: dcli password -o json | jq \'.[].title\'',
             'Use the entry ID for reliable lookups: dashlane("dl://<id>/password")',
+            'Or set allowMissing=true (per item or in @initDashlane) to resolve missing entries as empty',
           ].join('\n'),
         });
       }
