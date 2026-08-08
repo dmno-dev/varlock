@@ -2,6 +2,13 @@
 
 
 
+
+## 2.0.1
+<sub>2026-08-08</sub>
+
+- [#979](https://github.com/dmno-dev/varlock/pull/979)  *(patch)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)!
+  Fix opening KeePass databases, which failed with `errorHandler object is no longer supported`. Also defer database setup until a `kp()`/`kpBulk()` call actually runs, so an unused instance with an empty master password no longer fails the whole schema.
+
 ## 2.0.0
 <sub>2026-06-23</sub>
 
