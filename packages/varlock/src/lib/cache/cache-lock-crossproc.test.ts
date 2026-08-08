@@ -127,7 +127,13 @@ describe.runIf(hasBun)('orphaned lock left by a killed process', () => {
     child.kill('SIGINT');
     const outcome = await exited;
 
-    // the lock is gone rather than left for liveness detection to clean up
+    // the lock is gone rather than left for liveness detection to clean up.
+    // Polls briefly: `bun run` may interpose a wrapper process, so the observed
+    // exit can race the actual holder's cleanup by a few milliseconds.
+    const cleanupDeadline = Date.now() + 5_000;
+    while (fs.existsSync(keyLockPath()) && Date.now() < cleanupDeadline) {
+      await sleep(25);
+    }
     expect(fs.existsSync(keyLockPath())).toBe(false);
     // and Ctrl+C still ends the process (re-raised, not swallowed)
     expect(outcome.signal === 'SIGINT' || outcome.code === 130).toBe(true);

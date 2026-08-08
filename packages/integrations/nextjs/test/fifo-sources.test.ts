@@ -115,7 +115,9 @@ describe.skipIf(process.platform === 'win32')('FIFO env sources (e.g. 1Password 
     delete process.env.__VARLOCK_NEXT_WARNED_NON_REGULAR_FILES;
   });
 
-  it('never reads or watches FIFO sources during load and reload checks', async () => {
+  // generous timeout: first import of next-env-compat pays transform cost, which
+  // can exceed vitest's 5s default on slow CI runners
+  it('never reads or watches FIFO sources during load and reload checks', { timeout: 30_000 }, async () => {
     const { loadEnvConfig } = await import('../src/next-env-compat');
 
     loadEnvConfig(tmpDir, true);
@@ -143,7 +145,7 @@ describe.skipIf(process.platform === 'win32')('FIFO env sources (e.g. 1Password 
     expect(readFileSyncCallsFor(fifoExtraPath)).toHaveLength(0);
   });
 
-  it('logs a one-time notice that live reload is disabled for FIFO sources', async () => {
+  it('logs a one-time notice that live reload is disabled for FIFO sources', { timeout: 30_000 }, async () => {
     const { loadEnvConfig } = await import('../src/next-env-compat');
 
     loadEnvConfig(tmpDir, true);
