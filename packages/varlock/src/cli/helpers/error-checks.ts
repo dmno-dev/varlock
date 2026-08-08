@@ -27,28 +27,22 @@ function showErrorTip(err: VarlockError) {
 }
 
 export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolean }) {
-  if (Object.keys(envGraph.configSchema).length === 0) {
-    // If a source has a parse error, the schema couldn't be read at all so
-    // "no config items defined" is misleading — the parse error (already
-    // reported by checkForSchemaErrors) is the real problem.
-    const hasParseErrors = envGraph.sortedDataSources.some((s) => s.loadingError instanceof ParseError);
-    if (hasParseErrors) {
-      if (opts?.noThrow) return;
-      throw new CliExitError('Parse error', { silent: true });
-    }
+  if (Object.keys(envGraph.configSchema).length > 0) return;
 
-    const displayPath = envGraph.basePath ?? process.cwd();
-    const hasLoadedFiles = envGraph.sortedDataSources.some((s) => s instanceof FileBasedDataSource);
-    if (!hasLoadedFiles) {
-      console.error(`🚨 No .env files found in ${displayPath}\n`);
-      console.error('Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.');
-    } else {
-      console.error(`🚨 No config items defined in ${displayPath}\n`);
-      console.error('Add items to your .env.schema file to get started.');
-    }
+  // The graph owns what counts as unusable (and which of the two reasons it is),
+  // so this stays in step with what `getSerializedGraph` reports in `errors.root`.
+  const emptyGraphError = envGraph.getEmptyGraphError();
+  if (!emptyGraphError) {
+    // some other root error already explains the empty graph — it was reported
+    // by checkForSchemaErrors, so don't pile a misleading message on top
     if (opts?.noThrow) return;
-    throw new CliExitError('No env files', { silent: true });
+    throw new CliExitError('Schema error', { silent: true });
   }
+
+  console.error(`🚨 ${emptyGraphError.message}\n`);
+  if (emptyGraphError.tip) console.error(emptyGraphError.tip);
+  if (opts?.noThrow) return;
+  throw new CliExitError('No env files', { silent: true });
 }
 
 export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: boolean }) {

@@ -9,6 +9,7 @@ import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import prompts from '../../cli/helpers/prompts';
 import * as localEncrypt from './index';
+import { DaemonError } from './daemon-client';
 import { writeBackValue } from './write-back';
 
 const LOCAL_PREFIX = 'local:';
@@ -177,9 +178,19 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         if (err instanceof ResolutionError) throw err;
 
         const backend = localEncrypt.getBackendInfo();
+        // Carry the native helper's own error code through when it sent one, so
+        // callers can tell *why* a decrypt failed (wrong key vs. no way to
+        // authenticate vs. something else) instead of seeing every failure as a
+        // generic `resolution_failed`. Falls back to `decrypt_failed`, which is
+        // still more specific than the ResolutionError default.
+        const nativeCode = err instanceof DaemonError ? err.code : undefined;
         throw new ResolutionError(
           `Decryption failed: ${err instanceof Error ? err.message : err}`,
           {
+            // native codes are camelCase; serialized varlock codes are snake_case
+            code: nativeCode
+              ? nativeCode.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+              : 'decrypt_failed',
             tip: [
               `Backend: ${backend.type} (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`,
               'This usually means the value was encrypted with a different key or backend.',
