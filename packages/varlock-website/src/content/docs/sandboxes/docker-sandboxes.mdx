@@ -106,7 +106,7 @@ Docker Sandboxes ships its own credential injection (`sbx secret`): the gateway 
 
 The two compose: sbx provides microVM isolation, and the varlock broker provides custody, injection, scrubbing, and (in `strict` mode) the egress boundary.
 
-They do overlap on variable names. A sandbox starts with `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, and similar already set to the sentinel `proxy-managed`, which is how sbx signals that its own gateway would fill them in. varlock's child env is layered on top, so an item your schema routes through `@proxy` reaches the agent as varlock's placeholder and the varlock rule is the one that applies. Keys your schema does not describe keep the sbx sentinel, and sbx handles them (or doesn't, if you have not run `sbx secret set`).
+They also overlap on variable names: a sandbox starts with the env vars for sbx's [built-in services](https://docs.docker.com/ai/sandboxes/security/credentials/#built-in-services) (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...) preset to the sentinel `proxy-managed`, whether or not you have stored a secret for them. varlock's child env is layered on top, so a key your schema routes through `@proxy` reaches the agent as varlock's placeholder and the varlock rule applies; keys your schema does not describe keep the sentinel and stay on the sbx path.
 
 ## Trust model
 
