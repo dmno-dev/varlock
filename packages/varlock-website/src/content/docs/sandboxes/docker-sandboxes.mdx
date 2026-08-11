@@ -16,14 +16,6 @@ Two facts about the gateway shape the setup:
 
 ## Broker on your machine
 
-```
-[sbx microVM]                         [your host]
-  varlock proxy run --url             varlock proxy start --expose
-    ws://host.docker.internal:PORT      (real secrets, plugins, request log)
-      │                                     ▲
-      └──▶ gateway.docker.internal:3128 ────┘  (allowed by sbx policy)
-```
-
 ### 1. Schema
 
 Mark the secrets your agent uses with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
