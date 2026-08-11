@@ -77,7 +77,7 @@ That is the whole path: the agent holds placeholders, the broker on your host in
 :::note[Installing varlock in the sandbox]
 `npm i -g varlock` is the least friction here: the `shell` agent image ships Node 22.22, above varlock's 22.3 minimum, `registry.npmjs.org` is already in the Balanced preset's allowlist, and the package lands on `PATH`. It is also the lighter install (~9 MB against the ~100 MB binary).
 
-The [install script](/getting-started/installation/) works too, but needs two extra steps. `varlock.dev` is not in the Balanced allowlist, so add `sbx policy allow network varlock.dev` first. And the script installs to `${XDG_CONFIG_HOME:-~/.config}/varlock/bin` without touching `PATH`, so invoke it by absolute path (`$HOME/.config/varlock/bin/varlock`) or export the directory yourself.
+The [install script](/getting-started/installation/) works too, but needs two extra steps. `varlock.dev` is not in the Balanced allowlist, so add `sbx policy allow network varlock.dev` first. The script also does not update `PATH`, so pin its destination with `curl -sSfL https://varlock.dev/install.sh | sh -s -- --dir="$HOME/.local/bin"`, then invoke `$HOME/.local/bin/varlock` or export the directory yourself.
 
 Baking varlock into a [custom template](https://docs.docker.com/ai/sandboxes/customize/) skips the per-sandbox install entirely, which matters for a fleet. Pass the token via the environment (`sbx exec -e`, or append an `export` to `/etc/sandbox-persistent.sh` to [persist it across launches](https://docs.docker.com/ai/sandboxes/faq/#how-do-i-set-custom-environment-variables-inside-a-sandbox)), not on the command line, so it stays out of process listings.
 :::
