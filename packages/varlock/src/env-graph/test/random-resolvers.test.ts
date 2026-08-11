@@ -155,7 +155,14 @@ describe('randomString()', () => {
   });
 
   it('produces unbiased output for charsets that do not divide 256', async () => {
-    // 62-char default charset → 256 % 62 = 8 → without rejection sampling, chars 0-7 would be ~1.56x more likely
+    // 62-char default charset: 256 = 4*62 + 8, so naive `byte % 62` would map 5 byte
+    // values (instead of 4) onto each of the first 8 charset chars, making them 1.25x
+    // more likely. Rather than checking each char count (too noisy at any reasonable
+    // sample size), check the aggregate count of those 8 chars:
+    //   unbiased: n * 8/62  ≈ 1290 (stddev ~33.5)
+    //   biased:   n * 40/256 = 1562
+    // A threshold of 1425 sits ~4 stddevs from both, so it catches modulo bias
+    // reliably while false failures are astronomically unlikely (~1 in 30k runs).
     const g = new EnvGraph();
     const source = new DotEnvFileDataSource('.env.schema', {
       overrideContents: outdent`
@@ -171,13 +178,15 @@ describe('randomString()', () => {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     const counts = new Map<string, number>();
     for (const c of val) counts.set(c, (counts.get(c) ?? 0) + 1);
-    const expectedAvg = val.length / charset.length; // ~161
-    // each char should land within ±30% of expected (very loose bound; statistical safety)
+    // sanity: every charset char should appear (P(missing) ≈ e^-161 per char)
     for (const c of charset) {
-      const observed = counts.get(c) ?? 0;
-      expect(observed).toBeGreaterThan(expectedAvg * 0.7);
-      expect(observed).toBeLessThan(expectedAvg * 1.3);
+      expect(counts.get(c) ?? 0).toBeGreaterThan(0);
     }
+    let firstEightTotal = 0;
+    for (const c of charset.slice(0, 8)) {
+      firstEightTotal += counts.get(c) ?? 0;
+    }
+    expect(firstEightTotal).toBeLessThan(1425);
   });
 
   it('rejects zero length', async () => {
