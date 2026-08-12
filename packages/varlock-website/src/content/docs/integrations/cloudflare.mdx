@@ -223,6 +223,37 @@ On Unix, secrets are passed to wrangler commands via a named pipe (FIFO) and nev
 Generates Cloudflare Worker types (the `Env` interface) including all varlock-managed environment variables, so your `env.MY_VAR` access is properly typed alongside other Cloudflare bindings (KV, D1, etc.).
 </div>
 </div>
+
+----
+
+## Type-safety and IntelliSense
+
+To enable type-safety and IntelliSense for `ENV`, enable the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) in your `.env.schema`. If your schema was created using `varlock init`, it will include this by default.
+
+```diff lang="env-spec" title=".env.schema"
++# @generateTsTypes(path='env.d.ts')
+# ---
+# your config items...
+```
+
+:::caution[Add the generated file to your tsconfig]
+Worker projects scaffolded by `npm create cloudflare` ship a `tsconfig.json` whose `include` list only covers `src` and the wrangler-generated `worker-configuration.d.ts`. The generated `env.d.ts` sits at the project root, so TypeScript never loads it and `ENV` stays untyped. Add it to the `include` array:
+
+```diff lang="json" title="tsconfig.json"
+{
+  "include": [
++    "env.d.ts",
+    "worker-configuration.d.ts",
+    "src/**/*.ts"
+  ]
+}
+```
+:::
+
+This types the `ENV` object. For the native `env` parameter in your fetch handler, use [`varlock-wrangler types`](#varlock-wrangler-types) to generate an `Env` interface that includes your varlock-managed vars alongside your other Cloudflare bindings.
+
+----
+
 ## Log redaction and leak prevention
 
 Both integration approaches automatically enable **log redaction** (sensitive values are masked in console output) and **response leak detection** (responses are scanned for accidentally exposed secrets). These are enabled by default and can be disabled in your `.env.schema` using root decorators:
@@ -345,6 +376,10 @@ Your worker is missing the Node.js compatibility layer. Add `nodejs_compat` to `
 ### `.dev.vars` conflicts with the Vite plugin
 
 Delete `.dev.vars` and `.dev.vars.<environment>` files when using the Vite plugin or `varlock-wrangler dev`. Varlock owns env injection; leftover Wrangler env files cause hard errors.
+
+### `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
+
+The generated types file is not being loaded by TypeScript. Make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled in your `.env.schema`, and that the generated file (usually `env.d.ts`) is listed in your `tsconfig.json` `include` array. See [Type-safety and IntelliSense](#type-safety-and-intellisense) above.
 
 ### Vars or secrets missing after deploy
 
