@@ -2,6 +2,7 @@ import { cli, type Command } from 'gunshi';
 import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
 
+import { handleBrokenPipe } from './helpers/broken-pipe';
 import { strictFlags } from './strict-flags-plugin';
 
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
@@ -38,6 +39,9 @@ import { commandSpec as keychainCommandSpec } from './commands/keychain.command'
 import { commandSpec as proxyCommandSpec } from './commands/proxy.command';
 // import { commandSpec as loginCommandSpec } from './commands/login.command';
 // import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
+
+// must happen before anything writes to stdio
+handleBrokenPipe();
 
 let versionId = packageJson.version;
 if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
