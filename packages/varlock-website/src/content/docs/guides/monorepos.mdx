@@ -131,6 +131,8 @@ Monorepos often combine Node apps with Python, Go, or other runtimes. Varlock's 
 
 Run the command from the service directory (or pass `--path` to its env folder). Each language can keep its own `.env.schema`; there is no requirement to share a single root file. For more detail, see [Other languages](/integrations/other-languages/).
 
+This works the same in a repo with no JavaScript in it at all. A uv, Cargo, Go, Composer, Bundler, Gradle, or .NET workspace is recognized as a monorepo, so [`varlock flatten`](/reference/cli/project/#flatten) can follow imports up to the repo root the same way it does in a JS workspace. See [workspace root detection](/reference/cli/project/#flatten) for the markers it looks for.
+
 ## Container builds
 
 Container images often copy a single app directory, not the whole monorepo. If your schema uses `@import()` to pull files from sibling packages or the repo root, those paths must exist in the build context, otherwise the load graph fails at build time.

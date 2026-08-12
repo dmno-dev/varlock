@@ -151,6 +151,30 @@ varlock flatten [options]
 - `--out-dir <path>`: Output directory, relative to the current directory (default `.env-flat`)
 - `--include-local`: Include `.env.local` / `.env.*.local` files (excluded by default)
 - `--vendor-plugins`: Copy npm plugins into the output so no runtime install is needed. Uses the copy in your `node_modules`, downloading only any that are not installed
+- `--workspace-root <path>`: Path to the workspace root, relative to the current directory. Overrides auto-detection
+
+### Workspace root detection
+
+Flatten walks up from the current directory to find the workspace root, which sets how far out `@import()` paths can reach. It prints the root it picked and how it found it.
+
+Detection is not tied to any one language. It looks for a workspace marker at each level, taking the **outermost** match so a package that carries its own lockfile does not get mistaken for the root:
+
+| Ecosystem | Markers |
+| --- | --- |
+| JavaScript | `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`, `deno.lock`, `turbo.json`, `nx.json`, `lerna.json`, `rush.json` |
+| Python | `uv.lock`, `poetry.lock`, `pdm.lock`, `pixi.lock`, `Pipfile.lock`, `requirements.lock` |
+| Rust | `Cargo.lock` |
+| Go | `go.work` |
+| PHP | `composer.lock` |
+| Ruby | `Gemfile.lock` |
+| Elixir | `mix.lock` |
+| Java / Kotlin | `settings.gradle`, `settings.gradle.kts`, `pom.xml` |
+| C# / .NET | `*.sln`, `*.slnx`, `global.json`, `Directory.Build.props`, `Directory.Packages.props` |
+| Polyglot build systems | `MODULE.bazel`, `WORKSPACE.bazel`, `WORKSPACE`, `pants.toml`, `.buckconfig` |
+
+The search stops at the version control root (`.git`, `.hg`, `.svn`), which is also used as the root when no marker is found. This covers repos with no lockfile at all, like a Go repo with a `go.mod` per module.
+
+Pass `--workspace-root <path>` when detection has nothing to work with, most often a build context that includes neither a lockfile nor `.git`. Without it, imports reaching outside the current directory are left untouched with a warning.
 
 **Examples:**
 ```bash
@@ -162,6 +186,9 @@ varlock flatten --out-dir dist/env
 
 # Also vendor plugins for a self-contained, distroless-ready output
 varlock flatten --vendor-plugins
+
+# Set the workspace root explicitly when it can't be detected
+varlock flatten --workspace-root ../..
 ```
 
 The output directory is a generated artifact: add it to `.gitignore`, and rerun `flatten` whenever your env files change.

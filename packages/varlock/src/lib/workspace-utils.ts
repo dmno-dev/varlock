@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathExistsSync } from '@env-spec/utils/fs-utils';
 import { createDebug } from './debug';
@@ -56,6 +57,141 @@ export const JS_PACKAGE_MANAGERS: Record<JsPackageManager, JsPackageManagerMeta>
 });
 
 export type MonorepoTool = 'turborepo' | 'nx' | 'lerna';
+
+/** language/toolchain a workspace root marker belongs to */
+export type WorkspaceEcosystem = 'js' | 'python' | 'rust' | 'go' | 'php' | 'ruby' | 'elixir' | 'jvm' | 'dotnet' | 'polyglot' | 'vcs';
+
+/**
+ * Files that mark the root of a multi-package workspace, across every ecosystem varlock
+ * supports (see `@generate*Env` decorators + `varlock run`).
+ *
+ * Only markers that live at the *root* of a workspace belong here - per-package manifests
+ * (package.json, pyproject.toml, Cargo.toml, go.mod, ...) are deliberately excluded since
+ * every member has one. Markers that some tools also write per-package (Gemfile.lock,
+ * composer.lock, pom.xml) are fine because detection takes the outermost match.
+ */
+export const WORKSPACE_ROOT_MARKERS: Array<{ file: string, ecosystem: WorkspaceEcosystem }> = [
+  // JS - lockfiles come from JS_PACKAGE_MANAGERS so the two lists cannot drift
+  ...Object.values(JS_PACKAGE_MANAGERS).flatMap(
+    (pm) => pm.lockfiles.map((file) => ({ file, ecosystem: 'js' as const })),
+  ),
+  { file: 'npm-shrinkwrap.json', ecosystem: 'js' },
+  { file: 'pnpm-workspace.yaml', ecosystem: 'js' },
+  { file: 'turbo.json', ecosystem: 'js' },
+  { file: 'nx.json', ecosystem: 'js' },
+  { file: 'lerna.json', ecosystem: 'js' },
+  { file: 'rush.json', ecosystem: 'js' },
+
+  // python - uv/poetry/pdm/pixi/rye/pipenv all lock at the workspace root only
+  { file: 'uv.lock', ecosystem: 'python' },
+  { file: 'poetry.lock', ecosystem: 'python' },
+  { file: 'pdm.lock', ecosystem: 'python' },
+  { file: 'pixi.lock', ecosystem: 'python' },
+  { file: 'Pipfile.lock', ecosystem: 'python' },
+  { file: 'requirements.lock', ecosystem: 'python' }, // rye
+
+  // rust - workspace members share the root Cargo.lock
+  { file: 'Cargo.lock', ecosystem: 'rust' },
+
+  // go - go.sum/go.mod are per-module, only go.work marks a multi-module workspace
+  { file: 'go.work', ecosystem: 'go' },
+
+  { file: 'composer.lock', ecosystem: 'php' },
+  { file: 'Gemfile.lock', ecosystem: 'ruby' },
+  { file: 'mix.lock', ecosystem: 'elixir' },
+
+  // jvm - gradle settings files list the included builds, maven uses an aggregator pom
+  { file: 'settings.gradle', ecosystem: 'jvm' },
+  { file: 'settings.gradle.kts', ecosystem: 'jvm' },
+  { file: 'pom.xml', ecosystem: 'jvm' },
+
+  // dotnet - `.sln`/`.slnx` files are matched separately (they are named after the solution)
+  { file: 'global.json', ecosystem: 'dotnet' },
+  { file: 'Directory.Build.props', ecosystem: 'dotnet' },
+  { file: 'Directory.Packages.props', ecosystem: 'dotnet' },
+
+  // polyglot monorepo build systems
+  { file: 'MODULE.bazel', ecosystem: 'polyglot' },
+  { file: 'WORKSPACE.bazel', ecosystem: 'polyglot' },
+  { file: 'WORKSPACE', ecosystem: 'polyglot' },
+  { file: 'pants.toml', ecosystem: 'polyglot' },
+  { file: '.buckconfig', ecosystem: 'polyglot' },
+];
+
+/** version control roots - used as the outer boundary, and as a fallback root */
+const VCS_MARKERS = ['.git', '.hg', '.svn'];
+
+/** single readdir per directory - cheaper than stat-ing every marker, and finds `.sln` files */
+function findRootMarkerInDir(dir: string) {
+  let entryNames: Array<string>;
+  try {
+    entryNames = fs.readdirSync(dir);
+  } catch {
+    return undefined; // unreadable dir - treat as no marker
+  }
+  const entries = new Set(entryNames);
+  const marker = WORKSPACE_ROOT_MARKERS.find((m) => entries.has(m.file));
+  if (marker) return marker;
+  // .NET solution files are named after the solution, so they can't be a fixed marker
+  const solutionFile = entryNames.find((f) => f.endsWith('.sln') || f.endsWith('.slnx'));
+  if (solutionFile) return { file: solutionFile, ecosystem: 'dotnet' as const };
+}
+
+export type WorkspaceRootInfo = {
+  /** path to the workspace/monorepo root */
+  rootPath: string;
+  /** the file that identified the root (e.g. `uv.lock`, or `.git` when falling back to the VCS root) */
+  marker: string;
+  ecosystem: WorkspaceEcosystem;
+};
+
+/**
+ * Detects the root of the surrounding workspace/monorepo, in any language.
+ *
+ * Unlike `detectWorkspaceInfo` (which answers "which JS package manager runs here?" and so
+ * wants the *nearest* lockfile), this answers "how far out does this repo extend?" and takes
+ * the **outermost** marker found, bounded by the VCS root. That matters for monorepos whose
+ * members carry their own lockfile (Gemfile.lock, composer.lock, a nested package-lock.json),
+ * where the nearest match would be the package itself rather than the repo root.
+ *
+ * Falls back to the VCS root when no ecosystem marker is found, and returns undefined when
+ * there is nothing to go on (e.g. a build context with neither a lockfile nor `.git`).
+ */
+export function detectWorkspaceRoot(opts?: {
+  cwd?: string,
+}): WorkspaceRootInfo | undefined {
+  debug('Detecting workspace root');
+  let currentDir = path.resolve(opts?.cwd || process.cwd());
+  const homeDir = os.homedir();
+  let outermostMarker: WorkspaceRootInfo | undefined;
+  let vcsRoot: WorkspaceRootInfo | undefined;
+
+  while (currentDir) {
+    debug(`> scanning ${currentDir}`);
+    const scanDir = currentDir;
+    const marker = findRootMarkerInDir(scanDir);
+    if (marker) {
+      debug(`> found ${marker.file}`);
+      outermostMarker = { rootPath: scanDir, marker: marker.file, ecosystem: marker.ecosystem };
+    }
+
+    // the VCS root is the outer boundary - nothing above it is part of this repo
+    const vcsMarker = VCS_MARKERS.find((m) => pathExistsSync(path.join(scanDir, m)));
+    if (vcsMarker) {
+      debug(`> found VCS root ${vcsMarker}`);
+      vcsRoot = { rootPath: scanDir, marker: vcsMarker, ecosystem: 'vcs' };
+      break;
+    }
+
+    // don't walk above the user's home dir, or past the filesystem root
+    if (currentDir === homeDir) break;
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+
+  return outermostMarker ?? vcsRoot;
+}
 
 export type WorkspaceInfo = {
   /** detected JS package manager */

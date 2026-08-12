@@ -275,6 +275,7 @@ A few behaviors worth knowing (see the [command reference](/reference/cli/projec
 - `.env.local` / `.env.[env].local` files are **skipped by default**, so machine-local secrets don't end up in image layers. Use `--include-local` if you really want them.
 - Conditionally-enabled imports (`enabled=`) are copied too, with their conditions preserved, since production may enable imports your build machine doesn't.
 - `@plugin()` declarations in copied files get pinned to the installed version, so the standalone binary can [auto-install them](/guides/plugins/) in the container without the sibling package's `node_modules`.
+- The workspace root sets how far out imports can reach. It is detected from a lockfile or workspace config in any language (`uv.lock`, `Cargo.lock`, `go.work`, `composer.lock`, `pnpm-lock.yaml`, and so on), falling back to the `.git` root. Flatten prints the root it picked. If your build context has neither, pass [`--workspace-root <path>`](/reference/cli/project/#flatten).
 
 ### Alternative: copy imported files explicitly
 

@@ -1,11 +1,13 @@
 import { define } from 'gunshi';
 import path from 'node:path';
+import fs from 'node:fs';
 import ansis from 'ansis';
+import { pathExistsSync } from '@env-spec/utils/fs-utils';
 
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { flattenEnvFiles, FlattenError } from '../../lib/flatten';
-import { detectWorkspaceInfo } from '../../lib/workspace-utils';
+import { detectWorkspaceRoot } from '../../lib/workspace-utils';
 
 export const commandSpec = define({
   name: 'flatten',
@@ -26,6 +28,10 @@ export const commandSpec = define({
       description: 'Copy npm plugins into the output so no runtime install is needed (for shell-less/offline/distroless runtimes). Uses the installed copy, downloading only if absent',
       default: false,
     },
+    'workspace-root': {
+      type: 'string',
+      description: 'Path to the workspace/monorepo root (auto-detected by default). Imports outside of it cannot be flattened',
+    },
   },
   examples: `
 In a monorepo, a package's env files may @import files from sibling packages or the
@@ -41,6 +47,7 @@ Examples:
   varlock flatten --out-dir dist/env # custom output location
   varlock flatten --include-local    # also include .env.local files (careful - these often hold secrets)
   varlock flatten --vendor-plugins   # also copy npm plugins into the output (self-contained, no runtime install)
+  varlock flatten --workspace-root ../..  # set the monorepo root explicitly (when auto-detection can't)
 
 Typical Dockerfile usage (builder stage has the full monorepo):
   RUN cd packages/api && varlock flatten
@@ -50,13 +57,53 @@ Typical Dockerfile usage (builder stage has the full monorepo):
 `.trim(),
 });
 
+/**
+ * Resolves the workspace root that bounds which imports can be flattened - either the
+ * explicit `--workspace-root` (validated) or auto-detection, which works in any language.
+ * When nothing is found the package itself is used, so only its own env files are flattened.
+ */
+export function resolveWorkspaceRoot(opts: {
+  packageDir: string,
+  explicitRoot?: string,
+}): { workspaceRootPath: string, source: 'explicit' | 'detected' | 'fallback', marker?: string } {
+  const { packageDir } = opts;
+
+  if (opts.explicitRoot) {
+    let workspaceRootPath = path.resolve(packageDir, opts.explicitRoot);
+    if (!pathExistsSync(workspaceRootPath)) {
+      throw new CliExitError(`--workspace-root does not exist: ${workspaceRootPath}`);
+    }
+    // cwd is already symlink-resolved, so resolve the given path too before comparing them
+    workspaceRootPath = fs.realpathSync(workspaceRootPath);
+    const relFromRoot = path.relative(workspaceRootPath, packageDir);
+    if (relFromRoot.startsWith('..') || path.isAbsolute(relFromRoot)) {
+      throw new CliExitError(`--workspace-root must contain the current directory: ${workspaceRootPath}`, {
+        suggestion: `current directory is ${packageDir}`,
+      });
+    }
+    return { workspaceRootPath, source: 'explicit' };
+  }
+
+  const detectedRoot = detectWorkspaceRoot({ cwd: packageDir });
+  if (!detectedRoot) return { workspaceRootPath: packageDir, source: 'fallback' };
+  return { workspaceRootPath: detectedRoot.rootPath, source: 'detected', marker: detectedRoot.marker };
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const packageDir = process.cwd();
-  const workspaceInfo = detectWorkspaceInfo({ cwd: packageDir });
-  const workspaceRootPath = workspaceInfo?.rootPath || packageDir;
 
-  if (!workspaceInfo) {
-    console.log(ansis.yellow('No workspace root detected (no lockfile found) - imports reaching outside the current directory cannot be flattened'));
+  const explicitRootArg = ctx.values['workspace-root'];
+  const { workspaceRootPath, source, marker } = resolveWorkspaceRoot({
+    packageDir,
+    explicitRoot: explicitRootArg ? String(explicitRootArg) : undefined,
+  });
+
+  if (source === 'fallback') {
+    console.log(ansis.yellow('No workspace root detected (no lockfile, workspace config, or .git found) - imports reaching outside the current directory cannot be flattened'));
+    console.log(ansis.gray('Pass --workspace-root <path> to set it explicitly'));
+  } else {
+    const how = source === 'explicit' ? '--workspace-root' : `detected via ${marker}`;
+    console.log(ansis.gray(`Workspace root: ${path.relative(packageDir, workspaceRootPath) || '.'} (${how})`));
   }
 
   let result;
