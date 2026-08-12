@@ -190,6 +190,7 @@ export function detectWorkspaceRoot(opts?: {
     currentDir = parentDir;
   }
 
+  if (vcsRoot && outermostMarker?.rootPath !== vcsRoot.rootPath) return vcsRoot;
   return outermostMarker ?? vcsRoot;
 }
 

@@ -117,6 +117,13 @@ describe('detectWorkspaceRoot', () => {
     expect(result?.marker).toBe('uv.lock');
   });
 
+  test('prefers the VCS root over a nested package marker', () => {
+    writeTree(['.git/HEAD', 'services/api/Cargo.lock']);
+    const result = detectWorkspaceRoot({ cwd: subDir('services/api') });
+    expect(result?.rootPath).toBe(tempDir);
+    expect(result?.marker).toBe('.git');
+  });
+
   test('takes the outermost marker inside the repo, ignoring nested ones', () => {
     // a nested JS project inside a python monorepo
     writeTree(['uv.lock', '.git/HEAD', 'services/web/package-lock.json']);
