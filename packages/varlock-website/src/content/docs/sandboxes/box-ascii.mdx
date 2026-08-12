@@ -1,0 +1,149 @@
+---
+title: Box (ascii.dev)
+description: Run agents in Box VMs that hold only placeholders, with real secrets injected by a varlock broker box.
+---
+
+[Box](https://box.ascii.dev/) is ASCII's sandbox platform: persistent Ubuntu VMs with SSH access, a dedicated public IPv4 each, snapshot/fork, and `box prompt` to run Claude Code or Codex inside. The recommended shape here is a [broker box](#credential-proxy-the-broker-box): one box runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent boxes route through it holding only [placeholders](/guides/proxy/rules/#placeholders). This recipe was verified end to end on Box in July 2026 with stock varlock installs.
+
+## Default boxes and `--no-env`
+
+Know what a default box receives: your dashboard secrets (env vars and secret files), your GitHub token and `gh` login, your model credentials (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`), and the Claude/Codex credential files. Box's [own docs](https://docs.ascii.dev/box/secrets) list all of it. Those are real values inside a VM built to run agents, so a prompt-injected agent can read and exfiltrate every one of them.
+
+`box new --no-env` creates a box that receives none of that, and per-box `--env` flags give it values of its own. That is the seam this recipe uses: agent boxes are always `--no-env`, and the only values they ever get are placeholders and wiring. Forks of a no-env box stay no-env.
+
+## Credential proxy: the broker box
+
+The broker box runs `varlock proxy start --expose`, serving the built-in WebSocket tunnel. Agent boxes reach it with `varlock proxy run --url`, which pulls their placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing).
+
+### Schema setup
+
+Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=
+
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=
+```
+
+Egress through the proxy is permissive by default; set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header if the broker should refuse anything that does not match a rule.
+
+### Set up the broker
+
+The broker is a `--no-env` box too: real values enter only through the schema's own resolution (a plugin's secret-zero passed with `--env`), never from your Box account.
+
+One quoting note up front: `box ssh <id> -- cmd arg arg` joins the args with spaces before the remote shell parses them, which silently breaks quoting and redirects. Pass the remote command as a single quoted string, as below.
+
+```bash
+# one data-plane token, shared by the broker and every agent; generate it yourself
+export PROXY_TOKEN=$(uuidgen)
+
+# create the broker and install varlock (installs to ~/.config/varlock/bin)
+box new --no-env --env OP_SERVICE_ACCOUNT_TOKEN="$OP_SERVICE_ACCOUNT_TOKEN" --json
+# note the id and subdomain from the final "ready" event
+box ssh bx_broker 'curl -sSL https://varlock.dev/install.sh | sh'
+
+# upload the schema (plus any other .env files your project loads)
+box ssh bx_broker 'mkdir -p ~/proj && cat > ~/proj/.env.schema' < .env.schema
+
+# start the proxy detached, pinned to your token
+box ssh bx_broker "cd ~/proj && (VARLOCK_PROXY_TOKEN=$PROXY_TOKEN setsid nohup \
+  ~/.config/varlock/bin/varlock proxy start --expose --port 18080 \
+  --cert-dir ~/proj/.varlock-ca > ~/proxy.log 2>&1 < /dev/null &)"
+```
+
+The detached start is fine for a first run; for anything longer-lived, promote it to the systemd unit in [auto-stop, resume, and cost](#auto-stop-resume-and-cost) below.
+
+The env map at create carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token and the schema resolves everything else inside the broker. If some values exist only on your side, pass them the same way (`--env STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY"`), running the create under [`varlock run`](/reference/cli/load-and-run/#run) so they are your own resolved values.
+
+### Make the tunnel reachable
+
+Boxes ship with an active default-deny inbound firewall (ufw), so the dedicated IPv4 is not open until you say so. Two options, both verified:
+
+**Their HTTPS ingress (recommended).** The in-box `host` command registers `https://<subdomain>-<port>.on.ascii.dev`, opens the firewall for that port itself, and the route persists after the command exits. It must be `--public`: gated routes protect the URL with a redirect-plus-cookie flow that WebSocket upgrades cannot follow. Public is the right posture anyway, because varlock's own data-plane token gates the tunnel, and the tunnel carries TLS end to end so the ingress only sees ciphertext.
+
+```bash
+box ssh bx_broker 'host 18080 --public --title varlock-broker'
+# prints https://<subdomain>-18080.on.ascii.dev
+```
+
+**Raw IPv4.** Open the port and dial the box's IP directly (`box info <id> --json` shows it):
+
+```bash
+box ssh bx_broker 'sudo ufw allow 18080/tcp'
+# agents use ws://<broker-ip>:18080
+```
+
+### Connect agent boxes
+
+An agent box needs nothing but varlock, the broker URL, and the token:
+
+```bash
+box new --no-env --env VARLOCK_PROXY_TOKEN="$PROXY_TOKEN" --json
+box ssh bx_agent 'curl -sSL https://varlock.dev/install.sh | sh'
+box ssh bx_agent '~/.config/varlock/bin/varlock proxy run \
+  --url wss://<subdomain>-18080.on.ascii.dev -- your-agent-command'
+```
+
+`proxy run --url` self-wires the child: placeholder values for proxied secrets, `HTTP(S)_PROXY` pointing at a loopback listener that rides the tunnel, and CA trust. Confirm with `printenv ANTHROPIC_API_KEY` as the command: expect your `@placeholder` value, not the real one. On a proxied request the broker's session log shows `inject: <KEY>`, and responses that echo the secret back are scrubbed to the placeholder before the agent sees them. To watch agents, run `varlock proxy audit` (or `proxy status --watch`) inside the broker.
+
+### Egress caveat
+
+This recipe gives credential isolation, not egress lockdown. Box has no platform-level egress controls (no allowlists, no firewall API; outbound from every box is open), so nothing outside the VM can force an agent's traffic through the broker. Direct connections carry placeholders at worst, so no secrets are at stake, but a misbehaving agent could exfiltrate data over its own connections. Providers with a network policy primitive can close this gap (see [E2B](/sandboxes/e2b/) or [Fly.io](/sandboxes/flyio/)); on Box, treat agent egress as open.
+
+### Auto-stop, resume, and cost
+
+Boxes bill per second while running, so the broker should not idle. The good news: every box has an auto-stop timer (default 1 hour), so a forgotten broker archives itself and stopped boxes cost nothing. The timer is absolute, counting from creation rather than last activity, and it resets on resume; use `box extend` for longer windows or `--no-auto-stop` for an always-on broker (then it bills continuously: a `small` box runs at half rate and is plenty for the broker).
+
+Resume is a few seconds, but two things do not come back on their own, so plan for the orchestrator to do both:
+
+- There is no wake-on-connect: a tunnel connection does not resume a stopped box. Resume the broker (`box resume <id>`) before launching agents.
+- The box's IP changes on every resume; only the `<subdomain>` is stable. Use the `host` ingress URL for the tunnel, and re-register it after each resume (hosting the same port again returns the same URL).
+
+Run the proxy as an enabled systemd service so it is one command to bring back (and restarts if it crashes). The unit re-registers the `host` route on start:
+
+```ini title="/etc/systemd/system/varlock-broker.service"
+[Unit]
+Description=varlock credential proxy broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=user
+WorkingDirectory=/home/user/proj
+EnvironmentFile=/home/user/.broker-env
+ExecStart=/home/user/.config/varlock/bin/varlock proxy start --expose --port 18080 --cert-dir /home/user/proj/.varlock-ca --persist-ca
+ExecStartPost=-/bin/sh -c 'sleep 2; timeout 10 /home/user/.ascii/host 18080 --public --title varlock-broker'
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`EnvironmentFile` (make it `chmod 600`) carries `VARLOCK_PROXY_TOKEN` and your schema's bootstrap values: systemd units do not inherit the per-box `--env` vars, which Box applies to shell sessions. [`--persist-ca`](/reference/cli/proxy/#proxy) keeps the CA on the snapshotted filesystem so a restart does not invalidate agents that already trust it (verified surviving stop/resume).
+
+One caveat from live testing (July 2026): Box's docs say enabled systemd services start again automatically after resume, but in our tests the resumed machine did not re-run boot targets and the service stayed inactive. Until that is fixed platform-side, have the orchestrator kick it after resume; everything (unit, CA, ufw rules, schema) survives the snapshot, so this one command restores the whole broker:
+
+```bash
+box resume bx_broker --json
+box ssh bx_broker 'sudo systemctl start varlock-broker'
+```
+
+### Trust model and policy changes
+
+- The broker holds real secrets inside ASCII's cloud (EU regions), so their infrastructure is inside your trust boundary, same as it would be for secrets passed to any box. What changes is the blast radius: agents never hold secrets, and rotation, policy, and audit live in one place.
+- To change policy, upload the edited schema and restart the proxy (or start the broker with [`--allow-reload`](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) and run `varlock proxy reload` inside it).
+
+:::note[Compared to dashboard secrets]
+Box's native path is Dashboard > Secrets: values entered there are copied, as real values, into every default box as env vars and files. The broker keeps real values out of agent boxes entirely, sources them from wherever you already keep secrets through [plugins](/guides/plugins/), scopes each to the domains your schema allows, and gives you response scrubbing plus your own audit log.
+:::
+
+## Reference
+
+- [Credential proxy](/guides/proxy/)
+- [Sandboxes overview](/sandboxes/overview/) (topologies)
+- [`varlock proxy`](/reference/cli/proxy/#proxy) CLI
+- [Box docs](https://docs.ascii.dev/) (secrets, SSH, hosting, long-running tasks)
