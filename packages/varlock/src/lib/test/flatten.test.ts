@@ -519,6 +519,32 @@ describe('flattenEnvFiles', () => {
     expect(await loadValues(result.outDir)).toEqual({ API_ITEM: 'api-value', OUTSIDE: 1 });
   });
 
+  // `.git` is a directory normally, but a file in a worktree or submodule
+  test.each([
+    ['directory', async (gitPath: string) => fs.mkdir(gitPath)],
+    ['file (worktree)', async (gitPath: string) => fs.writeFile(gitPath, 'gitdir: /elsewhere\n')],
+  ])('warns about files copied from outside the git repo (.git as %s)', async (_label, writeGitMarker) => {
+    await writeGitMarker(path.join(workspaceDir, '.git'));
+    await writeTree({ '.env.outside': 'OUTSIDE=1\n' }, baseDir);
+    await writeTree({
+      '.env.shared': 'INNER=1\n',
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @import(../../../.env.outside)
+        # @import(../../.env.shared)
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    const result = await apiFlatten();
+
+    // only the out-of-repo file is flagged, and it is copied all the same
+    const outsideRepoWarnings = result.warnings.filter((w) => w.includes('outside the git repo'));
+    expect(outsideRepoWarnings).toHaveLength(1);
+    expect(outsideRepoWarnings[0]).toContain(path.join(baseDir, '.env.outside'));
+    expect(await readOut(result.outDir, '.env-imports/.env.outside')).toBe('OUTSIDE=1\n');
+    expect(await readOut(result.outDir, '.env-imports/repo/.env.shared')).toBe('INNER=1\n');
+  });
+
   test('absolute import paths are flattened', async () => {
     await writeTree({ 'elsewhere/.env.abs': 'ABS=1\n' }, baseDir);
     await writeTree({

@@ -138,6 +138,22 @@ async function findInstalledPlugin(
   return undefined;
 }
 
+/**
+ * Walk up from `fromDir` looking for a git repo (`.git` is a directory normally, a file in a
+ * worktree or submodule). Only used to warn about copied files from outside the repo - the
+ * repo has no bearing on which files can be flattened or where they land in the output.
+ */
+async function findGitRoot(fromDir: string): Promise<string | undefined> {
+  let currentDir = fromDir;
+  while (currentDir) {
+    if (await pathExists(path.join(currentDir, '.git'))) return currentDir;
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) return undefined;
+    currentDir = parentDir;
+  }
+  return undefined;
+}
+
 /** deepest directory containing all of the given absolute paths */
 function commonAncestorDir(absPaths: Array<string>): string {
   const fsRoot = path.parse(absPaths[0]).root;
@@ -601,6 +617,20 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
   // ---- emit ----
   for (const [srcAbs, file] of discoveredFiles) {
     await emitEnvFile(file, destPaths.get(srcAbs)!);
+  }
+
+  // Flag anything pulled in from outside the repo. It gets copied like anything else, but it is
+  // the one case where the output quietly picks up a file that is not part of this project, and
+  // it will not be there for anyone else who runs the same build.
+  const gitRoot = await findGitRoot(packageDir);
+  if (gitRoot) {
+    for (const { src } of result.copiedFiles) {
+      const relFromGitRoot = path.relative(gitRoot, src);
+      if (!relFromGitRoot.startsWith('..') && !path.isAbsolute(relFromGitRoot)) continue;
+      result.warnings.push(
+        `${src} was copied into the output from outside the git repo (${gitRoot}) - check that you meant to include it`,
+      );
+    }
   }
 
   return result;
