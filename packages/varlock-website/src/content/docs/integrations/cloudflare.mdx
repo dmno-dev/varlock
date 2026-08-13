@@ -236,8 +236,8 @@ To enable type-safety and IntelliSense for `ENV`, enable the [`@generateTsTypes`
 # your config items...
 ```
 
-:::caution[Add the generated file to your tsconfig]
-Worker projects scaffolded by `npm create cloudflare` ship a `tsconfig.json` whose `include` list only covers `src` and the wrangler-generated `worker-configuration.d.ts`. The generated `env.d.ts` sits at the project root, so TypeScript never loads it and `ENV` stays untyped. Add it to the `include` array:
+:::caution[Not seeing types on `ENV`?]
+If `ENV` stays untyped after the file is generated, TypeScript probably isn't loading it. Worker templates scaffolded by `npm create cloudflare` typically use an explicit `include` list that won't pick up a generated `env.d.ts` at the project root. Add it to the `include` array of the tsconfig that covers the code reading `ENV`:
 
 ```diff lang="json" title="tsconfig.json"
 {
@@ -248,6 +248,8 @@ Worker projects scaffolded by `npm create cloudflare` ship a `tsconfig.json` who
   ]
 }
 ```
+
+Some framework templates split their TypeScript setup into multiple referenced configs (for example `tsconfig.app.json` and `tsconfig.worker.json`). In that layout, editing the root config has no effect; add `env.d.ts` to whichever config owns the source files where you use `ENV` (or both).
 :::
 
 This types the `ENV` object. For the native `env` parameter in your fetch handler, use [`varlock-wrangler types`](#varlock-wrangler-types) to generate an `Env` interface that includes your varlock-managed vars alongside your other Cloudflare bindings.
@@ -379,7 +381,7 @@ Delete `.dev.vars` and `.dev.vars.<environment>` files when using the Vite plugi
 
 ### `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
 
-The generated types file is not being loaded by TypeScript. Make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled in your `.env.schema`, and that the generated file (usually `env.d.ts`) is listed in your `tsconfig.json` `include` array. See [Type-safety and IntelliSense](#type-safety-and-intellisense) above.
+The generated types file is not being loaded by TypeScript. Make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled in your `.env.schema`, and that the generated file (usually `env.d.ts`) is listed in the `include` array of the tsconfig that covers the code where the error appears. See [Type-safety and IntelliSense](#type-safety-and-intellisense) above.
 
 ### Vars or secrets missing after deploy
 
