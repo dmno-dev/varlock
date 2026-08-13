@@ -2,6 +2,7 @@ import {
   describe, test, expect, beforeEach,
 } from 'vitest';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import {
   varlockLoad, varlockRun, varlockPrintenv, varlockCodegen, runVarlock, VARLOCK_CLI,
@@ -568,6 +569,29 @@ describe('CLI Commands', () => {
     test('shows "Configuration is currently invalid" banner', () => {
       const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
       expect(result.output).toContain('Configuration is currently invalid');
+    });
+  });
+
+  // shell pipelines + `head` are POSIX-only
+  describe.skipIf(process.platform === 'win32')('broken pipe handling', () => {
+    // Whether we hit the broken pipe is a race between our writes and the reader exiting,
+    // so a single run can pass by luck - repeat enough that a regression can't slip through.
+    const ATTEMPTS = 10;
+
+    function pipeThroughHead(args: Array<string>) {
+      const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(VARLOCK_CLI)} ${args.join(' ')} | head -1`;
+      return spawnSync('sh', ['-c', command], {
+        cwd: SMOKE_TESTS_DIR,
+        encoding: 'utf-8',
+      });
+    }
+
+    test.each([['--help'], ['--version']])('%s piped into a reader that exits early does not crash', (arg) => {
+      for (let i = 0; i < ATTEMPTS; i++) {
+        const result = pipeThroughHead([arg]);
+        expect(result.stderr).not.toContain('EPIPE');
+        expect(result.stderr).not.toContain("Unhandled 'error' event");
+      }
     });
   });
 });
