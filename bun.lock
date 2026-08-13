@@ -164,6 +164,22 @@
         "vite": ">=5",
       },
     },
+    "packages/native-helpers/darwin": {
+      "name": "@varlock/native-helper-darwin",
+      "version": "1.16.1",
+    },
+    "packages/native-helpers/linux-arm64": {
+      "name": "@varlock/native-helper-linux-arm64",
+      "version": "1.16.1",
+    },
+    "packages/native-helpers/linux-x64": {
+      "name": "@varlock/native-helper-linux-x64",
+      "version": "1.16.1",
+    },
+    "packages/native-helpers/win32-x64": {
+      "name": "@varlock/native-helper-win32-x64",
+      "version": "1.16.1",
+    },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
       "version": "2.0.3",
@@ -476,6 +492,12 @@
         "semver": "^7.7.4",
         "tsup": "catalog:",
         "vitest": "catalog:",
+      },
+      "optionalDependencies": {
+        "@varlock/native-helper-darwin": "workspace:*",
+        "@varlock/native-helper-linux-arm64": "workspace:*",
+        "@varlock/native-helper-linux-x64": "workspace:*",
+        "@varlock/native-helper-win32-x64": "workspace:*",
       },
     },
     "packages/varlock-docs-mcp": {
@@ -1501,6 +1523,14 @@
     "@varlock/keeper-plugin": ["@varlock/keeper-plugin@workspace:packages/plugins/keeper"],
 
     "@varlock/kubernetes-plugin": ["@varlock/kubernetes-plugin@workspace:packages/plugins/kubernetes"],
+
+    "@varlock/native-helper-darwin": ["@varlock/native-helper-darwin@workspace:packages/native-helpers/darwin"],
+
+    "@varlock/native-helper-linux-arm64": ["@varlock/native-helper-linux-arm64@workspace:packages/native-helpers/linux-arm64"],
+
+    "@varlock/native-helper-linux-x64": ["@varlock/native-helper-linux-x64@workspace:packages/native-helpers/linux-x64"],
+
+    "@varlock/native-helper-win32-x64": ["@varlock/native-helper-win32-x64@workspace:packages/native-helpers/win32-x64"],
 
     "@varlock/nextjs-integration": ["@varlock/nextjs-integration@workspace:packages/integrations/nextjs"],
 

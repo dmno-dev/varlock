@@ -62,6 +62,8 @@ if (bumpyStatusRaw) {
             ...pkgJson.dependencies,
             ...pkgJson.devDependencies,
             ...pkgJson.peerDependencies,
+            // pulls the @varlock/native-helper-* platform packages into varlock previews
+            ...pkgJson.optionalDependencies,
           };
           return Object.entries(allDeps)
             .filter(([, version]) => typeof version === 'string' && (version as string).startsWith('workspace:'))
@@ -118,7 +120,11 @@ if (bumpyStatusRaw) {
 // filter out vscode extension which is not released via npm
 releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('packages/vscode-plugin'));
 
-const includesVarlock = releasePackagePaths.some((p) => p.endsWith('packages/varlock'));
+// The platform binary packages also need the native binaries staged in CI,
+// so releasing any of them counts as "includes varlock" for workflow gating.
+const includesVarlock = releasePackagePaths.some(
+  (p) => p.endsWith('packages/varlock') || p.includes(`packages${path.sep}native-helpers${path.sep}`),
+);
 
 console.log('Packages to release:', releasePackagePaths);
 console.log('Includes varlock:', includesVarlock);

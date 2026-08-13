@@ -13,4 +13,15 @@ describe('package.json structure', () => {
 
     expect(packageJson.dependencies).toEqual({});
   });
+
+  it('should only have first-party native binary packages as optionalDependencies', () => {
+    const packageJsonPath = join(__dirname, '..', 'package.json');
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+
+    const optionalDeps = Object.keys(packageJson.optionalDependencies ?? {});
+    expect(optionalDeps.length).toBeGreaterThan(0);
+    for (const dep of optionalDeps) {
+      expect(dep).toMatch(/^@varlock\/native-helper-/);
+    }
+  });
 });

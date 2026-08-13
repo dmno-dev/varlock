@@ -92,6 +92,8 @@ Varlock chooses the best available backend automatically:
 
 If native capabilities are unavailable, varlock falls back to file-based local encryption.
 
+With npm installs, the native helper arrives through per-platform optional dependencies (`@varlock/native-helper-*`), so only your platform's binary is downloaded. If your install skips optional dependencies (for example `--no-optional` / `--omit=optional`), the native helper is not installed and varlock uses the file-based fallback, with a warning printed when local encryption is used.
+
 **Verify encryption backend (macOS/Linux)**
 
 ```bash
@@ -194,11 +196,11 @@ sudo varlock-local-encrypt setup --linux-biometrics
 
 ## Antivirus false positives
 
-`varlock-local-encrypt` is Varlock's official local-encryption helper, bundled with the npm package and the standalone CLI. Microsoft Defender sometimes flags it as `Trojan:Win32/Wacatac.C!ml`, `Trojan:Script/Wacatac.C!ml`, or similar. These are generic machine-learning detections that fire on small, new, unsigned executables. The binary is safe when obtained from official Varlock releases.
+`varlock-local-encrypt` is Varlock's official local-encryption helper, installed with the npm package and the standalone CLI. Microsoft Defender sometimes flags it as `Trojan:Win32/Wacatac.C!ml`, `Trojan:Script/Wacatac.C!ml`, or similar. These are generic machine-learning detections that fire on small, new, unsigned executables. The binary is safe when obtained from official Varlock releases.
 
-This can happen on any operating system, not just Windows. The npm package ships helper binaries for every supported platform, so a scanner running on macOS or Linux may flag the Windows or Linux binary even though that file will never be executed there.
+The npm package installs the helper through per-platform optional dependencies (`@varlock/native-helper-darwin`, `-linux-x64`, `-linux-arm64`, `-win32-x64`), so you only download the binary for your own platform. One exception: the Windows helper also installs on Linux, because WSL uses it for Windows Hello and TPM support. So a scanner on Linux may still see a Windows `.exe`, but a detection against one platform's binary can no longer block installs on the others.
 
-**Verify the download.** Each [GitHub release](https://github.com/dmno-dev/varlock/releases) includes `SHA256SUMS.txt` with hashes for all native helpers. Compare your installed file against the matching `native-bins/<platform>/...` line for your release version:
+**Verify the download.** Each [GitHub release](https://github.com/dmno-dev/varlock/releases) includes `SHA256SUMS.txt` with hashes for all native helpers. In npm installs the helper lives under `node_modules/@varlock/native-helper-<platform>/`; compare it against the matching `native-bins/<platform>/...` line for your release version:
 
 ```powershell
 # Windows PowerShell

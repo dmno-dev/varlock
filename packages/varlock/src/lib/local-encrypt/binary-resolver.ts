@@ -4,8 +4,11 @@
  * Resolution order:
  * 1. SEA sibling: same directory as the running varlock binary (install.sh, standalone)
  * 1b. SEA libexec: ../libexec/ relative to the binary (homebrew convention)
- * 2. Bundled in npm package: native-bins/<platform>[-<arch>]/ within the varlock package
- * 3. Dev fallback: walk up from __dirname to find build output
+ * 2. Platform npm package: @varlock/native-helper-<platform> (installed via
+ *    varlock's optionalDependencies)
+ * 3. Bundled in npm package: native-bins/<platform>[-<arch>]/ within the varlock
+ *    package (legacy layout, and local dev builds staged by build scripts)
+ * 4. Dev fallback: walk up from __dirname to find build output
  *
  * Returns undefined if no binary is found (file-based fallback will be used instead).
  */
@@ -13,6 +16,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { isWSL } from './wsl-detect';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +72,24 @@ function getNativeBinSubdir(): string {
 }
 
 /**
+ * Get the per-platform npm package that carries the native binary for the
+ * current platform, or undefined if there is no package for it.
+ * WSL resolves the win32 package (published with os win32+linux) so the
+ * Windows helper is available for DPAPI + Windows Hello via interop.
+ */
+export function getPlatformPackageName(): string | undefined {
+  if (process.platform === 'darwin') return '@varlock/native-helper-darwin';
+  if (process.platform === 'win32') {
+    return process.arch === 'x64' ? '@varlock/native-helper-win32-x64' : undefined;
+  }
+  if (isWSL()) return '@varlock/native-helper-win32-x64';
+  if (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64')) {
+    return `@varlock/native-helper-linux-${process.arch}`;
+  }
+  return undefined;
+}
+
+/**
  * Resolve the macOS .app bundle binary path, or fall back to bare binary.
  */
 function resolveMacOSBinary(dir: string): string | undefined {
@@ -117,8 +139,28 @@ function resolveSeaSibling(): string | undefined {
 }
 
 /**
- * Strategy 2: Look for the binary bundled in the varlock npm package.
+ * Strategy 2: Resolve the binary from the per-platform npm package
+ * (@varlock/native-helper-*), installed via varlock's optionalDependencies.
+ */
+function resolvePlatformPackage(): string | undefined {
+  const pkgName = getPlatformPackageName();
+  if (!pkgName) return undefined;
+  try {
+    // createRequire may be unavailable in some bundled/compiled contexts, and
+    // require.resolve throws when the optional dep was not installed
+    const esmRequire = createRequire(import.meta.url);
+    const pkgJsonPath = esmRequire.resolve(`${pkgName}/package.json`);
+    return resolveBinaryFromDir(path.dirname(pkgJsonPath));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Strategy 3: Look for the binary bundled in the varlock npm package.
  * native-bins/<platform-subdir>/
+ * This is the pre-split layout (varlock <= 1.16.x shipped all platforms in one
+ * tarball), and also where local dev build scripts stage binaries.
  */
 function resolveNpmBundled(): string | undefined {
   const packageRoot = resolvePackageRoot();
@@ -133,7 +175,7 @@ function resolveNpmBundled(): string | undefined {
 }
 
 /**
- * Strategy 3: Development fallback — look for build output in the monorepo.
+ * Strategy 4: Development fallback — look for build output in the monorepo.
  * Walks up from __dirname looking for native binary build output
  */
 function resolveDevFallback(): string | undefined {
@@ -198,6 +240,13 @@ export function resolveNativeBinary(): string | undefined {
     return _cachedBinaryPath;
   }
 
+  const platformPackage = resolvePlatformPackage();
+  if (platformPackage) {
+    debug(`resolved via platform package: ${platformPackage}`);
+    _cachedBinaryPath = ensureExecutable(platformPackage);
+    return _cachedBinaryPath;
+  }
+
   const npmBundled = resolveNpmBundled();
   if (npmBundled) {
     debug(`resolved via npm bundled: ${npmBundled}`);
@@ -216,6 +265,21 @@ export function resolveNativeBinary(): string | undefined {
   debug(`  SEA sibling dir: ${path.dirname(process.execPath)}`);
   const packageRoot = resolvePackageRoot();
   debug(`  npm bundled dir: ${path.join(packageRoot, 'native-bins', getNativeBinSubdir())}`);
+
+  // When varlock was installed from npm on a supported platform, the native
+  // helper should have arrived via optionalDependencies. Warn loudly (once,
+  // since the result is cached) rather than silently degrading to file-based
+  // encryption. Not triggered in monorepo dev (package root not in node_modules)
+  // or SEA/homebrew installs (resolved via sibling above).
+  const expectedPkg = getPlatformPackageName();
+  if (expectedPkg && packageRoot.split(path.sep).includes('node_modules')) {
+    process.stderr.write(
+      `[varlock] Native local-encryption helper not found (expected optional dependency "${expectedPkg}"). `
+      + 'Falling back to file-based encryption. '
+      + 'Reinstalling dependencies (without --no-optional / --omit=optional) usually fixes this.\n',
+    );
+  }
+
   _cachedBinaryPath = undefined;
   return undefined;
 }
