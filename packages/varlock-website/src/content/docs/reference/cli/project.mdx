@@ -136,12 +136,12 @@ Copies every env file reachable via [`@import()`](/guides/import/) into one self
 By default, values are never resolved and plugins are never executed: this is a purely structural transform, safe to run in CI without secrets. (`--vendor-plugins` copies plugin code into the output, but still never resolves values.)
 
 Details of the transform:
-- Files imported from outside the package are mirrored under `.env-imports/` inside the output directory, preserving their workspace-relative paths, so relative imports between copied files keep working.
+- Files imported from outside the package are mirrored under `.env-imports/` inside the output directory. Their layout is preserved relative to the deepest directory that contains the package and everything being copied, so relative imports between copied files keep working. Any path that resolves on disk can be flattened, including absolute and `~/` home-directory imports; there is no repo or workspace boundary.
 - Imports that are conditionally disabled (via `enabled=`) are still copied, with the condition preserved, since a different environment may enable them at runtime.
 - `.env.local` and `.env.[env].local` files are skipped by default (use `--include-local` to include them).
 - `@plugin()` declarations in copied files get their versions pinned to whatever is currently installed, so varlock can [auto-install them](/guides/plugins/) where the original package's `node_modules` is not available. Plugins declared via a local path are copied into the output.
 - With `--vendor-plugins`, npm `@plugin()` packages are copied into `.env-plugins/` (from your `node_modules`, downloading only any that are not installed) and the declarations are rewritten to local paths, so the output resolves with no runtime install. This is the way to run plugins in shell-less, offline, or distroless images. See [plugins in containers](/integrations/docker/#distroless-and-shell-less-base-images).
-- Imports pointing outside the workspace root (including `~/` home-directory imports) are left untouched with a warning.
+- Imports that do not exist on disk still get their paths rewritten, but nothing is copied. You get a warning unless the import is marked `allowMissing=true`.
 
 ```bash
 varlock flatten [options]
