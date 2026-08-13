@@ -13,6 +13,7 @@ import {
 } from '@env-spec/parser';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { pathExists } from '@env-spec/utils/fs-utils';
+import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { downloadPluginToCache } from '../env-graph/lib/plugins';
 
 /**
@@ -152,6 +153,29 @@ async function findGitRoot(fromDir: string): Promise<string | undefined> {
     currentDir = parentDir;
   }
   return undefined;
+}
+
+/**
+ * Ask git which of `paths` are ignored. Tracked files are never reported, since git skips
+ * paths that are in the index. Returns nothing when git is unavailable or the check fails:
+ * this only drives a warning, so it must never break a flatten.
+ */
+async function findGitIgnoredPaths(gitRoot: string, paths: Array<string>): Promise<Set<string>> {
+  if (!paths.length) return new Set();
+  try {
+    // paths go in relative to the repo root, since an absolute path built from a symlinked
+    // parent (`/var` -> `/private/var` on macos) reads as outside the repo to git
+    const input = paths.map((p) => path.relative(gitRoot, p).split(path.sep).join('/')).join('\0');
+    // `--stdin -z` sidesteps arg length limits and any quoting ambiguity in the paths
+    const output = await spawnAsync('git', ['check-ignore', '-z', '--stdin'], {
+      cwd: gitRoot,
+      input: `${input}\0`,
+    });
+    return new Set(output.split('\0').filter(Boolean).map((p) => path.resolve(gitRoot, p)));
+  } catch {
+    // exit code 1 means nothing was ignored; anything else (git missing, not a repo) we skip
+    return new Set();
+  }
 }
 
 /** deepest directory containing all of the given absolute paths */
@@ -619,16 +643,27 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     await emitEnvFile(file, destPaths.get(srcAbs)!);
   }
 
-  // Flag anything pulled in from outside the repo. It gets copied like anything else, but it is
-  // the one case where the output quietly picks up a file that is not part of this project, and
-  // it will not be there for anyone else who runs the same build.
+  // Flag copied files that are not part of the project: from outside the repo, or gitignored.
+  // They are copied like anything else, but they are the cases where the output quietly picks
+  // up something that will not be there for anyone else running the same build.
   const gitRoot = await findGitRoot(packageDir);
   if (gitRoot) {
+    const inRepoPaths: Array<string> = [];
     for (const { src } of result.copiedFiles) {
       const relFromGitRoot = path.relative(gitRoot, src);
-      if (!relFromGitRoot.startsWith('..') && !path.isAbsolute(relFromGitRoot)) continue;
+      if (!relFromGitRoot.startsWith('..') && !path.isAbsolute(relFromGitRoot)) {
+        inRepoPaths.push(src);
+        continue;
+      }
       result.warnings.push(
         `${src} was copied into the output from outside the git repo (${gitRoot}) - check that you meant to include it`,
+      );
+    }
+    const gitIgnoredPaths = await findGitIgnoredPaths(gitRoot, inRepoPaths);
+    for (const src of inRepoPaths) {
+      if (!gitIgnoredPaths.has(src)) continue;
+      result.warnings.push(
+        `${relLabel(src)} is gitignored but was copied into the output - check that you meant to include it`,
       );
     }
   }

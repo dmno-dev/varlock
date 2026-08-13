@@ -142,7 +142,7 @@ Details of the transform:
 - `@plugin()` declarations in copied files get their versions pinned to whatever is currently installed, so varlock can [auto-install them](/guides/plugins/) where the original package's `node_modules` is not available. Plugins declared via a local path are copied into the output.
 - With `--vendor-plugins`, npm `@plugin()` packages are copied into `.env-plugins/` (from your `node_modules`, downloading only any that are not installed) and the declarations are rewritten to local paths, so the output resolves with no runtime install. This is the way to run plugins in shell-less, offline, or distroless images. See [plugins in containers](/integrations/docker/#distroless-and-shell-less-base-images).
 - Imports that do not exist on disk still get their paths rewritten, but nothing is copied. You get a warning unless the import is marked `allowMissing=true`.
-- Files copied from outside the git repo are flagged with a warning. They are still copied, but they are not part of the project and will not be present for anyone else running the same build.
+- Copied files that are not part of the project are flagged with a warning: ones from outside the git repo, and gitignored ones. They are still copied, but they will not be present for anyone else running the same build. Files that git tracks are never flagged, so force-added files (the common `.env*` ignored plus `git add -f .env.schema` setup) stay quiet. The gitignore check needs the `git` binary and is skipped if it is unavailable.
 
 ```bash
 varlock flatten [options]

@@ -3,6 +3,7 @@ import {
 } from 'vitest';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import outdent from 'outdent';
@@ -543,6 +544,31 @@ describe('flattenEnvFiles', () => {
     expect(outsideRepoWarnings[0]).toContain(path.join(baseDir, '.env.outside'));
     expect(await readOut(result.outDir, '.env-imports/.env.outside')).toBe('OUTSIDE=1\n');
     expect(await readOut(result.outDir, '.env-imports/repo/.env.shared')).toBe('INNER=1\n');
+  });
+
+  test('warns about gitignored files copied into the output, but not tracked ones', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: workspaceDir });
+    await writeTree({
+      // the common setup: ignore everything env-shaped, then force-add the ones that belong in git
+      '.gitignore': '.env*\n',
+      '.env.secret': 'SECRET=from-secret\n',
+      '.env.shared': 'SHARED=from-shared\n',
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @import(../../.env.secret)
+        # @import(../../.env.shared)
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    execFileSync('git', ['add', '-f', '.env.shared', `${API_DIR}/.env.schema`], { cwd: workspaceDir });
+    const result = await apiFlatten();
+
+    // only the gitignored one is flagged, and it is copied all the same
+    const gitIgnoredWarnings = result.warnings.filter((w) => w.includes('is gitignored'));
+    expect(gitIgnoredWarnings).toHaveLength(1);
+    expect(gitIgnoredWarnings[0]).toContain('.env.secret');
+    expect(await readOut(result.outDir, '.env-imports/.env.secret')).toBe('SECRET=from-secret\n');
+    expect(await readOut(result.outDir, '.env-imports/.env.shared')).toBe('SHARED=from-shared\n');
   });
 
   test('absolute import paths are flattened', async () => {
