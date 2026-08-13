@@ -11,7 +11,7 @@
  * The binary is placed in packages/varlock/native-bins/<platform>[-<arch>]/
  */
 
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -104,27 +104,14 @@ if (process.platform !== 'win32') {
   fs.chmodSync(destBinary, 0o755);
 }
 
-const rawStats = fs.statSync(destBinary);
-const rawSizeKB = Math.round(rawStats.size / 1024);
-
-// UPX compress on Linux only (macOS is not reliably supported; Windows UPX triggers AV false positives)
-const skipUpx = args.includes('--no-upx');
-const isMacOS = !target ? process.platform === 'darwin' : (target.includes('darwin') || target.includes('apple'));
-const isWindows = !target ? process.platform === 'win32' : target.includes('windows');
-if (!skipUpx && !isMacOS && !isWindows) {
-  try {
-    console.log('\nCompressing with UPX...');
-    execSync(`upx --best "${destBinary}"`, { stdio: 'inherit' });
-  } catch {
-    console.warn('UPX compression failed (is upx installed?), continuing with uncompressed binary');
-  }
-}
+// Note: binaries are intentionally shipped uncompressed. UPX packing triggers
+// generic antivirus ML detections (Defender's Wacatac.C!ml and similar), and it
+// saves nothing on the wire since npm tarballs are already gzipped.
 
 const stats = fs.statSync(destBinary);
 const sizeKB = Math.round(stats.size / 1024);
 
 console.log(`\nBuilt: ${destBinary}`);
-const sizeStr = rawSizeKB !== sizeKB ? `${sizeKB} KB (${rawSizeKB} KB before UPX)` : `${sizeKB} KB`;
-console.log(`Size: ${sizeStr}`);
+console.log(`Size: ${sizeKB} KB`);
 console.log(`Platform: ${subdir}`);
 console.log('Done!');
