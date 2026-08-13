@@ -74,7 +74,7 @@ jobs:
       # native source, the build/bundle scripts, AND the workflows that drive
       # them — anything that can change the produced binary. The leading `v1`
       # salt forces a full rebuild when something hashFiles can't see changes
-      # (runner image / Xcode / Rust / UPX toolchain) — bump it to invalidate.
+      # (runner image / Xcode / Rust toolchain) — bump it to invalidate.
       #
       # Note: the macOS .app bundle embeds a fixed constant version (hardcoded in
       # build-swift.ts, not the npm version), so the notarized bundle is

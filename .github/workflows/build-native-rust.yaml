@@ -85,11 +85,6 @@ jobs:
         if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Install UPX
-        if: contains(matrix.os, 'ubuntu')
-        shell: bash
-        run: sudo apt-get update && sudo apt-get install -y upx-ucl
-
       - name: Build release binary
         working-directory: packages/encryption-binary-rust
         run: cargo build --release --target ${{ matrix.target }}
@@ -154,25 +149,15 @@ jobs:
           ARTIFACT_DIR="native-bins/${{ matrix.native-bin-subdir }}"
           mkdir -p "$ARTIFACT_DIR"
           cp "packages/encryption-binary-rust/target/${{ matrix.target }}/release/${{ matrix.binary-name }}" "$ARTIFACT_DIR/"
-          echo "=== Binary info (before UPX) ==="
-          RAW_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
-          echo "Size: $(( RAW_SIZE / 1024 )) KB ($RAW_SIZE bytes)"
+          # Binaries ship uncompressed on every platform. UPX packing triggers
+          # generic antivirus ML detections (Defender's Wacatac.C!ml and similar),
+          # and saves nothing on the wire since npm tarballs are already gzipped.
+          echo "=== Binary info ==="
+          SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
+          echo "Size: $(( SIZE / 1024 )) KB ($SIZE bytes)"
           file "$ARTIFACT_DIR/${{ matrix.binary-name }}" || true
-          if [[ "${{ matrix.native-bin-subdir }}" != "win32-x64" ]]; then
-            echo "=== UPX compress ==="
-            upx --best "$ARTIFACT_DIR/${{ matrix.binary-name }}" || echo "UPX compression failed, continuing with uncompressed binary"
-          else
-            echo "=== UPX skipped (Windows) ==="
-          fi
-          FINAL_SIZE=$(stat --format=%s "$ARTIFACT_DIR/${{ matrix.binary-name }}" 2>/dev/null || stat -f%z "$ARTIFACT_DIR/${{ matrix.binary-name }}")
-          echo "=== Binary info (after UPX) ==="
-          echo "Size: $(( FINAL_SIZE / 1024 )) KB ($FINAL_SIZE bytes)"
-          if [ "$RAW_SIZE" != "$FINAL_SIZE" ]; then
-            RATIO=$(( FINAL_SIZE * 100 / RAW_SIZE ))
-            echo "Compression: ${RATIO}% of original"
-          fi
           echo ""
-          echo "📦 ${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}: $(( FINAL_SIZE / 1024 )) KB"
+          echo "📦 ${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}: $(( SIZE / 1024 )) KB"
 
       # Run Rust unit tests
       - name: Run unit tests

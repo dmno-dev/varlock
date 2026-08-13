@@ -21,13 +21,6 @@ Provides **NCrypt TPM-sealed** key protection on Windows when a TPM is available
   # Ubuntu/Debian
   sudo apt-get install musl-tools
   ```
-- **UPX** (optional, Linux binary compression only — not used on Windows):
-  ```sh
-  # Ubuntu/Debian
-  sudo apt-get install upx-ucl
-  # macOS (local dev only; CI does not UPX-compress macOS binaries)
-  brew install upx
-  ```
 
 ## Building
 
@@ -44,7 +37,7 @@ bun run build:windows-arm64 # aarch64-pc-windows-msvc
 
 Output goes to `packages/varlock/native-bins/<platform>/`.
 
-The build script automatically applies UPX compression on Linux (not macOS or Windows). Pass `--no-upx` to skip.
+Binaries ship uncompressed. Do not reintroduce UPX (or any other executable packer): packed binaries reliably trip generic antivirus ML detections such as Defender's `Wacatac.C!ml`, and they save nothing on the wire because npm tarballs are already gzipped (packed data does not compress further). See [#810](https://github.com/dmno-dev/varlock/issues/810) and [#1002](https://github.com/dmno-dev/varlock/issues/1002).
 
 ## Architecture
 
@@ -91,7 +84,7 @@ varlock-local-encrypt status
 
 ## CI
 
-Binaries are built in CI via `.github/workflows/build-native-rust.yaml` on native runners for each platform. Linux targets use musl for fully static binaries that work on any Linux distribution. Linux binaries are UPX-compressed in CI; Windows binaries are not (UPX triggers common antivirus false positives).
+Binaries are built in CI via `.github/workflows/build-native-rust.yaml` on native runners for each platform. Linux targets use musl for fully static binaries that work on any Linux distribution. No platform is UPX-compressed.
 
 ### Windows Authenticode signing (maintainers)
 
