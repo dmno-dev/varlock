@@ -58,6 +58,11 @@ export async function spawnAsync(
   const { input, ...spawnOpts } = opts ?? {};
   const { childProcess, execResult } = spawnAsyncHelper(command, args, spawnOpts);
   if (input !== undefined && childProcess.stdin) {
+    // A child that exits before reading its input (bad args, wrong cwd, ...) closes the pipe
+    // mid-write. Without a listener that EPIPE is an unhandled error event rather than a
+    // rejection, so it takes down the process. The exit code and stderr are the real signal
+    // here, and `execResult` already carries both.
+    childProcess.stdin.on('error', () => { /* swallowed on purpose - see above */ });
     childProcess.stdin.write(input);
     childProcess.stdin.end();
   }

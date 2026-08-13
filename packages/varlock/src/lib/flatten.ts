@@ -13,7 +13,7 @@ import {
 } from '@env-spec/parser';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { pathExists } from '@env-spec/utils/fs-utils';
-import { spawnAsync } from '@env-spec/utils/exec-helpers';
+import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { downloadPluginToCache } from '../env-graph/lib/plugins';
 
 /**
@@ -153,29 +153,6 @@ async function findGitRoot(fromDir: string): Promise<string | undefined> {
     currentDir = parentDir;
   }
   return undefined;
-}
-
-/**
- * Ask git which of `paths` are ignored. Tracked files are never reported, since git skips
- * paths that are in the index. Returns nothing when git is unavailable or the check fails:
- * this only drives a warning, so it must never break a flatten.
- */
-async function findGitIgnoredPaths(gitRoot: string, paths: Array<string>): Promise<Set<string>> {
-  if (!paths.length) return new Set();
-  try {
-    // paths go in relative to the repo root, since an absolute path built from a symlinked
-    // parent (`/var` -> `/private/var` on macos) reads as outside the repo to git
-    const input = paths.map((p) => path.relative(gitRoot, p).split(path.sep).join('/')).join('\0');
-    // `--stdin -z` sidesteps arg length limits and any quoting ambiguity in the paths
-    const output = await spawnAsync('git', ['check-ignore', '-z', '--stdin'], {
-      cwd: gitRoot,
-      input: `${input}\0`,
-    });
-    return new Set(output.split('\0').filter(Boolean).map((p) => path.resolve(gitRoot, p)));
-  } catch {
-    // exit code 1 means nothing was ignored; anything else (git missing, not a repo) we skip
-    return new Set();
-  }
 }
 
 /** deepest directory containing all of the given absolute paths */
@@ -659,9 +636,15 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
         `${src} was copied into the output from outside the git repo (${gitRoot}) - check that you meant to include it`,
       );
     }
-    const gitIgnoredPaths = await findGitIgnoredPaths(gitRoot, inRepoPaths);
-    for (const src of inRepoPaths) {
-      if (!gitIgnoredPaths.has(src)) continue;
+    // git skips paths that are in the index, so files it tracks are never reported as ignored.
+    // That keeps the common "ignore .env*, then `git add -f .env.schema`" setup quiet.
+    // Returns undefined when git cannot answer (not installed, not a repo) - this only drives a
+    // warning, so anything short of a definite yes is left alone.
+    const gitIgnored = await Promise.all(inRepoPaths.map(
+      (src) => tryCatch(() => checkIsFileGitIgnored(src), () => undefined),
+    ));
+    for (const [i, src] of inRepoPaths.entries()) {
+      if (gitIgnored[i] !== true) continue;
       result.warnings.push(
         `${relLabel(src)} is gitignored but was copied into the output - check that you meant to include it`,
       );
