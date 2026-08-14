@@ -9,7 +9,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - `packages/varlock-website` — docs site (Astro); docs content lives in `src/content/docs/`
 - `packages/vscode-plugin` — VSCode extension for @env-spec language support
 - `packages/integrations/*` — framework integrations (nextjs, vite, astro, ...)
-- `packages/native-helpers/*` — per-platform npm packages carrying the native local-encryption binaries (published as `@varlock/native-helper-*`, versioned in lockstep with `varlock`)
+- `packages/native-helpers/*` — per-platform npm publishing shells for the native helper binaries (published as `@varlock/native-helper-*`, versioned in lockstep with `varlock`); the binaries themselves are built from `packages/encryption-binary-swift` (darwin) and `packages/encryption-binary-rust` (linux/win32)
 - `packages/utils`, `packages/plugins` — shared internals
 - `packages/varlock-docs-mcp` — docs MCP server for external varlock users; do **not** use it to look things up while working on this repo — read the docs source directly
 
