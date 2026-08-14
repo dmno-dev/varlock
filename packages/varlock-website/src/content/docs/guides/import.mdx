@@ -20,6 +20,12 @@ Currently only local file imports are supported, but we plan to support importin
 
 For now, all imported files must be `.env` files (and may contain @env-spec decorators), but in the future, we may also support other formats (e.g., JSON, YAML, etc.) or even JS/TS files.
 
+:::caution[Paths on Windows]
+Import paths are written the same way on every platform. Use forward slashes, even on Windows: `@import(../shared/.env.schema)` works there, `@import(..\shared\.env.schema)` does not.
+
+Absolute Windows paths (`C:\...`, `C:/...`, and UNC paths like `\\server\share`) are not supported at all. Use a path relative to the importing file, or `~/` for a file in your home directory. The same applies to local paths passed to [`@plugin()`](/guides/plugins/).
+:::
+
 ### Single file
 
 - Path must begin with `./`, `../`, `/`, or `~/`

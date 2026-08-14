@@ -13,7 +13,9 @@ import {
 } from '@env-spec/parser';
 import { tryCatch } from '@env-spec/utils/try-catch';
 import { pathExists } from '@env-spec/utils/fs-utils';
+import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { downloadPluginToCache } from '../env-graph/lib/plugins';
+import { getWindowsPathHint } from '../env-graph/lib/path-hints';
 
 /**
  * `varlock flatten` support - copies every env file reachable via @import into a
@@ -23,8 +25,13 @@ import { downloadPluginToCache } from '../env-graph/lib/plugins';
  *
  * Layout of the output dir:
  * - files inside the package keep their package-relative position at the output root
- * - files outside the package (but inside the workspace) mirror their
- *   workspace-relative position under `.env-imports/`
+ * - files outside the package mirror their position under `.env-imports/`, relative to
+ *   the deepest directory containing the package and everything being copied
+ *
+ * That base directory is derived from the import graph itself, so any path that
+ * resolves on disk can be flattened - there is no workspace/repo boundary involved.
+ * Imported files must live in a subdirectory rather than at the output root, since the
+ * output root is auto-scanned by the loader and they would load twice.
  *
  * Because both mappings preserve directory structure, relative imports between
  * two copied files stay valid, and rewrites are simple relative-path math.
@@ -54,8 +61,6 @@ export type FlattenResult = {
 export type FlattenOptions = {
   /** the package directory whose env files are being flattened (defaults to cwd) */
   packageDir: string;
-  /** workspace/monorepo root - imports outside of it cannot be flattened */
-  workspaceRootPath: string;
   /** output directory, relative to packageDir unless absolute (default `.env-flat`) */
   outDir?: string;
   /** include .env.local / .env.*.local files (default false - they usually hold machine-local secrets) */
@@ -112,11 +117,10 @@ function makeStaticPathValue(newPath: string, quote?: '"' | "'" | '`') {
   return new ParsedEnvSpecStaticValue({ rawValue: newPath });
 }
 
-/** walk up from `fromDir` (stopping at workspaceRoot) looking for node_modules/<moduleName> */
+/** walk up from `fromDir` looking for node_modules/<moduleName>, the same way node resolves */
 async function findInstalledPlugin(
   moduleName: string,
   fromDir: string,
-  workspaceRootPath: string,
 ): Promise<{ version: string, dir: string } | undefined> {
   let currentDir = fromDir;
   while (currentDir) {
@@ -129,7 +133,6 @@ async function findInstalledPlugin(
       );
       if (packageJson?.version) return { version: packageJson.version as string, dir: pluginDir };
     }
-    if (currentDir === workspaceRootPath) break;
     const parentDir = path.dirname(currentDir);
     if (parentDir === currentDir) break;
     currentDir = parentDir;
@@ -137,9 +140,58 @@ async function findInstalledPlugin(
   return undefined;
 }
 
+/**
+ * Walk up from `fromDir` looking for a git repo (`.git` is a directory normally, a file in a
+ * worktree or submodule). Only used to warn about copied files from outside the repo - the
+ * repo has no bearing on which files can be flattened or where they land in the output.
+ */
+async function findGitRoot(fromDir: string): Promise<string | undefined> {
+  let currentDir = fromDir;
+  while (currentDir) {
+    if (await pathExists(path.join(currentDir, '.git'))) return currentDir;
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) return undefined;
+    currentDir = parentDir;
+  }
+  return undefined;
+}
+
+/** deepest directory containing all of the given absolute paths */
+function commonAncestorDir(absPaths: Array<string>): string {
+  const fsRoot = path.parse(absPaths[0]).root;
+  let commonParts = absPaths[0].split(path.sep);
+  for (const absPath of absPaths.slice(1)) {
+    const parts = absPath.split(path.sep);
+    let i = 0;
+    while (i < commonParts.length && i < parts.length && commonParts[i] === parts[i]) i++;
+    commonParts = commonParts.slice(0, i);
+  }
+  const common = commonParts.join(path.sep);
+  // guards against posix `''` and windows `C:` (a drive-relative path, not the drive root)
+  return common.length >= fsRoot.length ? common : fsRoot;
+}
+
+/** an `@import()` found during discovery, resolved to an absolute path but not yet rewritten */
+type DiscoveredImport = {
+  args: ParsedEnvSpecFunctionArgs;
+  pathArg: ParsedEnvSpecStaticValue;
+  importPathStr: string;
+  isDirImport: boolean;
+  targetAbs: string;
+};
+
+/** an env file reached from the package, held in memory until output paths are known */
+type DiscoveredFile = {
+  srcAbs: string;
+  rawContents: string;
+  /** undefined when the file could not be parsed - it gets copied as-is */
+  parsedFile?: ParsedEnvSpecFile;
+  imports: Array<DiscoveredImport>;
+  pluginDecorators: Array<ParsedEnvSpecDecorator>;
+};
+
 export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResult> {
   const packageDir = path.resolve(opts.packageDir);
-  const workspaceRootPath = path.resolve(opts.workspaceRootPath);
   const outDir = path.resolve(packageDir, opts.outDir || '.env-flat');
   const includeLocal = !!opts.includeLocal;
   const vendorPlugins = !!opts.vendorPlugins;
@@ -160,9 +212,13 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
   // dedupe downloads: `${moduleName}@${version}` -> absolute dest plugin dir
   const vendoredPluginDirs = new Map<string, string>();
 
-  // src abs path -> dest abs path, for everything already handled (also breaks import cycles)
-  const processedFiles = new Map<string, string>();
-  const processedDirs = new Set<string>();
+  // every env file reached from the package, in discovery order (also breaks import cycles)
+  const discoveredFiles = new Map<string, DiscoveredFile>();
+  const discoveredDirs = new Set<string>();
+  // absolute paths outside the package that will be copied - they decide the mirror base dir
+  const externalSrcPaths = new Set<string>();
+  // local-path plugin sources already copied into the output
+  const copiedPluginSources = new Set<string>();
   // dest -> src, to detect the (unlikely) case of two sources mapping to the same output path
   const claimedDests = new Map<string, string>();
 
@@ -171,17 +227,36 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     return rel.startsWith('..') ? absPath : rel;
   }
 
-  /** maps a source path to its output location; undefined = not flattenable (outside the workspace) */
-  function getDestPath(srcAbs: string): string | undefined {
+  function isInsidePackage(srcAbs: string) {
+    const rel = path.relative(packageDir, srcAbs);
+    return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+  }
+
+  /** register a path that lives outside the package, so it is accounted for in the mirror base */
+  function noteExternalPath(srcAbs: string) {
+    if (!isInsidePackage(srcAbs)) externalSrcPaths.add(srcAbs);
+  }
+
+  /**
+   * Deepest directory containing the package and everything being copied. External files
+   * mirror their position relative to it, which keeps the mapping injective (so no two
+   * sources can collide) and preserves the relative layout between copied files.
+   * Only meaningful once discovery has finished - assigned before any output path is computed.
+   */
+  let importsBaseDir = packageDir;
+
+  /** maps a source path to its output location */
+  function getDestPath(srcAbs: string): string {
     const relFromPackage = path.relative(packageDir, srcAbs);
     if (relFromPackage && !relFromPackage.startsWith('..') && !path.isAbsolute(relFromPackage)) {
       return path.join(outDir, relFromPackage);
     }
-    const relFromRoot = path.relative(workspaceRootPath, srcAbs);
-    if (!relFromRoot.startsWith('..') && !path.isAbsolute(relFromRoot)) {
-      return path.join(outDir, IMPORTS_DIR_NAME, relFromRoot);
+    const relFromBase = path.relative(importsBaseDir, srcAbs);
+    if (relFromBase.startsWith('..') || path.isAbsolute(relFromBase)) {
+      // only reachable when paths share no root at all (e.g. two windows drives)
+      throw new FlattenError(`cannot flatten "${srcAbs}" - it shares no parent directory with ${packageDir}`);
     }
-    return undefined;
+    return path.join(outDir, IMPORTS_DIR_NAME, relFromBase);
   }
 
   function claimDest(destAbs: string, srcAbs: string) {
@@ -216,8 +291,8 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
 
   /** copy a local-path plugin source (single file or self-contained package dir) into the output */
   async function copyPluginSource(pluginAbs: string, destAbs: string, label: string) {
-    if (processedFiles.has(pluginAbs)) return;
-    processedFiles.set(pluginAbs, destAbs);
+    if (copiedPluginSources.has(pluginAbs)) return;
+    copiedPluginSources.add(pluginAbs);
     claimDest(destAbs, pluginAbs);
     await fs.mkdir(path.dirname(destAbs), { recursive: true });
     await fs.cp(pluginAbs, destAbs, { recursive: true, dereference: true });
@@ -251,18 +326,22 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     return destPluginDir;
   }
 
-  async function rewriteImportDecorator(
+  /**
+   * Resolve an `@import()` to an absolute path and follow it, recording the edge so it can be
+   * rewritten once every output path is known. Returns undefined for imports that are left
+   * alone (dynamic paths, unsupported protocols).
+   */
+  async function discoverImport(
     dec: ParsedEnvSpecDecorator,
     srcAbs: string,
-    destAbs: string,
-  ): Promise<boolean> {
+  ): Promise<DiscoveredImport | undefined> {
     const args = getFnArgs(dec);
-    if (!args || !args.values.length) return false;
+    if (!args || !args.values.length) return;
     const pathArg = args.values[0];
     // dynamic import paths are a load-time error anyway - nothing to rewrite
-    if (!(pathArg instanceof ParsedEnvSpecStaticValue)) return false;
+    if (!(pathArg instanceof ParsedEnvSpecStaticValue)) return;
     const importPathStr = String(pathArg.value ?? '');
-    if (!importPathStr) return false;
+    if (!importPathStr) return;
 
     const isDirImport = importPathStr.endsWith('/');
 
@@ -274,18 +353,18 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     } else if (importPathStr.startsWith('/')) {
       targetAbs = path.resolve(importPathStr);
     } else {
-      // http(s):// and npm: imports are not supported by the loader yet
-      return false;
+      // http(s):// and npm: imports are not supported by the loader yet, so there is nothing to
+      // copy. A windows-native path is a mistake rather than a future feature, so it gets said out
+      // loud here instead of only failing later at load time.
+      const windowsPathHint = getWindowsPathHint(importPathStr);
+      if (windowsPathHint) {
+        result.warnings.push(`@import(${importPathStr}) in ${relLabel(srcAbs)} was left untouched - ${windowsPathHint}`);
+      }
+      return;
     }
 
     const target = targetAbs;
-    const destTarget = getDestPath(target);
-    if (!destTarget) {
-      result.warnings.push(
-        `@import(${importPathStr}) in ${relLabel(srcAbs)} points outside the workspace root and was left untouched - it must exist at that same path wherever the flattened output is used`,
-      );
-      return false;
-    }
+    noteExternalPath(target);
 
     const allowMissing = getStaticKwarg(args, 'allowMissing') === true;
     const fsStat = await tryCatch(async () => fs.stat(target), () => undefined);
@@ -295,7 +374,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
       }
     } else if (isDirImport) {
       // eslint-disable-next-line no-use-before-define
-      if (fsStat.isDirectory()) await processDirectory(target);
+      if (fsStat.isDirectory()) await discoverDirectory(target);
     } else if (fsStat.isFile()) {
       const fileName = path.basename(target);
       if (isLocalEnvFileName(fileName) && !includeLocal) {
@@ -305,15 +384,68 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
         );
       } else {
         // eslint-disable-next-line no-use-before-define
-        await processEnvFile(target);
+        await discoverEnvFile(target);
       }
     }
 
-    let newImportPath = relativeImportPath(path.dirname(destAbs), destTarget);
-    if (isDirImport) newImportPath += '/';
-    if (newImportPath === importPathStr) return false;
-    args.data.values[0] = makeStaticPathValue(newImportPath, pathArg.data.quote);
-    return true;
+    return {
+      args, pathArg, importPathStr, isDirImport, targetAbs: target,
+    };
+  }
+
+  /** note a local-path `@plugin()` source so it is accounted for when picking the mirror base */
+  function noteLocalPluginPath(dec: ParsedEnvSpecDecorator, srcAbs: string) {
+    const args = getFnArgs(dec);
+    if (!args || !args.values.length) return;
+    const sourceArg = args.values[0];
+    if (!(sourceArg instanceof ParsedEnvSpecStaticValue)) return;
+    const sourceDescriptor = String(sourceArg.value ?? '');
+    if (!sourceDescriptor.startsWith('./') && !sourceDescriptor.startsWith('../') && !sourceDescriptor.startsWith('/')) return;
+    noteExternalPath(path.resolve(path.dirname(srcAbs), sourceDescriptor));
+  }
+
+  /** read + parse an env file and follow its imports, without writing anything yet */
+  async function discoverEnvFile(srcAbs: string): Promise<void> {
+    if (discoveredFiles.has(srcAbs)) return;
+    const file: DiscoveredFile = {
+      srcAbs, rawContents: '', imports: [], pluginDecorators: [],
+    };
+    discoveredFiles.set(srcAbs, file); // set before recursing - breaks import cycles
+    noteExternalPath(srcAbs);
+
+    file.rawContents = await fs.readFile(srcAbs, 'utf8');
+    try {
+      file.parsedFile = parseEnvSpecDotEnvFile(file.rawContents);
+    } catch {
+      result.warnings.push(`${relLabel(srcAbs)} could not be parsed - copied as-is without processing imports`);
+      return;
+    }
+
+    // note: root decorators only - @import/@plugin are only valid in the file header
+    for (const dec of file.parsedFile.decoratorsArray) {
+      if (dec.name === 'import') {
+        const discoveredImport = await discoverImport(dec, srcAbs);
+        if (discoveredImport) file.imports.push(discoveredImport);
+      } else if (dec.name === 'plugin') {
+        file.pluginDecorators.push(dec);
+        noteLocalPluginPath(dec, srcAbs);
+      }
+    }
+  }
+
+  /** follow all env files in an imported directory (directory imports load top-level .env.* files only) */
+  async function discoverDirectory(dirAbs: string): Promise<void> {
+    if (discoveredDirs.has(dirAbs)) return;
+    discoveredDirs.add(dirAbs);
+    const entries = await fs.readdir(dirAbs, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !isEnvFileName(entry.name)) continue;
+      if (isLocalEnvFileName(entry.name) && !includeLocal) {
+        result.skippedLocalFiles.push(path.join(dirAbs, entry.name));
+        continue;
+      }
+      await discoverEnvFile(path.join(dirAbs, entry.name));
+    }
   }
 
   async function rewritePluginDecorator(
@@ -332,12 +464,6 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     if (sourceDescriptor.startsWith('./') || sourceDescriptor.startsWith('../') || sourceDescriptor.startsWith('/')) {
       const pluginAbs = path.resolve(path.dirname(srcAbs), sourceDescriptor);
       const destPlugin = getDestPath(pluginAbs);
-      if (!destPlugin) {
-        result.warnings.push(
-          `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} points outside the workspace root and was left untouched`,
-        );
-        return false;
-      }
       if (!(await pathExists(pluginAbs))) {
         result.warnings.push(`@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} does not exist - left untouched`);
         return false;
@@ -352,6 +478,13 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     // other protocols are not supported by the plugin loader yet
     if (/^(https?|npm|jsr|git):/.test(sourceDescriptor)) return false;
 
+    // a windows-native path would fall through to the npm module handling below
+    const windowsPathHint = getWindowsPathHint(sourceDescriptor);
+    if (windowsPathHint) {
+      result.warnings.push(`@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} was left untouched - ${windowsPathHint}`);
+      return false;
+    }
+
     const atLocation = sourceDescriptor.indexOf('@', 1);
     const moduleName = atLocation === -1 ? sourceDescriptor : sourceDescriptor.slice(0, atLocation);
     const versionDescriptor = atLocation === -1 ? undefined : sourceDescriptor.slice(atLocation + 1);
@@ -365,7 +498,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     if (vendorPlugins) {
       // vendor every npm plugin (package-internal included) so the artifact needs no node_modules
       // and no runtime npm fetch - rewrite the declaration to point at the copied local package
-      const installed = await findInstalledPlugin(moduleName, path.dirname(srcAbs), workspaceRootPath);
+      const installed = await findInstalledPlugin(moduleName, path.dirname(srcAbs));
 
       // prefer copying the installed package (no network); only fall back to downloading when the
       // resolved version is not what is installed locally (or nothing is installed at all)
@@ -416,7 +549,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     // there now; at runtime varlock can then auto-download it if it is not installed locally
     if (pinnedExact) return false; // already pinned
 
-    const installed = await findInstalledPlugin(moduleName, path.dirname(srcAbs), workspaceRootPath);
+    const installed = await findInstalledPlugin(moduleName, path.dirname(srcAbs));
     if (!installed) {
       result.warnings.push(
         `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} could not be resolved to pin a version - install the plugin in this package or pin an exact version manually`,
@@ -434,60 +567,35 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     return true;
   }
 
-  async function processEnvFile(srcAbs: string): Promise<void> {
-    if (processedFiles.has(srcAbs)) return;
-    const destAbs = getDestPath(srcAbs);
-    if (!destAbs) return; // callers only pass mappable paths, but guard anyway
-    processedFiles.set(srcAbs, destAbs); // set before recursing - breaks import cycles
-    claimDest(destAbs, srcAbs);
+  /** rewrite a discovered file's decorators against the now-known output paths, and write it */
+  async function emitEnvFile(file: DiscoveredFile, destAbs: string): Promise<void> {
+    let modified = false;
 
-    const rawContents = await fs.readFile(srcAbs, 'utf8');
-    let parsedFile: ParsedEnvSpecFile | undefined;
-    try {
-      parsedFile = parseEnvSpecDotEnvFile(rawContents);
-    } catch {
-      parsedFile = undefined;
+    for (const discoveredImport of file.imports) {
+      const {
+        args, pathArg, importPathStr, isDirImport, targetAbs,
+      } = discoveredImport;
+      let newImportPath = relativeImportPath(path.dirname(destAbs), getDestPath(targetAbs));
+      if (isDirImport) newImportPath += '/';
+      if (newImportPath === importPathStr) continue;
+      args.data.values[0] = makeStaticPathValue(newImportPath, pathArg.data.quote);
+      modified = true;
     }
 
-    let modified = false;
-    if (parsedFile) {
-      // note: root decorators only - @import/@plugin are only valid in the file header
-      for (const dec of parsedFile.decoratorsArray) {
-        if (dec.name === 'import') {
-          modified = (await rewriteImportDecorator(dec, srcAbs, destAbs)) || modified;
-        } else if (dec.name === 'plugin') {
-          modified = (await rewritePluginDecorator(dec, srcAbs, destAbs)) || modified;
-        }
-      }
-    } else {
-      result.warnings.push(`${relLabel(srcAbs)} could not be parsed - copied as-is without processing imports`);
+    for (const dec of file.pluginDecorators) {
+      modified = (await rewritePluginDecorator(dec, file.srcAbs, destAbs)) || modified;
     }
 
     await fs.mkdir(path.dirname(destAbs), { recursive: true });
-    if (parsedFile && modified) {
-      let serialized = parsedFile.toString();
-      if (rawContents.endsWith('\n') && !serialized.endsWith('\n')) serialized += '\n';
+    if (modified && file.parsedFile) {
+      let serialized = file.parsedFile.toString();
+      if (file.rawContents.endsWith('\n') && !serialized.endsWith('\n')) serialized += '\n';
       await fs.writeFile(destAbs, serialized, 'utf8');
     } else {
       // untouched files are copied byte-for-byte
-      await fs.copyFile(srcAbs, destAbs);
+      await fs.copyFile(file.srcAbs, destAbs);
     }
-    result.copiedFiles.push({ src: srcAbs, dest: destAbs });
-  }
-
-  /** copy all env files in an imported directory (directory imports load top-level .env.* files only) */
-  async function processDirectory(dirAbs: string): Promise<void> {
-    if (processedDirs.has(dirAbs)) return;
-    processedDirs.add(dirAbs);
-    const entries = await fs.readdir(dirAbs, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isFile() || !isEnvFileName(entry.name)) continue;
-      if (isLocalEnvFileName(entry.name) && !includeLocal) {
-        result.skippedLocalFiles.push(path.join(dirAbs, entry.name));
-        continue;
-      }
-      await processEnvFile(path.join(dirAbs, entry.name));
-    }
+    result.copiedFiles.push({ src: file.srcAbs, dest: destAbs });
   }
 
   // start fresh on every run
@@ -495,7 +603,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     await fs.rm(outDir, { recursive: true, force: true });
   }
 
-  // process the package's own env files - everything else is reached via imports
+  // ---- discovery: the package's own env files, then everything they reach via @import ----
   const packageEntries = await fs.readdir(packageDir, { withFileTypes: true });
   let foundAnyEnvFile = false;
   for (const entry of packageEntries) {
@@ -505,10 +613,56 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
       result.skippedLocalFiles.push(path.join(packageDir, entry.name));
       continue;
     }
-    await processEnvFile(path.join(packageDir, entry.name));
+    await discoverEnvFile(path.join(packageDir, entry.name));
   }
   if (!foundAnyEnvFile) {
     throw new FlattenError(`no .env files found in ${packageDir}`);
+  }
+
+  // ---- everything reachable is known, so the mirror base (and every output path) can be fixed ----
+  importsBaseDir = commonAncestorDir([packageDir, ...externalSrcPaths]);
+
+  const destPaths = new Map<string, string>();
+  for (const srcAbs of discoveredFiles.keys()) {
+    const destAbs = getDestPath(srcAbs);
+    claimDest(destAbs, srcAbs);
+    destPaths.set(srcAbs, destAbs);
+  }
+
+  // ---- emit ----
+  for (const [srcAbs, file] of discoveredFiles) {
+    await emitEnvFile(file, destPaths.get(srcAbs)!);
+  }
+
+  // Flag copied files that are not part of the project: from outside the repo, or gitignored.
+  // They are copied like anything else, but they are the cases where the output quietly picks
+  // up something that will not be there for anyone else running the same build.
+  const gitRoot = await findGitRoot(packageDir);
+  if (gitRoot) {
+    const inRepoPaths: Array<string> = [];
+    for (const { src } of result.copiedFiles) {
+      const relFromGitRoot = path.relative(gitRoot, src);
+      if (!relFromGitRoot.startsWith('..') && !path.isAbsolute(relFromGitRoot)) {
+        inRepoPaths.push(src);
+        continue;
+      }
+      result.warnings.push(
+        `${src} was copied into the output from outside the git repo (${gitRoot}) - check that you meant to include it`,
+      );
+    }
+    // git skips paths that are in the index, so files it tracks are never reported as ignored.
+    // That keeps the common "ignore .env*, then `git add -f .env.schema`" setup quiet.
+    // Returns undefined when git cannot answer (not installed, not a repo) - this only drives a
+    // warning, so anything short of a definite yes is left alone.
+    const gitIgnored = await Promise.all(inRepoPaths.map(
+      (src) => tryCatch(() => checkIsFileGitIgnored(src), () => undefined),
+    ));
+    for (const [i, src] of inRepoPaths.entries()) {
+      if (gitIgnored[i] !== true) continue;
+      result.warnings.push(
+        `${relLabel(src)} is gitignored but was copied into the output - check that you meant to include it`,
+      );
+    }
   }
 
   return result;

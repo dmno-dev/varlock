@@ -19,6 +19,7 @@ import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
 import { type KeyFilter, keyMatchesFilter, parseKeyFilterArgs } from './key-filter';
+import { getWindowsPathHint } from './path-hints';
 
 /**
  * Whether `key` passes a single import's filter — the deprecated positional allowlist
@@ -564,7 +565,12 @@ export abstract class EnvGraphDataSource {
             this._errors.push(new LoadingError('npm imports not supported yet'));
             return;
           } else {
-            this._errors.push(new LoadingError('unsupported import type'));
+            const windowsPathHint = getWindowsPathHint(importPath);
+            this._errors.push(new LoadingError(
+              windowsPathHint
+                ? `unsupported import path "${importPath}" - ${windowsPathHint}`
+                : 'unsupported import type',
+            ));
             return;
           }
         } catch (err) {
