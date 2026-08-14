@@ -28,6 +28,7 @@ import {
   CoercionError, LoadingError, ResolutionError, SchemaError, ValidationError, VarlockError,
 } from './errors';
 import { getErrorLocation } from './error-location';
+import { getWindowsPathHint } from './path-hints';
 import { createResolver, type ResolverDef } from './resolver';
 import type {
   DecoratorInstance, ItemDecoratorDef, RootDecoratorDef, RootDecoratorInstance,
@@ -680,6 +681,11 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             // in this case, the bad path is the user's fault
             throw new SchemaError(`Bad @plugin path: ${pluginSourceDescriptor}`);
           }
+        // a windows-native path would otherwise be read as a `C:` protocol or an npm module name
+        } else if (getWindowsPathHint(pluginSourceDescriptor)) {
+          throw new SchemaError(
+            `Bad @plugin path "${pluginSourceDescriptor}" - ${getWindowsPathHint(pluginSourceDescriptor)}`,
+          );
         } else if (pluginSourceDescriptor.includes(':')) {
           const protocol = pluginSourceDescriptor.split(':')[0];
           // protocols that we will likely support in future

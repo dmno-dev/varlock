@@ -15,6 +15,7 @@ import { tryCatch } from '@env-spec/utils/try-catch';
 import { pathExists } from '@env-spec/utils/fs-utils';
 import { checkIsFileGitIgnored } from '@env-spec/utils/git-utils';
 import { downloadPluginToCache } from '../env-graph/lib/plugins';
+import { getWindowsPathHint } from '../env-graph/lib/path-hints';
 
 /**
  * `varlock flatten` support - copies every env file reachable via @import into a
@@ -352,7 +353,13 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
     } else if (importPathStr.startsWith('/')) {
       targetAbs = path.resolve(importPathStr);
     } else {
-      // http(s):// and npm: imports are not supported by the loader yet
+      // http(s):// and npm: imports are not supported by the loader yet, so there is nothing to
+      // copy. A windows-native path is a mistake rather than a future feature, so it gets said out
+      // loud here instead of only failing later at load time.
+      const windowsPathHint = getWindowsPathHint(importPathStr);
+      if (windowsPathHint) {
+        result.warnings.push(`@import(${importPathStr}) in ${relLabel(srcAbs)} was left untouched - ${windowsPathHint}`);
+      }
       return;
     }
 
@@ -470,6 +477,13 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
 
     // other protocols are not supported by the plugin loader yet
     if (/^(https?|npm|jsr|git):/.test(sourceDescriptor)) return false;
+
+    // a windows-native path would fall through to the npm module handling below
+    const windowsPathHint = getWindowsPathHint(sourceDescriptor);
+    if (windowsPathHint) {
+      result.warnings.push(`@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} was left untouched - ${windowsPathHint}`);
+      return false;
+    }
 
     const atLocation = sourceDescriptor.indexOf('@', 1);
     const moduleName = atLocation === -1 ? sourceDescriptor : sourceDescriptor.slice(0, atLocation);

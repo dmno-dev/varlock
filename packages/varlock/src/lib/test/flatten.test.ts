@@ -571,6 +571,25 @@ describe('flattenEnvFiles', () => {
     expect(await readOut(result.outDir, '.env-imports/.env.shared')).toBe('SHARED=from-shared\n');
   });
 
+  test('warns about windows-native import paths instead of silently skipping them', async () => {
+    await writeTree({
+      [`${API_DIR}/.env.schema`]: [
+        String.raw`# @import(..\..\.env.shared)`,
+        String.raw`# @import(C:\proj\.env.abs)`,
+        '# ---',
+        'API_ITEM=api-value',
+      ].join('\n'),
+    });
+    const result = await apiFlatten();
+
+    // the separator case can just be respelled, the drive-letter one cannot
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings[0]).toContain('forward slashes');
+    expect(result.warnings[1]).toContain('absolute windows paths are not supported');
+    // both are left exactly as written
+    expect(await readOut(result.outDir, '.env.schema')).toContain(String.raw`@import(..\..\.env.shared)`);
+  });
+
   // varlock only treats `/`-rooted paths as absolute imports, so a windows `C:\...` path built
   // by path.join here would not be recognized by flatten or by the loader
   test.skipIf(process.platform === 'win32')('absolute import paths are flattened', async () => {
