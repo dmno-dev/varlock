@@ -92,7 +92,7 @@ Varlock chooses the best available backend automatically:
 
 If native capabilities are unavailable, varlock falls back to file-based local encryption.
 
-With npm installs, the native helper arrives through per-platform optional dependencies (`@varlock/native-helper-*`), so only your platform's binary is downloaded. If your install skips optional dependencies (for example `--no-optional` / `--omit=optional`), the native helper is not installed and varlock uses the file-based fallback, with a warning printed when local encryption is used.
+With npm installs, the native helper arrives through per-platform optional dependencies (`@varlock/native-helper-*`), so only your platform's binary is downloaded. The one exception: Linux installs also receive the Windows helper, since WSL uses it for Windows Hello and TPM support. If your install skips optional dependencies (for example `--no-optional` / `--omit=optional`), the native helper is not installed and varlock uses the file-based fallback, with a warning printed when local encryption is used.
 
 **Verify encryption backend (macOS/Linux)**
 

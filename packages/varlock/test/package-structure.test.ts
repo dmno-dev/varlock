@@ -14,14 +14,18 @@ describe('package.json structure', () => {
     expect(packageJson.dependencies).toEqual({});
   });
 
-  it('should only have first-party native binary packages as optionalDependencies', () => {
+  it('should declare exactly the native helper platform packages as optionalDependencies', () => {
     const packageJsonPath = join(__dirname, '..', 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 
-    const optionalDeps = Object.keys(packageJson.optionalDependencies ?? {});
-    expect(optionalDeps.length).toBeGreaterThan(0);
-    for (const dep of optionalDeps) {
-      expect(dep).toMatch(/^@varlock\/native-helper-/);
-    }
+    // the complete set, pinned via workspace:* (resolved to exact versions at
+    // pack time) - a missing platform, an unexpected extra, or a range pin
+    // would all break the release contract
+    expect(packageJson.optionalDependencies).toEqual({
+      '@varlock/native-helper-darwin': 'workspace:*',
+      '@varlock/native-helper-linux-arm64': 'workspace:*',
+      '@varlock/native-helper-linux-x64': 'workspace:*',
+      '@varlock/native-helper-win32-x64': 'workspace:*',
+    });
   });
 });
