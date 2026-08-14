@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import {
   buildStringToSign, computeHmacTransform, computeTransformTimestamp, decodeTransformKey,
 } from './request-transform';
-import type { ProxyRuleTransform } from './types';
+import type { ProxyRuleHmacTransform } from './types';
 
 const NOW_MS = 1755111845123; // fixed instant so every timestamp assertion is exact
 
@@ -59,7 +59,7 @@ describe('decodeTransformKey', () => {
 });
 
 describe('computeHmacTransform', () => {
-  const baseTransform: ProxyRuleTransform = {
+  const baseTransform: ProxyRuleHmacTransform = {
     scheme: 'hmac-sha256',
     secretKey: 'SECRET',
     stringToSign: '{body}',
@@ -92,7 +92,7 @@ describe('computeHmacTransform', () => {
   });
 
   test('a composite venue-style template signs timestamp+method+path+body', () => {
-    const transform: ProxyRuleTransform = {
+    const transform: ProxyRuleHmacTransform = {
       ...baseTransform,
       stringToSign: '{timestamp}{method}{pathWithQuery}{body}',
       encoding: 'hex',
@@ -109,7 +109,7 @@ describe('computeHmacTransform', () => {
 
   test('keyEncoding decodes the secret before keying (Coinbase-style base64 keys)', () => {
     const rawKey = crypto.randomBytes(32);
-    const transform: ProxyRuleTransform = { ...baseTransform, keyEncoding: 'base64', encoding: 'hex' };
+    const transform: ProxyRuleHmacTransform = { ...baseTransform, keyEncoding: 'base64', encoding: 'hex' };
     const result = computeHmacTransform(transform, rawKey.toString('base64'), fields, NOW_MS);
     const expected = crypto.createHmac('sha256', rawKey).update(fields.body, 'utf8').digest('hex');
     expect(result).toMatchObject({ ok: true, signature: expected });

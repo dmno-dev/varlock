@@ -34,6 +34,7 @@ import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
   PROXY_APPROVAL_EACH_VALUES,
+  PROXY_TRANSFORM_SCHEME_SPECS,
   parseProxySubstitutionTarget,
   validateProxyTransformConfig,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
@@ -1310,18 +1311,14 @@ export class EnvGraph {
     if (!secretKey) {
       throw new SchemaError('@proxy: transform.secretKey is required on a detached @proxy rule (an attached rule defaults it to the decorated item)');
     }
-    return {
-      scheme: obj.scheme,
-      secretKey,
-      stringToSign: obj.stringToSign,
-      signatureHeader: obj.signatureHeader,
-      ...(_.isString(obj.keyId) ? { keyId: obj.keyId } : {}),
-      ...(_.isString(obj.keyHeader) ? { keyHeader: obj.keyHeader } : {}),
-      ...(_.isString(obj.timestampHeader) ? { timestampHeader: obj.timestampHeader } : {}),
-      ...(_.isString(obj.encoding) ? { encoding: obj.encoding } : {}),
-      ...(_.isString(obj.keyEncoding) ? { keyEncoding: obj.keyEncoding } : {}),
-      ...(_.isString(obj.timestampFormat) ? { timestampFormat: obj.timestampFormat } : {}),
-    };
+    // Copy the options the scheme's spec declares (values already validated), so
+    // adding a scheme doesn't require touching this builder.
+    const spec = PROXY_TRANSFORM_SCHEME_SPECS[obj.scheme as keyof typeof PROXY_TRANSFORM_SCHEME_SPECS];
+    const schemeOptions: Record<string, unknown> = {};
+    for (const key of [...spec.requiredOptions, ...spec.optionalOptions]) {
+      if (obj[key] !== undefined) schemeOptions[key] = obj[key];
+    }
+    return { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
   }
 
   /** Build one runtime ProxyRule from a resolved `@proxy(...)` arg object (or a `rules` entry). */

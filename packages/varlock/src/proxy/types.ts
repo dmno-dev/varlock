@@ -123,6 +123,26 @@ export const DEFAULT_PROXY_MAX_OCCURRENCES = 1;
 export const PROXY_TRANSFORM_SCHEMES = ['hmac-sha256', 'hmac-sha512'] as const;
 export type ProxyTransformScheme = (typeof PROXY_TRANSFORM_SCHEMES)[number];
 
+/**
+ * Which options each scheme accepts, beyond the common ones (`scheme`,
+ * `secretKey`). Adding a transform scheme = adding an entry here (validation
+ * follows automatically), a member to the `ProxyRuleTransform` union, and a
+ * signer dispatch in the runtime. Option *value* semantics (enums, header
+ * names) are shared across schemes and validated per-option below.
+ */
+export const PROXY_TRANSFORM_COMMON_OPTIONS = ['scheme', 'secretKey'] as const;
+const HMAC_SCHEME_SPEC = {
+  requiredOptions: ['stringToSign', 'signatureHeader'],
+  optionalOptions: ['keyId', 'keyHeader', 'timestampHeader', 'encoding', 'keyEncoding', 'timestampFormat'],
+} as const;
+export const PROXY_TRANSFORM_SCHEME_SPECS: Record<ProxyTransformScheme, {
+  requiredOptions: ReadonlyArray<string>;
+  optionalOptions: ReadonlyArray<string>;
+}> = {
+  'hmac-sha256': HMAC_SCHEME_SPEC,
+  'hmac-sha512': HMAC_SCHEME_SPEC,
+};
+
 export const PROXY_TRANSFORM_ENCODINGS = ['base64', 'hex'] as const;
 export type ProxyTransformEncoding = (typeof PROXY_TRANSFORM_ENCODINGS)[number];
 
@@ -140,14 +160,11 @@ export type ProxyTransformTimestampFormat = (typeof PROXY_TRANSFORM_TIMESTAMP_FO
 export const PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS = ['timestamp', 'method', 'path', 'pathWithQuery', 'query', 'host', 'body'] as const;
 
 /**
- * A request transform on a `@proxy` rule: the proxy computes a value (currently
- * an HMAC signature) over the outbound request with a secret the child never
- * holds, and writes it into designated headers before forwarding. The
- * `secretKey` item is *consumed* by the transform - unlike a substituted
- * credential, its real value never appears anywhere in the request.
+ * The generic HMAC transform config: sign a templated message with the secret,
+ * write the signature (plus optional key id and timestamp) into headers.
  */
-export type ProxyRuleTransform = {
-  scheme: ProxyTransformScheme;
+export type ProxyRuleHmacTransform = {
+  scheme: 'hmac-sha256' | 'hmac-sha512';
   /** Item key whose real value is the HMAC key. Consumed, never substituted. */
   secretKey: string;
   /** Template over `PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS`, e.g. `{timestamp}{method}{path}{body}`. */
@@ -167,18 +184,26 @@ export type ProxyRuleTransform = {
   timestampFormat?: ProxyTransformTimestampFormat;
 };
 
-export const PROXY_TRANSFORM_OPTIONS = [
-  'scheme',
-  'secretKey',
-  'stringToSign',
-  'signatureHeader',
-  'keyId',
-  'keyHeader',
-  'timestampHeader',
-  'encoding',
-  'keyEncoding',
-  'timestampFormat',
-] as const;
+/**
+ * A request transform on a `@proxy` rule: the proxy computes a value (currently
+ * an HMAC signature) over the outbound request with a secret the child never
+ * holds, and writes it into designated headers before forwarding. The
+ * `secretKey` item is *consumed* by the transform - unlike a substituted
+ * credential, its real value never appears anywhere in the request.
+ *
+ * A discriminated union on `scheme`; future schemes (aws-sigv4, ...) add a
+ * member here and a spec entry in `PROXY_TRANSFORM_SCHEME_SPECS`.
+ */
+export type ProxyRuleTransform = ProxyRuleHmacTransform;
+
+/** Every option name any scheme accepts - the key universe when `scheme` isn't statically known. */
+const ALL_TRANSFORM_OPTIONS: ReadonlyArray<string> = [
+  ...new Set([
+    ...PROXY_TRANSFORM_COMMON_OPTIONS,
+    ...Object.values(PROXY_TRANSFORM_SCHEME_SPECS)
+      .flatMap((spec) => [...spec.requiredOptions, ...spec.optionalOptions]),
+  ]),
+];
 
 /** RFC 7230 header-name token. */
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -195,9 +220,22 @@ export function validateProxyTransformConfig(
   obj: Record<string, unknown>,
   opts?: { partial?: boolean },
 ): string | undefined {
+  // Scheme first - it decides which other options are valid. When it isn't
+  // statically known (dynamic value in the partial pass), fall back to the
+  // union of every scheme's options so obvious typos still fail loudly.
+  const scheme = typeof obj.scheme === 'string' && obj.scheme in PROXY_TRANSFORM_SCHEME_SPECS
+    ? (obj.scheme as ProxyTransformScheme)
+    : undefined;
+  if (obj.scheme !== undefined && scheme === undefined) {
+    return `transform.scheme must be one of ${PROXY_TRANSFORM_SCHEMES.join(', ')}`;
+  }
+  const spec = scheme ? PROXY_TRANSFORM_SCHEME_SPECS[scheme] : undefined;
+  const validKeys = spec
+    ? [...PROXY_TRANSFORM_COMMON_OPTIONS, ...spec.requiredOptions, ...spec.optionalOptions]
+    : ALL_TRANSFORM_OPTIONS;
   for (const key of Object.keys(obj)) {
-    if (!PROXY_TRANSFORM_OPTIONS.includes(key as any)) {
-      return `unknown transform option "${key}". Valid options: ${PROXY_TRANSFORM_OPTIONS.join(', ')}`;
+    if (!validKeys.includes(key)) {
+      return `unknown transform option "${key}"${scheme ? ` for scheme "${scheme}"` : ''}. Valid options: ${validKeys.join(', ')}`;
     }
   }
   const checkEnum = (key: string, allowed: ReadonlyArray<string>) => {
@@ -223,8 +261,7 @@ export function validateProxyTransformConfig(
     return undefined;
   };
 
-  const err = checkEnum('scheme', PROXY_TRANSFORM_SCHEMES)
-    ?? checkString('stringToSign')
+  const err = checkString('stringToSign')
     ?? checkHeaderName('signatureHeader')
     ?? checkHeaderName('keyHeader')
     ?? checkHeaderName('timestampHeader')
@@ -244,9 +281,12 @@ export function validateProxyTransformConfig(
   }
 
   if (!opts?.partial) {
-    if (obj.scheme === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
-    if (obj.stringToSign === undefined) return 'transform.stringToSign is required (e.g. stringToSign="{timestamp}{method}{path}{body}")';
-    if (obj.signatureHeader === undefined) return 'transform.signatureHeader is required (the header the signature is written to)';
+    if (scheme === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
+    for (const required of PROXY_TRANSFORM_SCHEME_SPECS[scheme].requiredOptions) {
+      if (obj[required] === undefined) {
+        return `transform.${required} is required for scheme "${scheme}"`;
+      }
+    }
     if ((obj.keyId === undefined) !== (obj.keyHeader === undefined)) {
       return 'transform.keyId and transform.keyHeader must be set together (the key id item and the header it is written to)';
     }

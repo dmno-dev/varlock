@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { ProxyRuleTransform, ProxyTransformTimestampFormat } from './types';
+import type { ProxyRuleHmacTransform, ProxyTransformTimestampFormat } from './types';
 
 /**
  * Request signing (the `transform=` option on a `@proxy` rule).
@@ -67,7 +67,7 @@ export function buildStringToSign(template: string, fields: TransformRequestFiel
  * a malformed encoded key (fail closed - a silently-wrong key would sign every
  * request invalidly, which is much harder to debug upstream).
  */
-export function decodeTransformKey(secret: string, keyEncoding: ProxyRuleTransform['keyEncoding']): Buffer | undefined {
+export function decodeTransformKey(secret: string, keyEncoding: ProxyRuleHmacTransform['keyEncoding']): Buffer | undefined {
   switch (keyEncoding) {
     case undefined:
     case 'raw': return Buffer.from(secret, 'utf8');
@@ -86,7 +86,7 @@ export function decodeTransformKey(secret: string, keyEncoding: ProxyRuleTransfo
   }
 }
 
-const HMAC_ALGO_BY_SCHEME: Record<ProxyRuleTransform['scheme'], string> = {
+const HMAC_ALGO_BY_SCHEME: Record<ProxyRuleHmacTransform['scheme'], string> = {
   'hmac-sha256': 'sha256',
   'hmac-sha512': 'sha512',
 };
@@ -96,7 +96,7 @@ const HMAC_ALGO_BY_SCHEME: Record<ProxyRuleTransform['scheme'], string> = {
  * injectable for tests; callers pass `Date.now()`.
  */
 export function computeHmacTransform(
-  transform: ProxyRuleTransform,
+  transform: ProxyRuleHmacTransform,
   secretValue: string,
   fields: TransformRequestFields,
   nowMs: number,
