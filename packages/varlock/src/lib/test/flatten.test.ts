@@ -571,7 +571,9 @@ describe('flattenEnvFiles', () => {
     expect(await readOut(result.outDir, '.env-imports/.env.shared')).toBe('SHARED=from-shared\n');
   });
 
-  test('absolute import paths are flattened', async () => {
+  // varlock only treats `/`-rooted paths as absolute imports, so a windows `C:\...` path built
+  // by path.join here would not be recognized by flatten or by the loader
+  test.skipIf(process.platform === 'win32')('absolute import paths are flattened', async () => {
     await writeTree({ 'elsewhere/.env.abs': 'ABS=1\n' }, baseDir);
     await writeTree({
       [`${API_DIR}/.env.schema`]: outdent`
