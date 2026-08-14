@@ -6,10 +6,12 @@ name: Re-cut varlock CLI binaries
 # The normal release flow (release.yaml) builds and uploads these in the same run
 # as the npm publish, reusing the in-run signed/notarized native binaries. This
 # workflow is only for re-cutting binaries of an existing version — it pulls the
-# signed native binaries from the published npm packages (the per-platform
-# @varlock/native-helper-* packages, or the varlock tarball itself for versions
-# <= 1.16.x which bundled /native-bins) rather than rebuilding + re-signing
-# them, so it needs no macOS/Windows runner, no Azure, and no Apple credentials.
+# signed native binaries from the published @varlock/native-helper-* npm packages
+# rather than rebuilding + re-signing them, so it needs no macOS/Windows runner,
+# no Azure, and no Apple credentials.
+#
+# Only works for versions with per-platform helper packages (> 1.16.x); earlier
+# versions bundled the binaries inside the varlock tarball itself.
 on:
   workflow_dispatch:
     inputs:
@@ -64,25 +66,17 @@ jobs:
           done
           DEST="$GITHUB_WORKSPACE/packages/varlock/native-bins"
           rm -rf "$DEST"
-          npm pack "varlock@${RELEASE_VERSION}"
-          tar -xzf varlock-"${RELEASE_VERSION}".tgz
-          if [ -d package/native-bins ]; then
-            # versions <= 1.16.x bundled all binaries inside the varlock tarball
-            cp -R package/native-bins "$DEST"
-          else
-            # newer versions ship them as per-platform packages
-            fetch() { # <platform suffix> <tarball entry>
-              rm -rf package
-              npm pack "@varlock/native-helper-$1@${RELEASE_VERSION}"
-              tar -xzf "varlock-native-helper-$1-${RELEASE_VERSION}.tgz"
-              mkdir -p "$DEST/$1"
-              cp -R "package/$2" "$DEST/$1/$2"
-            }
-            fetch darwin VarlockEnclave.app
-            fetch linux-x64 varlock-local-encrypt
-            fetch linux-arm64 varlock-local-encrypt
-            fetch win32-x64 varlock-local-encrypt.exe
-          fi
+          fetch() { # <platform suffix> <tarball entry>
+            rm -rf package
+            npm pack "@varlock/native-helper-$1@${RELEASE_VERSION}"
+            tar -xzf "varlock-native-helper-$1-${RELEASE_VERSION}.tgz"
+            mkdir -p "$DEST/$1"
+            cp -R "package/$2" "$DEST/$1/$2"
+          }
+          fetch darwin VarlockEnclave.app
+          fetch linux-x64 varlock-local-encrypt
+          fetch linux-arm64 varlock-local-encrypt
+          fetch win32-x64 varlock-local-encrypt.exe
       - name: Restore native binary execute permissions
         run: |
           chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
