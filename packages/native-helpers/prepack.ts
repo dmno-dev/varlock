@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/* eslint-disable no-console */
 /**
  * Copies a platform's native binary from the monorepo staging directory
  * (packages/varlock/native-bins/<subdir>) into the platform package dir.
