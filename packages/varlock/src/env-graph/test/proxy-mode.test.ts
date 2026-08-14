@@ -489,6 +489,58 @@ describe('proxy decorators', () => {
     `);
     await expect(graph.getProxyRules()).rejects.toThrow(/transform\.stringToSign is required/);
   });
+
+  test('aws-sigv4 transform: keyId + sessionToken join the rule, allowlists normalize to arrays', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="*.amazonaws.com", transform={
+      #   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID", sessionToken="AWS_SESSION_TOKEN",
+      #   allowedRegions="us-east-1", allowedServices=[bedrock, s3],
+      # })
+      AWS_SECRET_ACCESS_KEY=real-secret
+
+      # @sensitive
+      AWS_ACCESS_KEY_ID=AKIDREAL
+      # @sensitive
+      AWS_SESSION_TOKEN=token-real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      {
+        domain: ['*.amazonaws.com'],
+        itemKeys: ['AWS_ACCESS_KEY_ID', 'AWS_SESSION_TOKEN'],
+        transform: {
+          scheme: 'aws-sigv4',
+          secretKey: 'AWS_SECRET_ACCESS_KEY',
+          keyId: 'AWS_ACCESS_KEY_ID',
+          sessionToken: 'AWS_SESSION_TOKEN',
+          allowedRegions: ['us-east-1'],
+          allowedServices: ['bedrock', 's3'],
+        },
+      },
+    ]);
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((item) => item.key).sort()).toEqual(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']);
+  });
+
+  test('aws-sigv4 transform: keyId is required, and hmac-only options are rejected per scheme', async () => {
+    const missingKeyId = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="*.amazonaws.com", transform={scheme="aws-sigv4"})
+      AWS_SECRET_ACCESS_KEY=real-secret
+    `);
+    await expect(missingKeyId.getProxyRules()).rejects.toThrow(/transform\.keyId is required for scheme "aws-sigv4"/);
+
+    const hmacOption = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="*.amazonaws.com", transform={scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID", stringToSign="{body}"})
+      AWS_SECRET_ACCESS_KEY=real-secret
+    `);
+    const errors = hmacOption.configSchema.AWS_SECRET_ACCESS_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /unknown transform option "stringToSign" for scheme "aws-sigv4"/.test(e.message))).toBe(true);
+  });
 });
 
 describe('proxy resolution view (proxied re-resolution)', () => {

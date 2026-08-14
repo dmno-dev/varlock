@@ -1318,6 +1318,13 @@ export class EnvGraph {
     for (const key of [...spec.requiredOptions, ...spec.optionalOptions]) {
       if (obj[key] !== undefined) schemeOptions[key] = obj[key];
     }
+    // List options accept a single string or an array in the schema; the runtime
+    // shape is always an array.
+    for (const listKey of ['allowedRegions', 'allowedServices']) {
+      if (schemeOptions[listKey] !== undefined) {
+        schemeOptions[listKey] = EnvGraph.normalizeStringList(schemeOptions[listKey]);
+      }
+    }
     return { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
   }
 
@@ -1338,11 +1345,14 @@ export class EnvGraph {
       : undefined;
     // The signing secret is consumed by the transform, never substituted - so it
     // must not participate in the rule's substitution scope even when the rule is
-    // attached to it. The key id IS wire-visible (an API key header), so it joins
-    // the rule's items and substitutes normally like any `keys=` entry.
+    // attached to it. The key id (and a SigV4 session token) ARE wire-visible, so
+    // they join the rule's items and substitute normally like `keys=` entries.
     const effectiveItemKeys = transform
-      ? _.uniq([...itemKeys, ...(transform.keyId ? [transform.keyId] : [])])
-        .filter((key) => key !== transform.secretKey)
+      ? _.uniq([
+        ...itemKeys,
+        ...(transform.keyId ? [transform.keyId] : []),
+        ...('sessionToken' in transform && transform.sessionToken ? [transform.sessionToken] : []),
+      ]).filter((key) => key !== transform.secretKey)
       : itemKeys;
     return {
       domain,

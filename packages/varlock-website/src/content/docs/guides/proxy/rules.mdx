@@ -130,9 +130,11 @@ EXCHANGE_API_KEY=yourPreferredPlugin()
 
 The signature is computed over the **final outbound request**, after placeholder substitution, so it covers exactly the bytes the upstream receives. Any signature or timestamp headers the child sent are overwritten (an SDK configured with placeholder credentials produces a garbage signature; the proxy replaces it with a valid one).
 
+Each scheme accepts its own option set. Options for the `hmac-*` schemes:
+
 | Option | Meaning |
 |---|---|
-| `scheme` | **(required)** `hmac-sha256` or `hmac-sha512`. |
+| `scheme` | **(required)** `hmac-sha256`, `hmac-sha512`, or `aws-sigv4` (see below). |
 | `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
 | `signatureHeader` | **(required)** Header the signature is written to. |
 | `secretKey` | Item whose value is the HMAC key. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
@@ -149,7 +151,35 @@ A few properties worth knowing:
 - **TLS only.** Like injection, signing refuses cleartext connections: a signature over plain http is trivially replayable.
 - If the transform-carrying rule requires `approval`, the request is signed only after the approval gate passes, mirroring how approval-gated injection works.
 
-Signing schemes that recompute an existing signature (AWS SigV4, where the SDK signs with placeholder credentials and the proxy re-signs with the real key) are planned as additional `scheme` values on the same option.
+#### AWS SigV4
+
+The `aws-sigv4` scheme re-signs AWS SDK requests. AWS never receives the secret access key either; every request carries a signature computed from it. Configure the SDK in the child with the **placeholder** credentials (varlock's proxied env does this automatically) and point it at the proxy; the SDK signs normally, and the proxy strips the placeholder signature and re-signs with the real keys.
+
+```env-spec title=".env.schema"
+# @proxy(domain="*.amazonaws.com", transform={
+#   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
+#   allowedServices=[bedrock, s3],
+# })
+AWS_SECRET_ACCESS_KEY=somePlugin()
+
+# @sensitive
+AWS_ACCESS_KEY_ID=somePlugin()
+```
+
+The region and service need no configuration: they are parsed from the inbound request's credential scope (`Credential=KEY/DATE/REGION/SERVICE/aws4_request`), so one rule covers every AWS service and region the client talks to. The optional allowlists gate what the proxy is willing to sign for.
+
+| Option | Meaning |
+|---|---|
+| `keyId` | **(required)** Item holding the AWS access key id (travels in the Credential scope). |
+| `sessionToken` | Item holding a session token for temporary credentials, sent and signed as `X-Amz-Security-Token`. |
+| `allowedRegions` | Only sign requests whose scope names one of these regions, e.g. `[us-east-1]`. Omitted = any. |
+| `allowedServices` | Only sign requests whose scope names one of these services, e.g. `[bedrock, s3]`. Omitted = any. |
+
+Details worth knowing:
+
+- A request without an inbound SigV4 signature is blocked with a message explaining the placeholder-signing setup (there is nothing to derive the region/service from). Pre-signed URLs (`X-Amz-Credential` in the query string) are not supported yet and are blocked with a distinct message.
+- The payload hash covers the exact outbound body bytes. If the client signed with the `UNSIGNED-PAYLOAD` sentinel (S3 streaming uploads), the proxy preserves it.
+- Signing uses the official AWS SDK v3 signer, including the S3-specific path-encoding rules.
 
 ## Controlling what the agent sees
 

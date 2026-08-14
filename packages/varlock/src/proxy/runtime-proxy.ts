@@ -23,6 +23,7 @@ import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, ruleMatchesFacts,
   type RequestFacts, type RequestScopedManagedItem,
 } from './policy';
+import { AWS_SIGV4_STRIP_HEADERS, computeAwsSigv4Transform } from './aws-sigv4-transform';
 import { computeHmacTransform } from './request-transform';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
@@ -1298,43 +1299,81 @@ export async function startLocalProxyRuntime({
     // garbage signature); ours overwrite them, mirroring how iron-style proxies
     // strip inbound placeholder signatures before re-signing.
     if (activeTransform) {
-      const secretItem = managedItems.find((item) => item.key === activeTransform.secretKey);
-      const keyIdItem = activeTransform.keyId
-        ? managedItems.find((item) => item.key === activeTransform.keyId)
-        : undefined;
+      const blockTransform = (status: number, message: string) => {
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
+        });
+        respondBlocked(res, status, `Blocked by the varlock credential proxy: ${message}`, t.tunnelTeardown);
+      };
+      const findManaged = (key: string | undefined) => (
+        key ? managedItems.find((item) => item.key === key) : undefined
+      );
+      const secretItem = findManaged(activeTransform.secretKey);
+      const keyIdItem = findManaged(activeTransform.keyId);
+      const sessionTokenKey = 'sessionToken' in activeTransform ? activeTransform.sessionToken : undefined;
+      const sessionTokenItem = findManaged(sessionTokenKey);
       let missingKey: string | undefined;
       if (!secretItem) missingKey = activeTransform.secretKey;
       else if (activeTransform.keyId && !keyIdItem) missingKey = activeTransform.keyId;
+      else if (sessionTokenKey && !sessionTokenItem) missingKey = sessionTokenKey;
       if (missingKey || !secretItem) {
-        onActivity?.({
-          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
-        });
-        respondBlocked(res, 502, `Blocked by the varlock credential proxy: cannot sign this request - the transform credential ${missingKey} has no resolved value.`, t.tunnelTeardown);
+        blockTransform(502, `cannot sign this request - the transform credential ${missingKey} has no resolved value.`);
         return;
       }
       const rewrittenQueryStart = rewrittenPath.indexOf('?');
-      const signed = computeHmacTransform(activeTransform, secretItem.realValue, {
-        method: t.method.toUpperCase(),
-        host: t.host,
-        path: rewrittenQueryStart === -1 ? rewrittenPath : rewrittenPath.slice(0, rewrittenQueryStart),
-        query: rewrittenQueryStart === -1 ? '' : rewrittenPath.slice(rewrittenQueryStart + 1),
-        body: rewrittenBody.toString('utf8'),
-      }, Date.now());
-      if (!signed.ok) {
-        onActivity?.({
-          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
-        });
-        respondBlocked(res, 502, `Blocked by the varlock credential proxy: cannot sign this request - ${signed.error}.`, t.tunnelTeardown);
-        return;
-      }
-      // req.headers keys are lowercased by the HTTP parser, so writing lowercase
-      // names replaces any child-sent value instead of duplicating the header.
-      upstreamHeaders[activeTransform.signatureHeader.toLowerCase()] = signed.signature;
-      if (activeTransform.timestampHeader) {
-        upstreamHeaders[activeTransform.timestampHeader.toLowerCase()] = signed.timestamp;
-      }
-      if (activeTransform.keyHeader && keyIdItem) {
-        upstreamHeaders[activeTransform.keyHeader.toLowerCase()] = keyIdItem.realValue;
+      const signingPath = rewrittenQueryStart === -1 ? rewrittenPath : rewrittenPath.slice(0, rewrittenQueryStart);
+      const signingQuery = rewrittenQueryStart === -1 ? '' : rewrittenPath.slice(rewrittenQueryStart + 1);
+
+      if (activeTransform.scheme === 'aws-sigv4') {
+        // SigV4 signs headers, so the signer sees the outbound header set
+        // (multi-value headers pre-joined per SigV4 canonical form).
+        const flatHeaders: Record<string, string> = {};
+        for (const [name, value] of Object.entries(upstreamHeaders)) {
+          flatHeaders[name] = Array.isArray(value) ? value.join(',') : value;
+        }
+        const sigv4Result = await computeAwsSigv4Transform(activeTransform, {
+          accessKeyId: keyIdItem!.realValue,
+          secretAccessKey: secretItem.realValue,
+          ...(sessionTokenItem ? { sessionToken: sessionTokenItem.realValue } : {}),
+        }, {
+          method: t.method.toUpperCase(),
+          host: t.host,
+          path: signingPath,
+          query: signingQuery,
+          headers: flatHeaders,
+          body: rewrittenBody,
+        }, Date.now());
+        if (!sigv4Result.ok) {
+          const status = {
+            'missing-sigv4': 400, 'presigned-unsupported': 400, 'scope-not-allowed': 403, 'signing-failed': 502,
+          }[sigv4Result.kind];
+          blockTransform(status, `cannot re-sign this request - ${sigv4Result.error}.`);
+          return;
+        }
+        // Replace the placeholder-signed headers wholesale with the fresh set.
+        for (const name of AWS_SIGV4_STRIP_HEADERS) delete upstreamHeaders[name];
+        Object.assign(upstreamHeaders, sigv4Result.headers);
+      } else {
+        const signed = computeHmacTransform(activeTransform, secretItem.realValue, {
+          method: t.method.toUpperCase(),
+          host: t.host,
+          path: signingPath,
+          query: signingQuery,
+          body: rewrittenBody.toString('utf8'),
+        }, Date.now());
+        if (!signed.ok) {
+          blockTransform(502, `cannot sign this request - ${signed.error}.`);
+          return;
+        }
+        // req.headers keys are lowercased by the HTTP parser, so writing lowercase
+        // names replaces any child-sent value instead of duplicating the header.
+        upstreamHeaders[activeTransform.signatureHeader.toLowerCase()] = signed.signature;
+        if (activeTransform.timestampHeader) {
+          upstreamHeaders[activeTransform.timestampHeader.toLowerCase()] = signed.timestamp;
+        }
+        if (activeTransform.keyHeader && keyIdItem) {
+          upstreamHeaders[activeTransform.keyHeader.toLowerCase()] = keyIdItem.realValue;
+        }
       }
     }
 

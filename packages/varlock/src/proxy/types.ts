@@ -120,7 +120,7 @@ export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstituti
 export const DEFAULT_PROXY_MAX_OCCURRENCES = 1;
 
 /** Signing schemes supported by the `transform=` option on a `@proxy` rule. */
-export const PROXY_TRANSFORM_SCHEMES = ['hmac-sha256', 'hmac-sha512'] as const;
+export const PROXY_TRANSFORM_SCHEMES = ['hmac-sha256', 'hmac-sha512', 'aws-sigv4'] as const;
 export type ProxyTransformScheme = (typeof PROXY_TRANSFORM_SCHEMES)[number];
 
 /**
@@ -141,6 +141,13 @@ export const PROXY_TRANSFORM_SCHEME_SPECS: Record<ProxyTransformScheme, {
 }> = {
   'hmac-sha256': HMAC_SCHEME_SPEC,
   'hmac-sha512': HMAC_SCHEME_SPEC,
+  // keyId = the AWS access key id item (sent in the Credential scope);
+  // region/service are parsed from the inbound placeholder-signed request, so
+  // they need no config - the allowlists optionally gate what we'll sign for.
+  'aws-sigv4': {
+    requiredOptions: ['keyId'],
+    optionalOptions: ['sessionToken', 'allowedRegions', 'allowedServices'],
+  },
 };
 
 export const PROXY_TRANSFORM_ENCODINGS = ['base64', 'hex'] as const;
@@ -185,16 +192,37 @@ export type ProxyRuleHmacTransform = {
 };
 
 /**
- * A request transform on a `@proxy` rule: the proxy computes a value (currently
- * an HMAC signature) over the outbound request with a secret the child never
- * holds, and writes it into designated headers before forwarding. The
+ * The AWS SigV4 re-signing transform config. The client (an AWS SDK) signs
+ * normally with *placeholder* credentials; the proxy parses region and service
+ * out of the inbound credential scope, strips the placeholder signature, and
+ * re-signs with the real keys. One rule covers every AWS service the client
+ * talks to; region/service need no configuration.
+ */
+export type ProxyRuleAwsSigv4Transform = {
+  scheme: 'aws-sigv4';
+  /** Item key holding the AWS secret access key. Consumed, never substituted. */
+  secretKey: string;
+  /** Item key holding the AWS access key id (sent in the Credential scope). */
+  keyId: string;
+  /** Item key holding a session token (temporary credentials), sent as X-Amz-Security-Token. */
+  sessionToken?: string;
+  /** Only sign requests whose inbound scope names one of these regions. Omitted = any. */
+  allowedRegions?: Array<string>;
+  /** Only sign requests whose inbound scope names one of these services. Omitted = any. */
+  allowedServices?: Array<string>;
+};
+
+/**
+ * A request transform on a `@proxy` rule: the proxy computes a value (an HMAC
+ * or AWS SigV4 signature) over the outbound request with a secret the child
+ * never holds, and writes it into designated headers before forwarding. The
  * `secretKey` item is *consumed* by the transform - unlike a substituted
  * credential, its real value never appears anywhere in the request.
  *
- * A discriminated union on `scheme`; future schemes (aws-sigv4, ...) add a
- * member here and a spec entry in `PROXY_TRANSFORM_SCHEME_SPECS`.
+ * A discriminated union on `scheme`; future schemes add a member here and a
+ * spec entry in `PROXY_TRANSFORM_SCHEME_SPECS`.
  */
-export type ProxyRuleTransform = ProxyRuleHmacTransform;
+export type ProxyRuleTransform = ProxyRuleHmacTransform | ProxyRuleAwsSigv4Transform;
 
 /** Every option name any scheme accepts - the key universe when `scheme` isn't statically known. */
 const ALL_TRANSFORM_OPTIONS: ReadonlyArray<string> = [
@@ -260,6 +288,16 @@ export function validateProxyTransformConfig(
     }
     return undefined;
   };
+  // Accepts a single string or an array of non-empty strings (like domain/method).
+  const checkStringList = (key: string) => {
+    const val = obj[key];
+    if (val === undefined) return undefined;
+    const entries = Array.isArray(val) ? val : [val];
+    if (!entries.length || entries.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+      return `transform.${key} must be one or more non-empty strings, e.g. ${key}=[us-east-1]`;
+    }
+    return undefined;
+  };
 
   const err = checkString('stringToSign')
     ?? checkHeaderName('signatureHeader')
@@ -267,6 +305,9 @@ export function validateProxyTransformConfig(
     ?? checkHeaderName('timestampHeader')
     ?? checkString('secretKey')
     ?? checkString('keyId')
+    ?? checkString('sessionToken')
+    ?? checkStringList('allowedRegions')
+    ?? checkStringList('allowedServices')
     ?? checkEnum('encoding', PROXY_TRANSFORM_ENCODINGS)
     ?? checkEnum('keyEncoding', PROXY_TRANSFORM_KEY_ENCODINGS)
     ?? checkEnum('timestampFormat', PROXY_TRANSFORM_TIMESTAMP_FORMATS);
@@ -287,7 +328,10 @@ export function validateProxyTransformConfig(
         return `transform.${required} is required for scheme "${scheme}"`;
       }
     }
-    if ((obj.keyId === undefined) !== (obj.keyHeader === undefined)) {
+    // hmac-only pairing: the key id only travels if a header is named for it.
+    // (For aws-sigv4, keyId is required alone - it lands in the Credential scope.)
+    const schemeAllowsKeyHeader = PROXY_TRANSFORM_SCHEME_SPECS[scheme].optionalOptions.includes('keyHeader');
+    if (schemeAllowsKeyHeader && (obj.keyId === undefined) !== (obj.keyHeader === undefined)) {
       return 'transform.keyId and transform.keyHeader must be set together (the key id item and the header it is written to)';
     }
   }
