@@ -10,6 +10,10 @@ const hasSecret = ENV.SENSITIVE_VAR ? 'yes' : 'no';
 <template>
   <div>
     <p id="public-var">{{ publicVar }}</p>
+    <!-- direct template interpolation compiles to `_unref(ENV).TEMPLATE_VAR`
+         in production builds; regression guard for the vue-specific
+         replacement patterns in ast-replacer -->
+    <p id="template-var">{{ ENV.TEMPLATE_VAR }}</p>
     <p id="public-num">{{ publicNum }}/{{ typeof publicNum }}</p>
     <p id="env-specific">{{ envSpecific }}</p>
     <p id="has-secret">{{ hasSecret }}</p>

@@ -52,9 +52,13 @@ describe('Nuxt', () => {
     timeout: 300_000,
     fileAssertions: [
       {
+        // template-var-value is only referenced via direct `{{ ENV.X }}`
+        // template interpolation, which the vue compiler turns into
+        // `_unref(ENV).X` in production builds, so it only shows up in the
+        // bundle if the replacer handles that shape
         description: 'client bundle inlines non-sensitive values',
         fileGlob: '.output/public/**/*.js',
-        shouldContain: ['public-var-value', 'env-specific-var--dev'],
+        shouldContain: ['public-var-value', 'env-specific-var--dev', 'template-var-value'],
       },
       {
         description: 'sensitive value is absent from all build output',
@@ -142,7 +146,7 @@ describe('Nuxt', () => {
       {
         path: '/',
         bodyAssertions: {
-          shouldContain: ['public-var-value', '1234/number', 'env-specific-var--dev'],
+          shouldContain: ['public-var-value', '1234/number', 'env-specific-var--dev', 'template-var-value'],
           shouldNotContain: ['super-secret-value'],
         },
       },

@@ -46,6 +46,19 @@ function markEdited(node: AstNode, edits: Array<Edit>): number | false {
 
 export const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', 'tsx', 'vue', 'svelte'];
 
+// Vue's SFC compiler rewrites references to setup bindings when compiling
+// templates. `{{ ENV.X }}` becomes `$setup.ENV.X` in dev (non-inline) render
+// fns, and `_unref(ENV).X` in production (inline) mode, since an imported
+// binding might be a ref. `_unref` on a plain object is a no-op, so replacing
+// the whole call + member expression with the literal value is equivalent.
+function getVueUnrefVariants(key: string): Array<string> {
+  const dotIdx = key.indexOf('.');
+  if (dotIdx === -1) return [];
+  const obj = key.slice(0, dotIdx);
+  const rest = key.slice(dotIdx);
+  return [`_unref(${obj})${rest}`, `unref(${obj})${rest}`];
+}
+
 type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
 
 export function createReplacerTransformFn(opts: {
@@ -55,7 +68,14 @@ export function createReplacerTransformFn(opts: {
   let matchers: MatchersArray;
   const extraMatchersForFileType: Record<string, MatchersArray> = {};
 
-  const findAnyReplacementRegex = new RegExp(`(?:${keys.map(escapeStringRegexp).join('|')})`, 'g');
+  // quick-exit check, including the vue `unref(OBJ).X` shape, which does not
+  // contain the plain `OBJ.X` key as a substring (`unref(` also matches inside
+  // `_unref(`, so one variant covers both)
+  const findAnyReplacementPatterns = keys.flatMap((key) => {
+    const unrefVariant = getVueUnrefVariants(key).find((v) => !v.startsWith('_'));
+    return unrefVariant ? [key, unrefVariant] : [key];
+  });
+  const findAnyReplacementRegex = new RegExp(`(?:${findAnyReplacementPatterns.map(escapeStringRegexp).join('|')})`, 'g');
 
   return function transform(
     parserCtx: {
@@ -88,11 +108,15 @@ export function createReplacerTransformFn(opts: {
     }));
 
     if (fileExt === 'vue') {
-      // in vue script+setup files, ENV.X in template blocks gets replaced with `$setup.ENV.X`
-      extraMatchersForFileType.vue ||= keys.map((key) => ({
-        matcher: astMatcher(parse(`$setup.${key}`)),
-        replacement: opts.replacements[key],
-      }));
+      // in vue script+setup files, ENV.X in template blocks gets compiled to
+      // `$setup.ENV.X` (dev) or `_unref(ENV).X` (prod inline mode); see
+      // getVueUnrefVariants above
+      extraMatchersForFileType.vue ||= keys.flatMap((key) => (
+        [`$setup.${key}`, ...getVueUnrefVariants(key)].map((pattern) => ({
+          matcher: astMatcher(parse(pattern)),
+          replacement: opts.replacements[key],
+        }))
+      ));
     }
 
     const magicString = new MagicString(code);

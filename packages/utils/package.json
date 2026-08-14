@@ -19,6 +19,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "catalog:",
+    "acorn": "^8.15.0",
     "tsup": "catalog:",
     "vitest": "catalog:"
   },
