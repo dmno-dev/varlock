@@ -20,9 +20,10 @@ import {
   createEphemeralCa, createHostCert, exportCaPrivateKeyPem, loadCa,
 } from './cert-authority';
 import {
-  describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost,
+  describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, ruleMatchesFacts,
   type RequestFacts, type RequestScopedManagedItem,
 } from './policy';
+import { computeHmacTransform } from './request-transform';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
 } from './session-env-payload';
@@ -30,7 +31,7 @@ import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
 import {
   isNeverAutoSubstituteHeader, proxySubstitutionTargetKey,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
-  type ProxySubstitutionLocation, type ProxySubstitutionTarget,
+  type ProxyRuleTransform, type ProxySubstitutionLocation, type ProxySubstitutionTarget,
 } from './types';
 
 const LOCALHOST = '127.0.0.1';
@@ -1087,14 +1088,44 @@ export async function startLocalProxyRuntime({
       })
       : [];
 
+    // Request transform (signing) in scope for this request: contributed by
+    // matching non-block rules, mirroring the substitution merge's approval
+    // gating - a transform carried only by an approval rule applies only when the
+    // approval gate actually runs, so a more-specific plain-allow rule can't use
+    // the signing secret without the prompt the author asked for.
+    const activeTransforms: Array<ProxyRuleTransform> = [];
+    if (shouldRewrite) {
+      for (const rule of rules) {
+        if (!rule.transform || rule.block) continue;
+        if (rule.approval && policyDecision?.verdict !== 'require-approval') continue;
+        if (!ruleMatchesFacts(rule, facts)) continue;
+        if (!activeTransforms.some((existing) => JSON.stringify(existing) === JSON.stringify(rule.transform))) {
+          activeTransforms.push(rule.transform);
+        }
+      }
+    }
+    // Two different signing configs matching one request is a schema
+    // misconfiguration - a request can't be signed two ways. Fail closed with a
+    // config-shaped error rather than signing with an arbitrary winner.
+    if (activeTransforms.length > 1) {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
+      });
+      respondBlocked(res, 502, `Blocked by the varlock credential proxy: multiple conflicting @proxy transform configs match ${t.method} ${t.host}${t.pathOnly}. `
+        + 'Keep one transform-carrying rule per domain (put policy refinements on separate rules without a transform).', t.tunnelTeardown);
+      return;
+    }
+    const activeTransform = activeTransforms[0];
+
     // Invariant #2/#5: never inject a secret into a cleartext (non-TLS) connection —
     // no cert means no verifiable identity. Fail closed. (MITM is always https, so
-    // this only fires on the absolute-form http path.)
-    if (hostItems.length > 0 && !t.isHttps) {
+    // this only fires on the absolute-form http path.) Signing counts: a signature
+    // over cleartext is trivially replayable and the timestamp is attacker-visible.
+    if ((hostItems.length > 0 || activeTransform) && !t.isHttps) {
       onActivity?.({
         ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-cleartext',
       });
-      respondBlocked(res, 403, `Blocked by the varlock credential proxy: refusing to inject a secret into a cleartext (non-TLS) connection to ${t.host}.`, false);
+      respondBlocked(res, 403, `Blocked by the varlock credential proxy: refusing to ${activeTransform && !hostItems.length ? 'sign a request over' : 'inject a secret into'} a cleartext (non-TLS) connection to ${t.host}.`, false);
       return;
     }
 
@@ -1102,6 +1133,25 @@ export async function startLocalProxyRuntime({
     const bodyText = body.toString('utf8');
     const scanParts = [t.requestTarget, JSON.stringify(req.headers), bodyText];
     const injectedKeys = shouldRewrite ? detectInjectedKeys(scanParts, hostItems) : [];
+
+    // A signing secret is consumed by the signer and never travels - on ANY host.
+    // Its placeholder appearing anywhere in a request means the child is trying to
+    // send the signing key itself (or was tricked into it); it would never be
+    // substituted, so fail closed with a message naming the real cause instead of
+    // letting the generic uninjected-placeholder guard (or the upstream's auth
+    // error) produce something cryptic.
+    const signingSecretKeys = new Set(rules.flatMap((rule) => (rule.transform ? [rule.transform.secretKey] : [])));
+    const signingSecretLeak = managedItems.find((item) => signingSecretKeys.has(item.key)
+      && item.placeholder.length > 0
+      && scanParts.some((part) => part.includes(item.placeholder)));
+    if (signingSecretLeak) {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched: shouldRewrite, blocked: true, decision: 'blocked-transform',
+      });
+      respondBlocked(res, 403, `Blocked by the varlock credential proxy: this request to ${t.host}${t.pathOnly} carries the placeholder for ${signingSecretLeak.key}, `
+        + 'which is a signing secret - the proxy uses it to sign matching requests and it is never sent in a request. Remove it from the request.', t.tunnelTeardown);
+      return;
+    }
 
     // Helpful-failure guard: when NO rule injects anything on this route yet the
     // request carries a managed placeholder, the real value won't be substituted
@@ -1187,6 +1237,7 @@ export async function startLocalProxyRuntime({
       blocked: false,
       decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
       ...(injectedKeys.length ? { injectedKeys } : {}),
+      ...(activeTransform ? { signedWith: activeTransform.scheme } : {}),
     });
 
     // Substitute placeholder → real value. The guards above already proved every
@@ -1236,6 +1287,54 @@ export async function startLocalProxyRuntime({
         // was never transmitted.
         respondBlocked(res, 502, 'Upstream request failed', t.tunnelTeardown);
         return;
+      }
+    }
+
+    // Request signing (`transform=`): compute the signature over the FINAL
+    // outbound request - after placeholder substitution, so it covers exactly the
+    // bytes written upstream - and after identity verification, so the timestamp
+    // is as fresh as possible when the request is dialed. The child may have set
+    // these headers itself (an SDK signing with placeholder creds produces a
+    // garbage signature); ours overwrite them, mirroring how iron-style proxies
+    // strip inbound placeholder signatures before re-signing.
+    if (activeTransform) {
+      const secretItem = managedItems.find((item) => item.key === activeTransform.secretKey);
+      const keyIdItem = activeTransform.keyId
+        ? managedItems.find((item) => item.key === activeTransform.keyId)
+        : undefined;
+      let missingKey: string | undefined;
+      if (!secretItem) missingKey = activeTransform.secretKey;
+      else if (activeTransform.keyId && !keyIdItem) missingKey = activeTransform.keyId;
+      if (missingKey || !secretItem) {
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
+        });
+        respondBlocked(res, 502, `Blocked by the varlock credential proxy: cannot sign this request - the transform credential ${missingKey} has no resolved value.`, t.tunnelTeardown);
+        return;
+      }
+      const rewrittenQueryStart = rewrittenPath.indexOf('?');
+      const signed = computeHmacTransform(activeTransform, secretItem.realValue, {
+        method: t.method.toUpperCase(),
+        host: t.host,
+        path: rewrittenQueryStart === -1 ? rewrittenPath : rewrittenPath.slice(0, rewrittenQueryStart),
+        query: rewrittenQueryStart === -1 ? '' : rewrittenPath.slice(rewrittenQueryStart + 1),
+        body: rewrittenBody.toString('utf8'),
+      }, Date.now());
+      if (!signed.ok) {
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
+        });
+        respondBlocked(res, 502, `Blocked by the varlock credential proxy: cannot sign this request - ${signed.error}.`, t.tunnelTeardown);
+        return;
+      }
+      // req.headers keys are lowercased by the HTTP parser, so writing lowercase
+      // names replaces any child-sent value instead of duplicating the header.
+      upstreamHeaders[activeTransform.signatureHeader.toLowerCase()] = signed.signature;
+      if (activeTransform.timestampHeader) {
+        upstreamHeaders[activeTransform.timestampHeader.toLowerCase()] = signed.timestamp;
+      }
+      if (activeTransform.keyHeader && keyIdItem) {
+        upstreamHeaders[activeTransform.keyHeader.toLowerCase()] = keyIdItem.realValue;
       }
     }
 

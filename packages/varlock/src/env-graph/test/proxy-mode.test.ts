@@ -373,6 +373,122 @@ describe('proxy decorators', () => {
     expect(byKey.TYPE_KEY?.realValue).toBe('tok_real_secret');
     expect(byKey.NO_HINT_KEY?.realValue).toBe('whatever_real_secret');
   });
+
+  test('attached transform: secretKey defaults to the item, is excluded from substitution scope, keyId joins the rule', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.coinbase.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{timestamp}{method}{pathWithQuery}{body}",
+      #   signatureHeader="CB-ACCESS-SIGN", timestampHeader="CB-ACCESS-TIMESTAMP",
+      #   keyId="CB_KEY_ID", keyHeader="CB-ACCESS-KEY", encoding="hex",
+      # })
+      CB_SECRET=shhh-real
+
+      # @sensitive
+      CB_KEY_ID=kid-real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      {
+        domain: ['api.coinbase.com'],
+        // The signing secret is consumed, never substituted, so it is NOT in the
+        // rule's substitution scope even though the rule is attached to it. The
+        // key id IS wire-visible, so it joins like a keys= entry.
+        itemKeys: ['CB_KEY_ID'],
+        transform: {
+          scheme: 'hmac-sha256',
+          secretKey: 'CB_SECRET',
+          stringToSign: '{timestamp}{method}{pathWithQuery}{body}',
+          signatureHeader: 'CB-ACCESS-SIGN',
+          timestampHeader: 'CB-ACCESS-TIMESTAMP',
+          keyId: 'CB_KEY_ID',
+          keyHeader: 'CB-ACCESS-KEY',
+          encoding: 'hex',
+        },
+      },
+    ]);
+
+    // Both transform roles become managed items (placeholder in the child env,
+    // real value withheld) - the secret via the transform, the key id via itemKeys.
+    const managed = await graph.getProxyManagedItems();
+    const managedByKey = Object.fromEntries(managed.map((item) => [item.key, item]));
+    expect(managedByKey.CB_SECRET?.realValue).toBe('shhh-real');
+    expect(managedByKey.CB_KEY_ID?.realValue).toBe('kid-real');
+  });
+
+  test('detached transform rule with explicit secretKey manages the item with no per-item @proxy at all', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.partner.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Signature", secretKey="HOOK_SECRET",
+      # })
+      # ---
+      # @sensitive
+      HOOK_SECRET=hook-real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([{ domain: ['api.partner.com'], itemKeys: [], transform: { scheme: 'hmac-sha256', secretKey: 'HOOK_SECRET' } }]);
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((item) => item.key)).toContain('HOOK_SECRET');
+  });
+
+  test('detached transform without secretKey is rejected (no attached item to default to)', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.partner.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Signature"})
+      # ---
+      BASELINE=1
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/transform\.secretKey is required on a detached @proxy rule/);
+  });
+
+  test('transform: unknown option and bad scheme fail loudly at load time', async () => {
+    const unknownOpt = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSine="{body}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    expect(unknownOpt.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /unknown transform option "stringToSine"/.test(e.message))).toBe(true);
+
+    const badScheme = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="md5", stringToSign="{body}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    expect(badScheme.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /transform\.scheme must be one of hmac-sha256, hmac-sha512/.test(e.message))).toBe(true);
+  });
+
+  test('transform: an unknown {field} in stringToSign is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{timestamp}{nonce}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /unknown field \{nonce\}/.test(e.message))).toBe(true);
+  });
+
+  test('transform: keyId and keyHeader must be set together', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig", keyId="SOME_KEY_ID"})
+      API_SECRET=shhh
+
+      SOME_KEY_ID=kid
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/keyId and transform\.keyHeader must be set together/);
+  });
+
+  test('transform: missing required fields are rejected at resolve time', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/transform\.stringToSign is required/);
+  });
 });
 
 describe('proxy resolution view (proxied re-resolution)', () => {

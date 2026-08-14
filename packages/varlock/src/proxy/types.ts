@@ -119,6 +119,141 @@ export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstituti
  */
 export const DEFAULT_PROXY_MAX_OCCURRENCES = 1;
 
+/** Signing schemes supported by the `transform=` option on a `@proxy` rule. */
+export const PROXY_TRANSFORM_SCHEMES = ['hmac-sha256', 'hmac-sha512'] as const;
+export type ProxyTransformScheme = (typeof PROXY_TRANSFORM_SCHEMES)[number];
+
+export const PROXY_TRANSFORM_ENCODINGS = ['base64', 'hex'] as const;
+export type ProxyTransformEncoding = (typeof PROXY_TRANSFORM_ENCODINGS)[number];
+
+export const PROXY_TRANSFORM_KEY_ENCODINGS = ['raw', 'base64', 'hex'] as const;
+export type ProxyTransformKeyEncoding = (typeof PROXY_TRANSFORM_KEY_ENCODINGS)[number];
+
+export const PROXY_TRANSFORM_TIMESTAMP_FORMATS = ['unix-seconds', 'unix-millis', 'unix-nanos', 'rfc3339'] as const;
+export type ProxyTransformTimestampFormat = (typeof PROXY_TRANSFORM_TIMESTAMP_FORMATS)[number];
+
+/**
+ * Fields available inside a `stringToSign` template, written as `{field}`.
+ * All are taken from the final outbound request (after placeholder substitution),
+ * so the signature covers exactly the bytes the upstream receives.
+ */
+export const PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS = ['timestamp', 'method', 'path', 'pathWithQuery', 'query', 'host', 'body'] as const;
+
+/**
+ * A request transform on a `@proxy` rule: the proxy computes a value (currently
+ * an HMAC signature) over the outbound request with a secret the child never
+ * holds, and writes it into designated headers before forwarding. The
+ * `secretKey` item is *consumed* by the transform - unlike a substituted
+ * credential, its real value never appears anywhere in the request.
+ */
+export type ProxyRuleTransform = {
+  scheme: ProxyTransformScheme;
+  /** Item key whose real value is the HMAC key. Consumed, never substituted. */
+  secretKey: string;
+  /** Template over `PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS`, e.g. `{timestamp}{method}{path}{body}`. */
+  stringToSign: string;
+  /** Header the computed signature is written to. */
+  signatureHeader: string;
+  /** Optional companion item (an API key id) written to `keyHeader`. Wire-visible, substituted normally too. */
+  keyId?: string;
+  keyHeader?: string;
+  /** Header the signing timestamp is written to (most HMAC schemes require it). */
+  timestampHeader?: string;
+  /** Signature output encoding. Default `base64`. */
+  encoding?: ProxyTransformEncoding;
+  /** How the secret is decoded into HMAC key bytes. Default `raw` (utf8). */
+  keyEncoding?: ProxyTransformKeyEncoding;
+  /** Timestamp format used in the template and `timestampHeader`. Default `unix-seconds`. */
+  timestampFormat?: ProxyTransformTimestampFormat;
+};
+
+export const PROXY_TRANSFORM_OPTIONS = [
+  'scheme',
+  'secretKey',
+  'stringToSign',
+  'signatureHeader',
+  'keyId',
+  'keyHeader',
+  'timestampHeader',
+  'encoding',
+  'keyEncoding',
+  'timestampFormat',
+] as const;
+
+/** RFC 7230 header-name token. */
+const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * Validate a resolved `transform={...}` config object. Returns an error message
+ * or undefined. Shared by the static (load-time) and resolve-time validators;
+ * `partial` skips required-field and cross-field checks so the static pass can
+ * validate just the entries that are literal (dynamic ones re-check at resolve
+ * time). Placement-specific requirements (`secretKey` on detached rules) are
+ * enforced where rules are built, not here.
+ */
+export function validateProxyTransformConfig(
+  obj: Record<string, unknown>,
+  opts?: { partial?: boolean },
+): string | undefined {
+  for (const key of Object.keys(obj)) {
+    if (!PROXY_TRANSFORM_OPTIONS.includes(key as any)) {
+      return `unknown transform option "${key}". Valid options: ${PROXY_TRANSFORM_OPTIONS.join(', ')}`;
+    }
+  }
+  const checkEnum = (key: string, allowed: ReadonlyArray<string>) => {
+    const val = obj[key];
+    if (val === undefined) return undefined;
+    if (typeof val !== 'string' || !allowed.includes(val)) {
+      return `transform.${key} must be one of ${allowed.join(', ')}`;
+    }
+    return undefined;
+  };
+  const checkString = (key: string) => {
+    const val = obj[key];
+    if (val === undefined) return undefined;
+    if (typeof val !== 'string' || !val.trim()) return `transform.${key} must be a non-empty string`;
+    return undefined;
+  };
+  const checkHeaderName = (key: string) => {
+    const val = obj[key];
+    if (val === undefined) return undefined;
+    if (typeof val !== 'string' || !HEADER_NAME_RE.test(val)) {
+      return `transform.${key} must be a valid header name (letters, digits, and - _ . only)`;
+    }
+    return undefined;
+  };
+
+  const err = checkEnum('scheme', PROXY_TRANSFORM_SCHEMES)
+    ?? checkString('stringToSign')
+    ?? checkHeaderName('signatureHeader')
+    ?? checkHeaderName('keyHeader')
+    ?? checkHeaderName('timestampHeader')
+    ?? checkString('secretKey')
+    ?? checkString('keyId')
+    ?? checkEnum('encoding', PROXY_TRANSFORM_ENCODINGS)
+    ?? checkEnum('keyEncoding', PROXY_TRANSFORM_KEY_ENCODINGS)
+    ?? checkEnum('timestampFormat', PROXY_TRANSFORM_TIMESTAMP_FORMATS);
+  if (err) return err;
+
+  if (typeof obj.stringToSign === 'string') {
+    for (const match of obj.stringToSign.matchAll(/\{([^{}]*)\}/g)) {
+      if (!PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS.includes(match[1] as any)) {
+        return `transform.stringToSign contains unknown field {${match[1]}}. Valid fields: ${PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS.map((f) => `{${f}}`).join(' ')}`;
+      }
+    }
+  }
+
+  if (!opts?.partial) {
+    if (obj.scheme === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
+    if (obj.stringToSign === undefined) return 'transform.stringToSign is required (e.g. stringToSign="{timestamp}{method}{path}{body}")';
+    if (obj.signatureHeader === undefined) return 'transform.signatureHeader is required (the header the signature is written to)';
+    if ((obj.keyId === undefined) !== (obj.keyHeader === undefined)) {
+      return 'transform.keyId and transform.keyHeader must be set together (the key id item and the header it is written to)';
+    }
+  }
+  return undefined;
+}
+
 export type ProxyRule = {
   domain: Array<string>;
   itemKeys: Array<string>;
@@ -155,6 +290,14 @@ export type ProxyRule = {
    * `DEFAULT_PROXY_MAX_OCCURRENCES` (`1`). Exceeding it blocks the request.
    */
   maxOccurrences?: number;
+  /**
+   * Request transform (signing): the proxy computes a signature over the final
+   * outbound request and writes it into headers before forwarding. Applies to
+   * every request this rule matches; `substituteIn`/`maxOccurrences` do not
+   * govern it (the computed value is not a placeholder swap, and the signing
+   * secret never appears on the wire at all).
+   */
+  transform?: ProxyRuleTransform;
 };
 
 export type ProxyManagedItem = {

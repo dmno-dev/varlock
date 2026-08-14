@@ -13,6 +13,7 @@ export type ProxyAuditDecision = | 'allow' // forwarded upstream (a secret may o
   | 'blocked-cleartext' // refused to inject a secret into a non-TLS connection
   | 'blocked-location' // placeholder appeared in a request location the rule doesn't allow substituting in
   | 'blocked-occurrences' // placeholder appeared more times than the rule's occurrence cap allows
+  | 'blocked-transform' // request signing failed closed (conflicting configs, secret placeholder on the wire, or unusable signing credential)
   | 'approval-granted' // require-approval rule matched and the approver allowed it
   | 'approval-denied'; // require-approval rule matched and approval was denied/timed-out
 
@@ -38,6 +39,8 @@ export type ProxyActivity = {
   ruleId?: string;
   /** Keys (names, never values) of the managed items actually injected into this request. */
   injectedKeys?: Array<string>;
+  /** Signing scheme applied to this request (a `transform=` rule matched), e.g. `hmac-sha256`. */
+  signedWith?: string;
 };
 
 /** First line of every audit file — makes the file self-describing after the session record is gone. */
@@ -65,6 +68,8 @@ export type ProxyAuditEntry = {
   matched: boolean;
   injected: boolean;
   injectedKeys?: Array<string>;
+  /** Signing scheme applied to this request (a `transform=` rule matched). */
+  signedWith?: string;
   ruleId?: string;
 };
 
@@ -95,6 +100,7 @@ function activityToEntry(activity: ProxyActivity, ts: string): ProxyAuditEntry {
     matched: activity.matched,
     injected: !!injectedKeys,
     ...(injectedKeys ? { injectedKeys } : {}),
+    ...(activity.signedWith ? { signedWith: activity.signedWith } : {}),
     ...(activity.ruleId ? { ruleId: activity.ruleId } : {}),
   };
 }
