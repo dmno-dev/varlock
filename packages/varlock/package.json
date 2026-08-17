@@ -150,7 +150,6 @@
     "@sindresorhus/is": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
-    "@types/semver": "^7.7.1",
     "@varlock/ci-env-info": "workspace:^",
     "@vitest/coverage-v8": "^4.1.8",
     "ansis": "catalog:",
@@ -163,8 +162,8 @@
     "is-wsl": "^3.1.0",
     "outdent": "catalog:",
     "reflect-metadata": "^0.2.2",
-    "semver": "^7.7.4",
     "tsup": "catalog:",
+    "verkit": "^0.4.0",
     "vitest": "catalog:"
   }
 }
