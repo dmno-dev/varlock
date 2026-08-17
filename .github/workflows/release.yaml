@@ -240,6 +240,14 @@ jobs:
     needs: [plan, notarize-native-macos, verify-native-macos, build-native-rust]
     if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish'
     runs-on: ubuntu-latest
+    # Publishing runs in the `publish` environment so the OIDC tokens minted in
+    # this job carry an environment claim. npm trusted publishers for all
+    # published packages require that claim (managed via `fledgling sync`; the
+    # `fledgling` config lives in the root package.json), and the Azure federated
+    # credential for Marketplace publishing must be scoped to it too (subject
+    # `repo:dmno-dev/varlock:environment:publish`). Restricting the environment
+    # to the main branch in repo settings locks tokens down further.
+    environment: publish
     permissions:
       id-token: write  # Required for OIDC
       contents: write
@@ -391,7 +399,9 @@ jobs:
       # Authenticate to Azure via GitHub OIDC (workload identity federation) so the
       # VS Code Marketplace publish (`vsce publish --azure-credential`) can mint a
       # short-lived token instead of a long-lived VSCE_PAT. The federated credential
-      # on the Azure side is scoped to this repo's main branch; see docs below.
+      # on the Azure side must be scoped to this job's `publish` environment
+      # (subject `repo:dmno-dev/varlock:environment:publish`), since running in an
+      # environment changes the OIDC token's sub claim.
       - name: Azure login (OIDC) for Marketplace publishing
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
         uses: azure/login@v2

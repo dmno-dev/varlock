@@ -2,6 +2,8 @@
 
 Cross-platform local encryption binary for Varlock (Windows and Linux).
 
+This package is the build system only and is not published. The built binaries ship to npm through the `@varlock/native-helper-{linux-x64,linux-arm64,win32-x64}` publishing shells (see [`packages/native-helpers/`](../native-helpers/)), and are bundled directly into the standalone CLI archives.
+
 Provides **NCrypt TPM-sealed** key protection on Windows when a TPM is available (with optional Windows Hello biometric), **DPAPI** as fallback, and TPM2 key protection on Linux, with a file-based plaintext fallback on both.
 
 ## Prerequisites
