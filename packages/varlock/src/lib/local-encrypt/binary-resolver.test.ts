@@ -1,7 +1,7 @@
 import {
   describe, it, expect, vi, beforeEach,
 } from 'vitest';
-import { getPlatformPackageName } from './binary-resolver';
+import { getInstalledPlatformPackageName, getPlatformPackageName } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 
 vi.mock('./wsl-detect', () => ({ isWSL: vi.fn(() => false) }));
@@ -68,5 +68,11 @@ describe('getPlatformPackageName', () => {
     withPlatform('linux', 'arm64', () => {
       expect(getPlatformPackageName()).toBe('@varlock/native-helper-win32-x64');
     });
+  });
+});
+
+describe('getInstalledPlatformPackageName', () => {
+  it('does not report an optional dependency from a development checkout', () => {
+    expect(getInstalledPlatformPackageName()).toBeUndefined();
   });
 });

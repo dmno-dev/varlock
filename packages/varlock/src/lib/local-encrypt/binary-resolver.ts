@@ -97,6 +97,13 @@ export function getPlatformPackageName(): string | undefined {
   return PLATFORM_PACKAGE_SUFFIXES.has(subdir) ? `@varlock/native-helper-${subdir}` : undefined;
 }
 
+/** Get the expected helper package only when varlock is installed in node_modules. */
+export function getInstalledPlatformPackageName(): string | undefined {
+  const packageRoot = findVarlockPackageRoot();
+  if (!packageRoot?.split(path.sep).includes('node_modules')) return undefined;
+  return getPlatformPackageName();
+}
+
 /**
  * Resolve the macOS .app bundle binary path, or fall back to bare binary.
  */
