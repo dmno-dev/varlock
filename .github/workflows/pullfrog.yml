@@ -37,9 +37,15 @@ jobs:
         env:
           # Review with GPT Sol via our Azure Foundry deployment instead of the
           # default Anthropic route. AZURE_API_KEY comes from the Pullfrog
-          # dashboard; these two are set here so they stay readable in run logs
+          # dashboard; the rest is set here so it stays readable in run logs
           # (dashboard-stored values get registered as GitHub Actions log masks).
-          # The Azure deployment must be named exactly `gpt-5.6-sol`: the
-          # @ai-sdk/azure provider uses the model id as the deployment name.
+          # Since pullfrog 0.1.58 (first-class Azure support), the deployment
+          # name and the model's token limits are required: a deployment name
+          # carries no catalog metadata, so pullfrog cannot look them up, and
+          # without them completions cap at 32000 tokens and auto-compaction
+          # is disabled. Limits per models.dev azure/gpt-5.6-sol.
           AZURE_RESOURCE_NAME: pullfrog-resource
+          AZURE_DEPLOYMENT: gpt-5.6-sol
+          AZURE_CONTEXT: "1050000"
+          AZURE_MAX_OUTPUT: "128000"
           PULLFROG_MODEL: azure/gpt-5.6-sol
