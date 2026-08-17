@@ -60,12 +60,24 @@ jobs:
           set -euo pipefail
           TMP="$RUNNER_TEMP/varlock-npm"
           mkdir -p "$TMP" && cd "$TMP"
-          for i in $(seq 1 30); do
-            if npm view "varlock@${RELEASE_VERSION}" version >/dev/null 2>&1; then break; fi
-            echo "waiting for varlock@${RELEASE_VERSION} on npm ($i)..."; sleep 10
+          # wait for registry propagation of every package we are about to pack
+          wait_for() { # <pkg spec> <max attempts>
+            for i in $(seq 1 "$2"); do
+              if npm view "$1" version >/dev/null 2>&1; then return 0; fi
+              echo "waiting for $1 on npm ($i)..."; sleep 10
+            done
+            echo "::error::$1 not found on npm. Note: versions <= 1.16.x predate the per-platform @varlock/native-helper-* packages and cannot be re-cut by this workflow."
+            return 1
+          }
+          wait_for "varlock@${RELEASE_VERSION}" 30
+          for SUFFIX in darwin linux-x64 linux-arm64 win32-x64; do
+            # helpers publish before varlock, so short extra wait once varlock is visible
+            wait_for "@varlock/native-helper-${SUFFIX}@${RELEASE_VERSION}" 12
           done
           DEST="$GITHUB_WORKSPACE/packages/varlock/native-bins"
           rm -rf "$DEST"
+          # platform suffix -> tarball entry mapping; source of truth is
+          # packages/native-helpers/platforms.ts - keep in sync
           fetch() { # <platform suffix> <tarball entry>
             rm -rf package
             npm pack "@varlock/native-helper-$1@${RELEASE_VERSION}"

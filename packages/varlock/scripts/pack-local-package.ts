@@ -3,6 +3,7 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { SUBDIR_CONTENTS } from '../../native-helpers/platforms';
 
 const PKG_DIR = path.resolve(import.meta.dir, '..');
 const REPO_ROOT = path.resolve(PKG_DIR, '..', '..');
@@ -57,14 +58,6 @@ function maybeBuildWslHelper() {
   });
 }
 
-// npm-name suffix -> native-bins staging entry, for the per-platform binary packages
-const PLATFORM_PACKAGES: Record<string, string> = {
-  darwin: 'VarlockEnclave.app',
-  'linux-x64': 'varlock-local-encrypt',
-  'linux-arm64': 'varlock-local-encrypt',
-  'win32-x64': 'varlock-local-encrypt.exe',
-};
-
 // bun pm pack resolves workspace:*/catalog: protocols (npm pack does not) and
 // runs prepack. Detect the produced tarball from the directory listing since
 // bun's pack output is not machine-parseable.
@@ -96,7 +89,7 @@ function packVarlock(): string {
 // Their prepack script copies the binary in and fails if it is missing.
 function packPlatformPackages(): Record<string, string> {
   const packed: Record<string, string> = {};
-  for (const [suffix, entry] of Object.entries(PLATFORM_PACKAGES)) {
+  for (const [suffix, entry] of Object.entries(SUBDIR_CONTENTS)) {
     const stagedPath = path.join(PKG_DIR, 'native-bins', suffix, entry);
     if (!fs.existsSync(stagedPath)) continue;
     const pkgDir = path.join(REPO_ROOT, 'packages', 'native-helpers', suffix);

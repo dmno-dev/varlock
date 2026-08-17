@@ -10,9 +10,10 @@
  *    package (legacy layout, and local dev builds staged by build scripts)
  * 4. Dev fallback: walk up from __dirname to find build output
  *
- * In a dev checkout (varlock not under node_modules), strategies 2-4 are
- * compared by binary mtime and the newest wins, so stale staged copies never
- * shadow a fresh local build.
+ * In a dev checkout (a real varlock package.json found outside node_modules),
+ * strategy 2 is skipped (the workspace helper packages only hold transient
+ * prepack copies) and strategies 3-4 are compared by binary mtime with the
+ * newest winning, so stale staged copies never shadow a fresh local build.
  *
  * Returns undefined if no binary is found (file-based fallback will be used instead).
  */
@@ -36,17 +37,24 @@ const BINARY_NAME = 'varlock-local-encrypt';
 const MACOS_APP_BUNDLE = 'VarlockEnclave.app';
 
 /**
- * Resolve the varlock package root by walking up from this module until we
- * find package.json with name=varlock. This is robust across src/dist layouts.
+ * Find the varlock package root by walking up from this module until we find
+ * package.json with name=varlock. This is robust across src/dist layouts.
+ * Returns undefined when no varlock package.json is found (e.g. varlock
+ * bundled into an app's build output).
  */
-function resolvePackageRoot(): string {
+let _cachedPackageRoot: string | undefined | null = null; // null = not yet resolved
+function findVarlockPackageRoot(): string | undefined {
+  if (_cachedPackageRoot !== null) return _cachedPackageRoot;
   let dir = __dirname;
   for (let i = 0; i < 10; i++) {
     const pkgJsonPath = path.join(dir, 'package.json');
     if (fs.existsSync(pkgJsonPath)) {
       try {
         const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')) as { name?: string };
-        if (pkgJson.name === 'varlock') return dir;
+        if (pkgJson.name === 'varlock') {
+          _cachedPackageRoot = dir;
+          return dir;
+        }
       } catch {
         // Ignore invalid/unreadable package.json and continue walking upward
       }
@@ -55,9 +63,8 @@ function resolvePackageRoot(): string {
     if (parent === dir) break;
     dir = parent;
   }
-
-  // Last-resort fallback for unexpected layouts.
-  return path.resolve(__dirname, '..', '..', '..');
+  _cachedPackageRoot = undefined;
+  return undefined;
 }
 
 /** Get the binary name for the current platform */
@@ -75,22 +82,19 @@ function getNativeBinSubdir(): string {
   return `${process.platform}-${process.arch}`;
 }
 
+/** The native-bins subdirs that have a published @varlock/native-helper-* package */
+const PLATFORM_PACKAGE_SUFFIXES = new Set(['darwin', 'linux-x64', 'linux-arm64', 'win32-x64']);
+
 /**
  * Get the per-platform npm package that carries the native binary for the
  * current platform, or undefined if there is no package for it.
- * WSL resolves the win32 package (published with os win32+linux) so the
- * Windows helper is available for DPAPI + Windows Hello via interop.
+ * Derived from getNativeBinSubdir() so the two can never disagree; WSL maps to
+ * the win32 package (published with os win32+linux) so the Windows helper is
+ * available for DPAPI + Windows Hello via interop.
  */
 export function getPlatformPackageName(): string | undefined {
-  if (process.platform === 'darwin') return '@varlock/native-helper-darwin';
-  if (process.platform === 'win32') {
-    return process.arch === 'x64' ? '@varlock/native-helper-win32-x64' : undefined;
-  }
-  if (isWSL()) return '@varlock/native-helper-win32-x64';
-  if (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64')) {
-    return `@varlock/native-helper-linux-${process.arch}`;
-  }
-  return undefined;
+  const subdir = getNativeBinSubdir();
+  return PLATFORM_PACKAGE_SUFFIXES.has(subdir) ? `@varlock/native-helper-${subdir}` : undefined;
 }
 
 /**
@@ -167,15 +171,9 @@ function resolvePlatformPackage(): string | undefined {
  * tarball), and also where local dev build scripts stage binaries.
  */
 function resolveNpmBundled(): string | undefined {
-  const packageRoot = resolvePackageRoot();
-  const nativeBinsDir = path.join(packageRoot, 'native-bins', getNativeBinSubdir());
-  if (fs.existsSync(nativeBinsDir)) return resolveBinaryFromDir(nativeBinsDir);
-
-  // Legacy/alternate layout: native-bins as a sibling of the package root.
-  const adjacentNativeBinsDir = path.join(path.dirname(packageRoot), 'native-bins', getNativeBinSubdir());
-  if (fs.existsSync(adjacentNativeBinsDir)) return resolveBinaryFromDir(adjacentNativeBinsDir);
-
-  return undefined;
+  const packageRoot = findVarlockPackageRoot();
+  if (!packageRoot) return undefined;
+  return resolveBinaryFromDir(path.join(packageRoot, 'native-bins', getNativeBinSubdir()));
 }
 
 /**
@@ -253,9 +251,19 @@ export function resolveNativeBinary(): string | undefined {
     return _cachedBinaryPath;
   }
 
+  // A dev checkout is the varlock monorepo itself (or a linked checkout): we
+  // found a real varlock package.json and it is not under node_modules.
+  const packageRoot = findVarlockPackageRoot();
+  const isDevCheckout = !!packageRoot && !packageRoot.split(path.sep).includes('node_modules');
+
   const candidates: Array<{ binaryPath: string; via: string }> = [];
-  const platformPackage = resolvePlatformPackage();
-  if (platformPackage) candidates.push({ binaryPath: platformPackage, via: 'platform package' });
+  if (!isDevCheckout) {
+    // In a dev checkout the workspace-linked @varlock/native-helper-* packages
+    // only ever hold transient copies made by their prepack script, so they are
+    // not considered; real dev binaries live in native-bins/ or build output.
+    const platformPackage = resolvePlatformPackage();
+    if (platformPackage) candidates.push({ binaryPath: platformPackage, via: 'platform package' });
+  }
   const npmBundled = resolveNpmBundled();
   if (npmBundled) candidates.push({ binaryPath: npmBundled, via: 'npm bundled' });
   const devFallback = resolveDevFallback();
@@ -263,16 +271,13 @@ export function resolveNativeBinary(): string | undefined {
 
   if (candidates.length) {
     let chosen = candidates[0];
-    // In a dev checkout (varlock not under node_modules), stale copies can
-    // linger in higher-priority locations (binaries staged into native-bins/ or
-    // copied into the native-helpers packages by pack flows) and would shadow a
+    // In a dev checkout, a stale binary staged into native-bins/ would shadow a
     // fresh build forever, so prefer the most recently modified candidate.
     // npm installs keep strict priority order: their copies all come from the
     // same published version and file timestamps are just install times.
-    const isDevCheckout = !resolvePackageRoot().split(path.sep).includes('node_modules');
     if (isDevCheckout && candidates.length > 1) {
       chosen = candidates.reduce((a, b) => (getMtimeMs(b.binaryPath) > getMtimeMs(a.binaryPath) ? b : a));
-      debug(`dev checkout with ${candidates.length} candidates — picking newest by mtime`);
+      debug(`dev checkout with ${candidates.length} candidates - picking newest by mtime`);
     }
     debug(`resolved via ${chosen.via}: ${chosen.binaryPath}`);
     _cachedBinaryPath = ensureExecutable(chosen.binaryPath);
@@ -281,22 +286,7 @@ export function resolveNativeBinary(): string | undefined {
 
   debug('NOT FOUND: no binary resolved from any strategy');
   debug(`  SEA sibling dir: ${path.dirname(process.execPath)}`);
-  const packageRoot = resolvePackageRoot();
-  debug(`  npm bundled dir: ${path.join(packageRoot, 'native-bins', getNativeBinSubdir())}`);
-
-  // When varlock was installed from npm on a supported platform, the native
-  // helper should have arrived via optionalDependencies. Warn loudly (once,
-  // since the result is cached) rather than silently degrading to file-based
-  // encryption. Not triggered in monorepo dev (package root not in node_modules)
-  // or SEA/homebrew installs (resolved via sibling above).
-  const expectedPkg = getPlatformPackageName();
-  if (expectedPkg && packageRoot.split(path.sep).includes('node_modules')) {
-    process.stderr.write(
-      `[varlock] Native local-encryption helper not found (expected optional dependency "${expectedPkg}"). `
-      + 'Falling back to file-based encryption. '
-      + 'Reinstalling dependencies (without --no-optional / --omit=optional) usually fixes this.\n',
-    );
-  }
+  if (packageRoot) debug(`  npm bundled dir: ${path.join(packageRoot, 'native-bins', getNativeBinSubdir())}`);
 
   _cachedBinaryPath = undefined;
   return undefined;

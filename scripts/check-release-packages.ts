@@ -122,8 +122,18 @@ releasePackagePaths = releasePackagePaths.filter((p: string) => !p.endsWith('pac
 
 // The platform binary packages also need the native binaries staged in CI,
 // so releasing any of them counts as "includes varlock" for workflow gating.
-const includesVarlock = releasePackagePaths.some(
-  (p) => p.endsWith('packages/varlock') || p.includes(`packages${path.sep}native-helpers${path.sep}`),
+// Match on package names (not directory paths) so relocating packages cannot
+// silently change release gating.
+function readPackageName(pkgPath: string): string | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf-8')).name;
+  } catch {
+    return undefined;
+  }
+}
+const releaseNames = releasePackagePaths.map(readPackageName);
+const includesVarlock = releaseNames.some(
+  (name) => name === 'varlock' || name?.startsWith('@varlock/native-helper-'),
 );
 
 console.log('Packages to release:', releasePackagePaths);
