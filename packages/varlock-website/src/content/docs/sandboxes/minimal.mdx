@@ -1,47 +1,138 @@
 ---
 title: Minimal
-description: Wire the Minimal sandbox through varlock proxy
+description: Using varlock with Minimal sessions, so an agent in a local microVM routes through the varlock credential proxy and holds only placeholders.
 ---
 
-## Minimal
+[Minimal](https://minimal.dev/) runs agent sessions in local microVMs (`min session`). Each session gets its own filesystem and a hostname on Minimal's session network, reachable through a proxy the Minimal daemon runs on your machine. That proxy is the seam varlock plugs into: the agent inside a session reaches a varlock broker and holds only [placeholders](/guides/proxy/rules/#placeholders) while varlock injects real secrets at the wire.
 
-[Minimal](https://minimal.dev/) runs tasks in an isolated sandbox ([task sandbox](https://docs.minimal.dev/concepts/sandboxing)). Start varlock on the **host**, pass the proxy/CA/placeholder environment into the Minimal task, then run the agent inside Minimal so outbound HTTPS goes through varlock.
+The recommended shape for local development is a **broker on your Mac**: secrets, resolver [plugins](/guides/plugins/), biometric unlock, and the interactive request log all stay on the host, and the session reaches the broker through Minimal's virtual switch. For multi-session fleets there is also a [hub session](#hub-session-sandbox-to-sandbox) variant, which is the topology Minimal's future egress enforcement is designed around.
 
-```bash
-eval "$(varlock proxy env)"
-minimal run claude   # or: minimal run <your-agent-task>
-```
-
-`varlock proxy env` prints the child view for the active session: placeholder values for proxied secrets, plus `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`, `NO_PROXY`, and CA trust vars (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and related). Sourcing it before `minimal run` forwards that environment when Minimal inherits the launching shell's env.
-
-:::tip[One-shot alternative]
-```bash
-varlock proxy run -- minimal run claude
-```
-
-Prefer `proxy start` + `proxy env` when you want a durable session log while you iterate on the sandbox task.
+:::caution[Pre-release networking surface]
+The session networking these recipes use (the `.local.min.internal` hostnames, the proxy on port 7654, the host alias IP, and the `--network` / `--ingress` flags) is not in Minimal's docs yet and is not a stable contract: names, ports, and flags may change. Minimal tests against it, but if a command here does not exist in your install, you need a newer build; ask the Minimal team. The recipes were verified on macOS; the same surface on Linux is untested.
 :::
+
+## How session networking works
+
+Four facts shape the setup:
+
+- **Sessions register hostnames.** An active session is reachable as `<name>.local.min.internal`, where `<name>` is the session name if set, otherwise the project directory name lowercased. `min session rename <id> web` changes it live.
+- **A proxy routes by hostname.** The Minimal daemon runs an HTTP proxy on `127.0.0.1:7654`, both on your Mac and inside every session. The port in the URL picks the port inside the target session, nothing to declare up front. WebSockets pass through (both Upgrade and CONNECT tunneling), which matters here because varlock's [tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url) is a WebSocket.
+- **A session's loopback is its own.** Inside a session, `127.0.0.1` is the session VM, not your Mac. Your Mac's loopback is reachable from inside at the host alias `100.64.255.254`, which the virtual switch NATs to the Mac. That address is a constant today, not configuration, and may change.
+- **There is no egress gateway.** Default sessions have open egress, and they share one network namespace with each other. Nothing forces the agent's traffic through varlock or anything else; see [trust model](#trust-model-and-todays-limits) for what that means.
+
+## Broker on your Mac
+
+### 1. Schema
+
+Mark the secrets your agent uses with [`@proxy(domain=...)`](/reference/item-decorators/#proxy), give each an explicit [`@placeholder`](/reference/item-decorators/#placeholder), and set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the header:
+
+```env-spec title=".env.schema"
+# @proxyConfig={egress="strict"}
+# ---
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=yourPreferredPlugin()
+```
+
+Values are resolved by the broker on your Mac, so the right-hand side is whatever your setup already uses: a [plugin](/guides/plugins/) call as shown, or a value the broker picks up from its own environment or a local `.env` file.
+
+`strict` makes the broker refuse any proxied request that matches no `@proxy` rule, which keeps it from acting as an open relay and keeps the [audit log](/guides/proxy/running/#auditing) a complete record of what left through it. Be clear about what it is not: sessions can still make direct connections that never touch the broker, so this is policy over the proxied path, not an egress boundary around the agent (see [trust model](#trust-model-and-todays-limits)).
+
+### 2. Start the broker on the host
+
+`--expose` binds off-loopback and serves the [tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url), minting a data-plane token. Pin the token so you can hand the same value to the agent:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+```
+
+Bare `--expose` binds `0.0.0.0`, so the broker is reachable from your whole network, not just sessions. The data-plane token gates it, but on an untrusted network (a cafe, a conference) firewall the port or stay off that network while the broker runs. Serving the tunnel requires the off-loopback bind, even though Minimal's NAT would reach a loopback-only listener.
+
+### 3. Run the agent through the broker
+
+Activate a session, install varlock in it, then wrap the agent command with `proxy run --url` pointed at the host alias. varlock self-wires the agent's placeholder env and CA certs over the tunnel:
+
+```bash
+cd your-project
+min init                       # scaffolds minimal.toml; check it pinned node (npm needs it)
+min session activate --attach
+
+# inside the session:
+npm i -g varlock
+VARLOCK_PROXY_TOKEN=$YOUR_TOKEN \
+  varlock proxy run --url ws://100.64.255.254:8080 -- your-agent-command
+```
+
+That is the whole path: the agent holds placeholders, the broker on your Mac injects real values only on verified TLS connections to hosts your schema allows, and every request is checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing).
 
 Confirm the agent sees placeholders, not real secrets:
 
 ```bash
-# inside the Minimal task / agent shell, after env was passed through
+# inside the session, under proxy run:
 printenv ANTHROPIC_API_KEY
-# expect something like sk-ant-api03-0000… (your @placeholder), not the vault value
+# expect your @placeholder (sk-ant-api03-0000...), not the vault value
 ```
 
-### Verify on your install
+:::note[No ad-hoc exec yet]
+Minimal has no arbitrary remote exec today: `attach -c` only accepts tasks declared in `minimal.toml`. For unattended runs, declare the wrapped agent command as a `min run` task, or pipe a shell over the session's SSH transport. `min session activate --no-prompt` and `min session list --json` cover driving sessions from scripts.
+:::
 
-Minimal's isolation mode affects whether the guest can reach the host proxy:
+## Hub session (sandbox-to-sandbox)
 
-- **Linux process sandboxing** that still shares host loopback can use `HTTP_PROXY=http://127.0.0.1:<port>` as emitted by `proxy env`.
-- **microVM** isolation typically cannot reach the host's `127.0.0.1`. Varlock's proxy currently binds loopback only; non-loopback "sandbox bridging" is not available yet. If `minimal run` cannot connect through the proxy on your platform, that is the gap to watch, not a misconfigured schema.
+To give a fleet of sessions one broker, or to keep the broker itself inside a sandbox, run it in a dedicated session and let workers reach it by hostname through Minimal's proxy:
 
-If HTTPS clients inside the sandbox fail TLS handshake, confirm the CA bundle vars from `proxy env` were actually present in the task environment (not only on the host shell that launched Minimal).
+```bash
+# hub session: rename it so the hostname is stable, then inside it:
+min session rename <id> varlock
+npm i -g varlock
+VARLOCK_PROXY_TOKEN=$YOUR_TOKEN varlock proxy start --expose --port 8080
 
-### Claude Code and host key pinholes
+# inside each worker session:
+VARLOCK_PROXY_TOKEN=$YOUR_TOKEN \
+HTTP_PROXY=http://127.0.0.1:7654 HTTPS_PROXY=http://127.0.0.1:7654 \
+  varlock proxy run --url ws://varlock.local.min.internal:8080 -- your-agent-command
+```
 
-Minimal's `claude-code` package can wire host paths such as `~/.claude` into the task sandbox so Claude can keep state and find an API key on disk. That pinhole is useful for agent state, but it undercuts credential isolation if the real key lives there.
+varlock's tunnel client [honors `HTTP_PROXY` / `HTTPS_PROXY`](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url) and dials through Minimal's in-session proxy, and the WebSocket upgrade passes through, so no shim is needed. Once connected, varlock wires the child's own proxy env over the tunnel, so the agent's requests ride the varlock tunnel rather than Minimal's proxy directly.
 
-For secrets you mark with `@proxy`, prefer the placeholder + proxy path above, and avoid relying on a real key file inside the sandbox for those same credentials.
+Two notes on this shape:
 
+- A broker in a VM has no biometric unlock, so bootstrap the hub session with your plugin's secret zero in its environment (a 1Password service account token, for example) and let the schema resolve everything else inside the hub. Workers hold nothing but the data-plane token.
+- With default sessions the hostname route is a convention, not a boundary: sessions share a network namespace, so a worker could also reach the hub's port directly. Build against the hostname route anyway; it is the path that keeps working when sessions get real network isolation ([own-ip](#own-ip-sessions-and-future-enforcement)).
+
+## Own-ip sessions and future enforcement
+
+`--network own-ip` (hidden from `--help` while it stabilizes) gives a session its own network namespace and its own IP on a per-host virtual switch, and `--ingress EXT:INT` publishes a session port on your Mac's loopback. Two reasons it matters here:
+
+- **Real inter-session isolation.** Own-ip peers are distinct network identities on the switch, not roommates on one loopback.
+- **It is where egress enforcement will land.** Minimal's policy schema already rejects egress config on anything that is not own-ip, so when "workers can only reach the hub" ships, it ships there. Testing the hub topology in own-ip mode now is testing the shape that will eventually be enforced. `min session policy <name-or-id>` prints a session's effective network policy as JSON.
+
+There is also a `no-net` mode with zero networking. A no-net session cannot reach a broker, so it is only for fully offline tasks.
+
+## Trust model and today's limits
+
+The broker holds real secrets on whatever machine runs it: your Mac for the host broker (the same place they already live), or the hub session bootstrapped with a secret zero. Agent sessions never hold them: a compromised or prompt-injected agent yields placeholders, and only the proxied requests your rules allow go out with real values.
+
+Be equally clear about what Minimal does not enforce yet:
+
+- **Sessions have open egress.** Nothing forces the agent through the broker; `egress="strict"` governs only requests that ride the varlock tunnel. Direct connections carry placeholders at worst, so no secrets are at stake, but "workers can only reach the hub" is roadmap (via own-ip policy), not current behavior.
+- **Default sessions share a network namespace**, so they can reach each other's ports directly, without the hostname route.
+- **The 7654 proxy trusts whoever can reach it** (single-user model), and it listens inside every session, so any session can route to any peer session's ports. Do not forward 7654 off the machine; if something a session serves needs a public URL, point a tunnel (cloudflared, ngrok, ...) at that one routed port, not at the proxy.
+
+## Watching the agent
+
+The same hostname routing gives you a live view of whatever the agent serves, while the session holds no secrets. From your Mac:
+
+```bash
+curl -x http://127.0.0.1:7654 http://<session-name>.local.min.internal:4321/
+```
+
+For a browser, launch a dedicated profile with `--proxy-server="http://127.0.0.1:7654"`. WebSockets pass through, so dev-server HMR works live. Only `*.min.internal` resolves through the proxy, so if external CDN assets need to load too, use a PAC file that sends only `*.min.internal` to the proxy and everything else direct.
+
+To see what agents are doing on the credential side, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) where the broker runs: every request records its host, path, decision, and which keys were injected.
+
+## Sharp edges
+
+- **Port 7654 is fixed and a bind failure is silent.** If something else on your Mac already listens on 7654, the Minimal proxy is simply unreachable and nothing tells you. First debugging step, always: `lsof -nP -iTCP:7654 -sTCP:LISTEN`.
+- **Error responses hold the connection open.** An unknown hostname returns a `502` without closing the socket. curl and browsers are fine; raw `nc` / `socat` probes appear to hang.
