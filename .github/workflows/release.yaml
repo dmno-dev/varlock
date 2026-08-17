@@ -425,12 +425,29 @@ jobs:
       # TODO: send notifications?
 
   # --- varlock CLI binary distribution ---------------------------------------
+  # The macOS CLI archives are built on a macOS runner so the `varlock` binary can
+  # be Developer ID signed with hardened runtime and notarized. The other five
+  # targets keep cross-compiling on linux in release-binaries below.
+  build-cli-binaries-macos:
+    name: Build + sign macOS CLI binaries
+    needs: [plan, release]
+    # Same guard as release-binaries — see the comment there
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    uses: ./.github/workflows/build-cli-binaries-macos.yaml
+    with:
+      build-type: release
+      native-bins-artifact: native-bins-staged
+      artifact-name: varlock-cli-binaries-macos
+      notarize: true
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
   # Reuse the signed/notarized native binaries built earlier in THIS run (no
   # rebuild, no re-sign, no Azure/Apple on this path). Gated on a varlock publish;
   # the varlock@<version> GitHub release that bumpy just created is the target.
   release-binaries:
     name: Release varlock CLI binaries
-    needs: [plan, release]
+    needs: [plan, release, build-cli-binaries-macos]
     # `release` always has a by-design skipped dependency (the native-binary cache
     # logic skips either verify-native-macos on a miss, or build/notarize on a hit),
     # and GitHub propagates that skip through `release`'s always() into the implicit
@@ -494,8 +511,29 @@ jobs:
         run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: Build varlock SEA binaries
-        run: bun run packages/varlock/scripts/build-binaries.ts
+      # macOS is excluded here — those archives are built and signed on a macOS
+      # runner by build-cli-binaries-macos and downloaded below
+      - name: Build varlock SEA binaries (non-macOS)
+        run: |
+          bun run packages/varlock/scripts/build-binaries.ts \
+            --targets=linux-x64,linux-arm64,linux-musl-x64,linux-musl-arm64,win-x64
+
+      # After the build, since build-binaries.ts clears dist-sea on start
+      - name: Download signed macOS CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          name: varlock-cli-binaries-macos
+          path: packages/varlock/dist-sea
+      - name: Add macOS archives to checksums
+        working-directory: packages/varlock/dist-sea
+        run: |
+          set -euo pipefail
+          for f in varlock-macos-x64.tar.gz varlock-macos-arm64.tar.gz; do
+            [ -f "$f" ] || { echo "::error::missing $f from the macOS build"; exit 1; }
+          done
+          sha256sum varlock-macos-*.tar.gz >> checksums.txt
+          sort -k2 checksums.txt -o checksums.txt
+          cat checksums.txt
 
       # Sign checksums.txt rather than each archive: it already covers every
       # archive by hash, so one signature transitively covers them all, and

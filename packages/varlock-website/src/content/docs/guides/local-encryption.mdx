@@ -214,4 +214,4 @@ shasum -a 256 varlock-local-encrypt
 
 **Reporting.** If you hit a detection on a current release, [file an issue](https://github.com/dmno-dev/varlock/issues) with the file path and the detection name. You can also [submit the file to Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission) as a false positive, which is what gets the definition corrected for everyone.
 
-**What we do to prevent this.** Windows binaries are Authenticode-signed via Azure Artifact Signing, macOS binaries are Developer ID signed and notarized, and no binary is compressed with an executable packer (packers such as UPX are a well-known trigger for these detections).
+**What we do to prevent this.** Windows binaries are Authenticode-signed via Azure Artifact Signing, macOS binaries are Developer ID signed and notarized (both the `VarlockEnclave.app` helper and the standalone `varlock` CLI, see [macOS code signing](/getting-started/installation/#macos-code-signing)), and no binary is compressed with an executable packer (packers such as UPX are a well-known trigger for these detections).

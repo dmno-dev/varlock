@@ -6,9 +6,13 @@ name: Re-cut varlock CLI binaries
 # The normal release flow (release.yaml) builds and uploads these in the same run
 # as the npm publish, reusing the in-run signed/notarized native binaries. This
 # workflow is only for re-cutting binaries of an existing version — it pulls the
-# signed native binaries from the published npm package (varlock's `files`
-# includes /native-bins) rather than rebuilding + re-signing them, so it needs no
-# macOS/Windows runner, no Azure, and no Apple credentials.
+# signed native *helper* binaries from the published npm package (varlock's
+# `files` includes /native-bins) rather than rebuilding + re-signing them, so it
+# needs no Windows runner and no Azure.
+#
+# It does need a macOS runner and Apple credentials: the standalone `varlock` CLI
+# binary is itself Developer ID signed and notarized, and that is rebuilt here
+# rather than being recoverable from npm.
 on:
   workflow_dispatch:
     inputs:
@@ -23,7 +27,20 @@ permissions:
 concurrency: ${{ github.workflow }}-${{ inputs.version }}
 
 jobs:
+  # macOS CLI archives need a macOS runner for codesign + notarytool
+  build-cli-binaries-macos:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/build-cli-binaries-macos.yaml
+    with:
+      build-type: release
+      native-bins-npm-version: ${{ inputs.version }}
+      artifact-name: varlock-cli-binaries-macos
+      notarize: true
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
   release-binaries:
+    needs: build-cli-binaries-macos
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -85,8 +102,29 @@ jobs:
         run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: Build varlock SEA binaries
-        run: bun run packages/varlock/scripts/build-binaries.ts
+      # macOS is excluded here — those archives come from build-cli-binaries-macos
+      - name: Build varlock SEA binaries (non-macOS)
+        run: |
+          bun run packages/varlock/scripts/build-binaries.ts \
+            --targets=linux-x64,linux-arm64,linux-musl-x64,linux-musl-arm64,win-x64
+
+      # After the build, since build-binaries.ts clears dist-sea on start
+      - name: Download signed macOS CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          name: varlock-cli-binaries-macos
+          path: packages/varlock/dist-sea
+      - name: Add macOS archives to checksums
+        working-directory: packages/varlock/dist-sea
+        run: |
+          set -euo pipefail
+          for f in varlock-macos-x64.tar.gz varlock-macos-arm64.tar.gz; do
+            [ -f "$f" ] || { echo "::error::missing $f from the macOS build"; exit 1; }
+          done
+          sha256sum varlock-macos-*.tar.gz >> checksums.txt
+          sort -k2 checksums.txt -o checksums.txt
+          cat checksums.txt
+
       # See the matching step in release.yaml for why only checksums.txt is signed.
       - name: Sign checksums with cosign
         working-directory: packages/varlock/dist-sea

@@ -112,6 +112,30 @@ Both workflow identities are accepted because binaries are normally cut by `rele
 Signing was added after varlock 1.14.0, so older releases have `checksums.txt` but no bundle. If a release has no `checksums.txt.cosign.bundle` asset, it predates signing and only the checksum step applies.
 :::
 
+### macOS code signing
+
+The `varlock` binary in the macOS archives is Developer ID signed and notarized, built with the hardened runtime enabled and no entitlement exceptions granted. Check a binary you have on disk with:
+
+```bash
+codesign -dvvv /path/to/varlock
+```
+
+Two things to look for: a `flags=` line that includes `runtime`, and an `Authority=Developer ID Application: ...` line naming varlock's signing team. To confirm no exceptions were granted:
+
+```bash
+codesign -d --entitlements - --xml /path/to/varlock
+```
+
+Every key should be `<false/>`.
+
+The hardened runtime is doing real work here, not just satisfying Gatekeeper. Without it, any process running as your user can attach a debugger to varlock and read resolved secret values out of its memory. Several entitlements reopen that same hole, notably `get-task-allow`, `com.apple.security.cs.debugger`, and `disable-executable-page-protection`, which is why varlock grants none of them. This matters for anything that decides what a process is allowed to do based on its runtime posture, and it is worth knowing that a `node`-based install cannot offer the same property: the official Node.js binaries ship with `get-task-allow` enabled, so they are attachable regardless of the hardened runtime flag.
+
+The binary has no stapled notarization ticket, because `xcrun stapler` only handles bundles, disk images, and installer packages, not bare executables. Apple publishes the ticket and Gatekeeper resolves it online, so notarization still applies to an archive you downloaded through a browser. The `VarlockEnclave.app` bundled alongside the CLI is signed, notarized, and stapled separately, and you can check it with `xcrun stapler validate VarlockEnclave.app`.
+
+:::note
+macOS signing of the standalone CLI binary was added after varlock 1.16.1. Earlier standalone archives contain an unsigned `varlock` binary, though the bundled `VarlockEnclave.app` helper has been signed and notarized for longer.
+:::
+
 ## Varlock skill
 
 Then install the Varlock agent skill:
