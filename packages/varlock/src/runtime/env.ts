@@ -147,8 +147,29 @@ export function getRedactionMapInfo() {
 
 
 function isErrorLike(o: any) {
-  // toString check also catches errors from another realm/context, where instanceof fails
-  return o instanceof Error || Object.prototype.toString.call(o) === '[object Error]';
+  if (o instanceof Error) return true;
+
+  // Cross-realm errors fail instanceof. Find the realm's Error.prototype without relying on
+  // Object.prototype.toString, which can be masked by an own Symbol.toStringTag.
+  let prototype = Object.getPrototypeOf(o);
+  while (prototype) {
+    const constructor = Object.getOwnPropertyDescriptor(prototype, 'constructor')?.value;
+    if (
+      typeof constructor === 'function'
+      && constructor.name === 'Error'
+      && Object.prototype.hasOwnProperty.call(prototype, 'message')
+      && Object.getOwnPropertyDescriptor(prototype, 'name')?.value === 'Error'
+    ) return true;
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  return false;
+}
+
+function redactPropertyKey(key: string | symbol, seen: Map<any, any>): string | symbol {
+  if (typeof key === 'string') return redactValue(key, seen); // eslint-disable-line no-use-before-define
+  if (key.description === undefined) return key;
+  const redactedDescription = redactValue(key.description, seen); // eslint-disable-line no-use-before-define
+  return redactedDescription === key.description ? key : Symbol(redactedDescription);
 }
 
 /**
@@ -181,6 +202,8 @@ function redactError(err: any, seen: Map<any, any>): any {
 
   let changed = false;
   for (const key of keys) {
+    const redactedKey = redactPropertyKey(key, seen);
+    if (redactedKey !== key) changed = true;
     let value: any;
     try {
       value = err[key];
@@ -190,7 +213,7 @@ function redactError(err: any, seen: Map<any, any>): any {
     const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
     if (redactedValue !== value) changed = true;
     try {
-      Object.defineProperty(copy, key, {
+      Object.defineProperty(copy, redactedKey, {
         value: redactedValue,
         enumerable: Object.prototype.propertyIsEnumerable.call(err, key),
         writable: true,
@@ -228,7 +251,19 @@ function redactValue(o: any, seen: Map<any, any>): any {
     try {
       return JSON.parse(redactValue(JSON.stringify(o), seen));
     } catch (err) {
-      return o;
+      if (seen.has(o)) return seen.get(o);
+      const copy: Record<string, any> = {};
+      seen.set(o, copy);
+      for (const key of Object.keys(o)) {
+        let value: any;
+        try {
+          value = o[key];
+        } catch (getterError) {
+          continue;
+        }
+        copy[redactPropertyKey(key, seen) as string] = redactValue(value, seen);
+      }
+      return copy;
     }
   }
 

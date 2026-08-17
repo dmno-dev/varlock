@@ -1,6 +1,7 @@
 import {
   describe, it, expect, beforeEach,
 } from 'vitest';
+import { runInNewContext } from 'node:vm';
 import { resetRedactionMap, redactSensitiveConfig } from '../env';
 import type { SerializedEnvGraph } from '../../env-graph';
 
@@ -71,6 +72,37 @@ describe('redactSensitiveConfig - errors', () => {
     expect(redacted.requestUrl).toBe(`https://example.com/?token=${REDACTED_SECRET}`);
     expect(redacted.headers.authorization).toBe(`Bearer ${REDACTED_SECRET}`);
     expect(redacted.attempts).toBe(3);
+  });
+
+  it('redacts secrets in custom property names and symbol descriptions', () => {
+    const err: any = new Error('request failed');
+    err[`token-${SECRET_VALUE}`] = 'string key';
+    err[Symbol(`token-${SECRET_VALUE}`)] = 'symbol key';
+
+    const redacted = redactSensitiveConfig(err);
+    expect(Object.getOwnPropertyNames(redacted).join()).not.toContain(SECRET_VALUE);
+    expect(Object.getOwnPropertySymbols(redacted).map((key) => key.description).join()).not.toContain(SECRET_VALUE);
+    expect(Object.getOwnPropertyNames(err).join()).toContain(SECRET_VALUE);
+  });
+
+  it('redacts circular plain objects attached to an error', () => {
+    const details: any = { token: SECRET_VALUE };
+    details.self = details;
+    const err: any = Object.assign(new Error('request failed'), { details });
+
+    const redacted = redactSensitiveConfig(err);
+    expect(redacted.details.token).toBe(REDACTED_SECRET);
+    expect(redacted.details.self).toBe(redacted.details);
+    expect(err.details.token).toBe(SECRET_VALUE);
+  });
+
+  it('recognizes cross-realm errors with a custom toStringTag', () => {
+    const err = runInNewContext(`new Error('request failed: ${SECRET_VALUE}')`);
+    err[Symbol.toStringTag] = 'Masked';
+
+    const redacted = redactSensitiveConfig(err);
+    expect(redacted.message).toBe(`request failed: ${REDACTED_SECRET}`);
+    expect(err.message).toContain(SECRET_VALUE);
   });
 
   it('preserves enumerability so custom props still show up in log output', () => {
