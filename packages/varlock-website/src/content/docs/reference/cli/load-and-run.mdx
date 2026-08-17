@@ -199,9 +199,11 @@ varlock printenv <VAR_NAME> [options]
 ```
 
 **Positional arguments:**
-- `<VAR_NAME>`: The variable to print. Required; printenv errors if omitted.
+- `<VAR_NAME>`: The variable to print. Required unless `--template` is used; printenv errors if both are omitted, or if both are given.
 
 **Options:**
+- `--template` / `-t`: Print a rendered string template instead of a single value. `{{KEY}}` placeholders are replaced with resolved values, and a template can reference multiple variables.
+- `--escape <lang>`: Escape substituted values for the given language (only valid with `--template`). Currently supports `json`, which escapes each value for embedding inside a JSON string literal. Only the value's content is escaped (no quotes are added), so placeholders used as bare values (like numbers) pass through unchanged.
 - [Common options](/reference/cli-commands/#common-options): `--path` / `-p`, `--clear-cache`, `--skip-cache`
 
 **Examples:**
@@ -217,6 +219,9 @@ varlock printenv -p ./envs -p ./overrides MY_VAR
 
 # Embed in a shell command using subshell expansion
 sh -c 'some-tool --token $(varlock printenv MY_TOKEN)'
+
+# Render a template referencing one or more variables
+varlock printenv --template '{"Authorization": "Bearer {{MY_TOKEN}}"}' --escape json
 ```
 
 :::note[Why not use `varlock run -- echo $MY_VAR`?]

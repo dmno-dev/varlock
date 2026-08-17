@@ -46,3 +46,48 @@ alias vclaude='varlock run -p ~/.env.claude --no-redact-stdout -- claude'
 ```
 
 `--no-redact-stdout` keeps Claude's own terminal output unredacted while secrets stay out of your shell history.
+
+## MCP server secrets
+
+MCP server configs (`.mcp.json`, `~/.claude.json`) support `${VAR}` expansion, but the variables are read from Claude Code's own process environment. That works if you launch `claude` via `varlock run`, but not for the desktop app, which is not launched from your shell. Instead, let varlock resolve secrets at the point where Claude Code uses them.
+
+### Remote servers: `headersHelper`
+
+For `http` (and `ws`) servers, Claude Code's [`headersHelper`](https://code.claude.com/docs/en/mcp) runs a command that prints a JSON object of headers. It runs when Claude Code connects to the server (once per session that uses it, not per request), and re-runs automatically if a call returns 401 or 403.
+
+Use `varlock printenv --template` to emit the headers JSON:
+
+```json title=".mcp.json"
+{
+  "mcpServers": {
+    "my-api": {
+      "type": "http",
+      "url": "https://mcp.example.com",
+      "headersHelper": "varlock printenv --template '{\"Authorization\": \"Bearer {{MY_MCP_TOKEN}}\"}' --escape json"
+    }
+  }
+}
+```
+
+The helper runs from the session's working directory, so varlock picks up the project's `.env.schema` automatically. For user-scope servers, or to be independent of the working directory, add `-p /absolute/path/to/project` (or `-p ~/.env.mcp` for a personal schema file). For the desktop app, also use an absolute path to the varlock binary. The [standalone binary](/getting-started/installation/#as-a-standalone-binary) is the safest choice there: the npm-installed CLI needs `node` on `PATH`, which the desktop app may not have.
+
+Claude Code gives the helper 10 seconds to run. A warm varlock cache resolves well within that; a cold resolve that prompts for biometric auth may not, so keep caching enabled for schemas used this way.
+
+### Local stdio servers: wrap the command
+
+For stdio servers, wrap the server command with `varlock run` in the server entry itself. This works no matter how Claude Code was launched, since each MCP server is a child process it spawns:
+
+```json title=".mcp.json"
+{
+  "mcpServers": {
+    "my-local-server": {
+      "command": "varlock",
+      "args": ["run", "-p", "/absolute/path/to/project", "--filter", "MY_SERVER_*", "--inject", "vars", "--", "npx", "-y", "some-mcp-server"]
+    }
+  }
+}
+```
+
+- `--filter` injects only the vars that server needs, so each server gets least-privilege access
+- `--inject vars` keeps the `__VARLOCK_ENV` blob out of a third-party server's environment
+- The server's stdout is a pipe, so [redaction](/guides/secrets/#cli-log-redaction) applies to sensitive values in its output; add `--no-redact-stdout` if that interferes with your server
