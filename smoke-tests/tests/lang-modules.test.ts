@@ -43,12 +43,8 @@ describe('generated language modules compile and run', () => {
   });
 
   test.skipIf(!hasTool('java') || !hasTool('mvn'))('Java module compiles and runs', () => {
-    // retry transient Maven Central failures (it rate-limits CI runners with 429s,
-    // which the resolver does not retry by default - only 503)
-    const mvnRetryFlags = [
-      '-Daether.connector.http.retryHandler.count=5',
-      '-Daether.connector.http.retryHandler.serviceUnavailable=429,503',
-    ].join(' ');
+    // increase Maven Resolver's default retry count from three for transient Central failures
+    const mvnRetryFlags = '-Daether.connector.http.retryHandler.count=5';
     // package a shaded fat jar, then run it the usual way (`java -jar`)
     const result = varlockRun(
       ['bash', '-c', `mvn -q -DskipTests ${mvnRetryFlags} package && java -jar target/app.jar`],
