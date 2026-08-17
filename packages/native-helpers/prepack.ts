@@ -11,13 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-
-const SUBDIR_CONTENTS: Record<string, string> = {
-  darwin: 'VarlockEnclave.app',
-  'linux-x64': 'varlock-local-encrypt',
-  'linux-arm64': 'varlock-local-encrypt',
-  'win32-x64': 'varlock-local-encrypt.exe',
-};
+import { SUBDIR_CONTENTS } from './platforms';
 
 const subdir = process.argv[2];
 if (!subdir || !(subdir in SUBDIR_CONTENTS)) {

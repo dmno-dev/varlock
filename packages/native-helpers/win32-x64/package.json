@@ -18,6 +18,7 @@
   "files": ["/varlock-local-encrypt.exe"],
   "preferUnplugged": true,
   "scripts": {
-    "prepack": "bun run ../prepack.ts win32-x64"
+    "prepack": "bun run ../prepack.ts win32-x64",
+    "postpack": "bun run ../postpack.ts win32-x64"
   }
 }

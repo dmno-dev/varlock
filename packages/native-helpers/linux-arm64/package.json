@@ -16,6 +16,7 @@
   "files": ["/varlock-local-encrypt"],
   "preferUnplugged": true,
   "scripts": {
-    "prepack": "bun run ../prepack.ts linux-arm64"
+    "prepack": "bun run ../prepack.ts linux-arm64",
+    "postpack": "bun run ../postpack.ts linux-arm64"
   }
 }

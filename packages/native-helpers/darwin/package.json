@@ -15,6 +15,7 @@
   "files": ["/VarlockEnclave.app"],
   "preferUnplugged": true,
   "scripts": {
-    "prepack": "bun run ../prepack.ts darwin"
+    "prepack": "bun run ../prepack.ts darwin",
+    "postpack": "bun run ../postpack.ts darwin"
   }
 }

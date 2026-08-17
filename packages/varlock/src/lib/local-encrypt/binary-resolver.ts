@@ -10,6 +10,10 @@
  *    package (legacy layout, and local dev builds staged by build scripts)
  * 4. Dev fallback: walk up from __dirname to find build output
  *
+ * In a dev checkout (varlock not under node_modules), strategies 2-4 are
+ * compared by binary mtime and the newest wins, so stale staged copies never
+ * shadow a fresh local build.
+ *
  * Returns undefined if no binary is found (file-based fallback will be used instead).
  */
 
@@ -199,6 +203,15 @@ function resolveDevFallback(): string | undefined {
   return undefined;
 }
 
+/** Modification time of a binary, or 0 if it cannot be statted */
+function getMtimeMs(binaryPath: string): number {
+  try {
+    return fs.statSync(binaryPath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Ensure the binary at the given path is executable.
  * GitHub Actions artifact upload/download strips execute permissions,
@@ -240,24 +253,29 @@ export function resolveNativeBinary(): string | undefined {
     return _cachedBinaryPath;
   }
 
+  const candidates: Array<{ binaryPath: string; via: string }> = [];
   const platformPackage = resolvePlatformPackage();
-  if (platformPackage) {
-    debug(`resolved via platform package: ${platformPackage}`);
-    _cachedBinaryPath = ensureExecutable(platformPackage);
-    return _cachedBinaryPath;
-  }
-
+  if (platformPackage) candidates.push({ binaryPath: platformPackage, via: 'platform package' });
   const npmBundled = resolveNpmBundled();
-  if (npmBundled) {
-    debug(`resolved via npm bundled: ${npmBundled}`);
-    _cachedBinaryPath = ensureExecutable(npmBundled);
-    return _cachedBinaryPath;
-  }
-
+  if (npmBundled) candidates.push({ binaryPath: npmBundled, via: 'npm bundled' });
   const devFallback = resolveDevFallback();
-  if (devFallback) {
-    debug(`resolved via dev fallback: ${devFallback}`);
-    _cachedBinaryPath = ensureExecutable(devFallback);
+  if (devFallback) candidates.push({ binaryPath: devFallback, via: 'dev fallback' });
+
+  if (candidates.length) {
+    let chosen = candidates[0];
+    // In a dev checkout (varlock not under node_modules), stale copies can
+    // linger in higher-priority locations (binaries staged into native-bins/ or
+    // copied into the native-helpers packages by pack flows) and would shadow a
+    // fresh build forever, so prefer the most recently modified candidate.
+    // npm installs keep strict priority order: their copies all come from the
+    // same published version and file timestamps are just install times.
+    const isDevCheckout = !resolvePackageRoot().split(path.sep).includes('node_modules');
+    if (isDevCheckout && candidates.length > 1) {
+      chosen = candidates.reduce((a, b) => (getMtimeMs(b.binaryPath) > getMtimeMs(a.binaryPath) ? b : a));
+      debug(`dev checkout with ${candidates.length} candidates — picking newest by mtime`);
+    }
+    debug(`resolved via ${chosen.via}: ${chosen.binaryPath}`);
+    _cachedBinaryPath = ensureExecutable(chosen.binaryPath);
     return _cachedBinaryPath;
   }
 
