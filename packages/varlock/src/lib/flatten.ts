@@ -2,7 +2,7 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import semver from 'semver';
+import { isValid as semverIsValid, satisfies as semverSatisfies } from 'verkit';
 import {
   parseEnvSpecDotEnvFile,
   ParsedEnvSpecFile,
@@ -493,7 +493,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
 
     // resolve the concrete version to use: an already-pinned exact version, otherwise the
     // version installed in node_modules (works for bare names and semver ranges alike)
-    const pinnedExact = versionDescriptor && semver.valid(versionDescriptor) ? versionDescriptor : undefined;
+    const pinnedExact = versionDescriptor && semverIsValid(versionDescriptor) ? versionDescriptor : undefined;
 
     if (vendorPlugins) {
       // vendor every npm plugin (package-internal included) so the artifact needs no node_modules
@@ -508,7 +508,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
         version = pinnedExact;
         if (installed?.version === pinnedExact) localDir = installed.dir;
       } else if (installed) {
-        if (versionDescriptor && !semver.satisfies(installed.version, versionDescriptor)) {
+        if (versionDescriptor && !semverSatisfies(installed.version, versionDescriptor)) {
           result.warnings.push(
             `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} - installed version ${installed.version} does not satisfy the declared range, left untouched`,
           );
@@ -556,7 +556,7 @@ export async function flattenEnvFiles(opts: FlattenOptions): Promise<FlattenResu
       );
       return false;
     }
-    if (versionDescriptor && !semver.satisfies(installed.version, versionDescriptor)) {
+    if (versionDescriptor && !semverSatisfies(installed.version, versionDescriptor)) {
       result.warnings.push(
         `@plugin(${sourceDescriptor}) in ${relLabel(srcAbs)} - installed version ${installed.version} does not satisfy the declared range, left untouched`,
       );

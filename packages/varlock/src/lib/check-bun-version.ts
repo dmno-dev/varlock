@@ -1,4 +1,4 @@
-import semverGte from 'semver/functions/gte';
+import { isGreaterOrEqual as semverGte } from 'verkit';
 
 /**
  * Minimum Bun version required for varlock to work correctly.

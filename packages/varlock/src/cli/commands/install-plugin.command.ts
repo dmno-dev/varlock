@@ -1,6 +1,6 @@
 import { define } from 'gunshi';
 import ansis from 'ansis';
-import semverValid from 'semver/functions/valid';
+import { isValid as semverIsValid } from 'verkit';
 
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
@@ -64,7 +64,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     });
   }
 
-  if (!semverValid(versionDescriptor)) {
+  if (!semverIsValid(versionDescriptor)) {
     throw new CliExitError(`"${versionDescriptor}" is not an exact version`, {
       suggestion: `Use a fixed version number (e.g. 1.2.3), not a range. Example: \`varlock install-plugin ${moduleName}@1.2.3\``,
     });
