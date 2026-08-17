@@ -32,9 +32,11 @@ This is a monorepo managed with bun workspaces and Turborepo:
 
 - The varlock CLI binary is built using `bun build --compile` (not Node SEA or pkg)
 - `bun run --filter varlock build:binary` builds a local dev binary for the current platform at `packages/varlock/dist-sea/varlock`
-- `packages/varlock/scripts/build-binaries.ts` builds cross-platform release binaries (or use `--current-platform` for a single local binary)
+- `packages/varlock/scripts/build-binaries.ts` builds cross-platform release binaries (`--dev` for a single local binary, `--targets=macos-x64,linux-x64,...` for a subset)
 - `bun run --filter varlock test:binary:local` builds the local binary and runs a smoke `load` check (WSL-aware helper copy)
 - `bun run --filter varlock pack:local` builds + packs a local tarball and prints a ready-to-paste `file:` dependency
+- On macOS the CLI binary is codesigned with hardened runtime, entitlements in `packages/varlock/varlock-cli.entitlements` (every exception `<false/>`). Local builds get an ad-hoc signature; set `APPLE_SIGNING_IDENTITY` or pass `--sign "<identity>"` for a real one, or `--no-sign` to skip (hardened runtime blocks debugger attach, so stepping through the compiled binary needs `--no-sign`). Note the entitlements plist cannot contain XML comments, codesign rejects them
+- Release CI splits the build: `build-cli-binaries-macos.yaml` builds + signs + notarizes the two macOS archives on a macOS runner, and `release-binaries` cross-compiles the rest on linux and merges the checksums
 
 ## Testing
 

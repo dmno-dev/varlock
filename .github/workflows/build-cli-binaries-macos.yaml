@@ -1,0 +1,256 @@
+name: Build macOS varlock CLI binaries
+
+# Reusable workflow that builds the two macOS standalone (SEA) CLI archives on a
+# macOS runner, Developer ID signs the `varlock` Mach-O with hardened runtime,
+# and notarizes it.
+#
+# Why a separate job: codesign and notarytool only exist on macOS, but the other
+# five targets cross-compile fine on linux and there's no reason to move them.
+# The caller builds those with `--targets=` and downloads this job's archives.
+#
+# Hardened runtime is the substance here. Without it (or with get-task-allow
+# granted) any process running as the same user can attach to varlock and read
+# resolved secrets out of its memory. Entitlements live in
+# packages/varlock/varlock-cli.entitlements and grant nothing.
+#
+# Note there is no stapling step: `xcrun stapler` only handles bundles, disk
+# images and installer packages, not bare Mach-O executables. The notarization
+# ticket is published by Apple and Gatekeeper resolves it online, which is the
+# normal arrangement for a signed CLI shipped in a tarball.
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      build-type:
+        description: 'BUILD_TYPE for the libs build: release or preview'
+        type: string
+        default: 'release'
+      native-bins-artifact:
+        description: 'Artifact holding packages/varlock/native-bins (signed + notarized helpers). Mutually exclusive with native-bins-npm-version.'
+        type: string
+        default: ''
+      native-bins-npm-version:
+        description: 'Published varlock version to pull native-bins from, for re-cuts of an existing release.'
+        type: string
+        default: ''
+      artifact-name:
+        description: 'Name for the uploaded archive artifact'
+        type: string
+        default: 'varlock-cli-binaries-macos'
+      notarize:
+        description: 'Submit the signed binaries to Apple for notarization'
+        type: boolean
+        default: true
+    secrets:
+      OP_CI_TOKEN:
+        required: true
+
+jobs:
+  build-macos-cli-binaries:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.x"
+      - name: Install node deps
+        run: bun install
+      - name: Enable turborepo build cache
+        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+
+      - name: Validate native-bins source
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.native-bins-artifact }}" ] && [ -n "${{ inputs.native-bins-npm-version }}" ]; then
+            echo "::error::Pass either native-bins-artifact or native-bins-npm-version, not both"
+            exit 1
+          fi
+          if [ -z "${{ inputs.native-bins-artifact }}" ] && [ -z "${{ inputs.native-bins-npm-version }}" ]; then
+            echo "::error::One of native-bins-artifact or native-bins-npm-version is required"
+            exit 1
+          fi
+
+      - name: Download native binaries (artifact)
+        if: inputs.native-bins-artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.native-bins-artifact }}
+          path: packages/varlock/native-bins
+
+      # Re-cut path: the published npm package ships the signed/notarized helpers
+      # in /native-bins, so we reuse them rather than rebuilding and re-signing.
+      - name: Fetch native binaries from published npm package
+        if: inputs.native-bins-npm-version != ''
+        env:
+          RELEASE_VERSION: ${{ inputs.native-bins-npm-version }}
+        run: |
+          set -euo pipefail
+          TMP="$RUNNER_TEMP/varlock-npm"
+          mkdir -p "$TMP" && cd "$TMP"
+          for i in $(seq 1 30); do
+            if npm view "varlock@${RELEASE_VERSION}" version >/dev/null 2>&1; then break; fi
+            echo "waiting for varlock@${RELEASE_VERSION} on npm ($i)..."; sleep 10
+          done
+          npm pack "varlock@${RELEASE_VERSION}"
+          tar -xzf varlock-*.tgz
+          rm -rf "$GITHUB_WORKSPACE/packages/varlock/native-bins"
+          cp -R package/native-bins "$GITHUB_WORKSPACE/packages/varlock/native-bins"
+
+      - name: Restore native binary execute permissions
+        run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
+
+      - name: Build libs
+        run: bun run build:libs
+        env:
+          BUILD_TYPE: ${{ inputs.build-type }}
+
+      # Apple credentials come from the same 1Password item the native-binary
+      # workflows use, so there is one place to rotate them
+      - name: Load signing secrets
+        uses: dmno-dev/varlock-action@v1.0.5
+        with:
+          working-directory: packages/encryption-binary-swift
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+      - name: Import signing certificate
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import $RUNNER_TEMP/certificate.p12 \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> $GITHUB_ENV
+
+      # The script signs each macOS `varlock` binary right after compiling it and
+      # before archiving. It deliberately does not touch the bundled
+      # VarlockEnclave.app, whose stapled ticket a re-sign would invalidate.
+      - name: Build and sign macOS CLI binaries
+        run: |
+          bun run packages/varlock/scripts/build-binaries.ts \
+            --targets=macos-x64,macos-arm64 \
+            --sign "$APPLE_SIGNING_IDENTITY"
+
+      - name: Notarize signed binaries
+        if: inputs.notarize
+        working-directory: packages/varlock/dist-sea
+        env:
+          OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+        run: |
+          set -euo pipefail
+          # notarytool takes a zip/pkg/dmg container, so submit both binaries in one
+          ditto -c -k macos-x64/varlock $RUNNER_TEMP/varlock-macos-x64.zip
+          ditto -c -k macos-arm64/varlock $RUNNER_TEMP/varlock-macos-arm64.zip
+
+          for arch in x64 arm64; do
+            echo "=== notarizing macos-$arch ==="
+            xcrun notarytool submit "$RUNNER_TEMP/varlock-macos-$arch.zip" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+          done
+
+      - name: Verify signatures
+        run: |
+          set -euo pipefail
+          cd packages/varlock/dist-sea
+          FAILED=0
+          for arch in x64 arm64; do
+            BIN="macos-$arch/varlock"
+            echo "=== $BIN ==="
+            lipo -info "$BIN"
+            codesign --verify --strict --verbose=2 "$BIN"
+            codesign -dvvv "$BIN" 2>&1 | grep -E "Authority|TeamIdentifier|flags=" || true
+
+            # Hardened runtime must be on, or the whole point is lost
+            if ! codesign -dvvv "$BIN" 2>&1 | grep -q "flags=.*runtime"; then
+              echo "::error::$BIN is missing the hardened runtime flag"
+              FAILED=1
+            fi
+            if ! codesign -dvvv "$BIN" 2>&1 | grep -q "Developer ID Application"; then
+              echo "::error::$BIN is not Developer ID signed"
+              FAILED=1
+            fi
+            # Any granted exception weakens the runtime; the entitlements file
+            # grants none, so a <true/> here means it drifted
+            if codesign -d --entitlements - --xml "$BIN" 2>/dev/null | grep -q "<true/>"; then
+              echo "::error::$BIN was signed with a granted hardened-runtime exception"
+              codesign -d --entitlements - --xml "$BIN" 2>/dev/null
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
+      # Test what users actually get: extract the archive and exercise it there.
+      # The signature has to survive tar, and the bundled .app has to keep its own.
+      - name: Verify archive round-trip
+        working-directory: packages/varlock/dist-sea
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            DEST="$RUNNER_TEMP/extract-$arch"
+            rm -rf "$DEST" && mkdir -p "$DEST"
+            tar -xzf "varlock-macos-$arch.tar.gz" -C "$DEST"
+
+            if find "$DEST" -name '._*' | grep -q .; then
+              echo "::error::AppleDouble sidecar files leaked into varlock-macos-$arch.tar.gz"
+              exit 1
+            fi
+            codesign --verify --strict "$DEST/varlock"
+            codesign --verify --deep --strict "$DEST/VarlockEnclave.app"
+            # The .app's own notarization is asserted by verify-native-macos; a
+            # missing ticket here is worth surfacing but is not this job's gate
+            xcrun stapler validate "$DEST/VarlockEnclave.app" \
+              || echo "::warning::bundled VarlockEnclave.app has no stapled notarization ticket"
+            echo "varlock-macos-$arch.tar.gz round-trip OK"
+          done
+
+      # The runner is arm64, so only that slice can actually execute
+      - name: Smoke test the extracted arm64 binary
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/extract-arm64"
+          ./varlock --version
+          ./varlock --help > /dev/null
+          printf 'PUBLIC_VAR=hello\n' > .env.schema
+          ./varlock load --format json
+          ./varlock run -- node -e 'if (process.env.PUBLIC_VAR !== "hello") { console.error("env not injected"); process.exit(1); }'
+
+      - name: Upload macOS CLI archives
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            packages/varlock/dist-sea/varlock-macos-x64.tar.gz
+            packages/varlock/dist-sea/varlock-macos-arm64.tar.gz
+          retention-days: 7
+
+      - name: Cleanup signing keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f $RUNNER_TEMP/certificate.p12
