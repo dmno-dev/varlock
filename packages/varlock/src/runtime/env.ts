@@ -146,12 +146,70 @@ export function getRedactionMapInfo() {
 // we expose only the below const to end users
 
 
+function isErrorLike(o: any) {
+  // toString check also catches errors from another realm/context, where instanceof fails
+  return o instanceof Error || Object.prototype.toString.call(o) === '[object Error]';
+}
+
 /**
- * Redacts senstive config values from any string/array/object/etc
+ * Errors need special handling - their `message`/`stack` are non-enumerable so they do not
+ * survive a JSON round-trip, and their prototype is not `Object.prototype` so they used to
+ * fall through redaction untouched. That leaks secrets anywhere the console output is
+ * serialized from the object itself rather than from a pre-formatted string - edge runtimes
+ * (Cloudflare Workers, Vercel Edge), or any platform that has already patched console.log.
  *
- * NOTE - must be used only after varlock has loaded config
+ * We build a redacted copy instead of mutating the error, since the caller may still be
+ * using it. The copy is a real Error carrying the original prototype, so `instanceof` checks
+ * and console formatting keep working.
  * */
-export function redactSensitiveConfig(o: any): any {
+function redactError(err: any, seen: Map<any, any>): any {
+  // registered up front so circular `cause` chains (and repeat references) resolve
+  // to the copy rather than recursing forever or falling back to the raw error
+  if (seen.has(err)) return seen.get(err);
+  const copy = new Error();
+  Object.setPrototypeOf(copy, Object.getPrototypeOf(err));
+  seen.set(err, copy);
+
+  const keys: Array<string | symbol> = [
+    ...Object.getOwnPropertyNames(err),
+    ...Object.getOwnPropertySymbols(err),
+  ];
+  // `message`/`stack` are not own properties in every runtime, but always need redacting
+  for (const inheritedKey of ['message', 'stack']) {
+    if (!keys.includes(inheritedKey)) keys.push(inheritedKey);
+  }
+
+  let changed = false;
+  for (const key of keys) {
+    let value: any;
+    try {
+      value = err[key];
+    } catch (getterError) {
+      continue; // a getter that throws - nothing we can safely read or copy
+    }
+    const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
+    if (redactedValue !== value) changed = true;
+    try {
+      Object.defineProperty(copy, key, {
+        value: redactedValue,
+        enumerable: Object.prototype.propertyIsEnumerable.call(err, key),
+        writable: true,
+        configurable: true,
+      });
+    } catch (defineError) {
+      // skip anything we cannot redefine on the copy
+    }
+  }
+
+  // nothing sensitive in here - hand back the original untouched
+  if (!changed) {
+    seen.set(err, err);
+    return err;
+  }
+  return copy;
+}
+
+function redactValue(o: any, seen: Map<any, any>): any {
   const { redactorFindReplace } = getRedactionState();
   if (!redactorFindReplace) return o;
   if (!o) return o;
@@ -160,12 +218,15 @@ export function redactSensitiveConfig(o: any): any {
   // we can probably redact safely from a few other datatypes - like set,map,etc?
   // objects are a bit tougher
   if (Array.isArray(o)) {
-    return o.map(redactSensitiveConfig);
+    return o.map((item) => redactValue(item, seen));
+  }
+  if (isErrorLike(o)) {
+    return redactError(o, seen);
   }
   // try to redact if it's a plain object - not necessarily great for perf...
   if (o && typeof (o) === 'object' && Object.getPrototypeOf(o) === Object.prototype) {
     try {
-      return JSON.parse(redactSensitiveConfig(JSON.stringify(o)));
+      return JSON.parse(redactValue(JSON.stringify(o), seen));
     } catch (err) {
       return o;
     }
@@ -177,6 +238,18 @@ export function redactSensitiveConfig(o: any): any {
   }
 
   return o;
+}
+
+/**
+ * Redacts senstive config values from any string/array/object/error/etc
+ *
+ * NOTE - must be used only after varlock has loaded config
+ * */
+export function redactSensitiveConfig(o: any): any {
+  const { redactorFindReplace } = getRedactionState();
+  if (!redactorFindReplace) return o;
+  if (!o) return o;
+  return redactValue(o, new Map());
 }
 
 /**
