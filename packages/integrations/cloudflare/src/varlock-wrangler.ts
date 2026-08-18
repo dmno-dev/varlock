@@ -352,9 +352,19 @@ function isVersionsUploadCommand(args: Array<string>) {
   return args[0] === 'versions' && args[1] === 'upload';
 }
 
+// `wrangler preview` subcommands that manage existing previews rather than
+// deploying one - these are passed through to wrangler unchanged
+const PREVIEW_SUBCOMMANDS = ['delete', 'settings', 'secret', 'base-config'];
+
+function isPreviewDeployCommand(args: Array<string>) {
+  // bare `preview` deploys a branch preview; its only positional is a script path
+  return args[0] === 'preview' && !PREVIEW_SUBCOMMANDS.includes(args[1]);
+}
+
 function isDeployCommand(args: Array<string>) {
   if (args[0] === 'deploy') return true;
   if (isVersionsUploadCommand(args)) return true;
+  if (isPreviewDeployCommand(args)) return true;
   return false;
 }
 
@@ -444,7 +454,8 @@ async function handleDeploy(args: Array<string>) {
   try {
     debug('deploy: spawning wrangler');
     const wranglerArgs = [...args, ...varFlags, '--secrets-file', tmp.filePath];
-    if (!isVersionsUploadCommand(args)) wranglerArgs.push('--keep-vars=false');
+    // --keep-vars only applies to `deploy` (not `versions upload` or `preview`)
+    if (args[0] === 'deploy') wranglerArgs.push('--keep-vars=false');
     exitCode = await spawnWrangler(wranglerArgs);
     debug('deploy: wrangler exited with code', exitCode);
   } finally {
@@ -751,6 +762,7 @@ async function main() {
     console.log('Enhanced commands:');
     console.log('  dev                      - injects resolved env via named pipe (no secrets on disk)');
     console.log('  deploy / versions upload - uploads env as Cloudflare vars and secrets');
+    console.log('  preview                  - deploys a branch preview with env as vars and secrets');
     console.log('  types                    - generates types including varlock-managed env vars');
     console.log('');
     console.log('All other commands are passed through to wrangler unchanged.');
