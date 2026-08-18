@@ -68,7 +68,7 @@ STRIPE_SECRET_KEY=yourPreferredPlugin() # from a plugin or built-in encryption �
 varlock proxy run -- claude
 ```
 
-The agent launched above sees `STRIPE_SECRET_KEY=sk_test_0000…`, a placeholder shaped like a real key. When it makes a request to `api.stripe.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
+The agent launched above sees `STRIPE_SECRET_KEY=sk_test_00000000000000000000000000`, a placeholder shaped like a real key. When it makes a request to `api.stripe.com`, the proxy swaps the placeholder for the real key on the wire. If the agent prints the variable, exfiltrates its env, or sends it anywhere else, all it has is a useless placeholder.
 
 The `@placeholder` keeps the placeholder valid-looking so the Stripe SDK's client-side key-format check passes. See [Placeholders](/guides/proxy/rules/#placeholders) for when you need it.
 
@@ -102,7 +102,7 @@ GITHUB_TOKEN=yourPreferredPlugin()
 
 `@proxy` already implies [`@sensitive`](/reference/item-decorators/#sensitive) (and varlock treats items as sensitive by default), so the `@sensitive` line is optional. We show it explicitly here because being clear about what is a secret is good practice.
 
-The `@placeholder` on `STRIPE_SECRET_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `GITHUB_TOKEN` above) and the item gets a generic `vlk_placeholder_…`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](/guides/proxy/rules/#placeholders)).
+The `@placeholder` on `STRIPE_SECRET_KEY` makes the placeholder the agent sees look like a real key, so SDK key-format checks pass. Leave it off (like `GITHUB_TOKEN` above) and the item gets a generic `vlk_placeholder_<key>_<hash>`, which varlock warns about because it can fail a client-side key-format check (see [Placeholders](/guides/proxy/rules/#placeholders)).
 
 That is all the proxy needs: there is no separate "enable" step. It runs in **permissive** mode by default (hosts that don't match a rule pass through untouched). Add [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) to your schema header only when you want to block everything that isn't explicitly routed.
 
@@ -124,7 +124,7 @@ varlock proxy run -- python tool.py
 That's it. The child inherits everything it needs (proxy address + CA trust) automatically.
 
 :::note[Using the proxy with Claude Code]
-Wire Claude Code's credential as [`ANTHROPIC_API_KEY`](/guides/ai-tools/claude/) (an `sk-ant-api…` key). `CLAUDE_CODE_OAUTH_TOKEN` (a subscription token from `claude setup-token`) only works for headless `claude -p` requests: the interactive TUI rejects a static token, so through the proxy it fails with a `401` regardless of your egress setting.
+Wire Claude Code's credential as [`ANTHROPIC_API_KEY`](/guides/ai-tools/claude/) (a key with the `sk-ant-` prefix). `CLAUDE_CODE_OAUTH_TOKEN` (a subscription token from `claude setup-token`) only works for headless `claude -p` requests: the interactive TUI rejects a static token, so through the proxy it fails with a `401` regardless of your egress setting.
 :::
 
 :::caution[Put `@proxy` on the item, not in the header]

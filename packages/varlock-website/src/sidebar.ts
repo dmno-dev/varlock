@@ -257,6 +257,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             label: 'Cloud sandboxes',
             collapsed: true,
             items: [
+              { label: 'Daytona', slug: 'sandboxes/daytona' },
               { label: 'E2B', slug: 'sandboxes/e2b' },
               { label: 'Fly.io', slug: 'sandboxes/flyio' },
             ],
