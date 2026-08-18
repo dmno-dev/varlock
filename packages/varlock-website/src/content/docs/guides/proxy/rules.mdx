@@ -107,6 +107,80 @@ SIGNING_KEY=yourPreferredPlugin()
 
 Both guards fail closed and, like a route mismatch, produce a message naming the item, where it was found, and how to widen the rule if the placement is legitimate.
 
+### Request signing
+
+Some APIs never receive the secret at all. Instead, every request carries an HMAC signature computed *with* it: crypto exchange APIs (Coinbase, Kraken), and many webhook and partner APIs that require an `HMAC-SHA256` of the request body in a signature header. Substitution can't cover these, since the secret never appears in the request, so there is no placeholder to swap.
+
+The `transform=` option on a `@proxy` rule makes the proxy compute the signature at the wire instead. This is a stronger boundary than substitution: a substituted credential is a string the child *could* have held, but here the child cannot produce a valid signature even in principle, because it never holds the signing key.
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.exchange.com", transform={
+#   scheme="hmac-sha256",
+#   stringToSign="{timestamp}{method}{pathWithQuery}{body}",
+#   signatureHeader="X-ACCESS-SIGN",
+#   timestampHeader="X-ACCESS-TIMESTAMP",
+#   keyId="EXCHANGE_API_KEY", keyHeader="X-ACCESS-KEY",
+#   encoding="hex",
+# })
+EXCHANGE_API_SECRET=yourPreferredPlugin()
+
+# @sensitive
+EXCHANGE_API_KEY=yourPreferredPlugin()
+```
+
+The signature is computed over the **final outbound request**, after placeholder substitution, so it covers exactly the bytes the upstream receives. Any signature or timestamp headers the child sent are overwritten (an SDK configured with placeholder credentials produces a garbage signature; the proxy replaces it with a valid one).
+
+Each scheme accepts its own option set. Options for the `hmac-*` schemes:
+
+| Option | Meaning |
+|---|---|
+| `scheme` | **(required)** `hmac-sha256`, `hmac-sha512`, or `aws-sigv4` (see below). |
+| `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
+| `signatureHeader` | **(required)** Header the signature is written to. |
+| `secretKey` | Item whose value is the HMAC key. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
+| `keyId` / `keyHeader` | Optional companion item (an API key id) and the header it is written to. Set together. |
+| `timestampHeader` | Header the signing timestamp is written to. |
+| `encoding` | Signature output encoding: `base64` _(default)_ or `hex`. |
+| `keyEncoding` | How the secret decodes into key bytes: `raw` _(default)_, `base64`, or `hex`. Some APIs (Coinbase Prime) issue base64-encoded secrets. |
+| `timestampFormat` | `unix-seconds` _(default)_, `unix-millis`, `unix-nanos`, or `rfc3339`. |
+
+A few properties worth knowing:
+
+- **The signing secret never travels.** It is consumed by the signer, not substituted, so `substituteIn` and `maxOccurrences` don't apply to it. If its placeholder shows up anywhere in any request, the request is blocked: there is no legitimate reason for the child to send it. The `keyId` item is wire-visible (it is an API key id, not a secret key), so it substitutes normally like a `keys=` entry.
+- **The transform rides its rule's match.** A request is signed when a rule carrying `transform=` matches it. For a domain with several rules, put the transform on one broad `domain=`-only rule and keep `path`/`method`/`block`/`approval` refinements on separate rules; two *different* transform configs matching the same request is a schema misconfiguration and the request fails closed.
+- **TLS only.** Like injection, signing refuses cleartext connections: a signature over plain http is trivially replayable.
+- If the transform-carrying rule requires `approval`, the request is signed only after the approval gate passes, mirroring how approval-gated injection works.
+
+#### AWS SigV4
+
+The `aws-sigv4` scheme re-signs AWS SDK requests. AWS never receives the secret access key either; every request carries a signature computed from it. Configure the SDK in the child with the **placeholder** credentials (varlock's proxied env does this automatically) and point it at the proxy; the SDK signs normally, and the proxy strips the placeholder signature and re-signs with the real keys.
+
+```env-spec title=".env.schema"
+# @proxy(domain="*.amazonaws.com", transform={
+#   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
+#   allowedServices=[bedrock, s3],
+# })
+AWS_SECRET_ACCESS_KEY=somePlugin()
+
+# @sensitive
+AWS_ACCESS_KEY_ID=somePlugin()
+```
+
+The region and service need no configuration: they are parsed from the inbound request's credential scope (`Credential=KEY/DATE/REGION/SERVICE/aws4_request`), so one rule covers every AWS service and region the client talks to. The optional allowlists gate what the proxy is willing to sign for.
+
+| Option | Meaning |
+|---|---|
+| `keyId` | **(required)** Item holding the AWS access key id (travels in the Credential scope). |
+| `sessionToken` | Item holding a session token for temporary credentials, sent and signed as `X-Amz-Security-Token`. |
+| `allowedRegions` | Only sign requests whose scope names one of these regions, e.g. `[us-east-1]`. Omitted = any. |
+| `allowedServices` | Only sign requests whose scope names one of these services, e.g. `[bedrock, s3]`. Omitted = any. |
+
+Details worth knowing:
+
+- A request without an inbound SigV4 signature is blocked with a message explaining the placeholder-signing setup (there is nothing to derive the region/service from). Pre-signed URLs (`X-Amz-Credential` in the query string) are not supported yet and are blocked with a distinct message.
+- The payload hash covers the exact outbound body bytes. If the client signed with the `UNSIGNED-PAYLOAD` sentinel (S3 streaming uploads), the proxy preserves it.
+- Signing uses the official AWS SDK v3 signer, including the S3-specific path-encoding rules.
+
 ## Controlling what the agent sees
 
 By default, varlock applies **least privilege** to the proxied child:

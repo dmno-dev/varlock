@@ -95,5 +95,9 @@
     "workflow": "release.yaml",
     "environment": "publish",
     "permissions": "publish"
+  },
+  "dependencies": {
+    "@smithy/protocol-http": "^5.6.0",
+    "@smithy/signature-v4": "^5.7.0"
   }
 }

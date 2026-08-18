@@ -34,8 +34,10 @@ import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
   PROXY_APPROVAL_EACH_VALUES,
+  PROXY_TRANSFORM_SCHEME_SPECS,
   parseProxySubstitutionTarget,
-  type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
+  validateProxyTransformConfig,
+  type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 
@@ -1180,7 +1182,7 @@ export class EnvGraph {
     // doesn't fire for header/root @proxy decorators), so a typo like `blok=true`
     // fails loudly instead of silently producing a permissive rule. Entries that
     // reach the recursive call have already been filtered to the per-entry set.
-    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules'];
+    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules', 'transform'];
     for (const key of Object.keys(obj ?? {})) {
       if (!validOptions.includes(key)) {
         throw new SchemaError(`@proxy: unknown option "${key}". Valid options: ${validOptions.join(', ')}`);
@@ -1238,6 +1240,15 @@ export class EnvGraph {
       }
     }
 
+    // `transform={...}` resolves to a signing-config object.
+    if (obj?.transform !== undefined) {
+      if (!_.isPlainObject(obj.transform)) {
+        throw new SchemaError(`@proxy: transform must resolve to an options object, got ${JSON.stringify(obj.transform)}`);
+      }
+      const transformError = validateProxyTransformConfig(obj.transform);
+      if (transformError) throw new SchemaError(`@proxy: ${transformError}`);
+    }
+
     // `rules=[{...}]`: each entry is a policy refinement for the parent's domain.
     if (obj?.rules !== undefined) {
       if (!Array.isArray(obj.rules)) {
@@ -1289,21 +1300,69 @@ export class EnvGraph {
     };
   }
 
+  /**
+   * Normalize a resolved `transform={...}` object into the runtime shape.
+   * `secretKey` defaults to the attached item (the natural reading of a transform
+   * declared on the item it consumes); a detached rule has no item to default to,
+   * so there it must be explicit.
+   */
+  private static buildProxyTransform(obj: any, attachedItemKey: string | undefined): ProxyRuleTransform {
+    const secretKey = _.isString(obj.secretKey) ? obj.secretKey : attachedItemKey;
+    if (!secretKey) {
+      throw new SchemaError('@proxy: transform.secretKey is required on a detached @proxy rule (an attached rule defaults it to the decorated item)');
+    }
+    // Copy the options the scheme's spec declares (values already validated), so
+    // adding a scheme doesn't require touching this builder.
+    const spec = PROXY_TRANSFORM_SCHEME_SPECS[obj.scheme as keyof typeof PROXY_TRANSFORM_SCHEME_SPECS];
+    const schemeOptions: Record<string, unknown> = {};
+    for (const key of [...spec.requiredOptions, ...spec.optionalOptions]) {
+      if (obj[key] !== undefined) schemeOptions[key] = obj[key];
+    }
+    // List options accept a single string or an array in the schema; the runtime
+    // shape is always an array.
+    for (const listKey of ['allowedRegions', 'allowedServices']) {
+      if (schemeOptions[listKey] !== undefined) {
+        schemeOptions[listKey] = EnvGraph.normalizeStringList(schemeOptions[listKey]);
+      }
+    }
+    return { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
+  }
+
   /** Build one runtime ProxyRule from a resolved `@proxy(...)` arg object (or a `rules` entry). */
-  private static buildProxyRuleFromObj(obj: any, domain: Array<string>, itemKeys: Array<string>): ProxyRule {
+  private static buildProxyRuleFromObj(
+    obj: any,
+    domain: Array<string>,
+    itemKeys: Array<string>,
+    attachedItemKey?: string,
+  ): ProxyRule {
     const method = EnvGraph.normalizeStringList(obj?.method);
     // Kept as raw target strings (validated above); parsed into structured targets
     // at request time. Filter to entries the parser accepts as a defensive backstop.
     const substituteIn = EnvGraph.normalizeStringList(obj?.substituteIn)
       .filter((raw) => parseProxySubstitutionTarget(raw).ok);
+    const transform = _.isPlainObject(obj?.transform)
+      ? EnvGraph.buildProxyTransform(obj.transform, attachedItemKey)
+      : undefined;
+    // The signing secret is consumed by the transform, never substituted - so it
+    // must not participate in the rule's substitution scope even when the rule is
+    // attached to it. The key id (and a SigV4 session token) ARE wire-visible, so
+    // they join the rule's items and substitute normally like `keys=` entries.
+    const effectiveItemKeys = transform
+      ? _.uniq([
+        ...itemKeys,
+        ...(transform.keyId ? [transform.keyId] : []),
+        ...('sessionToken' in transform && transform.sessionToken ? [transform.sessionToken] : []),
+      ]).filter((key) => key !== transform.secretKey)
+      : itemKeys;
     return {
       domain,
-      itemKeys,
+      itemKeys: effectiveItemKeys,
       ...(_.isString(obj?.path) ? { path: obj.path } : {}),
       ...(method.length ? { method } : {}),
       ...(_.isBoolean(obj?.block) ? { block: obj.block } : {}),
       ...(substituteIn.length ? { substituteIn } : {}),
       ...(_.isNumber(obj?.maxOccurrences) ? { maxOccurrences: obj.maxOccurrences } : {}),
+      ...(transform ? { transform } : {}),
       ...EnvGraph.buildProxyApprovalFields(obj),
     };
   }
@@ -1315,8 +1374,13 @@ export class EnvGraph {
    * entry inherits `domain`, injects nothing (empty `itemKeys`), and refines via
    * precedence (block > require-approval > allow), so the domain is written once.
    */
-  private static expandProxyRules(obj: any, domain: Array<string>, itemKeys: Array<string>): Array<ProxyRule> {
-    const out: Array<ProxyRule> = [EnvGraph.buildProxyRuleFromObj(obj, domain, itemKeys)];
+  private static expandProxyRules(
+    obj: any,
+    domain: Array<string>,
+    itemKeys: Array<string>,
+    attachedItemKey?: string,
+  ): Array<ProxyRule> {
+    const out: Array<ProxyRule> = [EnvGraph.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey)];
     if (Array.isArray(obj?.rules)) {
       for (const entry of obj.rules) {
         out.push(EnvGraph.buildProxyRuleFromObj(entry, domain, []));
@@ -1335,7 +1399,7 @@ export class EnvGraph {
       const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
       if (domain.length === 0) continue;
       const itemKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
-      rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys));
+      rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys, undefined));
     }
 
     // attached rules from item-level @proxy(...)
@@ -1348,7 +1412,7 @@ export class EnvGraph {
         if (domain.length === 0) continue;
         const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
         const itemKeys = _.uniq([itemKey, ...extraKeys]);
-        rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys));
+        rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys, itemKey));
       }
     }
 
@@ -1357,7 +1421,13 @@ export class EnvGraph {
 
   async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
     const rules = await this.getProxyRules();
-    const managedKeys = _.uniq(rules.flatMap((r) => r.itemKeys));
+    // Transform role items are managed too: the signing secret gets a placeholder
+    // in the child env (and its real value withheld) even though it is consumed by
+    // the signer rather than substituted. (`keyId` is already in `itemKeys`.)
+    const managedKeys = _.uniq(rules.flatMap((r) => [
+      ...r.itemKeys,
+      ...(r.transform ? [r.transform.secretKey] : []),
+    ]));
     const managedItems: Array<ProxyManagedItem> = [];
 
     const usedPlaceholders = new Set<string>();

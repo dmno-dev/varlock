@@ -1,6 +1,7 @@
 import {
   afterAll, beforeAll, describe, expect, test,
 } from 'vitest';
+import { createHash, createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import net from 'node:net';
@@ -567,6 +568,370 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     expect(upstreamHit).toBe(false);
     expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-occurrences', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+});
+
+describe('request signing (transform=) over MITM', () => {
+  const SIGNING_TRANSFORM = {
+    scheme: 'hmac-sha256',
+    secretKey: 'SIGNING_SECRET',
+    stringToSign: '{timestamp}{method}{pathWithQuery}{body}',
+    signatureHeader: 'x-signature',
+    timestampHeader: 'x-timestamp',
+    keyId: 'KEY_ID',
+    keyHeader: 'x-api-key',
+    encoding: 'hex',
+  } as const;
+  const SIGNING_ITEMS = [
+    { key: 'SIGNING_SECRET', placeholder: 'vlk_ph_signing_secret', realValue: 'shhh-signing-secret' },
+    { key: 'KEY_ID', placeholder: 'vlk_ph_key_id', realValue: 'kid-real-value' },
+  ];
+
+  test('signs the outbound request with the real secret; child-sent garbage is overwritten; secret never travels', async () => {
+    let upstreamHeaders: import('node:http').IncomingHttpHeaders = {};
+    let upstreamBody = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamHeaders = req.headers;
+      req.on('data', (c: Buffer) => {
+        upstreamBody += c.toString('utf8');
+      });
+      req.on('end', () => {
+        res.statusCode = 200;
+        res.end('{"ok":true}');
+      });
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: SIGNING_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['KEY_ID'], transform: SIGNING_TRANSFORM }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // The child signs nothing useful (an SDK given placeholder creds produces
+    // garbage) - the proxy must overwrite, not duplicate, these headers.
+    const payload = '{"size":1}';
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /orders?limit=5 HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `X-Signature: bogus-child-signature\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+    expect(response.split('\r\n')[0]).toContain('200');
+
+    // Signature verifies against the exact bytes the upstream received, under
+    // the REAL secret the child never held.
+    const timestamp = String(upstreamHeaders['x-timestamp']);
+    expect(Math.abs(Number(timestamp) - Date.now() / 1000)).toBeLessThan(60);
+    const expectedSig = createHmac('sha256', 'shhh-signing-secret')
+      .update(`${timestamp}POST/orders?limit=5${upstreamBody}`, 'utf8')
+      .digest('hex');
+    expect(upstreamHeaders['x-signature']).toBe(expectedSig);
+    expect(upstreamHeaders['x-api-key']).toBe('kid-real-value');
+    expect(upstreamBody).toBe(payload);
+
+    // The signing secret appears nowhere in the upstream request, and the audit
+    // records the scheme but never a secret value.
+    const upstreamRequestText = JSON.stringify(upstreamHeaders) + upstreamBody;
+    expect(upstreamRequestText).not.toContain('shhh-signing-secret');
+    expect(upstreamRequestText).not.toContain('vlk_ph_signing_secret');
+    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ signedWith: 'hmac-sha256' });
+    expect(JSON.stringify(activities)).not.toContain('shhh-signing-secret');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('blocks a request carrying the signing secret placeholder (it is consumed, never sent)', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.end('{}');
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: SIGNING_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['KEY_ID'], transform: SIGNING_TRANSFORM }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
+    const payload = JSON.stringify({ exfil: 'vlk_ph_signing_secret' });
+    tlsSocket.write(
+      `POST /orders HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+
+    expect(upstreamHit).toBe(false);
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
+    expect(JSON.stringify(activities)).not.toContain('shhh-signing-secret');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('two different transform configs matching one request fail closed as a misconfiguration', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.end('{}');
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: SIGNING_ITEMS,
+      rules: [
+        { domain: [UPSTREAM_HOST], itemKeys: [], transform: SIGNING_TRANSFORM },
+        { domain: [UPSTREAM_HOST], itemKeys: [], transform: { ...SIGNING_TRANSFORM, signatureHeader: 'x-other-sig' } },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
+    tlsSocket.write(`GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+
+    expect(upstreamHit).toBe(false);
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('a transform whose signing credential has no resolved value fails closed', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.end('{}');
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [], // SIGNING_SECRET never resolved
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: [], transform: SIGNING_TRANSFORM }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
+    tlsSocket.write(`GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+
+    // Identity verification succeeded (upstream is live) but the signer had no
+    // secret to sign with - the request must never reach the upstream.
+    expect(upstreamHit).toBe(false);
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+});
+
+describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () => {
+  const SIGV4_ITEMS = [
+    { key: 'AWS_SECRET_ACCESS_KEY', placeholder: 'vlk_ph_aws_secret', realValue: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYREALKEY' },
+    { key: 'AWS_ACCESS_KEY_ID', placeholder: 'VLKPLACEHOLDERAKID', realValue: 'AKIDREALKEY' },
+  ];
+  const SIGV4_TRANSFORM = {
+    scheme: 'aws-sigv4', secretKey: 'AWS_SECRET_ACCESS_KEY', keyId: 'AWS_ACCESS_KEY_ID',
+  } as const;
+
+  /** An SDK-style inbound request signed with placeholder creds and a stale date. */
+  const placeholderSignedHeaders = 'Authorization: AWS4-HMAC-SHA256 Credential=VLKPLACEHOLDERAKID/20260101/us-east-1/execute-api/aws4_request, '
+    + 'SignedHeaders=host;x-amz-date, Signature=0000000000000000000000000000000000000000000000000000000000000000\r\n'
+    + 'X-Amz-Date: 20260101T000000Z\r\n';
+
+  test('re-signs with real keys; signature verifies over the exact bytes the upstream received', async () => {
+    let upstreamHeaders: import('node:http').IncomingHttpHeaders = {};
+    let upstreamBody = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamHeaders = req.headers;
+      req.on('data', (c: Buffer) => {
+        upstreamBody += c.toString('utf8');
+      });
+      req.on('end', () => {
+        res.statusCode = 200;
+        res.end('{}');
+      });
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: SIGV4_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['AWS_ACCESS_KEY_ID'], transform: SIGV4_TRANSFORM }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const payload = '{"TableName":"widgets"}';
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /prod/items?limit=2 HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n${
+        placeholderSignedHeaders
+      }Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+    expect(response.split('\r\n')[0]).toContain('200');
+
+    // Fresh signature under the REAL key id, over the body the upstream received.
+    const authorization = String(upstreamHeaders.authorization);
+    const amzDate = String(upstreamHeaders['x-amz-date']);
+    expect(authorization).toContain(`Credential=AKIDREALKEY/${amzDate.slice(0, 8)}/us-east-1/execute-api/aws4_request`);
+    expect(amzDate).toMatch(/^\d{8}T\d{6}Z$/);
+    expect(amzDate).not.toBe('20260101T000000Z');
+    expect(upstreamHeaders['x-amz-content-sha256'])
+      .toBe(createHash('sha256').update(upstreamBody).digest('hex'));
+    expect(upstreamBody).toBe(payload);
+
+    // End-to-end signature verification: replay exactly the headers the upstream
+    // saw listed in SignedHeaders through the reference signer and expect the
+    // identical Authorization header.
+    const signedHeaderNames = authorization.match(/SignedHeaders=([^,]+),/)![1].split(';');
+    const replayHeaders: Record<string, string> = {};
+    for (const name of signedHeaderNames) replayHeaders[name] = String(upstreamHeaders[name]);
+    const { SignatureV4 } = await import('@smithy/signature-v4');
+    const { HttpRequest } = await import('@smithy/protocol-http');
+    const { createHmac: nodeHmac, createHash: nodeHash } = await import('node:crypto');
+    class TestSha256 {
+      private h: ReturnType<typeof nodeHash> | ReturnType<typeof nodeHmac>;
+      constructor(secret?: string | Uint8Array) {
+        this.h = secret !== undefined ? nodeHmac('sha256', secret) : nodeHash('sha256');
+      }
+
+      update(d: string | Uint8Array) {
+        this.h.update(d);
+      }
+
+      digest() {
+        return Promise.resolve(this.h.digest());
+      }
+    }
+    const replaySigner = new SignatureV4({
+      credentials: { accessKeyId: 'AKIDREALKEY', secretAccessKey: SIGV4_ITEMS[0].realValue },
+      region: 'us-east-1',
+      service: 'execute-api',
+      sha256: TestSha256 as any,
+      applyChecksum: false,
+    });
+    const signingDate = new Date(Date.UTC(
+      Number(amzDate.slice(0, 4)),
+      Number(amzDate.slice(4, 6)) - 1,
+      Number(amzDate.slice(6, 8)),
+      Number(amzDate.slice(9, 11)),
+      Number(amzDate.slice(11, 13)),
+      Number(amzDate.slice(13, 15)),
+    ));
+    const replayed = await replaySigner.sign(new HttpRequest({
+      protocol: 'https:',
+      hostname: UPSTREAM_HOST,
+      method: 'POST',
+      path: '/prod/items',
+      query: { limit: '2' },
+      headers: replayHeaders,
+    }), { signingDate, signableHeaders: new Set(signedHeaderNames) });
+    expect(replayed.headers.authorization ?? replayed.headers.Authorization).toBe(authorization);
+
+    // The real secret key never appears anywhere the upstream (or audit) can see.
+    const upstreamRequestText = JSON.stringify(upstreamHeaders) + upstreamBody;
+    expect(upstreamRequestText).not.toContain(SIGV4_ITEMS[0].realValue);
+    expect(upstreamRequestText).not.toContain('vlk_ph_aws_secret');
+    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ signedWith: 'aws-sigv4' });
+    expect(JSON.stringify(activities)).not.toContain(SIGV4_ITEMS[0].realValue);
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('blocks a request the child did not placeholder-sign (nothing to derive scope from)', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.end('{}');
+    });
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: SIGV4_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['AWS_ACCESS_KEY_ID'], transform: SIGV4_TRANSFORM }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
+    tlsSocket.write(`GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+
+    expect(upstreamHit).toBe(false);
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('blocks a scope outside allowedRegions', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.end('{}');
+    });
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: SIGV4_ITEMS,
+      rules: [
+        {
+          domain: [UPSTREAM_HOST],
+          itemKeys: ['AWS_ACCESS_KEY_ID'],
+          transform: { ...SIGV4_TRANSFORM, allowedRegions: ['eu-west-1'] },
+        },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
+    tlsSocket.write(
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n${placeholderSignedHeaders}\r\n`,
+    );
+    await new Promise((resolve) => {
+      setTimeout(resolve, 500);
+    });
+
+    expect(upstreamHit).toBe(false);
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
 
     tlsSocket.destroy();
     await runtime.stop();
