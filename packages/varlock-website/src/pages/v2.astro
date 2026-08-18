@@ -1,60 +1,50 @@
 ---
+/*
+Isolated sandbox for the next landing page iteration: the site header and
+footer plus the animated dungeon corridor (wizard journey, doors, torches,
+elbow into the footer). Content from the index page is being reintroduced
+one block at a time; remaining rooms hold placeholders.
+Not linked from anywhere and marked noindex.
+*/
 import { Image } from "astro:assets";
 import { Icon } from "astro-iconify";
-
 import Layout from "../layouts/Layout.astro";
-import { createMetaHead } from "../lib/meta";
 import { sidebar } from "../sidebar";
 import { LinkButton, Code } from "@astrojs/starlight/components";
 import VarlockRetroBanner from "../components/VarlockRetroBanner.astro";
 import WorksWithLogoList from "../components/WorksWithLogoList.astro";
-import DungeonCorridor from "../components/DungeonCorridor.astro";
+import DungeonPath from "../components/DungeonPath.astro";
 import DungeonRoom from "../components/DungeonRoom.astro";
+import syntaxLogo from "../assets/other-logos/syntax.svg";
 import validationImg from "../assets/demo-images/failing-validation.png";
 import intellisenseImg from "../assets/demo-images/intellisense.png";
-import redactionImg from "../assets/demo-images/redaction.png";
 import multiEnvImg from "../assets/demo-images/multi-env.png";
 import externalProvidersImg from "../assets/demo-images/external-providers.png";
+import redactionImg from "../assets/demo-images/redaction.png";
 import leakImg from "../assets/demo-images/leak.png";
-import warlockStandingImg from "../assets/animation/warlock-standing.gif";
-import warlockStrikeImg from "../assets/animation/warlock-strike.gif";
-import syntaxLogo from "../assets/other-logos/syntax.svg";
-
-const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
-const ogImageUrl = new URL("/default-og-image-new.png", Astro.site!).href;
-const pageTitle = "Varlock - AI-safe .env files";
-const pageDescription =
-  "AI-safe .env files: schemas for agents, secrets for humans. Validate and type env vars, encrypt secrets, load from 16 providers, and broker credentials for AI agents. Integrations for Next.js, Vite, Astro, Expo, and more.";
-const metaHead = createMetaHead({
-  title: pageTitle,
-  description: pageDescription,
-  url: pageUrl,
-  ogImageUrl,
-});
 ---
 
 <Layout
-  title={pageTitle}
-  description={pageDescription}
+  title="Landing v2 sandbox"
+  description="Work-in-progress landing page rework"
   showSearch={false}
   showSidebar={true}
   hideDesktopSidebar={true}
   sidebar={sidebar}
-  head={metaHead}
+  head={[{ tag: "meta", attrs: { name: "robots", content: "noindex" } }]}
 >
   <main>
-    <DungeonCorridor />
+    <DungeonPath />
     <div class="container">
       <div class="homepage-hero not-content">
         <VarlockRetroBanner />
         <h1>
-          <Image src={warlockStandingImg} alt="Varlock warlock" />
           <div>
             <span class="sparkle">AI-safe</span> .env files: <br />
             Schemas for agents, secrets for humans
           </div>
-          <Image src={warlockStrikeImg} alt="Varlock warlock striking" />
         </h1>
+        <div class="hero-wizard-anchor" aria-hidden="true"></div>
       </div>
       <Code
         title=".env.schema"
@@ -93,12 +83,49 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         <LinkButton href="reference/cli-commands">Explore the docs</LinkButton>
       </div>
 
-      <DungeonRoom accent="cyan" class="room-schema">
+      <div class="badge-row">
+        <a
+          href="https://osscar.dev/org/dmno-dev"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <img
+            src="https://osscar.dev/api/badge?slug=dmno-dev&variant=compact"
+            alt="Featured on OSSCAR"
+          />
+        </a>
+        <a
+          href="https://www.youtube.com/watch?v=M5IkdUunf8g"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="custom-badge syntax-badge"
+        >
+          <Image src={syntaxLogo} alt="Syntax" height={36} />
+          <span class="badge-text">
+            <span class="badge-line">Featured in</span>
+            <span class="badge-line">Ep 985</span>
+          </span>
+        </a>
+        <a
+          href="https://github.blog/open-source/maintainers/securing-the-ai-software-supply-chain-security-results-across-67-open-source-projects/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="custom-badge github-badge"
+        >
+          <Icon name="simple-icons:github" width={32} height={32} />
+          <span class="badge-text">
+            <span class="badge-line">GitHub Secure</span>
+            <span class="badge-line badge-line-green">Open Source Fund</span>
+          </span>
+        </a>
+      </div>
+
+      <DungeonRoom accent="cyan" class="v2-room room-schema" lane entry="left">
         <h2 class="room-title">
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
           />
-          The Scriptorium
+          Schema &amp; validation
         </h2>
         <p class="room-subtitle">
           Every variable declared, validated, and typed in one
@@ -190,13 +217,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
           <a href="/guides/monorepos/">Monorepos</a>
         </p>
       </DungeonRoom>
-
-      <DungeonRoom accent="purple" class="room-vault">
+      <DungeonRoom accent="purple" class="v2-room room-vault" lane entry="right">
         <h2 class="room-title">
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
           />
-          The Vault of Secrets
+          Secrets &amp; encryption
         </h2>
         <p class="room-subtitle">
           Nothing in plaintext: encrypt locally, load from any provider, catch
@@ -284,17 +310,15 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
           <a href="/plugins/overview/">Provider plugins</a>
         </p>
       </DungeonRoom>
-
-      <DungeonRoom accent="red" class="room-agents proxy-feature">
+      <DungeonRoom accent="red" class="v2-room room-agents proxy-feature" lane entry="left">
         <h2 class="room-title">
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
           />
-          The Warding Circle
+          Credential broker for AI agents
         </h2>
         <p class="room-subtitle">
-          A credential broker, so coding agents only ever hold placeholder
-          secrets
+          Run coding agents that only ever hold placeholder secrets
         </p>
         <p class="proxy-lead">
           Run coding agents, MCP servers, and any untrusted tool so they only ever see
@@ -398,12 +422,12 @@ STRIPE_SECRET_KEY=yourPreferredPlugin()
         </div>
       </DungeonRoom>
 
-      <DungeonRoom accent="green" class="room-forge">
+      <DungeonRoom accent="green" class="v2-room room-forge" lane entry="right">
         <h2 class="room-title">
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
           />
-          The Artificer's Forge
+          Codegen &amp; integrations
         </h2>
         <p class="room-subtitle">
           Typed env access and drop-in integrations for every stack
@@ -462,12 +486,12 @@ STRIPE_SECRET_KEY=yourPreferredPlugin()
         </p>
       </DungeonRoom>
 
-      <DungeonRoom accent="orange" class="room-quest">
+      <DungeonRoom accent="orange" class="v2-room room-quest" lane entry="left">
         <h2 class="room-title">
           <img
             src="https://varlock-pixel-art.dmno.workers.dev/effects/fire.gif"
           />
-          Begin the Quest
+          Get started
         </h2>
         <p class="room-subtitle">
           Install in one command; migrating from dotenv is a one-line swap
@@ -507,43 +531,6 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
           more. No other code changes required!
         </p>
 
-        <div class="badge-row">
-          <a
-            href="https://osscar.dev/org/dmno-dev"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src="https://osscar.dev/api/badge?slug=dmno-dev&variant=compact"
-              alt="Featured on OSSCAR"
-            />
-          </a>
-          <a
-            href="https://www.youtube.com/watch?v=M5IkdUunf8g"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="custom-badge syntax-badge"
-          >
-            <Image src={syntaxLogo} alt="Syntax" height={36} />
-            <span class="badge-text">
-              <span class="badge-line">Featured in</span>
-              <span class="badge-line">Ep 985</span>
-            </span>
-          </a>
-          <a
-            href="https://github.blog/open-source/maintainers/securing-the-ai-software-supply-chain-security-results-across-67-open-source-projects/"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="custom-badge github-badge"
-          >
-            <Icon name="simple-icons:github" width={32} height={32} />
-            <span class="badge-text">
-              <span class="badge-line">GitHub Secure</span>
-              <span class="badge-line badge-line-green">Open Source Fund</span>
-            </span>
-          </a>
-        </div>
-
         <div class="button-container">
           <LinkButton href="getting-started/introduction">Get Started</LinkButton>
           <LinkButton href="guides/migrate-from-dotenv/"
@@ -558,38 +545,141 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
 <style is:global>
   main {
     position: relative;
-    --dungeon-rail-offset: 88px;
+    overflow-x: clip; /* the warlock's walk line can poke past narrow viewports */
   }
 
   .container {
     max-width: 1000px;
     margin: 0 auto;
     padding: 1rem 1rem;
-    gap: 2rem;
+  }
+  /* leave a gutter for the warlock's walk lines on small screens; the
+     dungeon rooms bleed slightly into it so their content stays roomy */
+  @media screen and (max-width: 700px) {
+    .container {
+      padding: 1rem 32px;
+    }
+    .v2-room {
+      margin-left: -8px;
+      margin-right: -8px;
+    }
+  }
+
+  /* trim the dead space between the last room and the footer area */
+  .room-quest {
+    margin-bottom: 2.5rem;
+  }
+  footer {
+    margin-top: 0.5rem !important;
+  }
+  .footer-connect {
+    margin-top: 0.75rem !important;
+  }
+
+  /* hero block (ported from the index page) */
+  .homepage-hero {
+    text-align: center;
+    margin-bottom: 1rem;
+    h1 {
+      margin: 0.5em 0;
+      display: flex;
+      gap: 0em;
+      justify-content: center;
+      align-items: flex-start;
+      font-size: 32px;
+      text-wrap: balance;
+
+      @media screen and (max-width: 700px) {
+        font-size: 24px;
+        gap: 0em;
+        flex-direction: column;
+        align-items: center;
+      }
+
+    }
+  }
+
+  /* where the warlock stands before the journey starts (the path-driven
+     sprite renders on top of this spot, at double size while in the hero;
+     keep these dimensions in sync with the --ws sizes in DungeonPath) */
+  .hero-wizard-anchor {
+    width: 128px;
+    height: 128px;
+    margin: 0.5rem auto 0;
+  }
+  @media screen and (max-width: 700px) {
+    .hero-wizard-anchor {
+      width: 64px;
+      height: 64px;
+    }
+  }
+
+  .sparkle {
+    --sparkle-color: var(--brand-cyan);
+    animation: sparkle-pulse 4s ease-in-out infinite;
+  }
+  :root[data-theme='light'] .sparkle {
+    --sparkle-color: var(--brand-purple);
+  }
+  @keyframes sparkle-pulse {
+    0% {
+      text-shadow: 0 0 0px var(--sparkle-color);
+    }
+    50% {
+      text-shadow:
+        0 0 3px var(--color-text-full-shade-invert),
+        0 0 15px var(--sparkle-color);
+    }
+    100% {
+      text-shadow: 0 0 0px var(--sparkle-color);
+    }
+  }
+
+  .env-spec-example-note {
+    padding: 0.5em 1em;
+    text-align: center;
+    font-weight: bold;
   }
 
   .button-container {
     display: flex;
     justify-content: center;
     gap: 1rem;
+    margin-top: 1.5rem;
     a {
       display: block;
       text-align: center;
+      /* Starlight's content flow styles add sibling margins on top of the
+         flex gap; spacing comes from the gap alone */
+      margin: 0;
     }
   }
-
   .button-container > .sl-link-button {
     min-width: 25%;
     border: 2px solid transparent;
   }
-
   .button-container > .sl-link-button:hover {
     background-color: var(--sl-color-black);
     color: var(--sl-color-text-accent);
     border: 2px solid var(--sl-color-text-accent);
     animation: pixelate 1.25s infinite;
   }
-
+  .button-container > .sl-link-button::after {
+    content: ' →';
+    margin-left: 0.25rem;
+    white-space: nowrap;
+  }
+  /* stacked full-width buttons on small screens so labels stay on one line */
+  @media screen and (max-width: 700px) {
+    .button-container {
+      flex-direction: column;
+      align-items: center;
+    }
+    .button-container > .sl-link-button {
+      width: 100%;
+      max-width: 320px;
+    }
+  }
   @keyframes pixelate {
     0% {
       border-style: solid;
@@ -608,55 +698,11 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     }
   }
 
-  .button-container > .sl-link-button::after {
-    content: " →";
-    margin-left: 0.25rem;
-    white-space: nowrap;
-  }
-
-  h1 {
-    text-align: center;
-  }
-
-  .tagline {
-    text-decoration: underline;
-    color: var(--brand-cyan);
-  }
-
-  .sparkle {
-    --sparkle-color: var(--brand-cyan);
-    animation: sparkle-pulse 4s ease-in-out infinite;
-  }
-  :root[data-theme="light"] .sparkle {
-    --sparkle-color: var(--brand-purple);
-  }
-
-  @keyframes sparkle-pulse {
-    0% {
-      text-shadow: 0 0 0px var(--sparkle-color);
-    }
-    50% {
-      text-shadow:
-        0 0 3px var(--color-text-full-shade-invert),
-        0 0 15px var(--sparkle-color);
-    }
-    100% {
-      text-shadow: 0 0 0px var(--sparkle-color);
-    }
-  }
-
-  .description {
-    margin-bottom: 2rem;
-    font-size: 1.5rem;
-  }
-
-  .component-container {
-    margin-bottom: 3rem;
-  }
-
-  /* dungeon room headings */
+  /* dungeon room content blocks (ported from the index page) */
   .room-title {
     margin-top: 0.5rem;
+    border: none !important;
+    gap: 0.3em !important;
   }
   .room-subtitle {
     font-weight: bold;
@@ -667,70 +713,6 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     text-align: center;
     margin-top: 2rem;
     font-size: var(--sl-text-sm);
-  }
-  .works-with-note {
-    margin-top: 2.5rem;
-  }
-  .quest-subhead {
-    margin-top: 2.5rem;
-  }
-
-  /* Card styles */
-  .card {
-    border: 1px dotted var(--brand-purple--t1);
-    position: relative;
-    background: var(--sl-color-background);
-    transition: transform 0.2s ease;
-  }
-
-  .card:hover {
-    transform: translateY(-2px);
-  }
-
-  .card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 10px;
-    height: 10px;
-    border-top: 2px dotted var(--brand-purple--t1);
-    border-left: 2px dotted var(--brand-purple--t1);
-  }
-
-  .card::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    right: 0;
-    width: 10px;
-    height: 10px;
-    border-bottom: 2px dotted var(--brand-purple--t1);
-    border-right: 2px dotted var(--brand-purple--t1);
-  }
-
-  .card {
-    border-bottom: 1px dotted var(--brand-purple--t1);
-    padding: 1rem;
-  }
-
-  .card > .title {
-    font-family: var(--font-pixel);
-    font-weight: var(--font-pixel-weight);
-    margin: 0;
-  }
-
-  .card ul {
-    margin: 0;
-    padding-left: 1.5rem;
-  }
-
-  .card li {
-    margin-bottom: 0.5rem;
-  }
-
-  .card li:last-child {
-    margin-bottom: 0;
   }
 
   .features-grid {
@@ -753,55 +735,15 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
       border-radius: 12px;
       padding: 1.5rem;
     }
+    > div > * {
+      min-width: 0;
+    }
     img {
       margin: 0;
     }
   }
-  .homepage-hero {
-    text-align: center;
-    margin-bottom: 1rem;
-    h1 {
-      margin: 0.5em 0;
-      display: flex;
-      gap: 0em;
-      justify-content: center;
-      align-items: flex-start;
-      font-size: 32px;
-      text-wrap: balance;
 
-      @media screen and (max-width: 700px) {
-        font-size: 24px;
-        gap: 0em;
-        flex-direction: column;
-        align-items: center;
-      }
-
-      img {
-        display: block;
-        @media screen and (max-width: 700px) {
-          &:first-child {
-            display: none;
-          }
-        }
-        flex-shrink: 0;
-        margin-top: -36px;
-        margin-bottom: 0px;
-        margin-left: -20px;
-        margin-right: -20px;
-
-        &:last-child {
-          transform: scaleX(-1);
-        }
-      }
-    }
-  }
-  .env-spec-example-note {
-    padding: 0.5em 1em;
-    text-align: center;
-    font-weight: bold;
-  }
-
-  /* Credential broker feature highlight */
+  /* Warding Circle (credential broker) */
   .proxy-lead {
     line-height: 1.5;
     max-width: 800px;
@@ -810,6 +752,15 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
   .proxy-diagram {
     max-width: 760px;
     margin: 1.5rem auto;
+  }
+  /* keep the diagram labels readable on small screens: scroll instead of shrink */
+  @media screen and (max-width: 700px) {
+    .proxy-diagram {
+      overflow-x: auto;
+    }
+    .proxy-diagram svg {
+      min-width: 560px;
+    }
   }
   .proxy-grid {
     display: grid;
@@ -821,10 +772,8 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
       grid-template-columns: 1fr;
     }
   }
-  /* let code blocks scroll inside grid cells instead of widening the page */
   .proxy-grid > *,
-  .proxy-code,
-  .features-grid > div > * {
+  .proxy-code {
     min-width: 0;
   }
   .proxy-points {
@@ -849,6 +798,15 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     border-top: 1px dotted var(--brand-purple--t1);
   }
 
+  /* Forge + Quest */
+  .works-with-note {
+    margin-top: 2.5rem;
+  }
+  .quest-subhead {
+    margin-top: 2.5rem;
+  }
+
+  /* badges */
   .custom-badge {
     display: flex;
     align-items: center;
@@ -861,14 +819,6 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     height: 64px;
     padding: 0 0.8rem;
   }
-
-  .badge-label {
-    text-transform: uppercase;
-    font-size: 0.6rem;
-    letter-spacing: 0.06em;
-    opacity: 0.7;
-  }
-
   .badge-text {
     display: flex;
     flex-direction: column;
@@ -876,26 +826,21 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     justify-content: center;
     gap: 0;
   }
-
   .badge-line {
     font-size: 0.8rem;
     font-weight: 600;
     line-height: 1.3;
     white-space: nowrap;
   }
-
   .badge-line-green {
     color: #2da44e;
   }
-
   .syntax-badge {
     border-left: 2px solid #fabf46;
   }
-
   .github-badge {
     border-left: 2px solid #0e8a2c;
   }
-
   .badge-row {
     display: flex;
     align-items: center;
@@ -904,21 +849,14 @@ curl -sSfL https://varlock.dev/install.sh | sh -s
     flex-wrap: wrap;
     margin-top: 2.5rem;
   }
-
   .badge-row > a {
     transition:
       transform 0.2s ease,
       box-shadow 0.2s ease;
     border-radius: 8px;
   }
-
   .badge-row > a:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  }
-
-  h2 {
-    border: none !important;
-    gap: 0.3em !important;
   }
 </style>

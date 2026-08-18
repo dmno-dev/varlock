@@ -1,0 +1,226 @@
+---
+/*
+Dungeon room frame for landing page sections: pixel stone walls (9-slice
+border-image), doors connecting to the corridor, and torches that light
+when the room scrolls into view (the `is-entered` class is added by the
+corridor script's IntersectionObserver).
+
+Two door modes:
+- legacy (default): one door on the left wall (used by the index corridor)
+- lane mode (`lane` prop): a corridor lane crosses the top of the room
+  with an entry door on one wall and an exit door on the other, for the
+  serpentine path (entry side set by the `entry` prop)
+
+All decoration is aria-hidden; the section itself only carries the slot.
+*/
+import roomBorderImg from '../assets/pixel-art/dungeon/room-border.png';
+import doorImg from '../assets/pixel-art/dungeon/door.png';
+import torchImg from '../assets/pixel-art/dungeon/torch.png';
+import laneTileImg from '../assets/pixel-art/dungeon/corridor-tile-h.png';
+
+interface Props {
+  accent?: 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue' | 'purple' | 'pink';
+  door?: boolean;
+  lane?: boolean;
+  entry?: 'left' | 'right';
+  class?: string;
+}
+
+const {
+  accent = 'purple', door = true, lane = false, entry = 'left', class: className,
+} = Astro.props;
+const exit = entry === 'left' ? 'right' : 'left';
+
+const styleVars = [
+  `--room-accent: var(--brand-${accent})`,
+  `--room-accent-t1: var(--brand-${accent}--t1)`,
+  `--room-accent-t2: var(--brand-${accent}--t2)`,
+  `--room-border-img: url(${roomBorderImg.src})`,
+  `--room-door-img: url(${doorImg.src})`,
+  `--room-torch-img: url(${torchImg.src})`,
+  `--room-lane-img: url(${laneTileImg.src})`,
+].join('; ');
+---
+
+<section class:list={['dungeon-room', lane && 'dungeon-room--lane', className]} style={styleVars}>
+  {lane && <div class="dungeon-room__lane" aria-hidden="true"></div>}
+  {lane && (
+    <div
+      class:list={['dungeon-room__door', `dungeon-room__door--${entry}`]}
+      aria-hidden="true"
+    >
+    </div>
+  )}
+  {lane && (
+    <div
+      class:list={['dungeon-room__door', `dungeon-room__door--${exit}`]}
+      aria-hidden="true"
+    >
+    </div>
+  )}
+  {!lane && door && (
+    <div class="dungeon-room__door dungeon-room__door--left" aria-hidden="true"></div>
+  )}
+  <div class="dungeon-room__torch dungeon-room__torch--left" aria-hidden="true"></div>
+  <div class="dungeon-room__torch dungeon-room__torch--right" aria-hidden="true"></div>
+  <slot />
+</section>
+
+<style>
+  .dungeon-room {
+    position: relative;
+    margin: 4rem 0;
+    padding: 1.5rem 1.75rem 1.75rem;
+    border: 16px solid transparent;
+    /* assets are pre-scaled 2x, so 16px slices render 1:1 */
+    border-image: var(--room-border-img) 16 / 16px round;
+    image-rendering: pixelated;
+    transition: box-shadow 0.6s ease;
+  }
+  @media screen and (max-width: 700px) {
+    .dungeon-room {
+      padding: 1rem 0.5rem;
+      margin: 3rem 0;
+    }
+  }
+  .dungeon-room.is-entered {
+    box-shadow: 0 0 24px var(--room-accent-t2);
+  }
+
+  /* dynamic lighting: with the path script active (desktop), room content
+     stays dim until the warlock enters and the torches illuminate it.
+     Walls, lane, doors, and torches stay visible; only the content dims.
+     The transition lives on the lit state so the initial dimming snaps
+     (no flash on page load) while the illumination animates. */
+  .dungeon-room.dim-until-entered:not(.is-entered) > :global(:not(.dungeon-room__lane, .dungeon-room__door, .dungeon-room__torch)) {
+    opacity: 0.22;
+    filter: saturate(0.4);
+  }
+  .dungeon-room.dim-until-entered.is-entered > :global(:not(.dungeon-room__lane, .dungeon-room__door, .dungeon-room__torch)) {
+    transition:
+      opacity 0.9s ease,
+      filter 0.9s ease;
+  }
+
+  /* corridor lane crossing the top of the room (serpentine mode),
+     flush against the inside of the top wall; shown at all widths */
+  .dungeon-room__lane {
+    position: absolute;
+    margin: 0;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 64px;
+    background-image: var(--room-lane-img);
+    background-size: 64px 64px;
+    background-repeat: repeat-x;
+    image-rendering: pixelated;
+  }
+  .dungeon-room--lane {
+    padding-top: 96px;
+  }
+
+  /* doors on the walls, connecting to the corridor (desktop only).
+     `is-open` is toggled as the wizard passes; the stepped transition walks
+     through the ajar frame in both directions */
+  .dungeon-room__door {
+    display: none;
+    position: absolute;
+    margin: 0; /* Starlight's content flow styles add sibling margins */
+    top: 3rem;
+    width: 32px;
+    height: 64px;
+    background-image: var(--room-door-img);
+    background-size: 96px 64px;
+    background-position: 0 0;
+    image-rendering: pixelated;
+    transition: background-position-x 0.22s steps(2, jump-none);
+  }
+  .dungeon-room--lane .dungeon-room__door {
+    top: 0; /* aligned with the lane band */
+  }
+  .dungeon-room__door--left {
+    left: -32px;
+  }
+  .dungeon-room__door--right {
+    right: -32px;
+  }
+  /* lane mode: flush with the outer face of the wall (half the door sits
+     on the 16px wall, half opens into the room's lane). Legacy index mode
+     keeps the offset position that meets its corridor stub. */
+  .dungeon-room--lane .dungeon-room__door--left {
+    left: -16px;
+  }
+  .dungeon-room--lane .dungeon-room__door--right {
+    right: -16px;
+  }
+  .dungeon-room__door.is-open {
+    background-position-x: -64px;
+    box-shadow: 0 0 16px var(--room-accent-t2);
+  }
+  /* corridor stub connecting the door to the margin rail: only used in
+     legacy (index corridor) mode; lane-mode doors open onto the page */
+  .dungeon-room:not(.dungeon-room--lane) .dungeon-room__door::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(-1 * var(--dungeon-rail-gap, 24px));
+    width: var(--dungeon-rail-gap, 24px);
+    height: 64px;
+    background-image: var(--room-lane-img);
+    background-size: 64px 64px;
+    background-repeat: repeat-x;
+    image-rendering: pixelated;
+  }
+  .dungeon-room--lane .dungeon-room__door {
+    display: block;
+  }
+  @media (min-width: 1200px) {
+    .dungeon-room__door {
+      display: block;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dungeon-room__door {
+      transition: none;
+    }
+  }
+
+  /* torches on the top wall */
+  .dungeon-room__torch {
+    position: absolute;
+    margin: 0;
+    top: -24px;
+    width: 16px;
+    height: 40px;
+    background-image: var(--room-torch-img);
+    background-position: 0 0; /* unlit frame */
+    image-rendering: pixelated;
+  }
+  .dungeon-room__torch--left {
+    left: 20px;
+  }
+  .dungeon-room__torch--right {
+    right: 20px;
+  }
+  .dungeon-room.is-entered .dungeon-room__torch {
+    background-position: -16px 0; /* lit */
+    animation: torch-flicker 0.6s steps(3) infinite;
+  }
+  @keyframes torch-flicker {
+    from {
+      background-position-x: -16px;
+    }
+    to {
+      background-position-x: -64px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dungeon-room.is-entered .dungeon-room__torch {
+      animation: none;
+    }
+    .dungeon-room {
+      transition: none;
+    }
+  }
+</style>

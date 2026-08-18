@@ -1,0 +1,418 @@
+---
+/*
+Scroll-driven warlock journey (used by the /v2 sandbox), unified across
+desktop and mobile.
+
+Corridor tiles exist only INSIDE the dungeon rooms (the lanes rendered by
+DungeonRoom); between rooms the warlock walks the open page, hugging the
+room walls. He starts in the hero (at .hero-wizard-anchor), walks to the
+side on first scroll, descends to each room's entry door, crosses the lane,
+exits the far door, and alternates sides until a final walk to the page
+center just above the footer, scheduled to complete exactly at max scroll.
+
+His position is a pure function of scroll, precomputed as piecewise-linear
+(wl -> x, y) phases where wl = scrollY + 42vh - pathTop:
+- tracking: y follows the 42vh line 1:1
+- crossing: y holds while x advances at k x scroll speed (k is at least 2,
+  raised so a crossing plus its catch-up fits between rooms)
+- catch-up: after a crossing he walks down at 2x until he catches the line
+- hold: he waits (idle) until the line reaches him
+
+Door opening and room lighting (dim-until-entered) are driven by the same
+phase model. Decoration only: aria-hidden; without JS or with reduced
+motion the wizard is not rendered and rooms light via IntersectionObserver.
+*/
+import wizardWalkImg from '../assets/pixel-art/dungeon/wizard-walk.png';
+
+const styleVars = [`--wizard-sheet-img: url(${wizardWalkImg.src})`].join('; ');
+---
+
+<div class="dungeon-path" aria-hidden="true" data-direction="down" data-facing="east" style={styleVars}>
+  <div class="dungeon-path__wizard">
+    <div class="dungeon-path__scaler">
+      <div class="dungeon-path__sprite"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .dungeon-path {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    /* sprite size: full 2x on larger screens, 1:1 logical pixels on mobile
+       (keep the media query in sync with the size logic in the script) */
+    --ws: 64px;
+  }
+  @media (max-width: 700px) {
+    .dungeon-path {
+      --ws: 32px;
+    }
+  }
+  /* Starlight's content flow styles add sibling margins */
+  .dungeon-path > :global(*),
+  .dungeon-path :global(*) {
+    margin: 0;
+  }
+
+  .dungeon-path__wizard {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: var(--ws);
+    height: var(--ws);
+    will-change: transform;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .dungeon-path.is-scripted .dungeon-path__wizard {
+    display: block;
+  }
+
+  /* he stands larger-than-life in the hero and shrinks to walking size as
+     he sets off (reverses when scrolling back). The scale lives on its own
+     layer so the transition never interferes with the west-flip below. */
+  .dungeon-path__scaler {
+    width: 100%;
+    height: 100%;
+    transform-origin: 50% 100%;
+    transform: scale(1);
+    transition: transform 0.45s ease;
+  }
+  .dungeon-path.is-large .dungeon-path__scaler {
+    transform: scale(2);
+  }
+
+  .dungeon-path__sprite {
+    width: var(--ws);
+    height: var(--ws);
+    background-image: var(--wizard-sheet-img);
+    background-size: calc(var(--ws) * 4) calc(var(--ws) * 4);
+    background-position: 0 calc(var(--ws) * -2); /* idle row */
+    image-rendering: pixelated;
+    animation: wizard-idle 1.6s steps(2) infinite;
+  }
+  .dungeon-path.is-walking .dungeon-path__sprite {
+    background-position-y: 0; /* walk-south row */
+    animation: wizard-walk 0.55s steps(4) infinite;
+  }
+  .dungeon-path.is-walking[data-direction='up'] .dungeon-path__sprite {
+    background-position-y: calc(var(--ws) * -1); /* walk-north row */
+  }
+  /* crossing: side-view row, flipped when heading west.
+     These sit last so they win over the direction rules above. */
+  .dungeon-path.is-walking.is-dashing[data-facing='east'] .dungeon-path__sprite,
+  .dungeon-path.is-walking.is-dashing[data-facing='west'] .dungeon-path__sprite {
+    background-position-y: calc(var(--ws) * -3); /* walk-east row */
+    animation: wizard-walk 0.55s steps(4) infinite;
+  }
+  .dungeon-path.is-walking.is-dashing[data-facing='west'] .dungeon-path__sprite {
+    transform: scaleX(-1);
+  }
+
+  @keyframes wizard-idle {
+    from {
+      background-position-x: 0;
+    }
+    to {
+      background-position-x: calc(var(--ws) * -2);
+    }
+  }
+  @keyframes wizard-walk {
+    from {
+      background-position-x: 0;
+    }
+    to {
+      background-position-x: calc(var(--ws) * -4);
+    }
+  }
+</style>
+
+<script>
+  const path = document.querySelector<HTMLElement>('.dungeon-path');
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const pathActive = !prefersReducedMotion;
+
+  if (path) {
+    // geometry state, rebuilt by layout()
+    let leftX = 0;
+    let rightX = 0;
+    let laneYs: Array<number> = [];
+    let pathTopDoc = 64;
+    let doorsByRoom: Array<Array<Element>> = [];
+    let laneRooms: Array<Element> = [];
+    const sideX = (zone: number) => (zone % 2 === 0 ? leftX : rightX);
+
+    interface Phase {
+      wlA: number;
+      wlB: number;
+      yA: number;
+      yB: number;
+      xA: number;
+      xB: number;
+      cross: boolean;
+      crossIndex?: number;
+    }
+    let phases: Array<Phase> = [];
+    let heroExitWl = -Infinity; // while wl is below this he stands large in the hero
+    let endEnterWl = Infinity; // once wl passes this he stands large at journey's end
+
+    const buildPhases = (opts: {
+      heroX: number;
+      heroY: number;
+      endX: number;
+      endY: number;
+      wlMax: number;
+    }) => {
+      phases = [];
+      const wl0 = window.innerHeight * 0.42 - pathTopDoc;
+      const crossW = rightX - leftX;
+      const gaps: Array<number> = [];
+      for (let i = 1; i < laneYs.length; i++) gaps.push(laneYs[i] - laneYs[i - 1]);
+      if (laneYs.length) gaps.push(opts.endY - laneYs[laneYs.length - 1]);
+      const minGap = Math.max(64, Math.min(...(gaps.length ? gaps : [opts.endY])));
+      // crossing speed: at least 2x scroll speed, faster if rooms are close
+      const k = Math.max(2, (2 * crossW) / (0.9 * Math.max(1, minGap)));
+      const m = 2; // catch-up walking speed
+      let wl = wl0;
+      let y = opts.heroY;
+      let x = opts.heroX;
+      let zone = 0;
+
+      // he waits in the hero until the 42vh line reaches him, and lingers a
+      // moment beyond that so he is always large at rest regardless of how
+      // tall the viewport is (on tall viewports the line starts below him)
+      const departWl = Math.max(y, wl) + 60;
+      phases.push({ wlA: wl, wlB: departWl, yA: y, yB: y, xA: x, xB: x, cross: false });
+      wl = departWl;
+      heroExitWl = wl;
+      // then walks out of the hero to the first room's entry side
+      if (Math.abs(x - leftX) > 1) {
+        const t = Math.abs(x - leftX) / k;
+        phases.push({ wlA: wl, wlB: wl + t, yA: y, yB: y, xA: x, xB: leftX, cross: true });
+        wl += t;
+        x = leftX;
+      }
+
+      const queue = [...laneYs];
+      let guard = 0;
+      while (queue.length && guard < 100) {
+        guard += 1;
+        const nextStop = queue[0];
+        if (y < wl - 0.5) {
+          // behind the line (post-crossing): walk down at m x
+          const t = Math.min((wl - y) / (m - 1), (nextStop - y) / m);
+          phases.push({ wlA: wl, wlB: wl + t, yA: y, yB: y + m * t, xA: x, xB: x, cross: false });
+          wl += t;
+          y += m * t;
+        } else {
+          // tracking the line 1:1
+          const t = nextStop - y;
+          phases.push({ wlA: wl, wlB: wl + t, yA: y, yB: nextStop, xA: x, xB: x, cross: false });
+          wl += t;
+          y = nextStop;
+        }
+        if (y >= nextStop - 0.5) {
+          queue.shift();
+          const t = crossW / k;
+          const xB = sideX(zone + 1);
+          phases.push({ wlA: wl, wlB: wl + t, yA: y, yB: y, xA: x, xB, cross: true, crossIndex: zone });
+          wl += t;
+          x = xB;
+          zone += 1;
+        }
+      }
+
+      // final stretch: descend past the last room, then walk to the page
+      // center above the footer, fitted so he arrives with a little scroll
+      // to spare, during which he grows back to hero size
+      const dV = Math.max(0, opts.endY - y);
+      const dH = Math.abs(opts.endX - x);
+      let tV = dV;
+      let tH = dH / k;
+      const budget = opts.wlMax - 80 - wl;
+      if (budget > 10 && tV + tH > budget) {
+        const scale = budget / (tV + tH);
+        tV *= scale;
+        tH *= scale;
+      }
+      if (dV > 0) {
+        phases.push({ wlA: wl, wlB: wl + tV, yA: y, yB: opts.endY, xA: x, xB: x, cross: false });
+        wl += tV;
+        y = opts.endY;
+      }
+      if (dH > 0) {
+        phases.push({ wlA: wl, wlB: wl + tH, yA: y, yB: y, xA: x, xB: opts.endX, cross: true });
+        wl += tH;
+      }
+      endEnterWl = wl;
+    };
+
+    const wizardEl = path.querySelector<HTMLElement>('.dungeon-path__wizard');
+    const positionWizard = () => {
+      if (!wizardEl || !phases.length) return;
+      const wl = window.scrollY + window.innerHeight * 0.42 - pathTopDoc;
+      let x = leftX;
+      let y = 0;
+      let cross = false;
+      let crossDir = 0;
+      const first = phases[0];
+      const last = phases[phases.length - 1];
+      if (wl <= first.wlA) {
+        x = first.xA;
+        y = first.yA;
+      } else if (wl >= last.wlB) {
+        x = last.xB;
+        y = last.yB;
+      } else {
+        let p = first;
+        for (const phase of phases) {
+          if (wl <= phase.wlB) {
+            p = phase;
+            break;
+          }
+        }
+        const f = (wl - p.wlA) / (p.wlB - p.wlA || 1);
+        x = p.xA + (p.xB - p.xA) * f;
+        y = p.yA + (p.yB - p.yA) * f;
+        cross = p.cross;
+        crossDir = Math.sign(p.xB - p.xA);
+      }
+      wizardEl.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+      path.classList.toggle('is-large', wl < heroExitWl || wl >= endEnterWl - 1);
+      path.classList.toggle('is-dashing', cross);
+      if (cross) {
+        const scrollingUp = path.dataset.direction === 'up';
+        path.dataset.facing = (crossDir > 0) !== scrollingUp ? 'east' : 'west';
+      }
+      // doors open as the warlock approaches each one, and stepping into a
+      // room lights it (one-way latch, so scrolling back never re-dims)
+      for (const phase of phases) {
+        if (!phase.cross || phase.crossIndex === undefined) continue;
+        const doors = doorsByRoom[phase.crossIndex];
+        if (!doors || doors.length < 2) continue;
+        const span = phase.wlB - phase.wlA;
+        const [entryDoor, exitDoor] = doors;
+        entryDoor.classList.toggle('is-open', wl > phase.wlA - 100 && wl < phase.wlA + span * 0.35);
+        exitDoor.classList.toggle('is-open', wl > phase.wlB - span * 0.35 && wl < phase.wlB + 100);
+        if (wl >= phase.wlA && laneRooms[phase.crossIndex]) {
+          laneRooms[phase.crossIndex].classList.add('is-entered');
+        }
+      }
+    };
+
+    const layout = () => {
+      const parent = path.parentElement;
+      const footer = document.querySelector('footer');
+      if (!parent || !footer) return;
+
+      const headerH = document.querySelector('.page > header')?.getBoundingClientRect().height ?? 64;
+      const parentRect = parent.getBoundingClientRect();
+      pathTopDoc = headerH;
+      path.style.top = `${headerH - (parentRect.top + window.scrollY)}px`;
+      // the journey ends just above the footer area; anchor to the email
+      // signup block when present since it sits above the footer element
+      const endAnchor = document.querySelector('.footer-connect') || footer;
+      const pathH = endAnchor.getBoundingClientRect().top + window.scrollY - pathTopDoc;
+      path.style.height = `${pathH}px`;
+
+      laneRooms = [...document.querySelectorAll('.dungeon-room__lane')].map(
+        (laneEl) => laneEl.closest('.dungeon-room') as Element,
+      );
+      doorsByRoom = laneRooms.map((room) => [...room.querySelectorAll('.dungeon-room__door')]);
+      for (const room of laneRooms) {
+        room.classList.toggle('dim-until-entered', pathActive);
+      }
+      if (!laneRooms.length) return;
+
+      // sprite size (keep in sync with the --ws media query in the styles);
+      // smaller sprites are vertically centered in the 64px lane band
+      const size = window.matchMedia('(max-width: 700px)').matches ? 32 : 64;
+      const laneOffset = (64 - size) / 2;
+      const bodyPad = size === 64 ? 18 : 0; // transparent sprite margin
+
+      // walking x rails: on larger screens they hug the room walls (body
+      // just outside the wall); on mobile he walks fully inside the page
+      // gutters so he never overlaps content
+      const roomRect = laneRooms[0].getBoundingClientRect();
+      const roomLeft = roomRect.left - parentRect.left;
+      const roomRight = roomRect.right - parentRect.left;
+      if (size === 32) {
+        leftX = Math.max(roomLeft - size - 4, 0);
+        rightX = Math.min(roomRight + 4, parentRect.width - size);
+      } else {
+        leftX = Math.max(roomLeft - size + 8, -bodyPad);
+        rightX = Math.min(roomRight - 8, parentRect.width - size + bodyPad);
+      }
+
+      laneYs = [...document.querySelectorAll('.dungeon-room__lane')].map((laneEl) => {
+        const r = laneEl.getBoundingClientRect();
+        return r.top + window.scrollY - pathTopDoc + laneOffset;
+      });
+
+      // hero start: feet planted at the bottom of the anchor, so the
+      // doubled hero scale grows upward into the anchor's space
+      const anchor = document.querySelector('.hero-wizard-anchor');
+      let heroX = leftX;
+      let heroY = 0;
+      if (anchor) {
+        const a = anchor.getBoundingClientRect();
+        heroX = a.left + a.width / 2 - parentRect.left - size / 2;
+        heroY = a.bottom + window.scrollY - pathTopDoc - size;
+      }
+
+      const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      buildPhases({
+        heroX,
+        heroY,
+        endX: parentRect.width / 2 - size / 2,
+        endY: pathH - size - 12,
+        wlMax: maxScroll + window.innerHeight * 0.42 - pathTopDoc,
+      });
+      positionWizard();
+    };
+    layout();
+    window.addEventListener('resize', layout, { passive: true });
+    window.addEventListener('load', layout);
+
+    if (pathActive) {
+      path.classList.add('is-scripted');
+      positionWizard();
+
+      let lastY = window.scrollY;
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      window.addEventListener(
+        'scroll',
+        () => {
+          const y = window.scrollY;
+          if (y !== lastY) path.dataset.direction = y > lastY ? 'down' : 'up';
+          lastY = y;
+          path.classList.add('is-walking');
+          clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => path.classList.remove('is-walking'), 160);
+          positionWizard();
+        },
+        { passive: true },
+      );
+    }
+
+    // room lighting fallback when the wizard is not active (reduced
+    // motion): torches light on visibility, content is never dimmed
+    if (!pathActive) {
+      const roomObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-entered');
+              roomObserver.unobserve(entry.target);
+            }
+          }
+        },
+        { threshold: 0.15 },
+      );
+      document.querySelectorAll('.dungeon-room').forEach((n) => roomObserver.observe(n));
+    }
+  }
+</script>
