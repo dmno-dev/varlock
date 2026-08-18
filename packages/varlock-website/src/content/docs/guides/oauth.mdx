@@ -1,0 +1,240 @@
+---
+title: OAuth tokens
+description: Mint short-lived OAuth access tokens from refresh tokens, client credentials, or service account keys, without handing the long-lived credential to your app
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Many APIs (Google, Slack, GitHub Apps, Microsoft, Auth0, and others) issue short-lived access tokens that expire after about an hour. To keep working, something has to hold a long-lived credential (a refresh token, client secret, or service account key) and exchange it for fresh tokens. Usually that something is your app's SDK, which means the long-lived credential sits in your process env.
+
+Varlock moves that exchange into config resolution. The long-lived credential stays in your vault as an [`@internal`](/reference/item-decorators/#internal) item that is never injected, and your app only ever receives a fresh short-lived access token. If the token leaks (a log line, a compromised dependency, an agent running `printenv`), the damage is bounded to that token's scopes for its remaining lifetime, instead of a permanent credential that can mint anything.
+
+```env-spec
+# @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
+# ---
+# @internal
+GOOGLE_CLIENT_ID=1234-abcd.apps.googleusercontent.com
+# @internal @sensitive
+GOOGLE_CLIENT_SECRET=op("op://dev/google-oauth/client secret")
+
+# resolves to a fresh access token, refreshed automatically as it expires
+# @sensitive
+DRIVE_TOKEN=oauth(google, scopes="https://www.googleapis.com/auth/drive.readonly")
+```
+
+```bash
+varlock oauth login google   # one-time browser login, stores the refresh token
+varlock run -- your-app      # DRIVE_TOKEN is a valid access token
+```
+
+## How it works
+
+The [`oauth()`](/reference/functions/#oauth) function calls the provider's token endpoint during resolution. Tokens are cached in the [encrypted cache](/guides/caching/) with the expiry the provider reported, so repeated runs reuse the same token until shortly before it expires (60s early by default, tunable via `skew`). Parallel `varlock run` invocations coordinate through a lock so the provider sees one exchange, not a stampede.
+
+Providers that rotate refresh tokens on every use (Google and Slack do) are handled automatically: the rotated token is stored in the cache and used for the next refresh.
+
+## Defining a client
+
+The [`@oauthClient`](/reference/root-decorators/#oauthclient) root decorator holds client config in one place so several items can mint tokens from it. The `provider=` arg fills in endpoints and quirks for known providers:
+
+```env-spec
+# @oauthClient(provider=google, clientId=$GOOGLE_CLIENT_ID, clientSecret=$GOOGLE_CLIENT_SECRET)
+# @oauthClient(provider=github, clientId=$GH_CLIENT_ID, clientSecret=$GH_CLIENT_SECRET)
+```
+
+Known providers: `google`, `github`, `microsoft`, `slack`. For anything else, set `tokenUrl` (and `authorizationUrl` / `deviceAuthorizationUrl` if you want browser login) explicitly. Item-level args always override provider-level ones.
+
+For a one-off token you can skip the provider entirely and pass everything inline to `oauth()`; see the [function reference](/reference/functions/#oauth).
+
+## Getting the initial credential
+
+The token exchange needs a long-lived credential to start from. There are two ways to provide it.
+
+### Option 1: `varlock oauth login` (local development)
+
+```bash
+varlock oauth login google
+```
+
+This runs a browser login flow and stores the resulting refresh token in the encrypted cache. Every item referencing that provider *without* an explicit `refreshToken` uses it from then on. Two flows are supported:
+
+- **Device code** (default when the provider supports it): the terminal shows a short code, you enter it on the provider's site. No redirect configuration needed at all.
+- **Browser** (`--flow browser`): opens the provider's consent page and catches the redirect on a local loopback server. Requires the OAuth app to allow loopback redirects.
+
+You need an OAuth app registered with the provider first. This is a one-time setup per team:
+
+| Provider | App setup |
+|---|---|
+| Google | Create a "Desktop app" OAuth client at [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials). Desktop clients allow loopback redirects implicitly, and the device flow works for a limited set of scopes. |
+| GitHub | Create an OAuth app at [github.com/settings/developers](https://github.com/settings/developers) and enable device flow. Refresh tokens require "user token expiration" enabled on the app. |
+| Microsoft | Register a public client (mobile & desktop) app. The provider def uses the "common" tenant; set `tokenUrl`/`authorizationUrl` to pin a tenant. |
+| Slack | Neither flow works locally (no device flow, https-only redirects). Provision a refresh token elsewhere and use option 2. Token rotation must be enabled on the app. |
+
+Login-provisioned tokens live in this machine's encrypted cache. Clearing the cache means logging in again, and each machine logs in separately. `varlock oauth status` (or bare `varlock oauth`) shows what is provisioned.
+
+### Option 2: explicit `refreshToken` (CI and servers)
+
+Store a refresh token in your vault and reference it directly:
+
+```env-spec
+# @internal @sensitive
+GOOGLE_REFRESH_TOKEN=op("op://ci/google-oauth/refresh token")
+# @sensitive
+DRIVE_TOKEN=oauth(google, refreshToken=$GOOGLE_REFRESH_TOKEN, scopes="https://www.googleapis.com/auth/drive.readonly")
+```
+
+This is the right form for CI, where there is no browser and no persistent login. Note that in CI without a persistent cache, a provider that rotates refresh tokens will invalidate the stored one after the first exchange; varlock prints a warning when this happens. Either use a non-rotating provider credential, or set up a [persistent CI cache](/guides/caching/) via `_VARLOCK_CACHE_KEY`.
+
+## Using the token
+
+The resolved item is a plain env var holding a valid access token, which makes consumption a naming exercise:
+
+- **CLIs**: name the schema item whatever the tool already reads (`GH_TOKEN`, `CLOUDSDK_AUTH_ACCESS_TOKEN`, `SLACK_BOT_TOKEN`), and it just works under `varlock run` with no flags or wrapper scripts.
+- **SDKs**: read the env var and pass it as a static token. Nearly every SDK accepts one as an alternative to managing credentials itself, so this is the same code with one line different: the SDK keeps doing everything else, and the only part you bypass is its refresh plumbing, which is exactly the part that needed the permanent credential in your process.
+
+<Tabs syncKey="oauth-provider">
+<TabItem label="Google">
+
+`gcloud` reads `CLOUDSDK_AUTH_ACCESS_TOKEN` directly:
+
+```env-spec
+# @sensitive
+CLOUDSDK_AUTH_ACCESS_TOKEN=oauth(google, scopes="https://www.googleapis.com/auth/cloud-platform")
+```
+
+```bash
+varlock run -- gcloud storage ls
+```
+
+With the `googleapis` SDK, hand the token to an `OAuth2` client instead of configuring client secrets in code:
+
+```js
+import { google } from 'googleapis';
+
+const auth = new google.auth.OAuth2();
+auth.setCredentials({ access_token: process.env.CLOUDSDK_AUTH_ACCESS_TOKEN });
+const drive = google.drive({ version: 'v3', auth });
+```
+
+Any Google REST API also accepts the token as a bearer header:
+
+```bash
+varlock run -- sh -c 'curl -H "Authorization: Bearer $CLOUDSDK_AUTH_ACCESS_TOKEN" https://www.googleapis.com/drive/v3/files'
+```
+
+</TabItem>
+<TabItem label="GitHub">
+
+The `gh` CLI (and most GitHub tooling) reads `GH_TOKEN`:
+
+```env-spec
+# @sensitive
+GH_TOKEN=oauth(github)
+```
+
+```bash
+varlock run -- gh pr list
+```
+
+With Octokit:
+
+```js
+import { Octokit } from 'octokit';
+
+const octokit = new Octokit({ auth: process.env.GH_TOKEN });
+```
+
+</TabItem>
+<TabItem label="Microsoft">
+
+```env-spec
+# @sensitive
+MS_GRAPH_TOKEN=oauth(microsoft, scopes="User.Read Mail.Read")
+```
+
+Call Microsoft Graph directly:
+
+```bash
+varlock run -- sh -c 'curl -H "Authorization: Bearer $MS_GRAPH_TOKEN" https://graph.microsoft.com/v1.0/me'
+```
+
+With the Graph SDK, the auth provider is one line:
+
+```js
+import { Client } from '@microsoft/microsoft-graph-client';
+
+const client = Client.init({
+  authProvider: (done) => done(null, process.env.MS_GRAPH_TOKEN),
+});
+```
+
+</TabItem>
+<TabItem label="Slack">
+
+Bolt and most Slack tooling read `SLACK_BOT_TOKEN` (remember Slack needs the [explicit refreshToken form](#option-2-explicit-refreshtoken-ci-and-servers)):
+
+```env-spec
+# @internal @sensitive
+SLACK_REFRESH_TOKEN=op("op://dev/slack-app/refresh token")
+# @sensitive
+SLACK_BOT_TOKEN=oauth(slack, refreshToken=$SLACK_REFRESH_TOKEN)
+```
+
+```js
+import { WebClient } from '@slack/web-api';
+
+const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+```
+
+Or call the Web API directly:
+
+```bash
+varlock run -- sh -c 'curl -H "Authorization: Bearer $SLACK_BOT_TOKEN" https://slack.com/api/auth.test'
+```
+
+</TabItem>
+</Tabs>
+
+:::note[Process lifetime vs token lifetime]
+Tokens are minted fresh when your process starts, so short-lived processes are the sweet spot: CLI invocations, scripts, CI jobs, and agent sessions all finish well within a token's ~1 hour lifetime, and every new `varlock run` gets a fresh token automatically. A long-running server will eventually outlive its token; refreshing mid-run without a restart is part of the planned [credential proxy](/guides/proxy/) integration, where the running process holds only a placeholder and varlock swaps in a fresh token at the network boundary. Put simply: standalone keeps the durable credentials out of your process, and the proxy keeps all credentials out of it.
+:::
+
+## Machine-to-machine grants
+
+Not everything starts from a user consent flow. Two more grants cover service identities:
+
+**`client_credentials`**: for providers where the client id + secret *is* the identity (Auth0, Okta, and most "M2M applications"):
+
+```env-spec
+# @sensitive
+API_TOKEN=oauth(tokenUrl="https://myorg.auth0.com/oauth/token", grant="client_credentials", clientId=$AUTH0_CLIENT_ID, clientSecret=$AUTH0_CLIENT_SECRET, params={ audience="https://api.myorg.com" })
+```
+
+**`jwt_bearer`**: for providers that give you a signing key instead of a secret, most commonly Google service accounts. Varlock signs a short-lived RS256 assertion with the key and exchanges it. The key file supplies the endpoint and identity, so config is minimal:
+
+```env-spec
+# @internal @sensitive
+GCP_SA_KEY=op("op://infra/gcp-sa/key json")
+# @sensitive
+GCP_TOKEN=oauth(grant="jwt_bearer", serviceAccountKey=$GCP_SA_KEY, scopes="https://www.googleapis.com/auth/cloud-platform")
+```
+
+This replaces the usual pattern of handing the entire service account JSON (a permanent credential) to your app so its SDK can sign. The key stays `@internal`; the app gets a one-hour token. Non-Google providers use the `privateKey` + `issuer` form instead, and `subject` supports impersonation (e.g. Google domain-wide delegation). See the [function reference](/reference/functions/#oauth) for all args.
+
+## Scopes
+
+Each item requests its own scopes, and items sharing a provider get separately-scoped access tokens from one shared refresh token. `varlock oauth login` requests the union of every scope used in your schema (plus any provider-required ones, like Microsoft's `offline_access`), so one login covers all items. If you add an item with new scopes later, run login again.
+
+## Troubleshooting
+
+- **`invalid_grant` on refresh**: the refresh token is expired or revoked. Run `varlock oauth login` again, or re-provision the vault-stored token. For `jwt_bearer` this usually means the key was revoked, the subject is not authorized, or your clock is off.
+- **Login succeeds but no refresh token is returned**: the provider needs opt-in. GitHub apps need "user token expiration" enabled; Google needs the `access_type=offline` and `prompt=consent` params (varlock sends them for the google provider).
+- **`no refresh token has been provisioned`**: an item references a provider without `refreshToken`, and this machine has not run `varlock oauth login` (or the cache was cleared).
+- **Wrapping in `cache()` is an error**: `oauth()` already caches tokens according to their real expiry; a generic TTL would serve expired tokens.
+
+## Related
+
+- [`oauth()` function reference](/reference/functions/#oauth)
+- [`@oauthClient` decorator reference](/reference/root-decorators/#oauthclient)
+- [`varlock oauth` CLI reference](/reference/cli/project/#oauth)
+- [Caching guide](/guides/caching/) for where token state lives and how to inspect or clear it

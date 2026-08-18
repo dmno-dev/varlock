@@ -171,6 +171,47 @@ The output directory is a generated artifact: add it to `.gitignore`, and rerun 
 
 <div>
 
+## `varlock oauth` ||oauth||
+
+Manages OAuth clients defined with [`@oauthClient`](/reference/root-decorators/#oauthclient) and the refresh tokens used by [`oauth()`](/reference/functions/#oauth) items.
+
+```bash
+varlock oauth [status|login] [client-id]
+```
+
+### `varlock oauth login`
+
+Runs a browser login flow against a provider and stores the resulting refresh token in the encrypted cache. Items using `oauth(<id>, ...)` without an explicit `refreshToken` resolve using this stored token from then on. Requires a persistent (disk) cache.
+
+The requested scopes default to the union of scopes used by items referencing the provider, plus any client-level `scopes` and provider-required scopes (e.g. `offline_access` for Microsoft).
+
+**Positional arguments:**
+- `[client-id]`: which `@oauthClient` to log in to, e.g. `google` or `google/dev` (optional when only one is defined)
+
+**Flags:**
+- `--flow <device|browser>`: `device` shows a short code to enter on the provider's site (default when supported); `browser` opens the provider's consent page and catches the redirect on a local loopback server. The browser flow requires the OAuth app to allow loopback redirects (register it as a native/desktop app type).
+- `--scopes <string>`: override the requested scopes
+- `--path / -p`: env file entry point, same as other commands
+
+**Examples:**
+```bash
+# log in (single provider defined)
+varlock oauth login
+
+# specific provider, forcing the loopback browser flow
+varlock oauth login google --flow browser
+```
+
+Login-provisioned tokens live in this machine's encrypted cache: clearing the cache means logging in again. For CI, store a refresh token in your vault and pass it to `oauth()` via `refreshToken` instead.
+
+### `varlock oauth status`
+
+Shows each defined provider, which items use it, and whether a refresh token has been provisioned. Bare `varlock oauth` does the same.
+
+</div>
+
+<div>
+
 ## `varlock telemetry` ||telemetry||
 
 Opts in/out of anonymous usage analytics. This command creates/updates a configuration file at `$XDG_CONFIG_HOME/varlock/config.json` (defaults to `~/.config/varlock/config.json`) saving your preference.
