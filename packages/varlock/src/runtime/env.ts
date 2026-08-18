@@ -196,7 +196,9 @@ const ARRAY_INDEX_KEY_REGEX = /^(?:0|[1-9]\d*)$/;
 /** enumerable own string/symbol keys that a console inspector would print (excluding array indices) */
 function inspectableOwnKeys(o: any, skipIndices: boolean): Array<string | symbol> {
   return [
-    ...Object.keys(o).filter((key) => !(skipIndices && ARRAY_INDEX_KEY_REGEX.test(key))),
+    ...Object.keys(o).filter((key) => !(
+      skipIndices && ARRAY_INDEX_KEY_REGEX.test(key) && Number(key) < o.length
+    )),
     ...Object.getOwnPropertySymbols(o).filter((s) => Object.prototype.propertyIsEnumerable.call(o, s)),
   ];
 }

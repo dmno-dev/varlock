@@ -127,4 +127,11 @@ describe('redactSensitiveConfig - plain objects and arrays (structural walk)', (
     expect(redacted[`token-${REDACTED_SECRET}`]).toBe('x');
     expect(redacted[`token-${SECRET_VALUE}`]).toBe(undefined);
   });
+
+  it('redacts decimal-looking array properties outside the array-index range', () => {
+    const arr: any = [];
+    arr['4294967295'] = SECRET_VALUE;
+    const redacted = redactSensitiveConfig(arr);
+    expect(redacted['4294967295']).toBe(REDACTED_SECRET);
+  });
 });
