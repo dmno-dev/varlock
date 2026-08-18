@@ -150,6 +150,16 @@ jobs:
         with:
           version: 10
 
+      # warm ~/.m2 so the Java lang-module smoke test doesn't re-download from
+      # Maven Central on every run (Central rate-limits GitHub runners with 429s)
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('smoke-tests/smoke-test-lang-java/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
       - name: Download packed packages
         uses: actions/download-artifact@v8
         with:

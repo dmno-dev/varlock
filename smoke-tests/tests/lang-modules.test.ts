@@ -43,9 +43,11 @@ describe('generated language modules compile and run', () => {
   });
 
   test.skipIf(!hasTool('java') || !hasTool('mvn'))('Java module compiles and runs', () => {
+    // increase Maven Resolver's default retry count from three for transient Central failures
+    const mvnRetryFlags = '-Daether.connector.http.retryHandler.count=5';
     // package a shaded fat jar, then run it the usual way (`java -jar`)
     const result = varlockRun(
-      ['bash', '-c', 'mvn -q -DskipTests package && java -jar target/app.jar'],
+      ['bash', '-c', `mvn -q -DskipTests ${mvnRetryFlags} package && java -jar target/app.jar`],
       { cwd: 'smoke-test-lang-java' },
     );
     expect(result.output).toContain('OK');
