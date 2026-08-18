@@ -58,6 +58,14 @@ describe('patchGlobalConsole per-argument redaction (edge-style console)', () =>
     expect(logged[0][0].stack).not.toContain(SECRET_VALUE);
   });
 
+  it('redacts an error wrapped in a plain object, keeping message and stack', () => {
+    const err = new Error(`boom ${SECRET_VALUE}`);
+    console.error('failed', { err });
+    expect(logged[0][1].err.message).toBe(`boom ${REDACTED_SECRET}`);
+    expect(logged[0][1].err.stack).toBeTruthy();
+    expect(logged[0][1].err.stack).not.toContain(SECRET_VALUE);
+  });
+
   it('redacts a thrown error caught and logged directly', () => {
     try {
       throw new Error(`auth failed with ${SECRET_VALUE}`);

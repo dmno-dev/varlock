@@ -239,32 +239,60 @@ function redactValue(o: any, seen: Map<any, any>): any {
 
   // TODO: handle more cases?
   // we can probably redact safely from a few other datatypes - like set,map,etc?
-  // objects are a bit tougher
   if (Array.isArray(o)) {
-    return o.map((item) => redactValue(item, seen));
+    if (seen.has(o)) return seen.get(o);
+    const copy = new Array(o.length);
+    // registered before recursing so circular references resolve to the copy
+    // instead of recursing forever
+    seen.set(o, copy);
+    let changed = false;
+    for (let i = 0; i < o.length; i++) {
+      copy[i] = redactValue(o[i], seen);
+      if (copy[i] !== o[i]) changed = true;
+    }
+    if (!changed) {
+      seen.set(o, o);
+      return o;
+    }
+    return copy;
   }
   if (isErrorLike(o)) {
     return redactError(o, seen);
   }
-  // try to redact if it's a plain object - not necessarily great for perf...
-  if (o && typeof (o) === 'object' && Object.getPrototypeOf(o) === Object.prototype) {
-    try {
-      return JSON.parse(redactValue(JSON.stringify(o), seen));
-    } catch (err) {
-      if (seen.has(o)) return seen.get(o);
-      const copy: Record<string, any> = {};
-      seen.set(o, copy);
-      for (const key of Object.keys(o)) {
-        let value: any;
-        try {
-          value = o[key];
-        } catch (getterError) {
-          continue;
-        }
-        copy[redactPropertyKey(key, seen) as string] = redactValue(value, seen);
+  // walk plain objects structurally rather than JSON round-tripping - JSON.stringify
+  // drops non-enumerable props (hollowing out nested errors), mangles dates/undefined,
+  // and throws on bigints and circular references
+  // (null-prototype objects included - e.g. querystring.parse results)
+  const objectPrototype = typeof (o) === 'object' ? Object.getPrototypeOf(o) : undefined;
+  if (objectPrototype === Object.prototype || objectPrototype === null) {
+    if (seen.has(o)) return seen.get(o);
+    const copy: Record<string | symbol, any> = objectPrototype === null ? Object.create(null) : {};
+    seen.set(o, copy);
+    let changed = false;
+    const keys: Array<string | symbol> = [
+      ...Object.keys(o),
+      // symbol-keyed props are shown by console inspectors, so they need redacting too
+      ...Object.getOwnPropertySymbols(o).filter((s) => Object.prototype.propertyIsEnumerable.call(o, s)),
+    ];
+    for (const key of keys) {
+      const redactedKey = redactPropertyKey(key, seen);
+      if (redactedKey !== key) changed = true;
+      let value: any;
+      try {
+        value = o[key];
+      } catch (getterError) {
+        continue; // a getter that throws - nothing we can safely read or copy
       }
-      return copy;
+      const redactedValue = redactValue(value, seen);
+      if (redactedValue !== value) changed = true;
+      copy[redactedKey] = redactedValue;
     }
+    // nothing sensitive in here - hand back the original untouched
+    if (!changed) {
+      seen.set(o, o);
+      return o;
+    }
+    return copy;
   }
 
   const type = typeof o;
