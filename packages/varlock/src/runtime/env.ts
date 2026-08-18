@@ -172,6 +172,35 @@ function redactPropertyKey(key: string | symbol, seen: Map<any, any>): string | 
   return redactedDescription === key.description ? key : Symbol(redactedDescription);
 }
 
+/** copies own props from source to target, redacting keys and values - returns whether anything changed */
+function redactAssignProps(source: any, target: any, keys: Array<string | symbol>, seen: Map<any, any>): boolean {
+  let changed = false;
+  for (const key of keys) {
+    const redactedKey = redactPropertyKey(key, seen);
+    if (redactedKey !== key) changed = true;
+    let value: any;
+    try {
+      value = source[key];
+    } catch (getterError) {
+      continue; // a getter that throws - nothing we can safely read or copy
+    }
+    const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
+    if (redactedValue !== value) changed = true;
+    target[redactedKey] = redactedValue;
+  }
+  return changed;
+}
+
+const ARRAY_INDEX_KEY_REGEX = /^(?:0|[1-9]\d*)$/;
+
+/** enumerable own string/symbol keys that a console inspector would print (excluding array indices) */
+function inspectableOwnKeys(o: any, skipIndices: boolean): Array<string | symbol> {
+  return [
+    ...Object.keys(o).filter((key) => !(skipIndices && ARRAY_INDEX_KEY_REGEX.test(key))),
+    ...Object.getOwnPropertySymbols(o).filter((s) => Object.prototype.propertyIsEnumerable.call(o, s)),
+  ];
+}
+
 /**
  * Errors need special handling - their `message`/`stack` are non-enumerable so they do not
  * survive a JSON round-trip, and their prototype is not `Object.prototype` so they used to
@@ -250,6 +279,8 @@ function redactValue(o: any, seen: Map<any, any>): any {
       copy[i] = redactValue(o[i], seen);
       if (copy[i] !== o[i]) changed = true;
     }
+    // custom props hung off the array are printed by console inspectors too
+    if (redactAssignProps(o, copy, inspectableOwnKeys(o, true), seen)) changed = true;
     if (!changed) {
       seen.set(o, o);
       return o;
@@ -268,25 +299,7 @@ function redactValue(o: any, seen: Map<any, any>): any {
     if (seen.has(o)) return seen.get(o);
     const copy: Record<string | symbol, any> = objectPrototype === null ? Object.create(null) : {};
     seen.set(o, copy);
-    let changed = false;
-    const keys: Array<string | symbol> = [
-      ...Object.keys(o),
-      // symbol-keyed props are shown by console inspectors, so they need redacting too
-      ...Object.getOwnPropertySymbols(o).filter((s) => Object.prototype.propertyIsEnumerable.call(o, s)),
-    ];
-    for (const key of keys) {
-      const redactedKey = redactPropertyKey(key, seen);
-      if (redactedKey !== key) changed = true;
-      let value: any;
-      try {
-        value = o[key];
-      } catch (getterError) {
-        continue; // a getter that throws - nothing we can safely read or copy
-      }
-      const redactedValue = redactValue(value, seen);
-      if (redactedValue !== value) changed = true;
-      copy[redactedKey] = redactedValue;
-    }
+    const changed = redactAssignProps(o, copy, inspectableOwnKeys(o, false), seen);
     // nothing sensitive in here - hand back the original untouched
     if (!changed) {
       seen.set(o, o);

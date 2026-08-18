@@ -107,4 +107,24 @@ describe('redactSensitiveConfig - plain objects and arrays (structural walk)', (
     const clean = ['a', 'b', { c: 1 }];
     expect(redactSensitiveConfig(clean)).toBe(clean);
   });
+
+  it('redacts custom own properties hung off an array', () => {
+    const arr: any = ['clean'];
+    arr.token = SECRET_VALUE;
+    const sym = Symbol('symkey');
+    arr[sym] = `sym ${SECRET_VALUE}`;
+    const redacted = redactSensitiveConfig(arr);
+    expect(Array.isArray(redacted)).toBe(true);
+    expect(redacted[0]).toBe('clean');
+    expect(redacted.token).toBe(REDACTED_SECRET);
+    expect(redacted[sym]).toBe(`sym ${REDACTED_SECRET}`);
+  });
+
+  it('redacts secrets in custom array property keys', () => {
+    const arr: any = [];
+    arr[`token-${SECRET_VALUE}`] = 'x';
+    const redacted = redactSensitiveConfig(arr);
+    expect(redacted[`token-${REDACTED_SECRET}`]).toBe('x');
+    expect(redacted[`token-${SECRET_VALUE}`]).toBe(undefined);
+  });
 });
