@@ -8,13 +8,14 @@ import {
 } from 'node:fs';
 import { URL } from 'node:url';
 
-import type { ProxyActivity } from './audit';
+import { dataPlaneAuthOk, parseProxyAuthToken } from './core/auth';
+import type { RequestScopedManagedItem } from './core/policy';
 import {
-  checkSubstitutionGuards, dataPlaneAuthOk, findUninjectedPlaceholder, parseProxyAuthToken,
-  replacePlaceholdersWithReal, startLocalProxyRuntime,
+  checkSubstitutionGuards, findUninjectedPlaceholder, replacePlaceholdersWithReal,
   type SubstitutionGuardRequest,
-} from './runtime-proxy';
-import type { RequestScopedManagedItem } from './policy';
+} from './core/substitution';
+import type { ProxyActivity } from './audit';
+import { startLocalProxyRuntime } from './runtime-proxy';
 
 /** Bind an ephemeral port, capture it, release it — a free port for a fixed-port test. */
 function getFreePort(): Promise<number> {
