@@ -146,29 +146,168 @@ export function getRedactionMapInfo() {
 // we expose only the below const to end users
 
 
+function isErrorLike(o: any) {
+  if (o instanceof Error) return true;
+
+  // Cross-realm errors fail instanceof. Find the realm's Error.prototype without relying on
+  // Object.prototype.toString, which can be masked by an own Symbol.toStringTag.
+  let prototype = Object.getPrototypeOf(o);
+  while (prototype) {
+    const constructor = Object.getOwnPropertyDescriptor(prototype, 'constructor')?.value;
+    if (
+      typeof constructor === 'function'
+      && constructor.name === 'Error'
+      && Object.prototype.hasOwnProperty.call(prototype, 'message')
+      && Object.getOwnPropertyDescriptor(prototype, 'name')?.value === 'Error'
+    ) return true;
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  return false;
+}
+
+function redactPropertyKey(key: string | symbol, seen: Map<any, any>): string | symbol {
+  if (typeof key === 'string') return redactValue(key, seen); // eslint-disable-line no-use-before-define
+  if (key.description === undefined) return key;
+  const redactedDescription = redactValue(key.description, seen); // eslint-disable-line no-use-before-define
+  return redactedDescription === key.description ? key : Symbol(redactedDescription);
+}
+
+/** copies own props from source to target, redacting keys and values - returns whether anything changed */
+function redactAssignProps(source: any, target: any, keys: Array<string | symbol>, seen: Map<any, any>): boolean {
+  let changed = false;
+  for (const key of keys) {
+    const redactedKey = redactPropertyKey(key, seen);
+    if (redactedKey !== key) changed = true;
+    let value: any;
+    try {
+      value = source[key];
+    } catch (getterError) {
+      continue; // a getter that throws - nothing we can safely read or copy
+    }
+    const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
+    if (redactedValue !== value) changed = true;
+    target[redactedKey] = redactedValue;
+  }
+  return changed;
+}
+
+const ARRAY_INDEX_KEY_REGEX = /^(?:0|[1-9]\d*)$/;
+
+/** enumerable own string/symbol keys that a console inspector would print (excluding array indices) */
+function inspectableOwnKeys(o: any, skipIndices: boolean): Array<string | symbol> {
+  return [
+    ...Object.keys(o).filter((key) => !(
+      skipIndices && ARRAY_INDEX_KEY_REGEX.test(key) && Number(key) < o.length
+    )),
+    ...Object.getOwnPropertySymbols(o).filter((s) => Object.prototype.propertyIsEnumerable.call(o, s)),
+  ];
+}
+
 /**
- * Redacts senstive config values from any string/array/object/etc
+ * Errors need special handling - their `message`/`stack` are non-enumerable so they do not
+ * survive a JSON round-trip, and their prototype is not `Object.prototype` so they used to
+ * fall through redaction untouched. That leaks secrets anywhere the console output is
+ * serialized from the object itself rather than from a pre-formatted string - edge runtimes
+ * (Cloudflare Workers, Vercel Edge), or any platform that has already patched console.log.
  *
- * NOTE - must be used only after varlock has loaded config
+ * We build a redacted copy instead of mutating the error, since the caller may still be
+ * using it. The copy is a real Error carrying the original prototype, so `instanceof` checks
+ * and console formatting keep working.
  * */
-export function redactSensitiveConfig(o: any): any {
+function redactError(err: any, seen: Map<any, any>): any {
+  // registered up front so circular `cause` chains (and repeat references) resolve
+  // to the copy rather than recursing forever or falling back to the raw error
+  if (seen.has(err)) return seen.get(err);
+  const copy = new Error();
+  Object.setPrototypeOf(copy, Object.getPrototypeOf(err));
+  seen.set(err, copy);
+
+  const keys: Array<string | symbol> = [
+    ...Object.getOwnPropertyNames(err),
+    ...Object.getOwnPropertySymbols(err),
+  ];
+  // `message`/`stack` are not own properties in every runtime, but always need redacting
+  for (const inheritedKey of ['message', 'stack']) {
+    if (!keys.includes(inheritedKey)) keys.push(inheritedKey);
+  }
+
+  let changed = false;
+  for (const key of keys) {
+    const redactedKey = redactPropertyKey(key, seen);
+    if (redactedKey !== key) changed = true;
+    let value: any;
+    try {
+      value = err[key];
+    } catch (getterError) {
+      continue; // a getter that throws - nothing we can safely read or copy
+    }
+    const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
+    if (redactedValue !== value) changed = true;
+    try {
+      Object.defineProperty(copy, redactedKey, {
+        value: redactedValue,
+        enumerable: Object.prototype.propertyIsEnumerable.call(err, key),
+        writable: true,
+        configurable: true,
+      });
+    } catch (defineError) {
+      // skip anything we cannot redefine on the copy
+    }
+  }
+
+  // nothing sensitive in here - hand back the original untouched
+  if (!changed) {
+    seen.set(err, err);
+    return err;
+  }
+  return copy;
+}
+
+function redactValue(o: any, seen: Map<any, any>): any {
   const { redactorFindReplace } = getRedactionState();
   if (!redactorFindReplace) return o;
   if (!o) return o;
 
   // TODO: handle more cases?
   // we can probably redact safely from a few other datatypes - like set,map,etc?
-  // objects are a bit tougher
   if (Array.isArray(o)) {
-    return o.map(redactSensitiveConfig);
-  }
-  // try to redact if it's a plain object - not necessarily great for perf...
-  if (o && typeof (o) === 'object' && Object.getPrototypeOf(o) === Object.prototype) {
-    try {
-      return JSON.parse(redactSensitiveConfig(JSON.stringify(o)));
-    } catch (err) {
+    if (seen.has(o)) return seen.get(o);
+    const copy = new Array(o.length);
+    // registered before recursing so circular references resolve to the copy
+    // instead of recursing forever
+    seen.set(o, copy);
+    let changed = false;
+    for (let i = 0; i < o.length; i++) {
+      copy[i] = redactValue(o[i], seen);
+      if (copy[i] !== o[i]) changed = true;
+    }
+    // custom props hung off the array are printed by console inspectors too
+    if (redactAssignProps(o, copy, inspectableOwnKeys(o, true), seen)) changed = true;
+    if (!changed) {
+      seen.set(o, o);
       return o;
     }
+    return copy;
+  }
+  if (isErrorLike(o)) {
+    return redactError(o, seen);
+  }
+  // walk plain objects structurally rather than JSON round-tripping - JSON.stringify
+  // drops non-enumerable props (hollowing out nested errors), mangles dates/undefined,
+  // and throws on bigints and circular references
+  // (null-prototype objects included - e.g. querystring.parse results)
+  const objectPrototype = typeof (o) === 'object' ? Object.getPrototypeOf(o) : undefined;
+  if (objectPrototype === Object.prototype || objectPrototype === null) {
+    if (seen.has(o)) return seen.get(o);
+    const copy: Record<string | symbol, any> = objectPrototype === null ? Object.create(null) : {};
+    seen.set(o, copy);
+    const changed = redactAssignProps(o, copy, inspectableOwnKeys(o, false), seen);
+    // nothing sensitive in here - hand back the original untouched
+    if (!changed) {
+      seen.set(o, o);
+      return o;
+    }
+    return copy;
   }
 
   const type = typeof o;
@@ -177,6 +316,18 @@ export function redactSensitiveConfig(o: any): any {
   }
 
   return o;
+}
+
+/**
+ * Redacts senstive config values from any string/array/object/error/etc
+ *
+ * NOTE - must be used only after varlock has loaded config
+ * */
+export function redactSensitiveConfig(o: any): any {
+  const { redactorFindReplace } = getRedactionState();
+  if (!redactorFindReplace) return o;
+  if (!o) return o;
+  return redactValue(o, new Map());
 }
 
 /**

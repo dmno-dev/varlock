@@ -76,7 +76,15 @@ export function defineCloudflareTests(
       outputAssertions: [
         {
           description: 'sensitive value is redacted in console output',
-          shouldContain: ['secret-log-test::'],
+          shouldContain: [
+            'secret-log-test::',
+            // error object logged directly - redacted, not passed through raw
+            'error-log-test::',
+            // error nested in a plain object - message survives (not hollowed to `{}`)
+            'wrapped-error-test::',
+            // circular object - printed and redacted rather than bypassing redaction
+            'circular-log-test::',
+          ],
           shouldNotContain: ['super-secret-value'],
         },
       ],
