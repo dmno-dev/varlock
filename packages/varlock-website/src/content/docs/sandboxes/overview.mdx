@@ -26,6 +26,7 @@ There are a handful of ways to combine varlock with sandboxed agents, ordered he
 Cloud sandbox providers run the agent in a remote VM, so the proxy is reached over the built-in tunnel ([`proxy start --expose` + `proxy run --url`](/reference/cli/proxy/)) instead of loopback. Each guide leads with the recommended path for that platform and keeps the rest short.
 
 <CardGrid>
+  <LinkCard title="Amika" href="/sandboxes/amika/" description="Local Docker sandboxes reach a host broker; cloud sandboxes tunnel to it" />
   <LinkCard title="E2B" href="/sandboxes/e2b/" description="Broker sandbox or tunnel to your machine; egress lockdown via network rules" />
   <LinkCard title="Fly.io" href="/sandboxes/flyio/" description="Broker sprite or tunnel to your machine; egress lockdown via network policy" />
 </CardGrid>

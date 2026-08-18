@@ -1,0 +1,116 @@
+---
+title: Amika
+description: Using varlock with Amika sandboxes, so agents run against the varlock credential proxy and hold only placeholders instead of real secrets.
+---
+
+[Amika](https://www.amika.dev) is a control plane for sandboxed coding agents: an open-source CLI that runs local Docker sandboxes preloaded with Claude Code, Codex, and OpenCode, plus a hosted cloud that runs the same sandboxes in micro-VMs with Slack, Linear, and GitHub triggers. Amika's own secrets support copies real values into the sandbox, where they are readable as environment variables (network-layer tokenization is an early design on [their roadmap](https://docs.amika.dev/architecture/roadmap)). The varlock [credential proxy](/guides/proxy/) closes that gap today: the sandbox holds only [placeholders](/guides/proxy/rules/#placeholders), and real values are injected at the wire by a broker the agent cannot reach into.
+
+The recommended shape for local sandboxes is a **broker on your own machine**: secrets, resolver [plugins](/guides/plugins/), biometric unlock, and the interactive request log all stay on the host, and the sandbox reaches the broker at `host.docker.internal`. [Amika Cloud sandboxes](#amika-cloud) reach the same broker through a tunnel URL instead.
+
+:::caution[Amika copies host credential files into every local sandbox]
+As of amika 0.14.1, local `amika sandbox create` scans your home directory for coding-agent credential files (`~/.codex/auth.json`, `~/.claude.json`, OpenCode's `auth.json`) and mounts a copy of each into the sandbox, unconditionally. The `--no-agent-credential` flag does not prevent this; it only controls credentials from the Amika Cloud vault. On macOS, Claude Code keeps its OAuth tokens in the Keychain so those stay behind, but Codex and OpenCode tokens live on disk and do transfer.
+
+The mounts are `rwcopy` copies, so nothing in the sandbox can touch your originals. The setup script below empties the copies before an agent runs, which is the point of this shape: the sandbox should hold nothing worth stealing.
+:::
+
+## Broker on your machine
+
+### 1. Schema
+
+Mark the secrets your agent uses with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=yourPreferredPlugin()
+```
+
+Values are resolved by the broker on your host, so the right-hand side is whatever your setup already uses: a [plugin](/guides/plugins/) call as shown, or a value the broker picks up from its own environment or a local `.env` file.
+
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because the agent holds only placeholders. Amika has no egress controls of its own today, so if you want the broker to refuse anything that matches no rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header; direct connections that bypass the broker are still possible either way, and carry placeholders at worst.
+
+### 2. Start the broker on the host
+
+`--expose` binds off-loopback and serves the [tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url), minting a data-plane token. Pin the token so you can hand the same value to the sandbox:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+```
+
+Bare `--expose` binds `0.0.0.0`, so the broker is reachable from your whole network, not just the sandbox. The data-plane token gates it, but on an untrusted network firewall the port or stay off that network while the broker runs.
+
+### 3. Create the sandbox with a setup script
+
+The setup script installs varlock and empties Amika's copies of your host credential files. The image's npm global prefix (`/usr`) is not writable by the sandbox user, so use the binary install; it lands off `PATH`, so the script wires that too:
+
+```sh title="amika-setup.sh"
+#!/bin/sh
+set -e
+curl -sSfL https://varlock.dev/install.sh | sh -s
+echo 'export PATH="$HOME/.config/varlock/bin:$PATH"' >> "$HOME/.zshrc"
+
+# empty Amika's copies of host agent credentials (originals are untouched);
+# the agent gets placeholders from the broker instead
+: > "$HOME/.codex/auth.json" 2>/dev/null || true
+: > "$HOME/.claude.json" 2>/dev/null || true
+: > "$HOME/.local/share/opencode/auth.json" 2>/dev/null || true
+```
+
+Create the sandbox from your project directory (the repo is auto-detected; use `--git` to point elsewhere). The token rides the container env via `--env`:
+
+```bash
+amika sandbox create --name agent \
+  --setup-script amika-setup.sh \
+  --env VARLOCK_PROXY_TOKEN=$VARLOCK_PROXY_TOKEN \
+  --yes
+```
+
+For a repo that always uses this shape, commit the script and point `.amika/config.toml` at it instead of passing the flag each time:
+
+```toml title=".amika/config.toml"
+[lifecycle]
+setup_script = "amika-setup.sh"
+```
+
+Note the local CLI reads only `[lifecycle]` and `[services]` from `config.toml`; the `[env]` and secret-reference syntax in Amika's docs applies to hosted sandboxes.
+
+### 4. Run the agent through the broker
+
+Connect to the sandbox and wrap the agent command with `proxy run --url`. varlock self-wires the placeholder env and CA certs over the tunnel, so there is no cert or env plumbing:
+
+```bash
+amika sandbox connect agent
+# inside the sandbox:
+varlock proxy run --url ws://host.docker.internal:8080 -- claude
+```
+
+That is the whole path: the agent holds placeholders, the broker on your host injects real values only on verified TLS connections to hosts your schema allows, and every request is checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). Wrap `codex` or `opencode` the same way. See the [AI tools guides](/guides/ai-tools/) for the env var each agent expects.
+
+One boundary to be aware of: this wraps agents you start from a sandbox shell. Amika's own launchers (`amika sandbox agent-send`, the Slack integration) start the agent themselves, outside the wrapper, so they still depend on the credentials the setup script just emptied. Use the broker shape for shell-driven sessions, and wire up Amika's launchers only with credentials you are comfortable placing in the sandbox.
+
+## Amika Cloud
+
+Hosted sandboxes run in Amika's cloud, so `host.docker.internal` does not exist and the agent needs a broker URL that is reachable from the internet. Amika Cloud sandboxes have unrestricted egress, so any tunnel that carries WebSockets works, and the agent-side command is identical apart from the URL:
+
+```bash
+varlock proxy start --expose --port 8080
+ngrok http 8080          # or cloudflared, Tailscale funnel, ...
+# in the sandbox:
+VARLOCK_PROXY_TOKEN=… varlock proxy run --url wss://abc123.ngrok.app -- claude
+```
+
+The data-plane token gates the tunnel, and the tunnel carries TLS end to end between the agent and your proxy, so the tunnel service only ever sees ciphertext. The same command reaches a broker on [infrastructure you run](/sandboxes/overview/#topologies) when one broker should serve a fleet.
+
+Two hosted-specific notes:
+
+- Skip Amika's vault (`amika secret push`, `amika secret extract`, and pinned agent credentials) for anything you proxy. Vault secrets are resolved at sandbox creation and copied into the VM as readable env vars, which is exactly what this shape avoids. Plain values in the hosted `[env]` config are fine for non-secrets.
+- Pass `VARLOCK_PROXY_TOKEN` via `--env` at creation. It is the credential to use the broker, not to read its secrets, which never leave your machine.
+
+## Trust model
+
+The broker holds real secrets on whatever machine runs it: your own machine in the local shape, which is where they already live. The sandbox never holds them. A compromised or prompt-injected agent yields placeholders, plus only whatever requests your rules and egress mode allow, and varlock's response scrubbing keeps an echoing endpoint from handing a real value back.
+
+Amika records agent sessions (transcripts, tool calls, and `amikalog` hook events). With placeholders in the sandbox, those recordings cannot contain real secrets either, which makes the two tools compose well: Amika provides the sandbox, lifecycle, and collaboration surfaces, and varlock provides custody, injection, scrubbing, and audit.
+
+Treat the data-plane token like any shared secret (rotate by restarting the broker with a new one), and keep the broker's port off untrusted networks, since `--expose` binds all interfaces.
