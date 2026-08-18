@@ -11,6 +11,7 @@ import { spawn, execSync } from 'node:child_process';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
+import { isPreviewDeployCommand } from './wrangler-command-detection';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -350,15 +351,6 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
 
 function isVersionsUploadCommand(args: Array<string>) {
   return args[0] === 'versions' && args[1] === 'upload';
-}
-
-// `wrangler preview` subcommands that manage existing previews rather than
-// deploying one - these are passed through to wrangler unchanged
-const PREVIEW_SUBCOMMANDS = ['delete', 'settings', 'secret', 'base-config'];
-
-function isPreviewDeployCommand(args: Array<string>) {
-  // bare `preview` deploys a branch preview; its only positional is a script path
-  return args[0] === 'preview' && !PREVIEW_SUBCOMMANDS.includes(args[1]);
 }
 
 function isDeployCommand(args: Array<string>) {
