@@ -12,7 +12,10 @@ import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
-import { ResolutionError, SchemaError } from './errors';
+import {
+  NoConfigItemsError, NoEnvFilesError, ResolutionError, SchemaError,
+  type ErrorSeverity, type VarlockError,
+} from './errors';
 import {
   builtInCodeGenerators, collectTypeGenItems, resolveFieldTypes,
   type CodeGeneratorDef, type ResolvedFieldType,
@@ -42,12 +45,51 @@ import { parseDuration } from '../../lib/duration';
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
 
-export type SerializedEnvGraphErrors = {
-  /** Per-item validation errors, keyed by config item key */
-  configItems?: Record<string, string>;
-  /** Root-level errors not tied to a specific config item (loading errors, schema errors, plugin errors, etc.) */
-  root?: Array<string>;
+/**
+ * A single error in serialized output. `code` is a stable machine-readable
+ * identifier (see the `VarlockError` subclasses) - branch on it rather than on
+ * `message`, which is prose and free to change.
+ */
+export type SerializedError = {
+  /** stable machine-readable identifier, e.g. `empty_required_value` */
+  code: string;
+  /** human-readable description - do not parse */
+  message: string;
+  severity: ErrorSeverity;
+  /** actionable next step, when the error carries one */
+  tip?: string;
+  /** source label the error came from, for root-level errors */
+  source?: string;
 };
+
+function serializeError(err: VarlockError, source?: string): SerializedError {
+  return {
+    code: err.code,
+    message: err.message,
+    severity: err.severity,
+    ...err.tip && { tip: err.tip },
+    ...source && { source },
+  };
+}
+
+/**
+ * Diagnostics bucket, used for both `errors` and `warnings` in serialized
+ * output. The two are separate top-level keys rather than one list split by
+ * `severity`, so the presence of `errors` keeps meaning "this load failed".
+ */
+export type SerializedEnvGraphDiagnostics = {
+  /**
+   * Per-item entries keyed by config item key. An item can hit more than one
+   * problem at once (a schema error and a validation error, say), so each key
+   * maps to an array rather than a single entry.
+   */
+  configItems?: Record<string, Array<SerializedError>>;
+  /** Entries not tied to a specific config item (loading, parse, no env files found, etc.) */
+  root?: Array<SerializedError>;
+};
+
+/** @deprecated renamed to {@link SerializedEnvGraphDiagnostics}, which is also used for warnings */
+export type SerializedEnvGraphErrors = SerializedEnvGraphDiagnostics;
 
 /** Entry in the sorted definition sources list — pairs a data source with the node whose
  * import chain filters which keys are visible at that specific position in the precedence chain */
@@ -101,8 +143,14 @@ export type SerializedEnvGraph = {
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
-  /** Present only when config has errors — consumers can check `if (data.errors)` */
-  errors?: SerializedEnvGraphErrors;
+  /** Present only when config has errors — consumers can check `if (data.errors)` to mean "the load failed" */
+  errors?: SerializedEnvGraphDiagnostics;
+  /**
+   * Present only when there are warnings. Kept separate from `errors` so a
+   * warning never makes a load look failed. Warnings never block a load, so
+   * this is purely informational.
+   */
+  warnings?: SerializedEnvGraphDiagnostics;
 };
 
 /**
@@ -904,6 +952,37 @@ export class EnvGraph {
     return envObject;
   }
 
+  /**
+   * A graph with no config items can't be used, and there are two reasons why:
+   * no env files were found at all, or files loaded but define nothing. Note a
+   * `.env.schema` is NOT required - plain `.env` files are a valid project.
+   *
+   * Returns undefined when the graph has items, or when some other root error
+   * already explains the emptiness (a file that failed to parse defines no
+   * items either, and "no items defined" would be misleading noise on top of
+   * the parse error that actually caused it).
+   *
+   * Shared by `getSerializedGraph` and the CLI's `checkForNoEnvFiles` so the
+   * two can't drift on what counts as an unusable graph.
+   */
+  getEmptyGraphError(opts?: { hasOtherRootErrors?: boolean }): VarlockError | undefined {
+    if (Object.keys(this.configSchema).length > 0) return undefined;
+    const hasOtherRootErrors = opts?.hasOtherRootErrors
+      ?? this.sortedDataSources.some((s) => s.errors.some((e) => !e.isWarning));
+    if (hasOtherRootErrors) return undefined;
+
+    const displayPath = this.basePath ?? process.cwd();
+    const hasLoadedFiles = this.sortedDataSources.some((s) => s instanceof FileBasedDataSource);
+    if (!hasLoadedFiles) {
+      return new NoEnvFilesError(`No .env files found in ${displayPath}`, {
+        tip: 'Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.',
+      });
+    }
+    return new NoConfigItemsError(`No config items defined in ${displayPath}`, {
+      tip: 'Add items to your .env.schema or .env file to get started.',
+    });
+  }
+
   getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       basePath: this.basePath,
@@ -981,32 +1060,50 @@ export class EnvGraph {
     // at launch from context. Absent = undefined, and the command defaults it to `auto`.
     if (proxyConfig?.reload) serializedGraph.settings.proxyReload = proxyConfig.reload;
 
-    // collect all errors into a single nested object
-    const errors: SerializedEnvGraphErrors = {};
+    // Errors and warnings are partitioned into two top-level keys rather than
+    // sharing one list distinguished by `severity`. `errors` being present has
+    // to keep meaning "this load failed" — consumers (including our own runtime
+    // and the cloudflare integration) test it for truthiness, and folding
+    // warnings in would silently turn a warning-only load into a failure.
+    const errors: SerializedEnvGraphDiagnostics = {};
+    const warnings: SerializedEnvGraphDiagnostics = {};
 
-    // root-level errors (loading, schema, resolution errors from data sources)
-    const rootErrors: Array<string> = [];
+    // root-level diagnostics (loading, schema, resolution problems from data sources)
+    const rootErrors: Array<SerializedError> = [];
+    const rootWarnings: Array<SerializedError> = [];
     for (const source of this.sortedDataSources) {
-      for (const err of source.errors.filter((e) => !e.isWarning)) {
-        rootErrors.push(`${source.label}: ${err.message}`);
+      for (const err of source.errors) {
+        (err.isWarning ? rootWarnings : rootErrors).push(serializeError(err, source.label));
       }
     }
-    if (rootErrors.length > 0) {
-      errors.root = rootErrors;
-    }
+    // Surfaced as a root error so every consumer of the serialized graph sees it,
+    // not only the CLI paths that happen to call checkForNoEnvFiles.
+    const emptyGraphError = this.getEmptyGraphError({ hasOtherRootErrors: rootErrors.length > 0 });
+    if (emptyGraphError) rootErrors.push(serializeError(emptyGraphError));
 
-    // per-item validation errors keyed by item key
-    const configItemErrors: Record<string, string> = {};
+    if (rootErrors.length > 0) errors.root = rootErrors;
+    if (rootWarnings.length > 0) warnings.root = rootWarnings;
+
+    // per-item diagnostics keyed by item key. An item can land in both buckets:
+    // a stray-text warning alongside a required-value error, say. Warn-state
+    // items (warnings but no real error) appear only under `warnings`, which is
+    // the only way they're visible to a programmatic consumer at all.
+    const configItemErrors: Record<string, Array<SerializedError>> = {};
+    const configItemWarnings: Record<string, Array<SerializedError>> = {};
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
-      if (item.validationState === 'error') {
-        configItemErrors[itemKey] = item.errors.map((e) => e.message).join('; ');
-      }
+      if (item.validationState === 'valid') continue;
+      const itemErrors = item.errors.filter((e) => !e.isWarning).map((e) => serializeError(e));
+      const itemWarnings = item.errors.filter((e) => e.isWarning).map((e) => serializeError(e));
+      if (itemErrors.length > 0) configItemErrors[itemKey] = itemErrors;
+      if (itemWarnings.length > 0) configItemWarnings[itemKey] = itemWarnings;
     }
-    if (Object.keys(configItemErrors).length > 0) {
-      errors.configItems = configItemErrors;
-    }
+    if (Object.keys(configItemErrors).length > 0) errors.configItems = configItemErrors;
+    if (Object.keys(configItemWarnings).length > 0) warnings.configItems = configItemWarnings;
 
+    if (warnings.root || warnings.configItems) {
+      serializedGraph.warnings = warnings;
+    }
     // only include errors key if there are any
     if (errors.root || errors.configItems) {
       serializedGraph.errors = errors;
