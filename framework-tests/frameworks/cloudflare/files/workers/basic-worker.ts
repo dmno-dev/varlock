@@ -7,8 +7,16 @@ const TOP_LEVEL_HAS_SECRET = ENV.SECRET_KEY ? 'yes' : 'no';
 
 export default {
   async fetch(_request: Request, env: Record<string, string>): Promise<Response> {
-    // this should be redacted in varlock-wrangler output
+    // these should all be redacted in console output (see output assertions)
     console.log('secret-log-test::', ENV.SECRET_KEY);
+    // error objects reach the platform inspector as live objects in workerd
+    console.error(new Error(`error-log-test:: ${ENV.SECRET_KEY}`));
+    // nested error must keep its message/stack (not hollow out to `{ err: {} }`)
+    console.error('wrapped-log-test::', { err: new Error(`wrapped-error-test:: ${ENV.SECRET_KEY}`) });
+    // circular objects previously bypassed redaction entirely (JSON.stringify threw)
+    const circular: Record<string, any> = { label: 'circular-log-test::', token: ENV.SECRET_KEY };
+    circular.self = circular;
+    console.log(circular);
 
     return new Response([
       // varlock ENV proxy - non-sensitive vars
