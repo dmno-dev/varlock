@@ -25,6 +25,26 @@
 
 
 
+
+## 1.17.0
+<sub>2026-08-18</sub>
+
+- [#1013](https://github.com/dmno-dev/varlock/pull/1013)  *(minor)*
+  printenv: new --template flag renders a string template with resolved values (with optional --escape json), e.g. auth headers JSON for an MCP headersHelper
+- [#1006](https://github.com/dmno-dev/varlock/pull/1006)  *(minor)*
+  Native local-encryption helper binaries now ship as per-platform optional dependencies (@varlock/native-helper-*), so npm installs only download the binaries for your own platform (on Linux this includes the Windows helper, which WSL needs)
+- [#1000](https://github.com/dmno-dev/varlock/pull/1000)  *(patch)*
+  Exit cleanly instead of crashing when CLI output is piped into a consumer that closes early (e.g. `varlock flatten | head -3`)
+- [#1004](https://github.com/dmno-dev/varlock/pull/1004)  *(patch)*
+  Ship the Linux local-encryption helper binaries uncompressed. UPX packing caused antivirus false positives (Defender Wacatac.C!ml) during install.
+- [#1007](https://github.com/dmno-dev/varlock/pull/1007)  *(patch)*
+  varlock flatten no longer needs to detect a workspace root - any @import path that resolves on disk is flattened, including in non-JS monorepos
+- [#1007](https://github.com/dmno-dev/varlock/pull/1007)  *(patch)*
+  Clearer errors for Windows-style @import/@plugin paths, which are not supported (use forward slashes, or a relative/~ path instead of a drive letter)
+- [#1015](https://github.com/dmno-dev/varlock/pull/1015)  *(patch)* - Replace the semver dependency with verkit, a smaller tree-shakeable alternative
+- [#1016](https://github.com/dmno-dev/varlock/pull/1016)  *(patch)*
+  Redact sensitive values from Error objects passed to console methods, and fix console redaction of plain objects that could not survive a JSON round-trip (nested errors, circular references, bigints, dates)
+
 ## 1.16.1
 <sub>2026-08-08</sub>
 

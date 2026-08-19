@@ -1,0 +1,7 @@
+# Changelog
+
+## 1.17.0
+<sub>2026-08-18</sub>
+
+- [#1006](https://github.com/dmno-dev/varlock/pull/1006)  *(minor)*
+  Native local-encryption helper binaries now ship as per-platform optional dependencies (@varlock/native-helper-*), so npm installs only download the binaries for your own platform (on Linux this includes the Windows helper, which WSL needs)
