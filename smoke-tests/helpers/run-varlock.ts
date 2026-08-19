@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
+const RUN_DENO_COMPAT = process.env.VARLOCK_RUN_DENO_COMPAT === '1';
 // Invoke the *installed* varlock CLI from smoke-tests/node_modules rather than the source tree.
 // `varlock` is a direct dependency of smoke-tests, so pnpm always links it at node_modules/varlock:
 // in CI it's the packed .tgz (which bundles bin/ + dist/), locally it's the workspace link to
@@ -12,15 +13,25 @@ const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
 // than the un-built source tree.
 export const VARLOCK_CLI = join(SMOKE_TESTS_DIR, 'node_modules', 'varlock', 'bin', 'cli.js');
 
+export function getVarlockCommand(args: Array<string>) {
+  if (RUN_DENO_COMPAT) {
+    return { command: 'deno', args: ['run', '-A', VARLOCK_CLI, ...args] };
+  }
+  return { command: process.execPath, args: [VARLOCK_CLI, ...args] };
+}
+
 export function runVarlock(args: Array<string>, options?: {
   cwd?: string;
   env?: Record<string, string>;
+  input?: string;
 }) {
   const cwd = options?.cwd ? join(SMOKE_TESTS_DIR, options.cwd) : SMOKE_TESTS_DIR;
   const env = { ...process.env, ...options?.env };
-  const result = spawnSync(process.execPath, [VARLOCK_CLI, ...args], {
+  const command = getVarlockCommand(args);
+  const result = spawnSync(command.command, command.args, {
     cwd,
     env,
+    input: options?.input,
     encoding: 'utf-8',
   });
 

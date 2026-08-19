@@ -1,5 +1,6 @@
 import { cli, type Command } from 'gunshi';
 import completion from '@gunshi/plugin-completion';
+import { script as completionScript } from '@bomb.sh/tab';
 import { gracefulExit } from 'exit-hook';
 
 import { handleBrokenPipe } from './helpers/broken-pipe';
@@ -45,6 +46,25 @@ handleBrokenPipe();
 
 let versionId = packageJson.version;
 if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
+
+function shellQuote(value: string) {
+  if (value.length === 0) return "''";
+  if (/^[\w%+,./:=@-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function escapeDoubleQuotedShellString(value: string) {
+  return value.replaceAll(/[$`"\\]/g, '\\$&');
+}
+
+function getDenoCompletionExec() {
+  return escapeDoubleQuotedShellString([
+    shellQuote(process.execPath),
+    'run',
+    '-A',
+    shellQuote(process.argv[1] ?? ''),
+  ].join(' '));
+}
 
 // TODO: this is not splitting the bundle correctly to actually lazy load the command fns
 function buildLazyCommand(
@@ -104,6 +124,11 @@ subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await im
     if (args[0] === 'help') args = ['--help'];
 
     const isCompletionInvoke = args[0] === 'complete';
+    const isDenoRuntime = typeof (globalThis as typeof globalThis & { Deno?: unknown }).Deno !== 'undefined';
+    if (isDenoRuntime && isCompletionInvoke && ['zsh', 'bash', 'fish', 'powershell'].includes(args[1] ?? '')) {
+      completionScript(args[1], 'varlock', getDenoCompletionExec());
+      gracefulExit();
+    }
 
     // track standalone installs via homebrew/curl
     if (__VARLOCK_SEA_BUILD__) {
