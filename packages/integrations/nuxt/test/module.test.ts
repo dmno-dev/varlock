@@ -6,20 +6,39 @@ import pkg from '../package.json';
 
 const addVitePluginMock = vi.fn();
 const addServerPluginMock = vi.fn();
+const addServerHandlerMock = vi.fn();
+const addPluginTemplateMock = vi.fn();
+const addTypeTemplateMock = vi.fn((template) => ({ ...template, dst: `/fake-buildDir/${template.filename}` }));
 const addTemplateMock = vi.fn((template) => ({ ...template, dst: `/fake-buildDir/${template.filename}` }));
 const defineNuxtModuleMock = vi.fn((moduleDef) => moduleDef);
 const varlockVitePluginMock = vi.fn(() => ({ name: 'varlock-vite-plugin' }));
 const buildVarlockSsrInitCodeMock = vi.fn(() => 'initVarlockEnv();');
+const getVarlockEnvSourcePathsMock = vi.fn(() => []);
+// no public+dynamic items by default, so the public-env endpoint is not injected
+const getVarlockLoadedEnvMock = vi.fn(() => ({
+  basePath: '/fake-project',
+  sources: [],
+  settings: {},
+  config: {
+    PUBLIC_VAR: { value: 'public-var-value', isSensitive: false, isDynamic: false },
+    SECRET_VAR: { value: 'secret-value', isSensitive: true, isDynamic: true },
+  },
+}));
 
 vi.mock('@nuxt/kit', () => ({
+  addPluginTemplate: addPluginTemplateMock,
+  addServerHandler: addServerHandlerMock,
   addServerPlugin: addServerPluginMock,
   addTemplate: addTemplateMock,
+  addTypeTemplate: addTypeTemplateMock,
   addVitePlugin: addVitePluginMock,
   defineNuxtModule: defineNuxtModuleMock,
 }));
 
 vi.mock('@varlock/vite-integration', () => ({
   buildVarlockSsrInitCode: buildVarlockSsrInitCodeMock,
+  getVarlockEnvSourcePaths: getVarlockEnvSourcePathsMock,
+  getVarlockLoadedEnv: getVarlockLoadedEnvMock,
   varlockVitePlugin: varlockVitePluginMock,
 }));
 
