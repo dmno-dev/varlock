@@ -1,0 +1,13 @@
+name = "Varlock Schema"
+grammar = "env"
+path_suffixes = ["env.schema"]
+first_line_pattern = "^\\s*(?:#\\s*@|[A-Za-z_][A-Za-z0-9_.-]*\\s*=)"
+autoclose_before = ";:.,=}])>`"
+line_comments = ["# "]
+brackets = [
+    { start = "'", end = "'", close = true, newline = false, not_in = ["string", "comment"] },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["string", "comment"] },
+    { start = "`", end = "`", close = true, newline = false, not_in = ["string", "comment"] },
+    { start = "{", end = "}", close = true, newline = true },
+    { start = "(", end = ")", close = true, newline = true },
+]

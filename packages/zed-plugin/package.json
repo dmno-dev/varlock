@@ -1,0 +1,19 @@
+{
+  "name": "@varlock/zed-plugin",
+  "version": "0.1.3",
+  "private": true,
+  "description": "Varlock @env-spec language support for .env.schema files in Zed",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/zed-plugin"
+  },
+  "scripts": {
+    "server:build": "bun run --cwd server build",
+    "server:typecheck": "bun run --cwd server typecheck",
+    "server:test": "bun run --cwd server test",
+    "release:zed": "bun run scripts/release.mjs",
+    "pin-grammar": "bun run scripts/pin-grammar.mjs"
+  }
+}
