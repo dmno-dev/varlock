@@ -143,6 +143,27 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 
 ---
 
+## Public dynamic env endpoint
+
+When the schema contains any public+dynamic keys, the module automatically injects a server route at `/__varlock/public-env` that serves them to the browser. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
+
+You can control the injection through the module options:
+
+```ts title="nuxt.config.ts"
+export default defineNuxtConfig({
+  modules: ['@varlock/nuxt-integration'],
+  varlock: {
+    publicDynamicEndpoint: { path: '/api/public-env' }, // auto by default
+  },
+})
+```
+
+- `undefined` (default): injected only when public+dynamic config items exist
+- `true` / `false`: force it on or off
+- `{ path }`: custom route path; the module also points the client runtime at it, so `loadPublicDynamicEnv()` works without passing `endpoint`
+
+---
+
 ## Dev server behavior
 
 The module watches every env file varlock loads, including `.env.schema`, and restarts the dev server when one changes. This keeps server routes and the Nitro side in sync; Nuxt's own watcher only reacts to a plain `.env` file.

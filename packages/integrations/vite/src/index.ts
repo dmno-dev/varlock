@@ -224,6 +224,20 @@ export interface VarlockVitePluginOptions {
 
 /** options for {@link buildVarlockSsrInitCode} */
 /**
+ * The currently loaded env graph, for integrations that need to inspect the
+ * config outside vite's hooks (e.g. the Nuxt module checks for public+dynamic
+ * items to decide whether to inject the public-env endpoint). Reloads the
+ * config first if `rootDir` differs from the directory the module-level load
+ * used.
+ */
+export function getVarlockLoadedEnv(rootDir?: string): SerializedEnvGraph | undefined {
+  if (rootDir && path.resolve(rootDir) !== loadedConfigDir) {
+    reloadConfig(rootDir);
+  }
+  return varlockLoadedEnv;
+}
+
+/**
  * Absolute paths of the env files the current config was loaded from, for
  * integrations that manage their own file watching (e.g. the Nuxt module
  * pushes these into `nuxt.options.watch` so a schema edit restarts the dev
@@ -232,9 +246,7 @@ export interface VarlockVitePluginOptions {
  * Environments) are excluded since watching them is meaningless.
  */
 export function getVarlockEnvSourcePaths(rootDir?: string): Array<string> {
-  if (rootDir && path.resolve(rootDir) !== loadedConfigDir) {
-    reloadConfig(rootDir);
-  }
+  getVarlockLoadedEnv(rootDir);
   const paths: Array<string> = [];
   if (!varlockLoadedEnv?.basePath) return paths;
   for (const source of varlockLoadedEnv.sources) {

@@ -59,6 +59,9 @@ describe('Nuxt', () => {
         description: 'client bundle inlines non-sensitive values',
         fileGlob: '.output/public/**/*.js',
         shouldContain: ['public-var-value', 'env-specific-var--dev', 'template-var-value'],
+        // dynamic values must never be inlined - they are served at runtime
+        // by the injected public-env endpoint instead
+        shouldNotContain: ['public-dynamic-value'],
       },
       {
         description: 'sensitive value is absent from all build output',
@@ -187,6 +190,14 @@ describe('Nuxt', () => {
           shouldNotContain: ['super-secret-value'],
         },
       },
+      {
+        // auto-injected because the schema declares a public+dynamic item
+        path: '/__varlock/public-env',
+        bodyAssertions: {
+          shouldContain: ['"PUBLIC_DYNAMIC_VAR":"public-dynamic-value"'],
+          shouldNotContain: ['super-secret-value', 'PUBLIC_VAR"'],
+        },
+      },
     ],
   });
 
@@ -194,7 +205,11 @@ describe('Nuxt', () => {
   // modules as side-effect free — a bare `import 'varlock/auto-load'` gets
   // tree-shaken away and the server starts with no env at all.
   env.describeDevScenario('production server: auto-load runs without `varlock run`', {
-    command: 'nuxt build < /dev/null && node .output/server/index.mjs',
+    // the whole chain runs inside a single `pnpm exec` shell so the server
+    // half also gets the test project's node_modules/.bin on PATH - otherwise
+    // auto-load's `varlock` CLI spawn resolves to whatever varlock happens to
+    // be on the harness PATH instead of the packed one under test
+    command: "sh -c 'nuxt build < /dev/null && node .output/server/index.mjs'",
     env: { PORT: '14932', HOST: '127.0.0.1' },
     readyPattern: /Listening on/,
     readyTimeout: 300_000,

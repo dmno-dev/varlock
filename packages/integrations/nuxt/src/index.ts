@@ -1,12 +1,15 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import {
-  addTemplate, addServerPlugin, addTypeTemplate, addVitePlugin, defineNuxtModule,
+  addPluginTemplate, addServerHandler, addServerPlugin, addTemplate, addTypeTemplate, addVitePlugin, defineNuxtModule,
 } from '@nuxt/kit';
 import type { NuxtModule } from '@nuxt/schema';
 import {
-  buildVarlockSsrInitCode, getVarlockEnvSourcePaths, varlockVitePlugin, type VarlockVitePluginOptions,
+  buildVarlockSsrInitCode, getVarlockEnvSourcePaths, getVarlockLoadedEnv, varlockVitePlugin,
+  type VarlockVitePluginOptions,
 } from '@varlock/vite-integration';
+
+const DEFAULT_PUBLIC_DYNAMIC_ENDPOINT = '/__varlock/public-env';
 
 export interface VarlockNuxtModuleOptions extends VarlockVitePluginOptions {
   /**
@@ -15,6 +18,15 @@ export interface VarlockNuxtModuleOptions extends VarlockVitePluginOptions {
    * `shared/env.d.ts` and `env.d.ts` are detected automatically.
    */
   envTypesPath?: string,
+  /**
+   * Inject a server route that returns `getPublicDynamicEnv()`, so browser
+   * code can hydrate public+dynamic values via `loadPublicDynamicEnv()`.
+   * - `undefined`: auto (enabled only when public+dynamic config exists)
+   * - `true`: always enabled at the default path
+   * - `false`: disabled
+   * - object: enabled with a custom `path`
+   */
+  publicDynamicEndpoint?: boolean | { path?: string },
 }
 
 const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule<VarlockNuxtModuleOptions>({
@@ -55,6 +67,51 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
     if (nuxt.options.dev) {
       for (const envFilePath of getVarlockEnvSourcePaths(nuxt.options.rootDir)) {
         if (!nuxt.options.watch.includes(envFilePath)) nuxt.options.watch.push(envFilePath);
+      }
+    }
+
+    // Inject a nitro route serving public+dynamic values to the browser, same
+    // as the Astro integration's `/__varlock/public-env` route. Auto mode only
+    // injects when the schema actually declares public+dynamic items. The
+    // handler runs after the nitro init plugin (registered below), so ENV is
+    // initialized by the time a request hits it.
+    const pdOption = moduleOptions.publicDynamicEndpoint;
+    let injectPublicDynamicEndpoint = pdOption === true || typeof pdOption === 'object';
+    if (pdOption === undefined) {
+      const loadedEnv = getVarlockLoadedEnv(nuxt.options.rootDir);
+      injectPublicDynamicEndpoint = Object.values(loadedEnv?.config || {}).some(
+        (itemInfo) => (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive,
+      );
+    }
+    if (injectPublicDynamicEndpoint) {
+      const routePath = (typeof pdOption === 'object' && pdOption.path) || DEFAULT_PUBLIC_DYNAMIC_ENDPOINT;
+      if (!routePath.startsWith('/')) {
+        throw new Error('[varlock] `publicDynamicEndpoint.path` must start with "/"');
+      }
+      const endpointTemplate = addTemplate({
+        filename: 'varlock-public-env-handler.mjs',
+        write: true,
+        getContents: () => [
+          "import { defineEventHandler } from 'h3';",
+          "import { getPublicDynamicEnv } from 'varlock/env';",
+          'export default defineEventHandler(() => getPublicDynamicEnv());',
+        ].join('\n'),
+      });
+      addServerHandler({ route: routePath, method: 'get', handler: endpointTemplate.dst });
+
+      // `loadPublicDynamicEnv()` defaults to the standard path; for a custom
+      // path, point the client runtime at it so callers don't have to pass
+      // `endpoint` themselves
+      if (routePath !== DEFAULT_PUBLIC_DYNAMIC_ENDPOINT) {
+        addPluginTemplate({
+          filename: 'varlock-public-env-endpoint.mjs',
+          getContents: () => [
+            "import { defineNuxtPlugin } from '#app';",
+            'export default defineNuxtPlugin(() => {',
+            `  globalThis.__varlockPublicDynamicEnvEndpoint = ${JSON.stringify(routePath)};`,
+            '});',
+          ].join('\n'),
+        });
       }
     }
 
