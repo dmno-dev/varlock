@@ -186,7 +186,7 @@ export const WORKS_WITH_TILES: Array<WorksWithTile> = [
   {
     id: 'nuxt',
     title: 'Nuxt',
-    icon: 'simple-icons:nuxtdotjs',
+    icon: 'simple-icons:nuxt',
     href: '/integrations/nuxt/',
     category: 'frameworks',
   },
