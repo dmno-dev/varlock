@@ -44,9 +44,8 @@ describe('createReplacerTransformFn', () => {
         .toBe('_toDisplayString("hello")');
     });
 
-    it('replaces unref-wrapped access without the underscore alias', () => {
-      expect(runReplacer('_toDisplayString(unref(ENV).GREETING)', 'page.vue'))
-        .toBe('_toDisplayString("hello")');
+    it('leaves bare unref calls alone (user-authored, not vue codegen)', () => {
+      expect(runReplacer('const x = unref(ENV).GREETING;', 'page.vue')).toBe(null);
     });
 
     it('handles multiple access styles in the same module', () => {

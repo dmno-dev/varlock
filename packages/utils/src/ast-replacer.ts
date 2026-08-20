@@ -51,12 +51,12 @@ export const SUPPORTED_FILES = ['js', 'ts', 'mjs', 'mts', 'cjs', 'cts', 'jsx', '
 // fns, and `_unref(ENV).X` in production (inline) mode, since an imported
 // binding might be a ref. `_unref` on a plain object is a no-op, so replacing
 // the whole call + member expression with the literal value is equivalent.
-function getVueUnrefVariants(key: string): Array<string> {
+// Only the generated `_unref` alias is matched; a bare `unref(...)` call is
+// user-authored code (possibly a different function entirely) and is left alone.
+function getVueUnrefPattern(key: string): string | undefined {
   const dotIdx = key.indexOf('.');
-  if (dotIdx === -1) return [];
-  const obj = key.slice(0, dotIdx);
-  const rest = key.slice(dotIdx);
-  return [`_unref(${obj})${rest}`, `unref(${obj})${rest}`];
+  if (dotIdx === -1) return undefined;
+  return `_unref(${key.slice(0, dotIdx)})${key.slice(dotIdx)}`;
 }
 
 type MatchersArray = Array<{ matcher: ReturnType<typeof astMatcher>, replacement: string }>;
@@ -68,12 +68,11 @@ export function createReplacerTransformFn(opts: {
   let matchers: MatchersArray;
   const extraMatchersForFileType: Record<string, MatchersArray> = {};
 
-  // quick-exit check, including the vue `unref(OBJ).X` shape, which does not
-  // contain the plain `OBJ.X` key as a substring (`unref(` also matches inside
-  // `_unref(`, so one variant covers both)
+  // quick-exit check, including the vue `_unref(OBJ).X` shape, which does not
+  // contain the plain `OBJ.X` key as a substring
   const findAnyReplacementPatterns = keys.flatMap((key) => {
-    const unrefVariant = getVueUnrefVariants(key).find((v) => !v.startsWith('_'));
-    return unrefVariant ? [key, unrefVariant] : [key];
+    const unrefPattern = getVueUnrefPattern(key);
+    return unrefPattern ? [key, unrefPattern] : [key];
   });
   const findAnyReplacementRegex = new RegExp(`(?:${findAnyReplacementPatterns.map(escapeStringRegexp).join('|')})`, 'g');
 
@@ -110,13 +109,14 @@ export function createReplacerTransformFn(opts: {
     if (fileExt === 'vue') {
       // in vue script+setup files, ENV.X in template blocks gets compiled to
       // `$setup.ENV.X` (dev) or `_unref(ENV).X` (prod inline mode); see
-      // getVueUnrefVariants above
-      extraMatchersForFileType.vue ||= keys.flatMap((key) => (
-        [`$setup.${key}`, ...getVueUnrefVariants(key)].map((pattern) => ({
+      // getVueUnrefPattern above
+      extraMatchersForFileType.vue ||= keys.flatMap((key) => {
+        const unrefPattern = getVueUnrefPattern(key);
+        return [`$setup.${key}`, ...(unrefPattern ? [unrefPattern] : [])].map((pattern) => ({
           matcher: astMatcher(parse(pattern)),
           replacement: opts.replacements[key],
-        }))
-      ));
+        }));
+      });
     }
 
     const magicString = new MagicString(code);
