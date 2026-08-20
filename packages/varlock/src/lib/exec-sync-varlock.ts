@@ -3,10 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
 
-// weird tsup issue using `typeof execSync` from node:child_process
-// see https://github.com/egoist/tsup/issues/1367
-import type { execSync as execSyncType } from 'child_process';
-
 const platform = os.platform();
 const isWindows = platform.match(/^win/i);
 
@@ -78,7 +74,7 @@ function mergeExecEnv(
   return merged;
 }
 
-type ExecSyncVarlockOpts = Parameters<typeof execSyncType>[1] & {
+type ExecSyncVarlockOpts = Parameters<typeof execSync>[1] & {
   exitOnError?: boolean,
   showLogsOnError?: boolean,
   /**

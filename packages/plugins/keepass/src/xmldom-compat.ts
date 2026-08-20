@@ -1,5 +1,5 @@
 /**
- * Build-time stand-in for `@xmldom/xmldom`, wired up by the alias plugin in `tsup.config.ts`.
+ * Build-time stand-in for `@xmldom/xmldom`, wired up by the alias plugin in `tsdown.config.ts`.
  *
  * kdbxweb builds its parser with the `errorHandler` object that xmldom removed in 0.9, which
  * makes every `new DOMParser()` call throw `errorHandler object is no longer supported`.

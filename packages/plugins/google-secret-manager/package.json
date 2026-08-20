@@ -7,7 +7,7 @@
   "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/plugins/google-secret-manager"
   },
   "exports": {
@@ -15,8 +15,8 @@
   },
   "files": ["dist"],
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "tsup",
+    "dev": "tsdown --watch",
+    "build": "tsdown",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
@@ -47,7 +47,7 @@
     "google-auth-library": "^10.6.2",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
-    "tsup": "catalog:",
+    "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
   }

@@ -1,4 +1,4 @@
-// injected via tsup configs
+// injected via tsdown configs
 
 // detect if this is a SEA build or not (SEA - single executable application)
 declare const __VARLOCK_SEA_BUILD__: boolean;

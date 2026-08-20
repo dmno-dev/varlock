@@ -1,6 +1,4 @@
-import { defineConfig } from 'tsup';
-import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { defineConfig } from 'tsdown';
 
 // Suppress DEP0169 url.parse() deprecation warning emitted by transitive deps
 // (e.g. @smithy/credential-provider-imds bundled via @infisical/sdk).
@@ -22,17 +20,11 @@ export default defineConfig({
   treeshake: true,
   clean: false,
   outDir: 'dist',
+  attw: { level: 'error', profile: 'node16' },
+  publint: true,
   format: ['cjs'],
-  splitting: false,
+  platform: 'node',
   target: 'esnext',
   external: ['varlock'],
-  async onSuccess() {
-    const cjsPath = join('dist', 'plugin.cjs');
-    let code = readFileSync(cjsPath, 'utf-8');
-    code = code.replace(
-      "'use strict';",
-      `'use strict';\n\n${SUPPRESS_DEPRECATION_SHIM}`,
-    );
-    writeFileSync(cjsPath, code);
-  },
+  banner: SUPPRESS_DEPRECATION_SHIM,
 });

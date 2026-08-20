@@ -7,8 +7,8 @@
 // we dont need everything to match 100% - but good to know what differences are
 
 import util from 'node:util';
-import { parseEnvSpecDotEnvFile } from '../dist/index.js';
-import { simpleResolver } from '../dist/simple-resolver.js';
+import { parseEnvSpecDotEnvFile } from '../dist/index.mjs';
+import { simpleResolver } from '../dist/simple-resolver.mjs';
 const COMPARISON_SCENARIOS = {
   scenarios: [
     {

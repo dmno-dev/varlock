@@ -4,19 +4,23 @@
   "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/integrations/nuxt"
   },
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    }
   },
   "files": ["dist"],
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "tsup",
+    "dev": "tsdown --watch",
+    "build": "tsdown",
     "test": "vitest",
     "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
@@ -55,7 +59,7 @@
     "@types/node": "catalog:",
     "@varlock/vite-integration": "workspace:*",
     "nuxt": "^4.0.3",
-    "tsup": "catalog:",
+    "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
   }

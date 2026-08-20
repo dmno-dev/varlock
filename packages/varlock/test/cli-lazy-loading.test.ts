@@ -7,7 +7,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_DIR = join(__dirname, '..');
-const ENTRY = join(PKG_DIR, 'dist/cli/cli-executable.js');
+const ENTRY = join(PKG_DIR, 'dist/cli/cli-executable.mjs');
 
 /**
  * The CLI entry must only ever parse command *specs* at startup - every command
@@ -77,8 +77,8 @@ function sourcesOf(chunk: string): Array<string> | null {
   if (!existsSync(mapPath)) return null;
   const map = JSON.parse(readFileSync(mapPath, 'utf8')) as { sources?: Array<string> };
   if (!Array.isArray(map.sources)) return null;
-  // An empty `sources` is legitimate for esbuild's generated helper chunk
-  // (__name/__toESM/...), which has no original source and an empty `mappings`.
+  // An empty `sources` is legitimate for the bundler's generated helper chunk
+  // (__toESM/__commonJSMin/...), which has no original source and an empty `mappings`.
   return map.sources.map((s) => relative(PKG_DIR, resolve(dirname(mapPath), s)));
 }
 
@@ -96,7 +96,7 @@ describe('CLI startup bundle boundaries', () => {
 
   it('can actually see into the build it is checking', () => {
     // Fail-closed guard for the checks below, which read the bundle through its
-    // sourcemaps. Without this, dropping `sourcemap` from tsup.config.ts would
+    // sourcemaps. Without this, dropping `sourcemap` from tsdown.config.ts would
     // turn both boundary assertions into no-ops that still report green.
     expect(missing.map((f) => relative(PKG_DIR, f)).sort(), [
       'These chunks are statically imported but missing from dist - the build is',
@@ -106,7 +106,7 @@ describe('CLI startup bundle boundaries', () => {
     expect(unmapped, [
       'These chunks are reachable from the CLI entry but ship no usable sourcemap,',
       'so the boundary checks below cannot see what is inside them.',
-      'Keep `sourcemap: true` in tsup.config.ts.',
+      'Keep `sourcemap: true` in tsdown.config.ts.',
     ].join('\n')).toEqual([]);
 
     // positive control: the entry's own module must be visible through the maps
@@ -149,16 +149,26 @@ describe('CLI startup bundle boundaries', () => {
 
   it('keeps every registered command behind a dynamic import', () => {
     const entrySrc = readFileSync(ENTRY, 'utf8');
-    const dynamic = [...entrySrc.matchAll(/import\(\s*['"]\.[^'"]*?([\w-]+)\.command-[A-Z0-9]+\.js['"]\s*\)/g)]
-      .map((m) => m[1]);
+    // chunk names look like `<command>.command-<hash>.<ext>`. The hash alphabet and the
+    // extension are bundler details, and a chunk can be referenced more than once, so
+    // compare the set of command names rather than a count.
+    const dynamic = new Set(
+      [...entrySrc.matchAll(/import\(\s*['"]\.[^'"]*?([\w-]+)\.command-[A-Za-z0-9_-]+\.[cm]?js['"]\s*\)/g)]
+        .map((m) => m[1]),
+    );
 
     // every command registered in the entry should have a matching lazy loader
-    const registered = [
-      ...readFileSync(join(PKG_DIR, 'src/cli/cli-executable.ts'), 'utf8')
-        .matchAll(/^subCommands\.set\('([^']+)'/gm),
-    ].map((m) => m[1]);
+    const registered = new Set(
+      [
+        ...readFileSync(join(PKG_DIR, 'src/cli/cli-executable.ts'), 'utf8')
+          .matchAll(/^subCommands\.set\('([^']+)'/gm),
+      ].map((m) => m[1]),
+    );
 
-    expect(registered.length).toBeGreaterThan(15);
-    expect(dynamic.length).toBe(registered.length);
+    expect(registered.size).toBeGreaterThan(15);
+    expect(
+      [...registered].filter((c) => !dynamic.has(c)).sort(),
+      'These commands are registered but not loaded through a dynamic import, so they are parsed on every invocation.',
+    ).toEqual([]);
   });
 });

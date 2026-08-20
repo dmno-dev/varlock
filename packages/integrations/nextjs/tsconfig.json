@@ -1,5 +1,5 @@
 {
   "extends": "@varlock/tsconfig/base.tsconfig.json",
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "**/*.mts"],
   "exclude": ["node_modules", "dist"]
 }
