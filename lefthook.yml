@@ -10,6 +10,10 @@ pre-push:
   jobs:
     - name: branch-name
       run: bun run scripts/check-branch-name.ts
+    # catches a lockfile left out of sync with package.json changes (e.g. after
+    # a rebase), which otherwise only surfaces as a frozen-lockfile failure in CI
+    - name: lockfile
+      run: bun install --frozen-lockfile
     - name: typecheck
       run: bun run typecheck:all
     - name: bumpy
