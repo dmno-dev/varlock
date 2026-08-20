@@ -70,6 +70,13 @@ describe('Nuxt', () => {
         fileGlob: '.output/server/chunks/nitro/*.mjs',
         shouldContain: ['initVarlockEnv'],
       },
+      {
+        // the module registers the `@generateTypes` output (env.d.ts here)
+        // with nuxt's generated tsconfigs via a type template
+        description: 'generated env types are registered with nuxt',
+        fileGlob: '.nuxt/types/varlock-env.d.ts',
+        shouldContain: ['env.d.ts'],
+      },
     ],
   });
 

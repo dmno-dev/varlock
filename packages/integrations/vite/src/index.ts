@@ -223,6 +223,29 @@ export interface VarlockVitePluginOptions {
 }
 
 /** options for {@link buildVarlockSsrInitCode} */
+/**
+ * Absolute paths of the env files the current config was loaded from, for
+ * integrations that manage their own file watching (e.g. the Nuxt module
+ * pushes these into `nuxt.options.watch` so a schema edit restarts the dev
+ * server). Reloads the config first if `rootDir` differs from the directory
+ * the module-level load used. Non-regular files (FIFOs, e.g. 1Password
+ * Environments) are excluded since watching them is meaningless.
+ */
+export function getVarlockEnvSourcePaths(rootDir?: string): Array<string> {
+  if (rootDir && path.resolve(rootDir) !== loadedConfigDir) {
+    reloadConfig(rootDir);
+  }
+  const paths: Array<string> = [];
+  if (!varlockLoadedEnv?.basePath) return paths;
+  for (const source of varlockLoadedEnv.sources) {
+    if (!source.enabled || !source.path) continue;
+    const absPath = path.resolve(varlockLoadedEnv.basePath, source.path);
+    if (isExistingNonRegularFile(absPath)) continue;
+    paths.push(absPath);
+  }
+  return paths;
+}
+
 export interface VarlockSsrInitCodeOptions {
   ssrInjectMode?: VarlockVitePluginOptions['ssrInjectMode'],
   ssrEntryCode?: VarlockVitePluginOptions['ssrEntryCode'],

@@ -57,8 +57,6 @@ To integrate varlock into a Nuxt application, you must use our [`@varlock/nuxt-i
 
 You can continue to use `process.env.SOMEVAR` or `useRuntimeConfig()` as usual, but we recommend using varlock's imported `ENV` object for better type-safety and improved developer experience:
 
-Note that this module does not disable Nuxt's own `.env` loading. If you keep a plain `.env` file around, Nuxt still reads it into `process.env`, so a value can differ between `process.env.X` and `ENV.X`. Prefer `ENV` as the single source of truth.
-
 ```ts title="server/api/example.ts"
 import { ENV } from 'varlock/env';
 
@@ -71,6 +69,23 @@ console.log(ENV.SOMEVAR);         // ✨ recommended
 - All non-sensitive items are replaced at build time
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
+
+### Using `useRuntimeConfig()`
+
+Existing code and third-party modules often read values through Nuxt's [runtimeConfig](https://nuxt.com/docs/guide/going-further/runtime-config). That keeps working alongside varlock: Nuxt applies `NUXT_`-prefixed env vars (e.g. `NUXT_PUBLIC_API_BASE` for `runtimeConfig.public.apiBase`) onto declared runtime config keys at server start, and it reads them from `process.env`. So any `NUXT_`-prefixed item in your `.env.schema` flows into `runtimeConfig` as long as the values are in the process at runtime: this is automatic in dev, and in production it means launching through `varlock run` or using `ssrInjectMode: 'auto-load'`.
+
+For non-prefixed keys, populate `runtimeConfig` explicitly in `nuxt.config.ts` from `process.env` while running through `varlock run` (see [Nuxt config timing](#nuxt-config-timing) below).
+
+We recommend `ENV` for your own code; the interop mostly matters for modules you do not control.
+
+### Nuxt's own `.env` loading
+
+The Nuxt CLI loads a single file named `.env` from the project root into `process.env` before any module runs. There is no multi-file cascade (no `.env.local` or `.env.production`), and there is no supported way to turn it off; the `--dotenv` flag only points it at a different single file. Two details matter in practice:
+
+- Nuxt's `.env` values never override env vars that are already set in the process. If you launch through `varlock run`, varlock's resolved values win.
+- If you keep a plain `.env` file that varlock also loads, keys managed by varlock stay consistent, but any key that varlock does not manage still lands in `process.env`, so `process.env.X` and `ENV.X` can diverge for it.
+
+Since varlock loads and validates your `.env` files itself, the simplest setup is to let varlock own all env files and treat `ENV` as the single source of truth.
 
 ### Nuxt config timing
 Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not guaranteed to be initialized there.
@@ -95,8 +110,17 @@ export default defineNuxtConfig({
 })
 ```
 
-:::caution[TypeScript config]
-If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+:::note[TypeScript config]
+The module registers your generated types file with Nuxt's TypeScript setup automatically, covering app code, server routes, and `nuxt.config.ts`. (Nuxt 4 splits its generated tsconfigs per context, and none of them include a root-level `env.d.ts` on their own.) It looks for `shared/env.d.ts`, then `env.d.ts`, relative to the project root. If you generate types to a custom path, point the module at it:
+
+```ts title="nuxt.config.ts"
+export default defineNuxtConfig({
+  modules: ['@varlock/nuxt-integration'],
+  varlock: {
+    envTypesPath: 'types/my-env.d.ts',
+  },
+})
+```
 :::
 
 ### Within other scripts
@@ -114,6 +138,14 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 # ---
 # your config items...
 ```
+
+---
+
+## Dev server behavior
+
+The module watches every env file varlock loads, including `.env.schema`, and restarts the dev server when one changes. This keeps server routes and the Nitro side in sync; Nuxt's own watcher only reacts to a plain `.env` file.
+
+If your config becomes invalid (a failed validation, a syntax error in a schema file), requests show an error page describing the problem, and the server recovers automatically once you fix and save the file.
 
 ---
 
