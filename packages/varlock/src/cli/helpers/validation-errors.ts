@@ -19,7 +19,12 @@ type UnknownOptionError = {
 type CommandNotFoundError = {
   commandName: string;
   candidates: Array<string>;
+  /** parent path the lookup failed under: `['proxy']` for `varlock proxy strat`, `[]` at the top level */
+  commandPath?: Array<string>;
 };
+
+/** gunshi's placeholder name for the unnamed entry command; never something to suggest */
+const ANONYMOUS_COMMAND_NAME = '(anonymous)';
 
 /**
  * Levenshtein distance, kept dependency-free for the "did you mean" suggestion.
@@ -110,6 +115,7 @@ export function toCliExitError(error: AggregateError, args: Array<string>): CliE
   const unknownFlags: Array<string> = [];
   const details: Array<string> = [];
   let notFoundCommand: string | undefined;
+  let notFoundParentPath: Array<string> = [];
 
   for (const err of error.errors) {
     const unknownOption = asUnknownOptionError(err);
@@ -124,8 +130,15 @@ export function toCliExitError(error: AggregateError, args: Array<string>): CliE
     const commandNotFound = asCommandNotFoundError(err);
     if (commandNotFound) {
       notFoundCommand = commandNotFound.commandName;
-      const suggestion = suggestClosest(commandNotFound.commandName, commandNotFound.candidates ?? []);
-      if (suggestion) details.push(`Did you mean ${fmt.command(`varlock ${suggestion}`)}?`);
+      // the lookup happens under a parent path, so a bare candidate is not runnable on its
+      // own: `varlock proxy strat` must suggest `varlock proxy start`, not `varlock start`
+      notFoundParentPath = commandNotFound.commandPath ?? [];
+      const candidates = (commandNotFound.candidates ?? []).filter((c) => c !== ANONYMOUS_COMMAND_NAME);
+      const suggestion = suggestClosest(commandNotFound.commandName, candidates);
+      if (suggestion) {
+        const fullCommand = ['varlock', ...notFoundParentPath, suggestion].join(' ');
+        details.push(`Did you mean ${fmt.command(fullCommand)}?`);
+      }
       continue;
     }
 
@@ -142,9 +155,11 @@ export function toCliExitError(error: AggregateError, args: Array<string>): CliE
   }
 
   if (notFoundCommand !== undefined) {
+    // point at the help for the level that actually failed (`varlock proxy --help`)
+    const notFoundHelp = ['varlock', ...notFoundParentPath, '--help'].join(' ');
     return new CliExitError(`Invalid subcommand: ${notFoundCommand}`, {
       details: details.length ? details : undefined,
-      suggestion: `Run \`${fmt.command('varlock --help', { jsPackageManager: true })}\` for more info.`,
+      suggestion: `Run \`${fmt.command(notFoundHelp, { jsPackageManager: true })}\` for more info.`,
     });
   }
 
