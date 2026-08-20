@@ -91,7 +91,6 @@ import { resetRedactionMap } from '../../runtime/env';
 import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
-import { trackCommand } from '../helpers/telemetry';
 import {
   checkForConfigErrors,
   checkForNoEnvFiles,
@@ -1404,7 +1403,6 @@ function resolveProxyBindOptions(ctx: any): {
 }
 
 async function runAction(ctx: any) {
-  await trackCommand('proxy run', { command: 'proxy run' });
   const commandToRunAsArgs = getRunCommandArgs();
   const rawCommand = commandToRunAsArgs[0]!;
   const commandArgsOnly = commandToRunAsArgs.slice(1);
@@ -1650,7 +1648,6 @@ async function awaitProxiedChild(
 }
 
 async function startAction(ctx: any) {
-  await trackCommand('proxy start', { command: 'proxy start' });
   const policy = await prepareProxyPolicy(ctx.values.path);
   // Reload posture, resolved at launch (see resolveReloadMode). `manual` runs the
   // reload servicer so a human can `proxy reload` from another shell in the folder; a reload
@@ -1810,7 +1807,6 @@ async function startAction(ctx: any) {
  * never something that lands in output people paste or screenshot.
  */
 async function tokenAction(ctx: any) {
-  await trackCommand('proxy token', { command: 'proxy token' });
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -1830,7 +1826,6 @@ async function tokenAction(ctx: any) {
 }
 
 async function envAction(ctx: any) {
-  await trackCommand('proxy env', { command: 'proxy env' });
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -1948,7 +1943,6 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
 }
 
 async function statusAction(ctx: any) {
-  await trackCommand('proxy status', { command: 'proxy status' });
   const watch = ctx.values.watch ?? false;
   const asJson = (ctx.values.format ?? '').toLowerCase() === 'json';
   const printSnapshot = async () => {
@@ -2010,7 +2004,6 @@ async function statusAction(ctx: any) {
 }
 
 async function reloadAction(ctx: any) {
-  await trackCommand('proxy reload', { command: 'proxy reload' });
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -2188,7 +2181,6 @@ async function stopOneSession(session: ProxySessionRecord): Promise<void> {
 }
 
 async function stopAction(ctx: any) {
-  await trackCommand('proxy stop', { command: 'proxy stop' });
   await cleanupStaleProxySessions();
 
   // Refuse an ambiguous target rather than silently honoring the destructive `--all`.
@@ -2227,7 +2219,6 @@ async function stopAction(ctx: any) {
 }
 
 async function pruneAction(ctx: any) {
-  await trackCommand('proxy prune', { command: 'proxy prune' });
   await cleanupStaleProxySessions();
 
   // Prune one specific session by id (any state, once it isn't running).
@@ -2278,7 +2269,6 @@ function formatAuditEntry(entry: ProxyAuditEntry): string {
 }
 
 async function auditAction(ctx: any) {
-  await trackCommand('proxy audit', { command: 'proxy audit' });
   const format = (ctx.values.format ?? 'text').toLowerCase();
   if (format !== 'text' && format !== 'json') {
     throw new CliExitError('Invalid --format for `proxy audit`. Use "text" or "json".');
@@ -2338,7 +2328,6 @@ function describeProxyRuleGate(rule: ProxyRule): string {
  * wouldn't be able to reach.
  */
 async function rulesAction(ctx: any) {
-  await trackCommand('proxy rules', { command: 'proxy rules' });
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: ctx.values.path,
     // This command inspects the schema; don't subject it to the nested guard.

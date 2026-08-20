@@ -20,6 +20,7 @@ We track general usage information, and the environment in which `varlock` is be
 - JavaScript package manager in use (if detectable from lockfiles or runtime env): `npm`, `pnpm`, `yarn`, `bun`, or `deno` only
 - General system/machine information
 - Anonymous user + project ID
+- A random per-run ID, so the events from a single command can be grouped together. It is generated fresh in memory each time the CLI starts, is never written to disk, and cannot be used to link one run to another
 
 **We will never collect any of your config files or environment variables.**
 

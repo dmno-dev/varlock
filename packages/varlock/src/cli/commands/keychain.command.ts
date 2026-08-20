@@ -17,7 +17,6 @@ import { getDaemonClient } from '../../lib/local-encrypt';
 import { DaemonError } from '../../lib/local-encrypt/daemon-client';
 import { CliExitError } from '../helpers/exit-error';
 import { password } from '../helpers/prompts';
-import { trackCommand } from '../helpers/telemetry';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 type KeychainRef = {
@@ -450,7 +449,6 @@ const listCommand = define({
   },
   run: async (ctx) => {
     assertMacOS();
-    await trackCommand('keychain list', { command: 'keychain list' });
     await listKeychainItems(ctx.values.query, ctx.values.keychain);
   },
 });
@@ -481,7 +479,6 @@ const fixAccessCommand = define({
   },
   run: async (ctx) => {
     assertMacOS();
-    await trackCommand('keychain fix-access', { command: 'keychain fix-access' });
 
     if (ctx.values.path) {
       const refs = extractKeychainRefsFromFile(path.resolve(ctx.values.path));
@@ -549,7 +546,6 @@ const setCommand = define({
   },
   run: async (ctx) => {
     assertMacOS();
-    await trackCommand('keychain set', { command: 'keychain set' });
 
     const { key, service, account } = ctx.values;
     const targetAccount = account
@@ -606,7 +602,6 @@ const importCommand = define({
   },
   run: async (ctx) => {
     assertMacOS();
-    await trackCommand('keychain import', { command: 'keychain import' });
 
     if (!ctx.values.file) {
       throw new CliExitError('Missing env file to import from', {

@@ -4,6 +4,7 @@ import { gracefulExit } from 'exit-hook';
 
 import { handleBrokenPipe } from './helpers/broken-pipe';
 import { strictFlags } from './strict-flags-plugin';
+import { commandTelemetry } from './command-telemetry-plugin';
 
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
@@ -51,16 +52,11 @@ function buildLazyCommand(
   commandSpec: Command<any>,
   loadCommandFn: () => Promise<{ commandSpec: Command<any>, commandFn: any }>,
 ) {
-  const commandName = commandSpec.name!;
   return {
     ...commandSpec,
     run: async (...args: Array<any>) => {
-      try {
-        const commandSpecAndFn = await loadCommandFn();
-        return await commandSpecAndFn.commandFn(...args);
-      } finally {
-        await trackCommand(commandName, { command: commandName });
-      }
+      const commandSpecAndFn = await loadCommandFn();
+      return await commandSpecAndFn.commandFn(...args);
     },
   };
 }
@@ -140,7 +136,7 @@ subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await im
       description: 'Encrypt and protect your env vars',
       version: versionId,
       subCommands,
-      plugins: [completion(), strictFlags()],
+      plugins: [completion(), strictFlags(), commandTelemetry()],
       renderHeader: async (ctx) => {
         // do not show header if we are running a sub-command
         if (ctx.name) return '';
