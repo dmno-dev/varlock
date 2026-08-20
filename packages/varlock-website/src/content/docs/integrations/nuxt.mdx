@@ -80,12 +80,14 @@ We recommend `ENV` for your own code; the interop mostly matters for modules you
 
 ### Nuxt's own `.env` loading
 
-The Nuxt CLI loads a single file named `.env` from the project root into `process.env` before any module runs. There is no multi-file cascade (no `.env.local` or `.env.production`), and there is no supported way to turn it off; the `--dotenv` flag only points it at a different single file. Two details matter in practice:
+The Nuxt CLI loads a single file named `.env` from the project root into `process.env` before any module runs. There is no multi-file cascade (no `.env.local` or `.env.production`), and there is no supported way to turn it off; the `--dotenv` flag only points it at a different single file.
+
+The simple fix: don't keep a file named `.env` at all. Varlock's conventions already point this way, with your schema and defaults in `.env.schema` and local overrides in `.env.local` (plus env-specific files like `.env.production`). None of those filenames are touched by Nuxt's loader, so varlock stays the single source of truth.
+
+If you do keep a plain `.env` around, two details matter:
 
 - Nuxt's `.env` values never override env vars that are already set in the process. If you launch through `varlock run`, varlock's resolved values win.
-- If you keep a plain `.env` file that varlock also loads, keys managed by varlock stay consistent, but any key that varlock does not manage still lands in `process.env`, so `process.env.X` and `ENV.X` can diverge for it.
-
-Since varlock loads and validates your `.env` files itself, the simplest setup is to let varlock own all env files and treat `ENV` as the single source of truth.
+- Keys managed by varlock stay consistent, but any key varlock does not manage still lands in `process.env`, so `process.env.X` and `ENV.X` can diverge for it.
 
 ### Nuxt config timing
 Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not guaranteed to be initialized there.
