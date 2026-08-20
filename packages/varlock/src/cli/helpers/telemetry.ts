@@ -6,7 +6,7 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { asyncExitHook } from 'exit-hook';
-import { createDebug } from '../../lib/debug';
+import { createDebug, isDebugEnabled } from '../../lib/debug';
 import { name as ciName, isCI } from 'ci-info';
 import isDocker from 'is-docker';
 import isWSL from 'is-wsl';
@@ -505,14 +505,34 @@ function getTelemetryMeta() {
 
 
 const isOptedOut = checkIsOptedOut();
+const telemetryDebugEnabled = isDebugEnabled('varlock:telemetry');
 
-let lastTelemetryReq: Promise<any> | undefined;
+const pendingTelemetryReqs = new Set<Promise<any>>();
+
+// Register the exit hook at module load rather than per capture. Some commands trigger
+// gracefulExit() from within their own run fn (e.g. `varlock run` propagating a child's
+// exit code) while trackCommand fires afterwards in a `finally`; exit-hook snapshots its
+// callbacks when the exit starts, so a hook registered during that late trackCommand is
+// never awaited and the request gets killed. A pre-registered hook is always in the
+// snapshot; the setImmediate hop lets any late-fired request start before we wait on it.
+if (!isOptedOut) {
+  asyncExitHook(async () => {
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+    // will still exit if the timeout is met, but will finish early if the requests complete
+    await Promise.allSettled([...pendingTelemetryReqs]);
+  }, { wait: 500 });
+}
 
 async function posthogCapture(event: string, properties?: Record<string, any>) {
   // Telemetry must never break the CLI. trackCommand() is awaited in a `finally`,
-  // and the payload (incl. project/git/plugin data) is built even when opted out,
   // so any failure here is swallowed rather than surfaced to the caller.
   try {
+    // skip building the payload entirely when opted out - unless debug logging is on,
+    // in which case we still build and log it (useful for inspecting what would be sent)
+    if (isOptedOut && !telemetryDebugEnabled) return;
+
     const telemetryMeta = getTelemetryMeta();
     const usageContext = getTelemetryUsageContextPayload();
     const payload = {
@@ -531,14 +551,8 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
 
     if (isOptedOut) return;
 
-    // add exit hook, so we can give the request a little time to finish
-    const removeExitHook = asyncExitHook(async () => {
-      // will still exit if the timeout is met, but will finish early if the request completes
-      await lastTelemetryReq;
-    }, { wait: 500 });
-
     // Make the fetch call
-    lastTelemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
+    const telemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
       method: 'POST',
       body: JSON.stringify(payload),
       headers: {
@@ -554,8 +568,9 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
         debug('telemetry error:', error);
       })
       .finally(() => {
-        removeExitHook();
+        pendingTelemetryReqs.delete(telemetryReq);
       });
+    pendingTelemetryReqs.add(telemetryReq);
   } catch (err) {
     debug('telemetry capture error:', err);
   }
