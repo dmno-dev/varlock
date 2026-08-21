@@ -7,8 +7,9 @@ vi.mock('exit-hook', () => ({
   gracefulExit: vi.fn(),
 }));
 vi.mock('../telemetry-usage-context', () => ({
-  getTelemetryUsageContextPayload: vi.fn(() => ({})),
-  captureUsageContextFromEnvGraph: vi.fn(),
+  getIntegrationPayload: vi.fn(() => ({})),
+  takePendingSchemaEventPayload: vi.fn(() => null),
+  setSchemaEventSupersededHandler: vi.fn(),
 }));
 vi.mock('../js-package-manager-utils', () => ({
   detectJsPackageManager: vi.fn(),
@@ -24,11 +25,16 @@ vi.mock('../../../lib/user-config-dir', async () => {
 import os from 'node:os';
 import path from 'node:path';
 import { asyncExitHook } from 'exit-hook';
-import { getTelemetryUsageContextPayload } from '../telemetry-usage-context';
+import { getIntegrationPayload, takePendingSchemaEventPayload } from '../telemetry-usage-context';
 
 const flushImmediate = async () => new Promise((resolve) => {
   setImmediate(resolve);
 });
+
+/** The parsed PostHog payload from the nth fetch call */
+const sentPayload = (fetchMock: ReturnType<typeof vi.fn>, index: number) => {
+  return JSON.parse(fetchMock.mock.calls[index][1].body);
+};
 
 describe('telemetry send + exit hook', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -37,7 +43,9 @@ describe('telemetry send + exit hook', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.mocked(asyncExitHook).mockClear();
-    vi.mocked(getTelemetryUsageContextPayload).mockClear();
+    vi.mocked(getIntegrationPayload).mockClear();
+    vi.mocked(takePendingSchemaEventPayload).mockClear();
+    vi.mocked(takePendingSchemaEventPayload).mockReturnValue(null);
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     // make sure the host machine's settings don't leak into the tests:
@@ -55,7 +63,7 @@ describe('telemetry send + exit hook', () => {
     vi.unstubAllEnvs();
   });
 
-  it('awaits a request fired after the exit sequence has already started', async () => {
+  it('registers the exit hook at module load and awaits an in-flight request', async () => {
     let resolveFetch!: (value: any) => void;
     fetchMock.mockReturnValue(new Promise((resolve) => {
       resolveFetch = resolve;
@@ -63,22 +71,19 @@ describe('telemetry send + exit hook', () => {
 
     const telemetry = await import('../telemetry');
 
-    // the hook must be registered at module load, so it is already in exit-hook's
-    // snapshot when a command calls gracefulExit() before trackCommand fires
+    // the hook must be registered at module load: exit-hook snapshots its callbacks when
+    // the exit starts, so one registered mid-capture would never be awaited
     expect(asyncExitHook).toHaveBeenCalledTimes(1);
     const hookFn = vi.mocked(asyncExitHook).mock.calls[0][0];
 
-    // simulate exit-hook invoking the callback before any telemetry was sent
+    await telemetry.trackCommand('test-command');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
     let hookSettled = false;
     const hookPromise = Promise.resolve(hookFn(0)).then(() => {
       hookSettled = true;
     });
 
-    // telemetry fires late (e.g. from the command wrapper's `finally`)
-    await telemetry.trackCommand('test-command');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    // the hook must still be waiting on the in-flight request
     await flushImmediate();
     await flushImmediate();
     expect(hookSettled).toBe(false);
@@ -86,6 +91,70 @@ describe('telemetry send + exit hook', () => {
     resolveFetch({ ok: true, text: async () => 'ok' });
     await hookPromise;
     expect(hookSettled).toBe(true);
+  });
+
+  it('sends the pending schema event from the exit hook and waits for it', async () => {
+    let resolveFetch!: (value: any) => void;
+    fetchMock.mockReturnValue(new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+    vi.mocked(takePendingSchemaEventPayload).mockReturnValueOnce({ graph_loaded: true, error_code: 'validation_error' });
+
+    await import('../telemetry');
+    const hookFn = vi.mocked(asyncExitHook).mock.calls[0][0];
+
+    // nothing sent until the exit sequence starts
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    let hookSettled = false;
+    const hookPromise = Promise.resolve(hookFn(0)).then(() => {
+      hookSettled = true;
+    });
+    await flushImmediate();
+
+    // the hook originates the event itself, so there is no race with the pending-set snapshot
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = sentPayload(fetchMock, 0);
+    expect(payload.event).toBe('cli_schema_loaded');
+    expect(payload.properties.error_code).toBe('validation_error');
+
+    await flushImmediate();
+    expect(hookSettled).toBe(false);
+
+    resolveFetch({ ok: true, text: async () => 'ok' });
+    await hookPromise;
+    expect(hookSettled).toBe(true);
+  });
+
+  it('sends no schema event when the run never loaded a graph', async () => {
+    fetchMock.mockResolvedValue({ ok: true, text: async () => 'ok' });
+
+    await import('../telemetry');
+    const hookFn = vi.mocked(asyncExitHook).mock.calls[0][0];
+
+    await hookFn(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('tags both events with the same invocation_id', async () => {
+    fetchMock.mockResolvedValue({ ok: true, text: async () => 'ok' });
+    vi.mocked(takePendingSchemaEventPayload).mockReturnValueOnce({ graph_loaded: true });
+
+    const telemetry = await import('../telemetry');
+    const hookFn = vi.mocked(asyncExitHook).mock.calls[0][0];
+
+    await telemetry.trackCommand('proxy run');
+    await hookFn(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const command = sentPayload(fetchMock, 0);
+    const schema = sentPayload(fetchMock, 1);
+    expect(command.event).toBe('cli_command_executed');
+    expect(command.properties.command).toBe('proxy run');
+    expect(schema.event).toBe('cli_schema_loaded');
+    // the join key between the two halves of one run
+    expect(command.properties.invocation_id).toBeTruthy();
+    expect(schema.properties.invocation_id).toBe(command.properties.invocation_id);
   });
 
   it('waits for every in-flight request, not just the last one', async () => {
@@ -124,7 +193,9 @@ describe('telemetry send + exit hook', () => {
     expect(asyncExitHook).not.toHaveBeenCalled();
 
     await telemetry.trackCommand('test-command');
+    await telemetry.flushSchemaLoadedEvent();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(getTelemetryUsageContextPayload).not.toHaveBeenCalled();
+    expect(getIntegrationPayload).not.toHaveBeenCalled();
+    expect(takePendingSchemaEventPayload).not.toHaveBeenCalled();
   });
 });

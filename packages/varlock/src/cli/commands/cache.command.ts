@@ -9,7 +9,6 @@ import { groupKeyPrefix } from '../../lib/cache/cache-store';
 import { formatTimeAgo, formatDuration } from '../../lib/formatting';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { select, confirm } from '../helpers/prompts';
-import { trackCommand } from '../helpers/telemetry';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 
 type CacheEntry = { key: string; cachedAt: number; expiresAt: number };
@@ -133,7 +132,6 @@ const statusCommand = define({
   name: 'status',
   description: 'Print a cache status summary (non-interactive)',
   run: async () => {
-    await trackCommand('cache status', { command: 'cache status' });
     const store = resolveStore();
     if (!store) return;
     printStatus(store);
@@ -161,8 +159,6 @@ const clearCommand = define({
   varlock cache clear --plugin 1password --yes    # Clear cache for a specific plugin
 `.trim(),
   run: async (ctx) => {
-    await trackCommand('cache clear', { command: 'cache clear' });
-
     const store = resolveStore();
     if (!store) return;
 

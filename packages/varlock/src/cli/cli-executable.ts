@@ -3,13 +3,14 @@ import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
 
 import { handleBrokenPipe } from './helpers/broken-pipe';
-import { strictFlags } from './strict-flags-plugin';
+import { commandTelemetry } from './command-telemetry-plugin';
 
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';
 import { InvalidEnvError } from './helpers/error-checks';
+import { isArgError, toCliExitError } from './helpers/arg-errors';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
@@ -51,16 +52,11 @@ function buildLazyCommand(
   commandSpec: Command<any>,
   loadCommandFn: () => Promise<{ commandSpec: Command<any>, commandFn: any }>,
 ) {
-  const commandName = commandSpec.name!;
   return {
     ...commandSpec,
     run: async (...args: Array<any>) => {
-      try {
-        const commandSpecAndFn = await loadCommandFn();
-        return await commandSpecAndFn.commandFn(...args);
-      } finally {
-        await trackCommand(commandName, { command: commandName });
-      }
+      const commandSpecAndFn = await loadCommandFn();
+      return await commandSpecAndFn.commandFn(...args);
     },
   };
 }
@@ -140,7 +136,13 @@ subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await im
       description: 'Encrypt and protect your env vars',
       version: versionId,
       subCommands,
-      plugins: [completion(), strictFlags()],
+      plugins: [completion(), commandTelemetry()],
+      // reject unknown/misspelled flags instead of silently dropping them
+      strict: true,
+      // gunshi renders validation errors to stdout, which would corrupt the output of
+      // commands like `varlock load`. Suppress it and format them ourselves in the catch
+      // below, so every failure looks the same and goes to stderr.
+      renderValidationErrors: null,
       renderHeader: async (ctx) => {
         // do not show header if we are running a sub-command
         if (ctx.name) return '';
@@ -157,7 +159,9 @@ subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await im
     }
     gracefulExit();
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Command not found: ')) {
+    if (isArgError(error)) {
+      console.error(toCliExitError(error, process.argv.slice(2)).getFormattedOutput());
+    } else if (error instanceof Error && error.message.startsWith('Command not found: ')) {
       const badCommandName = error.message.split(': ')[1];
       const badCommandErr = new CliExitError(`Invalid subcommand: ${badCommandName}`, {
         suggestion: `Run \`${fmt.command('varlock --help', { jsPackageManager: true })}\` for more info.`,

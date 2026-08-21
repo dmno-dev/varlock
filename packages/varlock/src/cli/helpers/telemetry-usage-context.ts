@@ -72,6 +72,35 @@ let sessionGraph: EnvGraph | undefined;
 let sessionGraphLoaded = false;
 /** Set when graph load throws before a graph instance is available */
 let sessionLoadFailureErrorCode: TelemetryErrorCode | null = null;
+/**
+ * True once a graph load has been attempted (success or failure), meaning there is a
+ * `cli_schema_loaded` event still owed. Commands that never touch a graph (`proxy status`,
+ * `keychain list`, ...) leave this false and emit no schema event at all.
+ */
+let sessionSchemaEventPending = false;
+
+/**
+ * Called when a new graph load is about to replace state that a pending schema event still
+ * describes, so the outgoing one can be sent before it is overwritten (a `proxy start`
+ * session hot-swapping its policy re-loads the graph in the same process).
+ *
+ * A callback rather than a direct import so this module stays free of `./telemetry`, which
+ * registers an exit hook and reads opt-out config at load. This file is reachable from the
+ * library entry via load-graph; `./telemetry` must stay CLI-only, so it installs the
+ * handler itself when the CLI loads it.
+ */
+let onSchemaEventSuperseded: (() => void) | undefined;
+
+export function setSchemaEventSupersededHandler(handler: () => void) {
+  onSchemaEventSuperseded = handler;
+}
+
+function notifySchemaEventSuperseded() {
+  if (!sessionSchemaEventPending) return;
+  try {
+    onSchemaEventSuperseded?.();
+  } catch { /* swallow - telemetry is best-effort */ }
+}
 
 let cachedIntegrationFromEnv: { name: string; version: string } | null | undefined;
 
@@ -265,9 +294,11 @@ function countSourceTypes(sources: SerializedEnvGraph['sources']) {
 }
 
 export function captureUsageContextFromEnvGraph(graph: EnvGraph) {
+  notifySchemaEventSuperseded();
   sessionGraph = graph;
   sessionGraphLoaded = true;
   sessionLoadFailureErrorCode = null;
+  sessionSchemaEventPending = true;
 
   const serialized = graph.getSerializedGraph();
   const resolverNames = new Set<string>();
@@ -298,10 +329,12 @@ export function captureUsageContextFromEnvGraph(graph: EnvGraph) {
 
 /** Record a graph load failure before an EnvGraph instance is available */
 export function captureTelemetryGraphLoadFailure(err: unknown) {
+  notifySchemaEventSuperseded();
   sessionGraph = undefined;
   sessionGraphLoaded = false;
   sessionLoadFailureErrorCode = classifyThrownTelemetryErrorCode(err);
   sessionUsageContext = { plugins: [], features: null };
+  sessionSchemaEventPending = true;
 }
 
 function resolveTelemetryErrorCode(): TelemetryErrorCode | null {
@@ -324,12 +357,24 @@ export function getTelemetryUsageContext(): TelemetryUsageContext {
   };
 }
 
-/** Flat PostHog properties derived from the session usage context */
-export function getTelemetryUsageContextPayload(): Record<string, unknown> {
+/**
+ * Which integration invoked the CLI. Known from the env at process start, so it rides on
+ * every event as base metadata rather than belonging to the schema event.
+ */
+export function getIntegrationPayload(): Record<string, unknown> {
+  if (cachedIntegrationFromEnv === undefined) {
+    cachedIntegrationFromEnv = parseIntegrationFromEnv();
+  }
+  return {
+    integration_name: cachedIntegrationFromEnv?.name ?? null,
+    integration_version: cachedIntegrationFromEnv?.version ?? null,
+  };
+}
+
+/** Flat PostHog properties for the `cli_schema_loaded` event */
+export function buildSchemaEventPayload(): Record<string, unknown> {
   const ctx = getTelemetryUsageContext();
   return {
-    integration_name: ctx.integration?.name ?? null,
-    integration_version: ctx.integration?.version ?? null,
     // Flat, directly-breakdownable list of official plugin names in use (an
     // array of strings can be sliced in PostHog's UI; the nested `plugins`
     // detail below needs HogQL/SQL to query). Third-party (hashed) plugins are
@@ -342,11 +387,27 @@ export function getTelemetryUsageContextPayload(): Record<string, unknown> {
   };
 }
 
+/**
+ * Payload for a schema event that is owed but not yet sent, or null if none is.
+ *
+ * Deliberately built at take time rather than at load time: `loadEnvGraph` resolves the
+ * schema but not the values, so resolution and validation errors only land on the graph
+ * once the command has run. Taking late is what keeps `resolution_error` and
+ * `validation_error` reachable in `error_code`.
+ */
+export function takePendingSchemaEventPayload(): Record<string, unknown> | null {
+  if (!sessionSchemaEventPending) return null;
+  sessionSchemaEventPending = false;
+  return buildSchemaEventPayload();
+}
+
 /** @internal test helper */
 export function resetTelemetryUsageContextForTests() {
   sessionUsageContext = { plugins: [], features: null };
   sessionGraph = undefined;
   sessionGraphLoaded = false;
   sessionLoadFailureErrorCode = null;
+  sessionSchemaEventPending = false;
   cachedIntegrationFromEnv = undefined;
+  onSchemaEventSuperseded = undefined;
 }
