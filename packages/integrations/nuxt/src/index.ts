@@ -65,6 +65,9 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
     // manual restart. Nuxt watches absolute `options.watch` entries even when
     // they live outside `srcDir`.
     if (nuxt.options.dev) {
+      // `watch` is missing from the resolved options on some older nuxt 3
+      // versions - pushing into a fresh array is then a harmless no-op
+      nuxt.options.watch ||= [];
       for (const envFilePath of getVarlockEnvSourcePaths(nuxt.options.rootDir)) {
         if (!nuxt.options.watch.includes(envFilePath)) nuxt.options.watch.push(envFilePath);
       }

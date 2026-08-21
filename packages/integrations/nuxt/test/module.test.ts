@@ -14,8 +14,14 @@ const defineNuxtModuleMock = vi.fn((moduleDef) => moduleDef);
 const varlockVitePluginMock = vi.fn(() => ({ name: 'varlock-vite-plugin' }));
 const buildVarlockSsrInitCodeMock = vi.fn(() => 'initVarlockEnv();');
 const getVarlockEnvSourcePathsMock = vi.fn(() => []);
+type FakeLoadedEnv = {
+  basePath: string,
+  sources: Array<unknown>,
+  settings: Record<string, unknown>,
+  config: Record<string, { value: string, isSensitive: boolean, isDynamic: boolean }>,
+};
 // no public+dynamic items by default, so the public-env endpoint is not injected
-const getVarlockLoadedEnvMock = vi.fn(() => ({
+const getVarlockLoadedEnvMock = vi.fn((): FakeLoadedEnv => ({
   basePath: '/fake-project',
   sources: [],
   settings: {},
@@ -119,5 +125,63 @@ describe('@varlock/nuxt-integration module', () => {
     expect(contents).toContain('export default () => {};');
 
     expect(addServerPluginMock).toHaveBeenCalledWith('/fake-buildDir/varlock-nitro-init.mjs');
+  });
+
+  describe('public dynamic env endpoint', () => {
+    const CONFIG_WITH_PUBLIC_DYNAMIC = {
+      basePath: '/fake-project',
+      sources: [],
+      settings: {},
+      config: {
+        PUBLIC_DYNAMIC_VAR: { value: 'x', isSensitive: false, isDynamic: true },
+      },
+    };
+
+    it('auto-injects the route when public+dynamic config exists', async () => {
+      getVarlockLoadedEnvMock.mockReturnValueOnce(CONFIG_WITH_PUBLIC_DYNAMIC);
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({}, FAKE_NUXT);
+
+      expect(addServerHandlerMock).toHaveBeenCalledWith(expect.objectContaining({
+        route: '/__varlock/public-env',
+        method: 'get',
+      }));
+      const handlerTemplate = addTemplateMock.mock.calls
+        .map((call) => call[0])
+        .find((t) => t.filename === 'varlock-public-env-handler.mjs');
+      expect(handlerTemplate.getContents()).toContain('getPublicDynamicEnv()');
+      // default path needs no client-side endpoint override
+      expect(addPluginTemplateMock).not.toHaveBeenCalled();
+    });
+
+    it('does not inject the route without public+dynamic config', async () => {
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({}, FAKE_NUXT);
+      expect(addServerHandlerMock).not.toHaveBeenCalled();
+    });
+
+    it('can be disabled explicitly even when public+dynamic config exists', async () => {
+      getVarlockLoadedEnvMock.mockReturnValueOnce(CONFIG_WITH_PUBLIC_DYNAMIC);
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({ publicDynamicEndpoint: false }, FAKE_NUXT);
+      expect(addServerHandlerMock).not.toHaveBeenCalled();
+    });
+
+    it('supports a custom path and points the client runtime at it', async () => {
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({ publicDynamicEndpoint: { path: '/custom-env' } }, FAKE_NUXT);
+
+      expect(addServerHandlerMock).toHaveBeenCalledWith(expect.objectContaining({
+        route: '/custom-env',
+      }));
+      const pluginTemplate = addPluginTemplateMock.mock.calls[0][0];
+      expect(pluginTemplate.getContents()).toContain('__varlockPublicDynamicEnvEndpoint = "/custom-env"');
+    });
+
+    it('rejects a custom path without a leading slash', async () => {
+      const nuxtModule = await loadModule();
+      expect(() => nuxtModule.setup?.({ publicDynamicEndpoint: { path: 'custom-env' } }, FAKE_NUXT))
+        .toThrow('must start with "/"');
+    });
   });
 });

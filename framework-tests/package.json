@@ -14,6 +14,8 @@
     "test:expo": "vitest run frameworks/expo",
     "test:nextjs": "vitest run frameworks/nextjs",
     "test:nuxt": "vitest run frameworks/nuxt",
+    "test:nuxt-v3": "vitest run frameworks/nuxt/nuxt-v3.test.ts",
+    "test:nuxt-v4": "vitest run frameworks/nuxt/nuxt-v4.test.ts",
     "test:sveltekit": "vitest run frameworks/sveltekit",
     "test:vanilla-node": "vitest run frameworks/vanilla-node",
     "test:tanstack-start": "vitest run frameworks/tanstack-start",

@@ -11,9 +11,11 @@ pre-push:
     - name: branch-name
       run: bun run scripts/check-branch-name.ts
     # catches a lockfile left out of sync with package.json changes (e.g. after
-    # a rebase), which otherwise only surfaces as a frozen-lockfile failure in CI
+    # a rebase), which otherwise only surfaces as a frozen-lockfile failure in CI.
+    # --ignore-scripts: the root `prepare` script runs `lefthook install`, which
+    # would try to replace the pre-push hook that is currently executing
     - name: lockfile
-      run: bun install --frozen-lockfile
+      run: bun install --frozen-lockfile --ignore-scripts
     - name: typecheck
       run: bun run typecheck:all
     - name: bumpy
