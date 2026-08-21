@@ -51,6 +51,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Non-interactive changeset creation (for CI/AI): `bumpy add --packages "pkg:minor" --message "description" --name "changeset-name"`
 - Bump files are only required when publishable packages have changed (based on `changedFilePatterns` in `.bumpy/_config.json`). Changes to CI workflows, root config files, scripts, docs, etc. do **not** require a bump file — bumpy's pre-push hook will not block in that case.
 - Write changeset descriptions for end users, and keep them short
+- One bump file per package per PR is usually enough. Before adding a new one, check whether the branch already has a bump file for that package and extend its description instead. In particular, when the PR introduces a brand-new (never-published) package, keep a single entry describing the whole feature: its first changelog entry should read as one coherent release, not a series of additions and fixes to something that never shipped
 
 ## Branches & pull requests
 
