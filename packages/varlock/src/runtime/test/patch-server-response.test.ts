@@ -7,22 +7,24 @@
   separate test file (vitest isolates files into separate workers).
 */
 import zlib from 'node:zlib';
-import { IncomingMessage, ServerResponse } from 'node:http';
+import http, { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import {
-  describe, it, expect, beforeAll,
+  describe, it, expect, beforeAll, afterAll,
 } from 'vitest';
 
 import { patchGlobalServerResponse } from '../patch-server-response';
 import { resetRedactionMap } from '../env';
 
 const SECRET = 'super-secret-value-abc123';
+const UNICODE_SECRET = 'super-sëcret-value-abc123';
 
 const FAKE_GRAPH = {
   sources: [],
   settings: {},
   config: {
     SECRET_KEY: { value: SECRET, isSensitive: true },
+    UNICODE_SECRET_KEY: { value: UNICODE_SECRET, isSensitive: true },
     PUBLIC_KEY: { value: 'public-value', isSensitive: false },
   },
 } as any;
@@ -39,6 +41,21 @@ function makeRes(headers: Record<string, string> = {}) {
   res.setHeader('content-type', 'text/html');
   for (const [key, value] of Object.entries(headers)) res.setHeader(key, value);
   return res;
+}
+
+async function gzipInTwoFlushes(input: Buffer, splitAt: number) {
+  const gz = zlib.createGzip();
+  const compressed: Array<Buffer> = [];
+  gz.on('data', (chunk) => compressed.push(chunk));
+  const first = await new Promise<Buffer>((resolve) => {
+    gz.write(input.subarray(0, splitAt));
+    gz.flush(zlib.constants.Z_SYNC_FLUSH, () => resolve(Buffer.concat(compressed.splice(0))));
+  });
+  const second = await new Promise<Buffer>((resolve) => {
+    gz.on('end', () => resolve(Buffer.concat(compressed)));
+    gz.end(input.subarray(splitAt));
+  });
+  return [first, second] as const;
 }
 
 beforeAll(() => {
@@ -133,5 +150,159 @@ describe('patched ServerResponse.end', () => {
   it('throws when a sensitive value appears in a Buffer end chunk', () => {
     const res = makeRes({ 'content-type': 'application/json' });
     expect(() => res.end(Buffer.from(JSON.stringify({ leaked: SECRET })))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+});
+
+// a scan that only ever sees one chunk at a time misses any value that straddles a boundary,
+// which is the normal case for streaming SSR (chunks flush at arbitrary points)
+describe('patched ServerResponse - sensitive values split across chunks', () => {
+  const SPLIT_AT = 10;
+  const head = SECRET.slice(0, SPLIT_AT);
+  const tail = SECRET.slice(SPLIT_AT);
+
+  it('detects a secret split across write() and end()', () => {
+    const res = makeRes();
+    expect(() => res.write(`<html>leaked: ${head}`)).not.toThrow();
+    expect(() => res.end(`${tail}</html>`)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('detects a secret split across two write() calls', () => {
+    const res = makeRes();
+    expect(() => res.write(`<html>leaked: ${head}`)).not.toThrow();
+    expect(() => res.write(`${tail}</html>`)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('detects a secret split across Buffer chunks', () => {
+    const res = makeRes();
+    expect(() => res.write(Buffer.from(`<html>leaked: ${head}`))).not.toThrow();
+    expect(() => res.write(Buffer.from(`${tail}</html>`))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('detects a secret written one character at a time', () => {
+    const res = makeRes();
+    const chars = SECRET.split('');
+    const lastChar = chars.pop();
+    for (const char of chars) {
+      expect(() => res.write(char)).not.toThrow();
+    }
+    expect(() => res.write(lastChar)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('detects a secret split across gzip flush boundaries', async () => {
+    const input = Buffer.from(`<html>leaked: ${SECRET}</html>`);
+    const splitAt = Buffer.byteLength(`<html>leaked: ${head}`);
+    // Z_SYNC_FLUSH ends the first block on a byte boundary, which is how a server
+    // streaming a compressed response emits a chunk mid-body
+    const [first, second] = await gzipInTwoFlushes(input, splitAt);
+
+    const res = makeRes({ 'content-encoding': 'gzip' });
+    // each half decompresses on its own without ever containing the whole secret
+    expect(() => res.write(first)).not.toThrow();
+    expect(() => res.write(second)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it.each(['write', 'end'] as const)(
+    'detects a Unicode secret when a compressed delta ends mid-character before %s()',
+    async (completionMethod) => {
+      const input = Buffer.from(`<html>leaked: ${UNICODE_SECRET}</html>`);
+      const splitAt = input.indexOf(Buffer.from('ë')) + 1;
+      const [first, second] = await gzipInTwoFlushes(input, splitAt);
+      const firstDecompressed = zlib.unzipSync(first, {
+        finishFlush: zlib.constants.Z_SYNC_FLUSH,
+      });
+      expect(firstDecompressed.subarray(-1)).toEqual(Buffer.from('ë').subarray(0, 1));
+
+      const res = makeRes({ 'content-encoding': 'gzip' });
+      expect(() => res.write(first)).not.toThrow();
+      expect(() => res[completionMethod](second)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    },
+  );
+
+  it('does not false-positive on text that merely starts like a secret', () => {
+    const res = makeRes();
+    expect(() => res.write(`<html>${head}`)).not.toThrow();
+    expect(() => res.end('-but-not-really</html>')).not.toThrow();
+  });
+});
+
+/*
+  Trailing text that looks like the start of a secret is withheld until the next chunk
+  (so a split value can be caught before any of it is sent), which makes response
+  integrity worth verifying over a real socket rather than a detached ServerResponse.
+*/
+describe('patched ServerResponse - pass-through integrity', () => {
+  let server: http.Server;
+  let baseUrl: string;
+  /** resolves once the test has read the withheld text, so the handler can finish */
+  let releaseSlowResponse: () => void;
+
+  const partial = `${SECRET.slice(0, 12)}-not-a-secret`;
+  const multibyte = 'héllo wörld 🔐 ünïcode';
+
+  beforeAll(async () => {
+    server = http.createServer(async (req, res) => {
+      res.setHeader('content-type', 'text/html');
+      if (req.url === '/partial-lookalike') {
+        // ends mid-lookalike, so the tail is withheld until end() flushes it
+        res.write(`<html>${SECRET.slice(0, 12)}`);
+        res.end('-not-a-secret</html>');
+      } else if (req.url === '/multibyte') {
+        // split a multi-byte character across two Buffer chunks
+        const buf = Buffer.from(`<html>${multibyte}</html>`);
+        const mid = 8; // lands inside the 2-byte é
+        res.write(buf.subarray(0, mid));
+        res.write(buf.subarray(mid));
+        res.end();
+      } else if (req.url === '/slow-lookalike') {
+        // pauses right after a partial match, so the held-back text must still be flushed
+        res.write(`<html>${SECRET.slice(0, 12)}`);
+        await new Promise<void>((resolve) => {
+          releaseSlowResponse = resolve;
+        });
+        res.end('-not-a-secret</html>');
+      } else {
+        res.end('not found');
+      }
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, () => resolve());
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('expected address info');
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    releaseSlowResponse?.();
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
+  });
+
+  it('delivers withheld text once the response ends', async () => {
+    const body = await (await fetch(`${baseUrl}/partial-lookalike`)).text();
+    expect(body).toBe(`<html>${partial}</html>`);
+  });
+
+  it('delivers multi-byte characters split across chunks intact', async () => {
+    const body = await (await fetch(`${baseUrl}/multibyte`)).text();
+    expect(body).toBe(`<html>${multibyte}</html>`);
+  });
+
+  it('flushes withheld text without waiting for the response to end', async () => {
+    const resp = await fetch(`${baseUrl}/slow-lookalike`);
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    let received = '';
+    // the handler will not call end() until we release it, so this only completes
+    // if the held-back tail is flushed on its own
+    while (!received.includes(SECRET.slice(0, 12))) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      received += decoder.decode(value, { stream: true });
+    }
+    expect(received).toContain(SECRET.slice(0, 12));
+    releaseSlowResponse();
+    await reader.cancel();
   });
 });
