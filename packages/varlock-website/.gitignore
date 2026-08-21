@@ -1,5 +1,7 @@
 # build output
 dist/
+# wrangler local state (wrangler dev)
+.wrangler/
 # generated types
 .astro/
 # generated .well-known discovery files (see scripts/gen-well-known.ts)
