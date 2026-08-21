@@ -106,6 +106,8 @@ export default defineNuxtConfig({
 })
 ```
 
+One caveat, which applies equally to the `varlock run` alternative below: values read in `nuxt.config.ts` are captured once, when the process evaluates the config. The dev server's automatic restart on env file changes refreshes pages and server routes, but not values already captured at config time; restart `nuxt dev` manually after changing a value your config depends on.
+
 Alternatively, run Nuxt through `varlock run` and read from `process.env` (values are strings there, without `ENV`'s type coercion):
 
 ```json title="package.json"

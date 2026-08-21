@@ -211,6 +211,31 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
       ],
     });
 
+    // Env used inside nuxt.config itself, via `import 'varlock/auto-load'` at
+    // the top of the config - the documented pattern for config-time access.
+    // The value is captured at config evaluation, flows into runtimeConfig,
+    // and must survive the build into the running server.
+    env.describeDevScenario('production server: env in nuxt.config via auto-load', {
+      command: 'nuxt build < /dev/null && pnpm exec varlock run -- node .output/server/index.mjs',
+      env: { PORT: String(port()), HOST: '127.0.0.1' },
+      readyPattern: /Listening on/,
+      readyTimeout: 300_000,
+      timeout: 420_000,
+      templateFiles: {
+        'nuxt.config.ts': 'configs/nuxt.config.env-in-config.ts',
+        'server/api/runtime-config.get.ts': 'routes/runtime-config-endpoint.ts',
+      },
+      requests: [
+        {
+          path: '/api/runtime-config',
+          bodyAssertions: {
+            shouldContain: ['"varlockConfigProbe":"public-var-value"'],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
     // `auto-load` has to survive nitro's rollup pass, which treats external
     // modules as side-effect free - a bare `import 'varlock/auto-load'` gets
     // tree-shaken away and the server starts with no env at all.
