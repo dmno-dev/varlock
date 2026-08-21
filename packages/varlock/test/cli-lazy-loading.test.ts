@@ -38,29 +38,48 @@ function staticImportsOf(file: string): Array<string> {
   return out;
 }
 
-/** Every chunk reachable from the entry without crossing a dynamic import. */
-function staticClosure(entry: string): Array<string> {
+/**
+ * Every chunk reachable from the entry without crossing a dynamic import.
+ *
+ * A static import target that is not on disk means the build is incomplete or
+ * broken, so it is reported rather than skipped - silently dropping it would
+ * shrink the closure and weaken every assertion made against it.
+ */
+function staticClosure(entry: string): { chunks: Array<string>, missing: Array<string> } {
   const seen = new Set<string>();
+  const missing = new Set<string>();
   const queue = [entry];
   while (queue.length) {
     const f = queue.pop()!;
-    if (seen.has(f) || !existsSync(f)) continue;
+    if (seen.has(f) || missing.has(f)) continue;
+    if (!existsSync(f)) {
+      missing.add(f);
+      continue;
+    }
     seen.add(f);
     queue.push(...staticImportsOf(f));
   }
-  return [...seen];
+  return { chunks: [...seen], missing: [...missing] };
 }
 
 /**
  * Original source files that went into a chunk, via its sourcemap. Release builds
  * null out vendor `sourcesContent` but keep every `sources` path, so this works
  * for dev and release output alike.
+ *
+ * Returns `null` when the chunk ships no sourcemap. That is treated as a failure
+ * rather than "no sources", because the whole check reads the build through its
+ * maps: if sourcemaps were ever turned off, silently mapping every chunk to zero
+ * sources would make the boundary assertions below pass while inspecting nothing.
  */
-function sourcesOf(chunk: string): Array<string> {
+function sourcesOf(chunk: string): Array<string> | null {
   const mapPath = `${chunk}.map`;
-  if (!existsSync(mapPath)) return [];
+  if (!existsSync(mapPath)) return null;
   const map = JSON.parse(readFileSync(mapPath, 'utf8')) as { sources?: Array<string> };
-  return (map.sources ?? []).map((s) => relative(PKG_DIR, resolve(dirname(mapPath), s)));
+  if (!Array.isArray(map.sources)) return null;
+  // An empty `sources` is legitimate for esbuild's generated helper chunk
+  // (__name/__toESM/...), which has no original source and an empty `mappings`.
+  return map.sources.map((s) => relative(PKG_DIR, resolve(dirname(mapPath), s)));
 }
 
 describe('CLI startup bundle boundaries', () => {
@@ -71,8 +90,28 @@ describe('CLI startup bundle boundaries', () => {
     return;
   }
 
-  const closure = staticClosure(ENTRY);
-  const eagerSources = new Set(closure.flatMap(sourcesOf));
+  const { chunks, missing } = staticClosure(ENTRY);
+  const unmapped = chunks.filter((c) => sourcesOf(c) === null).map((c) => relative(PKG_DIR, c)).sort();
+  const eagerSources = new Set(chunks.flatMap((c) => sourcesOf(c) ?? []));
+
+  it('can actually see into the build it is checking', () => {
+    // Fail-closed guard for the checks below, which read the bundle through its
+    // sourcemaps. Without this, dropping `sourcemap` from tsup.config.ts would
+    // turn both boundary assertions into no-ops that still report green.
+    expect(missing.map((f) => relative(PKG_DIR, f)).sort(), [
+      'These chunks are statically imported but missing from dist - the build is',
+      'incomplete. Re-run `bun run build`.',
+    ].join('\n')).toEqual([]);
+
+    expect(unmapped, [
+      'These chunks are reachable from the CLI entry but ship no usable sourcemap,',
+      'so the boundary checks below cannot see what is inside them.',
+      'Keep `sourcemap: true` in tsup.config.ts.',
+    ].join('\n')).toEqual([]);
+
+    // positive control: the entry's own module must be visible through the maps
+    expect(eagerSources.has('src/cli/cli-executable.ts')).toBe(true);
+  });
 
   it('does not eagerly load any command implementation', () => {
     const eagerCommands = [...eagerSources]
