@@ -2,7 +2,8 @@
   "name": "varlock",
   "version": "1.17.0",
   "description": "AI-safe .env files: Schemas for agents, Secrets for humans.",
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
   "author": "dmno-dev",
   "license": "MIT",
@@ -74,66 +75,79 @@
     ".": {
       "ts-src": "./src/index.ts",
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./env": {
       "ts-src": "./src/runtime/env.ts",
       "types": "./dist/runtime/env.d.ts",
+      "import": "./dist/runtime/env.js",
       "default": "./dist/runtime/env.js"
     },
     "./auto-load": {
       "ts-src": "./src/auto-load.ts",
       "types": "./dist/auto-load.d.ts",
+      "import": "./dist/auto-load.js",
       "default": "./dist/auto-load.js"
     },
     "./patch-console": {
       "ts-src": "./src/runtime/patch-console.ts",
       "types": "./dist/runtime/patch-console.d.ts",
+      "import": "./dist/runtime/patch-console.js",
       "default": "./dist/runtime/patch-console.js"
     },
     "./patch-response": {
       "ts-src": "./src/runtime/patch-response.ts",
       "types": "./dist/runtime/patch-response.d.ts",
+      "import": "./dist/runtime/patch-response.js",
       "default": "./dist/runtime/patch-response.js"
     },
     "./patch-server-response": {
       "ts-src": "./src/runtime/patch-server-response.ts",
       "types": "./dist/runtime/patch-server-response.d.ts",
+      "import": "./dist/runtime/patch-server-response.js",
       "default": "./dist/runtime/patch-server-response.js"
     },
     "./init-server": {
       "ts-src": "./src/runtime/init-server.ts",
       "types": "./dist/runtime/init-server.d.cts",
+      "require": "./dist/runtime/init-server.cjs",
       "default": "./dist/runtime/init-server.cjs"
     },
     "./init-edge": {
       "ts-src": "./src/runtime/init-edge.ts",
       "types": "./dist/runtime/init-edge.d.cts",
+      "require": "./dist/runtime/init-edge.cjs",
       "default": "./dist/runtime/init-edge.cjs"
     },
     "./encrypt-env": {
       "ts-src": "./src/runtime/crypto.ts",
       "types": "./dist/runtime/crypto.d.ts",
+      "import": "./dist/runtime/crypto.js",
       "default": "./dist/runtime/crypto.js"
     },
     "./exec-sync-varlock": {
       "ts-src": "./src/lib/exec-sync-varlock.ts",
       "types": "./dist/lib/exec-sync-varlock.d.ts",
+      "import": "./dist/lib/exec-sync-varlock.js",
       "default": "./dist/lib/exec-sync-varlock.js"
     },
     "./config": {
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.ts",
+      "import": "./dist/dotenv-compat.js",
       "default": "./dist/dotenv-compat.js"
     },
     "./config.js": {
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.ts",
+      "import": "./dist/dotenv-compat.js",
       "default": "./dist/dotenv-compat.js"
     },
     "./plugin-lib": {
       "ts-src": "./src/plugin-lib.ts",
       "types": "./dist/plugin-lib.d.ts",
+      "import": "./dist/plugin-lib.js",
       "default": "./dist/plugin-lib.js"
     },
     "./test-helpers": {
