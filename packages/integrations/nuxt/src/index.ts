@@ -81,16 +81,19 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       // changes surfaced via `options.watch` invoke the `restart` hook, while
       // the CLI's own config watcher (nuxt.config edits, its dotenv file) can
       // reload directly without it - but every reload path closes the old
-      // instance first, so `close` catches those. Deduped since a hook-driven
-      // restart fires both.
-      let lastEnvRefreshAt = 0;
-      const refreshEnvOnce = () => {
-        if (Date.now() - lastEnvRefreshAt < 1000) return;
-        lastEnvRefreshAt = Date.now();
+      // instance first, so `close` catches those. A hook-driven restart fires
+      // both; instance-local state (not elapsed time) dedupes them, since
+      // hooks are awaited and another restart listener can delay `close`
+      // arbitrarily.
+      let envRefreshedByRestart = false;
+      nuxt.hook('restart', () => {
+        envRefreshedByRestart = true;
         refreshVarlockEnv(nuxt.options.rootDir);
-      };
-      nuxt.hook('restart', refreshEnvOnce);
-      nuxt.hook('close', refreshEnvOnce);
+      });
+      nuxt.hook('close', () => {
+        if (envRefreshedByRestart) return;
+        refreshVarlockEnv(nuxt.options.rootDir);
+      });
     }
 
     // Inject a nitro route serving public+dynamic values to the browser, same

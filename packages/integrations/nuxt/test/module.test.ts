@@ -168,6 +168,16 @@ describe('@varlock/nuxt-integration module', () => {
       expect(refreshVarlockEnvMock).toHaveBeenCalledTimes(1);
     });
 
+    it('re-resolves env on a direct reload (close without restart)', async () => {
+      const nuxtModule = await loadModule();
+      const fakeNuxt = makeDevNuxt();
+      nuxtModule.setup?.({}, fakeNuxt);
+
+      const closeHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'close');
+      (closeHook![1] as () => void)();
+      expect(refreshVarlockEnvMock).toHaveBeenCalledWith('/fake-project');
+    });
+
     it('does not watch or hook restarts outside dev', async () => {
       const nuxtModule = await loadModule();
       nuxtModule.setup?.({}, FAKE_NUXT);
