@@ -156,6 +156,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
               { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
               { label: 'Bun', slug: 'integrations/bun' },
               { label: 'Next.js', slug: 'integrations/nextjs' },
+              { label: 'Nuxt', slug: 'integrations/nuxt' },
               { label: 'Vite-based', slug: 'integrations/vite' },
               { label: 'Astro', slug: 'integrations/astro' },
               { label: 'SvelteKit', slug: 'integrations/sveltekit' },
