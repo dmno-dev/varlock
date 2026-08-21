@@ -3,14 +3,15 @@
  *
  *  - Copies the canonical varlock usage skill from the repo root (`skills/`)
  *    so the HTTP discovery endpoint never drifts from the npm-bundled copy.
- *  - Recomputes the sha256 digest for every skill from the file on disk and
- *    rewrites `index.json`. Digests were previously hand-maintained and would
- *    silently rot whenever a SKILL.md was edited.
+ *  - Reads each skill's `name` and `description` from its SKILL.md frontmatter,
+ *    recomputes the sha256 digest from the file on disk, and rewrites
+ *    `index.json`. Digests and descriptions were previously hand-maintained
+ *    here and would silently rot whenever a SKILL.md was edited.
  *
  * The copied `varlock/` skill and `index.json` are generated artifacts
  * (gitignored) and are rebuilt on every website build. The two website-native
  * skills (`varlock-docs-search`, `varlock-agent-readiness`) are authored
- * directly under `public/` — only their digests are (re)generated here.
+ * directly under `public/`; only their index entries are (re)generated here.
  */
 import { createHash } from 'node:crypto';
 import {
@@ -21,24 +22,27 @@ import { resolve, dirname } from 'node:path';
 const WELL_KNOWN = resolve(import.meta.dir, '../public/.well-known/agent-skills');
 const CANONICAL_SKILL = resolve(import.meta.dir, '../../../skills/varlock/SKILL.md');
 
-/** Source of truth for the discovery index. Digests are computed, not authored. */
+/** Skills in the discovery index. Metadata comes from each file's frontmatter. */
 const SKILLS = [
-  {
-    name: 'varlock',
-    description:
-      'Securely manage environment variables and secrets with varlock — author .env.schema, '
-      + 'use the varlock CLI, and wire up plugins and framework integrations.',
-    copyFrom: CANONICAL_SKILL,
-  },
-  {
-    name: 'varlock-docs-search',
-    description: 'Search and reference varlock documentation via the hosted Docs MCP endpoint.',
-  },
-  {
-    name: 'varlock-agent-readiness',
-    description: 'Discover and verify varlock machine-readable discovery endpoints for agents.',
-  },
+  { name: 'varlock', copyFrom: CANONICAL_SKILL },
+  { name: 'varlock-docs-search' },
+  { name: 'varlock-agent-readiness' },
 ];
+
+function readFrontmatter(skillPath: string, expectedName: string) {
+  const raw = readFileSync(skillPath, 'utf8');
+  const match = raw.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!match) throw new Error(`[gen-agent-skills] ${skillPath} has no frontmatter block`);
+  const data = Bun.YAML.parse(match[1]) as Record<string, unknown>;
+  const { name, description } = data;
+  if (name !== expectedName) {
+    throw new Error(`[gen-agent-skills] ${skillPath}: frontmatter name "${String(name)}" does not match directory "${expectedName}"`);
+  }
+  if (typeof description !== 'string' || !description.trim()) {
+    throw new Error(`[gen-agent-skills] ${skillPath}: frontmatter is missing a description`);
+  }
+  return { name, description: description.replace(/\s*\n\s*/g, ' ').trim(), raw };
+}
 
 const index = {
   $schema: 'https://schemas.agentskills.io/discovery/0.2.0/schema.json',
@@ -48,11 +52,12 @@ const index = {
       mkdirSync(dirname(skillPath), { recursive: true });
       copyFileSync(skill.copyFrom, skillPath);
     }
-    const digest = createHash('sha256').update(readFileSync(skillPath)).digest('hex');
+    const { description, raw } = readFrontmatter(skillPath, skill.name);
+    const digest = createHash('sha256').update(raw).digest('hex');
     return {
       name: skill.name,
       type: 'skill-md',
-      description: skill.description,
+      description,
       url: `https://varlock.dev/.well-known/agent-skills/${skill.name}/SKILL.md`,
       digest: `sha256:${digest}`,
     };
