@@ -5,8 +5,8 @@ import {
 } from '@nuxt/kit';
 import type { NuxtModule } from '@nuxt/schema';
 import {
-  buildVarlockSsrInitCode, getVarlockEnvSourcePaths, getVarlockLoadedEnv, varlockVitePlugin,
-  type VarlockVitePluginOptions,
+  buildVarlockSsrInitCode, getVarlockEnvSourcePaths, getVarlockLoadedEnv, refreshVarlockEnv,
+  varlockVitePlugin, type VarlockVitePluginOptions,
 } from '@varlock/vite-integration';
 
 const DEFAULT_PUBLIC_DYNAMIC_ENDPOINT = '/__varlock/public-env';
@@ -71,6 +71,14 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       for (const envFilePath of getVarlockEnvSourcePaths(nuxt.options.rootDir)) {
         if (!nuxt.options.watch.includes(envFilePath)) nuxt.options.watch.push(envFilePath);
       }
+      // Re-resolve env when a dev restart begins, BEFORE the new nuxt instance
+      // evaluates nuxt.config. `ENV` is a proxy over shared global state, so
+      // refreshing the store here makes config-time reads (`varlock/auto-load`
+      // in nuxt.config) and re-injected process.env values fresh, even though
+      // the config's cached auto-load import does not re-execute.
+      nuxt.hook('restart', () => {
+        refreshVarlockEnv(nuxt.options.rootDir);
+      });
     }
 
     // Inject a nitro route serving public+dynamic values to the browser, same

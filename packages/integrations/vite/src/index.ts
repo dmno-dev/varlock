@@ -181,6 +181,14 @@ function reloadConfig(cwd?: string) {
     );
   }
 
+  // If a runtime auto-load already populated the global (e.g. `varlock/auto-load`
+  // imported in nuxt.config), refresh it with the newly resolved graph -
+  // initVarlockEnv prefers it over the process.env blob, so a stale copy would
+  // pin the old values through every re-init.
+  if ((globalThis as any).__varlockLoadedEnv) {
+    (globalThis as any).__varlockLoadedEnv = varlockLoadedEnv;
+  }
+
   // initialize varlock and patch globals as necessary
   initVarlockEnv();
   // these will be no-ops if these are disabled by settings
@@ -235,6 +243,17 @@ export function getVarlockLoadedEnv(rootDir?: string): SerializedEnvGraph | unde
     reloadConfig(rootDir);
   }
   return varlockLoadedEnv;
+}
+
+/**
+ * Force a fresh env resolution and refresh the shared runtime store (ENV proxy
+ * values, process.env injection, the auto-load global). Used by the Nuxt module
+ * on dev restarts: it runs before the new nuxt instance evaluates nuxt.config,
+ * so config-time `ENV` reads see fresh values even though the config's cached
+ * `varlock/auto-load` import does not re-run.
+ */
+export function refreshVarlockEnv(rootDir?: string) {
+  reloadConfig(rootDir ?? loadedConfigDir);
 }
 
 /**

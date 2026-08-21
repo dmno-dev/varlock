@@ -13,7 +13,8 @@ const addTemplateMock = vi.fn((template) => ({ ...template, dst: `/fake-buildDir
 const defineNuxtModuleMock = vi.fn((moduleDef) => moduleDef);
 const varlockVitePluginMock = vi.fn(() => ({ name: 'varlock-vite-plugin' }));
 const buildVarlockSsrInitCodeMock = vi.fn(() => 'initVarlockEnv();');
-const getVarlockEnvSourcePathsMock = vi.fn(() => []);
+const getVarlockEnvSourcePathsMock = vi.fn((): Array<string> => []);
+const refreshVarlockEnvMock = vi.fn();
 type FakeLoadedEnv = {
   basePath: string,
   sources: Array<unknown>,
@@ -45,6 +46,7 @@ vi.mock('@varlock/vite-integration', () => ({
   buildVarlockSsrInitCode: buildVarlockSsrInitCodeMock,
   getVarlockEnvSourcePaths: getVarlockEnvSourcePathsMock,
   getVarlockLoadedEnv: getVarlockLoadedEnvMock,
+  refreshVarlockEnv: refreshVarlockEnvMock,
   varlockVitePlugin: varlockVitePluginMock,
 }));
 
@@ -125,6 +127,43 @@ describe('@varlock/nuxt-integration module', () => {
     expect(contents).toContain('export default () => {};');
 
     expect(addServerPluginMock).toHaveBeenCalledWith('/fake-buildDir/varlock-nitro-init.mjs');
+  });
+
+  describe('dev mode', () => {
+    function makeDevNuxt() {
+      return {
+        options: {
+          rootDir: '/fake-project', dev: true, watch: [] as Array<string>,
+        },
+        hook: vi.fn(),
+      };
+    }
+
+    it('watches varlock env files for restarts', async () => {
+      getVarlockEnvSourcePathsMock.mockReturnValueOnce(['/fake-project/.env.schema', '/fake-project/.env.local']);
+      const nuxtModule = await loadModule();
+      const fakeNuxt = makeDevNuxt();
+      nuxtModule.setup?.({}, fakeNuxt);
+      expect(fakeNuxt.options.watch).toEqual(['/fake-project/.env.schema', '/fake-project/.env.local']);
+    });
+
+    it('re-resolves env when a dev restart begins', async () => {
+      const nuxtModule = await loadModule();
+      const fakeNuxt = makeDevNuxt();
+      nuxtModule.setup?.({}, fakeNuxt);
+
+      const restartHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'restart');
+      expect(restartHook).toBeDefined();
+      expect(refreshVarlockEnvMock).not.toHaveBeenCalled();
+      (restartHook![1] as () => void)();
+      expect(refreshVarlockEnvMock).toHaveBeenCalledWith('/fake-project');
+    });
+
+    it('does not watch or hook restarts outside dev', async () => {
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({}, FAKE_NUXT);
+      expect(getVarlockEnvSourcePathsMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('public dynamic env endpoint', () => {

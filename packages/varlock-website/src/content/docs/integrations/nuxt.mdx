@@ -106,7 +106,7 @@ export default defineNuxtConfig({
 })
 ```
 
-One caveat, which applies equally to the `varlock run` alternative below: values read in `nuxt.config.ts` are captured once, when the process evaluates the config. The dev server's automatic restart on env file changes refreshes pages and server routes, but not values already captured at config time; restart `nuxt dev` manually after changing a value your config depends on.
+In dev, the module re-resolves your env at the start of every restart it triggers, so config-time values stay in sync when env files change (see [Dev server behavior](#dev-server-behavior)).
 
 Alternatively, run Nuxt through `varlock run` and read from `process.env` (values are strings there, without `ENV`'s type coercion):
 
@@ -182,7 +182,7 @@ export default defineNuxtConfig({
 
 ## Dev server behavior
 
-The module watches every env file varlock loads, including `.env.schema`, and restarts the dev server when one changes. This keeps server routes and the Nitro side in sync; Nuxt's own watcher only reacts to a plain `.env` file.
+The module watches every env file varlock loads, including `.env.schema`, and restarts the dev server when one changes. This keeps everything in sync: inlined page values, server routes, the Nitro side, and values captured in `nuxt.config.ts` itself (the module re-resolves env at the start of the restart, before the config re-evaluates). Nuxt's own watcher only reacts to a plain `.env` file.
 
 If your config becomes invalid (a failed validation, a syntax error in a schema file), requests show an error page describing the problem, and the server recovers automatically once you fix and save the file.
 
