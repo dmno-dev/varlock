@@ -9,7 +9,7 @@ import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';
-import { InvalidEnvError } from './helpers/error-checks';
+import { InvalidEnvError } from './helpers/invalid-env-error';
 import { isArgError, toCliExitError } from './helpers/arg-errors';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
