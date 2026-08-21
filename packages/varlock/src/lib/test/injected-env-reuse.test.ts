@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { evaluateInjectedEnvReuse, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from '../../runtime/crypto';
+import { hashEnvSourceContents } from '../env-source-fingerprint';
 
 let tempDir: string;
 
@@ -154,6 +155,105 @@ describe('evaluateInjectedEnvReuse', () => {
           cwd: tempDir,
         });
         expect(decision.reuse).toBe(false);
+      });
+    });
+
+    describe('source file drift', () => {
+      // writes a real env file into tempDir and returns the blob source entry describing it
+      function writeSourceFile(fileName: string, contents: string) {
+        fs.writeFileSync(path.join(tempDir, fileName), contents);
+        return {
+          type: 'dotenv', label: fileName, enabled: true, path: fileName, contentHash: hashEnvSourceContents(contents),
+        };
+      }
+
+      test('reuses when all enabled source files are unchanged', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision.reuse).toBe(true);
+      });
+
+      test('does not reuse when a source file was edited after the blob was created', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        fs.writeFileSync(path.join(tempDir, '.env'), 'FOO=edited-val\n');
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('changed since') });
+      });
+
+      test('does not reuse when a source file is missing', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        fs.unlinkSync(path.join(tempDir, '.env'));
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('missing') });
+      });
+
+      test('does not reuse when a source path is no longer a regular file', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        fs.unlinkSync(path.join(tempDir, '.env'));
+        fs.mkdirSync(path.join(tempDir, '.env'));
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision.reuse).toBe(false);
+      });
+
+      test('does not reuse when an enabled file source has no fingerprint (older producer)', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        delete (source as any).contentHash;
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('fingerprint') });
+      });
+
+      test('a changed disabled source does not block reuse', () => {
+        // a disabled file cannot affect resolved values; whatever disabled it is ambient
+        // env, which the env-drift check covers separately
+        const source = writeSourceFile('.env.production', 'FOO=prod-val\n');
+        source.enabled = false;
+        fs.writeFileSync(path.join(tempDir, '.env.production'), 'FOO=edited\n');
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision.reuse).toBe(true);
+      });
+
+      test('non-file sources (no path) are skipped', () => {
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [{ type: 'processEnv', label: 'process env', enabled: true }] }) },
+          cwd: tempDir,
+        });
+        expect(decision.reuse).toBe(true);
+      });
+
+      test('does not reuse a blob with no sources array recorded', () => {
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: undefined }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('sources') });
+      });
+
+      test('forced mode ignores source drift (sandbox blobs have no local files)', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        fs.writeFileSync(path.join(tempDir, '.env'), 'FOO=edited-val\n');
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }), [USE_INJECTED_ENV_VAR]: '1' },
+          cwd: tempDir,
+        });
+        expect(decision.reuse).toBe(true);
       });
     });
 

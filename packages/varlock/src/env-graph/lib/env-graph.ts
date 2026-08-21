@@ -38,6 +38,7 @@ import {
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
+import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -64,6 +65,13 @@ export type SerializedEnvGraph = {
     label: string;
     enabled: boolean;
     path?: string;
+    /**
+     * Fingerprint of the file contents this resolution actually parsed (see
+     * `hashEnvSourceContents`). The automatic injected-env reuse path re-hashes the file on
+     * disk and re-resolves on mismatch, so a blob captured before an env file edit is never
+     * served after it. Only present for file-based sources.
+     */
+    contentHash?: string;
   }>,
   settings: {
     redactLogs?: boolean;
@@ -917,6 +925,10 @@ export class EnvGraph {
         label: source.label,
         enabled: !source.disabled,
         path: source instanceof FileBasedDataSource ? path.relative(this.basePath ?? '', source.fullPath) : undefined,
+        // fingerprint what was actually parsed (not a re-read from disk, which could
+        // already have changed) so injected-env reuse can detect later file edits
+        ...(source instanceof FileBasedDataSource && source.rawContents !== undefined)
+          ? { contentHash: hashEnvSourceContents(source.rawContents) } : {},
       });
     }
     for (const itemKey of this.sortedConfigKeys) {
