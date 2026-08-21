@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ansis from 'ansis';
-import { define } from 'gunshi';
 import { isCancel } from '@clack/prompts';
 
 import { CacheStore, createEnvKeyCacheStore, getCacheEnvKey } from '../../lib/cache';
@@ -10,6 +9,7 @@ import { formatTimeAgo, formatDuration } from '../../lib/formatting';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { select, confirm } from '../helpers/prompts';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { commandSpec, statusCommandSpec, clearCommandSpec } from './cache.command-spec';
 
 type CacheEntry = { key: string; cachedAt: number; expiresAt: number };
 
@@ -128,99 +128,60 @@ function resolveStore(): CacheStore | null {
 
 // --- `varlock cache status` -------------------------------------------------
 
-const statusCommand = define({
-  name: 'status',
-  description: 'Print a cache status summary (non-interactive)',
-  run: async () => {
-    const store = resolveStore();
-    if (!store) return;
-    printStatus(store);
-  },
-});
+export const statusCommandFn: TypedGunshiCommandFn<typeof statusCommandSpec> = async () => {
+  const store = resolveStore();
+  if (!store) return;
+  printStatus(store);
+};
 
 // --- `varlock cache clear` --------------------------------------------------
 
-const clearCommand = define({
-  name: 'clear',
-  description: 'Clear cache entries',
-  args: {
-    plugin: {
-      type: 'string',
-      description: 'Clear cache for a specific plugin only',
-    },
-    yes: {
-      type: 'boolean',
-      short: 'y',
-      description: 'Skip confirmation prompts (required when non-interactive)',
-    },
-  },
-  examples: `
-  varlock cache clear --yes                       # Clear all entries (no prompt)
-  varlock cache clear --plugin 1password --yes    # Clear cache for a specific plugin
-`.trim(),
-  run: async (ctx) => {
-    const store = resolveStore();
-    if (!store) return;
+export const clearCommandFn: TypedGunshiCommandFn<typeof clearCommandSpec> = async (ctx) => {
+  const store = resolveStore();
+  if (!store) return;
 
-    const pluginName = ctx.values.plugin;
-    const skipConfirm = ctx.values.yes;
-    const target = pluginName
-      ? `cache entries for plugin "${pluginName}"`
-      : 'cache entries';
+  const pluginName = ctx.values.plugin;
+  const skipConfirm = ctx.values.yes;
+  const target = pluginName
+    ? `cache entries for plugin "${pluginName}"`
+    : 'cache entries';
 
-    // require either --yes or an interactive confirm
-    if (!skipConfirm) {
-      if (!isInteractive()) {
-        console.error(ansis.red(`Refusing to clear ${target} without confirmation.`));
-        console.error('  Re-run with --yes to confirm, or run interactively.');
-        process.exitCode = 1;
-        return;
-      }
-      const confirmed = await confirm({
-        message: `Clear all ${target}? This cannot be undone.`,
-        initialValue: false,
-      });
-      if (isCancel(confirmed) || !confirmed) {
-        console.log(ansis.gray('  Aborted.'));
-        return;
-      }
-    }
-
-    try {
-      // a full clear also drops lock dirs. locks go first: clearing entries
-      // itself takes the file lock, and a wedged lock is often exactly why the
-      // user is running this command
-      if (!pluginName) store.clearLocks();
-      const count = pluginName
-        ? await store.clearByPrefix(`plugin:${pluginName}:`)
-        : await store.clearAll();
-      console.log(`  Cleared ${count} ${target}`);
-    } catch (err) {
-      console.error(ansis.red(`Failed to clear ${target}: ${err instanceof Error ? err.message : err}`));
+  // require either --yes or an interactive confirm
+  if (!skipConfirm) {
+    if (!isInteractive()) {
+      console.error(ansis.red(`Refusing to clear ${target} without confirmation.`));
+      console.error('  Re-run with --yes to confirm, or run interactively.');
       process.exitCode = 1;
+      return;
     }
-  },
-});
+    const confirmed = await confirm({
+      message: `Clear all ${target}? This cannot be undone.`,
+      initialValue: false,
+    });
+    if (isCancel(confirmed) || !confirmed) {
+      console.log(ansis.gray('  Aborted.'));
+      return;
+    }
+  }
+
+  try {
+    // a full clear also drops lock dirs. locks go first: clearing entries
+    // itself takes the file lock, and a wedged lock is often exactly why the
+    // user is running this command
+    if (!pluginName) store.clearLocks();
+    const count = pluginName
+      ? await store.clearByPrefix(`plugin:${pluginName}:`)
+      : await store.clearAll();
+    console.log(`  Cleared ${count} ${target}`);
+  } catch (err) {
+    console.error(ansis.red(`Failed to clear ${target}: ${err instanceof Error ? err.message : err}`));
+    process.exitCode = 1;
+  }
+};
 
 // --- `varlock cache` (parent) -----------------------------------------------
 
-export const commandSpec = define({
-  name: 'cache',
-  description: 'Manage the varlock cache',
-  subCommands: {
-    status: statusCommand,
-    clear: clearCommand,
-  },
-  examples: `
-Manage the encrypted value cache used by cache() and plugin authors.
-
-Examples:
-  varlock cache                                   # Interactive cache browser (or status summary if non-TTY)
-  varlock cache status                            # Print cache status summary (non-interactive)
-  varlock cache clear --yes                       # Clear all entries (no prompt)
-  varlock cache clear --plugin 1password --yes    # Clear cache for a specific plugin
-`.trim(),
-});
+export { commandSpec };
 
 /**
  * Default `varlock cache` with no subcommand: interactive browser when on a TTY,

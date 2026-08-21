@@ -1,16 +1,9 @@
-import { define } from 'gunshi';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { checkForSchemaErrors } from '../helpers/error-checks';
+import { commandSpec } from './plugin.command-spec';
 
-export const commandSpec = define({
-  name: 'plugin',
-  description: 'Run a CLI command for an installed plugin',
-  args: {
-    pluginId: { type: 'positional', description: 'ID of the plugin to run a command for' },
-    command: { type: 'positional', description: 'Command to run for the plugin' },
-  },
-});
+export { commandSpec };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   console.log('');
