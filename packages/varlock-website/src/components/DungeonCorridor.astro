@@ -1,0 +1,292 @@
+---
+/*
+Scroll-driven dungeon corridor for the landing page. A corridor of floor
+tiles runs down the left margin (desktop only); a top-down wizard sprite is
+position: sticky inside it, so the corridor scrolls past the pinned wizard,
+which reads as the wizard walking. The script only toggles classes: a
+passive scroll listener drives walk/idle + direction, and an
+IntersectionObserver adds `is-entered` to each .dungeon-room (torches/door).
+Decoration only: aria-hidden, no content, degrades to a static page.
+*/
+import corridorTileImg from '../assets/pixel-art/dungeon/corridor-tile.png';
+import corridorTileHImg from '../assets/pixel-art/dungeon/corridor-tile-h.png';
+import corridorElbowImg from '../assets/pixel-art/dungeon/corridor-elbow.png';
+import corridorEndImg from '../assets/pixel-art/dungeon/corridor-end.png';
+import wizardWalkImg from '../assets/pixel-art/dungeon/wizard-walk.png';
+
+const styleVars = [
+  `--corridor-tile-img: url(${corridorTileImg.src})`,
+  `--corridor-tile-h-img: url(${corridorTileHImg.src})`,
+  `--corridor-elbow-img: url(${corridorElbowImg.src})`,
+  `--corridor-end-img: url(${corridorEndImg.src})`,
+  `--wizard-sheet-img: url(${wizardWalkImg.src})`,
+].join('; ');
+---
+
+<div class="dungeon-corridor" aria-hidden="true" data-direction="down" style={styleVars}>
+  <div class="dungeon-corridor__track"></div>
+  <div class="dungeon-corridor__elbow"></div>
+  <div class="dungeon-corridor__branch">
+    <div class="dungeon-corridor__end-wizard"></div>
+  </div>
+  <div class="dungeon-corridor__wizard">
+    <div class="dungeon-corridor__sprite"></div>
+  </div>
+</div>
+
+<style>
+  .dungeon-corridor {
+    display: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 64px;
+    /* sits in the free margin left of the 1000px-wide .container */
+    left: calc(50% - 500px - var(--dungeon-rail-offset, 88px));
+  }
+  @media (min-width: 1200px) {
+    .dungeon-corridor {
+      display: block;
+    }
+  }
+  /* Starlight's content flow styles add sibling margins */
+  .dungeon-corridor > *,
+  .dungeon-corridor * {
+    margin: 0;
+  }
+
+  .dungeon-corridor__track {
+    position: absolute;
+    inset: 0;
+    background-image: var(--corridor-tile-img);
+    background-size: 64px 64px;
+    background-repeat: repeat-y;
+    image-rendering: pixelated;
+  }
+
+  /* at the bottom the corridor turns 90 degrees and runs to the page
+     center, meeting the footer block; the branch width is set by the
+     layout script */
+  .dungeon-corridor__elbow {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 64px;
+    height: 64px;
+    background-image: var(--corridor-elbow-img);
+    image-rendering: pixelated;
+  }
+  .dungeon-corridor__branch {
+    position: absolute;
+    left: 64px;
+    bottom: 0;
+    height: 64px;
+    width: 0;
+    background-image: var(--corridor-tile-h-img);
+    background-size: 64px 64px;
+    background-repeat: repeat-x;
+    image-rendering: pixelated;
+  }
+  .dungeon-corridor__branch::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 64px;
+    height: 64px;
+    background-image: var(--corridor-end-img);
+    image-rendering: pixelated;
+  }
+  /* journey's end: the wizard idles at the corridor's dead end */
+  .dungeon-corridor__end-wizard {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 64px;
+    height: 64px;
+    background-image: var(--wizard-sheet-img);
+    background-size: 256px 256px;
+    background-position: 0 -128px; /* idle row */
+    image-rendering: pixelated;
+    animation: wizard-idle 1.6s steps(2) infinite;
+    opacity: 0;
+    transition: opacity 0.25s;
+    z-index: 1;
+  }
+  .dungeon-corridor.wizard-at-end .dungeon-corridor__end-wizard {
+    opacity: 1;
+  }
+
+  .dungeon-corridor__wizard {
+    position: sticky;
+    top: 42vh; /* no-JS / reduced-motion fallback position */
+    width: 64px;
+    height: 64px;
+  }
+  /* with JS active, the wizard starts at his natural position: the top of
+     the rail, right at the header doorway. Once the user scrolls, the pin
+     line moves to 42vh and the transition walks him down into the corridor
+     (and back up to the header when they return to the top). */
+  .dungeon-corridor.has-entrance .dungeon-corridor__wizard {
+    top: -12px;
+  }
+  /* transition is enabled a tick later so the initial header placement
+     doesn't animate on page load */
+  .dungeon-corridor.entrance-animated .dungeon-corridor__wizard {
+    transition: top 0.6s ease-in-out;
+  }
+  .dungeon-corridor.has-entrance.is-descended .dungeon-corridor__wizard {
+    top: 42vh;
+  }
+  /* at the bottom, he steps out of the corridor into the footer */
+  .dungeon-corridor__sprite {
+    transition: opacity 0.25s;
+  }
+  .dungeon-corridor.wizard-at-end .dungeon-corridor__sprite {
+    opacity: 0;
+  }
+
+  .dungeon-corridor__sprite {
+    width: 64px;
+    height: 64px;
+    background-image: var(--wizard-sheet-img);
+    background-size: 256px 256px;
+    /* idle row (front-facing, 2 frames) */
+    background-position: 0 -128px;
+    image-rendering: pixelated;
+    animation: wizard-idle 1.6s steps(2) infinite;
+  }
+
+  .dungeon-corridor.is-walking .dungeon-corridor__sprite {
+    background-position-y: 0; /* walk-south row */
+    animation: wizard-walk 0.55s steps(4) infinite;
+  }
+  .dungeon-corridor.is-walking[data-direction='up'] .dungeon-corridor__sprite {
+    background-position-y: -64px; /* walk-north row */
+  }
+
+  @keyframes wizard-idle {
+    from {
+      background-position-x: 0;
+    }
+    to {
+      background-position-x: -128px;
+    }
+  }
+  @keyframes wizard-walk {
+    from {
+      background-position-x: 0;
+    }
+    to {
+      background-position-x: -256px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dungeon-corridor__sprite {
+      animation: none !important;
+    }
+  }
+</style>
+
+<script>
+  const rail = document.querySelector<HTMLElement>('.dungeon-corridor');
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // extend the rail so it runs from the header all the way to the footer
+  // (static layout, so it applies under reduced motion too; the CSS
+  // top/bottom extent is the no-JS fallback)
+  if (rail) {
+    const layoutRail = () => {
+      const parent = rail.parentElement;
+      const footer = document.querySelector('footer');
+      if (!parent) return;
+      const headerH = document.querySelector('.page > header')?.getBoundingClientRect().height ?? 64;
+      const parentTop = parent.getBoundingClientRect().top + window.scrollY;
+      rail.style.top = `${headerH - parentTop}px`;
+      if (footer) {
+        const footerTop = footer.getBoundingClientRect().top + window.scrollY;
+        rail.style.bottom = 'auto';
+        rail.style.height = `${footerTop - headerH}px`;
+      }
+      // size the bottom branch so its dead end sits at the page center
+      const branch = rail.querySelector<HTMLElement>('.dungeon-corridor__branch');
+      const railLeft = rail.getBoundingClientRect().left;
+      if (branch && rail.getBoundingClientRect().width > 0) {
+        branch.style.width = `${Math.max(64, window.innerWidth / 2 + 32 - (railLeft + 64))}px`;
+      }
+    };
+    layoutRail();
+    window.addEventListener('resize', layoutRail, { passive: true });
+    window.addEventListener('load', layoutRail);
+  }
+
+  if (rail && !prefersReducedMotion) {
+    // the wizard starts at the top of the rail in the header doorway;
+    // once the user scrolls he descends to his 42vh walking position
+    // (see the has-entrance / is-descended styles)
+    rail.classList.add('has-entrance');
+    const updateDescent = () => {
+      rail.classList.toggle('is-descended', window.scrollY > 40);
+    };
+    updateDescent();
+    setTimeout(() => rail.classList.add('entrance-animated'), 100);
+
+    let lastY = window.scrollY;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    window.addEventListener(
+      'scroll',
+      () => {
+        const y = window.scrollY;
+        if (y !== lastY) rail.dataset.direction = y > lastY ? 'down' : 'up';
+        lastY = y;
+        rail.classList.add('is-walking');
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => rail.classList.remove('is-walking'), 160);
+        updateDescent();
+      },
+      { passive: true },
+    );
+
+    // doors swing open while the wizard (pinned at 42vh) is passing them:
+    // the observer root is a horizontal band around the wizard's row
+    const doorObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          entry.target.classList.toggle('is-open', entry.isIntersecting);
+        }
+      },
+      { rootMargin: '-36% 0px -50% 0px' },
+    );
+    document.querySelectorAll('.dungeon-room__door').forEach((el) => doorObserver.observe(el));
+
+    // journey's end: when the footer comes into view the wizard steps out
+    // of the vertical corridor and appears at the branch's dead end
+    const footer = document.querySelector('footer');
+    if (footer) {
+      const footerObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            rail.classList.toggle('wizard-at-end', entry.isIntersecting);
+          }
+        },
+        { threshold: 0.2 },
+      );
+      footerObserver.observe(footer);
+    }
+  }
+
+  // room activation runs on all viewports (torches light on mobile too)
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-entered');
+          observer.unobserve(entry.target);
+        }
+      }
+    },
+    { threshold: 0.15 },
+  );
+  document.querySelectorAll('.dungeon-room').forEach((el) => observer.observe(el));
+</script>
