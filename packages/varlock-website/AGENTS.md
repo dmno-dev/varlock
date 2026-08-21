@@ -14,7 +14,7 @@ Keep the tone plain and direct, like an engineer wrote it:
 - Write `for example` instead of `e.g.`, `that is` instead of `i.e.`. Do not end lists with `etc.`: either the list is complete, or link to the page that is.
 - Say `must` for requirements and `we recommend` for recommendations. Avoid `should`, `usually`, and `typically` in instructions: state the condition under which the step applies.
 - Do not hard-code version numbers, dates, tool minimums, or pasted command output unless the page is specifically about that version. Link to the canonical reference page instead of duplicating a list (plugins, data types, CLI flags) that will drift. Blog posts (`src/content/blog/`) are exempt: versions and dates belong there.
-- Code examples must be runnable as shown (include imports and setup, or state what is omitted) and use realistic names (`DATABASE_URL`, `STRIPE_SECRET_KEY`), never `foo`/`bar`/`MY_VAR`. Show one idea per example; add a second example for a variant rather than growing the first.
+- Code examples use realistic names (`DATABASE_URL`, `STRIPE_SECRET_KEY`), never `foo`/`bar`/`MY_VAR`/`KEY1`. Argument placeholders in CLI usage synopses (`<VAR_NAME>`) and format descriptions (`op://vault-name/item-name/field-name`) are fine.
 - Treat inaccurate docs as a bug. When behavior changes, delete or rewrite the old explanation in the same PR; do not keep it for completeness or wrap it in a `deprecated` note unless users still need the old path. One canonical explanation per concept; other pages link to it.
 
 ## Structure rules
