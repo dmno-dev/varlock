@@ -90,9 +90,23 @@ If you do keep a plain `.env` around, two details matter:
 - Keys managed by varlock stay consistent, but any key varlock does not manage still lands in `process.env`, so `process.env.X` and `ENV.X` can diverge for it.
 
 ### Nuxt config timing
-Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not guaranteed to be initialized there.
+Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not initialized there by the module itself.
 
-If you need env values in `nuxt.config.ts`, run Nuxt through `varlock run` and read from `process.env`:
+If you need env values in `nuxt.config.ts`, import `varlock/auto-load` at the top of the config file. It loads and validates your env before the rest of the file evaluates, so you get the typed `ENV` object with no wrapper command:
+
+```ts title="nuxt.config.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+
+export default defineNuxtConfig({
+  modules: ['@varlock/nuxt-integration'],
+  runtimeConfig: {
+    apiBaseUrl: ENV.API_BASE_URL,
+  },
+})
+```
+
+Alternatively, run Nuxt through `varlock run` and read from `process.env` (values are strings there, without `ENV`'s type coercion):
 
 ```json title="package.json"
 {
