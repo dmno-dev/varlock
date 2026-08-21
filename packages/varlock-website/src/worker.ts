@@ -27,9 +27,62 @@ const RECOVERY_LINKS: Array<[label: string, path: string]> = [
   ['AI catalog (ARD)', '/.well-known/ai-catalog.json'],
 ];
 
+interface MediaRange {
+  type: string;
+  subtype: string;
+  quality: number;
+}
+
+function parseAccept(accept: string): Array<MediaRange> {
+  return accept.split(',').flatMap((entry) => {
+    const [mediaType = '', ...parameters] = entry.trim().toLowerCase().split(';');
+    const [type, subtype] = mediaType.split('/');
+    if (!type || !subtype) return [];
+
+    const qualityParameter = parameters.find((parameter) => parameter.trim().startsWith('q='));
+    const parsedQuality = qualityParameter ? Number(qualityParameter.trim().slice(2)) : 1;
+    const quality = parsedQuality >= 0 && parsedQuality <= 1 ? parsedQuality : 0;
+    return [{ type, subtype, quality }];
+  });
+}
+
+function qualityFor(mediaType: string, ranges: Array<MediaRange>) {
+  const [type, subtype] = mediaType.split('/');
+  let bestSpecificity = -1;
+  let quality = 0;
+
+  for (const range of ranges) {
+    if (range.type !== '*' && range.type !== type) continue;
+    if (range.subtype !== '*' && range.subtype !== subtype) continue;
+
+    const specificity = Number(range.type !== '*') + Number(range.subtype !== '*');
+    if (specificity > bestSpecificity) {
+      bestSpecificity = specificity;
+      quality = range.quality;
+    } else if (specificity === bestSpecificity) {
+      quality = Math.max(quality, range.quality);
+    }
+  }
+
+  return quality;
+}
+
 function wantsTextResponse(accept: string) {
-  if (/text\/markdown|text\/plain|application\/json/i.test(accept)) return true;
-  return !/text\/html/i.test(accept);
+  if (!accept.trim()) return true;
+
+  const ranges = parseAccept(accept);
+  const htmlQuality = qualityFor('text/html', ranges);
+  const markdownQuality = qualityFor('text/markdown', ranges);
+  const textAliasQuality = Math.max(
+    ...ranges
+      .filter(({ type, subtype }) => (type === 'text' && subtype === 'plain')
+        || (type === 'application' && subtype === 'json'))
+      .map(({ quality }) => quality),
+    0,
+  );
+  const textQuality = Math.max(markdownQuality, textAliasQuality);
+
+  return textQuality > 0 && textQuality >= htmlQuality;
 }
 
 function sanitizePath(pathname: string) {
@@ -52,11 +105,19 @@ function markdown404(pathname: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const assetResponse = await env.ASSETS.fetch(request);
-    if (assetResponse.status !== 404) return assetResponse;
-
     const accept = request.headers.get('accept') ?? '';
-    if (!wantsTextResponse(accept)) return assetResponse;
+    const wantsText = wantsTextResponse(accept);
+    let assetRequest = request;
+    if (wantsText && (request.headers.has('if-none-match') || request.headers.has('if-modified-since'))) {
+      const headers = new Headers(request.headers);
+      headers.delete('if-none-match');
+      headers.delete('if-modified-since');
+      assetRequest = new Request(request, { headers });
+    }
+
+    const assetResponse = await env.ASSETS.fetch(assetRequest);
+    if (assetResponse.status !== 404) return assetResponse;
+    if (!wantsText) return assetResponse;
 
     const body = request.method === 'HEAD' ? null : markdown404(new URL(request.url).pathname);
     return new Response(body, {

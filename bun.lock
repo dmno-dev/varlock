@@ -537,6 +537,7 @@
       "devDependencies": {
         "@varlock/astro-integration": "workspace:*",
         "varlock": "workspace:*",
+        "vitest": "catalog:",
         "wrangler": "^4.93.0",
       },
     },
