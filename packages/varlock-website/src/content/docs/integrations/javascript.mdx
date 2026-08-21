@@ -74,6 +74,7 @@ Reuse only happens when a fresh resolution would produce the same result:
 
 - the blob was resolved in the same directory the app would resolve in (a root-level `varlock run` in a monorepo does not stop per-package resolution)
 - it resolved without errors
+- the `.env` files it was resolved from are unchanged on disk (editing an env file and restarting the app inside the same `varlock run` re-resolves and picks up the edit)
 - no env override recorded in the blob has changed since (`varlock run -- sh -c 'FOO=x node app.js'` re-resolves, so the new `FOO` wins)
 
 If any check fails, auto-load falls back to the CLI. Control it explicitly with [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env): `0` always re-resolves, `1` always trusts the blob, skipping the directory check. `varlock run` applies the same rules when it finds a blob, which covers non-Node workloads. Trust mode is how you hand an env into an environment with no `.env` files at all, like a remote sandbox; see the [E2B](/sandboxes/e2b/#passing-resolved-values) and [Fly.io](/sandboxes/flyio/#passing-resolved-values) guides.
