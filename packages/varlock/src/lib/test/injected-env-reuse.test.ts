@@ -217,17 +217,25 @@ describe('evaluateInjectedEnvReuse', () => {
         expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('fingerprint') });
       });
 
-      test('a changed disabled source does not block reuse', () => {
-        // a disabled file cannot affect resolved values; whatever disabled it is ambient
-        // env, which the env-drift check covers separately
-        const source = writeSourceFile('.env.production', 'FOO=prod-val\n');
+      test('an unchanged disabled source does not block reuse', () => {
+        const source = writeSourceFile('.env.production', '# @disable\nFOO=prod-val\n');
         source.enabled = false;
-        fs.writeFileSync(path.join(tempDir, '.env.production'), 'FOO=edited\n');
         const decision = evaluateInjectedEnvReuse({
           env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
           cwd: tempDir,
         });
         expect(decision.reuse).toBe(true);
+      });
+
+      test('a changed disabled source blocks reuse (editing can remove @disable)', () => {
+        const source = writeSourceFile('.env.production', '# @disable\nFOO=prod-val\n');
+        source.enabled = false;
+        fs.writeFileSync(path.join(tempDir, '.env.production'), 'FOO=prod-val\n');
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source] }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('changed since') });
       });
 
       test('non-file sources (no path) are skipped', () => {

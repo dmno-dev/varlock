@@ -202,17 +202,18 @@ export function evaluateInjectedEnvReuse(opts: {
   }
 
   // Source drift: the producer fingerprints the contents of each file source it actually
-  // parsed (see getSerializedGraph). If an enabled source has been edited or removed since
-  // the blob was made (e.g. an env file edit followed by a dev-server restart inside the
-  // same `varlock run`), reuse would serve pre-edit values - re-resolve instead. Disabled
-  // sources can't affect the resolved values (and whatever disabled them is covered by the
-  // ambient-env drift check below), so they're skipped. Known gap: a matching env file
-  // *created* after the blob won't appear in its sources list and isn't detected here.
+  // parsed (see getSerializedGraph). If a source has been edited or removed since the blob
+  // was made (e.g. an env file edit followed by a dev-server restart inside the same
+  // `varlock run`), reuse could serve pre-edit values - re-resolve instead. Disabled
+  // sources are verified too: `@disable` lives in the source's own content, so an edit can
+  // re-enable it (an edit that leaves it disabled just costs one harmless re-resolution).
+  // Known gap: a matching env file *created* after the blob won't appear in its sources
+  // list and isn't detected here.
   if (!Array.isArray(parsedEnv.sources)) {
     return { reuse: false, reason: 'blob has no sources recorded' };
   }
   for (const source of parsedEnv.sources) {
-    if (!source.enabled || source.path === undefined) continue;
+    if (source.path === undefined) continue;
     // older producers didn't record fingerprints - we can't verify, so re-resolve
     if (!source.contentHash) {
       return { reuse: false, reason: `blob has no content fingerprint for source ${source.path}` };
