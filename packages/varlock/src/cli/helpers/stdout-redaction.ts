@@ -1,18 +1,7 @@
 import { CliExitError } from './exit-error';
 import { createRedactedStreamWriter } from '../../runtime/lib/redact-stream';
 
-/**
- * Shared gunshi arg spec for the redaction override, so `varlock run` and
- * `varlock proxy run` expose an identical flag (including `--no-redact-stdout`,
- * which only works because of `negatable`).
- */
-export const REDACT_STDOUT_ARG = {
-  'redact-stdout': {
-    type: 'boolean',
-    negatable: true,
-    description: 'Override automatic stdout/stderr redaction: --redact-stdout forces redaction of piped/redirected output (e.g., to override @redactLogs=false) and errors if attached to an interactive terminal; --no-redact-stdout disables redaction entirely. Can also be set via the _VARLOCK_REDACT_STDOUT env var (the flag takes precedence)',
-  },
-} as const;
+export { REDACT_STDOUT_ARG } from './redact-stdout-arg';
 
 /** Parse a tri-state on/off/unset env toggle (e.g. `_VARLOCK_REDACT_STDOUT`). */
 export function parseEnvToggle(value: string | undefined): boolean | undefined {

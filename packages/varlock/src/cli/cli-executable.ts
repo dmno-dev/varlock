@@ -1,4 +1,4 @@
-import { cli, type Command } from 'gunshi';
+import { cli, lazy } from 'gunshi';
 import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
 
@@ -16,30 +16,34 @@ import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
 import { enforceProxyContextGuards } from './helpers/proxy-context-guard';
 
-// we'll import just the spec from each, so the implementations can be lazy loaded
-import { commandSpec as initCommandSpec } from './commands/init.command';
-import { commandSpec as loadCommandSpec } from './commands/load.command';
-import { commandSpec as runCommandSpec } from './commands/run.command';
-import { commandSpec as printenvCommandSpec } from './commands/printenv.command';
-import { commandSpec as encryptCommandSpec } from './commands/encrypt.command';
-import { commandSpec as lockCommandSpec } from './commands/lock.command';
-import { commandSpec as revealCommandSpec } from './commands/reveal.command';
-// import { commandSpec as doctorCommandSpec } from './commands/doctor.command';
-import { commandSpec as helpCommandSpec } from './commands/help.command';
-import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command';
-import { commandSpec as explainCommandSpec } from './commands/explain.command';
-import { commandSpec as flattenCommandSpec } from './commands/flatten.command';
-import { commandSpec as scanCommandSpec } from './commands/scan.command';
-import { commandSpec as codegenCommandSpec } from './commands/codegen.command';
-import { commandSpec as typegenCommandSpec } from './commands/typegen.command';
-import { commandSpec as installPluginCommandSpec } from './commands/install-plugin.command';
-import { commandSpec as auditCommandSpec } from './commands/audit.command';
-import { commandSpec as generateKeyCommandSpec } from './commands/generate-key.command';
-import { commandSpec as cacheCommandSpec } from './commands/cache.command';
-import { commandSpec as keychainCommandSpec } from './commands/keychain.command';
-import { commandSpec as proxyCommandSpec } from './commands/proxy.command';
-// import { commandSpec as loginCommandSpec } from './commands/login.command';
-// import { commandSpec as pluginCommandSpec } from './commands/plugin.command';
+// Only the spec (name/description/args/examples) is imported eagerly - each command's
+// implementation lives in a sibling `*.command.ts` that is pulled in via a dynamic
+// import when that command actually runs. Keeping the two in separate modules is what
+// makes the split real: importing anything from `*.command.ts` here would drag the whole
+// implementation into the entry chunk and collapse the dynamic import away.
+import { commandSpec as initCommandSpec } from './commands/init.command-spec';
+import { commandSpec as loadCommandSpec } from './commands/load.command-spec';
+import { commandSpec as runCommandSpec } from './commands/run.command-spec';
+import { commandSpec as printenvCommandSpec } from './commands/printenv.command-spec';
+import { commandSpec as encryptCommandSpec } from './commands/encrypt.command-spec';
+import { commandSpec as lockCommandSpec } from './commands/lock.command-spec';
+import { commandSpec as revealCommandSpec } from './commands/reveal.command-spec';
+// import { commandSpec as doctorCommandSpec } from './commands/doctor.command-spec';
+import { commandSpec as helpCommandSpec } from './commands/help.command-spec';
+import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command-spec';
+import { commandSpec as explainCommandSpec } from './commands/explain.command-spec';
+import { commandSpec as flattenCommandSpec } from './commands/flatten.command-spec';
+import { commandSpec as scanCommandSpec } from './commands/scan.command-spec';
+import { commandSpec as codegenCommandSpec } from './commands/codegen.command-spec';
+import { commandSpec as typegenCommandSpec } from './commands/typegen.command-spec';
+import { commandSpec as installPluginCommandSpec } from './commands/install-plugin.command-spec';
+import { commandSpec as auditCommandSpec } from './commands/audit.command-spec';
+import { commandSpec as generateKeyCommandSpec } from './commands/generate-key.command-spec';
+import { commandSpec as cacheCommandSpec } from './commands/cache.command-spec';
+import { commandSpec as keychainCommandSpec } from './commands/keychain.command-spec';
+import { commandSpec as proxyCommandSpec } from './commands/proxy.command-spec';
+// import { commandSpec as loginCommandSpec } from './commands/login.command-spec';
+// import { commandSpec as pluginCommandSpec } from './commands/plugin.command-spec';
 
 // must happen before anything writes to stdio
 handleBrokenPipe();
@@ -47,44 +51,30 @@ handleBrokenPipe();
 let versionId = packageJson.version;
 if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
 
-// TODO: this is not splitting the bundle correctly to actually lazy load the command fns
-function buildLazyCommand(
-  commandSpec: Command<any>,
-  loadCommandFn: () => Promise<{ commandSpec: Command<any>, commandFn: any }>,
-) {
-  return {
-    ...commandSpec,
-    run: async (...args: Array<any>) => {
-      const commandSpecAndFn = await loadCommandFn();
-      return await commandSpecAndFn.commandFn(...args);
-    },
-  };
-}
-
 const subCommands = new Map();
-subCommands.set('init', buildLazyCommand(initCommandSpec, async () => await import('./commands/init.command')));
-subCommands.set('load', buildLazyCommand(loadCommandSpec, async () => await import('./commands/load.command')));
-subCommands.set('run', buildLazyCommand(runCommandSpec, async () => await import('./commands/run.command')));
-subCommands.set('printenv', buildLazyCommand(printenvCommandSpec, async () => await import('./commands/printenv.command')));
-subCommands.set('encrypt', buildLazyCommand(encryptCommandSpec, async () => await import('./commands/encrypt.command')));
-subCommands.set('lock', buildLazyCommand(lockCommandSpec, async () => await import('./commands/lock.command')));
-subCommands.set('reveal', buildLazyCommand(revealCommandSpec, async () => await import('./commands/reveal.command')));
-// subCommands.set('doctor', buildLazyCommand(doctorCommandSpec, async () => await import('./commands/doctor.command')));
-subCommands.set('explain', buildLazyCommand(explainCommandSpec, async () => await import('./commands/explain.command')));
-subCommands.set('flatten', buildLazyCommand(flattenCommandSpec, async () => await import('./commands/flatten.command')));
-subCommands.set('help', buildLazyCommand(helpCommandSpec, async () => await import('./commands/help.command')));
-subCommands.set('telemetry', buildLazyCommand(telemetryCommandSpec, async () => await import('./commands/telemetry.command')));
-subCommands.set('scan', buildLazyCommand(scanCommandSpec, async () => await import('./commands/scan.command')));
-subCommands.set('audit', buildLazyCommand(auditCommandSpec, async () => await import('./commands/audit.command')));
-subCommands.set('codegen', buildLazyCommand(codegenCommandSpec, async () => await import('./commands/codegen.command')));
-subCommands.set('typegen', buildLazyCommand(typegenCommandSpec, async () => await import('./commands/typegen.command')));
-subCommands.set('install-plugin', buildLazyCommand(installPluginCommandSpec, async () => await import('./commands/install-plugin.command')));
-subCommands.set('generate-key', buildLazyCommand(generateKeyCommandSpec, async () => await import('./commands/generate-key.command')));
-subCommands.set('cache', buildLazyCommand(cacheCommandSpec, async () => await import('./commands/cache.command')));
-subCommands.set('keychain', buildLazyCommand(keychainCommandSpec, async () => await import('./commands/keychain.command')));
-subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await import('./commands/proxy.command')));
-// subCommands.set('login', buildLazyCommand(loginCommandSpec, async () => await import('./commands/login.command')));
-// subCommands.set('plugin', buildLazyCommand(pluginCommandSpec, async () => await import('./commands/plugin.command')));
+subCommands.set('init', lazy(async () => (await import('./commands/init.command')).commandFn, initCommandSpec));
+subCommands.set('load', lazy(async () => (await import('./commands/load.command')).commandFn, loadCommandSpec));
+subCommands.set('run', lazy(async () => (await import('./commands/run.command')).commandFn, runCommandSpec));
+subCommands.set('printenv', lazy(async () => (await import('./commands/printenv.command')).commandFn, printenvCommandSpec));
+subCommands.set('encrypt', lazy(async () => (await import('./commands/encrypt.command')).commandFn, encryptCommandSpec));
+subCommands.set('lock', lazy(async () => (await import('./commands/lock.command')).commandFn, lockCommandSpec));
+subCommands.set('reveal', lazy(async () => (await import('./commands/reveal.command')).commandFn, revealCommandSpec));
+// subCommands.set('doctor', lazy(async () => (await import('./commands/doctor.command')).commandFn, doctorCommandSpec));
+subCommands.set('explain', lazy(async () => (await import('./commands/explain.command')).commandFn, explainCommandSpec));
+subCommands.set('flatten', lazy(async () => (await import('./commands/flatten.command')).commandFn, flattenCommandSpec));
+subCommands.set('help', lazy(async () => (await import('./commands/help.command')).commandFn, helpCommandSpec));
+subCommands.set('telemetry', lazy(async () => (await import('./commands/telemetry.command')).commandFn, telemetryCommandSpec));
+subCommands.set('scan', lazy(async () => (await import('./commands/scan.command')).commandFn, scanCommandSpec));
+subCommands.set('audit', lazy(async () => (await import('./commands/audit.command')).commandFn, auditCommandSpec));
+subCommands.set('codegen', lazy(async () => (await import('./commands/codegen.command')).commandFn, codegenCommandSpec));
+subCommands.set('typegen', lazy(async () => (await import('./commands/typegen.command')).commandFn, typegenCommandSpec));
+subCommands.set('install-plugin', lazy(async () => (await import('./commands/install-plugin.command')).commandFn, installPluginCommandSpec));
+subCommands.set('generate-key', lazy(async () => (await import('./commands/generate-key.command')).commandFn, generateKeyCommandSpec));
+subCommands.set('cache', lazy(async () => (await import('./commands/cache.command')).commandFn, cacheCommandSpec));
+subCommands.set('keychain', lazy(async () => (await import('./commands/keychain.command')).commandFn, keychainCommandSpec));
+subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.command')).commandFn, proxyCommandSpec));
+// subCommands.set('login', lazy(async () => (await import('./commands/login.command')).commandFn, loginCommandSpec));
+// subCommands.set('plugin', lazy(async () => (await import('./commands/plugin.command')).commandFn, pluginCommandSpec));
 
 (async function go() {
   try {
