@@ -10,6 +10,12 @@ import EmailSignup from "./EmailSignup.vue";
 <div class="custom-footer">
   <EmailSignup client:load />
   <br />
+  <p class="footer-links">
+    <a href="/about/">About</a>
+    <a href="/contact/">Contact</a>
+    <a href="/privacy/">Privacy</a>
+    <a href="/sponsors/">Sponsors</a>
+  </p>
   <p>
     © 2026 <a href="https://dmno.io">DMNO Inc.</a> All rights reserved.
   </p>
@@ -25,6 +31,13 @@ import EmailSignup from "./EmailSignup.vue";
     margin: 0;
     color: var(--sl-color-text-2);
     font-size: 0.875rem;
+  }
+
+  .footer-links {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem !important;
   }
 
   .custom-footer a {

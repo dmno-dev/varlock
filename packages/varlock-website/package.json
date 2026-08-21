@@ -4,13 +4,15 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "gen:agent-skills": "bun run scripts/gen-agent-skills.ts",
-    "dev": "bun run gen:agent-skills && astro dev",
-    "start": "bun run gen:agent-skills && astro dev",
-    "build": "bun run gen:agent-skills && astro build",
+    "gen:well-known": "bun run scripts/gen-well-known.ts",
+    "dev": "bun run gen:well-known && astro dev",
+    "start": "bun run gen:well-known && astro dev",
+    "build": "bun run gen:well-known && astro build",
     "build:cloudflare": "turbo build --filter=@varlock/astro-integration && varlock load && turbo build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "test": "vitest",
+    "test:ci": "vitest --run"
   },
   "dependencies": {
     "@iconify/vue": "^5.0.0",
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@varlock/astro-integration": "workspace:*",
     "varlock": "workspace:*",
+    "vitest": "catalog:",
     "wrangler": "^4.93.0"
   },
   "engines": {

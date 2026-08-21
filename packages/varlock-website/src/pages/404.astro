@@ -21,10 +21,21 @@ import { LinkButton } from "@astrojs/starlight/components";
           Perhaps it never existed, or it has been banished to another
           dimension.
         </p>
+        <p class="recovery-intro">Where to look next:</p>
+        <ul class="recovery-links">
+          <li><a href="/">Home</a></li>
+          <li><a href="/getting-started/introduction/">Getting started</a></li>
+          <li><a href="/llms.txt">Docs index for agents (llms.txt)</a></li>
+          <li><a href="/llms-full.txt">Full docs as a single file</a></li>
+          <li><a href="/sitemap-index.xml">Sitemap</a></li>
+          <li><a href="/.well-known/agent-skills/index.json">Agent skills index</a></li>
+          <li><a href="/.well-known/mcp/server-card.json">Docs MCP server card</a></li>
+          <li><a href="/.well-known/ai-catalog.json">AI catalog</a></li>
+        </ul>
       </div>
       <div class="button-container">
         <LinkButton href="/">Return Home</LinkButton>
-        <LinkButton href="getting-started/introduction">
+        <LinkButton href="/getting-started/introduction/">
           Get Started
         </LinkButton>
       </div>
@@ -90,6 +101,17 @@ import { LinkButton } from "@astrojs/starlight/components";
     font-weight: bold;
     margin-bottom: 1rem;
   }
-  .error-description {
+  .recovery-intro {
+    margin-top: 1.5rem;
+    font-weight: bold;
+  }
+  .recovery-links {
+    display: inline-block;
+    text-align: left;
+    margin: 0.5rem auto 0;
+    padding-left: 1.25rem;
+  }
+  .recovery-links a {
+    color: var(--brand-pink);
   }
 </style>

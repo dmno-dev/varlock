@@ -1,0 +1,59 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { createMetaHead } from "../lib/meta";
+
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL("/og-images/index.png", Astro.site!).href;
+const pageTitle = "Contact Varlock";
+const pageDescription =
+  "How to reach the Varlock team: email, GitHub issues, Discord, security reports, and sponsorship.";
+const metaHead = createMetaHead({
+  title: pageTitle,
+  description: pageDescription,
+  url: pageUrl,
+  ogImageUrl,
+});
+---
+
+<Layout title={pageTitle} description={pageDescription} head={metaHead}>
+  <main>
+    <div class="container trust-page">
+      <h1>Contact</h1>
+
+      <p>Varlock is maintained by <a href="https://dmno.io">DMNO Inc.</a>. Pick the channel that matches what you need; we read all of them.</p>
+
+      <h2>General questions</h2>
+      <p>Email <a href="mailto:hello@varlock.dev">hello@varlock.dev</a>, or join the community on <a href="https://chat.dmno.dev">Discord</a> for quicker, informal help from maintainers and other users.</p>
+
+      <h2>Bugs and feature requests</h2>
+      <p>Open an issue on <a href="https://github.com/dmno-dev/varlock/issues">GitHub</a>. Include your varlock version (<code>varlock --version</code>), your operating system, and a minimal reproduction if you can. Feature ideas and design discussions are welcome in the same tracker.</p>
+
+      <h2>Security reports</h2>
+      <p>Please do not open a public issue for vulnerabilities. Report them privately through <a href="https://github.com/dmno-dev/varlock/security">GitHub private vulnerability reporting</a> or email <a href="mailto:security@varlock.dev">security@varlock.dev</a>. See the <a href="https://github.com/dmno-dev/varlock/blob/main/SECURITY.md">security policy</a> for details and supported versions.</p>
+
+      <h2>Sponsorship and commercial support</h2>
+      <p>Companies that depend on varlock can fund its maintenance and get roadmap input and support commitments through the <a href="/sponsors/">corporate sponsorship program</a>. Email <a href="mailto:sponsor@varlock.dev">sponsor@varlock.dev</a>.</p>
+
+      <h2>For AI agents</h2>
+      <p>Agents and tools should start at <a href="/llms.txt">/llms.txt</a>, search the docs over MCP at <code>https://docs.mcp.varlock.dev/mcp</code>, or load the skills listed in <a href="/.well-known/agent-skills/index.json">/.well-known/agent-skills/index.json</a>.</p>
+    </div>
+  </main>
+</Layout>
+
+<style is:global>
+  .trust-page {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  .trust-page h1 {
+    margin-bottom: 1.5rem;
+  }
+  .trust-page h2 {
+    margin-top: 2rem;
+  }
+  .trust-page p,
+  .trust-page li {
+    line-height: 1.6;
+  }
+</style>

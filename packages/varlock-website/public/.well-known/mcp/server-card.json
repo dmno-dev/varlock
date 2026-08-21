@@ -2,7 +2,9 @@
   "$schema": "https://modelcontextprotocol.io/schemas/2025-03-26/server-card.json",
   "serverInfo": {
     "name": "Varlock docs MCP",
-    "version": "0.0.1"
+    "version": "1.0.0",
+    "description": "Search and read the varlock documentation. No authentication required.",
+    "documentationUrl": "https://varlock.dev/guides/mcp/docs-mcp/"
   },
   "transports": [
     {

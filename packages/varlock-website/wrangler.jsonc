@@ -1,9 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "varlock-website",
+  // The Worker only runs when no static asset matches the request (run_worker_first is off),
+  // so it acts purely as a 404 handler. See src/worker.ts.
+  "main": "src/worker.ts",
   "compatibility_date": "2025-05-06",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "404-page"
   }
 }
