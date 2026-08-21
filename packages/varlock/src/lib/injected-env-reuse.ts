@@ -221,11 +221,13 @@ export function evaluateInjectedEnvReuse(opts: {
     const sourceFullPath = path.resolve(parsedEnv.basePath, source.path);
     let currentContents: string;
     try {
-      // stat-gate before reading - some tools drop FIFOs where env files live (see the
-      // wrangler FIFO handling in the loader) and readFileSync on one would hang forever.
-      // A fresh resolution skips non-regular files too, so re-resolving is the right call.
+      // stat-gate before reading - env sources can legitimately be FIFOs (e.g. 1Password
+      // Environments serves .env files as pipes), and reading one here would have side
+      // effects (the serving process rewrites it) or block forever on a writerless pipe.
+      // A non-regular file's content can't be verified without reading it, so fall back
+      // to a fresh resolution, which reads it once the same way any normal load does.
       if (!fs.statSync(sourceFullPath).isFile()) {
-        return { reuse: false, reason: `source file ${source.path} is no longer a regular file` };
+        return { reuse: false, reason: `source ${source.path} is not a regular file` };
       }
       currentContents = fs.readFileSync(sourceFullPath, 'utf8');
     } catch {
