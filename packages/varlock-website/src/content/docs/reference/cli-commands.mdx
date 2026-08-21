@@ -68,7 +68,7 @@ Several commands share these flags. They behave identically wherever they appear
 **How selectors combine:** every non-negated selector is OR'd together into one inclusion set, regardless of kind: mixing a glob, a `@decorator`, and a `#tag` in the same filter widens that set. Anything matching a negated (`!`) selector is then subtracted from that set, again regardless of kind. If a filter has no non-negated selectors at all, the inclusion set starts as "everything" before negations are subtracted.
 
 ```bash
-varlock load --filter="KEY1,!NOT_THIS,STRIPE_*"  # KEY1 and STRIPE_* keys, except NOT_THIS
+varlock load --filter="DB_HOST,!NOT_THIS,STRIPE_*"  # DB_HOST and STRIPE_* keys, except NOT_THIS
 varlock load --filter="@sensitive"               # only items marked @sensitive
 varlock load --filter="@required"                # only required items
 varlock load --filter="#billing"                 # only items tagged @tag(billing)

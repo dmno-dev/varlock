@@ -57,7 +57,7 @@ STATIC_VALUE_QUOTED="#hashtag" # and are necessary in some cases
 BOOLEAN_VALUE=true
 NUMERIC_VALUE=123.456
 FUNCTION_VALUE=op(op://api-config/item/credential)
-EXPANSION_VALUE=${OTHER_VAR}-suffix
+EXPANSION_VALUE=${DB_HOST}-suffix
 MULTILINE_VALUE="""
 multiple
 lines
@@ -108,7 +108,7 @@ We recommend using the bracket version only when used within a larger string.
 
 ```env-spec /\\$\\{[^\\}]+\\}/ /\\$[A-Z]+/
 WITH_BRACKETS=op(op://${OP_VAULT_NAME}/service/api-key)
-NO_BRACKETS=fallback($OTHERVAR, foo)
+NO_BRACKETS=fallback($CUSTOMDOMAIN, localhost)
 ```
 
 Read more about string expansion in the [@env-spec reference](/env-spec/reference/#expansion).

@@ -81,15 +81,15 @@ The internal coercion/validation process looks like:<br/>
 When no `@type` is specified, a type will be inferred where possible - for static values, and some functions that return a known type. Note that the use of quotes matters. Otherwise the type will default to `string`.
 
 ```env-spec
-INFERRED_STRING_QUOTED="foo"
-INFERRED_STRING_UNQUOTED=foo
+INFERRED_STRING_QUOTED="hello"
+INFERRED_STRING_UNQUOTED=hello
 INFERRED_NUMBER=123     # infers number type
 QUOTED_NUM_STRING="123" # remains a string unless @type=number is used
 INFERRED_BOOLEAN=true
 
 # return type of some functions can be inferred
-CONCAT_INFERS_STRING=`concat-${SOMEVAR}-will-be-string`
-FN_INFER_BOOLEAN=eq($VAR1, $VAR2)
+CONCAT_INFERS_STRING=`concat-${APP_NAME}-will-be-string`
+FN_INFER_BOOLEAN=eq($APP_ENV, $TARGET_ENV)
 DEFAULTS_TO_STRING_FN=fnThatCannotInferType()
 
 # with no other info, we default to string

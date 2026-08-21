@@ -33,11 +33,11 @@ By default, static/dynamic behavior follows sensitivity, like what you are likel
 
 ```env-spec title=".env.schema"
 # @public
-SOMETHING_STATIC=foo       # static by default
+SOMETHING_STATIC=v1.2.3    # static by default
 # @public @dynamic
 SET_AT_BOOT=               # explicitly dynamic
 # @sensitive
-SECRET_BAR=somePluginFn()  # dynamic by default
+SECRET_TOKEN=somePluginFn()  # dynamic by default
 ```
 
 ## Loading dynamic vars in the client

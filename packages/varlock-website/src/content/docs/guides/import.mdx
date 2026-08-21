@@ -91,13 +91,13 @@ By default, all items will be imported, but you can restrict which keys are brou
 - If there is a chain of imports, an item is only imported if every ancestor import includes it (filters intersect)
 
 ```env-spec
-# @import(./.env.imported, pick=[KEY1, KEY2])   # allowlist
+# @import(./.env.imported, pick=[DB_HOST, DB_PORT])   # allowlist
 # @import(./.env.imported, pick=[API_*])        # globs work too
 # @import(./.env.imported, omit=[SECRET])       # denylist
 ```
 
 :::caution[Positional keys are deprecated]
-Older docs and configs list keys as positional args (`@import(./.env.imported, KEY1, KEY2)`). This still works but is deprecated and will warn. Use `pick=[KEY1, KEY2]` instead.
+Older docs and configs list keys as positional args (`@import(./.env.imported, DB_HOST, DB_PORT)`). This still works but is deprecated and will warn. Use `pick=[DB_HOST, DB_PORT]` instead.
 :::
 
 ## Conditional imports

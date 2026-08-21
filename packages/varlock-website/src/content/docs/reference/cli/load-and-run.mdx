@@ -130,8 +130,8 @@ varlock run --filter="STRIPE_*,!STRIPE_DEBUG_KEY" -- node app.js
 :::note[Shell expansion of env vars in commands]
 Because of the way that shell expansion works, you may need to use use `sh -c` to properly expand environment variables in your command _after_ varlock has injected them.
 ```bash
-varlock run -- echo $MY_VAR # ❌ will not work
-varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
+varlock run -- echo $DATABASE_URL # ❌ will not work
+varlock run -- sh -c 'echo $DATABASE_URL' # ✅ will work
 ```
 :::
 
@@ -208,14 +208,14 @@ varlock printenv <VAR_NAME> [options]
 
 **Examples:**
 ```bash
-# Print the resolved value of MY_VAR
-varlock printenv MY_VAR
+# Print the resolved value of DATABASE_URL
+varlock printenv DATABASE_URL
 
 # Use a specific .env file as entry point
-varlock printenv --path .env.prod MY_VAR
+varlock printenv --path .env.prod DATABASE_URL
 
 # Use multiple directories as entry points
-varlock printenv -p ./envs -p ./overrides MY_VAR
+varlock printenv -p ./envs -p ./overrides DATABASE_URL
 
 # Embed in a shell command using subshell expansion
 sh -c 'some-tool --token $(varlock printenv MY_TOKEN)'
@@ -224,13 +224,13 @@ sh -c 'some-tool --token $(varlock printenv MY_TOKEN)'
 varlock printenv --template '{"Authorization": "Bearer {{MY_TOKEN}}"}' --escape json
 ```
 
-:::note[Why not use `varlock run -- echo $MY_VAR`?]
-Shell expansion happens *before* varlock runs, so `$MY_VAR` is substituted by the shell with whatever value it already has (likely empty). `varlock printenv` avoids this by printing the value directly to stdout, letting you capture it with `$(...)` *after* varlock has resolved it.
+:::note[Why not use `varlock run -- echo $DATABASE_URL`?]
+Shell expansion happens *before* varlock runs, so `$DATABASE_URL` is substituted by the shell with whatever value it already has (likely empty). `varlock printenv` avoids this by printing the value directly to stdout, letting you capture it with `$(...)` *after* varlock has resolved it.
 
 ```bash
-varlock run -- echo $MY_VAR         # ❌ shell expands $MY_VAR before varlock runs
-varlock printenv MY_VAR             # ✅ varlock resolves and prints the value
-sh -c 'echo $(varlock printenv MY_VAR)'  # ✅ embed in a larger command
+varlock run -- echo $DATABASE_URL         # ❌ shell expands $DATABASE_URL before varlock runs
+varlock printenv DATABASE_URL             # ✅ varlock resolves and prints the value
+sh -c 'echo $(varlock printenv DATABASE_URL)'  # ✅ embed in a larger command
 ```
 :::
 

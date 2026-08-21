@@ -24,7 +24,7 @@ EXPLICIT_UNDEFINED=undefined
 EMPTY_STRING=""
 UNQUOTED=asdf
 QUOTED="asdf"
-FUNCTION_CALL=fn(foo, "bar")
+FUNCTION_CALL=fallback($PRIMARY_URL, "http://localhost:3000")
 MULTILINE_STRING=```
 multiple
 lines
@@ -46,13 +46,13 @@ Comments in env-spec (like traditional .env files) start with a `#`. Unlike trad
 ```env-spec
    # ❌ leading space makes this invalid
 # this is a regular comment line
-# @dec2 @dec2=foo # this is a decorator comment line
-FOO=val # this is a post-value comment
-BAR=val # @dec # post-value comments may also contain decorators
+# @dec1 @dec2=val # this is a decorator comment line
+DB_HOST=val # this is a post-value comment
+DB_PORT=val # @dec # post-value comments may also contain decorators
 
 # regular comment lines @ignore contained @decorators
 # @dec # as are @decorators within an extra comment after a decorator comment line
-BAZ= # @dec # this is @ignored too
+DB_NAME= # @dec # this is @ignored too
 ```
 
 ### Decorators
@@ -91,10 +91,10 @@ A divider is a comment that serves as a separator, like a `<hr/>` in HTML.
 ```env-spec
 # a divider can be used to visually separate sections
 # ---
-ITEM1=
-ITEM2=
+APP_NAME=
+APP_URL=
 # --- another divider ---
-ITEM3=
+LOG_LEVEL=
 ```
 
 
@@ -108,16 +108,16 @@ Comment lines directly preceding an item will be attached to that item, along wi
 - Post-value comments may also contain decorators, but we recommend using them sparingly
 
 ```env-spec
-# these comments are attached to ITEM1 below
+# these comments are attached to API_URL below
 # @dec1 @dec2 # meaning these decorators will affect the item
 # additional comments can be interspersed with decorators
-ITEM1= # @dec3 # and a post-value comment can be used too
+API_URL= # @dec3 # and a post-value comment can be used too
 
 # not attached due to blank line
 
 # also not attached due to divider
 # ---
-ITEM2=
+API_TIMEOUT=
 ```
 
 
@@ -140,7 +140,7 @@ A comment block is a group of continuous comments that is not attached to a spec
 # and is not attached to an item
 
 # this comment is attached to the item below
-ITEM1=
+APP_NAME=
 
 
 
