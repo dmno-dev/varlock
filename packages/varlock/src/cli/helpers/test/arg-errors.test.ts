@@ -3,9 +3,9 @@ import {
   levenshtein,
   suggestClosest,
   commandPathFromArgs,
-  isArgValidationError,
+  isArgError,
   toCliExitError,
-} from '../validation-errors';
+} from '../arg-errors';
 
 /** Shape of gunshi's unknown-option error (matched structurally, never by instanceof) */
 const unknownOption = (rawName: string, candidates: Array<string>) => ({
@@ -64,11 +64,11 @@ describe('commandPathFromArgs', () => {
   });
 });
 
-describe('isArgValidationError', () => {
+describe('isArgError', () => {
   it('only matches an AggregateError', () => {
-    expect(isArgValidationError(new AggregateError([]))).toBe(true);
-    expect(isArgValidationError(new Error('boom'))).toBe(false);
-    expect(isArgValidationError(undefined)).toBe(false);
+    expect(isArgError(new AggregateError([]))).toBe(true);
+    expect(isArgError(new Error('boom'))).toBe(false);
+    expect(isArgError(undefined)).toBe(false);
   });
 });
 

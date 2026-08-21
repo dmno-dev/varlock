@@ -1,6 +1,9 @@
 import { CliExitError } from './exit-error';
 import { fmt } from './pretty-format';
 
+// Errors about the CLI arguments themselves - unrelated to the env-graph's ValidationError,
+// which is about config item values failing their schema.
+//
 // gunshi reports argument problems (unknown options under `strict`, bad enum/type values,
 // unresolvable subcommands) as an AggregateError of structured errors, and renders them
 // with `ctx.log` - i.e. stdout, which would corrupt the output of commands like
@@ -99,8 +102,8 @@ export function commandPathFromArgs(args: Array<string>) {
   return path;
 }
 
-/** Does this error (or aggregate) come from gunshi's argument validation? */
-export function isArgValidationError(err: unknown): err is AggregateError {
+/** Does this error come from gunshi's argument parsing (unknown flag/command, bad value)? */
+export function isArgError(err: unknown): err is AggregateError {
   return err instanceof AggregateError && Array.isArray(err.errors);
 }
 

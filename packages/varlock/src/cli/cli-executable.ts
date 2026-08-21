@@ -10,7 +10,7 @@ import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
 import { trackCommand, trackInstall } from './helpers/telemetry';
 import { InvalidEnvError } from './helpers/error-checks';
-import { isArgValidationError, toCliExitError } from './helpers/validation-errors';
+import { isArgError, toCliExitError } from './helpers/arg-errors';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import packageJson from '../../package.json';
@@ -159,7 +159,7 @@ subCommands.set('proxy', buildLazyCommand(proxyCommandSpec, async () => await im
     }
     gracefulExit();
   } catch (error) {
-    if (isArgValidationError(error)) {
+    if (isArgError(error)) {
       console.error(toCliExitError(error, process.argv.slice(2)).getFormattedOutput());
     } else if (error instanceof Error && error.message.startsWith('Command not found: ')) {
       const badCommandName = error.message.split(': ')[1];
