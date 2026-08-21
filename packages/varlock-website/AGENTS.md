@@ -1,6 +1,6 @@
 # Docs site conventions
 
-This package is the docs site (Astro + Starlight). Content lives in `src/content/docs/` (`.mdx`) and `src/content/blog/` (`.md`). Navigation is hand-maintained in `src/sidebar.ts`; redirects live in `astro.config.ts`. The same prose rules apply to the agent skills: `skills/varlock/SKILL.md` at the repo root and the skills under `public/.well-known/agent-skills/`.
+This package is the docs site (Astro + Starlight). Content lives in `src/content/docs/` (`.mdx`) and `src/content/blog/` (`.md`). Navigation is hand-maintained in `src/sidebar.ts`; redirects live in `astro.config.ts`. The same prose rules apply to the agent skills (`skills/varlock/SKILL.md` at the repo root and the skills under `public/.well-known/agent-skills/`) and to every user-facing README: the repo root `README.md` and any `packages/*/README.md` that ships to npm.
 
 ## Prose rules
 

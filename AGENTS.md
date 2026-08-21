@@ -63,7 +63,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 
 ## Documentation
 
-Docs content lives in `packages/varlock-website/src/content/docs/` (`.mdx`). Before editing docs prose or any `SKILL.md` (`skills/varlock/SKILL.md`, `packages/varlock-website/public/.well-known/agent-skills/`), read and follow [packages/varlock-website/AGENTS.md](./packages/varlock-website/AGENTS.md). The short version:
+Docs content lives in `packages/varlock-website/src/content/docs/` (`.mdx`). Before editing docs prose, any `SKILL.md` (`skills/varlock/SKILL.md`, `packages/varlock-website/public/.well-known/agent-skills/`), or a user-facing README (root or any published package), read and follow [packages/varlock-website/AGENTS.md](./packages/varlock-website/AGENTS.md). The short version:
 
 - Keep the tone plain and direct, like an engineer wrote it. No em dashes, no marketing or AI-flavored filler.
 - Never edit code fences, `ansi`/`diff` blocks, generated fixtures, frontmatter structure, or MDX component markup for tone. Prose only.

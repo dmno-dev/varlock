@@ -111,7 +111,7 @@ For example, if `APP_ENV=staging`, then `.env.staging` and `.env.staging.local` 
 ## Setup
 
 **Installing varlock:**
-- **JS projects:** Install as a dev dependency: `npm install -D varlock` (or `bun add -D varlock`, `pnpm add -D varlock`)
+- **JS projects:** Install as a regular dependency (not a dev dependency; varlock runs at boot, including in production): `npm install varlock` (or `bun add varlock`, `pnpm add varlock`)
 - **Standalone binary (non-JS or global use):** See https://varlock.dev/getting-started/installation/
 
 **Getting started:**
