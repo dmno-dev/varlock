@@ -15,7 +15,7 @@ The file is regenerated automatically on [`varlock load`](/reference/cli/load-an
 
 ## Reading values
 
-Call `load_env()` once, then read keys off the dict. Values are coerced (`int`/`bool`/etc.), not raw strings:
+Call `load_env()` once, then read keys off the dict. Values are coerced (`int`, `bool`, and the other [data types](/reference/data-types/)), not raw strings:
 
 ```python
 from env import load_env, SENSITIVE_KEYS
@@ -32,7 +32,7 @@ safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in env.items()}
 varlock run -- python main.py
 ```
 
-`load_env()` raises a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`). Optional keys that are unset are absent from the dict (`NotRequired`), not present as `None`.
+`load_env()` raises a clear error if `__VARLOCK_ENV` is missing (for example, you forgot `varlock run`). Optional keys that are unset are absent from the dict (`NotRequired`), not present as `None`.
 
 ## Sharing one instance
 
@@ -68,7 +68,7 @@ Environment variables in the command itself are expanded by your shell **before*
 
 ## Using a settings library
 
-If you'd rather keep the settings library you already use, every key is also injected as a plain environment variable, so [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/), [environs](https://github.com/sloria/environs), and friends work unchanged. They read the **raw string** values (e.g. `"5432"`, `"true"`), so your settings class is what coerces them:
+If you'd rather keep the settings library you already use, every key is also injected as a plain environment variable, so [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/), [environs](https://github.com/sloria/environs), and friends work unchanged. They read the **raw string** values (for example `"5432"`, `"true"`), so your settings class is what coerces them:
 
 ```python title="settings.py"
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -96,7 +96,7 @@ DEBUG = env.bool("DEBUG", default=False)
 ```
 
 :::note[Skip `.env` file loading in Python]
-When using varlock, don't also load `.env` from Python (`python-dotenv`, Pydantic's `env_file=`, etc.) unless you intentionally want a second source of truth. Varlock is the single resolver: your schema, plugins, and environment files all flow through it before Python starts.
+When using varlock, don't also load `.env` from Python (`python-dotenv`, Pydantic's `env_file=`, or any other dotenv loader) unless you intentionally want a second source of truth. Varlock is the single resolver: your schema, plugins, and environment files all flow through it before Python starts.
 :::
 
 :::note

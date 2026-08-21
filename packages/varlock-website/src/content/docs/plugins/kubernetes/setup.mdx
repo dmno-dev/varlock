@@ -9,7 +9,7 @@ import Badge from '@/components/Badge.astro';
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/kubernetes-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -30,7 +30,7 @@ The plugin tries authentication methods in this priority order:
 
 ### Automatic authentication (Recommended for local dev)
 
-For local development, just initialize the plugin and the plugin will pick up your default kubeconfig automatically:
+For local development, initialize the plugin and it will pick up your default kubeconfig automatically:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/kubernetes-plugin)
@@ -73,7 +73,7 @@ If you don't want to rely on a kubeconfig file (for example, in CI/CD or other d
 3. **Set your credentials in deployed environments**. Use your platform's env var management UI to securely inject the bearer token.
 </Steps>
 
-For clusters that present self-signed or custom-CA certificates, you can disable TLS verification by adding `skipTlsVerify=true` to `@initKubernetes()`. This should generally be avoided outside of development.
+For clusters that present self-signed or custom-CA certificates, you can disable TLS verification by adding `skipTlsVerify=true` to `@initKubernetes()`. We recommend avoiding this outside of development.
 
 ### Raw kubeconfig
 

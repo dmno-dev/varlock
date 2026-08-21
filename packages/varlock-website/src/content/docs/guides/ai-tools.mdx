@@ -60,7 +60,7 @@ See the [tool-specific guides](#ai-cli-tool-guides) below for setup details.
 Popular AI coding CLIs differ in which env vars they need and how they authenticate. Varlock supports two patterns:
 
 - **Project setup**: define secrets in the repo's `.env.schema` (steps 1-2 above) and run `varlock run -- <tool>` from the project directory.
-- **Personal setup**: keep a schema in your home directory (for example `~/.env.claude`) and pass it with [`-p`](/reference/cli/load-and-run/#run) when launching a tool from any directory (usually using an alias).
+- **Personal setup**: keep a schema in your home directory (for example `~/.env.claude`) and pass it with [`-p`](/reference/cli/load-and-run/#run) when launching a tool from any directory (for example via a shell alias).
 
 Varlock does not auto-load a global schema (that would make two developers' machines behave differently for the same repo).
 

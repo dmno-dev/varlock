@@ -8,7 +8,7 @@ description: Wire MXC through varlock proxy on Windows
 [Microsoft eXecution Containers (MXC)](https://github.com/microsoft/mxc) is an open-source (MIT), policy-driven sandbox SDK. On Windows 11 24H2+ its default backend is `processcontainer` (AppContainer-style process isolation). It does **not** broker credentials; it can force outbound HTTP(S) through a localhost proxy, which is the hook for varlock.
 
 :::caution[Preview]
-MXC is an early public preview. Microsoft documents that some generated policies are still overly permissive and should not be treated as a hard security boundary yet. Pair it with varlock for credential isolation, and keep tightening MXC filesystem policy as the project matures.
+MXC is an early public preview. Microsoft documents that some generated policies are still overly permissive and are not yet a hard security boundary. Pair it with varlock for credential isolation, and keep tightening MXC filesystem policy as the project matures.
 :::
 
 ### Install

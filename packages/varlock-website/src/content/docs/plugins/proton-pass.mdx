@@ -25,7 +25,7 @@ It shells out to the official Proton Pass CLI (`pass-cli`) to resolve secret ref
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/proton-pass-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
@@ -41,7 +41,7 @@ See: [Proton Pass CLI overview](https://protonpass.github.io/pass-cli/).
 
 ### Configure the plugin
 
-In production/CI you typically want a fully non-interactive login. The plugin supports two
+In production/CI, use a fully non-interactive login. The plugin supports two
 authentication methods: a **personal access token** (recommended) or a **username + password**.
 
 :::note[Login credentials are `@internal` by default]
@@ -116,7 +116,7 @@ The password/TOTP/extra password are provided to the CLI via environment variabl
 [login command](https://protonpass.github.io/pass-cli/commands/login/).
 
 :::tip[Already logged in?]
-If `pass-cli` is already logged in, you can also omit credentials and just rely on the existing session.
+If `pass-cli` is already logged in, you can also omit credentials and rely on the existing session.
 
 This mostly applies to local development, in CI, you will probably want static credentials.
 :::

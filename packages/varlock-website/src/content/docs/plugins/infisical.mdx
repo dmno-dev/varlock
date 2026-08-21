@@ -19,7 +19,7 @@ The plugin uses machine identities with Universal Auth or [OIDC workload identit
 - **Fetch secrets** from Infisical projects and environments
 - **Bulk-load secrets** with `infisicalBulk()` via `@setValuesBulk`
 - **Universal Auth** with Client ID and Client Secret
-- **[OIDC authentication](/guides/oidc/)**: Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
+- **[OIDC authentication](/guides/oidc/)**: Authenticate using platform OIDC tokens (such as Vercel and GitHub Actions)
 - **Support for self-hosted** Infisical instances
 - **Secret paths** for hierarchical organization
 - **Filter by tag** to load only matching secrets
@@ -31,7 +31,7 @@ The plugin uses machine identities with Universal Auth or [OIDC workload identit
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/infisical-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -189,7 +189,7 @@ RESEND_API_KEY=fallback(infisical(allowMissing=true), undefined)
 SOME_OPTIONAL_KEY=fallback(infisical(allowMissing=true), "")
 ```
 
-You can also set `allowMissing` on `@initInfisical()` to apply it to all `infisical()` calls for that instance. It can be a dynamic value, e.g. `forEnv(development)` to only allow missing secrets in dev:
+You can also set `allowMissing` on `@initInfisical()` to apply it to all `infisical()` calls for that instance. It can be a dynamic value, for example `forEnv(development)` to only allow missing secrets in dev:
 
 ```env-spec title=".env.schema"
 # @initInfisical(projectId=my-project, environment=dev, clientId=$ID, clientSecret=$SECRET, allowMissing=forEnv(development))
@@ -267,15 +267,15 @@ Initialize an Infisical plugin instance for accessing secrets.
 
 **Key/value args:**
 - `projectId` (required): Infisical project ID
-- `environment` (required): Environment name (e.g., `dev`, `staging`, `production`)
-- `clientId` (required): Universal Auth Client ID. Should be a reference to a config item of type `infisicalClientId`.
-- `clientSecret` (required): Universal Auth Client Secret. Should be a reference to a config item of type `infisicalClientSecret`.
+- `environment` (required): Environment name (for example `dev`, `staging`, `production`)
+- `clientId` (required): Universal Auth Client ID. Reference a config item of type `infisicalClientId`.
+- `clientSecret` (required): Universal Auth Client Secret. Reference a config item of type `infisicalClientSecret`.
 - `siteUrl` (optional): Custom Infisical instance URL (defaults to `https://app.infisical.com`)
 - `identityId` (optional): Machine identity ID for OIDC authentication (alternative to `clientId`/`clientSecret`)
 - `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `secretPath` (optional): Default secret path for all secrets (defaults to `/`)
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
-- `allowMissing` (optional): if `true`, missing secrets return `undefined` instead of throwing. Can be a dynamic value (e.g. `allowMissing=forEnv(development)`). Other errors (auth failures, permission errors, etc.) still throw.
+- `cacheTtl` (optional): cache resolved values for the specified duration (for example `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `allowMissing` (optional): if `true`, missing secrets return `undefined` instead of throwing. Can be a dynamic value (for example `allowMissing=forEnv(development)`). Other errors (such as auth failures and permission errors) still throw.
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initInfisical"
@@ -337,7 +337,7 @@ Fetch a secret from Infisical.
 - `secretPath` (optional): path to the secret (overrides default path)
 
 **Key/value args:**
-- `allowMissing` (optional): if `true`, returns `undefined` instead of throwing when the secret is not found. Can be a dynamic value (e.g. `allowMissing=forEnv(development)`). Useful with `fallback()` to provide a default value. Other errors still throw.
+- `allowMissing` (optional): if `true`, returns `undefined` instead of throwing when the secret is not found. Can be a dynamic value (for example `allowMissing=forEnv(development)`). Useful with `fallback()` to provide a default value. Other errors still throw.
 
 ```env-spec /infisical\\(.*\\)/
 # Auto-infer secret name from variable

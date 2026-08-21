@@ -17,9 +17,9 @@ The plugin uses Akeyless's REST API with API Key or [OIDC](/guides/oidc/) authen
 ## Features
 
 - **API Key authentication** - Simple Access ID + Access Key authentication
-- **[OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
+- **[OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (such as Vercel and GitHub Actions)
 - **Static secrets** - Fetch key/value secrets
-- **Dynamic secrets** - Fetch on-demand generated credentials (database, cloud, etc.)
+- **Dynamic secrets** - Fetch on-demand generated credentials (such as database and cloud credentials)
 - **Rotated secrets** - Fetch auto-rotated credentials
 - **JSON key extraction** from secrets using `#` syntax or named `key` parameter
 - **Path prefixing** with `pathPrefix` option for organized secret management
@@ -34,7 +34,7 @@ For global cache mode behavior and CLI cache controls, see the [Caching guide](/
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/akeyless-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -147,7 +147,7 @@ API_KEY=akeyless()
 
 ### Dynamic secrets
 
-Dynamic secrets generate on-demand credentials (e.g., temporary database credentials, cloud access tokens). Use the `type=dynamic` parameter:
+Dynamic secrets generate on-demand credentials (for example temporary database credentials or cloud access tokens). Use the `type=dynamic` parameter:
 
 ```env-spec title=".env.schema"
 # Fetch entire dynamic secret as JSON
@@ -231,7 +231,7 @@ Initialize an Akeyless plugin instance.
 - `apiUrl` (optional): Akeyless API URL (defaults to `https://api.akeyless.io`). Use this for self-hosted Akeyless Gateway.
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/). Only `static` secrets are cached. `dynamic` and `rotated` secrets change per fetch and are never cached.
+- `cacheTtl` (optional): cache resolved values for the specified duration (for example `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/). Only `static` secrets are cached. `dynamic` and `rotated` secrets change per fetch and are never cached.
 
 ```env-spec "@initAkeyless"
 # @initAkeyless(accessId=$AKEYLESS_ACCESS_ID, accessKey=$AKEYLESS_ACCESS_KEY, pathPrefix="/MyApp")
@@ -275,7 +275,7 @@ Fetch a secret from Akeyless Platform.
 
 **Array args:**
 - `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
-- `secretName` (optional): full path to the secret, optionally with `#KEY` to extract a JSON key (e.g., `"/MyApp/Secret#username"`). If omitted, uses the item key (variable name) as the secret name.
+- `secretName` (optional): full path to the secret, optionally with `#KEY` to extract a JSON key (for example `"/MyApp/Secret#username"`). If omitted, uses the item key (variable name) as the secret name.
 
 **Named args:**
 - `type` (optional): secret type, one of `static` (default), `dynamic`, or `rotated`
@@ -283,7 +283,7 @@ Fetch a secret from Akeyless Platform.
 
 **Secret types:**
 - `static`: Simple key/value secrets (default). If the value is JSON, use `#KEY` or `key=` to extract individual keys.
-- `dynamic`: On-demand generated credentials (database, cloud, etc.). Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
+- `dynamic`: On-demand generated credentials (such as database and cloud credentials). Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
 - `rotated`: Auto-rotated credentials managed by Akeyless. Returns JSON by default, or extract a specific key with `#KEY` or `key=`.
 
 **Caching:** Multiple items referencing the same secret path (and type) share a single API call. This is especially useful for dynamic and rotated secrets where you need to extract multiple keys from the same response.
@@ -320,7 +320,7 @@ PROD_SECRET=akeyless(prod, "/MyApp/Secret")
 
 ### Secret not found
 - Verify the secret exists in the Akeyless Console
-- Check the full secret path (e.g., `/MyFolder/MySecret`)
+- Check the full secret path (for example `/MyFolder/MySecret`)
 - Ensure the path starts with `/`
 - If using `pathPrefix`, check the combined path is correct
 

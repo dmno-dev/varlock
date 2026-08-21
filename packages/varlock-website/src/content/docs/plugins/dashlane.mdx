@@ -16,7 +16,7 @@ It shells out to the official Dashlane CLI (`dcli`) to resolve secret references
 
 ## Features
 
-- **Secret references via `dl://` URIs** (e.g. `dl://<id>/password`)
+- **Secret references via `dl://` URIs** (for example `dl://<id>/password`)
 - **Headless CI/CD support** via service device keys for non-interactive authentication
 - **Optional vault sync** before reads with `autoSync`
 - **Automatic vault locking** on process exit in headless mode (configurable via `lockOnExit`)
@@ -27,7 +27,7 @@ It shells out to the official Dashlane CLI (`dcli`) to resolve secret references
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/dashlane-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
@@ -44,7 +44,7 @@ The plugin does **not** fail at load time if `dcli` is not installed. It only fa
 
 The plugin supports two authentication modes:
 
-**Interactive (local dev):** If you are already logged into `dcli`, just initialize without credentials:
+**Interactive (local dev):** If you are already logged into `dcli`, initialize without credentials:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/dashlane-plugin)
@@ -62,7 +62,7 @@ The plugin supports two authentication modes:
 DASHLANE_SERVICE_DEVICE_KEYS=
 ```
 
-In headless mode (when `serviceDeviceKeys` is provided), the plugin automatically locks the vault when the process exits. This is best-effort and may not run in all exit scenarios (e.g. `SIGKILL`). You can control this behavior with the `lockOnExit` param.
+In headless mode (when `serviceDeviceKeys` is provided), the plugin automatically locks the vault when the process exits. This is best-effort and may not run in all exit scenarios (for example `SIGKILL`). You can control this behavior with the `lockOnExit` param.
 
 :::caution[Lock your vault]
 In interactive mode, the vault is **not** locked automatically on exit (to avoid requiring master password re-entry during live-reload). Always run `dcli lock` when you are done working. You can override this by setting `lockOnExit=true`.
@@ -77,7 +77,7 @@ The plugin does not sync the vault by default. To run `dcli sync` once before th
 # @initDashlane(serviceDeviceKeys=$DASHLANE_SERVICE_DEVICE_KEYS, autoSync=true)
 ```
 
-Sync failures are non-blocking. If the sync fails (e.g. network issues), the plugin still reads from the existing local vault.
+Sync failures are non-blocking. If the sync fails (for example network issues), the plugin still reads from the existing local vault.
 
 ### Multiple instances
 
@@ -208,7 +208,7 @@ OPTIONAL_TOKEN=dashlane("dl://abc123/token", allowMissing=true)
 ### Entry not found
 - Verify the entry exists: `dcli password -o json | jq '.[].title'`
 - Use the entry ID for reliable lookups: `dashlane("dl://<id>/password")`
-- Set `allowMissing=true` (per item or in `@initDashlane`) if a missing entry should resolve as empty instead of failing
+- Set `allowMissing=true` (per item or in `@initDashlane`) to make a missing entry resolve as empty instead of failing
 
 ### Vault locked or not synced
 - Run `dcli sync` to sync your vault

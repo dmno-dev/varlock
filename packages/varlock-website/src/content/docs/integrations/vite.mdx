@@ -21,7 +21,7 @@ This plugin does a few things:
 - Within SSR contexts, injecting additional initialization code and enabling additional [security features](https://varlock.dev/guides/secrets/#security-enhancements)
 
 :::note[Astro users]
-For [Astro](https://astro.build) - which is also powered by Vite - you should use our [Astro integration](/integrations/astro/).
+For [Astro](https://astro.build), which is also powered by Vite, use our [Astro integration](/integrations/astro/).
 ::::
 
 :::note[SvelteKit users]
@@ -85,7 +85,7 @@ By default, varlock loads `.env` files from the current working directory. If yo
 This works for all varlock commands and integrations, not just Vite. The `loadPath` can point to a directory (trailing `/` recommended) or a specific `.env` file. The varlock CLI `--path` flag overrides this setting when provided. Varlock looks for this config in the `package.json` in the current working directory only; it does not walk up to parent directories.
 
 :::tip[Directory vs file path]
-Point `loadPath` to a **directory** if you want varlock to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.). Pointing to a specific file will only load that file and anything it explicitly imports via `@import`.
+Point `loadPath` to a **directory** if you want varlock to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, and environment-specific files). Pointing to a specific file will only load that file and anything it explicitly imports via `@import`.
 :::
 
 ### Loading from multiple directories
@@ -124,7 +124,7 @@ varlockVitePlugin({ ssrInjectMode: 'auto-load' })
 Otherwise defaulting to `init-only`.
 
 :::caution[Don't use `resolved-env` on Cloudflare builds]
-On Cloudflare Workers, production env is injected at runtime from bindings via [`varlock-wrangler`](/integrations/cloudflare/) — not baked into the bundle. If Cloudflare is detected (via `@varlock/cloudflare-integration` or SvelteKit's `@sveltejs/adapter-cloudflare`) and `ssrInjectMode` is explicitly set to `'resolved-env'` for a production build, the plugin throws rather than silently shipping resolved (and possibly sensitive) values into the worker artifact for no reason. This only applies to builds — some adapters (e.g. Astro's `@astrojs/cloudflare`) run SSR in workerd during their own dev server with no binding-injection hook available, so `resolved-env` is still used there by default.
+On Cloudflare Workers, production env is injected at runtime from bindings via [`varlock-wrangler`](/integrations/cloudflare/), not baked into the bundle. If Cloudflare is detected (via `@varlock/cloudflare-integration` or SvelteKit's `@sveltejs/adapter-cloudflare`) and `ssrInjectMode` is explicitly set to `'resolved-env'` for a production build, the plugin throws rather than silently shipping resolved (and possibly sensitive) values into the worker artifact for no reason. This only applies to builds. Some adapters (for example Astro's `@astrojs/cloudflare`) run SSR in workerd during their own dev server with no binding-injection hook available, so `resolved-env` is still used there by default.
 :::
 
 
@@ -140,7 +140,7 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 ```
 
 #### Why use `ENV` instead of `import.meta.env`?
-- Non-string values (e.g., number, boolean) are properly typed and coerced
+- Non-string values (for example number, boolean) are properly typed and coerced
 - All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
@@ -159,7 +159,7 @@ export default defineConfig({ /* ... */ });
 ```
 
 :::caution[TypeScript config]
-If you find you are not getting type completion on `ENV`, you may need to add your vite config and generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+If you find you are not getting type completion on `ENV`, you may need to add your vite config and generated type files (`env.d.ts` by default) to your `tsconfig.json`'s `include` array.
 :::
 
 ### Within HTML templates
@@ -196,7 +196,7 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 
 ## Managing multiple environments
 
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
+Varlock can load multiple _environment-specific_ `.env` files (for example `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Vite's default behaviour, which relies on its own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
 
 Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it by overriding the value when running commands - for example `APP_ENV=production vite build`. For a JavaScript based project, this will often be done in your `package.json` scripts.
 
@@ -249,11 +249,11 @@ All non-sensitive items are bundled at build time via `ENV`, while `import.meta.
 
 ## Encrypting the env blob
 
-When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When using `ssrInjectMode: 'resolved-env'`, Varlock injects the fully resolved env data into your SSR build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (for example against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 
 ## Dynamic+public config
 
-Use `@dynamic` for public values that should not be inlined into client bundles:
+Use `@dynamic` for public values that must not be inlined into client bundles:
 
 ```env-spec title=".env.schema"
 VITE_STATIC_FLAG=enabled  # @public

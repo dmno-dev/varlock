@@ -25,7 +25,7 @@ Encryption key used to decrypt the injected env blob at runtime. Typically set i
 
 ### `_VARLOCK_CACHE_KEY`
 
-Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secret), it enables the disk cache in environments without OS keychain access. See [Caching](/guides/caching/).
+Encryption key for the on-disk resolved-value cache. When set (for example as a CI secret), it enables the disk cache in environments without OS keychain access. See [Caching](/guides/caching/).
 
 ### `_VARLOCK_REDACT_STDOUT`
 
@@ -34,11 +34,11 @@ Overrides [`varlock run`](/reference/cli/load-and-run/#run) output redaction:
 - `true` / `1`: force redaction on (only applies to piped/redirected output; errors if attached to an interactive terminal)
 - `false` / `0`: disable redaction entirely
 
-The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run, for example in a wrapper script or CI config.
+The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't change the command being run, for example in a wrapper script or CI config.
 
 ### `_VARLOCK_FILTER`
 
-Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on [`varlock load`](/reference/cli/load-and-run/#load) / [`varlock run`](/reference/cli/load-and-run/#run). An explicit `--filter` flag takes precedence over this env var. Useful when you can't easily pass a CLI flag, for example a wrapper script, CI config, or a build-time integration that invokes varlock's loading APIs directly.
+Fallback for the [`--filter`](/reference/cli-commands/#filtering-items) flag on [`varlock load`](/reference/cli/load-and-run/#load) / [`varlock run`](/reference/cli/load-and-run/#run). An explicit `--filter` flag takes precedence over this env var. Useful when you can't pass a CLI flag, for example a wrapper script, CI config, or a build-time integration that invokes varlock's loading APIs directly.
 
 ```bash
 _VARLOCK_FILTER="#billing" varlock load --format json
@@ -50,14 +50,14 @@ Set to `warn` to downgrade the build/prerender-time guard on [public+dynamic](/g
 
 ### `_VARLOCK_THROW_ON_LOAD_ERROR`
 
-When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporting-load-failures) throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it via its `uncaughtException` handler. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior. See [Reporting load failures](/integrations/javascript/#reporting-load-failures).
+When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporting-load-failures) throws the error on a load failure instead of exiting, so an already-initialized error tracker (for example Sentry) can capture it via its `uncaughtException` handler. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior. See [Reporting load failures](/integrations/javascript/#reporting-load-failures).
 
 ### `_VARLOCK_USE_INJECTED_ENV`
 
-Controls whether [`varlock/auto-load`](/integrations/javascript/#reusing-an-injected-env-blob) and [`varlock run`](/reference/cli/load-and-run/#run) reuse an already-injected [`__VARLOCK_ENV`](#__varlock_env) blob (e.g. from a parent `varlock run`) instead of re-resolving:
+Controls whether [`varlock/auto-load`](/integrations/javascript/#reusing-an-injected-env-blob) and [`varlock run`](/reference/cli/load-and-run/#run) reuse an already-injected [`__VARLOCK_ENV`](#__varlock_env) blob (for example from a parent `varlock run`) instead of re-resolving:
 
 - unset (default): reuse the blob only when it was resolved in the same directory the consumer would resolve in, and nothing relevant has changed since
-- `1` / `true`: always trust the blob, skipping the directory check. Use this to hand a blob into an environment with no `.env` files (e.g. a sandbox): auto-load hydrates a Node app from it, and `varlock run` injects its values into any child command. Missing or unusable blobs are hard errors.
+- `1` / `true`: always trust the blob, skipping the directory check. Use this to hand a blob into an environment with no `.env` files (for example a sandbox): auto-load hydrates a Node app from it, and `varlock run` injects its values into any child command. Missing or unusable blobs are hard errors.
 - `0` / `false`: always re-resolve
 
 Values are matched case-insensitively; any other value is ignored (same as unset). `varlock run` flags that change what a resolution produces (`--path`, `--filter`, `--clear-cache`, `--skip-cache`, `--include-internal`) disable reuse, and are rejected when combined with `1`.
@@ -74,7 +74,7 @@ See [Reusing an injected env blob](/integrations/javascript/#reusing-an-injected
 
 ## Internal variables (`__VARLOCK_*`)
 
-These are injected automatically so that varlock state survives across process boundaries. You should never set them yourself. They're documented here only so you recognize them if you see them in a process environment.
+These are injected automatically so that varlock state survives across process boundaries. Never set them yourself. They're documented here only so you recognize them if you see them in a process environment.
 
 ### `__VARLOCK_ENV`
 
@@ -86,4 +86,4 @@ A marker set so a child process can detect that it is running under `varlock run
 
 ### `__VARLOCK_EXECUTION_PHASE`
 
-Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the runtime can detect app code executing during build/prerender and apply the [public+dynamic access guard](/guides/dynamic-config/#prerenderbuild-guardrails).
+Set to `build` by build-time integrations (for example the Vite plugin during `vite build`) so the runtime can detect app code executing during build/prerender and apply the [public+dynamic access guard](/guides/dynamic-config/#prerenderbuild-guardrails).

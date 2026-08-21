@@ -12,7 +12,7 @@ import Badge from '@/components/Badge.astro';
 
 Our [KeePass](https://keepass.info/) plugin enables loading secrets from KDBX 4.0 database files using declarative instructions within your `.env` files.
 
-It supports two modes of operation: **file mode** (default) reads `.kdbx` files directly using a pure WASM implementation, and **CLI mode** uses `keepassxc-cli` for development workflows with system-level key management (YubiKey, Windows Hello, etc.).
+It supports two modes of operation: **file mode** (default) reads `.kdbx` files directly using a pure WASM implementation, and **CLI mode** uses `keepassxc-cli` for development workflows with system-level key management (such as YubiKey or Windows Hello).
 
 ## Features
 
@@ -28,7 +28,7 @@ It supports two modes of operation: **file mode** (default) reads `.kdbx` files 
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/keepass-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -200,9 +200,9 @@ Initialize a KeePass plugin instance for accessing secrets from a KDBX database.
 
 **Key/value args:**
 - `dbPath` **(required)**: Path to the `.kdbx` database file
-- `password` **(required)**: Master password (typically from an env var like `$KP_PASSWORD`)
+- `password` **(required)**: Master password (for example from an env var like `$KP_PASSWORD`)
 - `keyFile` (optional): Path to a key file for additional authentication
-- `useCli` (optional): Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, e.g. `useCli=forEnv(dev)`
+- `useCli` (optional): Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, for example `useCli=forEnv(dev)`
 - `id` (optional): Instance identifier for multiple databases
 
 The database is opened the first time a `kp()` or `kpBulk()` resolver runs, not when the schema loads. An instance that nothing reads from will not fail, even if `password` is empty or `dbPath` does not exist.

@@ -24,14 +24,14 @@ The plugin supports multiple authentication methods including explicit tokens, A
 - **JSON key extraction** from secrets using `#` syntax or named `key` parameter
 - **Path prefixing** with `pathPrefix` option for organized secret management
 - **Default path** support for sharing a common secret path across items
-- **[JWT/OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
+- **[JWT/OIDC authentication](/guides/oidc/)** - Authenticate using platform OIDC tokens (such as Vercel and GitHub Actions)
 - Support for Vault Enterprise namespaces
 - Support for multiple Vault instances
 
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/hashicorp-vault-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -52,7 +52,7 @@ The plugin tries authentication methods in this priority order:
 
 ### Automatic authentication (Recommended for local dev)
 
-For local development, just provide the Vault URL - the plugin will pick up your CLI token automatically:
+For local development, provide the Vault URL and the plugin will pick up your CLI token automatically:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/hashicorp-vault-plugin)
@@ -374,7 +374,7 @@ vault kv put secret/myapp/config \
 Initialize a HashiCorp Vault / OpenBao plugin instance.
 
 **Key/value args:**
-- `url` (required): Vault server URL (e.g., `https://vault.example.com:8200`)
+- `url` (required): Vault server URL (for example `https://vault.example.com:8200`)
 - `token` (optional): Explicit Vault authentication token
 - `roleId` (optional): AppRole role ID for automated authentication
 - `secretId` (optional): AppRole secret ID for automated authentication
@@ -385,7 +385,7 @@ Initialize a HashiCorp Vault / OpenBao plugin instance.
 - `defaultPath` (optional): Default secret path when no path argument is given to `vaultSecret()`
 - `pathPrefix` (optional): Prefix automatically prepended to all secret paths
 - `id` (optional): Instance identifier for multiple instances
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `cacheTtl` (optional): cache resolved values for the specified duration (for example `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initHcpVault"
 # @initHcpVault(url="https://vault.example.com:8200", defaultPath=secret/myapp/config)
@@ -484,7 +484,7 @@ If you use `@type=vaultToken`, also set `@internal=false` so the value is inject
 
 ### Secret not found
 - Verify the secret exists: `vault kv get secret/myapp/config`
-- Check the mount point is correct (first path segment, typically `secret`)
+- Check the mount point is correct (first path segment, `secret` for the default KV mount)
 - Ensure you're using KV v2, not KV v1 (different API format)
 
 ### Permission denied

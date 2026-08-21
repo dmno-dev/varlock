@@ -14,7 +14,7 @@ The extension is available on the [VS Code Marketplace](https://marketplace.visu
 - Syntax highlighting
 - IntelliSense for decorators, `@type` values, type options, resolver functions, and `$KEY` references
 - Enum value completion for item values below `@type=enum(...)`
-- Inline validation for invalid enum values, incompatible decorators, and obvious static `@type` mismatches
+- Inline validation for invalid enum values, incompatible decorators, and static `@type` mismatches
 - Hover info for common @decorators
 - Comment continuation - automatically continue comment blocks when you hit enter within one
 
@@ -64,10 +64,10 @@ Autocomplete filters out incompatible decorators like `@required` and `@optional
 
 ### Inline validation
 
-The extension also highlights obvious static validation issues, such as invalid enum values or incorrect `prependHttps` URL usage.
+The extension also highlights static validation issues, such as invalid enum values or incorrect `prependHttps` URL usage.
 
 ![Inline validation](/env-spec-vscode/prepend_https.gif)
 
 ## How to use this extension
 
-The new @env-spec language mode should be enabled automatically for any .env and .env.* files, but you can always set it via the Language Mode selector in the bottom right of your editor.
+The new @env-spec language mode is enabled automatically for any .env and .env.* files, but you can always set it via the Language Mode selector in the bottom right of your editor.

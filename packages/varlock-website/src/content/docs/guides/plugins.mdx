@@ -43,7 +43,7 @@ You can optionally add a version specifier to validate that the installed versio
 
 ### Standalone binary
 
-When using the standalone binary (no `package.json` present), you must specify a **fixed version number** (e.g., `1.2.3`). Semver ranges are not supported in this mode. Varlock will automatically download and cache the plugin from npm.
+When using the standalone binary (no `package.json` present), you must specify a **fixed version number** (for example `1.2.3`). Semver ranges are not supported in this mode. Varlock will automatically download and cache the plugin from npm.
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/a-plugin@1.2.3) # downloads and caches v1.2.3 from npm
@@ -81,7 +81,7 @@ No specific namespacing or prefixes are enforced, and any naming conflicts will 
 ## Initialization
 Plugins are initialized using custom root decorators that they introduce. In some cases, no specific initialization is needed, and in others, you may need to initialize multiple instances of a plugin with different options, referred to by some identifier. How (or if) a plugin needs to be initialized depends on the specific plugin and can depend on the the external service's data/auth model.
 
-A plugin initialization root decorator is used to set IDs, toggle features, and wire up auth. Note that sensitive data should be passed in via references to config items within your schema.
+A plugin initialization root decorator is used to set IDs, toggle features, and wire up auth. Note that sensitive data must be passed in via references to config items within your schema.
 
 ```env-spec title="Plugin initialization example" "@initOp"
 # @initOp(account=acmeco, token=$OP_TOKEN, allowAppAuth=forEnv(dev))
@@ -92,7 +92,7 @@ OP_TOKEN=
 
 
 ### Multiple plugin instances
-In secret storage tools, you should segment your data to follow the [_principle of least privilege_](https://en.wikipedia.org/wiki/Principle_of_least_privilege), so that different environments/services/devs only have access to the minimal secrets they need. At the very least, this usually means splitting your extra sensitive prod secrets from everything else, but it can be as fine-grained as needed.
+In secret storage tools, we recommend segmenting your data to follow the [_principle of least privilege_](https://en.wikipedia.org/wiki/Principle_of_least_privilege), so that different environments/services/devs only have access to the minimal secrets they need. At the very least, this means splitting your extra sensitive prod secrets from everything else, but it can be as fine-grained as needed.
 
 We cannot always assume that you won't need access to multiple segments at the same time. In these cases, a plugin may be designed to be initialized multiple times with some kind of id parameter. Resolver functions and decorators can then accept an additional parameter to specify which instance to use.
 
@@ -123,7 +123,7 @@ Please refer to the specific plugin's documentation for details on usage.
 
 ## Plugin caching
 
-Plugins can use varlock's built-in [cache](/guides/caching/) to avoid repeated API calls or hold short-lived tokens. Caching is opt-in - it is only active when the user enables it (typically via a `cacheTtl` init option) and the global cache mode allows it.
+Plugins can use varlock's built-in [cache](/guides/caching/) to avoid repeated API calls or hold short-lived tokens. Caching is opt-in: it is only active when the user enables it (via a `cacheTtl` init option, in most plugins) and the global cache mode allows it.
 
 Plugin authors get a scoped cache accessor on the plugin instance:
 

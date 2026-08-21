@@ -39,7 +39,7 @@ You can configure varlock's default behavior by adding a `varlock` key to your `
 
 | Option | Description |
 |--------|-------------|
-| `loadPath` | Path (or array of paths) to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.); a file path only loads that file and its explicit imports. When an array is provided, all paths are loaded and combined, with later entries taking higher precedence. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
+| `loadPath` | Path (or array of paths) to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, and environment-specific files); a file path only loads that file and its explicit imports. When an array is provided, all paths are loaded and combined, with later entries taking higher precedence. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
 
 
 :::note[Plugins]
@@ -51,7 +51,7 @@ While plugins cannot add additional CLI commands, they can extend varlock with a
 Several commands share these flags. They behave identically wherever they appear, except where a command's own section calls out a deviation.
 
 - `--path` / `-p` `<path>`: Path to a specific `.env` file or directory to use as the entry point (overrides `varlock.loadPath` in `package.json`). Can be specified multiple times to load from multiple paths, where later paths take higher precedence. _(For [`scan`](/reference/cli/project/#scan) and [`audit`](/reference/cli/encryption/#audit) this is the **schema** entry point used to resolve sensitive values; `audit` accepts a single path only.)_
-- `--env <env>`: Resolve in the context of a specific environment (e.g., `--env production`). Overridden by `@currentEnv` if it is set in your `.env.schema`.
+- `--env <env>`: Resolve in the context of a specific environment (for example `--env production`). Overridden by `@currentEnv` if it is set in your `.env.schema`.
 - `--clear-cache`: Clear the active cache store before resolving values, then re-resolve all values (when combined with `--skip-cache`, the cache is cleared first, then reads and writes are skipped for the run).
 - `--skip-cache`: Skip cache entirely for this invocation (no reads or writes). This overrides `@cache=disk`/`@cache=memory`.
 - `--filter` (on [`load`](/reference/cli/load-and-run/#load) and [`run`](/reference/cli/load-and-run/#run)): Filter which items are shown/injected. See [Filtering items](#filtering-items) below.
@@ -60,12 +60,12 @@ Several commands share these flags. They behave identically wherever they appear
 
 `--filter` takes a comma-separated list of selectors:
 
-- a key name or glob, e.g. `STRIPE_*` (matches `*` and `?`)
-- `!selector` to negate any of the below, e.g. `!STRIPE_DEBUG_KEY`
-- `@sensitive` / `@required` / `@dynamic` to select by decorator (negate for the opposite, e.g. `!@dynamic` selects static items)
+- a key name or glob, for example `STRIPE_*` (matches `*` and `?`)
+- `!selector` to negate any of the below, for example `!STRIPE_DEBUG_KEY`
+- `@sensitive` / `@required` / `@dynamic` to select by decorator (negate for the opposite, for example `!@dynamic` selects static items)
 - `#tagname` to select items tagged via [`@tag(tagname)`](/reference/item-decorators/#tag)
 
-**How selectors combine:** every non-negated selector is OR'd together into one inclusion set, regardless of kind: mixing a glob, a `@decorator`, and a `#tag` in the same filter just widens that set. Anything matching a negated (`!`) selector is then subtracted from that set, again regardless of kind. If a filter has no non-negated selectors at all, the inclusion set starts as "everything" before negations are subtracted.
+**How selectors combine:** every non-negated selector is OR'd together into one inclusion set, regardless of kind: mixing a glob, a `@decorator`, and a `#tag` in the same filter widens that set. Anything matching a negated (`!`) selector is then subtracted from that set, again regardless of kind. If a filter has no non-negated selectors at all, the inclusion set starts as "everything" before negations are subtracted.
 
 ```bash
 varlock load --filter="KEY1,!NOT_THIS,STRIPE_*"  # KEY1 and STRIPE_* keys, except NOT_THIS
@@ -79,19 +79,19 @@ varlock load --filter="STRIPE_*,!@sensitive"      # STRIPE_* keys, minus any tha
 varlock load --filter="!#debug"                   # everything except items tagged @tag(debug)
 ```
 
-There's no way to express an intersection (e.g. "`STRIPE_*` AND `@sensitive`"): only unions of non-negated selectors minus unions of negated ones. A negated selector always subtracts from the whole inclusion set; it isn't scoped to only the positive selector(s) that happened to include a given item.
+There's no way to express an intersection (for example "`STRIPE_*` AND `@sensitive`"): only unions of non-negated selectors minus unions of negated ones. A negated selector always subtracts from the whole inclusion set; it isn't scoped to only the positive selector(s) that happened to include a given item.
 
 [`@internal`](/reference/item-decorators/#internal) items follow their usual visibility rules: `--filter` can only narrow a view further, never cause an internal item to appear somewhere it otherwise wouldn't (even if a selector matches it by exact key name). On plain `json`, `env`, and `shell` output, and in `run`'s injected env / `__VARLOCK_ENV` blob, internal items are always excluded. The views that can show internal items keep doing so under a filter: the default `pretty` format always shows them, `--agent` shows them redacted, and `--format json-full` (on `load`) and `run` include them only with `--include-internal`. In every case, internal items still have to satisfy `--filter` to appear.
 
-On `run`, `--filter` doesn't just skip injection: excluded schema keys are also stripped from the `__VARLOCK_ENV` blob and removed from the child environment even when set in the ambient environment (same treatment as `@internal` items), so a filtered-out var can't reach the child process at all.
+On `run`, `--filter` doesn't only skip injection: excluded schema keys are also stripped from the `__VARLOCK_ENV` blob and removed from the child environment even when set in the ambient environment (same treatment as `@internal` items), so a filtered-out var can't reach the child process at all.
 
 Can also be set via the [`_VARLOCK_FILTER`](/reference/reserved-variables/#_varlock_filter) env var, for wrapper scripts, CI config, or anywhere else passing a CLI flag is inconvenient. An explicit `--filter` flag takes precedence.
 
-A filter that matches no items (e.g. a typo'd key or tag) prints a warning to stderr. The command still succeeds, with empty output on `load` or no schema vars injected on `run`.
+A filter that matches no items (for example a typo'd key or tag) prints a warning to stderr. The command still succeeds, with empty output on `load` or no schema vars injected on `run`.
 
-**A `--filter` also scopes resolution and validation**, not just output: only items it selects (plus their dependencies) are resolved, so an unrelated broken item outside the filter won't block `load`/`run`, and excluded items' value resolvers (exec commands, secrets managers, etc.) never run. This is useful for scoping validation differently across contexts, e.g. a build step that only needs `--filter="#frontend"` shouldn't fail because an unrelated backend-only var is misconfigured, and `--filter="!@dynamic"` at build time skips runtime-only vars (e.g. platform-injected values that don't exist yet at build time) including their `@required` checks.
+**A `--filter` also scopes resolution and validation**, not only output: only items it selects (plus their dependencies) are resolved, so an unrelated broken item outside the filter won't block `load`/`run`, and excluded items' value resolvers (exec commands, secrets manager lookups) never run. This is useful for scoping validation differently across contexts, for example a build step that only needs `--filter="#frontend"` is not blocked by an unrelated backend-only var being misconfigured, and `--filter="!@dynamic"` at build time skips runtime-only vars (for example platform-injected values that don't exist yet at build time) including their `@required` checks.
 
-Decorator selectors match on *computed* state, which can be value-dependent (e.g. `@required=forEnv(prod)`), so for those varlock resolves each candidate item's decorator metadata first (cheap - no value resolvers run), then matches exactly and only resolves values for selected items. Values that decorator functions themselves reference (e.g. `@required=eq($OTHER, x)` needs `OTHER`) are true dependencies of evaluating the filter and do get resolved.
+Decorator selectors match on *computed* state, which can be value-dependent (for example `@required=forEnv(prod)`), so for those varlock resolves each candidate item's decorator metadata first (cheap - no value resolvers run), then matches exactly and only resolves values for selected items. Values that decorator functions themselves reference (for example `@required=eq($OTHER, x)` needs `OTHER`) are true dependencies of evaluating the filter and do get resolved.
 
 ## Commands
 

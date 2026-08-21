@@ -124,7 +124,7 @@ See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on
 If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of configuration must be set in the dashboard, and neither can be committed to the repo:
 
 - **Override the Deploy command.** Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with `npx varlock-wrangler deploy`. Without this, Cloudflare runs stock `wrangler deploy`, which skips varlock resolution and leaves your worker without its resolved vars/secrets.
-- **Set any _secret-zero_ vars under Build variables.** Any env vars varlock itself needs _during load_ (e.g. a 1Password service account token, a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+- **Set any _secret-zero_ vars under Build variables.** Any env vars varlock itself needs _during load_ (for example a 1Password service account token or a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
 
 See the [Cloudflare integration page](/integrations/cloudflare/) for more detail on `varlock-wrangler` and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
 
@@ -141,5 +141,5 @@ TanStack Start inherits [Vite's env var approach](https://tanstack.com/start/v0/
 With varlock, your `.env.schema` is the single source of truth. It handles validation, type coercion, TypeScript generation, sensitivity controls, and more, replacing the need for separate type declarations, Zod schemas, and the `VITE_` prefix convention. You also get leak detection (sensitive values are automatically scrubbed from outgoing HTTP responses) and clear error messages when env vars are missing or invalid, so no more silent `undefined` values at runtime. See the [Vite integration page](/integrations/vite/) for the full details.
 
 :::note[Encrypting the env blob]
-When deploying SSR TanStack Start apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When deploying SSR TanStack Start apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (for example against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::

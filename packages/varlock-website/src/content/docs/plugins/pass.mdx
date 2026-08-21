@@ -29,7 +29,7 @@ Pass stores each secret as a GPG-encrypted file in `~/.password-store`, organize
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/pass-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -90,7 +90,7 @@ STRIPE_KEY=pass("stripe-key")
 
 ### Multiple instances
 
-Access multiple different password stores (e.g., personal and team):
+Access multiple different password stores (for example personal and team):
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/pass-plugin)
@@ -219,7 +219,7 @@ Fetch a secret from the pass store. Returns the first line of the entry (the pas
 
 **Key/value args:**
 - `allowMissing` (optional): if `true`, returns empty string instead of erroring when the entry doesn't exist
-- `multiline` (optional): if `true`, returns the full entry content instead of just the first line
+- `multiline` (optional): if `true`, returns the full entry content instead of only the first line
 
 ```env-spec /pass\\(.*\\)/
 # Auto-infer entry path from variable name

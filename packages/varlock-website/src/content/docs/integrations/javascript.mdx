@@ -89,7 +89,7 @@ varlock run -- <your-command>
 
 This will load and validate your environment variables, then run the command you provided with those environment variables injected into the process. This will not inject any runtime code, and varlock's `ENV` object will not be available.
 
-If you have installed varlock as a project dependency instead of globally, you should run this via your package manager:
+If you have installed varlock as a project dependency instead of globally, run this via your package manager:
 <ExecCommandWidget command="varlock run -- <your-command>" showBinary={false} />
 
 In `package.json` scripts, calling `varlock` directly will work, as your package manager handles path issues:
@@ -102,9 +102,9 @@ In `package.json` scripts, calling `varlock` directly will work, as your package
 Even when using a deeper integration for your code, you may still need to use `varlock run` when calling external scripts/tools, like database migrations, to pass along resolved env vars.
 
 :::tip[Setting the current environment]
-Varlock can load multiple environment-specific `.env` files (e.g., `.env.development`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv) to specify which env var will set the current environment.
+Varlock can load multiple environment-specific `.env` files (for example `.env.development`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv) to specify which env var will set the current environment.
 
-If not using the default (usually `development`), you'll want to pass it in as an environment variable when running your command.
+If not using the default (`development`, unless your schema sets a different one), pass it in as an environment variable when running your command.
 
 ```bash
 APP_ENV=production varlock run -- node index.js

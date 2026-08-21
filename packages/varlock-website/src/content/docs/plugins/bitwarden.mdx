@@ -17,7 +17,7 @@ Our Bitwarden plugin enables secure loading of secrets from Bitwarden using decl
 
 ## Features
 
-- **Zero-config authentication** - Just provide your machine account access token
+- **Zero-config authentication** - Provide your machine account access token
 - **UUID-based secret access** - Fetch secrets by their unique identifiers
 - **Self-hosted Bitwarden support** - Configure custom API and identity URLs
 - **Multiple instances** - Connect to different organizations or self-hosted instances
@@ -27,7 +27,7 @@ Our Bitwarden plugin enables secure loading of secrets from Bitwarden using decl
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/bitwarden-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -50,7 +50,7 @@ BITWARDEN_ACCESS_TOKEN=
 
     Navigate to your Bitwarden organization's **Secrets Manager** → **Machine accounts** → Click **New machine account**.
 
-    Provide a name (e.g., "Production App") and save it.
+    Provide a name (for example "Production App") and save it.
 
 2. **Copy the access token** (displayed only once!)
 
@@ -165,7 +165,7 @@ Machine accounts provide programmatic access to Bitwarden Secrets Manager.
 
 3. **Click "New machine account"**
 
-4. **Provide a name** (e.g., "Production App")
+4. **Provide a name** (for example "Production App")
 
 5. **Copy the Access token** (shown only once!)
 
@@ -287,14 +287,14 @@ STRIPE_KEY=bwp("Stripe", field="secret-key")
 # @initBwp(sessionTtl="1h", cacheTtl="5m")
 ```
 
-- `sessionTtl` (default `forever`): how long the unlocked CLI session token is cached before varlock forces a fresh `bw unlock`. `forever` keeps the token until the CLI session is invalidated externally (`bw lock`/`bw logout`, an external `bw unlock`, or account policy), at which point the next load re-unlocks automatically; set e.g. `"1h"` to force periodic master-password re-auth.
+- `sessionTtl` (default `forever`): how long the unlocked CLI session token is cached before varlock forces a fresh `bw unlock`. `forever` keeps the token until the CLI session is invalidated externally (`bw lock`/`bw logout`, an external `bw unlock`, or account policy), at which point the next load re-unlocks automatically; set for example `"1h"` to force periodic master-password re-auth.
 - `cacheTtl` (optional): additionally cache the **resolved item values**, avoiding a `bw` invocation per value within the window. See the [Caching guide](/guides/caching/).
 
 ### Non-interactive loads
 
-Interactive unlock needs a TTY, so a non-interactive load (a dev server started by a tool that has no TTY, an editor task runner, etc.) can't show the master-password prompt. How you fix it depends on the environment:
+Interactive unlock needs a TTY, so a non-interactive load (such as a dev server started by a tool that has no TTY, or an editor task runner) can't show the master-password prompt. How you fix it depends on the environment:
 
-**Local dev, using auto-unlock**: if you're letting varlock unlock the vault itself (no `sessionToken` / `masterPassword` configured on `@initBwp()`), run `varlock load` once in a regular terminal (`npx varlock load`, `pnpm exec varlock load`, etc.). That performs the interactive unlock and caches the session token in varlock's encrypted cache, so subsequent non-interactive commands reuse it without prompting (until the session is invalidated, see `sessionTtl` above). This only applies to the auto-unlock flow. If you've configured `sessionToken=` or `masterPassword=`, no interactive `varlock load` is needed.
+**Local dev, using auto-unlock**: if you're letting varlock unlock the vault itself (no `sessionToken` / `masterPassword` configured on `@initBwp()`), run `varlock load` once in a regular terminal (for example `npx varlock load` or `pnpm exec varlock load`). That performs the interactive unlock and caches the session token in varlock's encrypted cache, so subsequent non-interactive commands reuse it without prompting (until the session is invalidated, see `sessionTtl` above). This only applies to the auto-unlock flow. If you've configured `sessionToken=` or `masterPassword=`, no interactive `varlock load` is needed.
 
 **CI / truly headless**: there's no terminal to unlock from, so provide credentials explicitly instead:
 
@@ -311,7 +311,7 @@ BWP_SESSION=
 
 ### Multiple accounts / servers
 
-The `bw` CLI keeps **one logged-in account per data directory**, so to read from more than one account or server (e.g. personal + work, or bitwarden.com + a self-hosted Vaultwarden) you give each instance its own data dir via `appDataDir`. Set up each dir once with the `bw` CLI (`bw config server …` if needed, then `bw login`), then point an instance at it. Since a data-dir path is specific to your machine, reference it from a per-developer value rather than hardcoding it:
+The `bw` CLI keeps **one logged-in account per data directory**, so to read from more than one account or server (for example personal + work, or bitwarden.com + a self-hosted Vaultwarden) you give each instance its own data dir via `appDataDir`. Set up each dir once with the `bw` CLI (`bw config server …` if needed, then `bw login`), then point an instance at it. Since a data-dir path is specific to your machine, reference it from a per-developer value rather than hardcoding it:
 
 ```env-spec title=".env.schema"
 # @initBwp(id=personal, appDataDir=$BWP_PERSONAL_DIR)
@@ -347,10 +347,10 @@ Without distinct `appDataDir`s, multiple instances all point at the same global 
 Initialize a Bitwarden Secrets Manager plugin instance for accessing secrets.
 
 **Key/value args:**
-- `accessToken` (required): Machine account access token. Should be a reference to a config item of type `bitwardenAccessToken`.
+- `accessToken` (required): Machine account access token. Reference a config item of type `bitwardenAccessToken`.
 - `apiUrl` (optional): API URL for self-hosted Bitwarden (defaults to `https://api.bitwarden.com`)
 - `identityUrl` (optional): Identity service URL for self-hosted Bitwarden (defaults to `https://identity.bitwarden.com`)
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `cacheTtl` (optional): cache resolved values for the specified duration (for example `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 - `id` (optional): Instance identifier for multiple instances
 
 ```env-spec "@initBitwarden"
@@ -367,9 +367,9 @@ BITWARDEN_ACCESS_TOKEN=
 Initialize a Password Manager / Vaultwarden instance accessed via the `bw` CLI. With no arguments, varlock unlocks the vault interactively on first use and caches the session token.
 
 **Key/value args (all optional):**
-- `sessionToken`: a pre-obtained CLI session token (e.g. `$BWP_SESSION`). When provided and non-empty, it's used as-is instead of auto-unlocking.
-- `masterPassword`: master password used to unlock the vault non-interactively (e.g. in CI). Reference a `@sensitive` config item.
-- `sessionTtl`: how long the auto-unlocked session token is cached before a fresh `bw unlock` (default `forever`, kept until the CLI session is invalidated externally; e.g. `"1h"` to force periodic master-password re-auth).
+- `sessionToken`: a pre-obtained CLI session token (for example `$BWP_SESSION`). When provided and non-empty, it's used as-is instead of auto-unlocking.
+- `masterPassword`: master password used to unlock the vault non-interactively (for example in CI). Reference a `@sensitive` config item.
+- `sessionTtl`: how long the auto-unlocked session token is cached before a fresh `bw unlock` (default `forever`, kept until the CLI session is invalidated externally; for example `"1h"` to force periodic master-password re-auth).
 - `cacheTtl`: cache resolved item values for the specified duration. See the [Caching guide](/guides/caching/).
 - `appDataDir`: bw CLI data directory (`BITWARDENCLI_APPDATA_DIR`) for this instance. Point separate instances at separate dirs to read from different accounts/servers. A leading `~` is expanded. The dir must be set up independently (`bw config server` + `bw login`).
 - `id`: instance identifier for multiple instances.
@@ -501,7 +501,7 @@ WORK_DB=bwp(work, "Work DB", field=password)
 ### Invalid UUID format
 - Secret IDs must be valid UUIDs: `12345678-1234-1234-1234-123456789abc`
 - Check for typos or incorrect format
-- UUIDs should contain 32 hexadecimal characters and 4 hyphens
+- UUIDs must contain 32 hexadecimal characters and 4 hyphens
 
 ### Password Manager (`bwp()`)
 - **`bw` not found**: install the CLI from a trusted source and ensure it's on your `PATH`.

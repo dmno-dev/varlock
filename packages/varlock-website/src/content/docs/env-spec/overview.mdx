@@ -25,9 +25,9 @@ Loading a schema file full of structured metadata gives us:
 - more flexible loading logic without hand-rolled application code or config files
 - a place to store default values, clearly differentiated from placeholders
 
-This schema information is most valuable when it is **shared across team members** and machines. So in most cases, this means creating a git-committed `.env.schema` file, instead of the familiar `.env.example` file used by many projects. The difference is that now the schema can be used on an ongoing basis, instead of just once to create an untracked local copy.
+This schema information is most valuable when it is **shared across team members** and machines. So in most cases, this means creating a git-committed `.env.schema` file, instead of the familiar `.env.example` file used by many projects. The difference is that now the schema can be used on an ongoing basis, instead of only once to create an untracked local copy.
 
-Building on this, you could use additional files which set values. They could add additional items or override properties of existing ones. Whether you want to use a single git-ignored `.env` file, or apply a cascade of environment-specific files (e.g., `.env`, `.env.local`, `.env.test`, etc) is up to you. However the new ability to use function calls to safely decrypt data, or load values from external sources, means you'll likely be tempted to use git-committed `.env` files much more.
+Building on this, you could use additional files which set values. They could add additional items or override properties of existing ones. Whether you want to use a single git-ignored `.env` file, or apply a cascade of environment-specific files (for example `.env`, `.env.local`, and `.env.test`) is up to you. However the new ability to use function calls to safely decrypt data, or load values from external sources, means you'll likely be tempted to use git-committed `.env` files much more.
 
 An env-spec enabled tool would load all env files appropriately, merging together both schema and values, as well as additional values read from the shell/process. Then the schema would be applied which could transform and fill values, for example decrypting or fetching from an external source, as well as applying coercion and validation.
 

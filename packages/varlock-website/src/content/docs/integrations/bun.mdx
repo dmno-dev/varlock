@@ -5,7 +5,7 @@ description: How to integrate Varlock with a Bun-powered JavaScript project
 import { TabItem, Tabs } from "@astrojs/starlight/components";
 import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
-For the most part, Varlock just works with Bun the same way it works with Node.js, and other JavaScript integrations work the same way.
+For the most part, Varlock works with Bun the same way it works with Node.js, and other JavaScript integrations work the same way.
 
 
 ### Conflicts with Bun's .env loading
@@ -29,5 +29,5 @@ preload = ["varlock/auto-load"]
 ```
 
 :::caution[Do not use preload with framework integrations]
-Note that you should not do this if using a framework integration, as those integrations watch your `.env` files to trigger live-reloading.
+Do not do this if using a framework integration, as those integrations watch your `.env` files to trigger live-reloading.
 :::

@@ -41,9 +41,9 @@ The whole type can also be dynamic, resolving to a type name:
 SERVICE_HOST=localhost:3000
 ```
 
-One constraint: dynamic parts may vary validation behavior, but not the **generated** types (generated code must not differ per environment). All possible types must generate the same type. A `url` and a `string` both generate a string, so switching between them is fine; switching between `number` and `string` is a schema error. For generated code, the first static candidate in the expression is used (`url` above). The same rule applies to options that affect generated types (e.g. `number(isInt=...)` must stay static).
+One constraint: dynamic parts may vary validation behavior, but not the **generated** types (generated code must not differ per environment). All possible types must generate the same type. A `url` and a `string` both generate a string, so switching between them is fine; switching between `number` and `string` is a schema error. For generated code, the first static candidate in the expression is used (`url` above). The same rule applies to options that affect generated types (for example `number(isInt=...)` must stay static).
 
-Dynamic whole types resolve to a bare type name; to combine a dynamic type with options, put the dynamic part in the option instead (e.g. `string(minLength=if(...))`).
+Dynamic whole types resolve to a bare type name; to combine a dynamic type with options, put the dynamic part in the option instead (for example `string(minLength=if(...))`).
 
 Enum members can also be sourced from other items. A referenced array spreads its elements into the member list:
 
@@ -282,7 +282,7 @@ Flexible duration type. Accepts human-readable strings (`"1h"`, `"30m"`, `"500ms
 
 **Options:**
 - `output`: output unit: `ms` (default), `seconds`, `minutes`, `hours`, `days`, or `weeks`
-- `min` / `max`: bounds in any duration format (e.g. `min="1s"`, `max="1d"`)
+- `min` / `max`: bounds in any duration format (for example `min="1s"`, `max="1d"`)
 
 ```env-spec
 # Default: output is milliseconds
@@ -309,7 +309,7 @@ A list of values, each coerced and validated with an element type.
 **Element type** is the first positional argument: a type name (`array(email)`) or a nested type call for types that take their own options or positional args (`array(email(normalize=true))`, `array(enum(dev, staging, prod))`). Omitting it defaults to string elements.
 
 **Array options:**
-- `separator` (string, default `","`): splits plain-string input (e.g. a real environment variable override) and joins the value back into a string for `process.env`
+- `separator` (string, default `","`): splits plain-string input (for example a real environment variable override) and joins the value back into a string for `process.env`
 - `format` (`separator` | `json`, default `separator`): how the value serializes back into `process.env`. `json` emits a JSON array string. Arrays of objects/arrays always use JSON
 - `minLength` / `maxLength` / `isLength` (number): element count bounds (or an exact count). `minLength` defaults to 1, so an explicitly-empty `[]` is invalid unless you set `minLength=0` (an explicit `isLength` also overrides the default)
 - `unique` (boolean): reject duplicate elements
@@ -334,11 +334,11 @@ Validation errors are reported per element (`[1] Current value is not in list of
 
 A scalar element that contains the separator fails validation (it could not round-trip through `process.env`); set `format=json` or pick a different separator.
 
-In application code, `ENV.ALLOWED_EMAILS` is a real typed array (`string[]`, `number[]`, etc. via [type generation](/guides/code-generation/)). In `process.env` the value is the flat string form (separator-joined, or JSON when `format=json`).
+In application code, `ENV.ALLOWED_EMAILS` is a real typed array (for example `string[]` or `number[]`, via [type generation](/guides/code-generation/)). In `process.env` the value is the flat string form (separator-joined, or JSON when `format=json`).
 
 An empty or whitespace-only string input resolves to a missing value (`undefined`), never an empty array; the only way to express an empty array is the explicit `[]` literal (sanctioned via `minLength=0`).
 
-An untyped item whose value is an array literal (e.g. `ITEM=[a, b]`) is inferred as an array automatically.
+An untyped item whose value is an array literal (for example `ITEM=[a, b]`) is inferred as an array automatically.
 </div>
 
 <div>
@@ -349,7 +349,7 @@ An object (a keyed record) whose values are coerced and validated with a value t
 **Value type** is the first positional argument, same forms as `array`. Bare `@type=record` accepts any object without per-value validation.
 
 **Object options:**
-- `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
+- `keyType`: a type used to validate every key, for example `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
 - `entriesMinLength` / `entriesMaxLength` / `entriesIsLength` (number): entry count bounds (or an exact count). `entriesMinLength` defaults to 1, so an explicitly-empty `{}` is invalid unless you set `entriesMinLength=0`
 
 ```env-spec
@@ -370,6 +370,6 @@ Validation errors are reported per entry (`"apac" is not a valid key - ...`).
 
 In application code, `ENV.ENDPOINTS` is typed as `Record<string, string>` (enum-constrained keys narrow further). In `process.env` the value is JSON.
 
-An untyped item whose value is an object literal (e.g. `ITEM={k=v}`) is inferred as a record automatically. The existing `simple-object` type behaves the same as a bare `record`.
+An untyped item whose value is an object literal (for example `ITEM={k=v}`) is inferred as a record automatically. The existing `simple-object` type behaves the same as a bare `record`.
 </div>
 </div>

@@ -9,7 +9,7 @@ For workloads you trust with the credentials they use, [pass resolved values](#p
 
 ## Passing resolved values
 
-Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator: varlock resolves your values (plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs.
+Import [`varlock/auto-load`](/integrations/javascript/) at the top of the orchestrator: varlock resolves your values (from plugins, `.env.local`, and your other env files), validates them against your schema, and redacts them in the orchestrator's logs.
 
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
@@ -64,7 +64,7 @@ STRIPE_SECRET_KEY=
 
 An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
 
-Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is acceptable because agents hold only placeholders. To make the broker refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
 
 You will also need an [E2B API key](https://e2b.dev/docs) for the orchestrator that creates sandboxes. It can be a varlock-managed secret like any other.
 
@@ -184,7 +184,7 @@ E2B has a beta feature ([`network.rules`](https://e2b.dev/docs/sandbox/internet-
 
 The varlock proxy covers the same ground and more:
 
-- **Seamless.** Substitution happens anywhere in a request, not just one static header per host, and policy can match on path and method.
+- **Anywhere in a request.** Substitution happens anywhere in a request, not only one static header per host, and policy can match on path and method.
 - **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) and stay in your custody, instead of being handed to E2B's control plane.
 - **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents. `network.rules` are static per sandbox, set at creation.
 - Plus [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, your own audit log, and the same setup on any other platform.

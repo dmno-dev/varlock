@@ -38,7 +38,7 @@ Install the Varlock agent skill with `npx skills add dmno-dev/varlock` or `gh sk
 
 ## `varlock scan` ||scan||
 
-Scans your project files for sensitive config values that should not appear in plaintext. Loads your varlock config, resolves all `@sensitive` values, then checks files for any occurrences of those values.
+Scans your project files for sensitive config values that must not appear in plaintext. Loads your varlock config, resolves all `@sensitive` values, then checks files for any occurrences of those values.
 
 This is especially useful as a **pre-commit git hook** to prevent accidentally committing secrets into version control, and for **scanning build output** to ensure no secrets leaked into files that will be published or deployed.
 
@@ -94,7 +94,7 @@ varlock scan --install-hook
 ```
 This will detect if you are using a hook manager (like husky or lefthook) and provide the appropriate setup instructions. Otherwise, it will create a `.git/hooks/pre-commit` hook for you automatically.
 
-If varlock is installed as a project dependency, the hook command will be automatically prefixed with your package manager (e.g., `npx varlock scan`).
+If varlock is installed as a project dependency, the hook command will be automatically prefixed with your package manager (for example `npx varlock scan`).
 
 You can also set it up manually. See the [Secrets guide](/guides/secrets/#scanning-files-for-leaked-secrets) for more details.
 :::
@@ -114,7 +114,7 @@ varlock install-plugin <name@version>
 ```
 
 **Positional arguments:**
-- `<name@version>`: The plugin to install, with an exact version (e.g. `my-plugin@1.2.3`).
+- `<name@version>`: The plugin to install, with an exact version (for example `my-plugin@1.2.3`).
 
 **Examples:**
 ```bash

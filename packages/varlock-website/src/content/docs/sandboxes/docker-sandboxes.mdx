@@ -46,7 +46,7 @@ export VARLOCK_PROXY_TOKEN=$(uuidgen)
 varlock proxy start --expose --port 8080
 ```
 
-Bare `--expose` binds `0.0.0.0`, so the broker is reachable from your whole network, not just the sandbox. The data-plane token gates it, but on an untrusted network (a cafe, a conference) firewall the port or stay off that network while the broker runs. Serving the tunnel requires an off-loopback bind, so a loopback-only broker is not an option even though the gateway would reach it.
+Bare `--expose` binds `0.0.0.0`, so the broker is reachable from your whole network, not only the sandbox. The data-plane token gates it, but on an untrusted network (a cafe, a conference) firewall the port or stay off that network while the broker runs. Serving the tunnel requires an off-loopback bind, so a loopback-only broker is not an option even though the gateway would reach it.
 
 ### 3. Allow the broker in sbx policy
 

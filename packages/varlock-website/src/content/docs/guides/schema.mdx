@@ -4,12 +4,12 @@ description: Using the schema to manage your environment variables
 ---
 One of the core features of Varlock is its schema-driven approach to environment variables, which is best when shared with your team and committed to version control. We recommend creating a new `.env.schema` file to hold schema info set by [config item decorators](/reference/item-decorators/), non-sensitive default values, and [root decorators](/reference/root-decorators/) to specify global settings that affect the `varlock` CLI itself.
 
-This schema should include all of the environment variables that your application depends on, along with comments and documentation about them, and decorators which affect coercion, validation, and generated types / documentation.
+This schema must include all of the environment variables that your application depends on, along with comments and documentation about them, and decorators which affect coercion, validation, and generated types / documentation.
 
 The more complete your schema is, the more validation and coercion `varlock` can perform, and the more it can help you catch errors earlier in your development cycle.
 
 :::note
-Running [`varlock init`](/reference/cli/project/#init) will attempt to convert an existing `.env.example` file into a `.env.schema` file. It must be reviewed, but it should be a good starting point.
+Running [`varlock init`](/reference/cli/project/#init) will attempt to convert an existing `.env.example` file into a `.env.schema` file. It must be reviewed, but it gives you a starting point.
 :::
 
 
@@ -35,7 +35,7 @@ More details:
 
 Config items are the environment variables that your application depends on. Like normal `.env` syntax, each item is a key-value pair of the form `KEY=value`. The key is the name of the environment variable, and a value may be specified or not.
 
-While simply enumerating all of them in your `.env.schema` is useful (like a `.env.example` file), [@env-spec](/env-spec/overview/) allows us to attach additional comments and [item decorators](/reference/item-decorators/), making our schema much more capable.
+While enumerating all of them in your `.env.schema` is useful (like a `.env.example` file), [@env-spec](/env-spec/overview/) allows us to attach additional comments and [item decorators](/reference/item-decorators/), making our schema much more capable.
 
 
 ### Item Values
@@ -67,7 +67,7 @@ lines
 ### Item comments
 Comments are used to attach additional documentation and metadata to config items using [item decorators](/reference/item-decorators). This additional metadata is used by varlock to perform validation, coercion, and generate types / documentation.
 
-Multiple comment lines _directly_ preceding an item will be attached to that item. A blank line or a divider (e.g., `# ---`) breaks a comment block and detaches it from the following config item.
+Multiple comment lines _directly_ preceding an item will be attached to that item. A blank line or a divider (for example `# ---`) breaks a comment block and detaches it from the following config item.
 Any comment block before the first item is still part of the document header until it is ended by a blank line, a divider, or the end of the file.
 Comment lines can either contain regular comments or [item decorators](/reference/item-decorators). Standalone comments only count as decorator comments when the comment content starts with `@`.
 
@@ -116,7 +116,7 @@ Read more about string expansion in the [@env-spec reference](/env-spec/referenc
 ## Decorator details
 
 ### Functions vs single use
-Most decorators take a single value (e.g., `@sensitive`, `@currentEnv`) and may be used only once per item (or file in the case of a root decorator). Some decorators however, are function calls (e.g., `@docs()`, `@import()`) and may be called multiple times.
+Most decorators take a single value (for example `@sensitive`, `@currentEnv`) and may be used only once per item (or file in the case of a root decorator). Some decorators however, are function calls (for example `@docs()`, `@import()`) and may be called multiple times.
 
 ```env-spec
 # @sensitive=true

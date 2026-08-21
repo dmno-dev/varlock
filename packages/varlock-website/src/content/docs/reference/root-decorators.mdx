@@ -24,13 +24,13 @@ These are the root decorators that are built into Varlock. [Plugins](/guides/plu
 
 <div>
 ### `@currentEnv`
-**Value type:** [`ref()`](/reference/functions/#ref) (usually written as `$ITEM_NAME`)
+**Value type:** [`ref()`](/reference/functions/#ref) (written as `$ITEM_NAME` or `ref(ITEM_NAME)`)
 
-Sets the current _environment_ value, which will be used when determining if environment-specific .env files will be loaded (e.g. `.env.production`),
+Sets the current _environment_ value, which will be used when determining if environment-specific .env files will be loaded (for example `.env.production`),
 and also may affect other dynamic behaviour in your schema, such as the [`forEnv()` function](/reference/functions/#forenv). We refer to the name of this item as your _environment flag_.
 
-- It _must_ be set to a simple reference to a single config item (e.g. `$APP_ENV`).
-- This decorator should only be set in your `.env.schema` file.
+- It _must_ be set to a simple reference to a single config item (for example `$APP_ENV`).
+- We recommend setting this decorator only in your `.env.schema` file.
 - The referenced item _must_ be defined within the same file.
 - This will override the `--env` CLI flag if it is set.
 - We do not recommend using `NODE_ENV` as your environment flag, as it has other implications, and is often set out of your control.
@@ -51,7 +51,7 @@ APP_ENV=dev
 
 Sets the current _environment flag_ by name.
 
-⚠️ Deprecated at v0.1 - use [`@currentEnv`](#currentenv) instead.
+⚠️ Deprecated: use [`@currentEnv`](#currentenv) instead.
 
 `@envFlag=APP_ENV` -> `@currentEnv=$APP_ENV`
 </div>
@@ -92,7 +92,7 @@ Sets the default state of each item being treated as [_sensitive_](/guides/secre
 
 - `true` (default): All items are sensitive unless marked otherwise.
 - `false`: All items are not sensitive unless marked otherwise.
-- `inferFromPrefix(PREFIX)`: Item is marked not sensitive if key starts with the given `PREFIX`; all others are sensitive. Useful for marking e.g. `PUBLIC_` keys as non-sensitive by default.
+- `inferFromPrefix(PREFIX)`: Item is marked not sensitive if key starts with the given `PREFIX`; all others are sensitive. Useful for marking keys with a prefix such as `PUBLIC_` as non-sensitive by default.
 
 📖 See the [secrets management guide](/guides/secrets/) for best practices on handling sensitive values, and how to use plugins to fetch them from secret management platforms.
 
@@ -156,7 +156,7 @@ FOO=bar  # will be ignored
 
 Imports other `.env` file(s) - useful for sharing config across monorepos and splitting up large schemas. _Can be called multiple times._
 
-You may import a specific file, or a directory of files. Importing a **directory** (trailing `/`) brings everything that directory would load on its own (its `.env.schema` plus sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag), whereas importing a single file brings only that file. To pull in a sibling or root package's values (not just its schema), import the directory.
+You may import a specific file, or a directory of files. Importing a **directory** (trailing `/`) brings everything that directory would load on its own (its `.env.schema` plus sibling `.env`, `.env.local`, and environment-specific files, resolved by the current environment flag), whereas importing a single file brings only that file. To pull in a sibling or root package's values (not only its schema), import the directory.
 
 The optional `enabled` parameter allows conditional imports based on boolean expressions. It defaults to `true` if not specified.
 
@@ -191,9 +191,9 @@ IMPORTED_ITEM=overridden-value
 **Arg types:** `[ data: string ]`
 **Named args:** `format?: "json" | "env"`, `createMissing?: boolean`, `enabled?: boolean`, `pick?: string[]`, `omit?: string[]`
 
-Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string, typically a bulk resolver from a [secrets provider plugin](/plugins/overview/) such as [`opLoadEnvironment()`](/plugins/1password/#oploadenvironment) (1Password), [`infisicalBulk()`](/plugins/infisical/), or [`vaultSecret(…, raw=true)`](/plugins/hashicorp-vault/) (HashiCorp Vault). The string is parsed and injected as definitions within the file containing the decorator.
+Injects multiple config values at once from an external data source. The first argument is a resolver that produces a string, for example a bulk resolver from a [secrets provider plugin](/plugins/overview/) such as [`opLoadEnvironment()`](/plugins/1password/#oploadenvironment) (1Password), [`infisicalBulk()`](/plugins/infisical/), or [`vaultSecret(…, raw=true)`](/plugins/hashicorp-vault/) (HashiCorp Vault). The string is parsed and injected as definitions within the file containing the decorator.
 
-Bulk values participate in the normal file override chain: `process.env` still overrides everything, higher-precedence files (`.env.local`, `.env.production`, etc.) override bulk values, and bulk values override schema-defined defaults in the same file. You control precedence by choosing which file to put `@setValuesBulk` in.
+Bulk values participate in the normal file override chain: `process.env` still overrides everything, higher-precedence files (`.env.local`, `.env.production`, and other environment-specific files) override bulk values, and bulk values override schema-defined defaults in the same file. You control precedence by choosing which file to put `@setValuesBulk` in.
 
 **Options:**
 - `format`: How to parse the data string. `json` expects a flat JSON object, `env` expects `.env` file format. If not specified, auto-detected by checking if the string starts with `{`.
@@ -202,7 +202,7 @@ Bulk values participate in the normal file override chain: `process.env` still o
 - `pick`: An array of key names to inject, an **allowlist**. Only matching keys are injected; everything else from the source is ignored.
 - `omit`: An array of key names to skip, a **denylist**. Every key _except_ the matches is injected.
 
-By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns: `*` matches any run of characters and `?` matches a single character (e.g. `pick=[API_*]`).
+By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns: `*` matches any run of characters and `?` matches a single character (for example `pick=[API_*]`).
 
 _Can be called multiple times; later calls overwrite earlier ones for the same keys._
 
@@ -252,10 +252,10 @@ API_KEY=
 APP_ENV=dev
 ```
 
-If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec), e.g. `@setValuesBulk(exec("my-secrets-cli export --format=json"), format=json)`.
+If a plugin doesn't exist for your provider, any CLI tool works via [`exec()`](/reference/functions/#exec), for example `@setValuesBulk(exec("my-secrets-cli export --format=json"), format=json)`.
 
 :::note
-When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (e.g., `'$LITERAL'`) or use `format=json` instead.
+When using `format=env`, function calls like `$VAR` references in unquoted values are not supported and will cause an error. Use single quotes for literal `$` signs (for example `'$LITERAL'`) or use `format=json` instead.
 :::
 
 :::caution[`createMissing` and type generation]
@@ -396,7 +396,7 @@ See note on [`@redactLogs`](#redactlogs) about potential performance impact.
 
 Controls whether the injected env blob in server-side build output is encrypted. When enabled, varlock encrypts the blob with AES-256-GCM using the `_VARLOCK_ENV_KEY` environment variable.
 
-This is primarily relevant for serverless deployments (Vercel, Netlify, etc.) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection, particularly against secrets leaking via sourcemaps.
+This is primarily relevant for serverless deployments (such as Vercel and Netlify) where varlock injects resolved env data into the build output. The blob only appears in server-side code and is generally safe, but encryption provides extra protection, particularly against secrets leaking via sourcemaps.
 
 When enabled, it also applies when `varlock run` / `varlock proxy run` spawn a child in blob-only inject mode (`--inject blob`): the injected blob is encrypted with an ephemeral key carried alongside it (an ambient `_VARLOCK_ENV_KEY` is reused when present, so nested runs share one key), and resolved values never sit as plaintext in the child's environment. Since the key rides next to the ciphertext, this protects against accidental leaks (crash reporters, env dumps, logs), not against an attacker who can read the full environment.
 
@@ -493,7 +493,7 @@ Configures proxy-wide [credential proxy](/guides/proxy/) settings. The proxy is 
 `reload` controls live [hot-reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running) of the running proxy after a schema edit:
 - `off`: no reload; restart the proxy to pick up schema changes.
 - `manual`: a human applies it by running `varlock proxy reload` from a trusted terminal; a reload requested from inside the proxied agent is refused and logged.
-- `auto` _(default)_: resolved at launch. Conservative today: `manual` for an interactive `varlock proxy start`, `off` for headless runs or a one-shot `varlock proxy run`. It only widens (toward agent-triggered reload behind an approver) when that becomes safe, e.g. inside a sandbox. The `--allow-reload` / `--no-allow-reload` flag overrides it per run.
+- `auto` _(default)_: resolved at launch. Conservative today: `manual` for an interactive `varlock proxy start`, `off` for headless runs or a one-shot `varlock proxy run`. It only widens (toward agent-triggered reload behind an approver) when that becomes safe, for example inside a sandbox. The `--allow-reload` / `--no-allow-reload` flag overrides it per run.
 
 ```env-spec
 # @proxyConfig={egress="strict", reload="manual"}
@@ -537,7 +537,7 @@ Every `@generate*` decorator below is a root decorator that _can be called multi
 - `path`: Relative filepath to write the generated file to.
 - `auto`: Controls whether generation runs automatically on every load (defaults to `true`). Set to `false` to generate only when you run [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen) explicitly, useful in a CI pipeline or a dedicated build step.
 - `executeWhenImported`: overrides the default of not executing when the containing file is imported (defaults to `false`).
-- `filter`: Restrict this generated file to a subset of items, using the same selector language as the CLI [`--filter` flag](/reference/cli-commands/#filtering-items): key names/globs, `!negations`, `@sensitive`/`@required`/`@dynamic`, and `#tagname` (set via [`@tag()`](/reference/item-decorators/#tag)). Quote the value if it has more than one comma-separated selector (the decorator parser splits args on unquoted commas), e.g. `filter="STRIPE_*,!STRIPE_DEBUG_KEY"`. Call the same decorator multiple times with different `path`/`filter` pairs to emit several subset files from one schema.
+- `filter`: Restrict this generated file to a subset of items, using the same selector language as the CLI [`--filter` flag](/reference/cli-commands/#filtering-items): key names/globs, `!negations`, `@sensitive`/`@required`/`@dynamic`, and `#tagname` (set via [`@tag()`](/reference/item-decorators/#tag)). Quote the value if it has more than one comma-separated selector (the decorator parser splits args on unquoted commas), for example `filter="STRIPE_*,!STRIPE_DEBUG_KEY"`. Call the same decorator multiple times with different `path`/`filter` pairs to emit several subset files from one schema.
 
 ```env-spec
 # only ship billing-tagged keys to the billing package's generated types
@@ -556,7 +556,7 @@ TypeScript type declarations. Makes `import { ENV } from 'varlock/env'` typed an
 
 - `exposeEnv`: where the coerced `ENV` object lives (defaults to `global`).
   - `global`: globally augment `varlock/env` so `import { ENV } from 'varlock/env'` is typed.
-  - `local`: export a package-local typed `ENV` from the generated file (with **no** global augmentation, since `processEnv`/`importMetaEnv` default to `none` too, so nothing merges across packages). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` output path (not `.d.ts`, since it contains a runtime re-export), and you import from the generated file (e.g. `import { ENV } from './env'`).
+  - `local`: export a package-local typed `ENV` from the generated file (with **no** global augmentation, since `processEnv`/`importMetaEnv` default to `none` too, so nothing merges across packages). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` output path (not `.d.ts`, since it contains a runtime re-export), and you import from the generated file (for example `import { ENV } from './env'`).
   - `none`: emit only the type definitions, no `ENV` binding.
 - `processEnv`: how `process.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`, or when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
 - `importMetaEnv`: how `import.meta.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`).
@@ -597,7 +597,7 @@ A self-contained Go package: an `Env` struct, a `Load()` function, and a `Sensit
 # @generateGoEnv(path=./env/env.go)
 ```
 
-The package name defaults to the output directory (e.g. `path=env/env.go` → `package env`); override it with `package=`.
+The package name defaults to the output directory (for example `path=env/env.go` → `package env`); override it with `package=`.
 </div>
 
 <div>
@@ -609,7 +609,7 @@ A self-contained PHP class: a readonly `Env` with a static `load()` and a `SENSI
 # @generatePhpEnv(path=./Env.php)
 ```
 
-Defaults to a global `final class Env`. For Composer/PSR-4 projects, set `namespace=` and/or `class=` (e.g. `@generatePhpEnv(path=src/Env.php, namespace="App\\Config", class=AppEnv)`).
+Defaults to a global `final class Env`. For Composer/PSR-4 projects, set `namespace=` and/or `class=` (for example `@generatePhpEnv(path=src/Env.php, namespace="App\\Config", class=AppEnv)`).
 </div>
 
 <div>

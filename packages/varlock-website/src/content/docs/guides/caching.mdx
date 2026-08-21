@@ -9,7 +9,7 @@ Rather than caching environment variable values, it is a general key-value store
 
 ## Plugin cache behavior
 
-Plugins have access to cache helpers that can be used to avoid repeated network round trips, or to hold short-lived tokens. They will usually expose params (like `cacheTtl`) to let the user opt into caching. This still respects global cache mode and CLI flags. Each plugin can decide how to cache things and it will often depend on the shape of the external API.
+Plugins have access to cache helpers that can be used to avoid repeated network round trips, or to hold short-lived tokens. Plugins that support caching expose params (like `cacheTtl`) to let the user opt into it. This still respects global cache mode and CLI flags. Each plugin can decide how to cache things and it will often depend on the shape of the external API.
 
 `cacheTtl` can be set dynamically, for example `cacheTtl=if(forEnv(dev), "1h")` to cache only in development. Setting it to `false` (or an empty string) disables caching for that plugin instance.
 
@@ -40,7 +40,7 @@ Use the keyword `forever` to mean "cache until manually cleared". A TTL of `0` i
 
 ## Cache modes
 
-Caching is mostly useful for local development, where there may be many invocations of varlock and strong [local encryption](/guides/local-encryption/) (e.g., biometric-protected keys) is available. The default mode (`auto`) picks the most secure persistent option available:
+Caching is mostly useful for local development, where there may be many invocations of varlock and strong [local encryption](/guides/local-encryption/) (for example biometric-protected keys) is available. The default mode (`auto`) picks the most secure persistent option available:
 
 1. **disk** encrypted via local encryption - when a native encryption backend is available and not running in CI
 2. **disk** encrypted with `_VARLOCK_CACHE_KEY` - when that env var is set (see below)
@@ -52,7 +52,7 @@ To explicitly set the cache mode (or disable caching entirely), use the [`@cache
 
 ## Disk caching in CI with `_VARLOCK_CACHE_KEY`
 
-Memory mode doesn't help when a CI job runs varlock in several separate processes. If the `_VARLOCK_CACHE_KEY` env var is set (a 256-bit hex key, typically provided as a CI secret), `auto` mode uses a **disk** cache encrypted with that key instead of falling back to memory. The key only ever lives in the environment - never on the runner's disk - so the persisted cache file is genuinely encrypted.
+Memory mode doesn't help when a CI job runs varlock in several separate processes. If the `_VARLOCK_CACHE_KEY` env var is set (a 256-bit hex key, provided as a CI secret), `auto` mode uses a **disk** cache encrypted with that key instead of falling back to memory. The key only ever lives in the environment (never on the runner's disk), so the persisted cache file is genuinely encrypted.
 
 This is deliberately a separate variable from `_VARLOCK_ENV_KEY` (used for [encrypted deployments](/guides/encrypted-deployments/)) - that one is auto-generated and ephemeral in some flows, which would silently defeat caching. The key format is the same though, so you can generate one with `varlock generate-key`.
 

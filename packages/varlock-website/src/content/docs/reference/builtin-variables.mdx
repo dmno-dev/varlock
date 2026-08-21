@@ -45,7 +45,7 @@ Auto-detection is based on environment variables set by each CI/deploy platform.
 The inferred deployment environment. Detection follows this priority:
 
 1. **Test environment**: detected from `NODE_ENV=test`, `VITEST`, `JEST_WORKER_ID`, or `VITEST_POOL_ID`
-2. **Platform-provided**: uses the platform's own environment concept (e.g., Vercel's `VERCEL_ENV`, Netlify's `CONTEXT`)
+2. **Platform-provided**: uses the platform's own environment concept (for example Vercel's `VERCEL_ENV`, Netlify's `CONTEXT`)
 3. **Branch inference**: in CI, infers from branch name: `main`/`master`/`production`/`prod` &rarr; `production`, `staging`/`stage`/`develop`/`dev` &rarr; `staging`, `qa`/`test` &rarr; `test`, anything else &rarr; `preview`
 4. **CI fallback**: if in CI but no branch info is available, defaults to `preview`
 5. **Local fallback**: if not in CI, defaults to `development`
@@ -63,7 +63,7 @@ DB_URL="postgres://$DB_HOST/$DB_NAME"
 #### Test environment caveat
 
 :::caution[Test runners and `VARLOCK_ENV`]
-Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started, often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
+Many test runners, including Vitest and Jest, set `NODE_ENV=test` **after** the process has started, often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
 
 If you depend on `VARLOCK_ENV=test` to load `.env.test` or toggle behavior via `forEnv(test)`, **explicitly pass it** when running tests:
 
@@ -88,7 +88,7 @@ Whether the current process is running in a CI environment.
 
 **Type:** `string | undefined`
 
-The current git branch name. In CI environments, sourced from the platform's environment variables. When running locally (non-CI), auto-detected via `git branch --show-current`. Undefined if the branch cannot be determined (e.g., detached HEAD state, no git repo, or platform doesn't expose branch info).
+The current git branch name. In CI environments, sourced from the platform's environment variables. When running locally (non-CI), auto-detected via `git branch --show-current`. Undefined if the branch cannot be determined (for example detached HEAD state, no git repo, or platform doesn't expose branch info).
 
 
 ### `VARLOCK_PR_NUMBER`
@@ -116,7 +116,7 @@ The short (7-character) git commit SHA.
 
 **Type:** `string | undefined`
 
-The name of the detected CI/deploy platform (e.g., `"GitHub Actions"`, `"Vercel"`, `"Netlify CI"`).
+The name of the detected CI/deploy platform (for example `"GitHub Actions"`, `"Vercel"`, `"Netlify CI"`).
 
 
 ### `VARLOCK_BUILD_URL`
@@ -144,7 +144,7 @@ The current JS runtime, one of `node`, `bun`, `deno`, `workerd`, `fastly`, `netl
 
 **Type:** `string | undefined`
 
-The current OS platform: `darwin`, `win32`, or `linux`. Undefined in environments without a `process.platform` (e.g., browsers, Cloudflare Workers).
+The current OS platform: `darwin`, `win32`, or `linux`. Undefined in environments without a `process.platform` (for example browsers, Cloudflare Workers).
 
 
 ## Supported platforms

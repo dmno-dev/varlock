@@ -171,7 +171,7 @@ To integrate varlock into a Next.js application, use our [`@varlock/nextjs-integ
     If you **don't** see `✨ loaded by varlock ✨`, or you get `Cannot find module '@next/env'` or `__VARLOCK_ENV is not set`, the override didn't take effect. See [Troubleshooting](#troubleshooting) below.
 
     :::note[The override only needs to apply at build/dev time]
-    On serverless platforms (e.g. Vercel, Cloudflare), the fully-resolved env is baked into your build output by the config plugin, so the production server does not re-load `.env` files. This means you only need the `@next/env` override to be active when you run `next dev` and `next build`. There is no separate runtime config to set on the platform.
+    On serverless platforms (for example Vercel, Cloudflare), the fully-resolved env is baked into your build output by the config plugin, so the production server does not re-load `.env` files. This means you only need the `@next/env` override to be active when you run `next dev` and `next build`. There is no separate runtime config to set on the platform.
     :::
 
 </Steps>
@@ -210,13 +210,13 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 ```
 
 #### Why use `ENV` instead of `process.env`?
-- Non-string values (e.g., number, boolean) are properly typed and coerced
+- Non-string values (for example number, boolean) are properly typed and coerced
 - All non-sensitive items are replaced at build time (not just `NEXT_PUBLIC_`)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
 ## Managing multiple environments
 
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`).
+Varlock can load multiple _environment-specific_ `.env` files (for example `.env.development`, `.env.preview`, `.env.production`).
 
 By default, the environment flag is determined as follows (matching Next.js):
 - `test` if `NODE_ENV` is `test`
@@ -227,7 +227,7 @@ By default, the environment flag is determined as follows (matching Next.js):
 Without a custom env flag, you cannot use non-production env files (like `.env.preview`, `.env.staging`) for non-prod deployments.
 :::
 
-Instead, we recommend explicitly setting your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv), e.g. `APP_ENV`. See the [environments guide](/guides/environments) for more information.
+Instead, we recommend explicitly setting your own environment flag using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv), for example `APP_ENV`. See the [environments guide](/guides/environments) for more information.
 
 :::note[Loading `.env.local` in `test` environment]
 Next.js makes [a special exception](https://nextjs.org/docs/pages/guides/environment-variables#test-environment-variables) to skip loading `.env.local` if the current environment is `test`.
@@ -365,7 +365,7 @@ varlock run -- node .next/standalone/server.js
 
 ## Encrypting the env blob
 
-When deploying to serverless platforms like Vercel, Varlock injects the fully resolved env data into your server-side build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When deploying to serverless platforms like Vercel, Varlock injects the fully resolved env data into your server-side build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (for example against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 
 ---
 ## Troubleshooting
@@ -380,7 +380,7 @@ Almost all setup issues come down to the `@next/env` override not being applied.
     - yarn: `rm -rf node_modules yarn.lock && yarn install`
     - bun: `rm -rf node_modules bun.lock bun.lockb && bun install`
   - Commit the regenerated lockfile.
-  - Re-verify with the banner above, or directly: `cat node_modules/@next/env/package.json` should show `"name": "@varlock/nextjs-integration"`.
+  - Re-verify with the banner above, or directly: `cat node_modules/@next/env/package.json` must show `"name": "@varlock/nextjs-integration"`.
 - ❌ `process.env.__VARLOCK_ENV is not set`
   <br/>💡 The override is missing or in the wrong place, so Next loaded its own `@next/env` instead of ours.
   - Confirm the override config is present and in the **correct file** for your package manager (see [step 3](#setup)). For pnpm it must be in `pnpm-workspace.yaml` (v10) or `package.json#pnpm.overrides` (v9), and in a monorepo it must be at the repo root.

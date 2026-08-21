@@ -16,14 +16,14 @@ The plugin automatically integrates with Azure authentication, including Managed
 
 ## Features
 
-- **Zero-config authentication** - Just provide your vault URL, authentication happens automatically
+- **Zero-config authentication** - Provide your vault URL and authentication happens automatically
 - **Managed Identity support** - No credentials needed for Azure-hosted apps (App Service, Container Instances, VMs, Functions, AKS)
 - **Azure CLI authentication** - Works with `az login` for local development
-- **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
+- **Auto-infer secret names** from environment variable names (for example `DATABASE_URL` → `database-url`)
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
 - Automatic token caching and renewal
-- **[OIDC workload identity](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
+- **[OIDC workload identity](/guides/oidc/)** - Authenticate using platform OIDC tokens (such as Vercel and GitHub Actions)
 - Lightweight implementation using REST API (47 KB bundle, no heavy Azure SDK dependencies)
 
 For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
@@ -31,7 +31,7 @@ For global cache mode behavior and CLI cache controls, see the [Caching guide](/
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/azure-key-vault-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -71,7 +71,7 @@ Run `az keyvault show --name my-vault --query properties.vaultUri -o tsv` to get
 
 ### Service principal credentials (For non-Azure environments)
 
-If you're deploying outside of Azure (e.g., AWS, GCP, on-premises), wire up service principal credentials:
+If you're deploying outside of Azure (for example AWS, GCP, or on-premises), wire up service principal credentials:
 
 <Steps>
 1. **Create a service principal** with the necessary permissions (see Azure Setup section below)
@@ -307,13 +307,13 @@ Managed Identity is the Azure-native way to authenticate - no credentials needed
 Initialize an Azure Key Vault plugin instance for accessing secrets.
 
 **Key/value args:**
-- `vaultUrl` (required): Azure Key Vault URL (e.g., `https://my-vault.vault.azure.net/`)
+- `vaultUrl` (required): Azure Key Vault URL (for example `https://my-vault.vault.azure.net/`)
 - `tenantId` (optional): Azure AD tenant ID (directory ID)
 - `clientId` (optional): Service principal application (client) ID
 - `clientSecret` (optional): Service principal client secret (password)
 - `oidcToken` (optional): Explicit OIDC JWT token (auto-detected from platform if omitted)
 - `id` (optional): Instance identifier for multiple vaults
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `cacheTtl` (optional): cache resolved values for the specified duration (for example `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initAzure"
 # @initAzure(vaultUrl="https://my-vault.vault.azure.net/")

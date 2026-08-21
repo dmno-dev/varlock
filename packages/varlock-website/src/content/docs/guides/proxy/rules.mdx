@@ -5,16 +5,16 @@ description: Configure @proxy routing rules, placeholders, and what the agent se
 
 ## Routing rules
 
-A `@proxy(...)` rule supports more than just a domain:
+A `@proxy(...)` rule supports more than a domain:
 
 | Option | Meaning |
 |---|---|
-| `domain` | **(required)** Host to match: a single host or an array list. Supports globs, e.g. `*.example.com`. |
-| `path` | Restrict to matching URL paths (glob), e.g. `path="/v1/**"`. |
-| `method` | Restrict to one or more HTTP methods, e.g. `method=[GET, POST]`. |
+| `domain` | **(required)** Host to match: a single host or an array list. Supports globs, for example `*.example.com`. |
+| `path` | Restrict to matching URL paths (glob), for example `path="/v1/**"`. |
+| `method` | Restrict to one or more HTTP methods, for example `method=[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright (fail closed). |
-| `keys` | Array of additional item names to inject for this rule, e.g. `keys=[STRIPE_KEY, WEBHOOK_SECRET]`. |
-| `substituteIn` | Where the secret may be substituted: `header` (default), `header:<name>`, `query`, `query:<param>`, `body:<path>`, e.g. `substituteIn=[header, "body:client_secret"]` (see [Substitution surface](#substitution-surface)). |
+| `keys` | Array of additional item names to inject for this rule, for example `keys=[STRIPE_KEY, WEBHOOK_SECRET]`. |
+| `substituteIn` | Where the secret may be substituted: `header` (default), `header:<name>`, `query`, `query:<param>`, `body:<path>`, for example `substituteIn=[header, "body:client_secret"]` (see [Substitution surface](#substitution-surface)). |
 | `maxOccurrences` | How many times the placeholder may appear in one request before it's blocked (default `1`) (see [Substitution surface](#substitution-surface)). |
 | `rules` | Array of per-path/method policy refinements that share this rule's `domain` (see [Grouping rules for one domain](#grouping-rules-for-one-domain)). |
 
@@ -58,17 +58,17 @@ This injects `STRIPE_SECRET_KEY` across `api.stripe.com` and blocks refunds and 
 The [`@proxyConfig={egress=...}`](/reference/root-decorators/#proxyconfig) header decorator controls what happens to requests that **don't** match any rule. It's the only reason to write `@proxyConfig` at all: the proxy works without it, and `egress` defaults to `permissive`.
 
 - `permissive` _(default, no decorator needed)_: an unmatched request passes through untouched (no injection, no blocking). Good for getting started.
-- `strict`: add `@proxyConfig={egress="strict"}` to the header so only requests that match an allow (`@proxy`) rule are allowed; everything else is blocked — **including a request to a host that has `@proxy` rules but none matching this path/method**. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts (or arbitrary endpoints on a routed host).
+- `strict`: add `@proxyConfig={egress="strict"}` to the header so only requests that match an allow (`@proxy`) rule are allowed; everything else is blocked, **including a request to a host that has `@proxy` rules but none matching this path/method**. This is the recommended posture once your rules are dialed in, since it prevents the agent from reaching arbitrary hosts (or arbitrary endpoints on a routed host).
 
-A matching `block` rule **always wins over an allow rule**, in either egress mode — so a `block=true` rule denies a request even if a broader `@proxy` allow rule also matches it. (To allow only a subset of a host and deny the rest, use `strict` egress with a specific allow rule, rather than a broad `block` with a narrow allow.)
+A matching `block` rule **always wins over an allow rule**, in either egress mode, so a `block=true` rule denies a request even if a broader `@proxy` allow rule also matches it. (To allow only a subset of a host and deny the rest, use `strict` egress with a specific allow rule, rather than a broad `block` with a narrow allow.)
 
 :::note[Helpful failures instead of mystery 401s]
-Even in `permissive` mode, if a request carries a placeholder that **no rule injects on that route** (e.g. the agent hits `/v2/…` but your rule matched `/v1/…`), the proxy blocks it with a message naming the item and the rule gap — rather than forwarding the placeholder and letting the upstream reject it with a confusing `401`. So a mismatched path tells you *the proxy rule is the problem*, not "check your credentials."
+Even in `permissive` mode, if a request carries a placeholder that **no rule injects on that route** (for example the agent hits `/v2/…` but your rule matched `/v1/…`), the proxy blocks it with a message naming the item and the rule gap, rather than forwarding the placeholder and letting the upstream reject it with a confusing `401`. So a mismatched path tells you *the proxy rule is the problem*, not "check your credentials."
 :::
 
 ### Substitution surface
 
-Matching a rule decides **which host** a secret may go to. Two more guards decide **where inside the request** the placeholder gets swapped for the real value, and **how many times**. They exist because the proxy substitutes by finding the placeholder in the outbound bytes: without limits, an agent that was prompt-injected could place the placeholder somewhere the real value then leaks. The classic case is a request to an allowed host that forwards the value onward, e.g. asking a mail API to send an email whose body contains the placeholder.
+Matching a rule decides **which host** a secret may go to. Two more guards decide **where inside the request** the placeholder gets swapped for the real value, and **how many times**. They exist because the proxy substitutes by finding the placeholder in the outbound bytes: without limits, an agent that was prompt-injected could place the placeholder somewhere the real value then leaks. The classic case is a request to an allowed host that forwards the value onward, for example asking a mail API to send an email whose body contains the placeholder.
 
 **`substituteIn`, where the swap may happen.** By default a secret is only substituted into request **headers** (any header). That covers the common case, since most APIs authenticate with an `Authorization` or `X-Api-Key` header. If the placeholder shows up anywhere a target doesn't allow, the request is **blocked** rather than substituted, so the real value never lands somewhere it could be exfiltrated. Targets can be as broad or as specific as you want:
 
@@ -112,7 +112,7 @@ Both guards fail closed and, like a route mismatch, produce a message naming the
 By default, varlock applies **least privilege** to the proxied child:
 
 - A `@proxy(domain=...)` item → the agent sees a **placeholder**; the real value is injected at the wire.
-- A [`@sensitive`](/reference/item-decorators/#sensitive) item with **no** proxy policy → the agent sees a **placeholder** too (it just isn't injected anywhere). The real value never reaches the child.
+- A [`@sensitive`](/reference/item-decorators/#sensitive) item with **no** proxy policy → the agent sees a **placeholder** too (it isn't injected anywhere). The real value never reaches the child.
 - Non-sensitive items → passed through normally.
 
 :::note[varlock treats items as sensitive by default]
@@ -137,12 +137,12 @@ UNUSED_SECRET=yourPreferredPlugin()
 
 ### Placeholders
 
-You don't have to define placeholders. If you don't set one, varlock generates a placeholder for every proxied item automatically. Its exact value usually doesn't matter, because the proxy injects the real secret on the wire regardless of what the placeholder looks like. It matters only when the client checks the key's format **locally, before sending** — typically an SDK (for example the OpenAI or Stripe client asserting an `sk-` / `sk_` prefix when you construct it). A raw HTTP client (curl, `fetch`, and most tools) accepts any placeholder, so the generated one is fine.
+You don't have to define placeholders. If you don't set one, varlock generates a placeholder for every proxied item automatically. Its exact value doesn't matter in most cases, because the proxy injects the real secret on the wire regardless of what the placeholder looks like. It matters only when the client checks the key's format **locally, before sending**, which is what SDKs do (for example the OpenAI or Stripe client asserting an `sk-` / `sk_` prefix when you construct it). A raw HTTP client (curl, `fetch`, and most tools) accepts any placeholder, so the generated one is fine.
 
 The placeholder the agent sees is chosen in priority order:
 
 1. An explicit [`@placeholder`](/reference/item-decorators/#placeholder) value (always wins).
-2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type): e.g. `@type=url` → `https://vlk-placeholder-…invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
+2. A valid-and-unique value derived from the item's [`@type`](/reference/item-decorators/#type): for example `@type=url` → `https://vlk-placeholder-…invalid/`, `@type=email` / `uuid` / `md5` likewise, and `@type=string(startsWith=sk-, isLength=20)` yields an `sk-`-shaped placeholder.
 3. A generic fallback (`vlk_placeholder_<KEY>_…`). For a `@proxy`-routed item varlock **warns** about this one, since it's the case that can fail an SDK's format check; if your client doesn't validate the format, it's harmless.
 
 Every placeholder is unique per item, so two different secrets can never collide on the wire.

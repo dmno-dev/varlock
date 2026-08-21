@@ -35,7 +35,7 @@ printenv ANTHROPIC_API_KEY
 Minimal's isolation mode affects whether the guest can reach the host proxy:
 
 - **Linux process sandboxing** that still shares host loopback can use `HTTP_PROXY=http://127.0.0.1:<port>` as emitted by `proxy env`.
-- **microVM** isolation typically cannot reach the host's `127.0.0.1`. Varlock's proxy currently binds loopback only; non-loopback "sandbox bridging" is not available yet. If `minimal run` cannot connect through the proxy on your platform, that is the gap to watch, not a misconfigured schema.
+- **microVM** isolation gives the guest its own loopback, so it cannot reach the host's `127.0.0.1`. The broker binds loopback by default; start it with `--expose` to bind off-loopback and serve the [tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url), then point the guest at that address. If `minimal run` still cannot connect through the proxy on your platform, the guest network path is the gap to look at, not a misconfigured schema.
 
 If HTTPS clients inside the sandbox fail TLS handshake, confirm the CA bundle vars from `proxy env` were actually present in the task environment (not only on the host shell that launched Minimal).
 

@@ -24,7 +24,7 @@ of Varlock's features to improve your developer experience and security posture.
 
 Depending on your setup you will want to update your `.gitignore` to _not_ ignore your `.env.schema` file and any other `.env.xxx` files that can now be safely committed to your repo if they don't contain secrets (which they shouldn't).
 
-If using [generated types](/reference/root-decorators/#code-generation), we also recommend that you ignore the generated file (usually `env.d.ts` in TypeScript) since it is regenerated automatically from your schema (on `varlock load`/`run`), like other build artifacts.
+If using [generated types](/reference/root-decorators/#code-generation), we also recommend that you ignore the generated file (for example `env.d.ts` in TypeScript) since it is regenerated automatically from your schema (on `varlock load`/`run`), like other build artifacts.
 
 ```diff title=".gitignore"
 
@@ -50,7 +50,7 @@ Consider how you can reuse and modularize your schema if you have a monorepo or 
 
 ### CI/CD platforms
 
-It may be useful to validate your schema in CI/CD pipelines, especially if you want to validate configurations that you don't have access to locally (e.g. Staging or Production). You can do this manually by running `varlock load` in your pipeline. And if you're using GitHub Actions, you can use the [Varlock GitHub Action](/integrations/github-action/) to validate your schema automatically.
+It may be useful to validate your schema in CI/CD pipelines, especially if you want to validate configurations that you don't have access to locally (for example Staging or Production). You can do this manually by running `varlock load` in your pipeline. And if you're using GitHub Actions, you can use the [Varlock GitHub Action](/integrations/github-action/) to validate your schema automatically.
 
 :::tip
 Having a well architected multi-environment setup is key to healthy CI/CD workflows. See the [Environments](/guides/environments/) guide for more information.
@@ -60,7 +60,7 @@ Having a well architected multi-environment setup is key to healthy CI/CD workfl
 
 Because varlock supports loading environment variables from the environment itself or via a [function](/reference/functions/) in your `.env.schema`, there are a few different approaches.
 
-If you're already using your deployment platform's environment variable management, you may not need to do anything to benefit from varlock's validation and security features. If you have a multi-environment setup, you may need to set your environment flag (the item referenced by [`@currentEnv`](/reference/root-decorators/#currentenv), e.g. `APP_ENV`) to the correct environment.
+If you're already using your deployment platform's environment variable management, you may not need to do anything to benefit from varlock's validation and security features. If you have a multi-environment setup, you may need to set your environment flag (the item referenced by [`@currentEnv`](/reference/root-decorators/#currentenv), for example `APP_ENV`) to the correct environment.
 
 ```bash
 APP_ENV=production varlock run -- your-production-command

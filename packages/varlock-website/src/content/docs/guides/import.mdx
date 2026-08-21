@@ -3,7 +3,7 @@ title: "Imports"
 description: Learn how to use the @import decorator to share environment variables across files and services
 ---
 
-The [`@import()` root decorator](/reference/root-decorators/#import) allows you to import schema and/or values from other sources (currently just `.env` files), making it easy to share config across services within a monorepo, split up large schemas, or reuse pre-defined schemas. Multiple `@import()` calls may be used, and an imported source may itself import more sources.
+The [`@import()` root decorator](/reference/root-decorators/#import) allows you to import schema and/or values from other sources (currently only `.env` files), so you can share config across services within a monorepo, split up large schemas, or reuse pre-defined schemas. Multiple `@import()` calls may be used, and an imported source may itself import more sources.
 
 **Basic examples:**
 ```env-spec
@@ -18,7 +18,7 @@ The [`@import()` root decorator](/reference/root-decorators/#import) allows you 
 The first argument to `@import()` specifies where to look for file(s) to import.
 Currently only local file imports are supported, but we plan to support importing over http in a style similar to Deno's http imports.
 
-For now, all imported files must be `.env` files (and may contain @env-spec decorators), but in the future, we may also support other formats (e.g., JSON, YAML, etc.) or even JS/TS files.
+For now, all imported files must be `.env` files (and may contain @env-spec decorators), but in the future, we may also support other formats (for example JSON or YAML) or even JS/TS files.
 
 :::caution[Paths on Windows]
 Import paths are written the same way on every platform. Use forward slashes, even on Windows: `@import(../shared/.env.schema)` works there, `@import(..\shared\.env.schema)` does not.
@@ -74,7 +74,7 @@ This distinction matters when pulling in a root or sibling package. Importing it
 
 ### JS package registries (👀 coming soon)
 
-A registry (npm, jsr, etc.), package name, version, and path can be used to import a schema from a public package.
+A registry (such as npm or jsr), package name, version, and path can be used to import a schema from a public package.
 
 ```env-spec
 # @import(npm:@varlock/vercel-integration@1.2.3/.env)
@@ -135,10 +135,10 @@ The `allowMissing` parameter accepts a boolean value (defaults to `false`). It c
 ## Import precedence and merging multiple sources
 
 Varlock is designed to load multiple definitions for a single item and merge them together.
-The common case would be taking schema info from `.env.schema` and overriding a value from another source (e.g., `.env.local`, `.env.production`, etc.),
+The common case would be taking schema info from `.env.schema` and overriding a value from another source (for example `.env.local` or `.env.production`),
 but there are many cases where root decorators, item decorators, and descriptions may be merged as well.
 
-To do this, we usually walk our data sources in decreasing order of precedence, until we find something defined for the value/decorator/etc we are evaluating.
+To do this, we walk our data sources in decreasing order of precedence, until we find something defined for the value or decorator we are evaluating.
 
 **Precedence rules are:**
 - Imported files are processed in order, with later imports overriding previous imports
@@ -157,8 +157,8 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 
 
 ## More details
-- Root decorators that affect individual items (e.g., `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
-- An item with no value at all (e.g., `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
+- Root decorators that affect individual items (for example `@defaultRequired`) affect only the items that are defined in the file, not those in imported files
+- An item with no value at all (for example `ITEM=`) will be skipped when looking for a value / function to use, but its presence can be used to add other decorators/description to the item
 - If an imported file is marked with [`@disable`](/reference/root-decorators/#disable), it and any files it imports are skipped entirely
 - Importing the same source from multiple places (a "diamond") is fine: it is loaded once and reused
 
@@ -166,7 +166,7 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 
 ### `environment flag "..." must be defined within this schema`
 
-If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`) and that variable is only brought in via a **partial** `@import()`, varlock validates the env flag during schema initialization, before imported values are merged. The flag must be **defined in the same `.env.schema` file** that declares `@currentEnv`, not only in an imported file.
+If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (for example `# @currentEnv=$DEPLOY_ENV`) and that variable is only brought in via a **partial** `@import()`, varlock validates the env flag during schema initialization, before imported values are merged. The flag must be **defined in the same `.env.schema` file** that declares `@currentEnv`, not only in an imported file.
 
 This commonly appears in monorepos when a sub-package imports shared keys from a parent schema:
 
@@ -196,11 +196,11 @@ MY_SERVICE_URL=...
 ```
 
 - Move `@currentEnv` to the shared schema where the flag is already defined
-- Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling
+- Import the full directory (omit the key list) if the sub-package must inherit the parent's `@currentEnv` handling
 
 ### Circular imports
 
-A circular chain of imports (e.g. `a` imports `b` which imports `a`) is not allowed. Varlock detects the cycle and fails with an explicit error showing the chain:
+A circular chain of imports (for example `a` imports `b` which imports `a`) is not allowed. Varlock detects the cycle and fails with an explicit error showing the chain:
 
 ```txt
 Circular import detected: a/.env.schema -> b/.env.schema -> a/.env.schema

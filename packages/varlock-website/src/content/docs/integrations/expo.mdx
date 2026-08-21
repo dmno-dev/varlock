@@ -79,7 +79,7 @@ No CLI command wrapping is needed. Env loads when Metro/Babel start. Run `expo s
 
 1. **Wrap your Metro config**
 
-    Wrap your Metro config with `withVarlockMetroConfig`. This automatically configures Metro to resolve varlock's subpath exports (e.g. `varlock/env`) and initializes the `ENV` proxy in the main Metro process.
+    Wrap your Metro config with `withVarlockMetroConfig`. This automatically configures Metro to resolve varlock's subpath exports (such as `varlock/env`) and initializes the `ENV` proxy in the main Metro process.
 
     <Tabs syncKey="expo-rn">
       <TabItem label="Expo">
@@ -130,7 +130,7 @@ const legacyUrl = process.env.API_URL; // 🆗 still works
 ```
 
 #### Why use `ENV` instead of `process.env`?
-- Non-string values (e.g., number, boolean) are properly typed and coerced
+- Non-string values (for example number, boolean) are properly typed and coerced
 - Non-sensitive items are replaced with their literal values at bundle time (smaller bundle, no runtime lookup)
 - Sensitive items are never embedded in the bundle
 - Better error messages for invalid or unavailable keys
@@ -165,11 +165,11 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 ```
 
 :::caution[TypeScript config]
-If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+If you find you are not getting type completion on `ENV`, you may need to add your generated type files (`env.d.ts` by default) to your `tsconfig.json`'s `include` array.
 :::
 ## Managing multiple environments
 
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
+Varlock can load multiple _environment-specific_ `.env` files (for example `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
 
 Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it when running commands.
 

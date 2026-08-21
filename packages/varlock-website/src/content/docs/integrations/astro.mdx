@@ -70,13 +70,13 @@ console.log(ENV.SOMEVAR);             // ✨ recommended
 ```
 
 #### Why use `ENV` instead of `import.meta.env`?
-- Non-string values (e.g., number, boolean) are properly typed and coerced
+- Non-string values (for example number, boolean) are properly typed and coerced
 - All non-sensitive items are replaced at build time (not just `VITE_` prefixed ones)
 - Better error messages for invalid or unavailable keys
 - Enables future DX improvements and tighter control over what is bundled
 
 ### Within `astro.config.*`
-It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward, but varlock makes it easy. In fact it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
+It's often useful to be able to access env vars in your Astro config. Without varlock, it's a bit awkward. With varlock it's already available: import varlock's `ENV` object and reference env vars via `ENV.SOME_ITEM` like you do everywhere else.
 
 ```diff lang="ts" title="astro.config.ts"
 import { defineConfig } from 'astro/config';
@@ -89,7 +89,7 @@ export default defineConfig({ /* ... */ });
 ```
 
 :::caution[TypeScript config]
-If you find you are not getting type completion on `ENV`, you may need to add your generated type files (usually `env.d.ts`) to your `tsconfig.json`'s `include` array.
+If you find you are not getting type completion on `ENV`, you may need to add your generated type files (`env.d.ts` by default) to your `tsconfig.json`'s `include` array.
 :::
 
 ### Within other scripts
@@ -114,7 +114,7 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 
 ## Managing multiple environments
 
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Astro/Vite's default behaviour, which relies on it's own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
+Varlock can load multiple _environment-specific_ `.env` files (for example `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv). **This is different than Astro/Vite's default behaviour, which relies on its own [`MODE` flag](https://vite.dev/guide/env-and-mode.html#modes).**
 
 Usually this env var will be defaulted to something like `development` in your `.env.schema` file, and you can override it by overriding the value when running commands - for example `APP_ENV=production vite build`. For a JavaScript based project, this will often be done in your `package.json` scripts.
 
@@ -164,7 +164,7 @@ This integration will automatically inject a new middleware that scans outgoing 
 
 
 :::note[Encrypting the env blob]
-When deploying SSR Astro apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When deploying SSR Astro apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (for example against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::
 
 ---

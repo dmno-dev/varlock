@@ -34,7 +34,7 @@ SECRET_KEY= # @sensitive
 3. At **runtime**, `initVarlockEnv()` detects the encrypted prefix and decrypts using `_VARLOCK_ENV_KEY` from the runtime environment
 4. The key is **never baked into the build**. It must always come from the runtime environment
 
-Decryption uses `node:crypto` where available; edge runtimes without it (e.g. Vercel Edge middleware) automatically fall back to asynchronous Web Crypto, with request handling gated until the env is ready.
+Decryption uses `node:crypto` where available; edge runtimes without it (for example Vercel Edge middleware) automatically fall back to asynchronous Web Crypto, with request handling gated until the env is ready.
 
 ## Key management
 
@@ -65,7 +65,7 @@ You must set `_VARLOCK_ENV_KEY` as an environment variable on your platform. The
       varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive
       ```
 
-      You can use the same key for both `preview` and `production`, but using separate keys is usually safer because it isolates environments and reduces blast radius if one key is exposed.
+      You can use the same key for both `preview` and `production`, but we recommend separate keys because it isolates environments and reduces blast radius if one key is exposed.
       </TabItem>
       <TabItem label="Netlify">
       ```bash

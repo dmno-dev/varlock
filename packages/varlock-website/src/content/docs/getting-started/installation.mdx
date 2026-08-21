@@ -109,7 +109,7 @@ cosign verify-blob checksums.txt \
 Both workflow identities are accepted because binaries are normally cut by `release.yaml` alongside the npm publish, and re-cut by `binary-release.yaml` when an already-published version needs new archives.
 
 :::note
-Signing was added after varlock 1.14.0, so older releases have `checksums.txt` but no bundle. If a release has no `checksums.txt.cosign.bundle` asset, it predates signing and only the checksum step applies.
+Older releases have `checksums.txt` but no bundle. If a release has no `checksums.txt.cosign.bundle` asset, it predates signing and only the checksum step applies.
 :::
 
 ## Varlock skill
@@ -126,7 +126,7 @@ npx skills add dmno-dev/varlock
   </TabItem>
   <TabItem label="GitHub CLI">
 
-Requires GitHub CLI v2.90+.
+Requires a GitHub CLI version that includes the `gh skill` command.
 
 ```bash
 gh skill install dmno-dev/varlock varlock

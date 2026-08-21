@@ -9,7 +9,7 @@ For workloads you trust with the credentials they use, [pass resolved values](#p
 
 ## Passing resolved values
 
-Sprite env is per exec, so credentials exist only for the duration of one command. Import [`varlock/auto-load`](/integrations/javascript/) in the orchestrator: varlock resolves your values (plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs.
+Sprite env is per exec, so credentials exist only for the duration of one command. Import [`varlock/auto-load`](/integrations/javascript/) in the orchestrator: varlock resolves your values (from plugins, `.env.local`, and your other env files), validates them against your schema, and redacts them in the orchestrator's logs.
 
 ```ts title="orchestrate.ts"
 import 'varlock/auto-load';
@@ -73,7 +73,7 @@ ANTHROPIC_API_KEY=
 STRIPE_SECRET_KEY=
 ```
 
-Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is acceptable because agents hold only placeholders. To make the broker refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
 
 ### Set up the broker
 
@@ -148,7 +148,7 @@ To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/)
 
 ### Lock down agent egress
 
-So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake, but Sprites can close the gap entirely: each sprite has a network policy (domain allow/deny, set only from outside the sprite) you can clamp so an agent sprite's only allowed egress is the broker's URL. A fresh sprite has no rules and open egress, so the lockdown is one explicit policy. It applies immediately to a running sprite, and it blocks IP-literal connections too, not just DNS lookups:
+So far the proxy governs proxied traffic, but an agent could still make direct connections that bypass the tunnel. Those requests carry placeholders at worst, so no secrets are at stake, but Sprites can close the gap entirely: each sprite has a network policy (domain allow/deny, set only from outside the sprite) you can clamp so an agent sprite's only allowed egress is the broker's URL. A fresh sprite has no rules and open egress, so the lockdown is one explicit policy. It applies immediately to a running sprite, and it blocks IP-literal connections too, not only DNS lookups:
 
 ```bash
 sprite api /v1/sprites/agent-1/policy/network -- -X POST \
@@ -187,7 +187,7 @@ The data-plane token gates the tunnel, so a public URL is safe, and the tunnel c
 
 The varlock proxy covers the same ground and more:
 
-- **Seamless.** Substitution happens transparently at the wire, so SDKs, CLIs, and agent tools work unmodified. Connectors rewrite the base URL, so anything calling an API has to be changed to point at the gateway.
+- **No code changes.** Substitution happens transparently at the wire, so SDKs, CLIs, and agent tools work unmodified. Connectors rewrite the base URL, so anything calling an API has to be changed to point at the gateway.
 - **Any source.** Secrets come from wherever you already keep them through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...), rather than being copied into one platform's store, and they stay in your custody.
 - **One schema.** Your `.env.schema` is a single declarative layer describing every value, its type, and its routing rules, and it is legible to both people and agents. Connector policy lives in the platform's API, separate from your project.
 - Plus response scrubbing, your own audit log, and the same setup on any other platform.

@@ -113,7 +113,7 @@ For SvelteKit on Cloudflare, use the standard [`varlockVitePlugin`](/integration
 1. **Install packages**
     <InstallJsDepsWidget packages="@varlock/cloudflare-integration @cloudflare/vite-plugin varlock" />
 
-    `@cloudflare/vite-plugin` is an (optional) peer dependency. This plugin wraps it, so you need it installed in the same project. SvelteKit users should omit it (see the [SvelteKit callout](#choosing-an-approach) at the top of this page).
+    `@cloudflare/vite-plugin` is an (optional) peer dependency. This plugin wraps it, so you need it installed in the same project. SvelteKit users must omit it (see the [SvelteKit callout](#choosing-an-approach) at the top of this page).
 
 1. **Run `varlock init` to set up your `.env.schema` file**
 
@@ -194,7 +194,7 @@ Your secrets will no longer be bundled into the JS artifact. They'll be stored i
 
 ## `varlock-wrangler` CLI
 
-`varlock-wrangler` is a thin wrapper around `wrangler`. It enhances the commands below; everything else (`tail`, `secret list`, etc.) is passed through unchanged, so you can use `varlock-wrangler` everywhere or just for these commands.
+`varlock-wrangler` is a thin wrapper around `wrangler`. It enhances the commands below; every other command (such as `tail` and `secret list`) is passed through unchanged, so you can use `varlock-wrangler` everywhere or only for these commands.
 
 <div class="reference-docs">
 <div>
@@ -213,14 +213,14 @@ On Unix, secrets are passed to wrangler commands via a named pipe (FIFO) and nev
 :::
 
 :::caution[Varlock owns your env vars]
-`varlock-wrangler deploy` replaces **all** Cloudflare vars and secrets with the ones defined in your `.env.schema`. Any vars or secrets set manually via the Cloudflare dashboard or `wrangler secret put` that aren't in your schema will be removed on the next deploy. If you need additional bindings (KV, D1, etc.), configure them in your `wrangler.toml` as usual. Only plain vars/secrets are affected.
+`varlock-wrangler deploy` replaces **all** Cloudflare vars and secrets with the ones defined in your `.env.schema`. Any vars or secrets set manually via the Cloudflare dashboard or `wrangler secret put` that aren't in your schema will be removed on the next deploy. If you need additional bindings (KV, D1, R2, Durable Objects), configure them in your `wrangler.toml` as usual. Only plain vars/secrets are affected.
 :::
 </div>
 
 <div>
 ### `varlock-wrangler types`
 
-Generates Cloudflare Worker types (the `Env` interface) including all varlock-managed environment variables, so your `env.MY_VAR` access is properly typed alongside other Cloudflare bindings (KV, D1, etc.).
+Generates Cloudflare Worker types (the `Env` interface) including all varlock-managed environment variables, so your `env.MY_VAR` access is properly typed alongside other Cloudflare bindings (KV, D1, R2, Durable Objects).
 </div>
 </div>
 
@@ -237,7 +237,7 @@ To enable type-safety and IntelliSense for `ENV`, enable the [`@generateTsTypes`
 ```
 
 :::caution[Not seeing types on `ENV`?]
-If `ENV` stays untyped after the file is generated, TypeScript probably isn't loading it. Worker templates scaffolded by `npm create cloudflare` typically use an explicit `include` list that won't pick up a generated `env.d.ts` at the project root. Add it to the `include` array of the tsconfig that covers the code reading `ENV`:
+If `ENV` stays untyped after the file is generated, TypeScript probably isn't loading it. Worker templates scaffolded by `npm create cloudflare` use an explicit `include` list that won't pick up a generated `env.d.ts` at the project root. Add it to the `include` array of the tsconfig that covers the code reading `ENV`:
 
 ```diff lang="json" title="tsconfig.json"
 {
@@ -271,7 +271,7 @@ For more details, see the [root decorators reference](/reference/root-decorators
 
 ## Managing Multiple Environments
 
-Varlock can load multiple _environment-specific_ `.env` files (e.g., `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
+Varlock can load multiple _environment-specific_ `.env` files (for example `.env.development`, `.env.preview`, `.env.production`) by using the [`@currentEnv` root decorator](/reference/root-decorators/#currentenv).
 
 The simplest approach is to use the built-in [`VARLOCK_ENV`](/reference/builtin-variables/#varlock_env) variable, which auto-detects the deployment environment on most CI platforms, including [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/) (via `WORKERS_CI_BRANCH`), Vercel, Netlify, and others. Locally it resolves to `development`, and during tests to `test`.
 
@@ -296,7 +296,7 @@ For more information, see the [environments guide](/guides/environments).
 
 ## Dynamic+public config
 
-On Workers, [`@dynamic`](/reference/item-decorators/#dynamic) usually changes nothing in practice. Worker values are fixed at deploy time (`varlock-wrangler deploy` resolves your env and uploads it), and client assets are typically rebuilt in the same pipeline, so a static public value and a dynamic one change at exactly the same moment. If you build and deploy together, you can ignore this section; there is no downside to leaving `@dynamic` markers in a schema shared with other platforms (worker-side code reads `ENV.KEY` the same either way).
+On Workers, [`@dynamic`](/reference/item-decorators/#dynamic) changes nothing in practice when you build and deploy together. Worker values are fixed at deploy time (`varlock-wrangler deploy` resolves your env and uploads it), and client assets are rebuilt in the same pipeline, so a static public value and a dynamic one change at exactly the same moment. If you build and deploy together, you can ignore this section; there is no downside to leaving `@dynamic` markers in a schema shared with other platforms (worker-side code reads `ENV.KEY` the same either way).
 
 Where it does matter is when build and deploy are decoupled: for example, building client assets once and deploying that same build to several environments, where deploy-time resolution gives each environment different values. For that setup, use your framework's recipe from the [guide](/guides/dynamic-config/#loading-from-a-server-endpoint) (most apps on Workers run a framework like Astro or SvelteKit); on a plain worker, add a route in your fetch handler that returns `getPublicDynamicEnv()`. Either way the endpoint serves whatever the worker was deployed with, not per-request-fresh values.
 
@@ -329,7 +329,7 @@ If you deploy via [Cloudflare Workers Builds](https://developers.cloudflare.com/
 
 ## Deploying from your own CI
 
-Deploying from **your own CI** (GitHub Actions, GitLab CI, a self-hosted runner) instead of [Cloudflare Workers Builds](#cloudflare-workers-builds-cicd) works the same way, and isn't really Cloudflare-specific. The same _secret-zero_ rule applies: any var varlock needs to resolve your secrets (a 1Password service account token, a GCP key, etc.) must be present in the job environment before `varlock-wrangler deploy` runs.
+Deploying from **your own CI** (GitHub Actions, GitLab CI, a self-hosted runner) instead of [Cloudflare Workers Builds](#cloudflare-workers-builds-cicd) works the same way, and isn't really Cloudflare-specific. The same _secret-zero_ rule applies: any var varlock needs to resolve your secrets (for example a 1Password service account token or a GCP key) must be present in the job environment before `varlock-wrangler deploy` runs.
 
 ```yaml title=".github/workflows/deploy-worker.yml"
 jobs:
@@ -381,7 +381,7 @@ Delete `.dev.vars` and `.dev.vars.<environment>` files when using the Vite plugi
 
 ### `Property 'SOMEVAR' does not exist on type 'TypedEnvSchema'`
 
-The generated types file is not being loaded by TypeScript. Make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled in your `.env.schema`, and that the generated file (usually `env.d.ts`) is listed in the `include` array of the tsconfig that covers the code where the error appears. See [Type-safety and IntelliSense](#type-safety-and-intellisense) above.
+The generated types file is not being loaded by TypeScript. Make sure the [`@generateTsTypes` root decorator](/reference/root-decorators/#generatetstypes) is enabled in your `.env.schema`, and that the generated file (`env.d.ts` by default) is listed in the `include` array of the tsconfig that covers the code where the error appears. See [Type-safety and IntelliSense](#type-safety-and-intellisense) above.
 
 ### Vars or secrets missing after deploy
 
@@ -391,11 +391,11 @@ The generated types file is not being loaded by TypeScript. Make sure the [`@gen
 
 ### Non-wrangler deploy tools (Alchemy, SST, Pulumi)
 
-If you deploy Workers with **IaC tools other than wrangler** ([Alchemy](https://alchemy.run/), SST, Pulumi, Terraform, etc.), you can still use varlock for **fail-fast validation and secret resolution** via [`varlock run`](/reference/cli/load-and-run/#run), which injects resolved values into `process.env` for the deploy tool to read.
+If you deploy Workers with **IaC tools other than wrangler** (such as [Alchemy](https://alchemy.run/), SST, Pulumi, or Terraform), you can still use varlock for **fail-fast validation and secret resolution** via [`varlock run`](/reference/cli/load-and-run/#run), which injects resolved values into `process.env` for the deploy tool to read.
 
 What you **cannot** get today without `varlock-wrangler`: the in-worker runtime layer (`@varlock/cloudflare-integration/init`) that provides console redaction and response leak detection. That layer reads a `__VARLOCK_ENV` binding that only `varlock-wrangler` produces.
 
-A public API to build `__VARLOCK_ENV` bindings for non-wrangler deploy tools is planned but not available yet. Until then, teams on Alchemy/SST/Pulumi typically rely on varlock for validation + env injection at deploy time and skip the in-worker runtime protections.
+A public API to build `__VARLOCK_ENV` bindings for non-wrangler deploy tools is planned but not available yet. Until then, teams on Alchemy/SST/Pulumi can rely on varlock for validation + env injection at deploy time and skip the in-worker runtime protections.
 
 ----
 

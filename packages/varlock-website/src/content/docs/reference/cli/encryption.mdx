@@ -100,7 +100,7 @@ Non-sensitive values are not shown by `varlock reveal`. Use [`varlock printenv`]
 
 ## `varlock lock` ||lock||
 
-Locks the encryption daemon, requiring biometric authentication (e.g., Touch ID) for the next decrypt operation. This invalidates the current biometric session cache.
+Locks the encryption daemon, requiring biometric authentication (for example Touch ID) for the next decrypt operation. This invalidates the current biometric session cache.
 
 ```bash
 varlock lock
@@ -124,7 +124,7 @@ This command reports two drift categories:
 - **Missing in schema**: key is used in code but not declared in schema
 - **Unused in schema**: key is declared in schema but not referenced in code
 
-Pure execution-environment plumbing, meaning variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`), is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
+Pure execution-environment plumbing, meaning variables that reflect *where/how* the process runs (for example `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`), is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (for example `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
 
 Exit codes:
 - `0` when schema and code are in sync
@@ -172,7 +172,7 @@ Code scanning does not descend into nested projects. Any subdirectory that conta
 
 :::tip[Suppressing false positives]
 - Use [`@auditIgnore`](/reference/item-decorators/#auditignore) on individual schema items that are only consumed by external tools and won't appear in your application code.
-- Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (e.g., vendored code, generated files) from the code scan.
+- Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (for example vendored code, generated files) from the code scan.
 :::
 
 </div>
@@ -189,7 +189,7 @@ varlock generate-key --plain
 ```
 
 **Flags:**
-- `--plain`: Print only the key (no surrounding help text). Useful for piping into platform CLIs, e.g. `varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive`.
+- `--plain`: Print only the key (no surrounding help text). Useful for piping into platform CLIs, for example `varlock generate-key --plain | vercel env add _VARLOCK_ENV_KEY production --sensitive`.
 
 See the [encrypted deployments guide](/guides/encrypted-deployments/) and the [Next.js](/integrations/nextjs/#encrypting-the-env-blob) / [Vite](/integrations/vite/#encrypting-the-env-blob) integration docs for setup instructions.
 

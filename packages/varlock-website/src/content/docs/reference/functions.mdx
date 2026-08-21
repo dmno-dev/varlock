@@ -66,7 +66,7 @@ Many CLI tools output an additional newline. `exec()` will trim this automatical
 :::
 
 :::tip[Prefer a plugin when one exists]
-If varlock has a [plugin](/plugins/overview/) for your provider (1Password, AWS, Vault, …), use its resolver (e.g. `op()`) instead of shelling out. Plugins handle auth, caching, and validation. Reach for `exec()` only for tools without a plugin, or for custom logic.
+If varlock has a [plugin](/plugins/overview/) for your provider (1Password, AWS, Vault, …), use its resolver (for example `op()`) instead of shelling out. Plugins handle auth, caching, and validation. Reach for `exec()` only for tools without a plugin, or for custom logic.
 :::
 
 Expansion equivalent: `exec(command)` === `$(command)`
@@ -111,7 +111,7 @@ APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, developm
 ```
 
 :::caution[Quoting path-like values]
-An unquoted match value that looks like a valid regex (i.e., `/something/` with optional flags) will be treated as a regex pattern. If you need to match a literal string containing slashes (like a file path), wrap it in quotes.
+An unquoted match value that looks like a valid regex (that is, `/something/` with optional flags) will be treated as a regex pattern. If you need to match a literal string containing slashes (like a file path), wrap it in quotes.
 ```env-spec
 # /usr/local/ looks like a valid regex, so use quotes to match it literally
 ITEM=remap($PATH_VAR, "/usr/local/", found, default)
@@ -183,7 +183,7 @@ ITEM=remap($VAR, /usr/lib/, matched)
 # quoted, treated as the literal string "/usr/lib/"
 ITEM=remap($VAR, "/usr/lib/", matched)
 ```
-Note that as a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always treated as plain strings.
+Note that as a top-level config value (for example `MY_PATH=/usr/local/bin`), slash-containing strings are always treated as plain strings.
 :::
 
 :::note[`regex()` function]
@@ -364,7 +364,7 @@ TEMP_LABEL=randomString(10)
 <div>
 ### `generateOtp()`
 
-Generates a time-based one-time password (TOTP) code from a shared secret, the same codes an authenticator app shows. Useful for CLIs that require a 2FA code on every invocation, e.g. `aws sts get-session-token --token-code 123456`.
+Generates a time-based one-time password (TOTP) code from a shared secret, the same codes an authenticator app shows. Useful for CLIs that require a 2FA code on every invocation, for example `aws sts get-session-token --token-code 123456`.
 
 - First arg: the shared secret. Either the base32 seed from your 2FA setup, or a full `otpauth://totp/...` URI. Spaces, hyphens, lowercase, and padding in a base32 seed are all fine.
 - `digits=N` option: code length, 6 to 10 (default: 6)
@@ -425,7 +425,7 @@ Wraps any resolver to cache its result. See [caching guide](/guides/caching/) fo
 
 - First arg: the resolver to cache
 - `ttl=D` option: how long to cache (default: `forever`). Accepts duration strings with `ms`, `s`, `m`, `h`, `d`, `w` suffixes (long forms and plurals also work), bare numbers as milliseconds, or the keyword `forever` to cache until manually cleared.
-- `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value should be shared across files or when you want a stable key that doesn't change with resolver edits.
+- `key=S` option: use an explicit cache key instead of the auto-generated one. Useful when the same cached value needs to be shared across files or when you want a stable key that doesn't change with resolver edits.
   - Keys must be non-empty printable text (no control characters) and at most 2048 characters.
 
 The cache automatically invalidates when you change the wrapped resolver expression (unless using a custom `key`).
@@ -487,7 +487,7 @@ On first run with `prompt` mode, you'll be asked to enter the secret value. Once
 Values are encrypted using the best available backend on your platform. See the [Local encryption guide](/guides/local-encryption/) for details.
 
 Encrypted payload lifecycle:
-- Store encrypted payloads (`varlock("local:...")`) in local override files (typically `.env.local`)
+- Store encrypted payloads (`varlock("local:...")`) in local override files (such as `.env.local`)
 - Decryption happens at runtime during `varlock load` / `varlock run`
 - Use [`varlock reveal`](/reference/cli/encryption/#reveal) when you need to inspect a decrypted value interactively
 
@@ -505,7 +505,7 @@ Reads a secret from the **macOS Keychain**. This built-in resolver communicates 
 **Key/value args:**
 - `service` (optional): Service name of the keychain item
 - `account` (optional): Account identifier for the keychain item
-- `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
+- `keychain` (optional): Name of a specific keychain to search (for example `"System"`)
 - `field` (optional): Specific field to extract from the keychain item
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 

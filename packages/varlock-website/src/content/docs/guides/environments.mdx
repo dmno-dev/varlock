@@ -3,9 +3,9 @@ title: Environments
 description: Best practices for managing multiple environments with varlock
 ---
 
-One of the main benefits of using environment variables is the ability to boot your application with configuration intended for different environments (e.g., development, preview, staging, production, test).
+One of the main benefits of using environment variables is the ability to boot your application with configuration intended for different environments (for example development, preview, staging, production, test).
 
-You may use both [functions](/reference/functions/) and/or environment-specific `.env` files (e.g., `.env.production`) to alter configuration accordingly in a declarative way. Plus the additional guardrails provided by `varlock` also make this much safer no matter where values come from.
+You may use both [functions](/reference/functions/) and/or environment-specific `.env` files (for example `.env.production`) to alter configuration accordingly in a declarative way. Plus the additional guardrails provided by `varlock` also make this much safer no matter where values come from.
 
 :::tip[environment-specific files are optional]
 While many have traditionally shied away from using environment-specific `.env` files due to fear of committing sensitive values, the ability to set values using [plugins](/guides/plugins/) makes it easier to securely, and collaboratively, manage these values.
@@ -14,15 +14,15 @@ While many have traditionally shied away from using environment-specific `.env` 
 
 
 ### Process overrides
-`varlock` will always treat environment variables passed into the process with the most precedence. Generally, we recommend moving as much configuration as possible into your `.env` files, but there are cases where you may want to override specific values at runtime, either from the environment itself, or by prepending them to your command (e.g., `APP_ENV=prod pnpm run build`).
+`varlock` will always treat environment variables passed into the process with the most precedence. Generally, we recommend moving as much configuration as possible into your `.env` files, but there are cases where you may want to override specific values at runtime, either from the environment itself, or by prepending them to your command (for example `APP_ENV=prod pnpm run build`).
 
-At the very least, you'll often need to inject an environment flag (e.g., `APP_ENV`) and a _secret-zero_ which allows access to the rest of your secrets in deployed environments. For local workflows, consider [device-local encryption](/guides/local-encryption/) to secure local secret-zero handling.
+At the very least, you'll often need to inject an environment flag (for example `APP_ENV`) and a _secret-zero_ which allows access to the rest of your secrets in deployed environments. For local workflows, consider [device-local encryption](/guides/local-encryption/) to secure local secret-zero handling.
 
 That said, as a first step to adopting `varlock`, you could rely entirely on process overrides to inject all config values, but still benefit from having a clear schema with validation applied to them.
 
 ### Loading environment-specific `.env` files
 
-Any environment-specific files (e.g., `.env.development`) will automatically be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentenv) root decorator in your `.env.schema` file.
+Any environment-specific files (for example `.env.development`) will automatically be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentenv) root decorator in your `.env.schema` file.
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
@@ -49,7 +49,7 @@ APP_ENV=development
 
 Your environment flag key is set to `APP_ENV`, which has a default value of `development` - meaning that `.env.development` and `.env.development.local` will be loaded if they exist.
 
-To tell `varlock` to load `.env.staging` instead, you must set `APP_ENV` to `staging` - usually using an override passed into the process. For example:
+To tell `varlock` to load `.env.staging` instead, you must set `APP_ENV` to `staging`, for example with an override passed into the process:
 
 ```bash
 APP_ENV=staging varlock run -- node my-test-script.js
@@ -88,7 +88,7 @@ APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, /.*/, preview, undefined, 
 ```
 
 You'll notice that `test` is one of the possible enum values, but it is not listed in the remap.
-When running tests, you would just explicitly set `APP_ENV` when invoking your command.
+When running tests, explicitly set `APP_ENV` when invoking your command.
 
 ```bash
 APP_ENV=test varlock run -- your-test-command
@@ -111,7 +111,7 @@ varlock load --env production
 ```
 
 This is only useful if you do not want to create a new env var for your env flag, and you are only using varlock via CLI commands.
-Mostly it is used internally by some integrations to match existing default behavior, and should not be used otherwise.
+Mostly it is used internally by some integrations to match existing default behavior, and we do not recommend using it otherwise.
 
 :::caution
 If `@currentEnv` is used, this will be ignored!
@@ -119,11 +119,11 @@ If `@currentEnv` is used, this will be ignored!
 
 ## Using `currentEnv` in Turborepo
 
-Turborepo users should be aware of a common pitfall when using `varlock`'s `@currentEnv` in monorepos managed by Turborepo, especially since Turborepo v2.0+ now enables **Strict Environment Mode** by default.
+There is a common pitfall when using `varlock`'s `@currentEnv` in monorepos managed by Turborepo, because Turborepo enables **Strict Environment Mode** by default.
 
 ### The Problem
 
-Turborepo, when running tasks, filters the environment variables available to each task. By default in Strict Mode, **only** variables listed in the `env` or `globalEnv` keys in your `turbo.json` are passed to your scripts. This means that if your environment flag set by `@currentEnv` (e.g., `APP_ENV`) is not explicitly listed, it will not be available to your process, even if you set it in your shell or CI environment. This can cause `varlock` to load the wrong environment, or fail to load the correct `.env.[currentEnv]` file.
+Turborepo, when running tasks, filters the environment variables available to each task. By default in Strict Mode, **only** variables listed in the `env` or `globalEnv` keys in your `turbo.json` are passed to your scripts. This means that if your environment flag set by `@currentEnv` (for example `APP_ENV`) is not explicitly listed, it will not be available to your process, even if you set it in your shell or CI environment. This can cause `varlock` to load the wrong environment, or fail to load the correct `.env.[currentEnv]` file.
 
 ### Solution: Add your environment flag to turbo.json
 
@@ -143,7 +143,7 @@ To ensure your environment flag variable is always available to your scripts, ad
 }
 ```
 
-- Use `globalEnv` if the variable should be available to all tasks.
+- Use `globalEnv` if the variable must be available to all tasks.
 - Use `env` under a specific task if only needed for that task.
 
 Now when you run the following:

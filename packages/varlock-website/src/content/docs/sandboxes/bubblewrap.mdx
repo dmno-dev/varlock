@@ -43,7 +43,7 @@ bwrap \
   -- claude
 ```
 
-Adjust binds for your distro layout and tools (`node`, agent binaries under `/home`, etc.). Prefer Fence if you want packaged agent templates and domain allowlisting without maintaining a long `bwrap` line.
+Adjust binds for your distro layout and tools (such as `node` or agent binaries under `/home`). Prefer Fence if you want packaged agent templates and domain allowlisting without maintaining a long `bwrap` line.
 
 :::note
 `--share-net` is what keeps `HTTP_PROXY=http://127.0.0.1:…` meaningful. A fully unshared network namespace cannot dial the host loopback proxy without extra bridging.

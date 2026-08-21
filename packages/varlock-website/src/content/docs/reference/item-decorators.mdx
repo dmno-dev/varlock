@@ -64,7 +64,7 @@ OPTIONAL_ITEM=
 ### `@sensitive`
 **Value type:** `boolean`
 
-Sets whether the item should be considered _sensitive_ - meaning it cannot be exposed to the public. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
+Sets whether the item is considered _sensitive_ - meaning it cannot be exposed to the public. The value is always redacted in CLI output, and client integrations can take further action to prevent leaks.
 
 Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultsensitive)
 
@@ -81,7 +81,7 @@ SERVICE_X_CLIENT_ID=
 
 **Per-item options:** pass an object value to tune protection for a single sensitive item:
 
-- `enabled` (`boolean`, default `true`): whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (e.g. `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
+- `enabled` (`boolean`, default `true`): whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (for example `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
 - `preventLeaks` (`boolean`, default `true`): when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs.
 
 ```env-spec
@@ -94,7 +94,7 @@ PARTNER_TOKEN=
 ```
 
 :::caution[Use `preventLeaks=false` sparingly]
-Leak detection is a safety net that stops a secret from accidentally being sent in a response. Setting `preventLeaks=false` removes that net for this item, so only use it when a secret is _deliberately_ meant to leave the system (e.g. an endpoint forwarding a token to another service), never just to silence a leak-detection error. Prefer disabling it for a single item like this over turning off [`@preventLeaks`](/reference/root-decorators/#preventleaks) globally.
+Leak detection is a safety net that stops a secret from accidentally being sent in a response. Setting `preventLeaks=false` removes that net for this item, so only use it when a secret is _deliberately_ meant to leave the system (for example an endpoint forwarding a token to another service), never only to silence a leak-detection error. Prefer disabling it for a single item like this over turning off [`@preventLeaks`](/reference/root-decorators/#preventleaks) globally.
 :::
 </div>
 
@@ -116,7 +116,7 @@ PUBLIC_API_URL=https://api.example.com
 ### `@internal`
 **Value type:** `boolean`
 
-Marks an item as used **only internally by varlock**, not by your application. Internal items are still resolved and can be referenced by other items (e.g. via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/reserved-variables/#__varlock_env) blob, and generated types. Framework integrations (Vite, Next.js, Astro, Cloudflare) inherit this exclusion too, since they all source their config from the same CLI output.
+Marks an item as used **only internally by varlock**, not by your application. Internal items are still resolved and can be referenced by other items (for example via [`ref()`](/reference/functions/#ref) or string expansion), but they are **excluded** from everything that reaches your app: the injected env vars, the [serialized graph](/reference/reserved-variables/#__varlock_env) blob, and generated types. Framework integrations (Vite, Next.js, Astro, Cloudflare) inherit this exclusion too, since they all source their config from the same CLI output.
 
 The most common use is a "secret zero": a credential used only to fetch _other_ secrets (for example a vault/secrets-manager token). Your application never needs it, and keeping it out of the process environment reduces your attack surface.
 
@@ -138,14 +138,14 @@ OP_TOKEN=
 ```
 
 :::caution[Marking something internal stops injecting it]
-Because internal items still resolve and validate, marking a variable internal does **not** produce an error if your application actually reads it. The value simply won't be in the environment at runtime. If your app uses one of these credentials directly (e.g. to write secrets back, renew Vault leases, or fetch more secrets at runtime), set `@internal=false` so it keeps being injected.
+Because internal items still resolve and validate, marking a variable internal does **not** produce an error if your application actually reads it. The value won't be in the environment at runtime. If your app uses one of these credentials directly (for example to write secrets back, renew Vault leases, or fetch more secrets at runtime), set `@internal=false` so it keeps being injected.
 :::
 
 :::note
 `@internal` controls what varlock _injects_, not what it shows. Internal items still appear (redacted) in inspection output (the `varlock load` summary and `varlock load --agent`), so they can be set and debugged.
 :::
 
-`varlock run` strips internal items from the child process environment **even if they were set in the ambient environment** (e.g. `OP_TOKEN=xxx varlock run ...`), so a secret-zero token never leaks into your app. If a _nested_ `varlock run` needs the internal value for its own resolution, pass [`--include-internal`](/reference/cli/load-and-run/#run) to keep it in the child env.
+`varlock run` strips internal items from the child process environment **even if they were set in the ambient environment** (for example `OP_TOKEN=xxx varlock run ...`), so a secret-zero token never leaks into your app. If a _nested_ `varlock run` needs the internal value for its own resolution, pass [`--include-internal`](/reference/cli/load-and-run/#run) to keep it in the child env.
 
 `varlock load --format json-full` excludes internal items by default too, since that format is commonly consumed programmatically (framework integrations shell out to this exact command to get their injected config) - pass [`--include-internal`](/reference/cli/load-and-run/#load) there for local debugging.
 </div>
@@ -154,7 +154,7 @@ Because internal items still resolve and validate, marking a variable internal d
 ### `@dynamic`
 **Value type:** `boolean`
 
-Sets whether the item is _dynamic_ - meaning integrations should avoid replacing it at build time and instead resolve it at runtime.
+Sets whether the item is _dynamic_ - meaning integrations must not replace it at build time and instead resolve it at runtime.
 
 By default, dynamic behavior follows sensitivity (sensitive items are dynamic, non-sensitive items are static), but this can be overridden globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic).
 
@@ -229,7 +229,7 @@ XYZ_API_KEY=
 ### `@tag()`
 **Arg types:** `[ tag: string, ... ]`
 
-Attaches one or more tags to the item. Tags don't affect resolution or validation; they're used to select items with the [`--filter` CLI flag](/reference/cli-commands/#filtering-items) on `varlock load`/`varlock run`, and with the [`filter=` arg](/reference/root-decorators/#code-generation) on `@generate*` code-generation decorators (e.g. `--filter="#billing"`, `@generateTsTypes(filter=#billing)`). _Can be called multiple times; tags from every call accumulate (duplicates collapse)._
+Attaches one or more tags to the item. Tags don't affect resolution or validation; they're used to select items with the [`--filter` CLI flag](/reference/cli-commands/#filtering-items) on `varlock load`/`varlock run`, and with the [`filter=` arg](/reference/root-decorators/#code-generation) on `@generate*` code-generation decorators (for example `--filter="#billing"`, `@generateTsTypes(filter=#billing)`). _Can be called multiple times; tags from every call accumulate (duplicates collapse)._
 
 Tag names must start with a letter or number, followed by letters, numbers, `_`, or `-`. This keeps every tag selectable with a `#tagname` filter, which reserves characters like `,`, `!`, and `*`. An invalid tag name is a schema error.
 
@@ -275,7 +275,7 @@ SERVICE_X_API_KEY=
 ### `@deprecated`
 **Value type:** `boolean | string`
 
-Marks an item as deprecated. Does not affect resolution or validation: the item still resolves and stays valid. Use this when a variable should keep working during a migration, but callers should move off it.
+Marks an item as deprecated. Does not affect resolution or validation: the item still resolves and stays valid. Use this when a variable must keep working during a migration, but callers need to move off it.
 
 - bare `@deprecated` or `@deprecated=true`: marks the item deprecated (no message)
 - `@deprecated="message"`: marks it deprecated with a message (for example, what to use instead)
@@ -283,7 +283,7 @@ Marks an item as deprecated. Does not affect resolution or validation: the item 
 
 Effects:
 
-- Pretty CLI output (e.g. `varlock load`): the key is struck through and a deprecated badge is shown
+- Pretty CLI output (for example `varlock load`): the key is struck through and a deprecated badge is shown
 - [Generated types](/reference/root-decorators/#code-generation): TypeScript gets a `@deprecated` JSDoc tag (with the message when set); other language emitters include a `Deprecated:` doc line
 
 ```env-spec
@@ -315,9 +315,9 @@ CI_DEPLOY_TOKEN=
 ### `@placeholder`
 **Value type:** `string`
 
-Sets an explicit placeholder string for the item, used in place of the real value when the item is routed through the [credential proxy](/guides/proxy/). A placeholder is what an untrusted child process (e.g. an AI agent) sees instead of the secret.
+Sets an explicit placeholder string for the item, used in place of the real value when the item is routed through the [credential proxy](/guides/proxy/). A placeholder is what an untrusted child process (for example an AI agent) sees instead of the secret.
 
-Without an explicit `@placeholder`, varlock derives one from the item's [`@type`](#type) format, falling back to a generic value. Set this when a generic placeholder would fail a client's key-format validation (e.g. an `sk-…` prefix check).
+Without an explicit `@placeholder`, varlock derives one from the item's [`@type`](#type) format, falling back to a generic value. Set this when a generic placeholder would fail a client's key-format validation (for example an `sk-…` prefix check).
 
 ```env-spec
 # @proxy(domain="api.openai.com")
@@ -337,14 +337,14 @@ Routes an item's secret through the [credential proxy](/guides/proxy/) so an unt
 | Option | Meaning |
 |---|---|
 | `domain` | **(required)** Host to match: a single host or an array (`[a.com, b.com]`); supports globs (`*.example.com`). |
-| `path` | Restrict to matching URL paths (glob), e.g. `"/v1/**"`. |
-| `method` | Restrict to one or more HTTP methods, e.g. `[GET, POST]`. |
+| `path` | Restrict to matching URL paths (glob), for example `"/v1/**"`. |
+| `method` | Restrict to one or more HTTP methods, for example `[GET, POST]`. |
 | `block` | `block=true` denies matching requests outright. |
 | `approval` | `approval=true` holds matching requests for an interactive yes/no in the `proxy start` terminal before they proceed. A self-contained one-shot `proxy run` has no terminal to prompt in and denies them. |
-| `keys` | Array of additional item names to inject for this rule, e.g. `keys=[OTHER_KEY]`. |
-| `substituteIn` | Where the placeholder may be swapped for the real value: `header` (default), `header:<name>`, `path`, `query`, `query:<param>`, or `body:<path>`, e.g. `[header, "body:client_secret"]`. Body always requires a path (`body:*` allows anywhere, for bodies that can't be parsed into a path). A placeholder anywhere no target allows blocks the request instead of substituting. See [Substitution surface](/guides/proxy/rules/#substitution-surface). |
+| `keys` | Array of additional item names to inject for this rule, for example `keys=[OTHER_KEY]`. |
+| `substituteIn` | Where the placeholder may be swapped for the real value: `header` (default), `header:<name>`, `path`, `query`, `query:<param>`, or `body:<path>`, for example `[header, "body:client_secret"]`. Body always requires a path (`body:*` allows anywhere, for bodies that can't be parsed into a path). A placeholder anywhere no target allows blocks the request instead of substituting. See [Substitution surface](/guides/proxy/rules/#substitution-surface). |
 | `maxOccurrences` | Max times the placeholder may appear in one request before it's blocked (default `1`). See [Substitution surface](/guides/proxy/rules/#substitution-surface). |
-| `rules` | Array of policy refinements sharing this rule's `domain`, e.g. `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval`/`substituteIn`/`maxOccurrences` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/rules/#grouping-rules-for-one-domain). |
+| `rules` | Array of policy refinements sharing this rule's `domain`, for example `rules=[{path="/v1/**", block=true}]`. Each entry may set `path`/`method`/`block`/`approval`/`substituteIn`/`maxOccurrences` (not `domain`/`keys`) and injects nothing on its own. See the [Grouping rules guide](/guides/proxy/rules/#grouping-rules-for-one-domain). |
 
 The same decorator in the **header** creates a _detached_ policy rule (no injection unless it lists `keys`).
 

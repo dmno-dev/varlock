@@ -26,7 +26,7 @@ The plugin uses base64-encoded configuration tokens for programmatic access to y
 ## Installation and setup
 
 In a JS/TS project, you may install the `@varlock/keeper-plugin` package as a normal dependency.
-Otherwise you can just load it directly from your `.env.schema` file, as long as you add a version specifier.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
 See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
 
 ```env-spec title=".env.schema"
@@ -47,7 +47,7 @@ KSM_CONFIG=
 <Steps>
 1. **Create a Secrets Manager Application** in the Keeper Admin Console
 
-    Navigate to **Secrets Manager** → **Applications** → Click **Create Application**. Give it a descriptive name (e.g., "varlock-prod").
+    Navigate to **Secrets Manager** → **Applications** → Click **Create Application**. Give it a descriptive name (for example "varlock-prod").
 
 2. **Share a folder** with the application
 
@@ -181,9 +181,9 @@ You can reference records by either their UID or their title. UIDs are more reli
 Initialize a Keeper Secrets Manager plugin instance for accessing secrets.
 
 **Key/value args:**
-- `token` (required): Base64-encoded Secrets Manager config token. Should be a reference to a config item of type `keeperSmToken`.
+- `token` (required): Base64-encoded Secrets Manager config token. Reference a config item of type `keeperSmToken`.
 - `id` (optional): Instance identifier for multiple instances
-- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
+- `cacheTtl` (optional): cache resolved values for the specified duration (for example `"5m"`, `"1h"`, `"1d"`, or `forever` to cache until manually cleared). For cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
 ```env-spec "@initKeeper"
 # @initKeeper(token=$KSM_CONFIG)

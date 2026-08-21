@@ -4,7 +4,7 @@ description: How to control build-time replacement vs runtime resolution, and ho
 ---
 import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Most build tools and web frameworks have a concept of "public" env vars, based on a name prefix (e.g., `NEXT_PUBLIC_*`/`VITE_*`/`PUBLIC_*`). Public values are made available in the client by inlining them at build time, while non-public values are resolved at boot time, and are not available in the client. While it works for most situations, this setup merges 2 distinct concepts that varlock decouples to give you more flexibility:
+Most build tools and web frameworks have a concept of "public" env vars, based on a name prefix (for example `NEXT_PUBLIC_*`/`VITE_*`/`PUBLIC_*`). Public values are made available in the client by inlining them at build time, while non-public values are resolved at boot time, and are not available in the client. While it works for most situations, this setup merges 2 distinct concepts that varlock decouples to give you more flexibility:
 
 - **sensitive** vs **public** - is this safe to expose to clients
 - **static** vs **dynamic** - can this be bundled at build time
@@ -19,7 +19,7 @@ By manually marking items as `@dynamic`/`@static`, you get two new possibilities
 If you are building a totally static site, or you host on a platform that rebuilds and redeploys on every env change (Vercel, Netlify, Cloudflare Workers Builds, etc) the notion of a "dynamic" value that changes at boot time doesn't exist. Every change to a public value triggers a rebuild, so we can skip the dynamic machinery entirely.
 
 Examples of when you might need this:
-- running your builds separate from your deploys (e.g. a CI/CD pipeline that builds once and deploys to multiple environments)
+- running your builds separate from your deploys (for example a CI/CD pipeline that builds once and deploys to multiple environments)
 - building a single docker image to run in different situations
 :::
 
@@ -42,7 +42,7 @@ SECRET_BAR=somePluginFn()  # dynamic by default
 
 ## Loading dynamic vars in the client
 
-Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. Use it freely whenever a public value should stay out of client bundles or stay runtime-resolved on the server. 
+Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. Use it freely whenever a public value must stay out of client bundles or stay runtime-resolved on the server. 
 
 
 Because dynamic+public items cannot be bundled into client-side code, if you need them available on the client, we must load them somehow after build time. We can either:
@@ -50,7 +50,7 @@ Because dynamic+public items cannot be bundled into client-side code, if you nee
 - load them from a server endpoint
 - inject them into static files _at boot time_
 
-The endpoint approach works anywhere you have a running server. Boot-time injection has no runtime fetch at all, so it works for fully static sites, but it only works when you control the boot command (e.g. your own Docker image, VM, or server process); on managed platforms where you cannot hook the serve step, use the endpoint approach.
+The endpoint approach works anywhere you have a running server. Boot-time injection has no runtime fetch at all, so it works for fully static sites, but it only works when you control the boot command (for example your own Docker image, VM, or server process); on managed platforms where you cannot hook the serve step, use the endpoint approach.
 
 If browser code does not read the value, none of this machinery is needed: `@dynamic` alone does the job. Sensitive values are unaffected either way: they default to dynamic for secrecy, and are never available in the client.
 
@@ -62,7 +62,7 @@ The endpoint approach revolves around two helpers, both exported from `varlock/e
 
 Server-side. Returns the current public+dynamic values as a plain object, ready to serve from an endpoint. The values are whatever the server process booted with (see the note on boot-time resolution above).
 
-- `keys` (optional `string[]`): limit the payload to a subset, e.g. `getPublicDynamicEnv(['MY_FLAG'])`. Keys that are not declared public+dynamic are always excluded.
+- `keys` (optional `string[]`): limit the payload to a subset, for example `getPublicDynamicEnv(['MY_FLAG'])`. Keys that are not declared public+dynamic are always excluded.
 
 #### `loadPublicDynamicEnv(opts?)`
 
@@ -70,7 +70,7 @@ Client-side. Fetches the endpoint, hydrates the shared `ENV` store, and returns 
 
 Options:
 
-- `endpoint` (default `/__varlock/public-env`): URL to fetch. Must be absolute outside the browser (e.g. native apps).
+- `endpoint` (default `/__varlock/public-env`): URL to fetch. Must be absolute outside the browser (for example native apps).
 - `force`: refetch even if values are already hydrated.
 - `fetch`: custom fetch implementation (defaults to the global `fetch`).
 - `requestInit`: extra request options, merged over the defaults (`GET`, `cache: 'no-store'`, `credentials: 'same-origin'`).
@@ -271,20 +271,20 @@ The replacement step itself can be accomplished many ways: this shell snippet, a
 
 Whatever tool you use, escape the JSON for HTML before embedding it in a `<script>` tag, so a public value containing something like `</script>` cannot break out of the tag or inject markup. The `sed` step above escapes `<` as its `\u003C` unicode escape, which is spec-valid JSON that parses back to `<`; a node script can serialize with the equivalent escape.
 
-If the entrypoint never runs, the placeholder is just an HTML comment, so nothing breaks; the values are simply not injected. The marker is consumed on injection, so the guard also prevents double-injection on container restarts with a persisted file.
+If the entrypoint never runs, the placeholder is only an HTML comment, so nothing breaks; the values are not injected. The marker is consumed on injection, so the guard also prevents double-injection on container restarts with a persisted file.
 
 The `--filter '@dynamic,!@sensitive'` selection also scopes resolution and validation, so a container that only serves static assets does not need the rest of your schema to be resolvable at boot. As always, only public values belong in served HTML; the filter guarantees sensitive values are excluded.
 
 ## Prerender/build guardrails
 
-Baking a public+dynamic value into prerendered output defeats its purpose: you marked it `@dynamic` because the build-time value should not be frozen. Varlock catches this per framework:
+Baking a public+dynamic value into prerendered output defeats its purpose: you marked it `@dynamic` because the build-time value must not be frozen. Varlock catches this per framework:
 
 - **Next.js**: accessing a public+dynamic key during server rendering marks the route dynamic (it will not be statically prerendered), including access from nested components.
-- **Vite-based frameworks** (Astro, SvelteKit, etc.): accessing a public+dynamic key while a build/prerender is running throws an error. Set `_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE=warn` to downgrade it to a warning (e.g. while migrating an existing app).
+- **Vite-based frameworks** (Astro, SvelteKit, and the other [Vite-based integrations](/integrations/overview/)): accessing a public+dynamic key while a build/prerender is running throws an error. Set `_VARLOCK_DYNAMIC_BUILD_ACCESS_MODE=warn` to downgrade it to a warning (for example while migrating an existing app).
 
-Sensitive values are not subject to this guard. Reading a sensitive value server-side during a static build (e.g. using an API key to fetch data while generating pages) is fine; leak detection separately errors if the value itself ends up in the built output.
+Sensitive values are not subject to this guard. Reading a sensitive value server-side during a static build (for example using an API key to fetch data while generating pages) is fine; leak detection separately errors if the value itself ends up in the built output.
 
-One caveat on freshness: `@dynamic` guarantees a value is never inlined into client bundles or prerendered output. How fresh the *server-side* value is depends on how your deployment delivers env: platforms where varlock resolves at server boot (Node servers, Next.js) re-read on each deploy/boot, while modes that bake a resolved blob into the server artifact at build time (e.g. Vite `ssrInjectMode: 'resolved-env'` on serverless adapters) serve values as of the build. If you need per-boot freshness on those platforms, deliver the value through the platform's runtime env instead.
+One caveat on freshness: `@dynamic` guarantees a value is never inlined into client bundles or prerendered output. How fresh the *server-side* value is depends on how your deployment delivers env: platforms where varlock resolves at server boot (Node servers, Next.js) re-read on each deploy/boot, while modes that bake a resolved blob into the server artifact at build time (for example Vite `ssrInjectMode: 'resolved-env'` on serverless adapters) serve values as of the build. If you need per-boot freshness on those platforms, deliver the value through the platform's runtime env instead.
 
 ## Filtering by static/dynamic
 
@@ -301,7 +301,7 @@ varlock run --filter="@dynamic" -- node app  # inject only runtime values
 # @generateTsTypes(path=public-runtime-env.d.ts, filter="@dynamic,!@sensitive")
 ```
 
-Like all filters, `@dynamic` filters scope **resolution and validation**, not just output: varlock resolves each item's decorator metadata first (cheap), then only resolves and validates the items the filter selects. So a build-time load can skip runtime-only vars entirely, including their `@required` checks and any value resolvers they use:
+Like all filters, `@dynamic` filters scope **resolution and validation**, not only output: varlock resolves each item's decorator metadata first (cheap), then only resolves and validates the items the filter selects. So a build-time load can skip runtime-only vars entirely, including their `@required` checks and any value resolvers they use:
 
 ```bash
 # runtime-only vars (e.g. platform-injected at runtime) don't exist yet at build

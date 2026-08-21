@@ -46,12 +46,12 @@ CMD ["node", "dist/server.js"]
 
 Secrets are fetched when the container starts, not when the image is built.
 
-`varlock run` stays resident while your app runs (signal forwarding), so the container pays for two processes. That is usually fine once the CLI is a few tens of MiB. If you are on a very tight memory limit and only need env at boot, prefer resolve-then-`exec` so a single Node process remains: `eval "$(varlock load --format shell --compact)" && exec node dist/server.js`.
+`varlock run` stays resident while your app runs (signal forwarding), so the container pays for two processes. That is fine for most workloads, since the CLI is a few tens of MiB. If you are on a very tight memory limit and only need env at boot, prefer resolve-then-`exec` so a single Node process remains: `eval "$(varlock load --format shell --compact)" && exec node dist/server.js`.
 
   </TabItem>
   <TabItem label="Build-time">
 
-Use when a [framework integration](/integrations/overview/) (Next.js, Vite SSR, Cloudflare Workers, etc.) resolves and injects env during `build`. Varlock belongs in the **builder** stage; the runtime image receives env via the platform or an encrypted blob, not via the CLI.
+Use when a [framework integration](/integrations/overview/) (Next.js, Vite SSR, Cloudflare Workers, and the others listed there) resolves and injects env during `build`. Varlock belongs in the **builder** stage; the runtime image receives env via the platform or an encrypted blob, not via the CLI.
 
 For serverless SSR, prefer [encrypted deployments](/guides/encrypted-deployments/) over baking resolved values into image layers.
 
@@ -299,7 +299,7 @@ Alternatively, set the build context to the **monorepo root** and use `docker bu
 
 Containers commonly authenticate to secret providers in two ways:
 
-1. **Service account tokens**: pass a long-lived token (e.g. `OP_SERVICE_ACCOUNT_TOKEN`) as a runtime environment variable
+1. **Service account tokens**: pass a long-lived token (for example `OP_SERVICE_ACCOUNT_TOKEN`) as a runtime environment variable
 2. **OIDC workload identity**: exchange a short-lived platform token for temporary credentials; no secret-zero in the image
 
 For OIDC on Fly.io, GCP Cloud Run, GitHub Actions, and other platforms, see the [OIDC workload identity guide](/guides/oidc/).
@@ -318,7 +318,7 @@ In **Node-based images** where varlock is an npm dependency, install plugins in 
 
 ### Distroless and shell-less base images
 
-Auto-install works in minimal base images (Google distroless, `scratch`-based, etc.) that have no shell and no `tar` binary. The standalone binary downloads and extracts pinned plugin versions itself, so official `@varlock/*` plugins resolve at runtime with no extra setup.
+Auto-install works in minimal base images (such as Google distroless or `scratch`-based images) that have no shell and no `tar` binary. The standalone binary downloads and extracts pinned plugin versions itself, so official `@varlock/*` plugins resolve at runtime with no extra setup.
 
 Runtime auto-install still has two limits: **third-party (non-`@varlock`) plugins** need a one-time trust confirmation (an interactive terminal), and any auto-install needs **network access to npm** at container start. For a fully self-contained image that has neither, vendor the plugins at build time.
 
@@ -356,7 +356,7 @@ Ephemeral containers often run in memory cache mode. If your job invokes varlock
 
 ## Without the official image
 
-If you cannot pull from GHCR (air-gapped registry policy, custom base images, etc.), install varlock by another method:
+If you cannot pull from GHCR (for example an air-gapped registry policy or custom base images), install varlock by another method:
 
 <Tabs>
   <TabItem label="npm (Node image)">
@@ -453,10 +453,10 @@ Or adjust host file permissions so the container user can read your env files.
 
 ### Network / plugin connectivity
 
-Plugins that call external APIs (1Password, AWS, Azure, Vault, etc.) need outbound network access from the container. If fetches fail with connection errors:
+Plugins that call external APIs (1Password, AWS, Azure, Vault, and the other [secret-provider plugins](/plugins/overview/)) need outbound network access from the container. If fetches fail with connection errors:
 
 - Confirm the container has DNS and egress to the provider's endpoints
-- For local CLI tools (e.g. 1Password desktop app), use `--network host` only in local dev, not in production
+- For local CLI tools (for example the 1Password desktop app), use `--network host` only in local dev, not in production
 - Check that secret-zero tokens are passed at **runtime**, not only at build time
 
 ```bash
@@ -472,7 +472,7 @@ For cloud deployments, prefer [service account tokens](/guides/plugins/) or [OID
 
 ### Missing `@import` files
 
-See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error usually lists a path outside your Docker build context. Run [`varlock flatten`](/reference/cli/project/#flatten) while the full monorepo is available, add explicit `COPY` instructions, or widen the context to the monorepo root.
+See [Monorepos and partial build context](#monorepos-and-partial-build-context). The error lists a path outside your Docker build context. Run [`varlock flatten`](/reference/cli/project/#flatten) while the full monorepo is available, add explicit `COPY` instructions, or widen the context to the monorepo root.
 
 ### Wrong environment loaded
 

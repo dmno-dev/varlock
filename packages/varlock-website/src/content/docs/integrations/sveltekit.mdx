@@ -9,7 +9,7 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 
 [SvelteKit](https://svelte.dev/docs/kit) is built on [Vite](https://vite.dev), so there's no dedicated SvelteKit package. You use the [Vite integration](/integrations/vite/) the same way regardless of where you deploy.
 
-Add `varlockVitePlugin()` to your Vite config ([setup below](#setup)) and it works across deploy targets. If you deploy to **Cloudflare Workers** (via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare)), the plugin detects the adapter and automatically wires up the runtime env-loader. You just need `@varlock/cloudflare-integration` installed as well (it ships `varlock-wrangler`). See [Cloudflare Workers setup](#setup-for-cloudflare-workers).
+Add `varlockVitePlugin()` to your Vite config ([setup below](#setup)) and it works across deploy targets. If you deploy to **Cloudflare Workers** (via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare)), the plugin detects the adapter and automatically wires up the runtime env-loader. You need `@varlock/cloudflare-integration` installed as well (it ships `varlock-wrangler`). See [Cloudflare Workers setup](#setup-for-cloudflare-workers).
 
 Check out the [SvelteKit example project](https://github.com/dmno-dev/varlock-examples/tree/main/examples/sveltekit) for a working reference.
 
@@ -32,7 +32,7 @@ Use `varlockVitePlugin` exactly as you would in any Vite project. This is the se
 
     <ExecCommandWidget command="varlock init" showBinary={false} />
 
-1. **Add the plugin to your Vite config.** It should come **before** `sveltekit()`:
+1. **Add the plugin to your Vite config.** It must come **before** `sveltekit()`:
 
     ```diff lang="ts" title="vite.config.ts"
     import { sveltekit } from '@sveltejs/kit/vite';
@@ -58,12 +58,12 @@ See the [**Vite integration page**](/integrations/vite/) for configuration optio
   <Badge npmPackage="@varlock/cloudflare-integration" />
 </div>
 
-For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use the same `varlockVitePlugin()` from the [setup above](#setup). When it detects the Cloudflare adapter, it automatically injects the runtime env-loader into SvelteKit's SSR entry so the resolved env is available inside the worker. You just need to additionally install `@varlock/cloudflare-integration`, which provides `varlock-wrangler` and the Cloudflare-specific loader the plugin pulls in. (The standard `varlockCloudflareVitePlugin` isn't used here because `@cloudflare/vite-plugin` doesn't currently support SvelteKit. See [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922).)
+For SvelteKit projects deploying to Cloudflare Workers via [`@sveltejs/adapter-cloudflare`](https://svelte.dev/docs/kit/adapter-cloudflare), use the same `varlockVitePlugin()` from the [setup above](#setup). When it detects the Cloudflare adapter, it automatically injects the runtime env-loader into SvelteKit's SSR entry so the resolved env is available inside the worker. You need to additionally install `@varlock/cloudflare-integration`, which provides `varlock-wrangler` and the Cloudflare-specific loader the plugin pulls in. (The standard `varlockCloudflareVitePlugin` isn't used here because `@cloudflare/vite-plugin` doesn't currently support SvelteKit. See [cloudflare/workers-sdk#8922](https://github.com/cloudflare/workers-sdk/issues/8922).)
 
 The adapter is detected whether you configure it in `svelte.config.js` or inline in your Vite config (SvelteKit ≥ 2.62), so no extra setup is needed either way.
 
 :::note[Static-only SvelteKit sites]
-If your SvelteKit app is fully static (no SSR, typically using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need `@varlock/cloudflare-integration` at all. The [base setup](#setup) is enough, since there's no server bundle for us to inject into.
+If your SvelteKit app is fully static (no SSR, for example using `@sveltejs/adapter-static` and deployed to Cloudflare Pages or any CDN), you don't need `@varlock/cloudflare-integration` at all. The [base setup](#setup) is enough, since there's no server bundle for us to inject into.
 :::
 
 ### Setup
@@ -121,7 +121,7 @@ If your SvelteKit app is fully static (no SSR, typically using `@sveltejs/adapte
 If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), two pieces of configuration must be set in the dashboard, and neither can be committed to the repo:
 
 - **Override the Deploy command.** Under **Settings → Build → Deploy command**, replace the default `npx wrangler deploy` with `npx varlock-wrangler deploy`. Without this, Cloudflare runs stock `wrangler deploy`, which skips varlock resolution and leaves your worker without its resolved vars/secrets.
-- **Set any _secret-zero_ vars under Build variables.** Any env vars varlock itself needs _during load_ (e.g. a 1Password service account token, a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
+- **Set any _secret-zero_ vars under Build variables.** Any env vars varlock itself needs _during load_ (for example a 1Password service account token or a GCP key) must be set under **Settings → Build → Variables and Secrets** so they're available at build time. `varlock-wrangler deploy` then resolves your full env graph and uploads the result to the worker runtime as regular vars/secrets.
 
 :::tip[Next steps]
 See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on `varlock-wrangler`, multi-environment setup, and [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
@@ -131,7 +131,7 @@ See the [**Cloudflare integration page**](/integrations/cloudflare/) for more on
 
 ## Dynamic+public config
 
-SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration. Use `@dynamic` for public values that should not be inlined into client bundles; server-side reads (`load` functions, endpoints) keep using `ENV.KEY` as usual (values resolve at server boot), and prerendered routes should only use static values.
+SvelteKit uses Vite, so dynamic/public behavior comes from varlock core + the Vite integration. Use `@dynamic` for public values that must not be inlined into client bundles; server-side reads (`load` functions, endpoints) keep using `ENV.KEY` as usual (values resolve at server boot), and prerendered routes must only use static values.
 
 If **browser code** needs one of these values, it must be loaded from the backend after build; see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
 
@@ -149,7 +149,7 @@ Varlock replaces all four `$env/*` modules with a single `ENV` object from `varl
 | `$env/static/public` | `ENV.FOO` where `@sensitive=false`; non-sensitive values are inlined at build time on both client and server |
 | `$env/static/private` | `ENV.FOO` where `@sensitive=true`, referenced from SSR/server code; inlined into the server bundle, build errors if referenced from client code |
 | `$env/dynamic/public` | `ENV.FOO` where `@dynamic` + non-sensitive; loaded at runtime for client usage via `loadPublicDynamicEnv()` (see [above](#dynamicpublic-config)) |
-| `$env/dynamic/private` | `ENV.FOO`; in server contexts it's read from the live runtime env (e.g. Cloudflare bindings via `varlockCloudflareVitePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
+| `$env/dynamic/private` | `ENV.FOO`; in server contexts it's read from the live runtime env (for example Cloudflare bindings via `varlockCloudflareVitePlugin`, or Node's `process.env` elsewhere) rather than baked into the bundle |
 | `PUBLIC_` prefix requirement | Per-item [`@sensitive`](/reference/item-decorators/#sensitive) decorator, or a schema-wide [`@defaultSensitive`](/reference/root-decorators/#defaultsensitive) rule |
 
 ### Migrating imports
@@ -200,5 +200,5 @@ All non-sensitive items are replaced at build time wherever `ENV.FOO` appears. S
 :::
 
 :::note[Encrypting the env blob]
-When deploying SSR SvelteKit apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+When deploying SSR SvelteKit apps to serverless platforms, varlock injects the resolved env into your server-side build output as plaintext JSON. This is generally safe since it only appears in server code, but you can encrypt it for extra protection (for example against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
 :::

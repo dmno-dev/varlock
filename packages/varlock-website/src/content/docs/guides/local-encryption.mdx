@@ -3,7 +3,7 @@ title: Local encryption
 description: Use varlock() to secure local untracked secrets with cross-platform encryption backends
 ---
 
-Varlock includes a built-in [`varlock()` function](/reference/functions/#varlock) that lets you secure local untracked secrets (typically in git-ignored env files like `.env.local`).
+Varlock includes a built-in [`varlock()` function](/reference/functions/#varlock) that lets you secure local untracked secrets (in git-ignored env files like `.env.local`).
 
 This allows you to keep **everything out of plaintext** - even temporary local overrides, or a "secret-zero" which is needed by some plugins to load the rest of your sensitive data.
 
@@ -30,7 +30,7 @@ Only plaintext values of `@sensitive` items are encrypted, so you may run it mul
 
 ## Using `varlock(prompt)` resolver
 
-When you need to edit a value or add a new sensitive item, just set the value to `varlock(prompt)` and run `varlock load`. You will be prompted for the new value in a secure input prompt, and the encrypted value will be written back to the file automatically.
+When you need to edit a value or add a new sensitive item, set the value to `varlock(prompt)` and run `varlock load`. You will be prompted for the new value in a secure input prompt, and the encrypted value will be written back to the file automatically.
 
 ```env-spec title=".env.local" add="varlock(prompt)"
 EXISTING_ITEM=varlock(local:abc123...)
@@ -108,7 +108,7 @@ varlock-local-encrypt.exe status
 
 ## Unattended decryption (headless servers & CI)
 
-Local encryption isn't just for laptops. On a headless host with a TPM (a home server, a CI runner, a container host), varlock seals the key to the machine's TPM and decrypts automatically at load with **no prompt**. That makes it a good way to store a "secret-zero" (like a 1Password service account token) that bootstraps the rest of your secrets:
+Local encryption isn't only for laptops. On a headless host with a TPM (a home server, a CI runner, a container host), varlock seals the key to the machine's TPM and decrypts automatically at load with **no prompt**. That makes it a good way to store a "secret-zero" (like a 1Password service account token) that bootstraps the rest of your secrets:
 
 ```env-spec title=".env.schema"
 # @type=opServiceAccountToken @sensitive @internal
