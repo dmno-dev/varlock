@@ -74,7 +74,7 @@ console.log(ENV.SOMEVAR);         // ✨ recommended
 
 Existing code and third-party modules often read values through Nuxt's [runtimeConfig](https://nuxt.com/docs/guide/going-further/runtime-config). That keeps working alongside varlock: Nuxt applies `NUXT_`-prefixed env vars (e.g. `NUXT_PUBLIC_API_BASE` for `runtimeConfig.public.apiBase`) onto declared runtime config keys at server start, and it reads them from `process.env`. So any `NUXT_`-prefixed item in your `.env.schema` flows into `runtimeConfig` as long as the values are in the process at runtime: this is automatic in dev, and in production it means launching through `varlock run` or using `ssrInjectMode: 'auto-load'`.
 
-For non-prefixed keys, populate `runtimeConfig` explicitly in `nuxt.config.ts` from `process.env` while running through `varlock run` (see [Nuxt config timing](#nuxt-config-timing) below).
+For non-prefixed keys, populate `runtimeConfig` explicitly in `nuxt.config.ts` from `ENV` (see [Nuxt config timing](#nuxt-config-timing) below for config-time access).
 
 We recommend `ENV` for your own code; the interop mostly matters for modules you do not control.
 
@@ -92,41 +92,24 @@ If you do keep a plain `.env` around, two details matter:
 ### Nuxt config timing
 Nuxt evaluates `nuxt.config.ts` before module setup runs. Because of that, `ENV` from `varlock/env` is not initialized there by the module itself.
 
-If you need env values in `nuxt.config.ts`, import `varlock/auto-load` at the top of the config file. It loads and validates your env before the rest of the file evaluates, so you get the typed `ENV` object with no wrapper command:
+If you need env values in `nuxt.config.ts`, import `varlock/auto-load` at the top of the config file. It loads and validates your env before the rest of the file evaluates, so you get the typed `ENV` object. This is for settings Nuxt or other modules only read at config time, like `app.baseURL`, `vite`/`nitro` options, or another module's options:
 
 ```ts title="nuxt.config.ts"
 import 'varlock/auto-load';
 import { ENV } from 'varlock/env';
 
 export default defineNuxtConfig({
-  modules: ['@varlock/nuxt-integration'],
-  runtimeConfig: {
-    apiBaseUrl: ENV.API_BASE_URL,
+  modules: ['@varlock/nuxt-integration', '@nuxtjs/sitemap'],
+  app: {
+    baseURL: ENV.APP_BASE_PATH,
+  },
+  site: {
+    url: ENV.PUBLIC_SITE_URL,
   },
 })
 ```
 
 In dev, the module re-resolves your env at the start of every restart it triggers, so config-time values stay in sync when env files change (see [Dev server behavior](#dev-server-behavior)).
-
-Alternatively, run Nuxt through `varlock run` and read from `process.env` (values are strings there, without `ENV`'s type coercion):
-
-```json title="package.json"
-{
-  "scripts": {
-    "dev": "varlock run -- nuxt dev",
-    "build": "varlock run -- nuxt build"
-  }
-}
-```
-
-```ts title="nuxt.config.ts"
-export default defineNuxtConfig({
-  modules: ['@varlock/nuxt-integration'],
-  runtimeConfig: {
-    apiBaseUrl: process.env.API_BASE_URL,
-  },
-})
-```
 
 :::note[TypeScript config]
 The module registers your generated types file with Nuxt's TypeScript setup automatically, covering app code, server routes, and `nuxt.config.ts`. (Nuxt 4 splits its generated tsconfigs per context, and none of them include a root-level `env.d.ts` on their own.) It looks for `shared/env.d.ts`, then `env.d.ts`, relative to the project root. If you generate types to a custom path, point the module at it:
