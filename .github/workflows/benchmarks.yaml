@@ -1,0 +1,166 @@
+name: Benchmarks
+
+# Runs against published npm packages (+ optional SEA binary). Triggered after a
+# varlock publish (via release.yaml) or manually for iteration.
+on:
+  workflow_dispatch:
+    inputs:
+      varlock_version:
+        description: 'Published varlock version (empty = latest on npm)'
+        required: false
+        type: string
+        default: ''
+      only:
+        description: 'Optional comma-separated scenario groups (empty = all)'
+        required: false
+        type: string
+        default: ''
+      iterations:
+        description: 'Measured iterations per scenario'
+        required: false
+        type: string
+        default: '5'
+      release_dispatch:
+        description: 'Set to true when invoked from release.yaml after publish'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.inputs.varlock_version || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.BUMPY_GH_TOKEN }}
+          ref: main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Use Node.js 24.x
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
+
+      - name: Install benchmarks package deps
+        working-directory: benchmarks
+        # Frozen so the run cannot leave a modified bun.lock behind, which would
+        # block the rebase in the commit step at the very end of a long run.
+        run: bun install --frozen-lockfile
+
+      # Workflow inputs go through `env:` rather than being interpolated straight
+      # into the script, so a crafted input value cannot become shell syntax.
+      - name: Resolve varlock version
+        id: ver
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.varlock_version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$INPUT_VERSION" || "$INPUT_VERSION" == "latest" ]]; then
+            V=$(npm view varlock version)
+          else
+            V="$INPUT_VERSION"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Resolved varlock@$V"
+
+      # Note: the suite itself waits for the version to appear on npm, so a
+      # release-triggered run can start before the registry has caught up.
+
+      - name: Download SEA binary (linux-x64)
+        id: sea
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="varlock@${VERSION}"
+          DEST="$RUNNER_TEMP/varlock-sea"
+          mkdir -p "$DEST"
+          if gh release download "$TAG" --pattern 'varlock-linux-x64.tar.gz' --dir "$DEST"; then
+            tar -xzf "$DEST/varlock-linux-x64.tar.gz" -C "$DEST"
+            BIN="$DEST/varlock"
+            chmod +x "$BIN"
+            echo "path=$BIN" >> "$GITHUB_OUTPUT"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            "$BIN" --version || true
+          else
+            echo "No SEA release asset for $TAG; continuing without SEA"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run benchmarks
+        working-directory: benchmarks
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          ONLY: ${{ github.event.inputs.only }}
+          ITERATIONS: ${{ github.event.inputs.iterations }}
+          RELEASE_DISPATCH: ${{ github.event.inputs.release_dispatch }}
+          SEA_FOUND: ${{ steps.sea.outputs.found }}
+          SEA_PATH: ${{ steps.sea.outputs.path }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_DISPATCH" == "true" ]]; then
+            TRIGGER=release
+          else
+            TRIGGER=workflow_dispatch
+          fi
+          ARGS=(--version "$VERSION" --trigger "$TRIGGER")
+          if [[ -n "$ITERATIONS" ]]; then
+            ARGS+=(--iterations "$ITERATIONS")
+          fi
+          if [[ -n "$ONLY" ]]; then
+            ARGS+=(--only "$ONLY")
+          fi
+          if [[ "$SEA_FOUND" == "true" ]]; then
+            ARGS+=(--sea-path "$SEA_PATH")
+          fi
+          bun run src/run.ts "${ARGS[@]}"
+
+      - name: Commit results
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Absolute path — `git add` resolves pathspecs against the cwd, so a
+          # repo-relative path only works from the repo root.
+          RESULT_PATH=$(cat benchmarks/.work/last-result-path.txt)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$RESULT_PATH"
+          if git diff --staged --quiet; then
+            echo "No results to commit"
+            exit 0
+          fi
+          git commit -m "chore(benchmarks): record varlock@${VERSION} [skip ci]"
+          # Commit first, then rebase: a rebase refuses to run with staged or
+          # unstaged changes present, and other commits may have landed on main
+          # during the (long) bench run.
+          for attempt in 1 2 3; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then
+              echo "Pushed results"
+              exit 0
+            fi
+            echo "Push rejected, retrying ($attempt/3)..."
+          done
+          echo "::error::Failed to push benchmark results after 3 attempts"
+          exit 1
