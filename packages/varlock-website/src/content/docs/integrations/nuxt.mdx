@@ -182,7 +182,7 @@ export default defineNuxtConfig({
 
 ## Dev server behavior
 
-The module watches every env file varlock loads, including `.env.schema`, and restarts the dev server when one changes. This keeps everything in sync: inlined page values, server routes, the Nitro side, and values captured in `nuxt.config.ts` itself (the module re-resolves env at the start of the restart, before the config re-evaluates). Nuxt's own watcher only reacts to a plain `.env` file.
+The module watches every env file varlock loads, including `.env.schema`, and restarts the dev server when one changes. This keeps everything in sync: inlined page values, server routes, the Nitro side, and values captured in `nuxt.config.ts` itself (the module re-resolves env at the start of every dev-server reload, before the config re-evaluates, including reloads triggered by editing `nuxt.config.ts` directly). Nuxt's own watcher only reacts to a plain `.env` file.
 
 If your config becomes invalid (a failed validation, a syntax error in a schema file), requests show an error page describing the problem, and the server recovers automatically once you fix and save the file.
 

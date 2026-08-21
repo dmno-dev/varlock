@@ -147,16 +147,25 @@ describe('@varlock/nuxt-integration module', () => {
       expect(fakeNuxt.options.watch).toEqual(['/fake-project/.env.schema', '/fake-project/.env.local']);
     });
 
-    it('re-resolves env when a dev restart begins', async () => {
+    it('re-resolves env when a dev reload begins, once per reload', async () => {
       const nuxtModule = await loadModule();
       const fakeNuxt = makeDevNuxt();
       nuxtModule.setup?.({}, fakeNuxt);
 
+      // `restart` covers hook-driven restarts (env file edits via options.watch);
+      // `close` covers the CLI's direct reload path (nuxt.config edits), which
+      // never invokes the restart hook
       const restartHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'restart');
+      const closeHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'close');
       expect(restartHook).toBeDefined();
+      expect(closeHook).toBeDefined();
+
       expect(refreshVarlockEnvMock).not.toHaveBeenCalled();
       (restartHook![1] as () => void)();
       expect(refreshVarlockEnvMock).toHaveBeenCalledWith('/fake-project');
+      // a hook-driven restart fires both hooks - the refresh is deduped
+      (closeHook![1] as () => void)();
+      expect(refreshVarlockEnvMock).toHaveBeenCalledTimes(1);
     });
 
     it('does not watch or hook restarts outside dev', async () => {

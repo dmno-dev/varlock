@@ -71,14 +71,26 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       for (const envFilePath of getVarlockEnvSourcePaths(nuxt.options.rootDir)) {
         if (!nuxt.options.watch.includes(envFilePath)) nuxt.options.watch.push(envFilePath);
       }
-      // Re-resolve env when a dev restart begins, BEFORE the new nuxt instance
+      // Re-resolve env when a dev reload begins, BEFORE the new nuxt instance
       // evaluates nuxt.config. `ENV` is a proxy over shared global state, so
       // refreshing the store here makes config-time reads (`varlock/auto-load`
       // in nuxt.config) and re-injected process.env values fresh, even though
       // the config's cached auto-load import does not re-execute.
-      nuxt.hook('restart', () => {
+      //
+      // Two hooks because reloads reach a running instance two ways: env-file
+      // changes surfaced via `options.watch` invoke the `restart` hook, while
+      // the CLI's own config watcher (nuxt.config edits, its dotenv file) can
+      // reload directly without it - but every reload path closes the old
+      // instance first, so `close` catches those. Deduped since a hook-driven
+      // restart fires both.
+      let lastEnvRefreshAt = 0;
+      const refreshEnvOnce = () => {
+        if (Date.now() - lastEnvRefreshAt < 1000) return;
+        lastEnvRefreshAt = Date.now();
         refreshVarlockEnv(nuxt.options.rootDir);
-      });
+      };
+      nuxt.hook('restart', refreshEnvOnce);
+      nuxt.hook('close', refreshEnvOnce);
     }
 
     // Inject a nitro route serving public+dynamic values to the browser, same
