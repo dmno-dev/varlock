@@ -11,6 +11,7 @@ import { spawn, execSync } from 'node:child_process';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
+import { isPreviewDeployCommand } from './wrangler-command-detection';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -355,6 +356,7 @@ function isVersionsUploadCommand(args: Array<string>) {
 function isDeployCommand(args: Array<string>) {
   if (args[0] === 'deploy') return true;
   if (isVersionsUploadCommand(args)) return true;
+  if (isPreviewDeployCommand(args)) return true;
   return false;
 }
 
@@ -444,7 +446,8 @@ async function handleDeploy(args: Array<string>) {
   try {
     debug('deploy: spawning wrangler');
     const wranglerArgs = [...args, ...varFlags, '--secrets-file', tmp.filePath];
-    if (!isVersionsUploadCommand(args)) wranglerArgs.push('--keep-vars=false');
+    // --keep-vars only applies to `deploy` (not `versions upload` or `preview`)
+    if (args[0] === 'deploy') wranglerArgs.push('--keep-vars=false');
     exitCode = await spawnWrangler(wranglerArgs);
     debug('deploy: wrangler exited with code', exitCode);
   } finally {
@@ -751,6 +754,7 @@ async function main() {
     console.log('Enhanced commands:');
     console.log('  dev                      - injects resolved env via named pipe (no secrets on disk)');
     console.log('  deploy / versions upload - uploads env as Cloudflare vars and secrets');
+    console.log('  preview                  - deploys a branch preview with env as vars and secrets');
     console.log('  types                    - generates types including varlock-managed env vars');
     console.log('');
     console.log('All other commands are passed through to wrangler unchanged.');
