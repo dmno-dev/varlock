@@ -1,0 +1,72 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { createMetaHead } from "../lib/meta";
+import { LinkButton } from "@astrojs/starlight/components";
+import varlockPkg from "../../../varlock/package.json" with { type: "json" };
+
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL("/og-images/index.png", Astro.site!).href;
+const pageTitle = "About Varlock";
+const pageDescription =
+  "Varlock is an open source CLI and library for AI-safe .env files, built and maintained by DMNO Inc.";
+const metaHead = createMetaHead({
+  title: pageTitle,
+  description: pageDescription,
+  url: pageUrl,
+  ogImageUrl,
+});
+---
+
+<Layout title={pageTitle} description={pageDescription} head={metaHead}>
+  <main>
+    <div class="container trust-page">
+      <h1>About Varlock</h1>
+
+      <p>Varlock is an open source command line tool and library for managing environment variables and secrets. It replaces <code>.env.example</code> with a <code>.env.schema</code> file that declares every variable your project needs, along with its type, whether it is required, whether it is sensitive, and where its value comes from. Varlock validates your configuration at startup, encrypts local overrides so nothing sensitive sits in plaintext, loads secrets from providers like 1Password, AWS, Vault, and Infisical through plugins, and redacts secret values from logs and console output at runtime.</p>
+
+      <p>Varlock is built for teams that work with AI coding agents. Agents can read your schema for full context on your configuration without ever seeing secret values, and the varlock proxy lets agents and MCP servers run with placeholder credentials that are swapped for real ones only at the network edge.</p>
+
+      <h2>Who makes it</h2>
+      <p>Varlock is developed and maintained by <a href="https://dmno.io">DMNO Inc.</a>, a small company focused on developer tooling for configuration and secrets. The project started in 2025 and is released under the MIT license. The current release is varlock {varlockPkg.version}.</p>
+
+      <h2>Where to find it</h2>
+      <ul>
+        <li>Source code: <a href="https://github.com/dmno-dev/varlock">github.com/dmno-dev/varlock</a></li>
+        <li>Package: <a href="https://www.npmjs.com/package/varlock">npmjs.com/package/varlock</a></li>
+        <li>Documentation: <a href="/getting-started/introduction/">Getting started</a></li>
+        <li>Updates: <a href="/blog/">Blog</a></li>
+        <li>Support the project: <a href="/sponsors/">Corporate sponsorship</a></li>
+        <li>Get in touch: <a href="/contact/">Contact</a></li>
+      </ul>
+
+      <div class="button-container">
+        <LinkButton href="/getting-started/introduction/">Get Started</LinkButton>
+        <LinkButton href="https://github.com/dmno-dev/varlock">View on GitHub</LinkButton>
+      </div>
+    </div>
+  </main>
+</Layout>
+
+<style is:global>
+  .trust-page {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  .trust-page h1 {
+    margin-bottom: 1.5rem;
+  }
+  .trust-page h2 {
+    margin-top: 2rem;
+  }
+  .trust-page p,
+  .trust-page li {
+    line-height: 1.6;
+  }
+  .trust-page .button-container {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+  }
+</style>

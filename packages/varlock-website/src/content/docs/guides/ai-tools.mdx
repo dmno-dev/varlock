@@ -214,7 +214,17 @@ If you use a tool with its own ignore file, check that tool's documentation to s
 
 The [Varlock agent skill](#install-the-varlock-skill) is the recommended way to give agents structured guidance for schema work and CLI usage.
 
-You can also provide broader context with the [full Varlock `llms.txt`](https://varlock.dev/llms-full.txt). In Cursor, this is accomplished via 'Add New Custom Docs'.
+You can also provide broader context with our `llms.txt` files. Start with [varlock.dev/llms.txt](https://varlock.dev/llms.txt), which summarizes what varlock is, when to use it, and links to topic-specific bundles (getting started and CLI reference, AI tools and MCP, integrations, plugins). The [full docs](https://varlock.dev/llms-full.txt) are also available as a single file. In Cursor, this is accomplished via 'Add New Custom Docs'.
+
+### Machine-readable discovery
+
+Agents and tools can find everything above without scraping HTML:
+
+- `https://varlock.dev/llms.txt`: docs index and "when to use" guidance
+- `https://varlock.dev/.well-known/ai-catalog.json`: Agentic Resource Discovery manifest listing the docs MCP server, llms.txt files, skills, and the CLI
+- `https://varlock.dev/.well-known/agent-skills/index.json`: Agent Skills index with `SKILL.md` files and digests
+- `https://varlock.dev/.well-known/mcp/server-card.json`: MCP server card for the [Docs MCP](/guides/mcp/docs-mcp/) (also at `/.well-known/mcp.json`)
+- Any docs page returns markdown when requested with an `Accept: text/markdown` header
 
 If your tool supports custom rules, you can use our own varlock [Cursor rule file from this repo](https://github.com/dmno-dev/varlock/blob/main/.cursor/rules/varlock.mdc) as a starting point to create your own that is most suited to your workflow.
 

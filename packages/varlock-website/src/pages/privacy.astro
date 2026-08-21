@@ -1,0 +1,58 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { createMetaHead } from "../lib/meta";
+
+const pageUrl = new URL(new URL(Astro.request.url).pathname, Astro.site!).href;
+const ogImageUrl = new URL("/og-images/index.png", Astro.site!).href;
+const pageTitle = "Varlock Privacy Policy";
+const pageDescription =
+  "What data the varlock.dev website and the varlock CLI collect, why, and how to opt out.";
+const metaHead = createMetaHead({
+  title: pageTitle,
+  description: pageDescription,
+  url: pageUrl,
+  ogImageUrl,
+});
+---
+
+<Layout title={pageTitle} description={pageDescription} head={metaHead}>
+  <main>
+    <div class="container trust-page">
+      <h1>Privacy Policy</h1>
+
+      <p>This policy describes what data <a href="https://dmno.io">DMNO Inc.</a> (the data controller) collects through the varlock.dev website and the varlock command line tool, and how you can limit it. Last updated August 2026.</p>
+
+      <h2>The website</h2>
+      <p>varlock.dev does not require an account and does not process payments. We use <a href="https://posthog.com">PostHog</a> for product analytics to understand which pages are visited and how the documentation is used. Analytics run only on the varlock.dev domain (not on local or preview builds) and capture page views, referrers, coarse device and browser information, and anonymous interaction events. Our hosting provider, Cloudflare, processes request logs (IP address, user agent, requested URL) to serve and protect the site.</p>
+      <p>If you sign up for our email list in the site footer, we store the email address you provide in our email list, which is used to send project updates. You can unsubscribe with the link in any email or by writing to <a href="mailto:hello@varlock.dev">hello@varlock.dev</a>.</p>
+
+      <h2>The varlock CLI</h2>
+      <p>The <code>varlock</code> CLI sends anonymous usage telemetry: which command ran, which official integrations and plugins are in use, version information, general system information, and anonymous user and project identifiers. It never sends your configuration files, environment variables, secret values, file paths, or error messages. The full list of collected fields is documented on the <a href="/guides/telemetry/">telemetry page</a>.</p>
+      <p>Telemetry is optional. Opt out permanently with <code>varlock telemetry disable</code>, per session with <code>VARLOCK_TELEMETRY_DISABLED=true</code>, or by setting the cross-tool <code>DO_NOT_TRACK=1</code> convention.</p>
+
+      <h2>Third parties</h2>
+      <p>We do not sell personal data. Data is shared only with the service providers named above (PostHog for analytics, Cloudflare for hosting) to the extent needed to operate the site and the telemetry service.</p>
+
+      <h2>Your rights and contact</h2>
+      <p>You can ask us to access, correct, or delete data associated with you by emailing <a href="mailto:hello@varlock.dev">hello@varlock.dev</a>. For security concerns, see the <a href="/contact/">contact page</a>.</p>
+    </div>
+  </main>
+</Layout>
+
+<style is:global>
+  .trust-page {
+    max-width: 48rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  .trust-page h1 {
+    margin-bottom: 1.5rem;
+  }
+  .trust-page h2 {
+    margin-top: 2rem;
+  }
+  .trust-page p,
+  .trust-page li {
+    line-height: 1.6;
+  }
+</style>
