@@ -3,8 +3,8 @@
 // helpful script for testing the parser - loads .env.playground file
 import {
   expand, parseEnvSpecDotEnvFile,
-} from '../dist/index.js';
-import { simpleResolver } from '../dist/simple-resolver.js';
+} from '../dist/index.mjs';
+import { simpleResolver } from '../dist/simple-resolver.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -8,7 +8,7 @@
   "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/native-helpers/linux-arm64"
   },
   "os": ["linux"],

@@ -8,8 +8,9 @@ import type { AstroIntegration } from 'astro';
 
 const debug = createDebug('varlock:astro-integration');
 const DEFAULT_PUBLIC_DYNAMIC_ENDPOINT = '/__varlock/public-env';
+// resolved against the built sibling in dist/, so the emitted extension has to match
 const PUBLIC_DYNAMIC_ROUTE_ENTRYPOINT = fileURLToPath(
-  new URL('./public-dynamic-env-route.js', import.meta.url),
+  new URL('./public-dynamic-env-route.mjs', import.meta.url),
 );
 
 debug('Loaded varlock astro integration file');

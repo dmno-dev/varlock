@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsup';
+import { defineConfig } from 'tsdown';
 
 export default defineConfig({
   entry: ['src/plugin.ts'],
@@ -7,8 +7,10 @@ export default defineConfig({
   treeshake: true,
   clean: false,
   outDir: 'dist',
+  attw: { level: 'error', profile: 'node16' },
+  publint: true,
   format: ['cjs'],
-  splitting: false,
+  platform: 'node',
   target: 'esnext',
   external: ['varlock'],
 });

@@ -1,4 +1,4 @@
-import { defineConfig } from 'tsup';
+import { defineConfig } from 'tsdown';
 
 export default defineConfig({
   entry: ['src/index.ts'],
@@ -7,7 +7,9 @@ export default defineConfig({
   treeshake: true,
   clean: true,
   outDir: 'dist',
+  attw: { level: 'error', profile: 'esm-only' },
+  publint: true,
   format: ['esm'],
-  splitting: false,
+  platform: 'node',
   target: 'esnext',
 });

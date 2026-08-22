@@ -4,33 +4,48 @@
   "version": "1.2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/integrations/expo"
   },
   "type": "module",
   "main": "dist/babel-plugin.cjs",
-  "types": "dist/babel-plugin.d.ts",
+  "types": "dist/babel-plugin.d.cts",
   "exports": {
     ".": {
-      "types": "./dist/babel-plugin.d.ts",
-      "require": "./dist/babel-plugin.cjs",
-      "import": "./dist/babel-plugin.js"
+      "import": {
+        "types": "./dist/babel-plugin.d.mts",
+        "default": "./dist/babel-plugin.mjs"
+      },
+      "require": {
+        "types": "./dist/babel-plugin.d.cts",
+        "default": "./dist/babel-plugin.cjs"
+      }
     },
     "./babel-plugin": {
-      "types": "./dist/babel-plugin.d.ts",
-      "require": "./dist/babel-plugin.cjs",
-      "import": "./dist/babel-plugin.js"
+      "import": {
+        "types": "./dist/babel-plugin.d.mts",
+        "default": "./dist/babel-plugin.mjs"
+      },
+      "require": {
+        "types": "./dist/babel-plugin.d.cts",
+        "default": "./dist/babel-plugin.cjs"
+      }
     },
     "./metro-config": {
-      "types": "./dist/metro-config.d.ts",
-      "require": "./dist/metro-config.cjs",
-      "import": "./dist/metro-config.js"
+      "import": {
+        "types": "./dist/metro-config.d.mts",
+        "default": "./dist/metro-config.mjs"
+      },
+      "require": {
+        "types": "./dist/metro-config.d.cts",
+        "default": "./dist/metro-config.cjs"
+      }
     }
   },
   "files": ["dist"],
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "tsup",
+    "dev": "tsdown --watch",
+    "build": "tsdown",
     "test": "vitest",
     "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
@@ -63,7 +78,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@types/node": "catalog:",
-    "tsup": "catalog:",
+    "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
   }

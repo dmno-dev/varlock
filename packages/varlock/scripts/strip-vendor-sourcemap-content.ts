@@ -15,7 +15,7 @@
  *    still shows real source inline).
  *
  * Run standalone (`bun run scripts/strip-vendor-sourcemap-content.ts [dir]`) or
- * via tsup's onSuccess on release builds. Idempotent: entries already nulled stay
+ * via tsdown's onSuccess on release builds. Idempotent: entries already nulled stay
  * nulled.
  */
 import {

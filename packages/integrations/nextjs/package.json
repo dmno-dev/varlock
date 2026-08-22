@@ -2,39 +2,40 @@
   "name": "@varlock/nextjs-integration",
   "description": "drop-in replacement for @next/env that uses varlock to load .env files with validation and extra security features",
   "version": "1.2.0",
+  "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/integrations/nextjs"
   },
-  "main": "dist/next-env-compat.js",
-  "types": "dist/next-env-compat.d.ts",
+  "main": "dist/next-env-compat.cjs",
+  "types": "dist/next-env-compat.d.cts",
   "exports": {
     ".": {
-      "types": "./dist/next-env-compat.d.ts",
-      "require": "./dist/next-env-compat.js",
-      "default": "./dist/next-env-compat.js"
+      "types": "./dist/next-env-compat.d.cts",
+      "require": "./dist/next-env-compat.cjs",
+      "default": "./dist/next-env-compat.cjs"
     },
     "./plugin": {
-      "types": "./dist/plugin.d.ts",
-      "require": "./dist/plugin.js",
-      "default": "./dist/plugin.js"
+      "types": "./dist/plugin.d.cts",
+      "require": "./dist/plugin.cjs",
+      "default": "./dist/plugin.cjs"
     },
     "./loader": {
-      "types": "./dist/loader.d.ts",
-      "require": "./dist/loader.js",
-      "default": "./dist/loader.js"
+      "types": "./dist/loader.d.cts",
+      "require": "./dist/loader.cjs",
+      "default": "./dist/loader.cjs"
     },
     "./dynamic-access": {
-      "types": "./dist/dynamic-access.d.ts",
-      "require": "./dist/dynamic-access.js",
-      "default": "./dist/dynamic-access.js"
+      "types": "./dist/dynamic-access.d.cts",
+      "require": "./dist/dynamic-access.cjs",
+      "default": "./dist/dynamic-access.cjs"
     }
   },
   "files": ["dist"],
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "rm -rf dist && tsup",
+    "dev": "tsdown --watch",
+    "build": "rm -rf dist && tsdown",
     "test": "vitest",
     "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
@@ -66,7 +67,7 @@
     "@babel/parser": "^7.29.3",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
-    "tsup": "catalog:",
+    "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
   }
