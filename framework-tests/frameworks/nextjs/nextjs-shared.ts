@@ -193,6 +193,19 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               },
             },
             {
+              // Byte-level change that resolves to the same env: the reload runs, but
+              // must report "no changes found" and keep serving the same value.
+              label: 'cosmetic content change: reloads but reports no env changes',
+              path: '/',
+              fileEdits: {
+                '.env.dev': '# a comment that changes the file bytes\nENV_SPECIFIC_VAR=env-specific-var--dev',
+              },
+              fileEditDelay: 2500,
+              bodyAssertions: {
+                shouldContain: ['Varlock Framework Test - Next.js', 'env-specific-var--dev'],
+              },
+            },
+            {
               label: 'change to content: env is reloaded, updated value served',
               path: '/',
               fileEdits: {
@@ -236,6 +249,10 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             },
           ],
           outputAssertions: [
+            {
+              description: 'cosmetic env file edit reloads but reports no changes',
+              shouldContain: ['reloaded env, no changes found'],
+            },
             {
               description: 'runtime secret logs are redacted, leak detection fires, no raw secret in dev logs',
               shouldContain: ['runtime-secret-log-test:', 'DETECTED LEAKED SENSITIVE CONFIG'],
