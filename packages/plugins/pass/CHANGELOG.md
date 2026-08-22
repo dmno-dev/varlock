@@ -2,6 +2,13 @@
 
 
 
+
+## 1.0.2
+<sub>2026-08-22</sub>
+
+- [#987](https://github.com/dmno-dev/varlock/pull/987)  *(patch)*
+  Fix package.json entry points - remove references to files that were never built and declare import/require conditions explicitly
+
 ## 1.0.1
 <sub>2026-06-23</sub>
 
