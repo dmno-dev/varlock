@@ -1,7 +1,7 @@
 {
   "name": "@varlock/cloudflare-integration",
   "description": "Cloudflare Workers integration for varlock - deploy secrets via wrangler and auto-configure Vite",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/dmno-dev/varlock.git",
@@ -63,7 +63,7 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "varlock": "workspace:^1.14.0",
+    "varlock": "workspace:^1.17.1",
     "vite": ">=5",
     "wrangler": ">=3",
     "@cloudflare/vite-plugin": ">=1"
@@ -84,7 +84,7 @@
     "@varlock/vite-integration": "workspace:^",
     "dotenv": "^16.6.1",
     "tsup": "catalog:",
-    "varlock": "workspace:^1.14.0",
+    "varlock": "workspace:^1.17.1",
     "vite": "^7.1.0",
     "vitest": "catalog:"
   }

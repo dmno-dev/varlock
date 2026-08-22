@@ -13,6 +13,15 @@
 
 
 
+
+## 1.2.1
+<sub>2026-08-22</sub>
+
+- [#987](https://github.com/dmno-dev/varlock/pull/987)  *(patch)*
+  Fix package.json entry points - remove references to files that were never built and declare import/require conditions explicitly
+- [#1030](https://github.com/dmno-dev/varlock/pull/1030)  *(patch)*
+  The env reload log now reports "no changes found" correctly. It previously always said "changes found", because the comparison also picked up formatting and internal bookkeeping that shift on every reload
+
 ## 1.2.0
 <sub>2026-07-28</sub>
 
