@@ -1,0 +1,227 @@
+---
+title: Modal
+description: Using varlock with Modal sandboxes, from resolving and validating sandbox env vars to running the credential proxy so agent sandboxes only hold placeholders.
+---
+
+[Modal](https://modal.com) runs code in gVisor-isolated cloud sandboxes, commonly as the execution layer for AI agents. It already has a secret store: [`modal.Secret`](https://modal.com/docs/guide/secrets) holds a dictionary of environment variables and injects them through `secrets=[...]` on `Sandbox.create()` and on each `exec`. That is the right tool for workloads you trust with the credentials they use.
+
+For agentic workloads it leaves a gap, because the agent ends up holding the real key in `os.environ`. The recommended shape there is the [broker sandbox](#credential-proxy-the-broker-sandbox): one sandbox runs the [credential proxy](/guides/proxy/) and holds the real secrets, and agent sandboxes route through it holding only [placeholders](/guides/proxy/rules/#placeholders).
+
+Modal is a good fit for this because both seams varlock needs are first-class: env injection at sandbox creation, and an egress allowlist that can pin an agent to a single host and be tightened while the sandbox is running.
+
+## Passing resolved values
+
+Run the orchestrator under [`varlock run`](/reference/cli/load-and-run/) (or import [`varlock/auto-load`](/integrations/javascript/) if it is Node): varlock resolves your values (plugins, `.env.local`, etc.), validates them against your schema, and redacts them in the orchestrator's logs. Then hand the sandbox a scoped subset.
+
+```python title="orchestrate.py"
+import subprocess
+import modal
+
+# one blob with the resolved env, scoped by --filter to what this sandbox
+# should see
+env_blob = subprocess.run(
+    ["varlock", "load", "--format", "json-full", "--compact", "--filter", "STRIPE_*,SENTRY_DSN"],
+    capture_output=True, text=True, check=True,
+).stdout.strip()
+
+app = modal.App.lookup("my-agents", create_if_missing=True)
+sb = modal.Sandbox.create(
+    "sleep", "infinity",
+    app=app,
+    secrets=[modal.Secret.from_dict({
+        # a Node app that imports varlock hydrates process.env, the ENV object,
+        # and log redaction from the blob - no .env files or CLI in the sandbox
+        "__VARLOCK_ENV": env_blob,
+        "_VARLOCK_USE_INJECTED_ENV": "1",
+        # for workloads that don't import varlock, enumerate plain vars instead
+    })],
+)
+```
+
+This is the standard Modal posture: sandboxes hold real values, and the values transit Modal's control plane. Consuming the blob needs either the `varlock` npm package (Node 22.3+) or the varlock CLI (`varlock run -- <command>` injects plain env vars from the blob, for any workload). See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env).
+
+## Credential proxy: the broker sandbox
+
+One long-lived sandbox (the broker) runs `varlock proxy start --expose`, which serves the built-in WebSocket tunnel on its proxy port. Modal's `encrypted_ports` tunnel carries it. Agent sandboxes reach it with `varlock proxy run --url`, which self-wires their placeholder env and CA certs from the broker over the tunnel. The proxy injects real values into requests at the wire, on verified TLS connections to hosts your schema allows, with every request checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing). A compromised or prompt-injected agent can exfiltrate nothing but placeholders.
+
+```
+[agent sandbox]                            [broker sandbox]
+  varlock proxy run --url  ── wss ──▶  proxy :8080 + tunnel
+  (egress pinned to the broker)          (encrypted_ports tunnel URL)
+```
+
+:::caution[Modal client version]
+The egress controls below need **modal 1.5 or newer**, which requires **Python 3.10+**. Installing under an older Python (macOS still ships 3.9 as `python3`) silently resolves to modal 1.2.x, which has only `block_network` and a legacy `cidr_allowlist`: no domain allowlist and no live policy update. Check with `python -c "import modal; print(modal.__version__)"`.
+
+Use the `sb.filesystem.*` calls for sandbox files (`make_directory`, `write_text`, `read_text`). The older top-level `sb.mkdir()` / `sb.open()` are deprecated and, per Modal's [filesystem migration guide](https://modal.com/docs/guide/migrate-sandbox-filesystem), are removed in 1.6.0. Some workspaces already refuse them server-side before then (`ConflictError: The legacy Sandbox filesystem API is no longer supported`, seen on 1.5.4), so migrate rather than relying on the version boundary. Note the argument order in the new API: `write_text(contents, remote_path)`.
+:::
+
+### Schema setup
+
+Mark the secrets your agents use with [`@proxy(domain=...)`](/reference/item-decorators/#proxy) and give each one an explicit [`@placeholder`](/reference/item-decorators/#placeholder):
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.anthropic.com")
+# @placeholder=sk-ant-api03-000000000000000000000000
+ANTHROPIC_API_KEY=
+
+# @proxy(domain="api.stripe.com")
+# @placeholder=sk_test_00000000000000000000000000
+STRIPE_SECRET_KEY=
+```
+
+An explicit `@placeholder` is optional (the sandbox pulls whatever the schema produces from the broker), but worth setting when an SDK checks the key format client-side: a realistic-looking placeholder passes that check where a generic `vlk_placeholder_…` would not.
+
+Egress is permissive by default: proxied requests to hosts without a rule pass through untouched, which is usually fine because agents hold only placeholders. If the broker should refuse anything that does not match a rule, set [`@proxyConfig={egress="strict"}`](/guides/proxy/rules/#egress-modes) in the schema header.
+
+### Start the broker
+
+```python title="orchestrate.py"
+import os, secrets, urllib.parse
+import modal
+
+PROXY_PORT = 8080
+VARLOCK = "/root/.config/varlock/bin/varlock"
+PROJ = "/root/proj"
+
+# One data-plane token, shared by the broker and every agent; generate it
+# yourself (or let the broker mint one and read it back with `varlock proxy
+# token`). It is the credential to USE the broker over the tunnel, not to read
+# its secrets.
+PROXY_TOKEN = secrets.token_hex(16)
+
+app = modal.App.lookup("my-agents", create_if_missing=True)
+image = modal.Image.debian_slim().apt_install("curl", "ca-certificates")
+
+broker = modal.Sandbox.create(
+    "sleep", "infinity",
+    app=app, image=image, workdir=PROJ,
+    encrypted_ports=[PROXY_PORT],
+    timeout=60 * 60,
+)
+
+broker.exec("bash", "-lc",
+    f"mkdir -p {PROJ} && curl -sSfL https://varlock.dev/install.sh | sh -s").wait()
+
+# upload the schema (plus any other .env files your project loads);
+# real values arrive via secrets below instead
+with open(".env.schema") as f:
+    broker.filesystem.write_text(f.read(), f"{PROJ}/.env.schema")
+
+# Schema keys resolve from the process env, so this Secret carries the
+# bootstrap: usually just your plugin's secret-zero (shown: a 1Password
+# service account).
+broker_secrets = [modal.Secret.from_dict({
+    "VARLOCK_PROXY_TOKEN": PROXY_TOKEN,
+    "OP_SERVICE_ACCOUNT_TOKEN": os.environ["OP_SERVICE_ACCOUNT_TOKEN"],
+})]
+
+# start the proxy bound off-loopback so the tunnel is reachable. --persist-ca
+# reuses the CA across broker restarts, so agents that already trust it keep
+# working. --allow-reload lets you apply schema edits later without a restart;
+# the reload channel is only reachable from inside the broker, not by agents.
+broker.exec("bash", "-lc",
+    f"cd {PROJ} && setsid nohup {VARLOCK} proxy start --expose --port {PROXY_PORT} "
+    f"--cert-dir {PROJ}/.varlock-ca --persist-ca --allow-reload "
+    f"> /root/proxy.log 2>&1 < /dev/null & echo launched",
+    secrets=broker_secrets,
+).wait()
+
+# ready once the port answers (a bare GET returns 400, which is fine; we only
+# need the listener up, so no -f)
+broker.exec("bash", "-lc",
+    f"until curl -s -o /dev/null --proxy '' http://127.0.0.1:{PROXY_PORT}; do sleep 0.3; done",
+).wait()
+
+broker_url = broker.tunnels()[PROXY_PORT].url
+broker_host = urllib.parse.urlparse(broker_url).hostname
+```
+
+The `modal.Secret` here carries whatever bootstraps your schema. With secrets resolved from a manager via a [plugin](/guides/plugins/) (the usual setup), that is one service-account token, the secret zero, and the schema resolves everything else inside the broker. If some values exist only on your side, enumerate them instead (`"ANTHROPIC_API_KEY": ...`), so they are the orchestrator's own resolved values passing through. Either way agent sandboxes hold no real secrets at all.
+
+### Start agent sandboxes
+
+An agent needs nothing but varlock and `proxy run --url`. It pulls its placeholder env and CA certs from the broker over the tunnel, so there is no env or cert plumbing to pass.
+
+Create it **pre-armed**: both allowlists have to be initialized at creation to stay updatable later, and the agent needs open egress briefly to install varlock.
+
+```python title="orchestrate.py (continued)"
+agent = modal.Sandbox.create(
+    "sleep", "infinity",
+    app=app, image=image, workdir=PROJ,
+    timeout=60 * 60,
+    # pre-armed so the policy can be tightened while it runs
+    outbound_domain_allowlist=["*"],
+    outbound_cidr_allowlist=["0.0.0.0/0"],
+)
+
+agent.exec("bash", "-lc",
+    f"mkdir -p {PROJ} && curl -sSfL https://varlock.dev/install.sh | sh -s").wait()
+
+# now clamp: the agent may reach the broker tunnel and nothing else
+agent._experimental_set_outbound_network_policy(
+    outbound_domain_allowlist=[broker_host],
+    outbound_cidr_allowlist=[],
+)
+
+# the token rides a Secret rather than the command line, so it stays out of
+# process listings
+agent.exec("bash", "-lc",
+    f"cd {PROJ} && {VARLOCK} proxy run --url wss://{broker_host} -- your-agent-command",
+    secrets=[modal.Secret.from_dict({"VARLOCK_PROXY_TOKEN": PROXY_TOKEN})],
+).wait()
+```
+
+To see what agents are doing, run [`varlock proxy audit`](/reference/cli/proxy/) (or `proxy status --watch`) inside the broker: every request records its host, path, decision, and which keys were injected.
+
+### Lock down agent egress
+
+The clamp above is what turns "the agent holds placeholders" into "the agent cannot talk to anything except varlock policy". Modal enforces it outside the sandbox, so nothing the agent does from inside can lift it. A few details matter:
+
+**Pin the exact tunnel host.** Modal tunnel hostnames look like `ta-<sandbox-id>-<port>-<random>.w.modal.host`: per-sandbox, with a random component, under a shared apex. Entries without a `*.` prefix match that one host only, which is what you want. Do **not** allowlist `*.modal.host` or `*.w.modal.host`: that opens every Modal tunnel in every workspace, which is an exfiltration path.
+
+**Clamp after provisioning, not at creation.** `outbound_domain_allowlist` only permits TLS on port 443, and once clamped to the broker the agent can no longer reach `varlock.dev` to install. Install first, then tighten. Baking varlock into a [custom image](https://modal.com/docs/guide/custom-container) skips the window entirely, which matters most when a fleet spawns many sandboxes.
+
+**Pre-arm both lists.** A list that starts empty or unset cannot be updated later, and `block_network=True` is incompatible with the allowlists. Start with `["*"]` and `["0.0.0.0/0"]` and narrow from there. To cut a sandbox off completely, set both to empty rather than reaching for `block_network`.
+
+**Non-TLS traffic needs CIDR rules.** Domain entries cover TLS on 443 only; raw TCP, UDP, and plain HTTP are matched by `outbound_cidr_allowlist`. Leaving it empty, as above, blocks all of it.
+
+The JS SDK exposes the same control as `updateNetworkPolicy()`.
+
+### Trust model
+
+Be clear-eyed about what this shape protects against. The broker holds real secrets inside Modal's cloud, so Modal's infrastructure is inside your trust boundary, same as it would be for secrets passed to any sandbox. What changes is the blast radius on your side: agents never hold secrets, so a compromised agent sandbox yields placeholders and only whatever requests your rules and egress mode allow. Rotation, policy, and audit live in one place instead of N sandboxes.
+
+Modal helps here in one respect worth naming: sandboxes are not authorized to access other resources in your Modal workspace, so a compromised agent cannot call `Secret.from_name()` to reach your other secrets. That bounds the damage to what the sandbox was given, which is exactly the thing varlock reduces to placeholders.
+
+Three practical notes:
+
+- No human is attached to the broker, so its policy must run unattended: allow rules, `block` rules, `@proxy=omit`, and strict egress. To change policy, write the edited schema into the broker and run `${VARLOCK} proxy reload`: the proxy validates the edit in its own context before applying, and a broken edit is refused and reported back. Rule changes apply to agent traffic immediately; a newly added key shows up for newly started `proxy run` commands.
+- The token authenticates the tunnel and, over it, unlocks the placeholder env an agent adopts. Agents hold it deliberately; it is the credential to *use* the broker, not to read its secrets, which never leave it. Treat it like any shared secret (rotate by restarting the broker with a new one).
+- A broker sandbox is a single point of failure for its fleet. Manage its lifetime explicitly (`timeout`, `idle_timeout`); `proxy run --url` opens a fresh tunnel per connection, so transient blips recover, and `--persist-ca` above keeps the CA stable across a broker restart. Reserve that flag for brokers: it writes the CA private key to disk, which is only reasonable because that machine already holds your real secrets.
+
+## Other topologies
+
+For local development, run the proxy on your machine instead: secrets, resolver plugins, biometric unlock, and the interactive request log stay local. Expose it through any tunnel service that carries WebSockets and reuse the same agent-side command:
+
+```bash
+export VARLOCK_PROXY_TOKEN=$(uuidgen)
+varlock proxy start --expose --port 8080
+ngrok http 8080          # or cloudflared, Tailscale funnel, ...
+# agents: VARLOCK_PROXY_TOKEN=… varlock proxy run --url wss://abc123.ngrok.app -- <command>
+```
+
+The data-plane token gates the tunnel, so a public URL is not usable by whoever finds it. Be precise about what the tunnel service itself can see, though, because it terminates the outer TLS: it observes the WebSocket handshake, which carries that token, the `CONNECT` metadata naming each upstream host, and the placeholder env the agent bootstraps. What it does not see is your real secrets, or the contents of proxied HTTPS requests, which ride an inner TLS session between the agent and your proxy. Plain HTTP has no inner session: it crosses the tunnel in absolute form, so a terminating service reads those requests in full. The proxy fails closed rather than injecting a secret into a cleartext connection, so what is exposed there is traffic carrying no injected secret. Pick a tunnel service you would trust with the token, or use the platform's private networking where it exists.
+
+The same pattern reaches a proxy on any infrastructure you run; see the [topologies overview](/sandboxes/overview/#topologies).
+
+:::note[Compared to modal.Secret]
+`modal.Secret` and the varlock proxy solve different halves of the problem, and they compose: the broker's bootstrap above is itself a `modal.Secret`.
+
+Where they differ:
+
+- **The agent never holds the key.** `secrets=[...]` injects real values as environment variables, so anything running in the sandbox can read and exfiltrate them. varlock hands the agent a placeholder and substitutes at the wire.
+- **Custody stays where you keep it.** Secrets resolve from your existing manager through [plugins](/guides/plugins/) (1Password, Vault, AWS, Doppler, ...) instead of being copied into Modal's control plane. Rotation happens at the source, with no redeploy.
+- **One schema.** Your `.env.schema` describes every value, its type, and its routing rules in one declarative layer that is legible to both people and agents, rather than a dictionary of strings.
+- Plus per-request policy on host, path, and method, [hot reload](/guides/proxy/running/#editing-the-schema-while-a-session-is-running), response scrubbing, your own audit log, and the same setup on any other platform.
+:::
