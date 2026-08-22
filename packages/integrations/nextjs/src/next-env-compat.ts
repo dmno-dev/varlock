@@ -160,6 +160,31 @@ function computeSourceStateHash(sources: SerializedEnvGraph['sources'], basePath
 }
 
 
+/**
+ * Comparison key for "did this reload actually change the env".
+ *
+ * Only the resolved items and settings count. The rest of the serialized graph moves
+ * without the env changing: `sources[].contentHash` fingerprints raw file bytes, and the
+ * source list itself churns in dev because `enableExtraFileWatchers` creates and deletes a
+ * Next-watched `.env` file to trigger reloads, so a load can catch it mid-flight.
+ *
+ * This also normalizes formatting, since the CLI pretty-prints `json-full` unless
+ * `--compact` is passed while the copy in `process.env.__VARLOCK_ENV` is a compact
+ * re-stringify.
+ *
+ * Returns undefined when there is nothing parseable to compare.
+ */
+export function envComparisonKey(serializedEnv: string | undefined): string | undefined {
+  if (!serializedEnv) return undefined;
+  try {
+    const graph = JSON.parse(serializedEnv);
+    return JSON.stringify({ config: graph?.config ?? {}, settings: graph?.settings ?? {} });
+  } catch {
+    return undefined;
+  }
+}
+
+
 // Next.js only watches a fixed set of .env files for changes. Varlock may load
 // additional files (e.g. .env.schema, .env.staging, custom sources). We watch
 // those extra files and trigger a reload by touching one of Next's watched files.
@@ -594,7 +619,7 @@ export function loadEnvConfig(
   }
 
   lastReloadAt = new Date();
-  const previousSerializedEnv = process.env.__VARLOCK_ENV;
+  const previousEnvKey = envComparisonKey(process.env.__VARLOCK_ENV);
 
   debug('>> RELOADING ENV');
   replaceProcessEnv(initialEnv);
@@ -624,7 +649,9 @@ export function loadEnvConfig(
     // follow-up events would produce.
     suppressSkipLogUntil = Date.now() + 1200;
     if (loadCount >= 2 && forceReload) {
-      const envChanged = stdout !== previousSerializedEnv;
+      const freshEnvKey = envComparisonKey(stdout);
+      // an unparseable key on either side means we can't tell, so report a change
+      const envChanged = !freshEnvKey || !previousEnvKey || freshEnvKey !== previousEnvKey;
       if (effectiveReloadSummary) {
         if (envChanged) {
           logUserInfo(`✅ [varlock] change detected in ${effectiveReloadSummary}; reloaded env, changes found.`);
