@@ -3,14 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "description": "internal utils shared by env-spec and varlock",
-  "files": ["src"],
+  "files": [
+    "src",
+    "dist"
+  ],
   "type": "module",
-  "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./*": {
+      "ts-src": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./src/*.ts"
+    }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
     "test": "vitest",
     "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
@@ -20,7 +27,6 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "acorn": "^8.15.0",
-    "tsup": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {

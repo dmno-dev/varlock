@@ -1,2 +1,2 @@
 #!/usr/bin/env node
-import '../dist/cli/cli-executable.js';
+import '../dist/cli/cli-executable.mjs';

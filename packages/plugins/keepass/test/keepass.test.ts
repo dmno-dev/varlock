@@ -31,7 +31,7 @@ type TestDbEntries = Record<string, Record<string, string>>;
 
 /**
  * Creating fixture databases calls kdbxweb directly, which does not go through the build-time
- * xmldom redirect the shipped plugin relies on (see tsup.config.ts), so kdbxweb would build its
+ * xmldom redirect the shipped plugin relies on (see tsdown.config.ts), so kdbxweb would build its
  * own parser with the option shape xmldom dropped in 0.9 and throw. kdbxweb prefers a global
  * DOMParser when one exists, so the wrapper is installed as a global just for this call.
  *

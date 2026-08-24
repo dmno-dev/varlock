@@ -7,7 +7,7 @@
   "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/plugins/infisical"
   },
   "exports": {
@@ -15,9 +15,9 @@
   },
   "files": ["dist"],
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "tsup",
-    "build:test": "tsup --config tsup.test.config.ts",
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "build:test": "tsdown --config tsdown.test.config.ts",
     "test": "vitest",
     "test:ci": "bun run build:test && vitest --run",
     "typecheck": "tsc --noEmit"
@@ -49,7 +49,7 @@
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "outdent": "catalog:",
-    "tsup": "catalog:",
+    "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
   }

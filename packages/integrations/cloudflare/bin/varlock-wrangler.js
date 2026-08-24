@@ -1,2 +1,2 @@
 #!/usr/bin/env node
-import '../dist/varlock-wrangler.js';
+import '../dist/varlock-wrangler.mjs';

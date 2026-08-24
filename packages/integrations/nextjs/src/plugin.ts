@@ -337,7 +337,7 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
         const loaderRule = {
           loaders: [
             {
-              loader: require.resolve('./loader'),
+              loader: require.resolve('./loader.cjs'),
               options: { bundler: 'turbopack', dev: !isBuild },
             },
           ],
@@ -391,10 +391,10 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
           }
 
           turbopackConfig.resolveAlias ||= {};
-          turbopackConfig.resolveAlias['varlock/env'] = './node_modules/.varlock/dist/runtime/env.js';
-          turbopackConfig.resolveAlias['varlock/patch-console'] = './node_modules/.varlock/dist/runtime/patch-console.js';
-          turbopackConfig.resolveAlias['varlock/patch-server-response'] = './node_modules/.varlock/dist/runtime/patch-server-response.js';
-          turbopackConfig.resolveAlias['varlock/patch-response'] = './node_modules/.varlock/dist/runtime/patch-response.js';
+          turbopackConfig.resolveAlias['varlock/env'] = './node_modules/.varlock/dist/runtime/env.mjs';
+          turbopackConfig.resolveAlias['varlock/patch-console'] = './node_modules/.varlock/dist/runtime/patch-console.mjs';
+          turbopackConfig.resolveAlias['varlock/patch-server-response'] = './node_modules/.varlock/dist/runtime/patch-server-response.mjs';
+          turbopackConfig.resolveAlias['varlock/patch-response'] = './node_modules/.varlock/dist/runtime/patch-response.mjs';
           turbopackConfig.resolveAlias['varlock/init-server'] = './node_modules/.varlock/dist/runtime/init-server.cjs';
           turbopackConfig.resolveAlias['varlock/init-edge'] = './node_modules/.varlock/dist/runtime/init-edge.cjs';
           debug('set resolveAlias for varlock subpaths -> ./node_modules/.varlock/dist/...');

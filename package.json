@@ -37,6 +37,7 @@
     "packages:sync": "bunx fledgling sync"
   },
   "devDependencies": {
+    "@arethetypeswrong/core": "^0.18.5",
     "@cloudflare/vite-plugin": "^1.37.1",
     "@eslint/js": "^10.0.1",
     "@socketsecurity/bun-security-scanner": "^1.1.2",
@@ -54,7 +55,8 @@
     "eslint-stylistic-airbnb": "^2.0.1",
     "globals": "^17.3.0",
     "lefthook": "^2.1.6",
-    "tsdown": "^0.22.1",
+    "publint": "^0.3.24",
+    "tsdown": "catalog:",
     "turbo": "^2.9.14",
     "typescript": "catalog:",
     "typescript-eslint": "^8.56.1",
@@ -85,7 +87,7 @@
     "ky": "^1.14.3",
     "msw": "^2.12.14",
     "outdent": "^0.8.0",
-    "tsup": "^8.5.1",
+    "tsdown": "^0.22.14",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.0.18"

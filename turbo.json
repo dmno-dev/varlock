@@ -12,8 +12,9 @@
         "package.json",
         "tsconfig.json",
         "tsconfig.*.json",
-        "tsup.config.ts",
-        "tsup-*.config.ts",
+        "tsdown.config.ts",
+        "tsdown.config.mts",
+        "tsdown-*.config.ts",
         "peggy.config.cjs",
         "astro.config.mjs",
         "astro.config.ts",
@@ -25,7 +26,7 @@
     "test:ci": {
       // plugin tests load the built bundle (dist/plugin.cjs), not src, so the package must be built first
       "dependsOn": ["^test:ci", "build"],
-      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsup.config.ts", "tsup.test.config.ts", "src/**", "test/**"]
+      "inputs": ["package.json", "tsconfig.json", "tsconfig.*.json", "tsdown.config.ts", "tsdown.test.config.ts", "src/**", "test/**"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],

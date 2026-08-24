@@ -32,6 +32,7 @@ type Metrics = {
   jsBytes: number;
   mapsBytes: number;
   dtsBytes: number;
+  otherBytes: number;
   fileCount: number;
 };
 
@@ -40,6 +41,10 @@ const METRIC_ROWS: Array<{ key: keyof Metrics; label: string }> = [
   { key: 'jsBytes', label: 'JS' },
   { key: 'mapsBytes', label: 'Sourcemaps' },
   { key: 'dtsBytes', label: 'Type defs' },
+  // anything the buckets above do not recognise. Kept visible on purpose: when the build
+  // moved from .d.ts to .d.mts the type defs silently fell out of every bucket and the
+  // report showed a bogus -98% drop, which a catch-all row would have made obvious.
+  { key: 'otherBytes', label: 'Other' },
 ];
 
 function parseArgs(argv: Array<string>): Record<string, string | boolean> {
@@ -78,16 +83,21 @@ async function* walkFiles(dir: string): AsyncGenerator<string> {
 
 async function measure(distDir: string): Promise<Metrics> {
   const m: Metrics = {
-    totalBytes: 0, jsBytes: 0, mapsBytes: 0, dtsBytes: 0, fileCount: 0,
+    totalBytes: 0, jsBytes: 0, mapsBytes: 0, dtsBytes: 0, otherBytes: 0, fileCount: 0,
   };
   for await (const file of walkFiles(distDir)) {
     const { size } = await stat(file);
     m.totalBytes += size;
     m.fileCount++;
     if (file.endsWith('.map')) m.mapsBytes += size;
-    else if (file.endsWith('.d.ts') || file.endsWith('.d.cts')) m.dtsBytes += size;
-    else if (file.endsWith('.js') || file.endsWith('.cjs') || file.endsWith('.mjs')) m.jsBytes += size;
+    // .d.ts / .d.cts / .d.mts - must be tested before the js branch, and note that
+    // a declaration file does NOT end in .js/.cjs/.mjs, so a missing variant here
+    // lands in no bucket at all rather than the wrong one
+    else if (/\.d\.[cm]?ts$/.test(file)) m.dtsBytes += size;
+    else if (/\.[cm]?js$/.test(file)) m.jsBytes += size;
+    else m.otherBytes += size;
   }
+
   return m;
 }
 
