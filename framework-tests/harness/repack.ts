@@ -11,6 +11,7 @@ const PACKAGE_NAMES = [
   '@varlock/vite-integration',
   '@varlock/cloudflare-integration',
   '@varlock/expo-integration',
+  '@varlock/nuxt-integration',
 ];
 
 // REPACK is set by the npm script, but ensure it's set if run directly

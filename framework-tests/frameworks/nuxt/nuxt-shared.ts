@@ -15,6 +15,8 @@ Two things make Nuxt different from a plain vite app, and both are covered here:
    routes are never in vite's module graph at all. The module registers the
    same init as a nitro plugin; the server-route and leak scenarios cover it.
 */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -27,6 +29,11 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
   // Nuxt 4's default layout nests the app under `app/`; Nuxt 3's srcDir is the
   // project root itself
   const appEntryPath = nuxtVersion >= 4 ? 'app/app.vue' : 'app.vue';
+  // the dev-restart scenario edits one value in the fixture schema mid-session;
+  // derived from the fixture rather than inlined so the two can't drift apart
+  const baseSchema = readFileSync(path.join(testDir, 'files/schemas/.env.schema'), 'utf8');
+  const editedSchema = baseSchema.replace('PUBLIC_VAR=public-var-value', 'PUBLIC_VAR=restarted-var-value');
+  if (editedSchema === baseSchema) throw new Error('nuxt fixture schema no longer contains PUBLIC_VAR=public-var-value');
 
   describe(`Nuxt v${nuxtVersion}`, () => {
     const env = new FrameworkTestEnv({
@@ -135,18 +142,8 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
       ],
     });
 
-    // TODO: `nuxt dev` produces no output at all when spawned by this harness
-    // (detached + shell), so the ready pattern never matches - the process stays
-    // alive but silent for the full timeout. The same spawn (same command, cwd,
-    // env, pnpm version, `--no-fork`, stdin from /dev/null) streams output
-    // normally outside vitest, so this is harness plumbing rather than an
-    // integration bug: dev mode has been verified by hand to serve `ENV` in both
-    // pages and server routes, redact secrets from logs, and block leaked values
-    // in responses. The build and production-server scenarios below cover the
-    // same code paths through the nitro plugin.
     const devPort = port();
     env.describeDevScenario('dev: ENV available in pages and server routes', {
-      skip: true,
       command: `nuxt dev --no-fork --port ${devPort} < /dev/null`,
       readyPattern: new RegExp(`localhost:${devPort}`),
       readyTimeout: 120_000,
@@ -159,7 +156,9 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
         {
           path: '/api/env',
           bodyAssertions: {
-            shouldContain: ['"PUBLIC_VAR":"public-var-value"', '"HAS_SECRET":"yes"'],
+            // nitro pretty-prints JSON responses in dev, so the key/value pairs
+            // carry a space that the production-server scenarios don't have
+            shouldContain: ['"PUBLIC_VAR": "public-var-value"', '"HAS_SECRET": "yes"'],
             shouldNotContain: ['super-secret-value'],
           },
         },
@@ -177,6 +176,66 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
           description: 'secret is redacted from server logs',
           shouldContain: ['secret-log-test:'],
           shouldNotContain: ['super-secret-value'],
+        },
+      ],
+    });
+
+    // An env file edit restarts the dev server in-process: the nuxt CLI closes
+    // the old instance and re-evaluates nuxt.config in the SAME process. The
+    // config's `import 'varlock/auto-load'` is already in the module cache and
+    // does not re-execute, so without the module re-resolving env on the way
+    // into a restart, every config-time `ENV` read would replay the values from
+    // first boot - runtime values (server routes, pages) would update while
+    // `app.head.title` and `runtimeConfig` stayed pinned to the old ones until a
+    // manual restart.
+    const restartPort = port();
+    env.describeDevScenario('dev: config-time env is refreshed on restart', {
+      command: `nuxt dev --no-fork --port ${restartPort} < /dev/null`,
+      // nuxt logs the `Local:` banner only on first boot; the nitro build line
+      // is re-logged on every restart and comes after both vite builds
+      readyPattern: /Nuxt Nitro server built/,
+      readyTimeout: 120_000,
+      timeout: 300_000,
+      templateFiles: {
+        'nuxt.config.ts': 'configs/nuxt.config.config-time-env.ts',
+        'server/api/env.get.ts': 'routes/env-endpoint.ts',
+        'server/api/runtime-config.get.ts': 'routes/runtime-config-endpoint.ts',
+      },
+      requests: [
+        {
+          label: 'config-time title before the edit',
+          path: '/',
+          bodyAssertions: { shouldContain: ['<title>public-var-value</title>'] },
+        },
+        {
+          // rewrite the schema with a new PUBLIC_VAR - the module watches every
+          // varlock-loaded env file, so this triggers the restart
+          label: 'config-time title after the auto-restart',
+          path: '/',
+          fileEdits: { '.env.schema': editedSchema },
+          bodyAssertions: {
+            shouldContain: ['<title>restarted-var-value</title>'],
+            shouldNotContain: ['public-var-value'],
+          },
+        },
+        {
+          // the same value read at config time, via runtimeConfig
+          label: 'runtimeConfig captured at config time is fresh',
+          path: '/api/runtime-config',
+          bodyAssertions: {
+            shouldContain: ['"varlockConfigProbe": "restarted-var-value"'],
+            shouldNotContain: ['public-var-value'],
+          },
+        },
+        {
+          // runtime reads reach ENV through the nitro init plugin rather than
+          // config evaluation - asserting both pins down which half went stale
+          label: 'runtime env is fresh too',
+          path: '/api/env',
+          bodyAssertions: {
+            shouldContain: ['"PUBLIC_VAR": "restarted-var-value"'],
+            shouldNotContain: ['public-var-value'],
+          },
         },
       ],
     });
