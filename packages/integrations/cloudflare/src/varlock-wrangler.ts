@@ -50,6 +50,40 @@ function spawnWrangler(args: Array<string>): Promise<number> {
   });
 }
 
+/**
+ * Runs wrangler and captures its output instead of inheriting stdio.
+ * Used to ask wrangler how it parses a command (see wrangler-command-detection).
+ */
+function captureWrangler(args: Array<string>, timeoutMs = 20_000): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    debug('capture: wrangler', args.join(' '));
+    const child = spawn('wrangler', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: isWindows,
+    });
+    let output = '';
+    const timer = setTimeout(() => {
+      debug('capture: timed out');
+      child.kill();
+      resolve(undefined);
+    }, timeoutMs);
+    timer.unref();
+    const collect = (chunk: Buffer) => {
+      output += chunk.toString();
+    };
+    child.stdout?.on('data', collect);
+    child.stderr?.on('data', collect);
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(output || undefined);
+    });
+  });
+}
+
 function loadSerializedGraph() {
   const { stdout } = execSyncVarlock('load --format json-full --compact', {
     fullResult: true,
@@ -374,10 +408,10 @@ function isVersionsUploadCommand(args: Array<string>) {
   return args[0] === 'versions' && args[1] === 'upload';
 }
 
-function isDeployCommand(args: Array<string>) {
+async function isDeployCommand(args: Array<string>) {
   if (args[0] === 'deploy') return true;
   if (isVersionsUploadCommand(args)) return true;
-  if (isPreviewDeployCommand(args)) return true;
+  if (await isPreviewDeployCommand(args, captureWrangler)) return true;
   return false;
 }
 
@@ -783,7 +817,7 @@ async function main() {
     return;
   }
 
-  if (isDeployCommand(args)) {
+  if (await isDeployCommand(args)) {
     await handleDeploy(args);
   } else if (isTypesCommand(args)) {
     await handleTypes(args);

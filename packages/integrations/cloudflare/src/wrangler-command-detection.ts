@@ -1,28 +1,63 @@
-const PREVIEW_SUBCOMMANDS = ['delete', 'settings', 'secret', 'base-config'];
+/**
+ * `wrangler preview` is two commands wearing one name: a deploy-style command
+ * (`preview [script]`) that creates a branch preview, and a namespace for management
+ * subcommands (`preview delete`, `preview secret put`, ...). Only the former should get
+ * varlock's resolved vars and secrets injected.
+ *
+ * Telling them apart from raw argv means knowing which of wrangler's options take a value
+ * (`preview --name delete` deploys a preview named "delete") and which subcommands exist -
+ * and options may appear before the subcommand (`preview -c wrangler.jsonc delete`). Both
+ * lists belong to wrangler and change between releases, so instead of mirroring them here
+ * we let wrangler resolve the command itself: appending `--help` makes yargs print the
+ * resolved command path as the first line of its output and exit without running anything.
+ */
 
-const GLOBAL_OPTIONS_WITH_VALUES = [
-  '--config',
-  '-c',
-  '--cwd',
-  '--env',
-  '-e',
-  '--env-file',
-  '--profile',
-];
+/** Runs `wrangler <args>`, resolving its combined output, or undefined if it could not run. */
+export type WranglerRunner = (args: Array<string>) => Promise<string | undefined>;
 
-export function isPreviewDeployCommand(args: Array<string>) {
-  if (args[0] !== 'preview' || args.includes('--help') || args.includes('-h')) return false;
+const HELP_FLAGS = ['--help', '-h'];
 
-  for (let i = 1; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === '--') return true;
-    if (GLOBAL_OPTIONS_WITH_VALUES.includes(arg)) {
-      i++;
-      continue;
-    }
-    if (arg.startsWith('-')) continue;
-    return !PREVIEW_SUBCOMMANDS.includes(arg);
-  }
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_RE = /\x1B\[[0-9;]*m/g;
 
-  return true;
+/**
+ * Reads the command path out of wrangler's help output, e.g. `wrangler preview [script]`
+ * -> `preview`, `wrangler preview settings update` -> `preview settings update`.
+ * Returns undefined when the output isn't a usage banner (a parse error, an unknown
+ * command, no wrangler at all).
+ */
+export function resolvedCommandFromHelp(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const firstLine = output.replace(ANSI_ESCAPE_RE, '').split('\n').map((line) => line.trim()).find(Boolean);
+  if (!firstLine?.startsWith('wrangler ')) return undefined;
+  // positional placeholders (`[script]`, `<key>`) are part of the usage line, not the path
+  const path = firstLine.split(/\s+/).slice(1).filter((word) => !word.startsWith('[') && !word.startsWith('<'));
+  if (!path.length) return undefined;
+  return path.join(' ');
+}
+
+/**
+ * Whether these args are a preview *deployment* (as opposed to a preview management
+ * subcommand, or something else entirely). Asks wrangler to resolve the command when the
+ * args are ambiguous.
+ */
+export async function isPreviewDeployCommand(args: Array<string>, runWrangler: WranglerRunner) {
+  if (args[0] !== 'preview') return false;
+
+  // wrangler stops parsing options at `--`, so a subcommand can only appear before it -
+  // and appending `--help` after it would make it a positional, running the command for real
+  const doubleDashIndex = args.indexOf('--');
+  const parsedArgs = doubleDashIndex === -1 ? args : args.slice(0, doubleDashIndex);
+
+  // let wrangler print its own help
+  if (parsedArgs.some((arg) => HELP_FLAGS.includes(arg))) return false;
+
+  // a subcommand is always a bare word, so with no positionals at all this can only be
+  // the deploy command - no need to ask
+  const hasPositional = parsedArgs.slice(1).some((arg) => !arg.startsWith('-'));
+  if (!hasPositional) return true;
+
+  const resolved = resolvedCommandFromHelp(await runWrangler([...parsedArgs, '--help']));
+  // if wrangler couldn't tell us, pass the command through and let it report the problem
+  return resolved === 'preview';
 }
