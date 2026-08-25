@@ -144,5 +144,4 @@ To see what agents are doing on the credential side, run [`varlock proxy audit`]
 
 ## Sharp edges
 
-- **Port 7654 is fixed and a bind failure is silent.** If something else on your Mac already listens on 7654, the Minimal proxy is simply unreachable and nothing tells you. First debugging step, always: `lsof -nP -iTCP:7654 -sTCP:LISTEN`.
-- **Error responses hold the connection open.** An unknown hostname returns a `502` without closing the socket. curl and browsers are fine; raw `nc` / `socat` probes appear to hang.
+**Port 7654 is fixed and a bind failure is silent.** If something else on your Mac already listens on 7654, the Minimal proxy is simply unreachable and nothing tells you. First debugging step, always: `lsof -nP -iTCP:7654 -sTCP:LISTEN`. (A request for an unknown hostname returns an empty `502`, so a `502` means the proxy is up and the session name in the URL is wrong.)
