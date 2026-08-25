@@ -50,6 +50,10 @@ jobs:
         run: bun run lint
       - name: TypeScript type check
         run: bun run typecheck:all
+      # benchmarks/ is not a workspace member, so turbo's typecheck does not reach it
+      - name: TypeScript type check (benchmarks)
+        working-directory: benchmarks
+        run: bun install --frozen-lockfile && bun run typecheck
       - name: Build libraries
         run: bun run build:libs
       - name: Run tests
