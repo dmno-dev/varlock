@@ -223,6 +223,33 @@ describe('patched ServerResponse - sensitive values split across chunks', () => 
     expect(() => res.write(`<html>${head}`)).not.toThrow();
     expect(() => res.end('-but-not-really</html>')).not.toThrow();
   });
+
+  it('still detects the secret when its head was already flushed by the holdback timer', async () => {
+    const res = makeRes();
+    expect(() => res.write(`<html>leaked: ${head}`)).not.toThrow();
+    // wait past the holdback window so the timer flushes the withheld head, which
+    // moves it into `carry` - the completing chunk must still be caught there
+    await new Promise((resolve) => {
+      setTimeout(resolve, 60);
+    });
+    expect(() => res.write(`${tail}</html>`)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+  });
+
+  it('reports success and fires the callback when a whole chunk is withheld', async () => {
+    const res = makeRes();
+    // the entire chunk is a possible secret prefix, so nothing goes out yet - but the
+    // caller must still see a normal successful write or streams piping into the
+    // response would stall waiting on the callback
+    let cbFired = false;
+    const returned = res.write(head, () => {
+      cbFired = true;
+    });
+    expect(returned).toBe(true);
+    await new Promise((resolve) => {
+      process.nextTick(resolve);
+    });
+    expect(cbFired).toBe(true);
+  });
 });
 
 /*
@@ -252,6 +279,11 @@ describe('patched ServerResponse - pass-through integrity', () => {
         const mid = 8; // lands inside the 2-byte é
         res.write(buf.subarray(0, mid));
         res.write(buf.subarray(mid));
+        res.end();
+      } else if (req.url === '/withheld-then-bare-end') {
+        // tail is withheld as a lookalike, and end() carries no chunk of its own -
+        // the withheld text must still be flushed as the final chunk
+        res.write(`<html>${SECRET.slice(0, 12)}`);
         res.end();
       } else if (req.url === '/slow-lookalike') {
         // pauses right after a partial match, so the held-back text must still be flushed
@@ -287,6 +319,11 @@ describe('patched ServerResponse - pass-through integrity', () => {
   it('delivers multi-byte characters split across chunks intact', async () => {
     const body = await (await fetch(`${baseUrl}/multibyte`)).text();
     expect(body).toBe(`<html>${multibyte}</html>`);
+  });
+
+  it('delivers withheld text when end() carries no chunk', async () => {
+    const body = await (await fetch(`${baseUrl}/withheld-then-bare-end`)).text();
+    expect(body).toBe(`<html>${SECRET.slice(0, 12)}`);
   });
 
   it('flushes withheld text without waiting for the response to end', async () => {

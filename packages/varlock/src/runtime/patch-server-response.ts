@@ -13,12 +13,15 @@ import { debug } from './lib/debug';
 const patchedKey = '_patchedByVarlock';
 
 /**
- * How long to hold back a possible partial secret before writing it out anyway. Chunks that
- * split a secret arrive back-to-back in practice, so this only fires when a response genuinely
- * pauses right after emitting something that looks like the start of a secret (e.g. SSE) -
- * without it, that trailing text would sit unsent until the next chunk or `end()`.
+ * How long to hold back a possible partial secret before writing it out anyway. This is a
+ * flush valve, not a detection window: chunks that split a secret arrive within the same tick
+ * or a few ms of each other (renderer buffer splits, piped upstream fragments), so a short
+ * timeout covers them while keeping the worst-case stall of a lookalike tail imperceptible.
+ * It only fires when a response genuinely pauses right after emitting something that looks
+ * like the start of a secret (e.g. an unframed SSE-style stream) - without it, that trailing
+ * text would sit unsent until the next chunk or `end()`.
  */
-const PENDING_FLUSH_TIMEOUT_MS = 100;
+const PENDING_FLUSH_TIMEOUT_MS = 15;
 
 /**
  * Returns a sync decompressor for a Content-Encoding value, or undefined if unsupported.
