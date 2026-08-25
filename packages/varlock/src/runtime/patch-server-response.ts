@@ -334,11 +334,20 @@ export function patchGlobalServerResponse(opts?: {
             return true;
           }
           args[0] = chunkType === 'encoded' ? new TextEncoder().encode(emit) : emit;
-        } else if (chunkType === 'encoded' && state.reEncode && emit) {
+        } else if (chunkType === 'encoded' && state.reEncode) {
           // the decoder is holding tail bytes of a split character, so the raw chunk no
           // longer lines up with the decoded text - emit re-encoded text instead of the
           // raw bytes to keep the outgoing byte stream consistent
-          args[0] = new TextEncoder().encode(emit);
+          if (emit) {
+            args[0] = new TextEncoder().encode(emit);
+          } else if ((rawChunk as Uint8Array).length) {
+            // the chunk is entirely held by the decoder (all of it is one incomplete
+            // character) - like the withheld path above, report it as written; its
+            // bytes go out once the character completes or the held tail is flushed
+            const cb = args.find((arg: any) => typeof arg === 'function');
+            if (cb) process.nextTick(cb);
+            return true;
+          }
         }
       }
     }

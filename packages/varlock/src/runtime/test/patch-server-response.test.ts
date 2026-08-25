@@ -287,6 +287,12 @@ describe('patched ServerResponse - pass-through integrity', () => {
         res.write(buf.subarray(0, buf.length - 1)); // ends with the é lead byte
         res.write('mid');
         res.end('tail</html>');
+      } else if (req.url === '/lone-partial-lead') {
+        // a binary chunk that is nothing but the start of a split character - its raw
+        // bytes must not go out, or the flush on the next string chunk duplicates them
+        res.write(Buffer.from('<html>'));
+        res.write(Buffer.from([0xc3])); // é lead byte alone, decodes to ''
+        res.end('mid</html>');
       } else if (req.url === '/invalid-lead-byte') {
         // 0xC0 is never a valid UTF-8 lead: the decoder replaces it immediately and holds
         // nothing, so the raw bytes must pass through untouched (no re-encode trigger)
@@ -336,6 +342,11 @@ describe('patched ServerResponse - pass-through integrity', () => {
   it('flushes held bytes in place when the response switches to string chunks', async () => {
     const body = await (await fetch(`${baseUrl}/binary-then-string`)).text();
     expect(body).toBe('<html>�midtail</html>');
+  });
+
+  it('does not emit a wholly-held binary chunk twice', async () => {
+    const body = await (await fetch(`${baseUrl}/lone-partial-lead`)).text();
+    expect(body).toBe('<html>�mid</html>');
   });
 
   it('passes invalid UTF-8 lead bytes through untouched', async () => {
