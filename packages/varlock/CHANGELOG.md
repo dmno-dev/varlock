@@ -26,6 +26,22 @@
 
 
 
+
+## 1.17.1
+<sub>2026-08-25</sub>
+
+- [#1020](https://github.com/dmno-dev/varlock/pull/1020)  *(patch)* - track proxy subcommand usage in telemetry
+- [#1020](https://github.com/dmno-dev/varlock/pull/1020)  *(patch)* - fix telemetry events being dropped when a command exits before the request finishes
+- [#987](https://github.com/dmno-dev/varlock/pull/987)  *(patch)*
+  Fix package.json entry points - remove references to files that were never built and declare import/require conditions explicitly
+- [#1023](https://github.com/dmno-dev/varlock/pull/1023)  *(patch)* - upgrade gunshi to 0.37.1
+- [#1023](https://github.com/dmno-dev/varlock/pull/1023)  *(patch)* - clearer errors for unknown flags, unknown commands, and bad option values
+- [#1023](https://github.com/dmno-dev/varlock/pull/1023)  *(patch)* - track every CLI subcommand automatically and report schema usage as its own event
+- [#1025](https://github.com/dmno-dev/varlock/pull/1025)  *(patch)* - lazy-load CLI command implementations so startup does not parse every command
+- [#1029](https://github.com/dmno-dev/varlock/pull/1029)  *(patch)*
+  Injected env blob reuse now detects .env source file edits: auto-load and varlock run re-resolve instead of serving stale values when a source file changed since the blob was created
+- [#1021](https://github.com/dmno-dev/varlock/pull/1021)  *(patch)* - Build with tsdown instead of tsup; published files now use explicit .mjs/.cjs extensions.
+
 ## 1.17.0
 <sub>2026-08-18</sub>
 

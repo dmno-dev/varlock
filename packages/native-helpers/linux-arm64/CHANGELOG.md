@@ -1,5 +1,11 @@
 # Changelog
 
+
+## 1.17.1
+<sub>2026-08-25</sub>
+
+- *(patch)* Version bump from group with `varlock` v1.17.1
+
 ## 1.17.0
 <sub>2026-08-18</sub>
 

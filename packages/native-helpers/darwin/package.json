@@ -1,6 +1,6 @@
 {
   "name": "@varlock/native-helper-darwin",
-  "version": "1.17.0",
+  "version": "1.17.1",
   "description": "varlock native helper binary for macOS (Secure Enclave local encryption). Installed automatically as an optional dependency of varlock.",
   "author": "dmno-dev",
   "license": "MIT",
