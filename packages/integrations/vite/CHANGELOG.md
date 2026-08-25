@@ -11,6 +11,18 @@
 
 
 
+
+## 1.5.0
+<sub>2026-08-25</sub>
+
+- [#985](https://github.com/dmno-dev/varlock/pull/985)  *(minor)*
+  Add a `rootDir` option so integrations can point varlock at the project root when the framework sets vite's `root` to a source subdirectory, and export `buildVarlockSsrInitCode` for build pipelines vite does not own.
+- [#987](https://github.com/dmno-dev/varlock/pull/987)  *(patch)*
+  Fix package.json entry points - remove references to files that were never built and declare import/require conditions explicitly
+- [#985](https://github.com/dmno-dev/varlock/pull/985)  *(patch)*
+  Fix build-time inlining of ENV values referenced directly in Vue template interpolation (`{{ ENV.X }}`), which previously fell through to the runtime proxy and broke hydration in production builds
+- [#1021](https://github.com/dmno-dev/varlock/pull/1021)  *(patch)* - Build with tsdown instead of tsup; published files now use explicit .mjs/.cjs extensions.
+
 ## 1.4.0
 <sub>2026-07-28</sub>
 

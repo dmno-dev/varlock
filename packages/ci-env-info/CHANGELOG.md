@@ -1,6 +1,14 @@
 # @varlock/ci-env-info
 
 
+
+## 0.1.1
+<sub>2026-08-25</sub>
+
+- [#987](https://github.com/dmno-dev/varlock/pull/987)  *(patch)*
+  Fix package.json entry points - remove references to files that were never built and declare import/require conditions explicitly
+- [#1021](https://github.com/dmno-dev/varlock/pull/1021)  *(patch)* - Build with tsdown instead of tsup; published files now use explicit .mjs/.cjs extensions.
+
 ## 0.1.0
 <sub>2026-07-15</sub>
 
