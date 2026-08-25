@@ -45,32 +45,59 @@ function killProcess(child: ChildProcess): Promise<void> {
   });
 }
 
+const sleep = (ms: number) => new Promise<void>((r) => {
+  setTimeout(r, ms);
+});
+
 /**
  * Fetch a URL with retries (server may report ready before accepting connections).
+ *
+ * A 503 is also retried, since dev servers serve one while (re)building rather than
+ * holding the connection - Nuxt's restart, for example, logs its build steps before
+ * the app is renderable again, so a request fired on that banner lands on the
+ * "loading" response. Callers that actually expect a 503 opt out.
  */
 async function fetchWithRetry(
   url: string,
-  retries = 3,
-  delayMs = 500,
-  timeoutMs = 15_000,
+  opts: {
+    retries?: number,
+    delayMs?: number,
+    timeoutMs?: number,
+    /** retry while the server answers 503 (default true) */
+    retryWhileUnavailable?: boolean,
+    /** how long to keep retrying a 503 before returning it */
+    unavailableTimeoutMs?: number,
+  } = {},
 ): Promise<DevServerRequestResult> {
+  const {
+    retries = 3, delayMs = 500, timeoutMs = 15_000,
+    retryWhileUnavailable = true, unavailableTimeoutMs = 30_000,
+  } = opts;
+
+  const attempt = async () => {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const body = await resp.text();
+    return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
+  };
+
+  const unavailableDeadline = Date.now() + unavailableTimeoutMs;
   for (let i = 0; i < retries; i++) {
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-      const body = await resp.text();
-      return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
-    } catch {
-      if (i < retries - 1) {
-        await new Promise<void>((r) => {
-          setTimeout(r, delayMs);
-        });
+      const result = await attempt();
+      if (result.status !== 503 || !retryWhileUnavailable) return result;
+      // still building, keep polling (this does not consume a connection retry)
+      while (Date.now() < unavailableDeadline) {
+        await sleep(delayMs);
+        const retried = await attempt();
+        if (retried.status !== 503) return retried;
       }
+      return result;
+    } catch {
+      if (i < retries - 1) await sleep(delayMs);
     }
   }
   // final attempt — let it throw
-  const resp = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-  const body = await resp.text();
-  return { status: resp.status, body, headers: Object.fromEntries(resp.headers.entries()) };
+  return attempt();
 }
 
 /**
@@ -122,6 +149,11 @@ function waitForReady(
 /**
  * Wait for the ready pattern to appear in NEW output (after a given chunk offset).
  * Used after file edits to detect that the dev server has restarted.
+ *
+ * `matched` is reported separately from `url` because a restart banner does not
+ * always repeat the server URL - Nuxt, for example, prints the `Local:` line only
+ * on first boot and just re-logs its build steps on restart. Callers keep the URL
+ * they already have when a match carries none.
  */
 function waitForNewReady(
   child: ChildProcess,
@@ -131,18 +163,18 @@ function waitForNewReady(
   stderrOffset: number,
   pattern: string | RegExp,
   timeout: number,
-): Promise<string | undefined> {
+): Promise<{ matched: boolean, url?: string }> {
   return new Promise((resolve) => {
     const regex = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
     let resolved = false;
-    function done(url: string | undefined) {
+    function done(matched: boolean, url?: string) {
       if (resolved) return;
       resolved = true;
       clearTimeout(timer); // eslint-disable-line no-use-before-define
       child.stdout?.removeListener('data', onData); // eslint-disable-line no-use-before-define
       child.stderr?.removeListener('data', onData); // eslint-disable-line no-use-before-define
       child.removeListener('close', onClose); // eslint-disable-line no-use-before-define
-      resolve(url);
+      resolve({ matched, url });
     }
 
     function checkNewOutput() {
@@ -151,18 +183,18 @@ function waitForNewReady(
         + stderrChunks.slice(stderrOffset).join('')).replace(ANSI_PATTERN, '');
       if (regex.test(newOut)) {
         const urlMatch = newOut.match(URL_PATTERN);
-        done(urlMatch ? urlMatch[0] : undefined);
+        done(true, urlMatch ? urlMatch[0] : undefined);
       }
     }
 
     const onData = () => checkNewOutput();
-    const onClose = () => done(undefined);
+    const onClose = () => done(false);
 
     child.stdout?.on('data', onData);
     child.stderr?.on('data', onData);
     child.on('close', onClose);
 
-    const timer = setTimeout(() => done(undefined), timeout);
+    const timer = setTimeout(() => done(false), timeout);
   });
 }
 
@@ -202,13 +234,18 @@ export async function runDevServer(
     ...scenario.env,
   };
 
-  // The harness runs under vitest, so process.env carries VITEST / VITEST_* vars.
-  // Astro v7's dev server plugin (vite-plugin-astro-server) bails out of mounting
-  // its SSR request handler when it sees process.env.VITEST — an escape hatch for
-  // Astro's own vitest suite — which makes every SSR route 404 ("Cannot GET").
+  // The harness runs under vitest, so process.env carries VITEST / VITEST_* vars
+  // plus a generic TEST=true. Both make dev servers behave differently:
+  //  - Astro v7's dev server plugin (vite-plugin-astro-server) bails out of mounting
+  //    its SSR request handler when it sees process.env.VITEST — an escape hatch for
+  //    Astro's own vitest suite — which makes every SSR route 404 ("Cannot GET").
+  //  - `TEST` is what std-env's `isTest` reads, and consola drops its log level to
+  //    `warn` when that is set. Nuxt's CLI logs everything through consola at info
+  //    level, so the server starts and serves requests but emits no output at all:
+  //    the ready pattern never matches and the scenario times out silently.
   // Strip these so the spawned dev server doesn't think it's running under vitest.
   for (const key of Object.keys(spawnEnv)) {
-    if (key === 'VITEST' || key.startsWith('VITEST_')) {
+    if (key === 'VITEST' || key.startsWith('VITEST_') || key === 'TEST') {
       delete (spawnEnv as Record<string, string | undefined>)[key];
     }
   }
@@ -297,7 +334,7 @@ export async function runDevServer(
           });
         } else {
           log('File edits applied, waiting for server restart...');
-          const newUrl = await waitForNewReady(
+          const restarted = await waitForNewReady(
             child,
             stdoutChunks,
             stderrChunks,
@@ -306,7 +343,7 @@ export async function runDevServer(
             scenario.readyPattern,
             readyTimeout,
           );
-          if (!newUrl) {
+          if (!restarted.matched) {
             logError('Server did not restart after file edit');
             dumpOutput();
             return {
@@ -317,8 +354,9 @@ export async function runDevServer(
               error: 'Server did not become ready again after file edit',
             };
           }
-          // Update URL in case the port changed (e.g. when using --port 0)
-          currentUrl = newUrl;
+          // Update URL in case the port changed (e.g. when using --port 0). A
+          // restart banner that doesn't repeat the URL keeps the existing one.
+          if (restarted.url) currentUrl = restarted.url;
           log(`Server restarted at ${currentUrl}`);
         }
       }
@@ -326,7 +364,7 @@ export async function runDevServer(
       const url = `${currentUrl}${req.path}`;
       log(`Request ${i + 1}/${scenario.requests.length}: GET ${url}`);
       try {
-        const result = await fetchWithRetry(url);
+        const result = await fetchWithRetry(url, { retryWhileUnavailable: req.expectedStatus !== 503 });
         log(`Response: status=${result.status}, body=${result.body.length} bytes`);
         responses.push(result);
       } catch (err) {
