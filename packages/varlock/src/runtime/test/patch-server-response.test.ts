@@ -15,6 +15,7 @@ import {
 
 import { patchGlobalServerResponse } from '../patch-server-response';
 import { resetRedactionMap } from '../env';
+import { makeRand, randomChunks, writeChunks } from './fuzz-helpers';
 
 const SECRET = 'super-secret-value-abc123';
 const UNICODE_SECRET = 'super-sëcret-value-abc123';
@@ -265,6 +266,9 @@ describe('patched ServerResponse - pass-through integrity', () => {
 
   const partial = `${SECRET.slice(0, 12)}-not-a-secret`;
   const multibyte = 'héllo wörld 🔐 ünïcode';
+  // multi-byte chars exercise the decoder-alignment paths, the lookalike exercises holdback
+  const fuzzCleanText = `<html>héllo wörld 🔐 ünïcode ${'filler '.repeat(20)}${SECRET.slice(0, 12)}-lookalike</html>`;
+  const fuzzLeakText = `<html>héllo 🔐 leak: ${SECRET} more ünïcode text</html>`;
 
   beforeAll(async () => {
     server = http.createServer(async (req, res) => {
@@ -303,6 +307,19 @@ describe('patched ServerResponse - pass-through integrity', () => {
         // the withheld text must still be flushed as the final chunk
         res.write(`<html>${SECRET.slice(0, 12)}`);
         res.end();
+      } else if (req.url?.startsWith('/fuzz-clean')) {
+        const seed = Number(new URL(req.url, 'http://localhost').searchParams.get('seed'));
+        const rand = makeRand(seed);
+        writeChunks(res, randomChunks(fuzzCleanText, rand), rand);
+      } else if (req.url?.startsWith('/fuzz-leak')) {
+        const seed = Number(new URL(req.url, 'http://localhost').searchParams.get('seed'));
+        const rand = makeRand(seed);
+        try {
+          writeChunks(res, randomChunks(fuzzLeakText, rand), rand);
+        } catch (err) {
+          // leak detected mid-write - kill the response like a real server error path
+          res.destroy();
+        }
       } else if (req.url === '/slow-lookalike') {
         // pauses right after a partial match, so the held-back text must still be flushed
         res.write(`<html>${SECRET.slice(0, 12)}`);
@@ -358,6 +375,34 @@ describe('patched ServerResponse - pass-through integrity', () => {
   it('delivers withheld text when end() carries no chunk', async () => {
     const body = await (await fetch(`${baseUrl}/withheld-then-bare-end`)).text();
     expect(body).toBe(`<html>${SECRET.slice(0, 12)}`);
+  });
+
+  it('fuzz: random chunkings of a clean response arrive byte-for-byte intact', async () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const resp = await fetch(`${baseUrl}/fuzz-clean?seed=${seed}`);
+      const bytes = Buffer.from(await resp.arrayBuffer());
+      expect(bytes.toString('utf8'), `seed ${seed}`).toBe(fuzzCleanText);
+      expect(bytes.equals(Buffer.from(fuzzCleanText)), `seed ${seed}`).toBe(true);
+    }
+  });
+
+  it('fuzz: random chunkings never deliver the secret (throw mode)', async () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      let received = '';
+      try {
+        const resp = await fetch(`${baseUrl}/fuzz-leak?seed=${seed}`);
+        const reader = resp.body!.getReader();
+        const decoder = new TextDecoder();
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          received += decoder.decode(value, { stream: true });
+        }
+      } catch (err) {
+        // connection killed mid-response - whatever arrived is in `received`
+      }
+      expect(received.includes(SECRET), `seed ${seed}`).toBe(false);
+    }
   });
 
   it('flushes withheld text without waiting for the response to end', async () => {

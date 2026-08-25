@@ -13,7 +13,8 @@ import {
 } from 'vitest';
 
 import { patchGlobalServerResponse } from '../patch-server-response';
-import { resetRedactionMap } from '../env';
+import { redactSensitiveConfig, resetRedactionMap } from '../env';
+import { makeRand, randomChunks, writeChunks } from './fuzz-helpers';
 
 const SECRET = 'redact-mode-secret-xyz789';
 
@@ -27,6 +28,8 @@ const FAKE_GRAPH = {
 
 const htmlClean = `<html><body>${'filler '.repeat(100)}no secrets here</body></html>`;
 const htmlWithSecret = `<html><body>leak: ${SECRET}</body></html>`;
+// multi-byte chars exercise the decoder-alignment paths alongside redaction
+const fuzzLeakText = `<html>héllo 🔐 leak: ${SECRET} more ünïcode text</html>`;
 
 let server: http.Server;
 let baseUrl: string;
@@ -90,6 +93,10 @@ beforeAll(async () => {
         // kill the connection like a framework's error handling would
         res.destroy();
       }
+    } else if (req.url?.startsWith('/fuzz-redact')) {
+      const seed = Number(new URL(req.url, 'http://localhost').searchParams.get('seed'));
+      const rand = makeRand(seed);
+      writeChunks(res, randomChunks(fuzzLeakText, rand), rand);
     } else {
       res.end('not found');
     }
@@ -161,6 +168,15 @@ describe('patchGlobalServerResponse with redactInsteadOfThrow', () => {
     // a duplicated lead byte would decode as a replacement char before the é
     expect(body.startsWith('<html>é leak: ')).toBe(true);
     expect(body).not.toContain('�');
+  });
+
+  it('fuzz: random chunkings redact the secret and leave everything else intact', async () => {
+    const expected = redactSensitiveConfig(fuzzLeakText);
+    expect(expected).not.toContain(SECRET);
+    for (let seed = 1; seed <= 30; seed++) {
+      const body = await (await fetch(`${baseUrl}/fuzz-redact?seed=${seed}`)).text();
+      expect(body, `seed ${seed}`).toBe(expected);
+    }
   });
 
   it('leaves text that only looks like the start of a secret intact', async () => {
