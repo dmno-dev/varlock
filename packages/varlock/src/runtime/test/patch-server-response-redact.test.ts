@@ -73,6 +73,13 @@ beforeAll(async () => {
       // ends mid-lookalike but never completes the secret - must arrive intact
       res.write(`<html>${SECRET.slice(0, 12)}`);
       res.end('-not-a-secret</html>');
+    } else if (req.url === '/multibyte-split-then-redact') {
+      // first chunk ends mid-character (its lead byte must not go out raw), and the
+      // chunk completing it contains a secret, so the rest gets re-encoded on redaction
+      const buf = Buffer.from(`<html>é leak: ${SECRET}</html>`);
+      const mid = buf.indexOf(0xc3) + 1; // one byte into the 2-byte é
+      res.write(buf.subarray(0, mid));
+      res.end(buf.subarray(mid));
     } else if (req.url === '/gzip-leak') {
       res.setHeader('content-encoding', 'gzip');
       try {
@@ -145,6 +152,15 @@ describe('patchGlobalServerResponse with redactInsteadOfThrow', () => {
     expect(body).toContain('▒');
     expect(resp.headers.get('content-length')).toBeNull();
     expect(resp.headers.get('transfer-encoding')).toBe('chunked');
+  });
+
+  it('does not duplicate bytes when a chunk splits a character before a redaction', async () => {
+    const body = await (await fetch(`${baseUrl}/multibyte-split-then-redact`)).text();
+    expect(body).not.toContain(SECRET);
+    expect(body).toContain('▒');
+    // a duplicated lead byte would decode as a replacement char before the é
+    expect(body.startsWith('<html>é leak: ')).toBe(true);
+    expect(body).not.toContain('�');
   });
 
   it('leaves text that only looks like the start of a secret intact', async () => {

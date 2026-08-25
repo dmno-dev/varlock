@@ -63,6 +63,10 @@ type ScanState = {
   /** streaming decoder, so a multi-byte character split across chunks doesn't decode to garbage
    * (created lazily - responses that never hit the binary path don't need one) */
   decoder: TextDecoder | undefined,
+  /** set once a binary chunk ends mid-character: the decoder is holding its tail bytes, so raw
+   * chunks no longer line up with the decoded text and all further output must be re-encoded
+   * from it (otherwise the held bytes would go out twice if a later chunk gets rewritten) */
+  reEncode: boolean,
   zlibChunks: Array<Buffer>,
   /** streaming decoder for decompressed deltas, which may end inside a multi-byte character */
   decompressedDecoder: TextDecoder | undefined,
@@ -76,6 +80,7 @@ function getScanState(res: any): ScanState {
     pending: '',
     carry: '',
     decoder: undefined,
+    reEncode: false,
     zlibChunks: [],
     decompressedDecoder: undefined,
     decompressedLength: 0,
@@ -98,6 +103,25 @@ function decodeDecompressedDelta(state: ScanState, decompressed: Buffer, isFinal
   const delta = decompressed.subarray(state.decompressedLength);
   state.decompressedLength = decompressed.byteLength;
   return state.decompressedDecoder.decode(delta, { stream: !isFinal });
+}
+
+/**
+ * Number of bytes at the end of `chunk` that are the start of an incomplete UTF-8 character
+ * (0 when the chunk ends on a character boundary). These are the bytes a streaming
+ * TextDecoder holds back until the rest of the character arrives.
+ */
+function incompleteTrailingUtf8Bytes(chunk: Uint8Array): number {
+  /* eslint-disable no-bitwise */
+  for (let i = 1; i <= 3 && i <= chunk.length; i++) {
+    const byte = chunk[chunk.length - i];
+    if ((byte & 0b11000000) === 0b10000000) continue; // continuation byte - keep looking for the lead
+    if ((byte & 0b11100000) === 0b11000000) return i < 2 ? i : 0; // 2-byte lead
+    if ((byte & 0b11110000) === 0b11100000) return i < 3 ? i : 0; // 3-byte lead
+    if ((byte & 0b11111000) === 0b11110000) return i < 4 ? i : 0; // 4-byte lead
+    return 0; // ascii or invalid lead - the decoder holds nothing
+  }
+  return 0;
+  /* eslint-enable no-bitwise */
 }
 
 function clearPendingFlush(state: ScanState) {
@@ -230,6 +254,7 @@ export function patchGlobalServerResponse(opts?: {
     } else if (!compressionType) {
       chunkType = 'encoded';
       chunkStr = decodeChunk(state, rawChunk);
+      if (!state.reEncode && incompleteTrailingUtf8Bytes(rawChunk)) state.reEncode = true;
     } else {
       const decompress = getDecompressor(String(compressionType).toLowerCase());
       if (decompress) {
@@ -287,6 +312,11 @@ export function patchGlobalServerResponse(opts?: {
             return true;
           }
           args[0] = chunkType === 'encoded' ? new TextEncoder().encode(emit) : emit;
+        } else if (chunkType === 'encoded' && state.reEncode && emit) {
+          // the decoder is holding tail bytes of a split character, so the raw chunk no
+          // longer lines up with the decoded text - emit re-encoded text instead of the
+          // raw bytes to keep the outgoing byte stream consistent
+          args[0] = new TextEncoder().encode(emit);
         }
       }
     }
@@ -319,7 +349,8 @@ export function patchGlobalServerResponse(opts?: {
         try {
           decompressed = decompress(Buffer.concat(state.zlibChunks));
         } catch (err) {
-          // stream didn't decode, nothing more we can do at this point
+          // stream didn't decode, nothing more we can do at this point (fails open)
+          debug(`⚠️ leak scan skipped - compressed response did not decode at end() (${compressionType})`);
         }
       }
       if (decompressed !== undefined) {
@@ -367,6 +398,10 @@ export function patchGlobalServerResponse(opts?: {
         if (!this.headersSent && this.getHeader('content-length') !== undefined) {
           this.setHeader('content-length', Buffer.byteLength(emit));
         }
+      } else if (isBinaryChunk && state.reEncode && emit) {
+        // raw bytes stopped lining up with the decoded text earlier in the response
+        // (a chunk ended mid-character), so the final chunk is re-encoded too
+        args[0] = new TextEncoder().encode(emit);
       }
     }
 
