@@ -106,22 +106,37 @@ function decodeDecompressedDelta(state: ScanState, decompressed: Buffer, isFinal
 }
 
 /**
- * Number of bytes at the end of `chunk` that are the start of an incomplete UTF-8 character
- * (0 when the chunk ends on a character boundary). These are the bytes a streaming
- * TextDecoder holds back until the rest of the character arrives.
+ * Number of bytes at the end of `chunk` that a streaming TextDecoder holds back as the start
+ * of an incomplete UTF-8 character (0 when the chunk ends on a character boundary). Invalid
+ * sequences are NOT counted: bad lead bytes (0xC0/0xC1, 0xF5+) and out-of-range second bytes
+ * are replaced by the decoder immediately rather than held, so counting them would trigger
+ * re-encoding (see ScanState.reEncode) and mutate malformed bytes that should pass through.
  */
 function incompleteTrailingUtf8Bytes(chunk: Uint8Array): number {
-  /* eslint-disable no-bitwise */
   for (let i = 1; i <= 3 && i <= chunk.length; i++) {
     const byte = chunk[chunk.length - i];
-    if ((byte & 0b11000000) === 0b10000000) continue; // continuation byte - keep looking for the lead
-    if ((byte & 0b11100000) === 0b11000000) return i < 2 ? i : 0; // 2-byte lead
-    if ((byte & 0b11110000) === 0b11100000) return i < 3 ? i : 0; // 3-byte lead
-    if ((byte & 0b11111000) === 0b11110000) return i < 4 ? i : 0; // 4-byte lead
-    return 0; // ascii or invalid lead - the decoder holds nothing
+    if (byte >= 0x80 && byte <= 0xbf) continue; // continuation byte - keep looking for the lead
+    let seqLength;
+    if (byte >= 0xc2 && byte <= 0xdf) seqLength = 2;
+    else if (byte >= 0xe0 && byte <= 0xef) seqLength = 3;
+    else if (byte >= 0xf0 && byte <= 0xf4) seqLength = 4;
+    else return 0; // ascii or an invalid lead byte - nothing is held
+    if (seqLength <= i) return 0; // the sequence completes within this chunk
+    if (i >= 2) {
+      // the decoder only waits for more bytes while the second byte is in range for its
+      // lead (overlong/surrogate/out-of-range encodings error immediately instead)
+      const second = chunk[chunk.length - i + 1];
+      let lo = 0x80;
+      let hi = 0xbf;
+      if (byte === 0xe0) lo = 0xa0;
+      else if (byte === 0xed) hi = 0x9f;
+      else if (byte === 0xf0) lo = 0x90;
+      else if (byte === 0xf4) hi = 0x8f;
+      if (second < lo || second > hi) return 0;
+    }
+    return i;
   }
   return 0;
-  /* eslint-enable no-bitwise */
 }
 
 function clearPendingFlush(state: ScanState) {
@@ -250,7 +265,11 @@ export function patchGlobalServerResponse(opts?: {
     let chunkType: 'string' | 'encoded' | 'compressed' | null = null;
     if (typeof rawChunk === 'string') {
       chunkType = 'string';
-      chunkStr = rawChunk;
+      // a string write while the decoder holds tail bytes of a split character means the byte
+      // stream is malformed - flush the held bytes in place (as a replacement char) so they
+      // are not dropped or reordered, which also realigns raw output with the decoded text
+      chunkStr = decodeChunk(state) + rawChunk;
+      state.reEncode = false;
     } else if (!compressionType) {
       chunkType = 'encoded';
       chunkStr = decodeChunk(state, rawChunk);
@@ -300,9 +319,12 @@ export function patchGlobalServerResponse(opts?: {
           redactInsteadOfThrow: opts?.redactInsteadOfThrow,
           meta: { method: 'patched ServerResponse.write', file: reqUrl },
         });
-        // when nothing was redacted or withheld we pass the original chunk straight
-        // through, so a clean response stays byte-for-byte identical
-        if (emit !== chunkStr) {
+        // when nothing was redacted, withheld, or flushed we pass the original chunk
+        // straight through, so a clean response stays byte-for-byte identical
+        // (for string chunks compare against the raw string - `chunkStr` may carry a
+        // flushed decoder tail that the outgoing chunk needs to pick up)
+        const originalStr = chunkType === 'string' ? rawChunk as string : chunkStr;
+        if (emit !== originalStr) {
           if (!emit) {
             // the whole chunk is being withheld - report it as written and fire the
             // write callback, since it will go out with the next chunk (or on flush)
@@ -383,7 +405,12 @@ export function patchGlobalServerResponse(opts?: {
         redactInsteadOfThrow: opts?.redactInsteadOfThrow,
         meta: { method: 'patched ServerResponse.end', file: (this as any).req?.url },
       });
-      if (emit !== chunkStr) {
+      // for a string (or absent) final chunk, `chunkStr` may carry a flushed decoder tail
+      // that the outgoing chunk needs to pick up, so compare against what was actually passed
+      let originalStr = '';
+      if (typeof endChunk === 'string') originalStr = endChunk;
+      else if (isBinaryChunk) originalStr = chunkStr;
+      if (emit !== originalStr) {
         if (typeof endChunk === 'string') {
           args[0] = emit;
         } else if (isBinaryChunk) {

@@ -280,6 +280,18 @@ describe('patched ServerResponse - pass-through integrity', () => {
         res.write(buf.subarray(0, mid));
         res.write(buf.subarray(mid));
         res.end();
+      } else if (req.url === '/binary-then-string') {
+        // a binary chunk ends mid-character and the rest arrives as strings - the held
+        // bytes must flush in place (as a replacement char), not be dropped or reordered
+        const buf = Buffer.from('<html>é');
+        res.write(buf.subarray(0, buf.length - 1)); // ends with the é lead byte
+        res.write('mid');
+        res.end('tail</html>');
+      } else if (req.url === '/invalid-lead-byte') {
+        // 0xC0 is never a valid UTF-8 lead: the decoder replaces it immediately and holds
+        // nothing, so the raw bytes must pass through untouched (no re-encode trigger)
+        res.write(Buffer.concat([Buffer.from('<html>x'), Buffer.from([0xc0])]));
+        res.end('</html>');
       } else if (req.url === '/withheld-then-bare-end') {
         // tail is withheld as a lookalike, and end() carries no chunk of its own -
         // the withheld text must still be flushed as the final chunk
@@ -319,6 +331,17 @@ describe('patched ServerResponse - pass-through integrity', () => {
   it('delivers multi-byte characters split across chunks intact', async () => {
     const body = await (await fetch(`${baseUrl}/multibyte`)).text();
     expect(body).toBe(`<html>${multibyte}</html>`);
+  });
+
+  it('flushes held bytes in place when the response switches to string chunks', async () => {
+    const body = await (await fetch(`${baseUrl}/binary-then-string`)).text();
+    expect(body).toBe('<html>�midtail</html>');
+  });
+
+  it('passes invalid UTF-8 lead bytes through untouched', async () => {
+    const resp = await fetch(`${baseUrl}/invalid-lead-byte`);
+    const bytes = Buffer.from(await resp.arrayBuffer());
+    expect(bytes).toEqual(Buffer.concat([Buffer.from('<html>x'), Buffer.from([0xc0]), Buffer.from('</html>')]));
   });
 
   it('delivers withheld text when end() carries no chunk', async () => {
