@@ -8,7 +8,7 @@ description: Using varlock with Minimal sessions, so an agent in a local microVM
 The recommended shape for local development is a **broker on your Mac**: secrets, resolver [plugins](/guides/plugins/), biometric unlock, and the interactive request log all stay on the host, and the session reaches the broker through Minimal's virtual switch. For multi-session fleets there is also a [hub session](#hub-session-sandbox-to-sandbox) variant, which is the topology Minimal's future egress enforcement is designed around.
 
 :::caution[Pre-release networking surface]
-The session networking these recipes use (the `.local.min.internal` hostnames, the proxy on port 7654, the host alias IP, and the `--network` / `--ingress` flags) is not in Minimal's docs yet and is not a stable contract: names, ports, and flags may change. We verified every recipe on this page end to end on macOS with `min` 0.5.2. If a command here does not exist in your install, you need a newer build; ask the Minimal team. The same surface on Linux is untested.
+The session networking these recipes use (the `.local.min.internal` hostnames, the proxy on port 7654, the host alias IP, and the `--network` / `--ingress` flags) is not in Minimal's docs yet and is not a stable contract: names, ports, and flags may change. We verified every recipe on this page end to end on macOS with `min` 0.5.3. If a command here does not exist in your install, you need a newer build; ask the Minimal team. The same surface on Linux is untested.
 :::
 
 ## How session networking works
@@ -51,24 +51,36 @@ Bare `--expose` binds `0.0.0.0`, so the broker is reachable from your whole netw
 
 ### 3. Run the agent through the broker
 
-Activate a session, install varlock in it, then wrap the agent command with `proxy run --url` pointed at the host alias. varlock self-wires the agent's placeholder env and CA certs over the tunnel:
+Declare the agent's toolchain and the tunnel token in `minimal.toml`, activate, install varlock, then wrap the agent command with `proxy run --url` pointed at the host alias. varlock self-wires the agent's placeholder env and CA certs over the tunnel:
 
 ```bash
 cd your-project
 min init                       # scaffolds minimal.toml
 min add --session node         # npm needs it; add curl etc. if your agent uses them
+```
+
+Add a `[session.vars]` entry so the token flows into every session for this project, instead of being pasted into commands:
+
+```toml title="minimal.toml"
+[session.vars]
+VARLOCK_PROXY_TOKEN = { inherit = true }
+```
+
+```bash
+export VARLOCK_PROXY_TOKEN=$YOUR_TOKEN   # the value the broker was started with
 min session activate --attach
 
 # inside the session:
 npm i -g --prefix ~/.local varlock
-VARLOCK_PROXY_TOKEN=$YOUR_TOKEN \
-  varlock proxy run --url ws://100.64.255.254:8080 -- your-agent-command
+varlock proxy run --url ws://100.64.255.254:8080 -- your-agent-command
 ```
+
+`inherit = true` copies the value from the shell that runs `activate`. Inheriting an env var is gated by user policy: an interactive activation prompts for approval, and a `--no-prompt` run fails with a ready-to-paste `user_policy.toml` snippet (`[vars] allow = ["VARLOCK_PROXY_TOKEN"]`). A var that is unset in your shell fails the activation, so export it first.
 
 Three install facts worth knowing up front:
 
-- Session packages are fixed at activation. `min add --session <pkg>` edits `minimal.toml`, but a package added while a session is running did not materialize for us, even after re-attaching; recreate the session after changing packages.
-- Activation only uploads your project from a git repository (it warns and skips otherwise), and the session's package set comes from the uploaded `minimal.toml`. Commit the file before activating.
+- Session packages come from `minimal.toml` at activation. To install a tool into a running session, use the in-sandbox `min` helper: `min add --session <pkg>` run *inside* the session installs immediately and records it. Running the same command host-side while the session is up only edits the file; it applies at the next activation.
+- Activation uploads your project from a VCS root (`.git`, `.hg`, ...). For a plain directory pass `--sync tarball` explicitly; otherwise headless runs skip the upload with a warning and the session gets a default scaffold config instead of yours.
 - A bare `npm i -g` fails with `ENOENT` under `/usr/lib/node_modules`: the node package's global prefix points into the read-only package store. `--prefix ~/.local` lands the binary in `~/.local/bin`, which is already on the session's `PATH`.
 
 That is the whole path: the agent holds placeholders, the broker on your Mac injects real values only on verified TLS connections to hosts your schema allows, and every request is checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing).
@@ -82,22 +94,25 @@ printenv ANTHROPIC_API_KEY
 ```
 
 :::note[Driving sessions from scripts]
-The whole flow works without a PTY: `min session activate --no-prompt` (prints the session id, fails instead of prompting), `min session exec <session> -- <cmd>` (runs with the session's packages on `PATH`, including `varlock proxy run` wrappers), `min session list --json`, and `min session destroy`. We verified the full broker path under `exec`. One quirk in 0.5.2: the first line of `exec` stdout can be dropped, so do not parse output that starts on line one. `attach` gives a persistent shell that survives detach and re-attach.
+The whole flow works without a PTY: `min session activate --no-prompt` (prints the session id, fails instead of prompting), `min session exec <session> -- <cmd>` (runs with the session's packages on `PATH`, including `varlock proxy run` wrappers), `min session list --json`, and `min session destroy`. We verified the full broker path under `exec`. Two quirks in 0.5.3: the first line of `exec` stdout can be dropped, so do not parse output that starts on line one, and an `exec` that backgrounds a process holds the stream open until that process exits. `attach` gives a persistent shell that survives detach and re-attach.
+
+Declared tasks (`[tasks.<name>]` in `minimal.toml`, run with `min task run <name>` in an ephemeral session) are Minimal's blessed shape for repeatable runs, with one caveat for this setup: a task-level `env_vars.X = { inherit = true }` currently resolves against the daemon's environment rather than the invoking shell, so it cannot carry the tunnel token today. Use a session plus `exec` for the broker path until that changes.
 :::
 
 ## Hub session (sandbox-to-sandbox)
 
 To give a fleet of sessions one broker, or to keep the broker itself inside a sandbox, run it in a dedicated session and let workers reach it by hostname through Minimal's proxy:
 
+Both projects carry a `VARLOCK_PROXY_TOKEN = { inherit = true }` entry in `[session.vars]` as above, so neither command needs the token inline:
+
 ```bash
 # hub: activate a session for your broker project with a stable name
 # (min session rename <id> varlock also works on an existing session), then inside it:
 min session activate --name varlock --attach
 npm i -g --prefix ~/.local varlock
-VARLOCK_PROXY_TOKEN=$YOUR_TOKEN varlock proxy start --expose --port 8080
+varlock proxy start --expose --port 8080
 
 # inside each worker session:
-VARLOCK_PROXY_TOKEN=$YOUR_TOKEN \
 HTTP_PROXY=http://127.0.0.1:7654 HTTPS_PROXY=http://127.0.0.1:7654 \
   varlock proxy run --url ws://varlock.local.min.internal:8080 -- your-agent-command
 ```
@@ -106,7 +121,7 @@ varlock's tunnel client [honors `HTTP_PROXY` / `HTTPS_PROXY`](/guides/proxy/runn
 
 Two notes on this shape:
 
-- A broker in a VM has no biometric unlock, so bootstrap the hub session with your plugin's secret zero in its environment (a 1Password service account token, for example) and let the schema resolve everything else inside the hub. Workers hold nothing but the data-plane token.
+- A broker in a VM has no biometric unlock, so bootstrap the hub session with your plugin's secret zero the same way as the token: a `[session.vars]` inherit entry in the hub project (`OP_SERVICE_ACCOUNT_TOKEN` for 1Password, for example), and let the schema resolve everything else inside the hub. Workers hold nothing but the data-plane token.
 - With default sessions the hostname route is a convention, not a boundary: sessions share a network namespace, so a worker could also reach the hub's port directly. Note that this route is currently a default-session feature: an [own-ip](#own-ip-sessions-and-future-enforcement) session has no in-namespace `127.0.0.1:7654`, so own-ip workers can reach a host broker (the alias still works) but not a hub session by hostname today.
 
 ## Own-ip sessions and future enforcement
@@ -116,7 +131,7 @@ Two notes on this shape:
 - **Real inter-session isolation.** Own-ip peers are distinct network identities on the switch, not roommates on one loopback.
 - **It is where egress enforcement will land.** Minimal's policy schema already rejects egress config on anything that is not own-ip, so when "workers can only reach the hub" ships, it ships there. `min session policy <name-or-id>` prints a session's effective network policy as JSON (`--ingress` mappings show up there).
 
-What we saw on the installed release (0.5.2, macOS): own-ip activation and `--ingress` publishing both work, and the full host-broker path (tunnel via the host alias, injection, scrubbing, strict egress) passes from an own-ip session. What does not work yet: the session-network proxy is not reachable inside an own-ip namespace, so hostname routing to a hub session is unavailable from own-ip workers. Until that is wired, run own-ip workers against a host broker.
+What we saw on the installed release (0.5.3, macOS): own-ip activation and `--ingress` publishing both work, and the full host-broker path (tunnel via the host alias, injection, scrubbing, strict egress) passes from an own-ip session. What does not work yet: the session-network proxy is not reachable inside an own-ip namespace, so hostname routing to a hub session is unavailable from own-ip workers. Until that is wired, run own-ip workers against a host broker.
 
 There is also a `no-net` mode with zero networking. A no-net session cannot reach a broker, so it is only for fully offline tasks.
 
