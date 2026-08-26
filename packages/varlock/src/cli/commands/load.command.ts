@@ -183,7 +183,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // in their process.env string form (composites become separator-joined/JSON strings);
     // the typed object above still decides quoting (bare numbers/booleans stay unquoted)
     const resolvedEnvStrings = envGraph.getResolvedEnvStringObject({ filterKeys });
-    const skipUndefined = compact === true;
+    // shell format: `export KEY=` would set an empty string in the shell, misrepresenting an
+    // unset item — skip undefined items unless `@injectUndefinedAsEmpty` opts into that.
+    // env format keeps its `KEY=` lines, which round-trip to undefined in the varlock dialect.
+    const skipUndefined = compact === true
+      || (outputFormat === 'shell' && !envGraph.injectUndefinedAsEmpty);
     const prefix = outputFormat === 'shell' ? 'export ' : '';
 
     for (const key in resolvedEnv) {

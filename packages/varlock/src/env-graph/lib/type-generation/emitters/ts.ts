@@ -162,6 +162,11 @@ export type TsGenOptions = {
   exposeEnv?: TsEnvExposure;
   processEnv?: TsGlobalAugment;
   importMetaEnv?: TsGlobalAugment;
+  /**
+   * Set from the graph's `@injectUndefinedAsEmpty` root decorator (not a decorator arg): unset
+   * items are injected as empty strings, so the string-form env types drop their optionality.
+   */
+  injectUndefinedAsEmpty?: boolean;
 };
 
 // defaults preserve the historical output: globally augment `varlock/env`, and augment both globals
@@ -173,6 +178,7 @@ const DEFAULT_TS_GEN_OPTIONS = {
   exposeEnv: 'global',
   processEnv: 'strict',
   importMetaEnv: 'strict',
+  injectUndefinedAsEmpty: false,
 } satisfies Required<TsGenOptions>;
 
 const TS_ENV_EXPOSURE_VALUES: ReadonlyArray<TsEnvExposure> = ['global', 'local', 'none'];
@@ -198,6 +204,7 @@ function resolveTsGenOptions(options: Record<string, any> = {}): Required<TsGenO
     exposeEnv,
     processEnv: coerceOption(options.processEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.processEnv, 'processEnv'),
     importMetaEnv: coerceOption(options.importMetaEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.importMetaEnv, 'importMetaEnv'),
+    injectUndefinedAsEmpty: !!options.injectUndefinedAsEmpty,
   };
 }
 
@@ -258,11 +265,21 @@ declare module 'varlock/env' {
 `);
   }
 
+  // with `@injectUndefinedAsEmpty`, items that resolve to undefined are injected as empty
+  // strings, so every key is actually present on process.env / import.meta.env: strip the
+  // optionality (`-?`) from the string-form type, and add `''` to the union of any key that
+  // could be unset. The coerced schema (ENV proxy) keeps its optional keys either way, since
+  // ENV.X still returns the real resolved value (undefined).
+  // NonNullable<> strips the `undefined` that optional props carry, so literal-typed items
+  // (enums, booleans) keep their precise unions instead of widening to plain `string`.
+  const stringsOptionality = opts.injectUndefinedAsEmpty ? '-?' : '';
+  const emptyStringUnion = opts.injectUndefinedAsEmpty
+    ? "\n      | (undefined extends CoercedEnvSchema[Property] ? '' : never)" : '';
   tsSrc.push(`
 export type EnvSchemaAsStrings = {
-  [Property in keyof CoercedEnvSchema]:
-    CoercedEnvSchema[Property] extends string ? CoercedEnvSchema[Property]
-      : (CoercedEnvSchema[Property] extends boolean ? ('true' | 'false') : string)
+  [Property in keyof CoercedEnvSchema]${stringsOptionality}:
+    (NonNullable<CoercedEnvSchema[Property]> extends string ? NonNullable<CoercedEnvSchema[Property]>
+      : (NonNullable<CoercedEnvSchema[Property]> extends boolean ? ('true' | 'false') : string))${emptyStringUnion}
 };
 `);
 

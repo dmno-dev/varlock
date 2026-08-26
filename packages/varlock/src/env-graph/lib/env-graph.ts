@@ -78,6 +78,8 @@ export type SerializedEnvGraph = {
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
+    /** true = items that resolve to undefined are injected as empty strings (dotenv compat) instead of left unset */
+    injectUndefinedAsEmpty?: boolean;
     proxyEgress?: ProxyEgressMode;
     /** `@proxyConfig={reload=...}` posture; the proxy resolves `auto` at launch. */
     proxyReload?: 'off' | 'manual' | 'auto';
@@ -674,6 +676,7 @@ export class EnvGraph {
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
+    await this.getRootDec('injectUndefinedAsEmpty')?.resolve();
     await this.getRootDec('proxyConfig')?.resolve();
     await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
   }
@@ -987,6 +990,7 @@ export class EnvGraph {
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+    serializedGraph.settings.injectUndefinedAsEmpty = this.injectUndefinedAsEmpty;
     const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
     serializedGraph.settings.proxyEgress = proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
     // Store the raw reload posture (off/manual/auto); the proxy command resolves `auto`
@@ -1038,6 +1042,16 @@ export class EnvGraph {
    */
   get isProcessEnvInjectionDisabled(): boolean {
     return this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+  }
+
+  /**
+   * True when `@injectUndefinedAsEmpty` is set — items that resolve to undefined are injected
+   * into process.env (and shell exports) as empty strings, matching dotenv-style loaders.
+   * When false (the default), unset items are left out of process.env entirely, so
+   * `process.env.SOME_VAR === undefined` and `?? 'fallback'` behave as expected.
+   */
+  get injectUndefinedAsEmpty(): boolean {
+    return this.getRootDec('injectUndefinedAsEmpty')?.resolvedValue ?? false;
   }
 
   /**

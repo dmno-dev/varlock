@@ -248,7 +248,7 @@ export function evaluateInjectedEnvReuse(opts: {
   // vars at all).
   for (const itemKey of Object.keys(parsedEnv.config)) {
     if (!(itemKey in preInjectionEnv)) continue;
-    if (!envValueMatchesBlobItem(preInjectionEnv[itemKey], parsedEnv.config[itemKey])) {
+    if (!envValueMatchesBlobItem(preInjectionEnv[itemKey], parsedEnv.config[itemKey], parsedEnv.settings)) {
       return { reuse: false, reason: `env value for ${itemKey} changed since the blob was created` };
     }
   }

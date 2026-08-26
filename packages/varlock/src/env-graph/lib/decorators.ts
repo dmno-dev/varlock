@@ -636,6 +636,19 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     },
   },
   {
+    // opt-in dotenv-style compatibility: items that resolve to undefined get injected into
+    // process.env (and shell exports) as empty strings instead of being left unset.
+    // static-only: code generation reads this flag (it controls whether process.env keys are
+    // typed as optional), so an env-dependent value would make generated output differ per
+    // active environment
+    name: 'injectUndefinedAsEmpty',
+    process: (decVal) => {
+      if (!decVal.isStatic || !_.isBoolean(decVal.staticValue)) {
+        throw new Error('@injectUndefinedAsEmpty must be a static boolean: env-dependent values would make generated code differ per environment');
+      }
+    },
+  },
+  {
     // Single-use header config for the credential proxy. The proxy itself is
     // driven by @proxy decorators on items; @proxyConfig only tunes proxy-wide
     // settings (currently just egress). Value/object form: @proxyConfig={egress="strict"}.
