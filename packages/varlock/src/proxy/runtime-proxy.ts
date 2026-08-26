@@ -23,16 +23,17 @@ import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, ruleMatchesFacts,
   type RequestFacts, type RequestScopedManagedItem,
 } from './policy';
-import { AWS_SIGV4_STRIP_HEADERS, computeAwsSigv4Transform } from './aws-sigv4-transform';
-import { computeHmacTransform } from './request-transform';
+import { BUILT_IN_TRANSFORM_SCHEMES } from './request-transform';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
 } from './session-env-payload';
 import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
 import {
+  PROXY_TRANSFORM_COMMON_OPTION_SPECS,
   isNeverAutoSubstituteHeader, proxySubstitutionTargetKey,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
   type ProxyRuleTransform, type ProxySubstitutionLocation, type ProxySubstitutionTarget,
+  type ProxyTransformSchemeDef, type ProxyTransformSignResult,
 } from './types';
 
 const LOCALHOST = '127.0.0.1';
@@ -41,6 +42,8 @@ export type ProxyReconfigureInput = {
   managedItems: Array<ProxyManagedItem>;
   rules: Array<ProxyRule>;
   egressMode: ProxyEgressMode;
+  /** Omitted = keep the current scheme registry. */
+  transformSchemes?: Record<string, ProxyTransformSchemeDef>;
 };
 
 export type ProxyRuntimeContext = {
@@ -77,6 +80,12 @@ export type StartLocalProxyRuntimeInput = {
   managedItems: Array<ProxyManagedItem>;
   rules: Array<ProxyRule>;
   egressMode: ProxyEgressMode;
+  /**
+   * Registered transform (signing) schemes, keyed by scheme name. Defaults to
+   * the built-in hmac schemes; the command layer passes the graph's registry so
+   * plugin-provided schemes (e.g. aws-sigv4) are available.
+   */
+  transformSchemes?: Record<string, ProxyTransformSchemeDef>;
   onActivity?: (activity: ProxyActivity) => void;
   /** Called after an upstream response is forwarded, with any keys scrubbed from it. */
   onResponse?: (info: ProxyResponseInfo) => void;
@@ -483,6 +492,45 @@ export function checkSubstitutionGuards(
     if (total > item.maxOccurrences) return { kind: 'occurrences', item, count: total };
   }
   return undefined;
+}
+
+/**
+ * Order-insensitive identity for a transform config, used to dedupe/conflict-
+ * check transforms contributed by multiple matching rules: object key order and
+ * string-list order are not semantic differences (an attached and a detached
+ * copy of the same config must compare equal however they were authored).
+ */
+export function canonicalTransformKey(transform: ProxyRuleTransform): string {
+  const entries = Object.entries(transform)
+    .map(([key, value]) => {
+      const canonicalValue = Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+        ? [...value].sort()
+        : value;
+      return [key, canonicalValue] as const;
+    })
+    .sort(([a], [b]) => (a < b ? -1 : 1));
+  return JSON.stringify(entries);
+}
+
+/**
+ * Item keys consumed by transform signers (signing secrets and any other
+ * consumed-role options), read from the scheme option specs.
+ */
+export function collectConsumedTransformKeys(
+  rules: Array<ProxyRule>,
+  transformSchemes: Record<string, ProxyTransformSchemeDef>,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const rule of rules) {
+    if (!rule.transform) continue;
+    const spec = transformSchemes[rule.transform.scheme];
+    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
+    for (const [option, optionSpec] of Object.entries(optionSpecs)) {
+      const val = rule.transform[option];
+      if (optionSpec.itemRole === 'consumed' && typeof val === 'string') keys.add(val);
+    }
+  }
+  return keys;
 }
 
 export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -945,6 +993,7 @@ export async function startLocalProxyRuntime({
   managedItems: initialManagedItems,
   rules: initialRules,
   egressMode: initialEgressMode,
+  transformSchemes: initialTransformSchemes,
   onActivity,
   onResponse,
   approvalProvider,
@@ -968,6 +1017,11 @@ export async function startLocalProxyRuntime({
   let managedItems = initialManagedItems;
   let rules = initialRules;
   let egressMode = initialEgressMode;
+  let transformSchemes = initialTransformSchemes ?? BUILT_IN_TRANSFORM_SCHEMES;
+  // Item keys consumed by transform signers (signing secrets), per the scheme
+  // option specs. Static per config, so computed here and on reconfigure rather
+  // than per request.
+  let consumedTransformKeys = collectConsumedTransformKeys(rules, transformSchemes);
   // Set via setSessionEnvPayloadJson right after startup (and on each reload).
   let sessionEnvPayloadJson: string | undefined;
   let sessionEnvPayloadMeta: SessionEnvPayloadMeta | undefined;
@@ -1089,34 +1143,54 @@ export async function startLocalProxyRuntime({
       })
       : [];
 
+    // Every blocked-transform outcome (conflict, leaked secret, missing
+    // credential, signer failure) audits and responds the same way.
+    const blockTransform = (status: number, message: string, matched = true) => {
+      onActivity?.({
+        ...baseActivity, ...ruleId, matched, blocked: true, decision: 'blocked-transform',
+      });
+      respondBlocked(res, status, `Blocked by the varlock credential proxy: ${message}`, t.tunnelTeardown);
+    };
+
     // Request transform (signing) in scope for this request: contributed by
     // matching non-block rules, mirroring the substitution merge's approval
     // gating - a transform carried only by an approval rule applies only when the
     // approval gate actually runs, so a more-specific plain-allow rule can't use
     // the signing secret without the prompt the author asked for.
-    const activeTransforms: Array<ProxyRuleTransform> = [];
+    const activeTransforms = new Map<string, ProxyRuleTransform>();
+    let approvalWithheldTransform = false;
     if (shouldRewrite) {
       for (const rule of rules) {
         if (!rule.transform || rule.block) continue;
-        if (rule.approval && policyDecision?.verdict !== 'require-approval') continue;
         if (!ruleMatchesFacts(rule, facts)) continue;
-        if (!activeTransforms.some((existing) => JSON.stringify(existing) === JSON.stringify(rule.transform))) {
-          activeTransforms.push(rule.transform);
+        if (rule.approval && policyDecision?.verdict !== 'require-approval') {
+          approvalWithheldTransform = true;
+          continue;
         }
+        activeTransforms.set(canonicalTransformKey(rule.transform), rule.transform);
       }
     }
     // Two different signing configs matching one request is a schema
     // misconfiguration - a request can't be signed two ways. Fail closed with a
     // config-shaped error rather than signing with an arbitrary winner.
-    if (activeTransforms.length > 1) {
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
-      });
-      respondBlocked(res, 502, `Blocked by the varlock credential proxy: multiple conflicting @proxy transform configs match ${t.method} ${t.host}${t.pathOnly}. `
-        + 'Keep one transform-carrying rule per domain (put policy refinements on separate rules without a transform).', t.tunnelTeardown);
+    // (Comparison is canonical - key order and list order don't count as
+    // differences, so an attached and a detached copy of the same config merge.)
+    if (activeTransforms.size > 1) {
+      blockTransform(502, `multiple conflicting @proxy transform configs match ${t.method} ${t.host}${t.pathOnly}. `
+        + 'Keep one transform-carrying rule per domain (put policy refinements on separate rules without a transform).');
       return;
     }
-    const activeTransform = activeTransforms[0];
+    const activeTransform: ProxyRuleTransform | undefined = activeTransforms.values().next().value;
+    // A transform withheld by approval gating with no other transform active
+    // would silently forward the request UNSIGNED (a doomed request, or worse, an
+    // unauthenticated call the upstream happens to accept). Unlike withheld
+    // substitution keys there is no placeholder left behind to trip a guard, so
+    // fail closed here instead.
+    if (!activeTransform && approvalWithheldTransform) {
+      blockTransform(403, `this request to ${t.host}${t.pathOnly} matched a signing (transform) rule that requires approval, but the approval gate was bypassed by a more specific allow rule - `
+        + 'the request would be forwarded unsigned. Attach the transform (or the approval) to the more specific rule.');
+      return;
+    }
 
     // Invariant #2/#5: never inject a secret into a cleartext (non-TLS) connection —
     // no cert means no verifiable identity. Fail closed. (MITM is always https, so
@@ -1135,22 +1209,21 @@ export async function startLocalProxyRuntime({
     const scanParts = [t.requestTarget, JSON.stringify(req.headers), bodyText];
     const injectedKeys = shouldRewrite ? detectInjectedKeys(scanParts, hostItems) : [];
 
-    // A signing secret is consumed by the signer and never travels - on ANY host.
-    // Its placeholder appearing anywhere in a request means the child is trying to
-    // send the signing key itself (or was tricked into it); it would never be
-    // substituted, so fail closed with a message naming the real cause instead of
-    // letting the generic uninjected-placeholder guard (or the upstream's auth
-    // error) produce something cryptic.
-    const signingSecretKeys = new Set(rules.flatMap((rule) => (rule.transform ? [rule.transform.secretKey] : [])));
-    const signingSecretLeak = managedItems.find((item) => signingSecretKeys.has(item.key)
+    // A consumed signing secret never travels - anywhere it is not ALSO
+    // legitimately injectable. Its placeholder appearing in a request it is not
+    // in scope for means the child is trying to send the signing key itself (or
+    // was tricked into it); fail closed with a message naming the real cause
+    // instead of letting the generic uninjected-placeholder guard (or the
+    // upstream's auth error) produce something cryptic. An item that another,
+    // non-transform rule injects on THIS request stays substitutable (dual use:
+    // same secret signs for one API and travels to another).
+    const signingSecretLeak = managedItems.find((item) => consumedTransformKeys.has(item.key)
       && item.placeholder.length > 0
+      && !hostItems.some((hostItem) => hostItem.key === item.key)
       && scanParts.some((part) => part.includes(item.placeholder)));
     if (signingSecretLeak) {
-      onActivity?.({
-        ...baseActivity, ...ruleId, matched: shouldRewrite, blocked: true, decision: 'blocked-transform',
-      });
-      respondBlocked(res, 403, `Blocked by the varlock credential proxy: this request to ${t.host}${t.pathOnly} carries the placeholder for ${signingSecretLeak.key}, `
-        + 'which is a signing secret - the proxy uses it to sign matching requests and it is never sent in a request. Remove it from the request.', t.tunnelTeardown);
+      blockTransform(403, `this request to ${t.host}${t.pathOnly} carries the placeholder for ${signingSecretLeak.key}, `
+        + 'which is a signing secret - the proxy uses it to sign matching requests and it is never sent in a request. Remove it from the request.', shouldRewrite);
       return;
     }
 
@@ -1231,22 +1304,20 @@ export async function startLocalProxyRuntime({
       }
     }
 
-    onActivity?.({
-      ...baseActivity,
-      ...ruleId,
-      matched: shouldRewrite,
-      blocked: false,
-      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
-      ...(injectedKeys.length ? { injectedKeys } : {}),
-      ...(activeTransform ? { signedWith: activeTransform.scheme } : {}),
-    });
-
     // Substitute placeholder → real value. The guards above already proved every
     // occurrence sits at an allowed target for its item, and placeholders are unique
     // per item, so a blind string-replace across all three parts only ever hits the
     // approved spot — no need to re-scope per location (which would also risk
     // re-serializing/altering the body).
-    const rewrittenBody = shouldRewrite
+    //
+    // The body round-trips through utf8 ONLY when a placeholder actually appears
+    // in it - decoding a binary body (an S3 upload, a protobuf payload) mangles
+    // invalid byte sequences into U+FFFD, and a transform signature computed over
+    // the mangled bytes would make the upstream accept silently-corrupted data.
+    // Placeholders are ASCII, so the presence check on the decoded text is exact.
+    const bodyHasPlaceholder = shouldRewrite
+      && hostItems.some((item) => item.placeholder.length > 0 && bodyText.includes(item.placeholder));
+    const rewrittenBody = bodyHasPlaceholder
       ? Buffer.from(replacePlaceholdersWithReal(bodyText, hostItems), 'utf8')
       : body;
     const rewrittenPath = shouldRewrite
@@ -1299,83 +1370,72 @@ export async function startLocalProxyRuntime({
     // garbage signature); ours overwrite them, mirroring how iron-style proxies
     // strip inbound placeholder signatures before re-signing.
     if (activeTransform) {
-      const blockTransform = (status: number, message: string) => {
-        onActivity?.({
-          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-transform',
-        });
-        respondBlocked(res, status, `Blocked by the varlock credential proxy: ${message}`, t.tunnelTeardown);
-      };
-      const findManaged = (key: string | undefined) => (
-        key ? managedItems.find((item) => item.key === key) : undefined
-      );
-      const secretItem = findManaged(activeTransform.secretKey);
-      const keyIdItem = findManaged(activeTransform.keyId);
-      const sessionTokenKey = 'sessionToken' in activeTransform ? activeTransform.sessionToken : undefined;
-      const sessionTokenItem = findManaged(sessionTokenKey);
-      let missingKey: string | undefined;
-      if (!secretItem) missingKey = activeTransform.secretKey;
-      else if (activeTransform.keyId && !keyIdItem) missingKey = activeTransform.keyId;
-      else if (sessionTokenKey && !sessionTokenItem) missingKey = sessionTokenKey;
-      if (missingKey || !secretItem) {
-        blockTransform(502, `cannot sign this request - the transform credential ${missingKey} has no resolved value.`);
+      const schemeDef = transformSchemes[activeTransform.scheme];
+      if (!schemeDef) {
+        blockTransform(502, `cannot sign this request - transform scheme "${activeTransform.scheme}" is not registered with this proxy (is its plugin loaded?).`);
         return;
       }
-      const rewrittenQueryStart = rewrittenPath.indexOf('?');
-      const signingPath = rewrittenQueryStart === -1 ? rewrittenPath : rewrittenPath.slice(0, rewrittenQueryStart);
-      const signingQuery = rewrittenQueryStart === -1 ? '' : rewrittenPath.slice(rewrittenQueryStart + 1);
-
-      if (activeTransform.scheme === 'aws-sigv4') {
-        // SigV4 signs headers, so the signer sees the outbound header set
-        // (multi-value headers pre-joined per SigV4 canonical form).
-        const flatHeaders: Record<string, string> = {};
-        for (const [name, value] of Object.entries(upstreamHeaders)) {
-          flatHeaders[name] = Array.isArray(value) ? value.join(',') : value;
+      // Resolve the real values for the scheme's item-role options, driven by
+      // the option specs so a scheme's credential surface is declared once.
+      const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...schemeDef.options };
+      const credentials: Record<string, string> = {};
+      for (const [option, optionSpec] of Object.entries(optionSpecs)) {
+        if (!optionSpec.itemRole) continue;
+        const itemKey = activeTransform[option];
+        if (typeof itemKey !== 'string') continue;
+        const managedItem = managedItems.find((item) => item.key === itemKey);
+        if (!managedItem) {
+          blockTransform(502, `cannot sign this request - the transform credential ${itemKey} has no resolved value.`);
+          return;
         }
-        const sigv4Result = await computeAwsSigv4Transform(activeTransform, {
-          accessKeyId: keyIdItem!.realValue,
-          secretAccessKey: secretItem.realValue,
-          ...(sessionTokenItem ? { sessionToken: sessionTokenItem.realValue } : {}),
-        }, {
+        credentials[option] = managedItem.realValue;
+      }
+
+      const rewrittenQueryStart = rewrittenPath.indexOf('?');
+      // Signers that sign headers see the final outbound set (multi-value
+      // headers pre-joined with `,`, their canonical form).
+      const flatHeaders: Record<string, string> = {};
+      for (const [name, value] of Object.entries(upstreamHeaders)) {
+        flatHeaders[name] = Array.isArray(value) ? value.join(',') : value;
+      }
+      let signResult: ProxyTransformSignResult;
+      try {
+        signResult = await schemeDef.sign(activeTransform, {
           method: t.method.toUpperCase(),
           host: t.host,
-          path: signingPath,
-          query: signingQuery,
+          path: rewrittenQueryStart === -1 ? rewrittenPath : rewrittenPath.slice(0, rewrittenQueryStart),
+          query: rewrittenQueryStart === -1 ? '' : rewrittenPath.slice(rewrittenQueryStart + 1),
           headers: flatHeaders,
           body: rewrittenBody,
+          credentials,
         }, Date.now());
-        if (!sigv4Result.ok) {
-          const status = {
-            'missing-sigv4': 400, 'presigned-unsupported': 400, 'scope-not-allowed': 403, 'signing-failed': 502,
-          }[sigv4Result.kind];
-          blockTransform(status, `cannot re-sign this request - ${sigv4Result.error}.`);
-          return;
-        }
-        // Replace the placeholder-signed headers wholesale with the fresh set.
-        for (const name of AWS_SIGV4_STRIP_HEADERS) delete upstreamHeaders[name];
-        Object.assign(upstreamHeaders, sigv4Result.headers);
-      } else {
-        const signed = computeHmacTransform(activeTransform, secretItem.realValue, {
-          method: t.method.toUpperCase(),
-          host: t.host,
-          path: signingPath,
-          query: signingQuery,
-          body: rewrittenBody.toString('utf8'),
-        }, Date.now());
-        if (!signed.ok) {
-          blockTransform(502, `cannot sign this request - ${signed.error}.`);
-          return;
-        }
-        // req.headers keys are lowercased by the HTTP parser, so writing lowercase
-        // names replaces any child-sent value instead of duplicating the header.
-        upstreamHeaders[activeTransform.signatureHeader.toLowerCase()] = signed.signature;
-        if (activeTransform.timestampHeader) {
-          upstreamHeaders[activeTransform.timestampHeader.toLowerCase()] = signed.timestamp;
-        }
-        if (activeTransform.keyHeader && keyIdItem) {
-          upstreamHeaders[activeTransform.keyHeader.toLowerCase()] = keyIdItem.realValue;
-        }
+      } catch (err) {
+        signResult = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      if (!signResult.ok) {
+        blockTransform(signResult.status ?? 502, `cannot sign this request - ${signResult.error}.`);
+        return;
+      }
+      // req.headers keys are lowercased by the HTTP parser, so writing lowercase
+      // names replaces any child-sent value instead of duplicating the header.
+      for (const name of signResult.removeHeaders ?? []) delete upstreamHeaders[name.toLowerCase()];
+      for (const [name, value] of Object.entries(signResult.setHeaders)) {
+        upstreamHeaders[name.toLowerCase()] = value;
       }
     }
+
+    // The success audit entry is recorded only after signing succeeded - a
+    // signing failure must not leave behind an `allow, signedWith` record for a
+    // request that never reached the upstream.
+    onActivity?.({
+      ...baseActivity,
+      ...ruleId,
+      matched: shouldRewrite,
+      blocked: false,
+      decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
+      ...(injectedKeys.length ? { injectedKeys } : {}),
+      ...(activeTransform ? { signedWith: activeTransform.scheme } : {}),
+    });
 
     // For DNS-name hosts, send SNI for (and re-check identity against) the rule
     // host even though we dial the pinned IP. For IP-literal hosts there is no SNI.
@@ -1680,6 +1740,8 @@ export async function startLocalProxyRuntime({
       managedItems = next.managedItems;
       rules = next.rules;
       egressMode = next.egressMode;
+      if (next.transformSchemes) transformSchemes = next.transformSchemes;
+      consumedTransformKeys = collectConsumedTransformKeys(rules, transformSchemes);
     },
     stop: async () => {
       // Detach the tunnel WS server first so it stops accepting upgrades.

@@ -78,6 +78,8 @@
   },
   "catalog": {
     "@sindresorhus/is": "^7.2.0",
+    "@smithy/protocol-http": "^5.6.0",
+    "@smithy/signature-v4": "^5.7.0",
     "@types/bun": "^1.3.11",
     "@types/node": "25.3.2",
     "ansis": "^4.2.0",
@@ -94,9 +96,5 @@
     "workflow": "release.yaml",
     "environment": "publish",
     "permissions": "publish"
-  },
-  "dependencies": {
-    "@smithy/protocol-http": "^5.6.0",
-    "@smithy/signature-v4": "^5.7.0"
   }
 }

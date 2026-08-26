@@ -1,6 +1,14 @@
-import { describe, expect, test } from 'vitest';
+import {
+  beforeEach, describe, expect, test, vi,
+} from 'vitest';
+import path from 'node:path';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
+
+// relative @plugin(...) paths resolve against cwd - pin it to this test dir
+beforeEach(() => {
+  vi.spyOn(process, 'cwd').mockReturnValue(path.dirname(expect.getState().testPath!));
+});
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -451,13 +459,34 @@ describe('proxy decorators', () => {
     `);
     expect(unknownOpt.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /unknown transform option "stringToSine"/.test(e.message))).toBe(true);
 
+    // An unknown scheme can't be judged statically (it may come from a plugin
+    // that only registers at load), so it fails at resolve time instead.
     const badScheme = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
       # @proxy(domain="api.a.com", transform={scheme="md5", stringToSign="{body}", signatureHeader="X-Sig"})
       API_SECRET=shhh
     `);
-    expect(badScheme.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /transform\.scheme must be one of hmac-sha256, hmac-sha512/.test(e.message))).toBe(true);
+    await expect(badScheme.getProxyRules()).rejects.toThrow(/unknown transform scheme "md5"/);
+  });
+
+  test('transform: a forbidden header target is rejected (framing/identity headers)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="content-length"})
+      API_SECRET=shhh
+    `);
+    expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /cannot target the "content-length" header/.test(e.message))).toBe(true);
+  });
+
+  test('transform: {timestamp} in stringToSign requires a timestampHeader', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{timestamp}{body}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/uses \{timestamp\} but no timestampHeader/);
   });
 
   test('transform: an unknown {field} in stringToSign is rejected', async () => {
@@ -490,56 +519,65 @@ describe('proxy decorators', () => {
     await expect(graph.getProxyRules()).rejects.toThrow(/transform\.stringToSign is required/);
   });
 
-  test('aws-sigv4 transform: keyId + sessionToken join the rule, allowlists normalize to arrays', async () => {
+  test('plugin transform scheme: registers, roles drive itemKeys + managed items, lists normalize', async () => {
+    // (cwd is mocked to this test dir so the relative @plugin path resolves)
     const graph = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
       # ---
-      # @proxy(domain="*.amazonaws.com", transform={
-      #   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID", sessionToken="AWS_SESSION_TOKEN",
-      #   allowedRegions="us-east-1", allowedServices=[bedrock, s3],
+      # @proxy(domain="api.example.com", transform={
+      #   scheme="test-sign", tokenId="TOKEN_ID", signatureHeader="X-Test-Sig",
+      #   mode="fancy", allowedThings="one",
       # })
-      AWS_SECRET_ACCESS_KEY=real-secret
+      SIGNING_SECRET=shhh-real
 
       # @sensitive
-      AWS_ACCESS_KEY_ID=AKIDREAL
-      # @sensitive
-      AWS_SESSION_TOKEN=token-real
+      TOKEN_ID=tok-real
     `);
 
     const rules = await graph.getProxyRules();
     expect(rules).toMatchObject([
       {
-        domain: ['*.amazonaws.com'],
-        itemKeys: ['AWS_ACCESS_KEY_ID', 'AWS_SESSION_TOKEN'],
+        domain: ['api.example.com'],
+        // wire-role tokenId joins; consumed-role secret is excluded
+        itemKeys: ['TOKEN_ID'],
         transform: {
-          scheme: 'aws-sigv4',
-          secretKey: 'AWS_SECRET_ACCESS_KEY',
-          keyId: 'AWS_ACCESS_KEY_ID',
-          sessionToken: 'AWS_SESSION_TOKEN',
-          allowedRegions: ['us-east-1'],
-          allowedServices: ['bedrock', 's3'],
+          scheme: 'test-sign',
+          secretKey: 'SIGNING_SECRET',
+          tokenId: 'TOKEN_ID',
+          signatureHeader: 'X-Test-Sig',
+          mode: 'fancy',
+          allowedThings: ['one'], // single string normalized to a list
         },
       },
     ]);
     const managed = await graph.getProxyManagedItems();
-    expect(managed.map((item) => item.key).sort()).toEqual(['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']);
+    expect(managed.map((item) => item.key).sort()).toEqual(['SIGNING_SECRET', 'TOKEN_ID']);
   });
 
-  test('aws-sigv4 transform: keyId is required, and hmac-only options are rejected per scheme', async () => {
-    const missingKeyId = await loadGraph(outdent`
+  test('plugin transform scheme: spec-driven validation (required, enum, unknown option)', async () => {
+    const missingRequired = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
       # ---
-      # @proxy(domain="*.amazonaws.com", transform={scheme="aws-sigv4"})
-      AWS_SECRET_ACCESS_KEY=real-secret
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", signatureHeader="X-Test-Sig"})
+      SIGNING_SECRET=shhh
     `);
-    await expect(missingKeyId.getProxyRules()).rejects.toThrow(/transform\.keyId is required for scheme "aws-sigv4"/);
+    await expect(missingRequired.getProxyRules()).rejects.toThrow(/transform\.tokenId is required for scheme "test-sign"/);
 
-    const hmacOption = await loadGraph(outdent`
-      # @defaultSensitive=false
+    const badEnum = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
       # ---
-      # @proxy(domain="*.amazonaws.com", transform={scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID", stringToSign="{body}"})
-      AWS_SECRET_ACCESS_KEY=real-secret
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId="T", signatureHeader="X-Test-Sig", mode="bogus"})
+      SIGNING_SECRET=shhh
     `);
-    const errors = hmacOption.configSchema.AWS_SECRET_ACCESS_KEY.decoratorSchemaErrors;
-    expect(errors.some((e) => /unknown transform option "stringToSign" for scheme "aws-sigv4"/.test(e.message))).toBe(true);
+    await expect(badEnum.getProxyRules()).rejects.toThrow(/transform\.mode must be one of plain, fancy/);
+
+    const unknownOption = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId="T", signatureHeader="X-Test-Sig", stringToSign="{body}"})
+      SIGNING_SECRET=shhh
+    `);
+    await expect(unknownOption.getProxyRules()).rejects.toThrow(/unknown transform option "stringToSign" for scheme "test-sign"/);
   });
 });
 

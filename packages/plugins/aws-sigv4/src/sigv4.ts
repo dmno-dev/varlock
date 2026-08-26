@@ -2,11 +2,10 @@ import crypto from 'node:crypto';
 
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
-
-import type { ProxyRuleAwsSigv4Transform } from './types';
+import type { ProxyTransformSignInput, ProxyTransformSignResult, ProxyTransformSigner } from 'varlock/plugin-lib';
 
 /**
- * AWS SigV4 re-signing (the `transform={scheme="aws-sigv4"}` option).
+ * AWS SigV4 re-signing (`transform={scheme="aws-sigv4"}` on a `@proxy` rule).
  *
  * The client (an AWS SDK) signs normally with *placeholder* credentials and
  * whatever region/service it cares about. We parse the region and service out
@@ -32,7 +31,17 @@ const UNSIGNED_PAYLOAD = 'UNSIGNED-PAYLOAD';
  * placeholder credentials; leaving any of them in place would either leak the
  * placeholder scope or corrupt the fresh canonical request.
  */
-export const AWS_SIGV4_STRIP_HEADERS = ['authorization', 'x-amz-date', 'x-amz-security-token', 'x-amz-content-sha256'] as const;
+export const AWS_SIGV4_STRIP_HEADERS = ['authorization', 'x-amz-date', 'x-amz-security-token', 'x-amz-content-sha256'];
+
+/** The shape of this scheme's validated transform config. */
+export type AwsSigv4TransformOptions = {
+  scheme: 'aws-sigv4';
+  secretKey: string;
+  keyId: string;
+  sessionToken?: string;
+  allowedRegions?: Array<string>;
+  allowedServices?: Array<string>;
+};
 
 function toBuffer(data: string | ArrayBuffer | ArrayBufferView): Buffer {
   if (typeof data === 'string') return Buffer.from(data, 'utf8');
@@ -41,7 +50,7 @@ function toBuffer(data: string | ArrayBuffer | ArrayBufferView): Buffer {
 }
 
 /** node:crypto-backed sha256 for the smithy signer (avoids the slow pure-JS @aws-crypto impl). */
-class NodeSha256 {
+export class NodeSha256 {
   private hash: crypto.Hmac | crypto.Hash;
   constructor(secret?: string | ArrayBuffer | ArrayBufferView) {
     this.hash = secret !== undefined
@@ -104,62 +113,56 @@ export function parseSigv4InboundScope(authorizationHeader: string | undefined, 
   };
 }
 
-export type Sigv4TransformInput = {
-  method: string;
-  /** Hostname the request is addressed to (the rule host). */
-  host: string;
-  /** URL path only, no query string. Post-substitution. */
-  path: string;
-  /** Raw query string without the leading `?`. Post-substitution. */
-  query: string;
-  /**
-   * The final outbound headers (post-substitution, hop-by-hop already removed).
-   * Multi-value headers should be pre-joined with `,` (SigV4 canonical form).
-   */
-  headers: Record<string, string>;
-  /** The exact body bytes that will be written upstream. */
-  body: Buffer;
-};
-
-export type Sigv4TransformResult = | { ok: true; headers: Record<string, string>; scope: Sigv4Scope }
-  | { ok: false; error: string; kind: 'missing-sigv4' | 'presigned-unsupported' | 'scope-not-allowed' | 'signing-failed' };
-
 /**
- * Re-sign one request. Returns the replacement signature headers (lowercase
- * names) to write onto the outbound request after removing
- * `AWS_SIGV4_STRIP_HEADERS`. `nowMs` is injectable for tests.
+ * Re-sign one request: the scheme's `ProxyTransformSigner`. Returns the
+ * replacement signature headers (and the inbound placeholder-signed headers to
+ * remove) for the runtime to apply before forwarding.
  */
-export async function computeAwsSigv4Transform(
-  transform: ProxyRuleAwsSigv4Transform,
-  credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string },
-  input: Sigv4TransformInput,
+export const signAwsSigv4Transform: ProxyTransformSigner = async (
+  transform,
+  input: ProxyTransformSignInput,
   nowMs: number,
-): Promise<Sigv4TransformResult> {
+): Promise<ProxyTransformSignResult> => {
+  const options = transform as unknown as AwsSigv4TransformOptions;
+
   const parsed = parseSigv4InboundScope(input.headers.authorization, input.query);
   if (!parsed.ok) {
-    return { ok: false, error: parsed.error, kind: parsed.presigned ? 'presigned-unsupported' : 'missing-sigv4' };
+    return { ok: false, error: parsed.error, status: 400 };
   }
   const { scope } = parsed;
 
-  if (transform.allowedRegions && !transform.allowedRegions.includes(scope.region)) {
-    return { ok: false, error: `region "${scope.region}" is not in the transform's allowedRegions`, kind: 'scope-not-allowed' };
+  if (options.allowedRegions && !options.allowedRegions.includes(scope.region)) {
+    return { ok: false, error: `region "${scope.region}" is not in the transform's allowedRegions`, status: 403 };
   }
-  if (transform.allowedServices && !transform.allowedServices.includes(scope.service)) {
-    return { ok: false, error: `service "${scope.service}" is not in the transform's allowedServices`, kind: 'scope-not-allowed' };
+  if (options.allowedServices && !options.allowedServices.includes(scope.service)) {
+    return { ok: false, error: `service "${scope.service}" is not in the transform's allowedServices`, status: 403 };
   }
 
-  // Preserve an UNSIGNED-PAYLOAD sentinel the client signed with (S3 streaming
-  // uploads); otherwise hash the exact outbound bytes. Setting the header
-  // explicitly (rather than letting the signer infer it) makes the signed
-  // canonical request deterministic across services, and S3 requires it.
-  const payloadHash = input.headers['x-amz-content-sha256'] === UNSIGNED_PAYLOAD
+  // aws-chunked streaming payloads (STREAMING-AWS4-..., STREAMING-UNSIGNED-
+  // PAYLOAD-TRAILER) carry per-chunk framing (and per-chunk placeholder-keyed
+  // signatures) that cannot be re-signed; hashing the framed bytes instead
+  // would produce an opaque upstream XAmzContentSHA256Mismatch. Fail closed
+  // with a pointer at the cause. The plain UNSIGNED-PAYLOAD sentinel IS
+  // preserved (no chunk framing, nothing to re-sign in the body).
+  const inboundPayloadSentinel = input.headers['x-amz-content-sha256'];
+  if (inboundPayloadSentinel?.startsWith('STREAMING-')) {
+    return {
+      ok: false,
+      status: 400,
+      error: `aws-chunked streaming upload (x-amz-content-sha256: ${inboundPayloadSentinel}) cannot be re-signed by the proxy - disable flexible checksums / streaming signing in the SDK (e.g. requestChecksumCalculation: "WHEN_REQUIRED") so it sends a plain signed payload`,
+    };
+  }
+  const payloadHash = inboundPayloadSentinel === UNSIGNED_PAYLOAD
     ? UNSIGNED_PAYLOAD
     : crypto.createHash('sha256').update(input.body).digest('hex');
 
   const headersForSigning: Record<string, string> = {};
   for (const [name, value] of Object.entries(input.headers)) {
-    if (!(AWS_SIGV4_STRIP_HEADERS as ReadonlyArray<string>).includes(name)) headersForSigning[name] = value;
+    if (!AWS_SIGV4_STRIP_HEADERS.includes(name)) headersForSigning[name] = value;
   }
+  // Setting the payload hash header explicitly (rather than letting the signer
+  // infer it) makes the signed canonical request deterministic across services,
+  // and S3 requires it.
   headersForSigning['x-amz-content-sha256'] = payloadHash;
 
   const query: Record<string, string | Array<string>> = {};
@@ -172,7 +175,11 @@ export async function computeAwsSigv4Transform(
 
   try {
     const signer = new SignatureV4({
-      credentials,
+      credentials: {
+        accessKeyId: input.credentials.keyId,
+        secretAccessKey: input.credentials.secretKey,
+        ...(input.credentials.sessionToken !== undefined ? { sessionToken: input.credentials.sessionToken } : {}),
+      },
       region: scope.region,
       service: scope.service,
       sha256: NodeSha256,
@@ -189,14 +196,14 @@ export async function computeAwsSigv4Transform(
       headers: headersForSigning,
     }), { signingDate: new Date(nowMs) });
 
-    const outHeaders: Record<string, string> = {};
+    const setHeaders: Record<string, string> = {};
     for (const [name, value] of Object.entries(signed.headers)) {
       const lower = name.toLowerCase();
-      if ((AWS_SIGV4_STRIP_HEADERS as ReadonlyArray<string>).includes(lower)) outHeaders[lower] = value;
+      if (AWS_SIGV4_STRIP_HEADERS.includes(lower)) setHeaders[lower] = value;
     }
-    if (!outHeaders.authorization) return { ok: false, error: 'signer produced no Authorization header', kind: 'signing-failed' };
-    return { ok: true, headers: outHeaders, scope };
+    if (!setHeaders.authorization) return { ok: false, error: 'signer produced no Authorization header' };
+    return { ok: true, setHeaders, removeHeaders: AWS_SIGV4_STRIP_HEADERS };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err), kind: 'signing-failed' };
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-}
+};

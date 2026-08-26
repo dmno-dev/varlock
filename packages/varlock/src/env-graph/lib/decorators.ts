@@ -14,7 +14,10 @@ import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
-import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget, validateProxyTransformConfig } from '../../proxy/types';
+import {
+  BUILT_IN_TRANSFORM_SCHEME_SPECS, PROXY_APPROVAL_EACH_VALUES,
+  parseProxySubstitutionTarget, validateProxyTransformConfig,
+} from '../../proxy/types';
 
 
 export abstract class DecoratorInstance {
@@ -499,7 +502,10 @@ function assertProxyTransformArg(resolver: Resolver | undefined): void {
     // get their content checked.
     staticEntries[key] = val?.isStatic ? val.staticValue : undefined;
   }
-  const error = validateProxyTransformConfig(staticEntries, { partial: true });
+  // Static pass knows only built-in schemes; a plugin scheme (or dynamic
+  // scheme value) defers entirely to resolve-time validation, which sees the
+  // full registry after plugins load.
+  const error = validateProxyTransformConfig(staticEntries, BUILT_IN_TRANSFORM_SCHEME_SPECS, { partial: true });
   if (error) throw new SchemaError(`@proxy: ${error}`);
 }
 

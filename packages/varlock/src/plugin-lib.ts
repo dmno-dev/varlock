@@ -7,6 +7,10 @@ export type {
   CodeGeneratorDef, CodeGenContext, ResolvedFieldType, CoercedType,
 } from './env-graph/lib/type-generation';
 export type { PluginCacheAccessor } from './lib/cache/plugin-cache-accessor';
+export type {
+  ProxyTransformSchemeDef, ProxyTransformOptionSpec, ProxyTransformSigner,
+  ProxyTransformSignInput, ProxyTransformSignResult, ProxyRuleTransform,
+} from './proxy/types';
 export { parseTtl } from './lib/cache/ttl-parser';
 export { resolveCacheTtl } from './lib/cache/resolve-cache-ttl';
 export { createDebug, type Debugger } from './lib/debug';

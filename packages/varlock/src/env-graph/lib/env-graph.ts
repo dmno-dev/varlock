@@ -34,11 +34,13 @@ import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
   PROXY_APPROVAL_EACH_VALUES,
-  PROXY_TRANSFORM_SCHEME_SPECS,
+  PROXY_TRANSFORM_COMMON_OPTION_SPECS,
   parseProxySubstitutionTarget,
   validateProxyTransformConfig,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
+  type ProxyTransformSchemeDef,
 } from '../../proxy/types';
+import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
 import { parseDuration } from '../../lib/duration';
 
 const processExists = !!globalThis.process;
@@ -322,6 +324,24 @@ export class EnvGraph {
     this.itemDecoratorsRegistry[decoratorDef.name] = decoratorDef;
   }
 
+  /**
+   * Registered proxy transform (request signing) schemes: built-ins seeded at
+   * construction, plugins add more via `registerProxyTransformScheme`. Each
+   * entry carries the option specs (validation, item roles) and the signer.
+   */
+  proxyTransformSchemes: Record<string, ProxyTransformSchemeDef> = {};
+  registerProxyTransformScheme(name: string, def: ProxyTransformSchemeDef) {
+    if (name in this.proxyTransformSchemes) {
+      throw new SchemaError(`Proxy transform scheme "${name}" already registered`);
+    }
+    this.proxyTransformSchemes[name] = def;
+  }
+
+  /** Spec-only view of the scheme registry (what validation needs). */
+  getProxyTransformSchemeSpecs() {
+    return this.proxyTransformSchemes;
+  }
+
   rootDecoratorsRegistry: Record<string, RootDecoratorDef> = {};
   registerRootDecorator(decoratorDef: RootDecoratorDef) {
     const name = decoratorDef.name;
@@ -380,6 +400,10 @@ export class EnvGraph {
     // registered via the same API plugins use
     for (const codeGen of builtInCodeGenerators) {
       this.registerCodeGenerator(codeGen);
+    }
+    // built-in proxy transform schemes (hmac); plugins register more
+    for (const [schemeName, schemeDef] of Object.entries(BUILT_IN_TRANSFORM_SCHEMES)) {
+      this.registerProxyTransformScheme(schemeName, schemeDef);
     }
 
     this.overrideValues = originalProcessEnv;
@@ -1240,13 +1264,11 @@ export class EnvGraph {
       }
     }
 
-    // `transform={...}` resolves to a signing-config object.
-    if (obj?.transform !== undefined) {
-      if (!_.isPlainObject(obj.transform)) {
-        throw new SchemaError(`@proxy: transform must resolve to an options object, got ${JSON.stringify(obj.transform)}`);
-      }
-      const transformError = validateProxyTransformConfig(obj.transform);
-      if (transformError) throw new SchemaError(`@proxy: ${transformError}`);
+    // `transform={...}` resolves to a signing-config object; its full validation
+    // is scheme-registry-aware and runs in `buildProxyTransform` (instance
+    // context), so only the shape is checked here.
+    if (obj?.transform !== undefined && !_.isPlainObject(obj.transform)) {
+      throw new SchemaError(`@proxy: transform must resolve to an options object, got ${JSON.stringify(obj.transform)}`);
     }
 
     // `rules=[{...}]`: each entry is a policy refinement for the parent's domain.
@@ -1301,35 +1323,51 @@ export class EnvGraph {
   }
 
   /**
-   * Normalize a resolved `transform={...}` object into the runtime shape.
-   * `secretKey` defaults to the attached item (the natural reading of a transform
-   * declared on the item it consumes); a detached rule has no item to default to,
-   * so there it must be explicit.
+   * Validate and normalize a resolved `transform={...}` object into the runtime
+   * shape, driven entirely by the registered scheme's option specs (so plugin
+   * schemes get the same treatment as built-ins). `secretKey` defaults to the
+   * attached item (the natural reading of a transform declared on the item it
+   * consumes); a detached rule has no item to default to, so there it must be
+   * explicit.
    */
-  private static buildProxyTransform(obj: any, attachedItemKey: string | undefined): ProxyRuleTransform {
+  private buildProxyTransform(obj: any, attachedItemKey: string | undefined): ProxyRuleTransform {
+    const validationError = validateProxyTransformConfig(obj, this.getProxyTransformSchemeSpecs());
+    if (validationError) throw new SchemaError(`@proxy: ${validationError}`);
     const secretKey = _.isString(obj.secretKey) ? obj.secretKey : attachedItemKey;
     if (!secretKey) {
       throw new SchemaError('@proxy: transform.secretKey is required on a detached @proxy rule (an attached rule defaults it to the decorated item)');
     }
-    // Copy the options the scheme's spec declares (values already validated), so
-    // adding a scheme doesn't require touching this builder.
-    const spec = PROXY_TRANSFORM_SCHEME_SPECS[obj.scheme as keyof typeof PROXY_TRANSFORM_SCHEME_SPECS];
+    const spec = this.proxyTransformSchemes[obj.scheme];
     const schemeOptions: Record<string, unknown> = {};
-    for (const key of [...spec.requiredOptions, ...spec.optionalOptions]) {
-      if (obj[key] !== undefined) schemeOptions[key] = obj[key];
-    }
-    // List options accept a single string or an array in the schema; the runtime
-    // shape is always an array.
-    for (const listKey of ['allowedRegions', 'allowedServices']) {
-      if (schemeOptions[listKey] !== undefined) {
-        schemeOptions[listKey] = EnvGraph.normalizeStringList(schemeOptions[listKey]);
-      }
+    for (const [key, optionSpec] of Object.entries(spec.options)) {
+      if (obj[key] === undefined) continue;
+      // List options accept a single string or an array in the schema; the
+      // runtime shape is always an array.
+      schemeOptions[key] = optionSpec.type === 'stringList'
+        ? EnvGraph.normalizeStringList(obj[key])
+        : obj[key];
     }
     return { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
   }
 
+  /**
+   * Item keys a transform references in the given role, read from the scheme's
+   * option specs (common options included), so scheme authors declare roles
+   * once and placeholder management / substitution scoping follow.
+   */
+  getTransformRoleKeys(transform: ProxyRuleTransform, role: 'consumed' | 'wire'): Array<string> {
+    const spec = this.proxyTransformSchemes[transform.scheme];
+    const keys: Array<string> = [];
+    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
+    for (const [option, optionSpec] of Object.entries(optionSpecs)) {
+      const val = transform[option];
+      if (optionSpec.itemRole === role && _.isString(val)) keys.push(val);
+    }
+    return keys;
+  }
+
   /** Build one runtime ProxyRule from a resolved `@proxy(...)` arg object (or a `rules` entry). */
-  private static buildProxyRuleFromObj(
+  private buildProxyRuleFromObj(
     obj: any,
     domain: Array<string>,
     itemKeys: Array<string>,
@@ -1341,19 +1379,19 @@ export class EnvGraph {
     const substituteIn = EnvGraph.normalizeStringList(obj?.substituteIn)
       .filter((raw) => parseProxySubstitutionTarget(raw).ok);
     const transform = _.isPlainObject(obj?.transform)
-      ? EnvGraph.buildProxyTransform(obj.transform, attachedItemKey)
+      ? this.buildProxyTransform(obj.transform, attachedItemKey)
       : undefined;
-    // The signing secret is consumed by the transform, never substituted - so it
-    // must not participate in the rule's substitution scope even when the rule is
-    // attached to it. The key id (and a SigV4 session token) ARE wire-visible, so
-    // they join the rule's items and substitute normally like `keys=` entries.
-    const effectiveItemKeys = transform
-      ? _.uniq([
-        ...itemKeys,
-        ...(transform.keyId ? [transform.keyId] : []),
-        ...('sessionToken' in transform && transform.sessionToken ? [transform.sessionToken] : []),
-      ]).filter((key) => key !== transform.secretKey)
-      : itemKeys;
+    // Consumed-role items (the signing secret) never substitute, so they must
+    // not participate in the rule's substitution scope even when the rule is
+    // attached to one. Wire-role items (key ids, session tokens) travel in the
+    // request, so they join the rule's items like `keys=` entries. Roles come
+    // from the scheme's option specs.
+    let effectiveItemKeys = itemKeys;
+    if (transform) {
+      const consumedKeys = this.getTransformRoleKeys(transform, 'consumed');
+      effectiveItemKeys = _.uniq([...itemKeys, ...this.getTransformRoleKeys(transform, 'wire')])
+        .filter((key) => !consumedKeys.includes(key));
+    }
     return {
       domain,
       itemKeys: effectiveItemKeys,
@@ -1374,16 +1412,16 @@ export class EnvGraph {
    * entry inherits `domain`, injects nothing (empty `itemKeys`), and refines via
    * precedence (block > require-approval > allow), so the domain is written once.
    */
-  private static expandProxyRules(
+  private expandProxyRules(
     obj: any,
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
   ): Array<ProxyRule> {
-    const out: Array<ProxyRule> = [EnvGraph.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey)];
+    const out: Array<ProxyRule> = [this.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey)];
     if (Array.isArray(obj?.rules)) {
       for (const entry of obj.rules) {
-        out.push(EnvGraph.buildProxyRuleFromObj(entry, domain, []));
+        out.push(this.buildProxyRuleFromObj(entry, domain, []));
       }
     }
     return out;
@@ -1399,7 +1437,7 @@ export class EnvGraph {
       const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
       if (domain.length === 0) continue;
       const itemKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
-      rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys, undefined));
+      rules.push(...this.expandProxyRules(resolved?.obj, domain, itemKeys, undefined));
     }
 
     // attached rules from item-level @proxy(...)
@@ -1412,7 +1450,7 @@ export class EnvGraph {
         if (domain.length === 0) continue;
         const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
         const itemKeys = _.uniq([itemKey, ...extraKeys]);
-        rules.push(...EnvGraph.expandProxyRules(resolved?.obj, domain, itemKeys, itemKey));
+        rules.push(...this.expandProxyRules(resolved?.obj, domain, itemKeys, itemKey));
       }
     }
 
@@ -1421,12 +1459,13 @@ export class EnvGraph {
 
   async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
     const rules = await this.getProxyRules();
-    // Transform role items are managed too: the signing secret gets a placeholder
-    // in the child env (and its real value withheld) even though it is consumed by
-    // the signer rather than substituted. (`keyId` is already in `itemKeys`.)
+    // Transform role items are managed too: consumed-role items (the signing
+    // secret) get a placeholder in the child env (and their real value withheld)
+    // even though they are consumed by the signer rather than substituted.
+    // (Wire-role items are already in `itemKeys`.)
     const managedKeys = _.uniq(rules.flatMap((r) => [
       ...r.itemKeys,
-      ...(r.transform ? [r.transform.secretKey] : []),
+      ...(r.transform ? this.getTransformRoleKeys(r.transform, 'consumed') : []),
     ]));
     const managedItems: Array<ProxyManagedItem> = [];
 

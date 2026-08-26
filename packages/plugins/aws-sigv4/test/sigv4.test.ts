@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import crypto from 'node:crypto';
 
-import { computeAwsSigv4Transform, parseSigv4InboundScope } from './aws-sigv4-transform';
-import type { ProxyRuleAwsSigv4Transform } from './types';
+import { parseSigv4InboundScope, signAwsSigv4Transform, type AwsSigv4TransformOptions } from '../src/sigv4';
 
 const sha256hex = (data: crypto.BinaryLike) => crypto.createHash('sha256').update(data).digest('hex');
 const hmac = (key: crypto.BinaryLike, data: string) => crypto.createHmac('sha256', key).update(data, 'utf8').digest();
@@ -23,10 +22,27 @@ function placeholderAuthHeader(region: string, service: string): string {
     + 'SignedHeaders=host;x-amz-date, Signature=0000000000000000000000000000000000000000000000000000000000000000';
 }
 
-const BASE_TRANSFORM: ProxyRuleAwsSigv4Transform = {
+const BASE_TRANSFORM = {
   scheme: 'aws-sigv4',
   secretKey: 'AWS_SECRET_ACCESS_KEY',
   keyId: 'AWS_ACCESS_KEY_ID',
+} satisfies AwsSigv4TransformOptions;
+
+const BASE_CREDENTIALS = { secretKey: SECRET_KEY, keyId: ACCESS_KEY };
+
+const iamInput = {
+  method: 'GET',
+  host: 'iam.amazonaws.com',
+  path: '/',
+  query: 'Action=ListUsers&Version=2010-05-08',
+  headers: {
+    host: 'iam.amazonaws.com',
+    'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
+    authorization: placeholderAuthHeader('us-east-1', 'iam'),
+    'x-amz-date': '20140101T000000Z', // stale child-set date - must be replaced
+  },
+  body: Buffer.alloc(0),
+  credentials: BASE_CREDENTIALS,
 };
 
 describe('parseSigv4InboundScope', () => {
@@ -61,33 +77,17 @@ describe('parseSigv4InboundScope', () => {
   });
 });
 
-describe('computeAwsSigv4Transform', () => {
-  const iamInput = {
-    method: 'GET',
-    host: 'iam.amazonaws.com',
-    path: '/',
-    query: 'Action=ListUsers&Version=2010-05-08',
-    headers: {
-      host: 'iam.amazonaws.com',
-      'content-type': 'application/x-www-form-urlencoded; charset=utf-8',
-      authorization: placeholderAuthHeader('us-east-1', 'iam'),
-      'x-amz-date': '20140101T000000Z', // stale child-set date - must be replaced
-    },
-    body: Buffer.alloc(0),
-  };
-
+describe('signAwsSigv4Transform', () => {
   test('re-signs with the real keys, matching an independent SigV4 computation', async () => {
-    const result = await computeAwsSigv4Transform(BASE_TRANSFORM, {
-      accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY,
-    }, iamInput, SIGNING_INSTANT_MS);
+    const result = await signAwsSigv4Transform(BASE_TRANSFORM, iamInput, SIGNING_INSTANT_MS);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.scope).toEqual({ region: 'us-east-1', service: 'iam' });
-    expect(result.headers['x-amz-date']).toBe(AMZ_DATE);
-    expect(result.headers['x-amz-content-sha256']).toBe(EMPTY_SHA256);
-    expect(result.headers.authorization).toContain(`Credential=${ACCESS_KEY}/${DATE_STAMP}/us-east-1/iam/aws4_request`);
-    expect(result.headers.authorization).toContain('SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date');
+    expect(result.removeHeaders).toContain('authorization');
+    expect(result.setHeaders['x-amz-date']).toBe(AMZ_DATE);
+    expect(result.setHeaders['x-amz-content-sha256']).toBe(EMPTY_SHA256);
+    expect(result.setHeaders.authorization).toContain(`Credential=${ACCESS_KEY}/${DATE_STAMP}/us-east-1/iam/aws4_request`);
+    expect(result.setHeaders.authorization).toContain('SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date');
 
     // Independent computation per the SigV4 spec (node:crypto only, no smithy):
     // canonical request -> string to sign -> derived key -> signature.
@@ -115,14 +115,13 @@ describe('computeAwsSigv4Transform', () => {
     const kSigning = hmac(kService, 'aws4_request');
     const expectedSignature = crypto.createHmac('sha256', kSigning).update(stringToSign, 'utf8').digest('hex');
 
-    expect(result.headers.authorization).toContain(`Signature=${expectedSignature}`);
+    expect(result.setHeaders.authorization).toContain(`Signature=${expectedSignature}`);
   });
 
   test('hashes the outbound body bytes and includes a session token when configured', async () => {
     const body = Buffer.from('{"TableName":"widgets"}', 'utf8');
-    const result = await computeAwsSigv4Transform(
+    const result = await signAwsSigv4Transform(
       { ...BASE_TRANSFORM, sessionToken: 'AWS_SESSION_TOKEN' },
-      { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY, sessionToken: 'the-session-token' },
       {
         ...iamInput,
         method: 'POST',
@@ -133,52 +132,72 @@ describe('computeAwsSigv4Transform', () => {
           authorization: placeholderAuthHeader('us-west-2', 'dynamodb'),
         },
         body,
+        credentials: { ...BASE_CREDENTIALS, sessionToken: 'the-session-token' },
       },
       SIGNING_INSTANT_MS,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.headers['x-amz-content-sha256']).toBe(sha256hex(body));
-    expect(result.headers['x-amz-security-token']).toBe('the-session-token');
-    expect(result.headers.authorization).toContain('x-amz-security-token');
+    expect(result.setHeaders['x-amz-content-sha256']).toBe(sha256hex(body));
+    expect(result.setHeaders['x-amz-security-token']).toBe('the-session-token');
+    expect(result.setHeaders.authorization).toContain('x-amz-security-token');
+  });
+
+  test('hashes exact binary body bytes (no text round-trip)', async () => {
+    const binaryBody = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00, 0x01]);
+    const result = await signAwsSigv4Transform(BASE_TRANSFORM, {
+      ...iamInput,
+      method: 'PUT',
+      host: 'bucket.s3.amazonaws.com',
+      path: '/object.png',
+      query: '',
+      headers: { host: 'bucket.s3.amazonaws.com', authorization: placeholderAuthHeader('us-east-1', 's3') },
+      body: binaryBody,
+    }, SIGNING_INSTANT_MS);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.setHeaders['x-amz-content-sha256']).toBe(sha256hex(binaryBody));
   });
 
   test('preserves an UNSIGNED-PAYLOAD sentinel the client signed with', async () => {
-    const result = await computeAwsSigv4Transform(BASE_TRANSFORM, {
-      accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY,
-    }, {
+    const result = await signAwsSigv4Transform(BASE_TRANSFORM, {
       ...iamInput,
       headers: { ...iamInput.headers, 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD' },
       body: Buffer.from('streaming-body-not-hashed'),
     }, SIGNING_INSTANT_MS);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.headers['x-amz-content-sha256']).toBe('UNSIGNED-PAYLOAD');
+    expect(result.setHeaders['x-amz-content-sha256']).toBe('UNSIGNED-PAYLOAD');
+  });
+
+  test('fails closed on aws-chunked STREAMING-* payloads instead of mis-signing them', async () => {
+    const result = await signAwsSigv4Transform(BASE_TRANSFORM, {
+      ...iamInput,
+      headers: {
+        ...iamInput.headers,
+        'content-encoding': 'aws-chunked',
+        'x-amz-content-sha256': 'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+      },
+      body: Buffer.from('chunk-framed-bytes'),
+    }, SIGNING_INSTANT_MS);
+    expect(result).toMatchObject({ ok: false, status: 400 });
+    if (!result.ok) expect(result.error).toContain('cannot be re-signed');
   });
 
   test('gates on allowedRegions / allowedServices', async () => {
-    const regionBlocked = await computeAwsSigv4Transform(
-      { ...BASE_TRANSFORM, allowedRegions: ['eu-west-1'] },
-      { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
-      iamInput,
-      SIGNING_INSTANT_MS,
-    );
-    expect(regionBlocked).toMatchObject({ ok: false, kind: 'scope-not-allowed' });
+    const regionBlocked = await signAwsSigv4Transform({ ...BASE_TRANSFORM, allowedRegions: ['eu-west-1'] }, iamInput, SIGNING_INSTANT_MS);
+    expect(regionBlocked).toMatchObject({ ok: false, status: 403 });
 
-    const serviceBlocked = await computeAwsSigv4Transform(
-      { ...BASE_TRANSFORM, allowedServices: ['bedrock'] },
-      { accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY },
-      iamInput,
-      SIGNING_INSTANT_MS,
-    );
-    expect(serviceBlocked).toMatchObject({ ok: false, kind: 'scope-not-allowed' });
+    const serviceBlocked = await signAwsSigv4Transform({ ...BASE_TRANSFORM, allowedServices: ['bedrock'] }, iamInput, SIGNING_INSTANT_MS);
+    expect(serviceBlocked).toMatchObject({ ok: false, status: 403 });
   });
 
-  test('fails with missing-sigv4 when the child did not sign', async () => {
+  test('fails with a setup pointer when the child did not sign', async () => {
     const { authorization: _dropped, ...headersWithoutAuth } = iamInput.headers;
-    const result = await computeAwsSigv4Transform(BASE_TRANSFORM, {
-      accessKeyId: ACCESS_KEY, secretAccessKey: SECRET_KEY,
-    }, { ...iamInput, headers: headersWithoutAuth }, SIGNING_INSTANT_MS);
-    expect(result).toMatchObject({ ok: false, kind: 'missing-sigv4' });
+    const result = await signAwsSigv4Transform(BASE_TRANSFORM, {
+      ...iamInput, headers: headersWithoutAuth,
+    }, SIGNING_INSTANT_MS);
+    expect(result).toMatchObject({ ok: false, status: 400 });
+    if (!result.ok) expect(result.error).toContain('Configure the AWS SDK');
   });
 });

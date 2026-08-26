@@ -1,7 +1,7 @@
 import {
   afterAll, beforeAll, describe, expect, test,
 } from 'vitest';
-import { createHash, createHmac } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import net from 'node:net';
@@ -753,21 +753,32 @@ describe('request signing (transform=) over MITM', () => {
   });
 });
 
-describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () => {
-  const SIGV4_ITEMS = [
-    { key: 'AWS_SECRET_ACCESS_KEY', placeholder: 'vlk_ph_aws_secret', realValue: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYREALKEY' },
-    { key: 'AWS_ACCESS_KEY_ID', placeholder: 'VLKPLACEHOLDERAKID', realValue: 'AKIDREALKEY' },
+describe('plugin-provided transform schemes over MITM (scheme registry seam)', () => {
+  // A fake scheme exercising the full seam: spec-driven credential resolution,
+  // setHeaders/removeHeaders application, and status pass-through - without any
+  // real crypto, so these tests cover the runtime, not a scheme.
+  const TEST_SCHEME_DEF = {
+    options: {
+      tokenId: { required: true, type: 'string', itemRole: 'wire' },
+      signatureHeader: { required: true, type: 'headerName' },
+    },
+    sign: (transform: any, input: any) => ({
+      ok: true as const,
+      setHeaders: {
+        [transform.signatureHeader]: `test-signed:${input.credentials.secretKey}:${input.credentials.tokenId}:${input.body.length}`,
+      },
+      removeHeaders: ['x-test-strip'],
+    }),
+  };
+  const TEST_ITEMS = [
+    { key: 'SIGNING_SECRET', placeholder: 'vlk_ph_signing_secret', realValue: 'shhh-signing-secret' },
+    { key: 'TOKEN_ID', placeholder: 'vlk_ph_token_id', realValue: 'tok-real-value' },
   ];
-  const SIGV4_TRANSFORM = {
-    scheme: 'aws-sigv4', secretKey: 'AWS_SECRET_ACCESS_KEY', keyId: 'AWS_ACCESS_KEY_ID',
-  } as const;
+  const TEST_TRANSFORM = {
+    scheme: 'test-sign', secretKey: 'SIGNING_SECRET', tokenId: 'TOKEN_ID', signatureHeader: 'x-test-sig',
+  };
 
-  /** An SDK-style inbound request signed with placeholder creds and a stale date. */
-  const placeholderSignedHeaders = 'Authorization: AWS4-HMAC-SHA256 Credential=VLKPLACEHOLDERAKID/20260101/us-east-1/execute-api/aws4_request, '
-    + 'SignedHeaders=host;x-amz-date, Signature=0000000000000000000000000000000000000000000000000000000000000000\r\n'
-    + 'X-Amz-Date: 20260101T000000Z\r\n';
-
-  test('re-signs with real keys; signature verifies over the exact bytes the upstream received', async () => {
+  test('resolves credentials per the option specs, applies set/remove headers, audits ONE allow entry', async () => {
     let upstreamHeaders: import('node:http').IncomingHttpHeaders = {};
     let upstreamBody = '';
     const upstream = await startUpstream((req, res) => {
@@ -783,94 +794,42 @@ describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () =
 
     const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
-      managedItems: SIGV4_ITEMS,
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['AWS_ACCESS_KEY_ID'], transform: SIGV4_TRANSFORM }],
+      managedItems: TEST_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['TOKEN_ID'], transform: TEST_TRANSFORM }],
+      transformSchemes: { 'test-sign': TEST_SCHEME_DEF as any },
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
 
     const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    const payload = '{"TableName":"widgets"}';
+    const payload = '{"a":1}';
     const response = await sendAndRead(
       tlsSocket,
-      `POST /prod/items?limit=2 HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n${
-        placeholderSignedHeaders
-      }Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+      `POST /x HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + 'X-Test-Strip: remove-me\r\nX-Token: vlk_ph_token_id\r\n'
+        + `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
     );
     expect(response.split('\r\n')[0]).toContain('200');
 
-    // Fresh signature under the REAL key id, over the body the upstream received.
-    const authorization = String(upstreamHeaders.authorization);
-    const amzDate = String(upstreamHeaders['x-amz-date']);
-    expect(authorization).toContain(`Credential=AKIDREALKEY/${amzDate.slice(0, 8)}/us-east-1/execute-api/aws4_request`);
-    expect(amzDate).toMatch(/^\d{8}T\d{6}Z$/);
-    expect(amzDate).not.toBe('20260101T000000Z');
-    expect(upstreamHeaders['x-amz-content-sha256'])
-      .toBe(createHash('sha256').update(upstreamBody).digest('hex'));
+    // The signer saw the resolved REAL credential values (per item roles) and
+    // its header edits were applied: signature set, x-test-strip removed.
+    expect(upstreamHeaders['x-test-sig']).toBe(`test-signed:shhh-signing-secret:tok-real-value:${payload.length}`);
+    expect(upstreamHeaders['x-test-strip']).toBeUndefined();
+    // The wire-role item substituted normally alongside signing.
+    expect(upstreamHeaders['x-token']).toBe('tok-real-value');
     expect(upstreamBody).toBe(payload);
 
-    // End-to-end signature verification: replay exactly the headers the upstream
-    // saw listed in SignedHeaders through the reference signer and expect the
-    // identical Authorization header.
-    const signedHeaderNames = authorization.match(/SignedHeaders=([^,]+),/)![1].split(';');
-    const replayHeaders: Record<string, string> = {};
-    for (const name of signedHeaderNames) replayHeaders[name] = String(upstreamHeaders[name]);
-    const { SignatureV4 } = await import('@smithy/signature-v4');
-    const { HttpRequest } = await import('@smithy/protocol-http');
-    const { createHmac: nodeHmac, createHash: nodeHash } = await import('node:crypto');
-    class TestSha256 {
-      private h: ReturnType<typeof nodeHash> | ReturnType<typeof nodeHmac>;
-      constructor(secret?: string | Uint8Array) {
-        this.h = secret !== undefined ? nodeHmac('sha256', secret) : nodeHash('sha256');
-      }
-
-      update(d: string | Uint8Array) {
-        this.h.update(d);
-      }
-
-      digest() {
-        return Promise.resolve(this.h.digest());
-      }
-    }
-    const replaySigner = new SignatureV4({
-      credentials: { accessKeyId: 'AKIDREALKEY', secretAccessKey: SIGV4_ITEMS[0].realValue },
-      region: 'us-east-1',
-      service: 'execute-api',
-      sha256: TestSha256 as any,
-      applyChecksum: false,
-    });
-    const signingDate = new Date(Date.UTC(
-      Number(amzDate.slice(0, 4)),
-      Number(amzDate.slice(4, 6)) - 1,
-      Number(amzDate.slice(6, 8)),
-      Number(amzDate.slice(9, 11)),
-      Number(amzDate.slice(11, 13)),
-      Number(amzDate.slice(13, 15)),
-    ));
-    const replayed = await replaySigner.sign(new HttpRequest({
-      protocol: 'https:',
-      hostname: UPSTREAM_HOST,
-      method: 'POST',
-      path: '/prod/items',
-      query: { limit: '2' },
-      headers: replayHeaders,
-    }), { signingDate, signableHeaders: new Set(signedHeaderNames) });
-    expect(replayed.headers.authorization ?? replayed.headers.Authorization).toBe(authorization);
-
-    // The real secret key never appears anywhere the upstream (or audit) can see.
-    const upstreamRequestText = JSON.stringify(upstreamHeaders) + upstreamBody;
-    expect(upstreamRequestText).not.toContain(SIGV4_ITEMS[0].realValue);
-    expect(upstreamRequestText).not.toContain('vlk_ph_aws_secret');
-    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ signedWith: 'aws-sigv4' });
-    expect(JSON.stringify(activities)).not.toContain(SIGV4_ITEMS[0].realValue);
+    // Exactly ONE audit entry for the request, recorded AFTER signing succeeded.
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ decision: 'allow', blocked: false, signedWith: 'test-sign' });
 
     tlsSocket.destroy();
     await runtime.stop();
     await upstream.close();
   });
 
-  test('blocks a request the child did not placeholder-sign (nothing to derive scope from)', async () => {
+  test('a transform whose scheme is not registered fails closed (plugin not loaded)', async () => {
     let upstreamHit = false;
     const upstream = await startUpstream((_req, res) => {
       upstreamHit = true;
@@ -878,8 +837,9 @@ describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () =
     });
     const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
-      managedItems: SIGV4_ITEMS,
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['AWS_ACCESS_KEY_ID'], transform: SIGV4_TRANSFORM }],
+      managedItems: TEST_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: [], transform: TEST_TRANSFORM }],
+      // note: no transformSchemes passed - only built-in hmac schemes registered
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -900,7 +860,7 @@ describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () =
     await upstream.close();
   });
 
-  test('blocks a scope outside allowedRegions', async () => {
+  test('an approval-gated transform bypassed by a more specific allow rule fails closed, not unsigned', async () => {
     let upstreamHit = false;
     const upstream = await startUpstream((_req, res) => {
       upstreamHit = true;
@@ -908,14 +868,16 @@ describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () =
     });
     const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
-      managedItems: SIGV4_ITEMS,
+      managedItems: TEST_ITEMS,
       rules: [
+        // broad rule carries approval + the transform...
         {
-          domain: [UPSTREAM_HOST],
-          itemKeys: ['AWS_ACCESS_KEY_ID'],
-          transform: { ...SIGV4_TRANSFORM, allowedRegions: ['eu-west-1'] },
+          domain: [UPSTREAM_HOST], itemKeys: [], transform: TEST_TRANSFORM, approval: {},
         },
+        // ...but a more specific plain-allow rule wins the verdict (no prompt)
+        { domain: [UPSTREAM_HOST], path: '/orders/**', itemKeys: [] },
       ],
+      transformSchemes: { 'test-sign': TEST_SCHEME_DEF as any },
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -923,15 +885,127 @@ describe('AWS SigV4 re-signing (transform={scheme="aws-sigv4"}) over MITM', () =
 
     const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
     tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
-    tlsSocket.write(
-      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n${placeholderSignedHeaders}\r\n`,
-    );
+    tlsSocket.write(`GET /orders/1 HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`);
     await new Promise((resolve) => {
       setTimeout(resolve, 500);
     });
 
+    // The request must NOT be forwarded unsigned - fail closed with a config-shaped error.
     expect(upstreamHit).toBe(false);
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('equivalent transforms from two rules are not a conflict (key/list order insensitive)', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.end('{}');
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: TEST_ITEMS,
+      rules: [
+        { domain: [UPSTREAM_HOST], itemKeys: [], transform: { ...TEST_TRANSFORM, allowedThings: ['a', 'b'] } },
+        // same config: different key insertion order + different list order
+        {
+          domain: [UPSTREAM_HOST],
+          itemKeys: [],
+          transform: {
+            signatureHeader: 'x-test-sig', allowedThings: ['b', 'a'], tokenId: 'TOKEN_ID', scheme: 'test-sign', secretKey: 'SIGNING_SECRET',
+          },
+        },
+      ],
+      transformSchemes: { 'test-sign': TEST_SCHEME_DEF as any },
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamHit).toBe(true);
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('dual-use: an item consumed by a transform stays substitutable where another rule injects it', async () => {
+    let upstreamAuth = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamAuth = String(req.headers.authorization ?? '');
+      res.end('{}');
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: TEST_ITEMS,
+      rules: [
+        // the same item is a signing secret for one rule...
+        { domain: [UPSTREAM_HOST], itemKeys: ['TOKEN_ID'], transform: TEST_TRANSFORM },
+        // ...and a plainly-substituted credential via another rule
+        { domain: [UPSTREAM_HOST], itemKeys: ['SIGNING_SECRET'] },
+      ],
+      transformSchemes: { 'test-sign': TEST_SCHEME_DEF as any },
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + 'Authorization: Bearer vlk_ph_signing_secret\r\n\r\n',
+    );
+
+    // NOT blocked as a signing-secret leak: rule 2 legitimately injects it here.
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamAuth).toBe('Bearer shhh-signing-secret');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('binary bodies with no placeholder pass through byte-exact (no utf8 mangling)', async () => {
+    const chunks: Array<Buffer> = [];
+    const upstream = await startUpstream((req, res) => {
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => res.end('{}'));
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: TEST_ITEMS,
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['TOKEN_ID'], transform: TEST_TRANSFORM }],
+      transformSchemes: { 'test-sign': TEST_SCHEME_DEF as any },
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // invalid utf8 sequences - a naive decode/encode round-trip would corrupt these
+    const binaryBody = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff, 0xfe, 0x00, 0x01, 0xc3, 0x28]);
+    const header = `PUT /object.bin HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+      + `Content-Type: application/octet-stream\r\nContent-Length: ${binaryBody.length}\r\n\r\n`;
+    const response = await new Promise<string>((resolve, reject) => {
+      let buf = '';
+      let idle: ReturnType<typeof setTimeout>;
+      tlsSocket.on('data', (c: Buffer) => {
+        buf += c.toString('utf8');
+        clearTimeout(idle);
+        idle = setTimeout(() => resolve(buf), 250);
+      });
+      tlsSocket.on('error', reject);
+      tlsSocket.write(header);
+      tlsSocket.write(binaryBody);
+    });
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(Buffer.concat(chunks).equals(binaryBody)).toBe(true);
 
     tlsSocket.destroy();
     await runtime.stop();

@@ -119,36 +119,7 @@ export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstituti
  */
 export const DEFAULT_PROXY_MAX_OCCURRENCES = 1;
 
-/** Signing schemes supported by the `transform=` option on a `@proxy` rule. */
-export const PROXY_TRANSFORM_SCHEMES = ['hmac-sha256', 'hmac-sha512', 'aws-sigv4'] as const;
-export type ProxyTransformScheme = (typeof PROXY_TRANSFORM_SCHEMES)[number];
-
-/**
- * Which options each scheme accepts, beyond the common ones (`scheme`,
- * `secretKey`). Adding a transform scheme = adding an entry here (validation
- * follows automatically), a member to the `ProxyRuleTransform` union, and a
- * signer dispatch in the runtime. Option *value* semantics (enums, header
- * names) are shared across schemes and validated per-option below.
- */
-export const PROXY_TRANSFORM_COMMON_OPTIONS = ['scheme', 'secretKey'] as const;
-const HMAC_SCHEME_SPEC = {
-  requiredOptions: ['stringToSign', 'signatureHeader'],
-  optionalOptions: ['keyId', 'keyHeader', 'timestampHeader', 'encoding', 'keyEncoding', 'timestampFormat'],
-} as const;
-export const PROXY_TRANSFORM_SCHEME_SPECS: Record<ProxyTransformScheme, {
-  requiredOptions: ReadonlyArray<string>;
-  optionalOptions: ReadonlyArray<string>;
-}> = {
-  'hmac-sha256': HMAC_SCHEME_SPEC,
-  'hmac-sha512': HMAC_SCHEME_SPEC,
-  // keyId = the AWS access key id item (sent in the Credential scope);
-  // region/service are parsed from the inbound placeholder-signed request, so
-  // they need no config - the allowlists optionally gate what we'll sign for.
-  'aws-sigv4': {
-    requiredOptions: ['keyId'],
-    optionalOptions: ['sessionToken', 'allowedRegions', 'allowedServices'],
-  },
-};
+// ~ Request transforms (signing) ~
 
 export const PROXY_TRANSFORM_ENCODINGS = ['base64', 'hex'] as const;
 export type ProxyTransformEncoding = (typeof PROXY_TRANSFORM_ENCODINGS)[number];
@@ -165,6 +136,101 @@ export type ProxyTransformTimestampFormat = (typeof PROXY_TRANSFORM_TIMESTAMP_FO
  * so the signature covers exactly the bytes the upstream receives.
  */
 export const PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS = ['timestamp', 'method', 'path', 'pathWithQuery', 'query', 'host', 'body'] as const;
+
+/**
+ * How one option of a transform scheme is typed and validated. `itemRole`
+ * marks options whose value is the NAME of another env item:
+ *  - `consumed`: the item's real value is used by the signer and never appears
+ *    on the wire (the signing secret). Managed (placeholder in the child env),
+ *    excluded from substitution, and its placeholder appearing in a request it
+ *    is not injectable into fails closed.
+ *  - `wire`: the item travels in the request (an API key id, a session token).
+ *    Managed, and it joins the rule's substitution scope like a `keys=` entry.
+ * Everything the schema/rule machinery must know about an option lives here,
+ * so registering a scheme (built-in or plugin) wires validation, placeholder
+ * management, and credential resolution without touching those code paths.
+ */
+export type ProxyTransformOptionSpec = {
+  required?: boolean;
+  type: 'string' | 'headerName' | 'template' | 'stringList' | 'enum';
+  /** For `type: 'enum'`. */
+  enumValues?: ReadonlyArray<string>;
+  itemRole?: 'consumed' | 'wire';
+};
+
+/**
+ * A transform scheme's declaration: its option specs plus an optional
+ * cross-field validation hook (run at resolve time, after per-option checks).
+ * The common options (`scheme` itself, and `secretKey` = the consumed signing
+ * secret, defaulting to the decorated item on attached rules) are implied and
+ * not repeated per scheme.
+ */
+export type ProxyTransformSchemeSpec = {
+  options: Record<string, ProxyTransformOptionSpec>;
+  validate?: (config: Record<string, unknown>) => string | undefined;
+};
+
+/**
+ * A full scheme registration: spec plus the signer. `sign` receives the final
+ * outbound request (post-substitution, post-identity-verification) and the
+ * resolved real values for the scheme's item-role options, and returns headers
+ * to set (and optionally remove) before the request is forwarded.
+ */
+export type ProxyTransformSchemeDef = ProxyTransformSchemeSpec & {
+  sign: ProxyTransformSigner;
+};
+
+/** The final outbound request, as seen by a transform signer. */
+export type ProxyTransformSignInput = {
+  method: string;
+  /** Hostname the request is addressed to (the rule host). */
+  host: string;
+  /** URL path only, no query string. Post-substitution. */
+  path: string;
+  /** Raw query string without the leading `?`. Post-substitution. */
+  query: string;
+  /** Final outbound headers (lowercased names; multi-value pre-joined with `,`). */
+  headers: Record<string, string>;
+  /** The exact body bytes that will be written upstream. */
+  body: Buffer;
+  /**
+   * Resolved REAL values for the scheme's item-role options, keyed by option
+   * name (always includes `secretKey`). The runtime guarantees every declared
+   * item-role option that is configured has a resolved value here.
+   */
+  credentials: Record<string, string>;
+};
+
+export type ProxyTransformSignResult = | {
+  ok: true;
+  /** Headers to write onto the outbound request (names lowercased by the runtime). */
+  setHeaders: Record<string, string>;
+  /** Headers to remove first (e.g. placeholder-signed originals being replaced). */
+  removeHeaders?: Array<string>;
+} | {
+  ok: false;
+  error: string;
+  /** HTTP status for the fail-closed response. Default 502. */
+  status?: number;
+};
+
+export type ProxyTransformSigner = (
+  transform: ProxyRuleTransform,
+  input: ProxyTransformSignInput,
+  nowMs: number,
+) => ProxyTransformSignResult | Promise<ProxyTransformSignResult>;
+
+/**
+ * A request transform on a `@proxy` rule as it appears in rule data: the
+ * scheme name, the consumed signing-secret item, and the scheme's own options
+ * (shapes declared by the scheme's `ProxyTransformSchemeSpec`; values already
+ * validated and normalized at rule build).
+ */
+export type ProxyRuleTransform = {
+  scheme: string;
+  /** Item key whose real value the signer consumes. Never substituted. */
+  secretKey: string;
+} & Record<string, unknown>;
 
 /**
  * The generic HMAC transform config: sign a templated message with the secret,
@@ -192,49 +258,76 @@ export type ProxyRuleHmacTransform = {
 };
 
 /**
- * The AWS SigV4 re-signing transform config. The client (an AWS SDK) signs
- * normally with *placeholder* credentials; the proxy parses region and service
- * out of the inbound credential scope, strips the placeholder signature, and
- * re-signs with the real keys. One rule covers every AWS service the client
- * talks to; region/service need no configuration.
+ * The common options every scheme shares. `scheme` is validated separately;
+ * `secretKey`'s required-ness is placement-dependent (defaults to the
+ * decorated item on attached rules), so it is enforced at rule build.
  */
-export type ProxyRuleAwsSigv4Transform = {
-  scheme: 'aws-sigv4';
-  /** Item key holding the AWS secret access key. Consumed, never substituted. */
-  secretKey: string;
-  /** Item key holding the AWS access key id (sent in the Credential scope). */
-  keyId: string;
-  /** Item key holding a session token (temporary credentials), sent as X-Amz-Security-Token. */
-  sessionToken?: string;
-  /** Only sign requests whose inbound scope names one of these regions. Omitted = any. */
-  allowedRegions?: Array<string>;
-  /** Only sign requests whose inbound scope names one of these services. Omitted = any. */
-  allowedServices?: Array<string>;
+export const PROXY_TRANSFORM_COMMON_OPTION_SPECS: Record<string, ProxyTransformOptionSpec> = {
+  secretKey: { type: 'string', itemRole: 'consumed' },
+};
+
+const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
+  options: {
+    stringToSign: { required: true, type: 'template' },
+    signatureHeader: { required: true, type: 'headerName' },
+    keyId: { type: 'string', itemRole: 'wire' },
+    keyHeader: { type: 'headerName' },
+    timestampHeader: { type: 'headerName' },
+    encoding: { type: 'enum', enumValues: PROXY_TRANSFORM_ENCODINGS },
+    keyEncoding: { type: 'enum', enumValues: PROXY_TRANSFORM_KEY_ENCODINGS },
+    timestampFormat: { type: 'enum', enumValues: PROXY_TRANSFORM_TIMESTAMP_FORMATS },
+  },
+  validate: (config) => {
+    if ((config.keyId === undefined) !== (config.keyHeader === undefined)) {
+      return 'transform.keyId and transform.keyHeader must be set together (the key id item and the header it is written to)';
+    }
+    // A signature over a proxy-generated timestamp the upstream never receives
+    // can never verify; require the header that carries it.
+    if (typeof config.stringToSign === 'string' && config.stringToSign.includes('{timestamp}') && config.timestampHeader === undefined) {
+      return 'transform.stringToSign uses {timestamp} but no timestampHeader is set, so the upstream would have no way to verify the signature. Set timestampHeader to the header the API reads the timestamp from';
+    }
+    return undefined;
+  },
 };
 
 /**
- * A request transform on a `@proxy` rule: the proxy computes a value (an HMAC
- * or AWS SigV4 signature) over the outbound request with a secret the child
- * never holds, and writes it into designated headers before forwarding. The
- * `secretKey` item is *consumed* by the transform - unlike a substituted
- * credential, its real value never appears anywhere in the request.
- *
- * A discriminated union on `scheme`; future schemes add a member here and a
- * spec entry in `PROXY_TRANSFORM_SCHEME_SPECS`.
+ * Scheme SPECS built into core (validation without signers, so schema-side
+ * code has no crypto imports). The matching signers live in
+ * `request-transform.ts` (`BUILT_IN_TRANSFORM_SCHEMES`); plugins register
+ * additional schemes at graph load via `registerProxyTransformScheme`.
  */
-export type ProxyRuleTransform = ProxyRuleHmacTransform | ProxyRuleAwsSigv4Transform;
-
-/** Every option name any scheme accepts - the key universe when `scheme` isn't statically known. */
-const ALL_TRANSFORM_OPTIONS: ReadonlyArray<string> = [
-  ...new Set([
-    ...PROXY_TRANSFORM_COMMON_OPTIONS,
-    ...Object.values(PROXY_TRANSFORM_SCHEME_SPECS)
-      .flatMap((spec) => [...spec.requiredOptions, ...spec.optionalOptions]),
-  ]),
-];
+export const BUILT_IN_TRANSFORM_SCHEME_SPECS: Record<string, ProxyTransformSchemeSpec> = {
+  'hmac-sha256': HMAC_SCHEME_SPEC,
+  'hmac-sha512': HMAC_SCHEME_SPEC,
+};
 
 /** RFC 7230 header-name token. */
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * Header names a transform may never write to: request framing, hop-by-hop,
+ * and the same forward/log sinks the substitution surface denylists. A signing
+ * config naming one of these would let the proxy itself corrupt framing
+ * (`content-length`) or rewrite the verified identity (`host`), so it is a
+ * schema error, with no explicit-name override (unlike `substituteIn`, there
+ * is no legitimate API that reads a signature from these).
+ */
+const FORBIDDEN_TRANSFORM_HEADERS = new Set([
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'upgrade',
+  'te',
+  'trailer',
+  'expect',
+  'keep-alive',
+  'proxy-authorization',
+  'proxy-connection',
+  ...PROXY_NEVER_AUTO_SUBSTITUTE_HEADERS,
+]);
+export function isForbiddenTransformHeader(name: string): boolean {
+  return FORBIDDEN_TRANSFORM_HEADERS.has(name.toLowerCase()) || isNeverAutoSubstituteHeader(name);
+}
 
 /**
  * Validate a resolved `transform={...}` config object. Returns an error message
@@ -246,94 +339,87 @@ const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
  */
 export function validateProxyTransformConfig(
   obj: Record<string, unknown>,
+  schemes: Record<string, ProxyTransformSchemeSpec>,
   opts?: { partial?: boolean },
 ): string | undefined {
-  // Scheme first - it decides which other options are valid. When it isn't
-  // statically known (dynamic value in the partial pass), fall back to the
-  // union of every scheme's options so obvious typos still fail loudly.
-  const scheme = typeof obj.scheme === 'string' && obj.scheme in PROXY_TRANSFORM_SCHEME_SPECS
-    ? (obj.scheme as ProxyTransformScheme)
-    : undefined;
-  if (obj.scheme !== undefined && scheme === undefined) {
-    return `transform.scheme must be one of ${PROXY_TRANSFORM_SCHEMES.join(', ')}`;
+  // Scheme first - it decides which other options are valid and how each is
+  // typed. `schemes` is the caller's registry: built-ins only for the static
+  // (load-time) pass, built-ins + plugin-registered for resolve time.
+  const schemeName = typeof obj.scheme === 'string' ? obj.scheme : undefined;
+  const spec = schemeName !== undefined ? schemes[schemeName] : undefined;
+  if (schemeName !== undefined && !spec) {
+    // In the partial pass an unknown scheme may be a plugin scheme that only
+    // resolves once plugins load - defer everything to resolve time.
+    if (opts?.partial) return undefined;
+    return `unknown transform scheme "${schemeName}". Registered schemes: ${Object.keys(schemes).join(', ')} (plugin-provided schemes need their @plugin(...) declared)`;
   }
-  const spec = scheme ? PROXY_TRANSFORM_SCHEME_SPECS[scheme] : undefined;
-  const validKeys = spec
-    ? [...PROXY_TRANSFORM_COMMON_OPTIONS, ...spec.requiredOptions, ...spec.optionalOptions]
-    : ALL_TRANSFORM_OPTIONS;
-  for (const key of Object.keys(obj)) {
-    if (!validKeys.includes(key)) {
-      return `unknown transform option "${key}"${scheme ? ` for scheme "${scheme}"` : ''}. Valid options: ${validKeys.join(', ')}`;
+
+  const optionSpecs: Record<string, ProxyTransformOptionSpec> = {
+    ...PROXY_TRANSFORM_COMMON_OPTION_SPECS,
+    ...spec?.options,
+  };
+  if (spec) {
+    const validKeys = ['scheme', ...Object.keys(optionSpecs)];
+    for (const key of Object.keys(obj)) {
+      if (!validKeys.includes(key)) {
+        return `unknown transform option "${key}" for scheme "${schemeName}". Valid options: ${validKeys.join(', ')}`;
+      }
     }
   }
-  const checkEnum = (key: string, allowed: ReadonlyArray<string>) => {
-    const val = obj[key];
-    if (val === undefined) return undefined;
-    if (typeof val !== 'string' || !allowed.includes(val)) {
-      return `transform.${key} must be one of ${allowed.join(', ')}`;
-    }
-    return undefined;
-  };
-  const checkString = (key: string) => {
-    const val = obj[key];
-    if (val === undefined) return undefined;
-    if (typeof val !== 'string' || !val.trim()) return `transform.${key} must be a non-empty string`;
-    return undefined;
-  };
-  const checkHeaderName = (key: string) => {
-    const val = obj[key];
-    if (val === undefined) return undefined;
-    if (typeof val !== 'string' || !HEADER_NAME_RE.test(val)) {
-      return `transform.${key} must be a valid header name (letters, digits, and - _ . only)`;
-    }
-    return undefined;
-  };
-  // Accepts a single string or an array of non-empty strings (like domain/method).
-  const checkStringList = (key: string) => {
-    const val = obj[key];
-    if (val === undefined) return undefined;
-    const entries = Array.isArray(val) ? val : [val];
-    if (!entries.length || entries.some((entry) => typeof entry !== 'string' || !entry.trim())) {
-      return `transform.${key} must be one or more non-empty strings, e.g. ${key}=[us-east-1]`;
-    }
-    return undefined;
-  };
 
-  const err = checkString('stringToSign')
-    ?? checkHeaderName('signatureHeader')
-    ?? checkHeaderName('keyHeader')
-    ?? checkHeaderName('timestampHeader')
-    ?? checkString('secretKey')
-    ?? checkString('keyId')
-    ?? checkString('sessionToken')
-    ?? checkStringList('allowedRegions')
-    ?? checkStringList('allowedServices')
-    ?? checkEnum('encoding', PROXY_TRANSFORM_ENCODINGS)
-    ?? checkEnum('keyEncoding', PROXY_TRANSFORM_KEY_ENCODINGS)
-    ?? checkEnum('timestampFormat', PROXY_TRANSFORM_TIMESTAMP_FORMATS);
-  if (err) return err;
-
-  if (typeof obj.stringToSign === 'string') {
-    for (const match of obj.stringToSign.matchAll(/\{([^{}]*)\}/g)) {
-      if (!PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS.includes(match[1] as any)) {
-        return `transform.stringToSign contains unknown field {${match[1]}}. Valid fields: ${PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS.map((f) => `{${f}}`).join(' ')}`;
+  // Per-option value checks, driven entirely by the option specs.
+  for (const [key, optionSpec] of Object.entries(optionSpecs)) {
+    const val = obj[key];
+    if (val === undefined) continue;
+    switch (optionSpec.type) {
+      case 'string':
+        if (typeof val !== 'string' || !val.trim()) return `transform.${key} must be a non-empty string`;
+        break;
+      case 'headerName':
+        if (typeof val !== 'string' || !HEADER_NAME_RE.test(val)) {
+          return `transform.${key} must be a valid header name (letters, digits, and - _ . only)`;
+        }
+        if (isForbiddenTransformHeader(val)) {
+          return `transform.${key} cannot target the "${val.toLowerCase()}" header - it is a framing/identity header the proxy must control`;
+        }
+        break;
+      case 'template':
+        if (typeof val !== 'string' || !val.trim()) return `transform.${key} must be a non-empty string`;
+        for (const match of val.matchAll(/\{([^{}]*)\}/g)) {
+          if (!PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS.includes(match[1] as any)) {
+            return `transform.${key} contains unknown field {${match[1]}}. Valid fields: ${PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS.map((f) => `{${f}}`).join(' ')}`;
+          }
+        }
+        break;
+      case 'stringList': {
+        // Accepts a single string or an array of non-empty strings (like domain/method).
+        const entries = Array.isArray(val) ? val : [val];
+        if (!entries.length || entries.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+          return `transform.${key} must be one or more non-empty strings, e.g. ${key}=[us-east-1]`;
+        }
+        break;
+      }
+      case 'enum':
+        if (typeof val !== 'string' || !optionSpec.enumValues?.includes(val)) {
+          return `transform.${key} must be one of ${optionSpec.enumValues?.join(', ')}`;
+        }
+        break;
+      default: {
+        const exhaustiveCheck: never = optionSpec.type;
+        return `transform.${key} has unknown option type ${exhaustiveCheck as string}`;
       }
     }
   }
 
   if (!opts?.partial) {
-    if (scheme === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
-    for (const required of PROXY_TRANSFORM_SCHEME_SPECS[scheme].requiredOptions) {
-      if (obj[required] === undefined) {
-        return `transform.${required} is required for scheme "${scheme}"`;
+    if (schemeName === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
+    for (const [key, optionSpec] of Object.entries(spec!.options)) {
+      if (optionSpec.required && obj[key] === undefined) {
+        return `transform.${key} is required for scheme "${schemeName}"`;
       }
     }
-    // hmac-only pairing: the key id only travels if a header is named for it.
-    // (For aws-sigv4, keyId is required alone - it lands in the Credential scope.)
-    const schemeAllowsKeyHeader = PROXY_TRANSFORM_SCHEME_SPECS[scheme].optionalOptions.includes('keyHeader');
-    if (schemeAllowsKeyHeader && (obj.keyId === undefined) !== (obj.keyHeader === undefined)) {
-      return 'transform.keyId and transform.keyHeader must be set together (the key id item and the header it is written to)';
-    }
+    const crossFieldError = spec!.validate?.(obj);
+    if (crossFieldError) return crossFieldError;
   }
   return undefined;
 }

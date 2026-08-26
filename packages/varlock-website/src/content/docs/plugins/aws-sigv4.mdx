@@ -1,0 +1,49 @@
+---
+title: AWS SigV4 Plugin
+description: AWS SigV4 request re-signing for the Varlock credential proxy
+---
+
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/aws-sigv4-plugin" />
+</div>
+
+This plugin adds an `aws-sigv4` request-signing scheme to the [credential proxy](/guides/proxy/). It covers credentials AWS never receives directly: every AWS API request carries a signature computed *with* the secret access key, so plain placeholder substitution cannot broker them.
+
+With this plugin, the agent's AWS SDK signs requests normally using the placeholder credentials varlock injects into its environment. The proxy parses the region and service out of the inbound credential scope, strips the placeholder signature, and re-signs the request with the real keys at the network boundary. The secret access key never enters the agent's environment, and the agent cannot produce a valid signature itself.
+
+## Setup
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/aws-sigv4-plugin)
+# ---
+# @proxy(domain="*.amazonaws.com", transform={
+#   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
+#   allowedServices=[bedrock, s3],
+# })
+AWS_SECRET_ACCESS_KEY=yourPreferredPlugin()
+
+# @sensitive
+AWS_ACCESS_KEY_ID=yourPreferredPlugin()
+```
+
+No SDK configuration is needed beyond pointing it at the proxy (which `varlock proxy run` does): the SDK signs with the placeholder credentials it sees, and one rule covers every AWS service and region the client talks to.
+
+## Options
+
+| Option | Meaning |
+|---|---|
+| `keyId` | **(required)** Item holding the AWS access key id (travels in the Credential scope). |
+| `sessionToken` | Item holding a session token for temporary credentials, sent and signed as `X-Amz-Security-Token`. |
+| `allowedRegions` | Only sign requests whose scope names one of these regions, e.g. `[us-east-1]`. Omitted = any. |
+| `allowedServices` | Only sign requests whose scope names one of these services, e.g. `[bedrock, s3]`. Omitted = any. |
+
+## Details and limitations
+
+- A request without an inbound SigV4 signature is blocked with a message explaining the placeholder-signing setup (there is nothing to derive the region/service from).
+- Pre-signed URLs (`X-Amz-Credential` in the query string) are not supported and are blocked with a distinct message.
+- The payload hash covers the exact outbound body bytes, byte-for-byte (binary uploads included). If the client signed with the `UNSIGNED-PAYLOAD` sentinel, the proxy preserves it. `aws-chunked` streaming payloads (`STREAMING-*` sentinels, used by newer SDKs' flexible checksums) cannot be re-signed and are blocked with a pointer at the SDK setting to disable them (`requestChecksumCalculation: "WHEN_REQUIRED"`).
+- Signing uses the official AWS SDK v3 signer, including the S3-specific path-encoding rules.
+
+See [Request signing](/guides/proxy/rules/#request-signing) for how transforms work in general.

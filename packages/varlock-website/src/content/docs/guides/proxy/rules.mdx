@@ -134,7 +134,7 @@ Each scheme accepts its own option set. Options for the `hmac-*` schemes:
 
 | Option | Meaning |
 |---|---|
-| `scheme` | **(required)** `hmac-sha256`, `hmac-sha512`, or `aws-sigv4` (see below). |
+| `scheme` | **(required)** `hmac-sha256` or `hmac-sha512` built in; plugins add more (e.g. `aws-sigv4`, see below). |
 | `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
 | `signatureHeader` | **(required)** Header the signature is written to. |
 | `secretKey` | Item whose value is the HMAC key. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
@@ -151,11 +151,13 @@ A few properties worth knowing:
 - **TLS only.** Like injection, signing refuses cleartext connections: a signature over plain http is trivially replayable.
 - If the transform-carrying rule requires `approval`, the request is signed only after the approval gate passes, mirroring how approval-gated injection works.
 
-#### AWS SigV4
+#### AWS SigV4 (plugin)
 
-The `aws-sigv4` scheme re-signs AWS SDK requests. AWS never receives the secret access key either; every request carries a signature computed from it. Configure the SDK in the child with the **placeholder** credentials (varlock's proxied env does this automatically) and point it at the proxy; the SDK signs normally, and the proxy strips the placeholder signature and re-signs with the real keys.
+The `aws-sigv4` scheme re-signs AWS SDK requests and ships as a separate plugin, [`@varlock/aws-sigv4-plugin`](/plugins/aws-sigv4/), so core varlock carries no AWS dependencies. AWS never receives the secret access key either; every request carries a signature computed from it. Configure the SDK in the child with the **placeholder** credentials (varlock's proxied env does this automatically) and point it at the proxy; the SDK signs normally, and the proxy strips the placeholder signature and re-signs with the real keys.
 
 ```env-spec title=".env.schema"
+# @plugin(@varlock/aws-sigv4-plugin)
+# ---
 # @proxy(domain="*.amazonaws.com", transform={
 #   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
 #   allowedServices=[bedrock, s3],
@@ -166,20 +168,11 @@ AWS_SECRET_ACCESS_KEY=somePlugin()
 AWS_ACCESS_KEY_ID=somePlugin()
 ```
 
-The region and service need no configuration: they are parsed from the inbound request's credential scope (`Credential=KEY/DATE/REGION/SERVICE/aws4_request`), so one rule covers every AWS service and region the client talks to. The optional allowlists gate what the proxy is willing to sign for.
+The region and service need no configuration: they are parsed from the inbound request's credential scope, so one rule covers every AWS service and region the client talks to. See the [plugin docs](/plugins/aws-sigv4/) for all options and limitations.
 
-| Option | Meaning |
-|---|---|
-| `keyId` | **(required)** Item holding the AWS access key id (travels in the Credential scope). |
-| `sessionToken` | Item holding a session token for temporary credentials, sent and signed as `X-Amz-Security-Token`. |
-| `allowedRegions` | Only sign requests whose scope names one of these regions, e.g. `[us-east-1]`. Omitted = any. |
-| `allowedServices` | Only sign requests whose scope names one of these services, e.g. `[bedrock, s3]`. Omitted = any. |
+#### Plugin-provided schemes
 
-Details worth knowing:
-
-- A request without an inbound SigV4 signature is blocked with a message explaining the placeholder-signing setup (there is nothing to derive the region/service from). Pre-signed URLs (`X-Amz-Credential` in the query string) are not supported yet and are blocked with a distinct message.
-- The payload hash covers the exact outbound body bytes. If the client signed with the `UNSIGNED-PAYLOAD` sentinel (S3 streaming uploads), the proxy preserves it.
-- Signing uses the official AWS SDK v3 signer, including the S3-specific path-encoding rules.
+Signing schemes are registered through the [plugin system](/guides/plugins/): a plugin declares the scheme's options (which are validated exactly like the built-in ones, including which options name credential items) and provides the signer that runs in the proxy per matching request. This keeps provider-specific code and dependencies out of core. Custom or venue-specific schemes that the generic template can't express (nested hashing, custom canonicalization) are built the same way, including as local, unpublished plugins (`@plugin(./my-signer-plugin)`).
 
 ## Controlling what the agent sees
 

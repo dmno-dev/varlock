@@ -84,7 +84,7 @@ import { fetchTunnelBootstrap, startTunnelClientListener } from '../../proxy/tun
 import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
-import type { ProxyManagedItem, ProxyRule } from '../../proxy/types';
+import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
@@ -105,6 +105,8 @@ type PreparedProxyPolicy = {
   schemaFingerprint: string;
   proxyManagedItems: Array<ProxyManagedItem>;
   proxyRules: Array<ProxyRule>;
+  /** Registered signing schemes (built-ins + plugin-provided), for the runtime. */
+  transformSchemes: Record<string, ProxyTransformSchemeDef>;
   egressMode: 'permissive' | 'strict';
   /**
    * Every sensitive item key → the placeholder the child sees (managed/wire items
@@ -336,6 +338,7 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     schemaFingerprint,
     proxyManagedItems,
     proxyRules,
+    transformSchemes: envGraph.proxyTransformSchemes,
     egressMode: serializedGraph.settings?.proxyEgress ?? 'permissive',
     placeholderByKey,
     omittedKeys,
@@ -633,7 +636,8 @@ function formatProxyRequestLog(a: ProxyActivity): string {
   const inject = a.injectedKeys?.length
     ? `  ${ansis.dim('inject:')} ${ansis.yellow(a.injectedKeys.join(', '))}`
     : '';
-  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}`;
+  const signed = a.signedWith ? `  ${ansis.dim('sign:')} ${ansis.yellow(a.signedWith)}` : '';
+  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${signed}`;
 }
 
 /** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
@@ -708,6 +712,7 @@ async function createRuntimeAndSession(opts: {
   const runtime = await startLocalProxyRuntime({
     managedItems: opts.policy.proxyManagedItems,
     rules: opts.policy.proxyRules,
+    transformSchemes: opts.policy.transformSchemes,
     egressMode: opts.policy.egressMode,
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(opts.certDir !== undefined ? { certDir: opts.certDir } : {}),
@@ -1046,6 +1051,7 @@ async function applyTrustedReload(opts: {
       managedItems: next.proxyManagedItems,
       rules: next.proxyRules,
       egressMode: next.egressMode,
+      transformSchemes: next.transformSchemes,
     });
     // Keep the varlock.internal endpoint serving the CURRENT child view, so a
     // post-reload attach adopts the reloaded env, not the launch-time one.
@@ -2264,8 +2270,9 @@ function formatAuditEntry(entry: ProxyAuditEntry): string {
   const injected = entry.injected && entry.injectedKeys?.length
     ? ` injected=${entry.injectedKeys.join(',')}`
     : '';
+  const signed = entry.signedWith ? ` signed=${entry.signedWith}` : '';
   const rule = entry.ruleId ? ` rule="${entry.ruleId}"` : '';
-  return `${entry.ts} ${entry.decision.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path}${injected}${rule}`;
+  return `${entry.ts} ${entry.decision.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path}${injected}${signed}${rule}`;
 }
 
 async function auditAction(ctx: any) {
@@ -2341,6 +2348,12 @@ async function rulesAction(ctx: any) {
   const rules = await envGraph.getProxyRules();
   const managedItems = await envGraph.getProxyManagedItems();
   const managedKeys = new Set(managedItems.map((item) => item.key));
+  // Consumed signing secrets never travel; a key is only labeled as one if no
+  // rule also substitutes it somewhere (dual-use keys stay labeled proxied).
+  const consumedTransformKeys = new Set(rules.flatMap(
+    (rule) => (rule.transform ? envGraph.getTransformRoleKeys(rule.transform, 'consumed') : []),
+  ));
+  const substitutableKeys = new Set(rules.flatMap((rule) => rule.itemKeys));
   const { placeholderByKey, omittedKeys } = await computeProxyChildView(envGraph, managedItems);
   const omittedSet = new Set(omittedKeys);
 
@@ -2359,6 +2372,9 @@ async function rulesAction(ctx: any) {
       const parts = [target, describeProxyRuleGate(rule)];
       // A block rule denies the request, so it never injects — don't imply otherwise.
       if (rule.itemKeys.length && !rule.block) parts.push(`→ inject ${ansis.yellow(rule.itemKeys.join(', '))}`);
+      if (rule.transform && !rule.block) {
+        parts.push(`→ sign ${ansis.yellow(rule.transform.scheme)} ${ansis.dim(`(secret: ${rule.transform.secretKey})`)}`);
+      }
       console.log(`  • ${parts.filter(Boolean).join('  ')}`);
     }
   }
@@ -2369,7 +2385,9 @@ async function rulesAction(ctx: any) {
     if (isVarlockReservedKey(key)) continue;
     const item = envGraph.configSchema[key];
     if (!item) continue;
-    if (managedKeys.has(key)) {
+    if (consumedTransformKeys.has(key) && !substitutableKeys.has(key)) {
+      secrets.push({ key, label: `${ansis.green('signing secret')}: placeholder; consumed by the proxy to sign matching requests, never sent` });
+    } else if (managedKeys.has(key)) {
       secrets.push({ key, label: `${ansis.green('proxied')}: placeholder; real value injected on matching hosts` });
     } else if (omittedSet.has(key)) {
       secrets.push({ key, label: `${ansis.yellow('omit')}: withheld from the child entirely` });

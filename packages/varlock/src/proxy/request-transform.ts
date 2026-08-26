@@ -1,6 +1,10 @@
 import crypto from 'node:crypto';
 
-import type { ProxyRuleHmacTransform, ProxyTransformTimestampFormat } from './types';
+import {
+  BUILT_IN_TRANSFORM_SCHEME_SPECS,
+  type ProxyRuleHmacTransform, type ProxyTransformSchemeDef, type ProxyTransformSigner,
+  type ProxyTransformTimestampFormat,
+} from './types';
 
 /**
  * Request signing (the `transform=` option on a `@proxy` rule).
@@ -113,3 +117,37 @@ export function computeHmacTransform(
   const signature = transform.encoding === 'hex' ? digest.toString('hex') : digest.toString('base64');
   return { ok: true, signature, timestamp };
 }
+
+/**
+ * The hmac schemes' signer, adapted to the generic `ProxyTransformSigner`
+ * interface. HMAC string-to-sign templates are inherently text, so `{body}`
+ * covers the body as utf8 text (venue HMAC APIs sign JSON/form bodies; the
+ * outbound bytes themselves are preserved separately by the runtime).
+ */
+const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
+  const hmacTransform = transform as unknown as ProxyRuleHmacTransform;
+  const result = computeHmacTransform(hmacTransform, input.credentials.secretKey, {
+    method: input.method,
+    host: input.host,
+    path: input.path,
+    query: input.query,
+    body: input.body.toString('utf8'),
+  }, nowMs);
+  if (!result.ok) return { ok: false, error: result.error };
+  const setHeaders: Record<string, string> = {
+    [hmacTransform.signatureHeader.toLowerCase()]: result.signature,
+  };
+  if (hmacTransform.timestampHeader) setHeaders[hmacTransform.timestampHeader.toLowerCase()] = result.timestamp;
+  if (hmacTransform.keyHeader && input.credentials.keyId !== undefined) {
+    setHeaders[hmacTransform.keyHeader.toLowerCase()] = input.credentials.keyId;
+  }
+  return { ok: true, setHeaders };
+};
+
+/**
+ * The full built-in scheme registrations (spec + signer). Seeded into every
+ * `EnvGraph` and used as the runtime default; plugins extend the set.
+ */
+export const BUILT_IN_TRANSFORM_SCHEMES: Record<string, ProxyTransformSchemeDef> = Object.fromEntries(
+  Object.entries(BUILT_IN_TRANSFORM_SCHEME_SPECS).map(([name, spec]) => [name, { ...spec, sign: signHmacTransform }]),
+);

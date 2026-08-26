@@ -229,6 +229,11 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             ],
           },
           {
+            label: 'Credential proxy',
+            collapsed: true,
+            items: [{ label: 'AWS SigV4 signing', slug: 'plugins/aws-sigv4' }],
+          },
+          {
             label: 'Infrastructure',
             collapsed: true,
             items: [
