@@ -58,12 +58,18 @@ export function integrationTelemetryEnv(name: string, version: string) {
 
 function mergeExecEnv(
   opts?: ExecSyncVarlockOpts,
-): NodeJS.ProcessEnv | undefined {
+): NodeJS.ProcessEnv {
   const baseEnv = opts?.env ?? process.env;
-  if (!opts?.integrationTelemetry && !opts?.env) return undefined;
 
   const merged = { ...baseEnv } as NodeJS.ProcessEnv;
-  if (opts.integrationTelemetry) {
+  // NODE_OPTIONS is meant for the parent app's node process, not the varlock CLI child.
+  // A preloaded module (e.g. NODE_OPTIONS="-r next-logger") can write to stdout and
+  // corrupt the JSON the CLI emits over stdio, crashing auto-load / integrations.
+  // Windows matches env keys case-insensitively, so casing variants must go too.
+  for (const key of Object.keys(merged)) {
+    if (key.toUpperCase() === 'NODE_OPTIONS') delete merged[key];
+  }
+  if (opts?.integrationTelemetry) {
     // __VARLOCK_INTEGRATION is for our internal use only — the integration-provided
     // identity is authoritative and always wins over any inherited/user-set value.
     Object.assign(
@@ -123,7 +129,7 @@ export function execSyncVarlock(
     // which will inject node_modules/.bin into PATH
     try {
       const result = execSync(`varlock ${command}`, {
-        ...(execEnv && { env: execEnv }),
+        env: execEnv,
         ...opts?.cwd && { cwd: opts.cwd },
         stdio: 'pipe',
       });
@@ -157,7 +163,7 @@ export function execSyncVarlock(
         const needsShell = varlockPath.endsWith('.cmd');
         const result = execFileSync(varlockPath, command.split(' '), {
           ...childProcessOpts,
-          ...(execEnv && { env: execEnv }),
+          env: execEnv,
           stdio: 'pipe',
           ...(needsShell && { shell: true }),
         });
