@@ -48,11 +48,11 @@ describe('execSyncVarlock integration telemetry', () => {
   });
 
   it('strips NODE_OPTIONS so parent-process preloads cannot corrupt the CLI stdio protocol', () => {
-    process.env.NODE_OPTIONS = '-r some-logger';
+    vi.stubEnv('NODE_OPTIONS', '-r some-logger');
     try {
       execSyncVarlock('load');
     } finally {
-      delete process.env.NODE_OPTIONS;
+      vi.unstubAllEnvs();
     }
 
     expect(execSync).toHaveBeenCalledWith(
@@ -63,20 +63,17 @@ describe('execSyncVarlock integration telemetry', () => {
     );
   });
 
-  it('strips NODE_OPTIONS from an explicitly provided env too', () => {
+  it('strips NODE_OPTIONS from an explicitly provided env too, including casing variants (Windows)', () => {
     execSyncVarlock('load', {
       env: {
         ...process.env,
         NODE_OPTIONS: '-r some-logger',
+        Node_Options: '-r some-logger',
       },
     });
 
-    expect(execSync).toHaveBeenCalledWith(
-      'varlock load',
-      expect.objectContaining({
-        env: expect.not.objectContaining({ NODE_OPTIONS: expect.anything() }),
-      }),
-    );
+    const childEnv = vi.mocked(execSync).mock.calls[0][1]!.env!;
+    expect(Object.keys(childEnv).filter((key) => key.toUpperCase() === 'NODE_OPTIONS')).toEqual([]);
   });
 
   it('sets __VARLOCK_INTEGRATION when integrationTelemetry is provided', () => {

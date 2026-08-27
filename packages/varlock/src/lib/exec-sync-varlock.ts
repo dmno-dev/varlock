@@ -65,7 +65,10 @@ function mergeExecEnv(
   // NODE_OPTIONS is meant for the parent app's node process, not the varlock CLI child.
   // A preloaded module (e.g. NODE_OPTIONS="-r next-logger") can write to stdout and
   // corrupt the JSON the CLI emits over stdio, crashing auto-load / integrations.
-  delete merged.NODE_OPTIONS;
+  // Windows matches env keys case-insensitively, so casing variants must go too.
+  for (const key of Object.keys(merged)) {
+    if (key.toUpperCase() === 'NODE_OPTIONS') delete merged[key];
+  }
   if (opts?.integrationTelemetry) {
     // __VARLOCK_INTEGRATION is for our internal use only — the integration-provided
     // identity is authoritative and always wins over any inherited/user-set value.
