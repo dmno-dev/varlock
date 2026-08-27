@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { varlockRun, runVarlock } from '../helpers/run-varlock.js';
 
@@ -93,6 +94,42 @@ describe('items that resolve to undefined', () => {
       const result = runVarlock(['load', '--format', 'shell'], { cwd: EMPTY_MODE });
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('export UNSET_VAR=');
+    });
+  });
+
+  // The scenario dirs contain type-tests.ts files with positive assignments and
+  // @ts-expect-error assertions pinning how each mode types process.env vs
+  // import.meta.env. A `varlock load` generates env.d.ts (via @generateTsTypes),
+  // then tsc --strict verifies the pair.
+  describe('generated types match the injection mode', () => {
+    const TSC = join(import.meta.dirname, '..', 'node_modules', 'typescript', 'bin', 'tsc');
+
+    function typecheckScenario(scenarioDir: string) {
+      const load = runVarlock(['load'], { cwd: scenarioDir });
+      expect(load.exitCode).toBe(0);
+      const fullDir = join(import.meta.dirname, '..', scenarioDir);
+      expect(existsSync(join(fullDir, 'env.d.ts'))).toBe(true);
+      const result = spawnSync(
+        process.execPath,
+        [TSC, '--noEmit', '--strict', 'env.d.ts', 'type-tests.ts'],
+        { cwd: fullDir, encoding: 'utf-8' },
+      );
+      return {
+        exitCode: result.status ?? 1,
+        output: (result.stdout ?? '') + (result.stderr ?? ''),
+      };
+    }
+
+    test('default: process.env keys stay optional', () => {
+      const result = typecheckScenario(SCENARIO);
+      expect(result.output.trim()).toBe('');
+      expect(result.exitCode).toBe(0);
+    });
+
+    test('@injectUndefinedAsEmpty: process.env keys required with \'\' unions, import.meta.env unchanged', () => {
+      const result = typecheckScenario(EMPTY_MODE);
+      expect(result.output.trim()).toBe('');
+      expect(result.exitCode).toBe(0);
     });
   });
 });
