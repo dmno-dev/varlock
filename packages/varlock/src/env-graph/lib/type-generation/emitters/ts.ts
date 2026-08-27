@@ -162,6 +162,13 @@ export type TsGenOptions = {
   exposeEnv?: TsEnvExposure;
   processEnv?: TsGlobalAugment;
   importMetaEnv?: TsGlobalAugment;
+  /**
+   * Set from the graph's `@injectUndefinedAsEmpty` root decorator (not a decorator arg): unset
+   * items are injected into process.env as empty strings, so the process.env augmentation drops
+   * its optionality. import.meta.env is NOT affected — frameworks only expose prefixed keys
+   * through it, so a schema key may be absent there regardless of injection mode.
+   */
+  injectUndefinedAsEmpty?: boolean;
 };
 
 // defaults preserve the historical output: globally augment `varlock/env`, and augment both globals
@@ -173,6 +180,7 @@ const DEFAULT_TS_GEN_OPTIONS = {
   exposeEnv: 'global',
   processEnv: 'strict',
   importMetaEnv: 'strict',
+  injectUndefinedAsEmpty: false,
 } satisfies Required<TsGenOptions>;
 
 const TS_ENV_EXPOSURE_VALUES: ReadonlyArray<TsEnvExposure> = ['global', 'local', 'none'];
@@ -198,6 +206,7 @@ function resolveTsGenOptions(options: Record<string, any> = {}): Required<TsGenO
     exposeEnv,
     processEnv: coerceOption(options.processEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.processEnv, 'processEnv'),
     importMetaEnv: coerceOption(options.importMetaEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.importMetaEnv, 'importMetaEnv'),
+    injectUndefinedAsEmpty: !!options.injectUndefinedAsEmpty,
   };
 }
 
@@ -258,15 +267,39 @@ declare module 'varlock/env' {
 `);
   }
 
+  // string-form env types keep the optionality of the coerced schema. NonNullable<> strips the
+  // `undefined` that optional props carry, so literal-typed items (enums, booleans) keep their
+  // precise unions instead of widening to plain `string`.
   tsSrc.push(`
 export type EnvSchemaAsStrings = {
   [Property in keyof CoercedEnvSchema]:
-    CoercedEnvSchema[Property] extends string ? CoercedEnvSchema[Property]
-      : (CoercedEnvSchema[Property] extends boolean ? ('true' | 'false') : string)
+    NonNullable<CoercedEnvSchema[Property]> extends string ? NonNullable<CoercedEnvSchema[Property]>
+      : (NonNullable<CoercedEnvSchema[Property]> extends boolean ? ('true' | 'false') : string)
 };
 `);
 
   tsSrc.push(`type ${stringsAlias} = EnvSchemaAsStrings;`);
+
+  // with `@injectUndefinedAsEmpty`, items that resolve to undefined are injected into
+  // process.env as empty strings, so every key is actually present THERE: strip the
+  // optionality (`-?`) and add `''` to the union of any key that could be unset.
+  // This applies only to the process.env augmentation — import.meta.env keeps the optional
+  // type above, since frameworks only expose prefixed keys through it (a schema key may be
+  // absent there regardless of injection mode). The coerced schema (ENV proxy) is also
+  // unaffected, since ENV.X still returns the real resolved value (undefined).
+  // Optionality is detected structurally (`{} extends Pick<...>`) rather than via
+  // `undefined extends ...`, which would be true for EVERY type in consuming projects
+  // that have strictNullChecks disabled, leaking '' into required literal unions.
+  const processEnvStringsAlias = `_ProcessEnvSchemaAsStrings_${schemaHash}`;
+  if (opts.injectUndefinedAsEmpty) {
+    tsSrc.push(`
+export type ProcessEnvSchemaAsStrings = {
+  [Property in keyof EnvSchemaAsStrings]-?:
+    EnvSchemaAsStrings[Property] | ({} extends Pick<CoercedEnvSchema, Property> ? '' : never)
+};
+`);
+    tsSrc.push(`type ${processEnvStringsAlias} = ProcessEnvSchemaAsStrings;`);
+  }
 
   // `local` exposure: export a package-local ENV typed to *this* package's schema.
   // runtime is identical (still the shared proxy from 'varlock/env'); types stay file-scoped
@@ -293,7 +326,7 @@ export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;
     globalBlocks.push(`
   // add types for global process.env
   namespace NodeJS {
-    interface ProcessEnv extends ${stringsAlias} ${augmentBody(opts.processEnv, '    ')}
+    interface ProcessEnv extends ${opts.injectUndefinedAsEmpty ? processEnvStringsAlias : stringsAlias} ${augmentBody(opts.processEnv, '    ')}
   }`);
   }
 

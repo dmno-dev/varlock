@@ -458,6 +458,35 @@ This decorator only affects the runtime `initVarlockEnv()` behavior. It does **n
 </div>
 
 <div>
+### `@injectUndefinedAsEmpty`
+**Value type:** `boolean`
+
+Controls how items that resolve to `undefined` (for example an optional `MY_VAR=` with no value set) are injected into `process.env`.
+
+By default they are left out of `process.env` entirely, so `process.env.MY_VAR === undefined` and patterns like `process.env.MY_VAR ?? 'fallback'` work as expected. This matches the documented value semantics: no value is `undefined`, while an explicit `MY_VAR=""` is an empty string, and the two stay distinct all the way through injection.
+
+Most other .env loaders instead set unset vars to an empty string. If you have code that relies on that (for example truthiness checks that expect `""`, or `'MY_VAR' in process.env`), set this decorator to restore that behavior.
+
+**Options:**
+- `false` (default): Items that resolve to `undefined` are not injected. This applies to auto-load / `initVarlockEnv()`, `varlock run`, and `varlock load --format shell`.
+- `true`: Items that resolve to `undefined` are injected as empty strings (`""`), matching dotenv-style loaders.
+
+The value must be static (`true`/`false`). Because code generation reads this flag, an environment-dependent value would make generated output differ per environment.
+
+```env-spec
+# @injectUndefinedAsEmpty
+# ---
+OPTIONAL_VAR= # @optional
+```
+
+Generated TypeScript types reflect this: when enabled, the `process.env` augmentation from [`@generateTsTypes`](#generatetstypes) marks every schema key as always present, since unset items are injected as `""`. An optional string types as `string` instead of `string | undefined`, and literal-typed items keep their unions with `""` added (an optional `enum(alpha, beta)` becomes `"alpha" | "beta" | ""`). The `import.meta.env` augmentation keeps its optional keys: frameworks like Vite and Astro only expose prefixed keys through `import.meta.env`, so a schema key can be absent there regardless of this setting.
+
+:::note
+The `ENV` proxy is unaffected: `ENV.OPTIONAL_VAR` always returns the real resolved value (`undefined` when unset), regardless of this setting, and its generated types keep optional keys optional. The same goes for the other language generators (`@generatePythonEnv`, `@generateGoEnv`, etc.): their loaders parse the `__VARLOCK_ENV` blob into coerced values, so unset items stay absent/`None`/`Option::None` rather than becoming empty strings.
+:::
+</div>
+
+<div>
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
 

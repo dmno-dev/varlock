@@ -584,12 +584,21 @@ export function initVarlockEnv(opts?: {
     }
     envValues[itemKey] = item.value;
     if (setProcessEnv) {
-      envState.injectedProcessEnvKeys?.push(itemKey);
-      // when re-injecting into process.env, we treat undefined as empty string
-      // this more closely matches expected behaviour from other .env loaders.
       // composite values (arrays/objects) carry their flat string form in `envStr`
       // (their serialization depends on type settings that don't travel in the blob)
-      process.env[itemKey] = item.envStr ?? (item.value === undefined ? '' : String(item.value));
+      const envStrValue = item.envStr ?? (item.value === undefined ? undefined : String(item.value));
+      if (envStrValue === undefined && !serializedEnvData.settings?.injectUndefinedAsEmpty) {
+        // items that resolved to undefined are NOT injected (matching `varlock run` and the
+        // documented `VAR=` semantics), so `process.env.X === undefined` and `?? 'fallback'`
+        // work as expected. Any value already present can only be a stale parent-injected
+        // echo (a genuine ambient value would have acted as an override and resolved to it),
+        // so clear it rather than leave it shadowing the fresh resolution.
+        // `@injectUndefinedAsEmpty` opts back into dotenv-style empty-string injection.
+        delete process.env[itemKey];
+      } else {
+        envState.injectedProcessEnvKeys?.push(itemKey);
+        process.env[itemKey] = envStrValue ?? '';
+      }
     }
   }
   (globalThis as any).__varlockDynamicKeys = dynamicKeys;

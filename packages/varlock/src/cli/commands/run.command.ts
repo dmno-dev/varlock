@@ -171,7 +171,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // @internal items, so there is nothing extra to strip.
     resolvedEnv = {};
     for (const [itemKey, item] of Object.entries(serializedGraph.config)) {
-      resolvedEnv[itemKey] = item.value === undefined ? undefined : injectedEnvStringForm(item);
+      resolvedEnv[itemKey] = injectedEnvStringForm(item);
     }
   } else {
     debug('resolving env (%s)', reuseDecision.reason);
@@ -203,6 +203,15 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     resolvedEnv = envGraph.getResolvedEnvStringObject({ includeInternal, filterKeys });
     serializedGraph = envGraph.getSerializedGraph({ filterKeys });
   }
+
+  // `@injectUndefinedAsEmpty` opts into dotenv-style behavior: unset items become empty strings
+  // in the child env instead of being dropped (either way they mask any inherited value)
+  if (serializedGraph.settings?.injectUndefinedAsEmpty) {
+    for (const itemKey in resolvedEnv) {
+      if (resolvedEnv[itemKey] === undefined) resolvedEnv[itemKey] = '';
+    }
+  }
+
   const { resetRedactionMap } = await import('../../runtime/env');
   // console.log(resolvedEnv);
 

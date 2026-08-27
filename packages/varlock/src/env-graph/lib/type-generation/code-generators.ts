@@ -83,6 +83,9 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
   if (options.processEnv === undefined && ctx.graph.isProcessEnvInjectionDisabled) {
     options.processEnv = 'none';
   }
+  // `@injectUndefinedAsEmpty` means unset items land on process.env as empty strings, so the
+  // process.env augmentation drops its optionality (graph-level flag, not a decorator arg)
+  options.injectUndefinedAsEmpty = ctx.graph.injectUndefinedAsEmpty;
 
   return generateTsTypesSrc(ctx.fields, options);
 }

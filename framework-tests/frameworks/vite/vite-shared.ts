@@ -3,11 +3,12 @@ Shared Vite test definitions, parameterized by Vite version.
 Covers static builds, HTML constant replacement, leak detection,
 log redaction, sourcemap scrubbing, SSR init injection, and dev server.
 */
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  describe, beforeAll, afterAll,
+  describe, beforeAll, afterAll, test, expect,
 } from 'vitest';
 import { FrameworkTestEnv } from '../../harness/index';
 
@@ -329,6 +330,63 @@ export function defineViteTests(
           },
         ],
       });
+    });
+
+    // ---- Undefined injection modes ----
+
+    // Build an SSR entry with the resolved env inlined, then execute it with plain node so
+    // the inlined varlock init performs the process.env injection per the blob's settings.
+    // This verifies how an unset schema item (`UNSET_VAR=`) appears on each env surface.
+    describe('undefined injection modes (SSR runtime)', () => {
+      async function buildAndRunSsrEntry(schemaTemplate: string) {
+        const buildResult = await viteEnv.runScenario({
+          command: 'vite build --ssr src/ssr-undefined-entry.ts',
+          templateFiles: {
+            'vite.config.ts': 'vite-configs/vite.config.resolved-env.ts',
+            'index.html': 'html/basic.html',
+            '.env.schema': schemaTemplate,
+            'src/ssr-undefined-entry.ts': 'pages/ssr-undefined-entry.ts',
+          },
+        });
+        expect(buildResult.exitCode).toBe(0);
+
+        // scrub anything that could interfere with the standalone run: the bundle must
+        // hydrate from its inlined blob, and ambient values must not mask the scenario
+        const cleanEnv = { ...process.env };
+        for (const key of ['__VARLOCK_ENV', '_VARLOCK_ENV_KEY', 'UNSET_VAR', 'PUBLIC_VAR']) {
+          delete cleanEnv[key];
+        }
+        const runResult = spawnSync('node', ['dist/ssr-undefined-entry.js'], {
+          cwd: viteEnv.dir,
+          encoding: 'utf-8',
+          timeout: 30_000,
+          env: cleanEnv,
+        });
+        const output = (runResult.stdout ?? '') + (runResult.stderr ?? '');
+        expect(output).toContain('ssr-undefined-check-done');
+        return output;
+      }
+
+      test('default: unset items are left out of process.env', async () => {
+        const output = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection');
+        expect(output).toContain('unset-in-process-env::false');
+        expect(output).toContain('process-env-unset::undefined');
+        expect(output).toContain('process-env-set::public-test-value');
+        expect(output).toContain('import-meta-env-unset::undefined');
+        expect(output).toContain('env-proxy-unset::undefined');
+      }, 180_000);
+
+      test('@injectUndefinedAsEmpty: empty strings land on process.env but not import.meta.env', async () => {
+        const output = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection-empty');
+        expect(output).toContain('unset-in-process-env::true');
+        expect(output).toContain('process-env-unset::""');
+        expect(output).toContain('process-env-set::public-test-value');
+        // import.meta.env only carries framework-prefixed keys, so the unset schema
+        // item stays undefined there even in empty-injection mode
+        expect(output).toContain('import-meta-env-unset::undefined');
+        // the ENV surface always reflects the real resolved value
+        expect(output).toContain('env-proxy-unset::undefined');
+      }, 180_000);
     });
 
     // ---- Dev server ----

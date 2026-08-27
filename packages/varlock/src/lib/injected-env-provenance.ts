@@ -51,12 +51,23 @@ export function selectOverrideValuesFromEnv(
   return selected;
 }
 
+/** The subset of blob `settings` that affects how values are injected into process.env */
+export type InjectionSettings = { injectUndefinedAsEmpty?: boolean };
+
 /**
  * The string form a blob config item takes when injected into process.env
  * (same formula as initVarlockEnv / `varlock run`'s individual-var injection).
+ * Returns undefined when the item resolved to undefined and is therefore NOT
+ * injected at all — unless `@injectUndefinedAsEmpty` is set, in which case the
+ * injected form is an empty string (dotenv-style compat).
  */
-export function injectedEnvStringForm(item: { envStr?: string, value?: any }): string {
-  return item.envStr ?? (item.value === undefined ? '' : String(item.value));
+export function injectedEnvStringForm(
+  item: { envStr?: string, value?: any },
+  settings?: InjectionSettings,
+): string | undefined {
+  if (item.envStr !== undefined) return item.envStr;
+  if (item.value !== undefined) return String(item.value);
+  return settings?.injectUndefinedAsEmpty ? '' : undefined;
 }
 
 /**
@@ -70,8 +81,9 @@ type BlobConfigItem = { envStr?: string, value?: any, overrideStr?: string };
 export function envValueMatchesBlobItem(
   envValue: string | undefined,
   item: BlobConfigItem,
+  settings?: InjectionSettings,
 ): boolean {
-  if (envValue === injectedEnvStringForm(item)) return true;
+  if (envValue === injectedEnvStringForm(item, settings)) return true;
   return item.overrideStr !== undefined && envValue === item.overrideStr;
 }
 
@@ -103,12 +115,13 @@ export function selectOverridesFromInjectedEnv(
   const selected = selectOverrideValuesFromEnv(env, overrideKeys);
 
   // blob is known-parseable here (parseBlobOverrideKeys succeeded)
-  const config = (JSON.parse(blob!) as { config?: unknown }).config;
+  const parsedBlob = JSON.parse(blob!) as { config?: unknown, settings?: InjectionSettings };
+  const config = parsedBlob.config;
   if (config && typeof config === 'object' && !Array.isArray(config)) {
     for (const [key, item] of Object.entries(config as Record<string, BlobConfigItem>)) {
       if (key in selected) continue;
       if (!(key in env)) continue; // absent (e.g. `--inject blob` mode) is not a divergence
-      if (!envValueMatchesBlobItem(env[key], item)) selected[key] = env[key];
+      if (!envValueMatchesBlobItem(env[key], item, parsedBlob.settings)) selected[key] = env[key];
     }
   }
   return selected;
