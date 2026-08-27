@@ -19,6 +19,12 @@ const emptyMode: typeof process.env.MODE_VAR = '';
 // set items are still plain strings once narrowed
 const setVar: string | undefined = process.env.SET_VAR;
 
+// optional booleans keep their literal union (plus undefined)
+const flag: 'true' | 'false' | undefined = process.env.FLAG_VAR;
+
+// required items are non-optional even in skip mode (they can never be unset)
+const reqMode: 'alpha' | 'beta' = process.env.REQ_MODE_VAR;
+
 export {
-  mode, metaMode, unsetStr, emptyMode, setVar,
+  mode, metaMode, unsetStr, emptyMode, setVar, flag, reqMode,
 };

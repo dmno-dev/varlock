@@ -976,7 +976,9 @@ describe('type generation', () => {
         // present: a dedicated mapped type strips optionality and adds '' to the union of any
         // key that could be unset (so optional enums/booleans keep their literal unions plus '')
         expect(src).toContain('[Property in keyof EnvSchemaAsStrings]-?:');
-        expect(src).toContain("| (undefined extends CoercedEnvSchema[Property] ? '' : never)");
+        // structural optionality check — `undefined extends ...` would be true for every
+        // type in consumers with strictNullChecks disabled, leaking '' into required unions
+        expect(src).toContain("| ({} extends Pick<CoercedEnvSchema, Property> ? '' : never)");
         expect(src).toMatch(/interface ProcessEnv extends _ProcessEnvSchemaAsStrings_[0-9a-f]+ \{\}/);
         // import.meta.env is NOT covered by the injection guarantee (frameworks only expose
         // prefixed keys through it), so it keeps the optional string-form type

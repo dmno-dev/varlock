@@ -287,12 +287,15 @@ export type EnvSchemaAsStrings = {
   // type above, since frameworks only expose prefixed keys through it (a schema key may be
   // absent there regardless of injection mode). The coerced schema (ENV proxy) is also
   // unaffected, since ENV.X still returns the real resolved value (undefined).
+  // Optionality is detected structurally (`{} extends Pick<...>`) rather than via
+  // `undefined extends ...`, which would be true for EVERY type in consuming projects
+  // that have strictNullChecks disabled, leaking '' into required literal unions.
   const processEnvStringsAlias = `_ProcessEnvSchemaAsStrings_${schemaHash}`;
   if (opts.injectUndefinedAsEmpty) {
     tsSrc.push(`
 export type ProcessEnvSchemaAsStrings = {
   [Property in keyof EnvSchemaAsStrings]-?:
-    EnvSchemaAsStrings[Property] | (undefined extends CoercedEnvSchema[Property] ? '' : never)
+    EnvSchemaAsStrings[Property] | ({} extends Pick<CoercedEnvSchema, Property> ? '' : never)
 };
 `);
     tsSrc.push(`type ${processEnvStringsAlias} = ProcessEnvSchemaAsStrings;`);

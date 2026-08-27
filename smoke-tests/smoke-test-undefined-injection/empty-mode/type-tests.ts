@@ -8,12 +8,19 @@
 declare const process: { env: NodeJS.ProcessEnv };
 declare const importMetaEnv: ImportMetaEnv;
 
-// process.env keys are always present; optional enums gain '' in their union
+// process.env keys are always present; optional enums/booleans gain '' in their union
 const mode: 'alpha' | 'beta' | '' = process.env.MODE_VAR;
+const flag: 'true' | 'false' | '' = process.env.FLAG_VAR;
 const unsetStr: string = process.env.UNSET_VAR;
 
 // @ts-expect-error 'gamma' is still rejected — the enum union is preserved, not widened
 const badMode: typeof process.env.MODE_VAR = 'gamma';
+
+// required items keep their exact unions — '' is only added to keys that can be unset
+const reqMode: 'alpha' | 'beta' = process.env.REQ_MODE_VAR;
+
+// @ts-expect-error '' must not leak into a required enum union
+const reqModeEmpty: typeof process.env.REQ_MODE_VAR = '';
 
 // import.meta.env is NOT covered by the injection guarantee — keys stay optional
 const metaMode: 'alpha' | 'beta' | undefined = importMetaEnv.MODE_VAR;
@@ -25,5 +32,5 @@ const metaUnset: string = importMetaEnv.UNSET_VAR;
 const metaEmpty: typeof importMetaEnv.MODE_VAR = '';
 
 export {
-  mode, unsetStr, badMode, metaMode, metaUnset, metaEmpty,
+  mode, flag, unsetStr, badMode, reqMode, reqModeEmpty, metaMode, metaUnset, metaEmpty,
 };

@@ -104,14 +104,14 @@ describe('items that resolve to undefined', () => {
   describe('generated types match the injection mode', () => {
     const TSC = join(import.meta.dirname, '..', 'node_modules', 'typescript', 'bin', 'tsc');
 
-    function typecheckScenario(scenarioDir: string) {
+    function typecheckScenario(scenarioDir: string, opts: { extraArgs?: Array<string>, checkFile?: string } = {}) {
       const load = runVarlock(['load'], { cwd: scenarioDir });
       expect(load.exitCode).toBe(0);
       const fullDir = join(import.meta.dirname, '..', scenarioDir);
       expect(existsSync(join(fullDir, 'env.d.ts'))).toBe(true);
       const result = spawnSync(
         process.execPath,
-        [TSC, '--noEmit', '--strict', 'env.d.ts', 'type-tests.ts'],
+        [TSC, '--noEmit', ...opts.extraArgs ?? ['--strict'], 'env.d.ts', opts.checkFile ?? 'type-tests.ts'],
         { cwd: fullDir, encoding: 'utf-8' },
       );
       return {
@@ -128,6 +128,17 @@ describe('items that resolve to undefined', () => {
 
     test('@injectUndefinedAsEmpty: process.env keys required with \'\' unions, import.meta.env unchanged', () => {
       const result = typecheckScenario(EMPTY_MODE);
+      expect(result.output.trim()).toBe('');
+      expect(result.exitCode).toBe(0);
+    });
+
+    // optionality in the generated types is detected structurally, so required literal
+    // unions must stay exact even in consumers WITHOUT strictNullChecks (where
+    // `undefined extends T` is true for every type)
+    test('@injectUndefinedAsEmpty: required unions stay exact without strictNullChecks', () => {
+      const result = typecheckScenario(EMPTY_MODE, {
+        extraArgs: [], checkFile: 'nonstrict-type-tests.ts',
+      });
       expect(result.output.trim()).toBe('');
       expect(result.exitCode).toBe(0);
     });
