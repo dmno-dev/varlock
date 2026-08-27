@@ -382,6 +382,7 @@ const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
     allowedDomains?: Array<string>
+    allowedProtocols?: Array<string>
     /** Disallow a trailing slash on the URL path. */
     noTrailingSlash?: boolean
     /** A regular expression or string pattern that the full URL must match. */
@@ -393,7 +394,7 @@ const UrlDataType = createEnvGraphDataType(
     generatePlaceholder: (seed) => `https://${seed}.invalid/`,
     coerce(rawVal) {
       const val = coerceToString(rawVal);
-      if (settings?.prependHttps && !val.startsWith('https://')) return `https://${val}`;
+      if (settings?.prependHttps && !/^[a-z][a-z\d+.-]*:/i.test(val)) return `https://${val}`;
       return val;
     },
     validate(val) {
@@ -404,6 +405,22 @@ const UrlDataType = createEnvGraphDataType(
         throw new ValidationError('Invalid URL');
       }
       const errors = [] as Array<ValidationError>;
+      if (settings?.allowedProtocols) {
+        if (
+          !Array.isArray(settings.allowedProtocols)
+          || settings.allowedProtocols.some((allowedProtocol) => !_.isString(allowedProtocol))
+        ) {
+          errors.push(new ValidationError('allowedProtocols must be an array of strings'));
+        } else {
+          const protocol = url.protocol.replace(/:$/, '').toLowerCase();
+          const allowedProtocols = settings.allowedProtocols.map((allowedProtocol) => (
+            allowedProtocol.replace(/:$/, '').toLowerCase()
+          ));
+          if (!allowedProtocols.includes(protocol)) {
+            errors.push(new ValidationError(`Protocol (${protocol}) is not in allowed list: ${settings.allowedProtocols.join(',')}`));
+          }
+        }
+      }
       if (
         settings?.allowedDomains && !settings.allowedDomains.includes(url.host.toLowerCase())
       ) {

@@ -100,13 +100,13 @@ export function splitCommaSeparatedArgs(input: string) {
       continue;
     }
 
-    if (char === '(') {
+    if (char === '(' || char === '[') {
       depth += 1;
       current += char;
       continue;
     }
 
-    if (char === ')') {
+    if (char === ')' || char === ']') {
       depth = Math.max(depth - 1, 0);
       current += char;
       continue;
@@ -131,6 +131,22 @@ export function splitEnumArgs(input: string) {
   return splitCommaSeparatedArgs(input)
     .map((value) => unquote(value).trim())
     .filter(Boolean);
+}
+
+function parseListOption(value: string | boolean | undefined) {
+  if (typeof value !== 'string') return [];
+  const trimmedValue = value.trim();
+  if (trimmedValue.startsWith('[') && trimmedValue.endsWith(']')) {
+    return splitEnumArgs(trimmedValue.slice(1, -1));
+  }
+  return splitEnumArgs(trimmedValue);
+}
+
+function parseArrayOption(value: string | boolean | undefined) {
+  if (typeof value !== 'string') return undefined;
+  const trimmedValue = value.trim();
+  if (!trimmedValue.startsWith('[') || !trimmedValue.endsWith(']')) return undefined;
+  return splitEnumArgs(trimmedValue.slice(1, -1));
 }
 
 export function parseBooleanOption(value: string | boolean | undefined) {
@@ -345,21 +361,25 @@ function validateNumberValue(value: string, options: TypeInfo['options']) {
 
 function validateUrlValue(value: string, options: TypeInfo['options']) {
   const prependHttps = parseBooleanOption(options.prependHttps);
-  const hasProtocol = /^https?:\/\//i.test(value);
-
-  if (prependHttps && hasProtocol) {
-    return 'URL should omit the protocol when prependHttps=true.';
-  }
+  const hasProtocol = /^[a-z][a-z\d+.-]*:/i.test(value);
 
   if (!prependHttps && !hasProtocol) {
     return 'URL must include a protocol unless prependHttps=true.';
   }
 
   try {
-    const url = new URL(prependHttps ? `https://${value}` : value);
-    const allowedDomains = typeof options.allowedDomains === 'string'
-      ? splitEnumArgs(options.allowedDomains)
-      : [];
+    const url = new URL(prependHttps && !hasProtocol ? `https://${value}` : value);
+    const allowedDomains = parseListOption(options.allowedDomains);
+    const allowedProtocols = parseArrayOption(options.allowedProtocols);
+
+    if (options.allowedProtocols !== undefined) {
+      if (!allowedProtocols) return '`allowedProtocols` must be an array of strings.';
+      const normalizedProtocols = allowedProtocols
+        .map((protocol) => protocol.replace(/:$/, '').toLowerCase());
+      if (!normalizedProtocols.includes(url.protocol.replace(/:$/, '').toLowerCase())) {
+        return `URL protocol must be one of: ${normalizedProtocols.join(', ')}.`;
+      }
+    }
 
     if (allowedDomains.length > 0 && !allowedDomains.includes(url.host.toLowerCase())) {
       return `URL host must be one of: ${allowedDomains.join(', ')}.`;

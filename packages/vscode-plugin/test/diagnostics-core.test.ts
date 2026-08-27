@@ -102,7 +102,7 @@ describe('diagnostics-core', () => {
 
   it('reads type info from the comment block above an item', () => {
     const document = createLineDocument([
-      '# @required @type=url(prependHttps=true, allowedDomains="example.com,api.example.com")',
+      '# @required @type=url(prependHttps=true, allowedDomains="example.com,api.example.com", allowedProtocols=[http, https])',
       'API_URL=example.com',
     ]);
 
@@ -112,6 +112,7 @@ describe('diagnostics-core', () => {
       options: {
         prependHttps: 'true',
         allowedDomains: 'example.com,api.example.com',
+        allowedProtocols: '[http, https]',
       },
     });
   });
@@ -155,7 +156,7 @@ describe('diagnostics-core', () => {
         },
         'https://example.com',
       ),
-    ).toBe('URL should omit the protocol when prependHttps=true.');
+    ).toBeUndefined();
 
     expect(
       validateStaticValue(
@@ -178,6 +179,51 @@ describe('diagnostics-core', () => {
         'example.com',
       ),
     ).toBe('URL must include a protocol unless prependHttps=true.');
+  });
+
+  it('validates allowedProtocols url option', () => {
+    const typeInfo = {
+      name: 'url',
+      args: [],
+      options: { allowedProtocols: '[postgres, postgresql:]' },
+    };
+
+    expect(validateStaticValue(typeInfo, 'postgres://localhost/database')).toBeUndefined();
+    expect(validateStaticValue(typeInfo, 'POSTGRESQL://localhost/database')).toBeUndefined();
+    expect(validateStaticValue(typeInfo, 'https://example.com')).toBe(
+      'URL protocol must be one of: postgres, postgresql.',
+    );
+  });
+
+  it('requires allowedProtocols to use array syntax', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { allowedProtocols: 'postgres' } },
+        'postgres://localhost/database',
+      ),
+    ).toBe('`allowedProtocols` must be an array of strings.');
+  });
+
+  it('does not prepend HTTPS when the URL already has an allowed protocol', () => {
+    expect(
+      validateStaticValue(
+        {
+          name: 'url',
+          args: [],
+          options: { prependHttps: 'true', allowedProtocols: '[postgres]' },
+        },
+        'postgres://localhost/database',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('accepts any valid URL protocol when allowedProtocols is omitted', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: {} },
+        'postgres://localhost/database',
+      ),
+    ).toBeUndefined();
   });
 
   it('validates noTrailingSlash url option', () => {
