@@ -11,15 +11,15 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
 ] as const;
 
 /** Extract a regex pattern string from a plain pattern, `regex("pattern")` wrapper, or `/pattern/flags` literal. */
-function extractRegexPattern(value: unknown): string | undefined {
+function extractRegexPattern(value: unknown): { pattern: string, flags: string } | undefined {
   if (typeof value !== 'string') return undefined;
   // regex literal syntax: /pattern/flags
   const regexLiteral = value.match(/^\/(.*)\/([gimsuy]*)$/s);
-  if (regexLiteral) return regexLiteral[1].replaceAll('\\/', '/');
+  if (regexLiteral) return { pattern: regexLiteral[1].replaceAll('\\/', '/'), flags: regexLiteral[2] };
   // legacy regex() wrapper: regex("pattern")
   const wrapped = value.match(/^regex\("(.*)"\)$/s);
-  if (wrapped) return wrapped[1];
-  return value;
+  if (wrapped) return { pattern: wrapped[1], flags: '' };
+  return { pattern: value, flags: '' };
 }
 
 export type TypeInfo = {
@@ -299,11 +299,11 @@ function validateStringValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string') {
-    const pattern = extractRegexPattern(options.matches);
-    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const extracted = extractRegexPattern(options.matches);
+    if (!extracted?.pattern || extracted.pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
 
     try {
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(extracted.pattern, extracted.flags);
       if (!regex.test(value)) return `Value must match \`${options.matches}\`.`;
     } catch {
       return undefined;
@@ -373,10 +373,10 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string' && options.matches.length > 0) {
-    const pattern = extractRegexPattern(options.matches);
-    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const extracted = extractRegexPattern(options.matches);
+    if (!extracted?.pattern || extracted.pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
     try {
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(extracted.pattern, extracted.flags);
       if (!regex.test(value)) return `URL must match \`${options.matches}\`.`;
     } catch {
       return undefined;
@@ -388,7 +388,9 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
 
 const DOMAIN_LABEL_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
 
-function validateDomainValue(value: string, options: TypeInfo['options']) {
+function validateDomainValue(rawValue: string, options: TypeInfo['options']) {
+  // mirror runtime coercion, which lowercases before validation when normalize=true
+  const value = parseBooleanOption(options.normalize) ? rawValue.toLowerCase() : rawValue;
   if (value.includes('://') || value.includes('/')) {
     return 'Domain must not include a protocol or path (use @type=url for full URLs).';
   }
@@ -405,7 +407,8 @@ function validateDomainValue(value: string, options: TypeInfo['options']) {
       domain = domain.slice(2);
     }
 
-    if (domain.length === 0 || domain.length > 253) return 'Value must be a valid domain name.';
+    // the 253-char total limit (RFC 1035) counts the wildcard label too, so check `value`
+    if (domain.length === 0 || value.length > 253) return 'Value must be a valid domain name.';
     const labels = domain.split('.');
     if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
       return 'Value must be a valid domain name.';
@@ -421,10 +424,10 @@ function validateDomainValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string' && options.matches.length > 0) {
-    const pattern = extractRegexPattern(options.matches);
-    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const extracted = extractRegexPattern(options.matches);
+    if (!extracted?.pattern || extracted.pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
     try {
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(extracted.pattern, extracted.flags);
       if (!regex.test(value)) return `Domain must match \`${options.matches}\`.`;
     } catch {
       return undefined;

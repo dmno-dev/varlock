@@ -243,6 +243,20 @@ describe('domain data type', () => {
       expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
     });
 
+    it('counts the wildcard label toward the 253-char total length limit', async () => {
+      // suffix is exactly 253 chars (valid alone), so the wildcard form is 255 and must fail
+      const suffix = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+      expect(suffix.length).toBe(253);
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowWildcard=true)
+        OK_DOMAIN=${suffix}
+        # @type=domain(allowWildcard=true)
+        TOO_LONG_DOMAIN=*.${suffix}
+      `);
+      expect(g.configSchema.OK_DOMAIN.isValid).toBe(true);
+      expect(g.configSchema.TOO_LONG_DOMAIN.isValid).toBe(false);
+    });
+
     it('rejects a bare wildcard even when enabled', async () => {
       const g = await loadAndResolve(outdent`
         # @type=domain(allowWildcard=true)

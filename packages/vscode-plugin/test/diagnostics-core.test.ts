@@ -230,6 +230,18 @@ describe('diagnostics-core', () => {
 
     expect(validateStaticValue(domainType({ matches: '\\.example\\.com$' }), 'api.example.com')).toBeUndefined();
     expect(validateStaticValue(domainType({ matches: '\\.example\\.com$' }), 'api.other.com')).toContain('must match');
+
+    // parity with runtime: matches applies to the normalized value, and regex flags are honored
+    expect(validateStaticValue(
+      domainType({ normalize: 'true', matches: '/^api\\.example\\.com$/' }),
+      'API.EXAMPLE.COM',
+    )).toBeUndefined();
+    expect(validateStaticValue(domainType({ matches: '/^api\\./i' }), 'API.example.com')).toBeUndefined();
+
+    // the wildcard label counts toward the 253-char total length limit
+    const suffix253 = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+    expect(validateStaticValue(domainType({ allowWildcard: 'true' }), suffix253)).toBeUndefined();
+    expect(validateStaticValue(domainType({ allowWildcard: 'true' }), `*.${suffix253}`)).toContain('valid domain');
   });
 
   it('validates matches (regex) url option', () => {

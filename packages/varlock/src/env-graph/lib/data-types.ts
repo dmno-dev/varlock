@@ -487,7 +487,8 @@ const DomainDataType = createEnvGraphDataType(
           domain = domain.slice(2);
         }
 
-        if (domain.length === 0 || domain.length > 253) {
+        // the 253-char total limit (RFC 1035) counts the wildcard label too, so check `val`
+        if (domain.length === 0 || val.length > 253) {
           throw new ValidationError('Value must be a valid domain name');
         }
 
