@@ -935,8 +935,15 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     await this._initChild(child);
   }
 
-  /** resolve currentEnv from schema's envFlagKey or parent chain */
-  private async _resolveCurrentEnv(): Promise<string | undefined> {
+  /**
+   * resolve currentEnv from schema's envFlagKey or parent chain
+   *
+   * `fromFallback` distinguishes a value that came from the graph-level fallback
+   * (`--env`, which the Next.js integration sets from `next dev`/`next build`) from one
+   * resolved via an actual `@currentEnv`. The fallback is only a guess until imports
+   * have been processed, since an import may introduce a real `@currentEnv`.
+   */
+  private async _resolveCurrentEnv(): Promise<{ env: string | undefined, fromFallback: boolean }> {
     if (!this.graph) throw new Error('expected graph to be set');
 
     // First check if our schema has its own envFlagKey (for partial imports with their own currentEnv)
@@ -951,16 +958,18 @@ export class DirectoryDataSource extends EnvGraphDataSource {
           + `but "${envFlagKey}" is not included in the import list. `
           + `Add "${envFlagKey}" to the @import() arguments.`,
         ));
-        return undefined;
+        return { env: undefined, fromFallback: false };
       }
       const envFlagItem = this.graph.configSchema[envFlagKey];
       if (envFlagItem) {
         if (!envFlagItem.resolvedValue) await envFlagItem.earlyResolve();
-        return envFlagItem.resolvedValue?.toString();
+        return { env: envFlagItem.resolvedValue?.toString(), fromFallback: false };
       }
     }
     // Fall back to parent chain or fallback value
-    return (await this.resolveCurrentEnv())?.toString() || this.envFlagValue?.toString();
+    const fromEnvFlagItem = !!this.envFlagConfigItem;
+    const env = (await this.resolveCurrentEnv())?.toString() || this.envFlagValue?.toString();
+    return { env, fromFallback: !!env && !fromEnvFlagItem };
   }
 
   /** load env-specific files (.env.ENV and .env.ENV.local) for the given environment */
@@ -990,10 +999,15 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     await this.addAutoLoadedFile('.env.local');
 
     // Resolve currentEnv from schema's own @currentEnv (set during finishInit, not during imports)
-    let currentEnv = await this._resolveCurrentEnv();
+    const { env: currentEnv, fromFallback } = await this._resolveCurrentEnv();
     if (this.loadingError) return;
 
-    if (currentEnv) {
+    // A value from the graph-level fallback is deliberately NOT acted on yet — an import
+    // may still introduce a real @currentEnv, and loading `.env.<fallback>` here would
+    // both be wrong and leave that file's values in the graph after the correct env is
+    // known. A resolved @currentEnv is final, so it loads immediately (before imports),
+    // which is what lets import conditions read those values.
+    if (currentEnv && !fromFallback) {
       await this._loadEnvSpecificFiles(currentEnv);
     }
 
@@ -1004,12 +1018,14 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     }
 
     // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR).
-    // If we didn't load env-specific files above, check again now and process their imports too.
-    if (!currentEnv) {
-      currentEnv = await this._resolveCurrentEnv();
+    // Re-check when we had no value, or only the fallback — a real @currentEnv must win
+    // over it, the same way it does when declared in this schema directly.
+    if (!currentEnv || fromFallback) {
+      const { env: resolvedEnv } = await this._resolveCurrentEnv();
       if (this.loadingError) return;
-      if (currentEnv) {
-        const envSources = await this._loadEnvSpecificFiles(currentEnv);
+      const finalEnv = resolvedEnv || currentEnv;
+      if (finalEnv) {
+        const envSources = await this._loadEnvSpecificFiles(finalEnv);
         for (const source of envSources) {
           await source._processImports();
         }
