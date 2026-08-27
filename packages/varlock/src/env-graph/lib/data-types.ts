@@ -429,6 +429,8 @@ const UrlDataType = createEnvGraphDataType(
 );
 
 
+const IP_V4_ADDRESS_REGEX = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+
 // hostname label per RFC 1123 - alphanumeric + hyphens, no leading/trailing hyphen, max 63 chars
 const DOMAIN_LABEL_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
 
@@ -443,6 +445,8 @@ const DomainDataType = createEnvGraphDataType(
     allowWildcard?: boolean;
     /** allow single-label hostnames like `localhost` or internal service names (default false) */
     allowSingleLabel?: boolean;
+    /** also accept an IPv4 address - useful for HOST-style vars like DB_HOST (default false) */
+    allowIp?: boolean;
     /** convert to lowercase */
     normalize?: boolean;
     /** A regular expression or string pattern that the domain must match. */
@@ -473,31 +477,37 @@ const DomainDataType = createEnvGraphDataType(
         throw new ValidationError('Domain must not include credentials or an @ sign');
       }
 
-      let domain = val;
-      if (domain.startsWith('*.')) {
-        if (!settings?.allowWildcard) {
-          throw new ValidationError('Wildcard domains are not allowed', { tip: 'set allowWildcard=true to allow them' });
+      // a valid IPv4 address skips the domain structure checks (matches still applies below)
+      if (!(settings?.allowIp && IP_V4_ADDRESS_REGEX.test(val))) {
+        let domain = val;
+        if (domain.startsWith('*.')) {
+          if (!settings?.allowWildcard) {
+            throw new ValidationError('Wildcard domains are not allowed', { tip: 'set allowWildcard=true to allow them' });
+          }
+          domain = domain.slice(2);
         }
-        domain = domain.slice(2);
-      }
 
-      if (domain.length === 0 || domain.length > 253) {
-        throw new ValidationError('Value must be a valid domain name');
-      }
+        if (domain.length === 0 || domain.length > 253) {
+          throw new ValidationError('Value must be a valid domain name');
+        }
 
-      const labels = domain.split('.');
-      if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
-        throw new ValidationError('Value must be a valid domain name');
-      }
-      // an all-numeric final label means this is really an IP address, not a domain
-      if (/^\d+$/.test(labels[labels.length - 1])) {
-        throw new ValidationError('Value must be a domain name, not an IP address', { tip: 'use @type=ip for IP addresses' });
-      }
-      if (labels.length < 2 && !settings?.allowSingleLabel) {
-        throw new ValidationError(
-          'Domain must include at least two labels (e.g. "example.com")',
-          { tip: 'set allowSingleLabel=true to allow hostnames like "localhost"' },
-        );
+        const labels = domain.split('.');
+        if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
+          throw new ValidationError('Value must be a valid domain name');
+        }
+        // an all-numeric final label means this is really an IP address (or a malformed one)
+        if (/^\d+$/.test(labels[labels.length - 1])) {
+          if (settings?.allowIp) {
+            throw new ValidationError('Value must be a valid domain name or IPv4 address');
+          }
+          throw new ValidationError('Value must be a domain name, not an IP address', { tip: 'use @type=ip for IP addresses, or set allowIp=true to allow both' });
+        }
+        if (labels.length < 2 && !settings?.allowSingleLabel) {
+          throw new ValidationError(
+            'Domain must include at least two labels (e.g. "example.com")',
+            { tip: 'set allowSingleLabel=true to allow hostnames like "localhost"' },
+          );
+        }
       }
 
       if (settings?.matches) {
@@ -594,7 +604,6 @@ const EmailDataType = createEnvGraphDataType(
   }),
 );
 
-const IP_V4_ADDRESS_REGEX = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
 const IP_V6_ADDRESS_REGEX = /^(?:(?:[a-fA-F\d]{1,4}:){7}(?:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){6}(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){5}(?::(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,2}|:)|(?:[a-fA-F\d]{1,4}:){4}(?:(?::[a-fA-F\d]{1,4}){0,1}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,3}|:)|(?:[a-fA-F\d]{1,4}:){3}(?:(?::[a-fA-F\d]{1,4}){0,2}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,4}|:)|(?:[a-fA-F\d]{1,4}:){2}(?:(?::[a-fA-F\d]{1,4}){0,3}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,5}|:)|(?:[a-fA-F\d]{1,4}:){1}(?:(?::[a-fA-F\d]{1,4}){0,4}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,6}|:)|(?::(?:(?::[a-fA-F\d]{1,4}){0,5}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,7}|:)))(?:%[0-9a-zA-Z]{1,})?$/;
 const IpAddressDataType = createEnvGraphDataType(
   (settings?: {

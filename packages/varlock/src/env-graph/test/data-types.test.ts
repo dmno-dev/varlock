@@ -270,6 +270,49 @@ describe('domain data type', () => {
     });
   });
 
+  describe('allowIp', () => {
+    it('accepts an IPv4 address when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=192.168.1.1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+      expect(g.configSchema.MY_HOST.resolvedValue).toBe('192.168.1.1');
+    });
+
+    it('still accepts domains when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=db.internal.example.com
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+    });
+
+    it('rejects a malformed IPv4 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=192.168.1.999
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
+    it('rejects an IPv6 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=::1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
+    it('rejects an IP with a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=192.168.1.1:5432
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+  });
+
   describe('normalize', () => {
     it('lowercases the value when enabled', async () => {
       const g = await loadAndResolve(outdent`

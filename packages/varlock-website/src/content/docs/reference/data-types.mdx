@@ -185,6 +185,7 @@ Checks for a bare domain name (hostname) like `example.com`, with no protocol, p
 **Options:**
 - `allowWildcard` (boolean): Allow a leading wildcard label like `*.example.com`
 - `allowSingleLabel` (boolean): Allow single-label hostnames like `localhost` or internal service names
+- `allowIp` (boolean): Also accept an IPv4 address, useful for HOST-style vars that hold a hostname in one environment and an IP in another
 - `normalize` (boolean): Convert to lowercase
 - `matches` (string|RegExp): Regular expression pattern the domain must match
 
@@ -194,6 +195,9 @@ COOKIE_DOMAIN=app.example.com
 
 # @type=domain(allowWildcard=true)
 CORS_DOMAIN=*.example.com
+
+# @type=domain(allowIp=true)
+DB_HOST=10.0.3.12
 ```
 </div>
 

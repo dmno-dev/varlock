@@ -205,7 +205,7 @@ describe('diagnostics-core', () => {
 
   it('validates domain values and options', () => {
     const domainType = (options: Record<string, string> = {}) => (
-      { name: 'domain', args: [], options } as const
+      { name: 'domain', args: [], options }
     );
 
     expect(validateStaticValue(domainType(), 'example.com')).toBeUndefined();
@@ -222,6 +222,11 @@ describe('diagnostics-core', () => {
 
     expect(validateStaticValue(domainType(), 'localhost')).toContain('allowSingleLabel');
     expect(validateStaticValue(domainType({ allowSingleLabel: 'true' }), 'localhost')).toBeUndefined();
+
+    expect(validateStaticValue(domainType({ allowIp: 'true' }), '192.168.1.1')).toBeUndefined();
+    expect(validateStaticValue(domainType({ allowIp: 'true' }), 'db.example.com')).toBeUndefined();
+    expect(validateStaticValue(domainType({ allowIp: 'true' }), '192.168.1.999')).toContain('IPv4');
+    expect(validateStaticValue(domainType({ allowIp: 'true' }), '192.168.1.1:5432')).toContain('port');
 
     expect(validateStaticValue(domainType({ matches: '\\.example\\.com$' }), 'api.example.com')).toBeUndefined();
     expect(validateStaticValue(domainType({ matches: '\\.example\\.com$' }), 'api.other.com')).toContain('must match');

@@ -395,24 +395,29 @@ function validateDomainValue(value: string, options: TypeInfo['options']) {
   if (value.includes(':')) return 'Domain must not include a port.';
   if (value.includes('@')) return 'Domain must not include an @ sign.';
 
-  let domain = value;
-  if (domain.startsWith('*.')) {
-    if (!parseBooleanOption(options.allowWildcard)) {
-      return 'Wildcard domains are not allowed unless allowWildcard=true.';
+  // a valid IPv4 address skips the domain structure checks (matches still applies below)
+  if (!(parseBooleanOption(options.allowIp) && isIP(value) === 4)) {
+    let domain = value;
+    if (domain.startsWith('*.')) {
+      if (!parseBooleanOption(options.allowWildcard)) {
+        return 'Wildcard domains are not allowed unless allowWildcard=true.';
+      }
+      domain = domain.slice(2);
     }
-    domain = domain.slice(2);
-  }
 
-  if (domain.length === 0 || domain.length > 253) return 'Value must be a valid domain name.';
-  const labels = domain.split('.');
-  if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
-    return 'Value must be a valid domain name.';
-  }
-  if (/^\d+$/.test(labels[labels.length - 1])) {
-    return 'Value must be a domain name, not an IP address.';
-  }
-  if (labels.length < 2 && !parseBooleanOption(options.allowSingleLabel)) {
-    return 'Domain must include at least two labels unless allowSingleLabel=true.';
+    if (domain.length === 0 || domain.length > 253) return 'Value must be a valid domain name.';
+    const labels = domain.split('.');
+    if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
+      return 'Value must be a valid domain name.';
+    }
+    if (/^\d+$/.test(labels[labels.length - 1])) {
+      return parseBooleanOption(options.allowIp)
+        ? 'Value must be a valid domain name or IPv4 address.'
+        : 'Value must be a domain name, not an IP address.';
+    }
+    if (labels.length < 2 && !parseBooleanOption(options.allowSingleLabel)) {
+      return 'Domain must include at least two labels unless allowSingleLabel=true.';
+    }
   }
 
   if (typeof options.matches === 'string' && options.matches.length > 0) {
