@@ -179,6 +179,25 @@ API_URL=https://api.example.com/v1
 </div>
 
 <div>
+### `domain`
+Checks for a bare domain name (hostname) like `example.com`, with no protocol, port, or path. Useful for cookie domains, CORS config, or building URLs from parts.
+
+**Options:**
+- `allowWildcard` (boolean): Allow a leading wildcard label like `*.example.com`
+- `allowSingleLabel` (boolean): Allow single-label hostnames like `localhost` or internal service names
+- `normalize` (boolean): Convert to lowercase
+- `matches` (string|RegExp): Regular expression pattern the domain must match
+
+```env-spec
+# @type=domain
+COOKIE_DOMAIN=app.example.com
+
+# @type=domain(allowWildcard=true)
+CORS_DOMAIN=*.example.com
+```
+</div>
+
+<div>
 ### `enum`
 Checks a value is contained in a list of possible values - it must match one exactly. Members can also be sourced from other items (see [Dynamic type options](#dynamic-type-options)).
 

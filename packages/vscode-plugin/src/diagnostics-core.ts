@@ -386,6 +386,49 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
   return undefined;
 }
 
+const DOMAIN_LABEL_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+function validateDomainValue(value: string, options: TypeInfo['options']) {
+  if (value.includes('://') || value.includes('/')) {
+    return 'Domain must not include a protocol or path (use @type=url for full URLs).';
+  }
+  if (value.includes(':')) return 'Domain must not include a port.';
+  if (value.includes('@')) return 'Domain must not include an @ sign.';
+
+  let domain = value;
+  if (domain.startsWith('*.')) {
+    if (!parseBooleanOption(options.allowWildcard)) {
+      return 'Wildcard domains are not allowed unless allowWildcard=true.';
+    }
+    domain = domain.slice(2);
+  }
+
+  if (domain.length === 0 || domain.length > 253) return 'Value must be a valid domain name.';
+  const labels = domain.split('.');
+  if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
+    return 'Value must be a valid domain name.';
+  }
+  if (/^\d+$/.test(labels[labels.length - 1])) {
+    return 'Value must be a domain name, not an IP address.';
+  }
+  if (labels.length < 2 && !parseBooleanOption(options.allowSingleLabel)) {
+    return 'Domain must include at least two labels unless allowSingleLabel=true.';
+  }
+
+  if (typeof options.matches === 'string' && options.matches.length > 0) {
+    const pattern = extractRegexPattern(options.matches);
+    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    try {
+      const regex = new RegExp(pattern);
+      if (!regex.test(value)) return `Domain must match \`${options.matches}\`.`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
 export function validateStaticValue(typeInfo: TypeInfo, value: string) {
   switch (typeInfo.name) {
     case 'string':
@@ -402,6 +445,8 @@ export function validateStaticValue(typeInfo: TypeInfo, value: string) {
         : 'Value must be a valid email address.';
     case 'url':
       return validateUrlValue(value, typeInfo.options);
+    case 'domain':
+      return validateDomainValue(value, typeInfo.options);
     case 'ip': {
       const version = Number(typeInfo.options.version);
       const detectedVersion = isIP(value);

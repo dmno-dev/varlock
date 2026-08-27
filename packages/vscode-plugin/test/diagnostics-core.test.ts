@@ -203,6 +203,30 @@ describe('diagnostics-core', () => {
     ).toBeUndefined();
   });
 
+  it('validates domain values and options', () => {
+    const domainType = (options: Record<string, string> = {}) => (
+      { name: 'domain', args: [], options } as const
+    );
+
+    expect(validateStaticValue(domainType(), 'example.com')).toBeUndefined();
+    expect(validateStaticValue(domainType(), 'api.internal.example.co.uk')).toBeUndefined();
+
+    expect(validateStaticValue(domainType(), 'https://example.com')).toContain('protocol or path');
+    expect(validateStaticValue(domainType(), 'example.com/foo')).toContain('protocol or path');
+    expect(validateStaticValue(domainType(), 'example.com:8080')).toContain('port');
+    expect(validateStaticValue(domainType(), 'example..com')).toContain('valid domain');
+    expect(validateStaticValue(domainType(), '192.168.1.1')).toContain('IP address');
+
+    expect(validateStaticValue(domainType(), '*.example.com')).toContain('allowWildcard');
+    expect(validateStaticValue(domainType({ allowWildcard: 'true' }), '*.example.com')).toBeUndefined();
+
+    expect(validateStaticValue(domainType(), 'localhost')).toContain('allowSingleLabel');
+    expect(validateStaticValue(domainType({ allowSingleLabel: 'true' }), 'localhost')).toBeUndefined();
+
+    expect(validateStaticValue(domainType({ matches: '\\.example\\.com$' }), 'api.example.com')).toBeUndefined();
+    expect(validateStaticValue(domainType({ matches: '\\.example\\.com$' }), 'api.other.com')).toContain('must match');
+  });
+
   it('validates matches (regex) url option', () => {
     expect(
       validateStaticValue(
