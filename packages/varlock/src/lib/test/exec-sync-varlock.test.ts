@@ -47,6 +47,38 @@ describe('execSyncVarlock integration telemetry', () => {
     );
   });
 
+  it('strips NODE_OPTIONS so parent-process preloads cannot corrupt the CLI stdio protocol', () => {
+    process.env.NODE_OPTIONS = '-r some-logger';
+    try {
+      execSyncVarlock('load');
+    } finally {
+      delete process.env.NODE_OPTIONS;
+    }
+
+    expect(execSync).toHaveBeenCalledWith(
+      'varlock load',
+      expect.objectContaining({
+        env: expect.not.objectContaining({ NODE_OPTIONS: expect.anything() }),
+      }),
+    );
+  });
+
+  it('strips NODE_OPTIONS from an explicitly provided env too', () => {
+    execSyncVarlock('load', {
+      env: {
+        ...process.env,
+        NODE_OPTIONS: '-r some-logger',
+      },
+    });
+
+    expect(execSync).toHaveBeenCalledWith(
+      'varlock load',
+      expect.objectContaining({
+        env: expect.not.objectContaining({ NODE_OPTIONS: expect.anything() }),
+      }),
+    );
+  });
+
   it('sets __VARLOCK_INTEGRATION when integrationTelemetry is provided', () => {
     execSyncVarlock('load', {
       integrationTelemetry: {
