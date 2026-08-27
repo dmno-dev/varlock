@@ -5,7 +5,7 @@
   literal unions must stay exact even without strict null checks (where
   `undefined extends T` would be true for every type).
 */
-declare const process: { env: NodeJS.ProcessEnv };
+/// <reference types="node" />
 
 // required enum keeps its exact union
 const reqMode: 'alpha' | 'beta' = process.env.REQ_MODE_VAR;
