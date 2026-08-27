@@ -84,7 +84,7 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
     options.processEnv = 'none';
   }
   // `@injectUndefinedAsEmpty` means unset items land on process.env as empty strings, so the
-  // string-form env types drop their optionality (graph-level flag, not a decorator arg)
+  // process.env augmentation drops its optionality (graph-level flag, not a decorator arg)
   options.injectUndefinedAsEmpty = ctx.graph.injectUndefinedAsEmpty;
 
   return generateTsTypesSrc(ctx.fields, options);

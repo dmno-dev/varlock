@@ -164,7 +164,9 @@ export type TsGenOptions = {
   importMetaEnv?: TsGlobalAugment;
   /**
    * Set from the graph's `@injectUndefinedAsEmpty` root decorator (not a decorator arg): unset
-   * items are injected as empty strings, so the string-form env types drop their optionality.
+   * items are injected into process.env as empty strings, so the process.env augmentation drops
+   * its optionality. import.meta.env is NOT affected — frameworks only expose prefixed keys
+   * through it, so a schema key may be absent there regardless of injection mode.
    */
   injectUndefinedAsEmpty?: boolean;
 };
@@ -265,25 +267,36 @@ declare module 'varlock/env' {
 `);
   }
 
-  // with `@injectUndefinedAsEmpty`, items that resolve to undefined are injected as empty
-  // strings, so every key is actually present on process.env / import.meta.env: strip the
-  // optionality (`-?`) from the string-form type, and add `''` to the union of any key that
-  // could be unset. The coerced schema (ENV proxy) keeps its optional keys either way, since
-  // ENV.X still returns the real resolved value (undefined).
-  // NonNullable<> strips the `undefined` that optional props carry, so literal-typed items
-  // (enums, booleans) keep their precise unions instead of widening to plain `string`.
-  const stringsOptionality = opts.injectUndefinedAsEmpty ? '-?' : '';
-  const emptyStringUnion = opts.injectUndefinedAsEmpty
-    ? "\n      | (undefined extends CoercedEnvSchema[Property] ? '' : never)" : '';
+  // string-form env types keep the optionality of the coerced schema. NonNullable<> strips the
+  // `undefined` that optional props carry, so literal-typed items (enums, booleans) keep their
+  // precise unions instead of widening to plain `string`.
   tsSrc.push(`
 export type EnvSchemaAsStrings = {
-  [Property in keyof CoercedEnvSchema]${stringsOptionality}:
-    (NonNullable<CoercedEnvSchema[Property]> extends string ? NonNullable<CoercedEnvSchema[Property]>
-      : (NonNullable<CoercedEnvSchema[Property]> extends boolean ? ('true' | 'false') : string))${emptyStringUnion}
+  [Property in keyof CoercedEnvSchema]:
+    NonNullable<CoercedEnvSchema[Property]> extends string ? NonNullable<CoercedEnvSchema[Property]>
+      : (NonNullable<CoercedEnvSchema[Property]> extends boolean ? ('true' | 'false') : string)
 };
 `);
 
   tsSrc.push(`type ${stringsAlias} = EnvSchemaAsStrings;`);
+
+  // with `@injectUndefinedAsEmpty`, items that resolve to undefined are injected into
+  // process.env as empty strings, so every key is actually present THERE: strip the
+  // optionality (`-?`) and add `''` to the union of any key that could be unset.
+  // This applies only to the process.env augmentation — import.meta.env keeps the optional
+  // type above, since frameworks only expose prefixed keys through it (a schema key may be
+  // absent there regardless of injection mode). The coerced schema (ENV proxy) is also
+  // unaffected, since ENV.X still returns the real resolved value (undefined).
+  const processEnvStringsAlias = `_ProcessEnvSchemaAsStrings_${schemaHash}`;
+  if (opts.injectUndefinedAsEmpty) {
+    tsSrc.push(`
+export type ProcessEnvSchemaAsStrings = {
+  [Property in keyof EnvSchemaAsStrings]-?:
+    EnvSchemaAsStrings[Property] | (undefined extends CoercedEnvSchema[Property] ? '' : never)
+};
+`);
+    tsSrc.push(`type ${processEnvStringsAlias} = ProcessEnvSchemaAsStrings;`);
+  }
 
   // `local` exposure: export a package-local ENV typed to *this* package's schema.
   // runtime is identical (still the shared proxy from 'varlock/env'); types stay file-scoped
@@ -310,7 +323,7 @@ export const ENV = _ENV as unknown as Readonly<CoercedEnvSchema>;
     globalBlocks.push(`
   // add types for global process.env
   namespace NodeJS {
-    interface ProcessEnv extends ${stringsAlias} ${augmentBody(opts.processEnv, '    ')}
+    interface ProcessEnv extends ${opts.injectUndefinedAsEmpty ? processEnvStringsAlias : stringsAlias} ${augmentBody(opts.processEnv, '    ')}
   }`);
   }
 

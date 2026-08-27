@@ -479,7 +479,7 @@ The value must be static (`true`/`false`). Because code generation reads this fl
 OPTIONAL_VAR= # @optional
 ```
 
-Generated TypeScript types reflect this: when enabled, the `process.env` and `import.meta.env` augmentations from [`@generateTsTypes`](#generatetstypes) mark every schema key as always present, since unset items are injected as `""`. An optional string types as `string` instead of `string | undefined`, and literal-typed items keep their unions with `""` added (an optional `enum(alpha, beta)` becomes `"alpha" | "beta" | ""`).
+Generated TypeScript types reflect this: when enabled, the `process.env` augmentation from [`@generateTsTypes`](#generatetstypes) marks every schema key as always present, since unset items are injected as `""`. An optional string types as `string` instead of `string | undefined`, and literal-typed items keep their unions with `""` added (an optional `enum(alpha, beta)` becomes `"alpha" | "beta" | ""`). The `import.meta.env` augmentation keeps its optional keys: frameworks like Vite and Astro only expose prefixed keys through `import.meta.env`, so a schema key can be absent there regardless of this setting.
 
 :::note
 The `ENV` proxy is unaffected: `ENV.OPTIONAL_VAR` always returns the real resolved value (`undefined` when unset), regardless of this setting, and its generated types keep optional keys optional. The same goes for the other language generators (`@generatePythonEnv`, `@generateGoEnv`, etc.): their loaders parse the `__VARLOCK_ENV` blob into coerced values, so unset items stay absent/`None`/`Option::None` rather than becoming empty strings.

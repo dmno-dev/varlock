@@ -972,13 +972,17 @@ describe('type generation', () => {
         await g.runCodeGeneratorsIfNeeded();
         const fs = await import('node:fs');
         const src = await fs.promises.readFile(outputPath, 'utf-8');
-        // unset items are injected as empty strings, so process.env/import.meta.env keys
-        // are always present: the string-form mapped type strips optionality, and any key
-        // that could be unset gets '' added to its union (so optional enums/booleans keep
-        // their literal unions plus '')
-        expect(src).toContain('[Property in keyof CoercedEnvSchema]-?:');
+        // unset items are injected into process.env as empty strings, so its keys are always
+        // present: a dedicated mapped type strips optionality and adds '' to the union of any
+        // key that could be unset (so optional enums/booleans keep their literal unions plus '')
+        expect(src).toContain('[Property in keyof EnvSchemaAsStrings]-?:');
         expect(src).toContain("| (undefined extends CoercedEnvSchema[Property] ? '' : never)");
-        // ...but the coerced schema (ENV proxy typing) keeps the key optional, since
+        expect(src).toMatch(/interface ProcessEnv extends _ProcessEnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+        // import.meta.env is NOT covered by the injection guarantee (frameworks only expose
+        // prefixed keys through it), so it keeps the optional string-form type
+        expect(src).toMatch(/interface ImportMetaEnv extends _EnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+        expect(src).toContain('[Property in keyof CoercedEnvSchema]:');
+        // ...and the coerced schema (ENV proxy typing) keeps the key optional, since
         // ENV.OPTIONAL_ITEM still returns the real resolved value (undefined)
         expect(src).toMatch(/OPTIONAL_ITEM\?:/);
       } finally {
@@ -1004,8 +1008,9 @@ describe('type generation', () => {
         const fs = await import('node:fs');
         const src = await fs.promises.readFile(outputPath, 'utf-8');
         expect(src).toContain('[Property in keyof CoercedEnvSchema]:');
-        expect(src).not.toContain('[Property in keyof CoercedEnvSchema]-?:');
+        expect(src).not.toContain('ProcessEnvSchemaAsStrings');
         expect(src).not.toContain("? '' : never");
+        expect(src).toMatch(/interface ProcessEnv extends _EnvSchemaAsStrings_[0-9a-f]+ \{\}/);
       } finally {
         await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
       }
