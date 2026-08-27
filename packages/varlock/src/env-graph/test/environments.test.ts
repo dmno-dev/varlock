@@ -387,6 +387,26 @@ describe('@currentEnv and .env.* file loading logic', () => {
       },
     }));
 
+    // The fallback is still authoritative until an import supersedes it, so its files must
+    // load BEFORE imports — an import condition may read a value that `.env.<fallback>`
+    // overrides. Deferring them broke this.
+    test('fallback env values are available to import conditions', envFilesTest({
+      fallbackEnv: 'staging',
+      files: {
+        '.env.schema': outdent`
+        # @import(./.env.azure, enabled=eq($AUTH_MODE, "azure"))
+        # ---
+        AUTH_MODE=none
+      `,
+        '.env.staging': 'AUTH_MODE=azure',
+        '.env.azure': 'AZURE_ITEM=val-from-.env.azure',
+      },
+      expectValues: {
+        AUTH_MODE: 'azure',
+        AZURE_ITEM: 'val-from-.env.azure',
+      },
+    }));
+
     // The importing directory has no @currentEnv of its own — it inherits one from the
     // imported schema. That resolves only AFTER imports are processed, so a fallback
     // must not be treated as the final answer before then.

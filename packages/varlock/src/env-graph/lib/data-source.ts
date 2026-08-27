@@ -1002,12 +1002,10 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     const { env: currentEnv, fromFallback } = await this._resolveCurrentEnv();
     if (this.loadingError) return;
 
-    // A value from the graph-level fallback is deliberately NOT acted on yet — an import
-    // may still introduce a real @currentEnv, and loading `.env.<fallback>` here would
-    // both be wrong and leave that file's values in the graph after the correct env is
-    // known. A resolved @currentEnv is final, so it loads immediately (before imports),
-    // which is what lets import conditions read those values.
-    if (currentEnv && !fromFallback) {
+    // Loaded now even for a fallback: import conditions (`enabled=...`) and imported
+    // `@disable` may read values that `.env.<env>` overrides, so these have to be
+    // registered before imports are processed.
+    if (currentEnv) {
       await this._loadEnvSpecificFiles(currentEnv);
     }
 
@@ -1018,14 +1016,19 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     }
 
     // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR).
-    // Re-check when we had no value, or only the fallback — a real @currentEnv must win
-    // over it, the same way it does when declared in this schema directly.
+    // Re-check when we had no value, or when the one we used was only the fallback — a
+    // real @currentEnv has to win over it, the same way it does when declared in this
+    // schema directly.
+    //
+    // NOTE: files already loaded for a superseded fallback env stay in the graph. The
+    // correct env's files are added after them so they take precedence, but a key that
+    // exists ONLY in `.env.<fallback>` will still be set. Dropping them would mean
+    // removing a data source and the items it created, which there is no mechanism for.
     if (!currentEnv || fromFallback) {
       const { env: resolvedEnv } = await this._resolveCurrentEnv();
       if (this.loadingError) return;
-      const finalEnv = resolvedEnv || currentEnv;
-      if (finalEnv) {
-        const envSources = await this._loadEnvSpecificFiles(finalEnv);
+      if (resolvedEnv && resolvedEnv !== currentEnv) {
+        const envSources = await this._loadEnvSpecificFiles(resolvedEnv);
         for (const source of envSources) {
           await source._processImports();
         }
