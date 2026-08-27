@@ -386,6 +386,30 @@ describe('@currentEnv and .env.* file loading logic', () => {
         ITEM1: 'val-from-.env.dev',
       },
     }));
+
+    // The importing directory has no @currentEnv of its own — it inherits one from the
+    // imported schema. That resolves only AFTER imports are processed, so a fallback
+    // must not be treated as the final answer before then.
+    test('fallback env value is ignored if currentEnv comes from an import', envFilesTest({
+      fallbackEnv: 'staging',
+      files: {
+        '.env.schema': outdent`
+        # @import(./shared/)
+        # ---
+        ITEM1=val-from-.env.schema
+      `,
+        'shared/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+      `,
+        '.env.dev': 'ITEM1=val-from-.env.dev',
+        '.env.staging': 'ITEM1=val-from-.env.staging',
+      },
+      expectValues: {
+        ITEM1: 'val-from-.env.dev',
+      },
+    }));
   });
 });
 
