@@ -256,6 +256,7 @@ export interface MultiSelectOptions<Value> extends CommonOptions {
   cursorAt?: Value;
 }
 export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
+  const required = opts.required ?? true;
   const opt = (
     option: Option<Value>,
     state: 'inactive' | 'active' | 'selected' | 'active-selected' | 'submitted' | 'cancelled',
@@ -290,10 +291,10 @@ export const multiselect = <Value>(opts: MultiSelectOptions<Value>) => {
     input: opts.input,
     output: opts.output,
     initialValues: opts.initialValues,
-    required: opts.required ?? true,
+    required,
     cursorAt: opts.cursorAt,
     validate(selected: Array<Value> | undefined) {
-      if (this.required && (!selected || selected.length === 0)) {
+      if (required && (!selected || selected.length === 0)) {
         return `Please select at least one option.\n${color.reset(
           color.dim(
             `Press ${color.gray(color.bgWhite(color.inverse(' space ')))} to select, ${color.gray(
