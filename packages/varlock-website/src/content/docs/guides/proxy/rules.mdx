@@ -168,7 +168,7 @@ AWS_SECRET_ACCESS_KEY=somePlugin()
 AWS_ACCESS_KEY_ID=somePlugin()
 ```
 
-The region and service need no configuration: they are parsed from the inbound request's credential scope, so one rule covers every AWS service and region the client talks to. See the [plugin docs](/plugins/aws-sigv4/) for all options and limitations.
+The region and service need no configuration: they are parsed from the inbound request's credential scope, so one rule covers every AWS service and region the client talks to. The same scheme covers S3-compatible services that authenticate with SigV4 (Cloudflare R2, MinIO, Backblaze B2, and others); point the rule's `domain` at their endpoint. See the [plugin docs](/plugins/aws-sigv4/) for all options and limitations.
 
 #### Plugin-provided schemes
 

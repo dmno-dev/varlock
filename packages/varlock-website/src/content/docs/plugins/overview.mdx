@@ -6,7 +6,7 @@ description: Varlock plugins overview
 import Badge from '@/components/Badge.astro';
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-Plugins allow extending the functionality of Varlock. See the [plugins guide](/guides/plugins/) for more details on using plugins.
+Plugins allow extending the functionality of Varlock. Most load secrets from an external source (password managers, secrets platforms, cloud secret stores), but plugins can also extend other parts of varlock, such as adding request-signing schemes to the [credential proxy](/guides/proxy/). See the [plugins guide](/guides/plugins/) for more details on using plugins.
 
 The plugins listed below are the official ones, published under the `@varlock` npm scope. Third-party plugins are also supported. You can load them from npm or from a local path. See the [plugins guide](/guides/plugins/#installation) for more information. Loading plugins from other sources (git, http, jsr) is not supported yet.
 
@@ -47,6 +47,14 @@ The plugins listed below are the official ones, published under the `@varlock` n
   <LinkCard title="Kubernetes" href="/plugins/kubernetes/" description="@varlock/kubernetes-plugin" />
 </CardGrid>
 
+## Credential proxy
+
+These plugins extend the [credential proxy](/guides/proxy/) rather than loading secrets:
+
+<CardGrid>
+  <LinkCard title="AWS SigV4 signing" href="/plugins/aws-sigv4/" description="@varlock/aws-sigv4-plugin" />
+</CardGrid>
+
 ## Package reference
 
 | Plugin | npm package |
@@ -54,6 +62,7 @@ The plugins listed below are the official ones, published under the `@varlock` n
 | [1Password](/plugins/1password/) | <Badge npmPackage="@varlock/1password-plugin" /> |
 | [Akeyless](/plugins/akeyless/) | <Badge npmPackage="@varlock/akeyless-plugin" /> |
 | [AWS](/plugins/aws-secrets/) (Secrets Manager & Parameter Store) | <Badge npmPackage="@varlock/aws-secrets-plugin" /> |
+| [AWS SigV4 signing](/plugins/aws-sigv4/) (credential proxy; AWS and S3-compatible) | <Badge npmPackage="@varlock/aws-sigv4-plugin" /> |
 | [Azure Key Vault](/plugins/azure-key-vault/) | <Badge npmPackage="@varlock/azure-key-vault-plugin" /> |
 | [Bitwarden](/plugins/bitwarden/) | <Badge npmPackage="@varlock/bitwarden-plugin" /> |
 | [Dashlane](/plugins/dashlane/) | <Badge npmPackage="@varlock/dashlane-plugin" /> |

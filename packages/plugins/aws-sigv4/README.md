@@ -17,4 +17,6 @@ AWS_SECRET_ACCESS_KEY=somePlugin()
 AWS_ACCESS_KEY_ID=somePlugin()
 ```
 
-See the [request signing docs](https://varlock.dev/guides/proxy/rules/#request-signing) for all options.
+Not just AWS: the same scheme brokers credentials for any SigV4-authenticated service, including S3-compatible stores (Cloudflare R2, MinIO, Backblaze B2, DigitalOcean Spaces) and DynamoDB-compatible endpoints. Point the rule's `domain` at the service's endpoint.
+
+See the [plugin docs](https://varlock.dev/plugins/aws-sigv4/) for all options and limitations.

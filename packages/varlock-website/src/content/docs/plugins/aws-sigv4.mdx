@@ -1,6 +1,6 @@
 ---
 title: AWS SigV4 Plugin
-description: AWS SigV4 request re-signing for the Varlock credential proxy
+description: SigV4 request re-signing for the Varlock credential proxy, for AWS and S3-compatible services
 ---
 
 import Badge from '@/components/Badge.astro';
@@ -29,6 +29,25 @@ AWS_ACCESS_KEY_ID=yourPreferredPlugin()
 ```
 
 No SDK configuration is needed beyond pointing it at the proxy (which `varlock proxy run` does): the SDK signs with the placeholder credentials it sees, and one rule covers every AWS service and region the client talks to.
+
+## Not just AWS
+
+SigV4 is AWS's protocol, but it is also the auth standard across the S3-compatible ecosystem, since those services are built to work with the AWS SDKs unchanged: Cloudflare R2, MinIO, Backblaze B2 (S3 API), DigitalOcean Spaces, Wasabi, IBM Cloud Object Storage, and others, plus DynamoDB-compatible endpoints like ScyllaDB Alternator and Google Cloud Storage's XML interop mode with HMAC keys.
+
+The scheme works with all of them as-is. The client is still an AWS SDK pointed at a custom endpoint, so the request carries a normal SigV4 credential scope, and the rule's `domain` decides where it applies:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/aws-sigv4-plugin)
+# ---
+# Broker Cloudflare R2 credentials the same way:
+# @proxy(domain="myaccount.r2.cloudflarestorage.com", transform={
+#   scheme="aws-sigv4", keyId="R2_ACCESS_KEY_ID",
+# })
+R2_SECRET_ACCESS_KEY=yourPreferredPlugin()
+
+# @sensitive
+R2_ACCESS_KEY_ID=yourPreferredPlugin()
+```
 
 ## Options
 
