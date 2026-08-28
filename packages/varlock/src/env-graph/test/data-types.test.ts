@@ -189,6 +189,183 @@ describe('url data type - path values', () => {
   });
 });
 
+describe('domain data type', () => {
+  it('accepts a basic domain', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=domain
+      MY_DOMAIN=example.com
+    `);
+    expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+    expect(g.configSchema.MY_DOMAIN.resolvedValue).toBe('example.com');
+  });
+
+  it('accepts nested subdomains', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=domain
+      MY_DOMAIN=api.internal.example.co.uk
+    `);
+    expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+  });
+
+  it.each([
+    ['protocol', 'https://example.com'],
+    ['path', 'example.com/foo'],
+    ['port', 'example.com:8080'],
+    ['credentials', 'user@example.com'],
+    ['spaces', '"exam ple.com"'],
+    ['empty label', 'example..com'],
+    ['leading dot', '.example.com'],
+    ['trailing dot', 'example.com.'],
+    ['leading hyphen in label', '-foo.example.com'],
+    ['ip address', '192.168.1.1'],
+  ])('rejects a value with %s', async (_desc, value) => {
+    const g = await loadAndResolve(outdent`
+      # @type=domain
+      MY_DOMAIN=${value}
+    `);
+    expect(g.configSchema.MY_DOMAIN.isValid).toBe(false);
+  });
+
+  describe('allowWildcard', () => {
+    it('rejects wildcard domains by default', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain
+        MY_DOMAIN=*.example.com
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(false);
+    });
+
+    it('accepts wildcard domains when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowWildcard=true)
+        MY_DOMAIN=*.example.com
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+    });
+
+    it('counts the wildcard label toward the 253-char total length limit', async () => {
+      // suffix is exactly 253 chars (valid alone), so the wildcard form is 255 and must fail
+      const suffix = ['a'.repeat(63), 'b'.repeat(63), 'c'.repeat(63), 'd'.repeat(61)].join('.');
+      expect(suffix.length).toBe(253);
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowWildcard=true)
+        OK_DOMAIN=${suffix}
+        # @type=domain(allowWildcard=true)
+        TOO_LONG_DOMAIN=*.${suffix}
+      `);
+      expect(g.configSchema.OK_DOMAIN.isValid).toBe(true);
+      expect(g.configSchema.TOO_LONG_DOMAIN.isValid).toBe(false);
+    });
+
+    it('rejects a bare wildcard even when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowWildcard=true)
+        MY_DOMAIN=*.
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(false);
+    });
+  });
+
+  describe('allowSingleLabel', () => {
+    it('rejects single-label hostnames by default', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain
+        MY_DOMAIN=localhost
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(false);
+    });
+
+    it('accepts single-label hostnames when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowSingleLabel=true)
+        MY_DOMAIN=localhost
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+    });
+  });
+
+  describe('allowIp', () => {
+    it('accepts an IPv4 address when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=192.168.1.1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+      expect(g.configSchema.MY_HOST.resolvedValue).toBe('192.168.1.1');
+    });
+
+    it('still accepts domains when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=db.internal.example.com
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+    });
+
+    it('rejects a malformed IPv4 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=192.168.1.999
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
+    it('rejects an IPv6 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=::1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
+    it('rejects an IP with a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIp=true)
+        MY_HOST=192.168.1.1:5432
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+  });
+
+  describe('normalize', () => {
+    it('lowercases the value when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(normalize=true)
+        MY_DOMAIN=App.Example.COM
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+      expect(g.configSchema.MY_DOMAIN.resolvedValue).toBe('app.example.com');
+    });
+
+    it('accepts mixed case without normalize (domains are case-insensitive)', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain
+        MY_DOMAIN=App.Example.COM
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+      expect(g.configSchema.MY_DOMAIN.resolvedValue).toBe('App.Example.COM');
+    });
+  });
+
+  describe('matches', () => {
+    it('accepts a domain matching the pattern', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(matches=/\\.example\\.com$/)
+        MY_DOMAIN=api.example.com
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(true);
+    });
+
+    it('rejects a domain not matching the pattern', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(matches=/\\.example\\.com$/)
+        MY_DOMAIN=api.other.com
+      `);
+      expect(g.configSchema.MY_DOMAIN.isValid).toBe(false);
+    });
+  });
+});
+
 describe('string data type - matches option', () => {
   it('accepts string matching regex literal', async () => {
     const g = await loadAndResolve(outdent`

@@ -330,6 +330,19 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     ],
   },
   {
+    name: 'domain',
+    summary: 'Bare domain name (hostname) with no protocol, port, or path.',
+    documentation: 'Example: `@type=domain` or `@type=domain(allowWildcard=true)`.',
+    insertText: 'domain',
+    optionSnippets: [
+      { name: 'allowWildcard', insertText: `allowWildcard=${booleanChoiceSnippet()}`, documentation: 'Allow a leading wildcard label, e.g. `*.example.com`.' },
+      { name: 'allowSingleLabel', insertText: `allowSingleLabel=${booleanChoiceSnippet()}`, documentation: 'Allow single-label hostnames like `localhost`.' },
+      { name: 'allowIp', insertText: `allowIp=${booleanChoiceSnippet()}`, documentation: 'Also accept an IPv4 address (useful for HOST-style vars like `DB_HOST`).' },
+      { name: 'normalize', insertText: `normalize=${booleanChoiceSnippet()}`, documentation: 'Lowercase the domain before validation.' },
+      { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the domain must match.' },
+    ],
+  },
+  {
     name: 'simple-object',
     summary: 'JSON-like object value.',
     documentation: 'Coerces plain objects or JSON strings into objects.',
