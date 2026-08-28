@@ -119,7 +119,7 @@ The `transform=` option on a `@proxy` rule makes the proxy compute the signature
 #   stringToSign="{timestamp}{method}{pathWithQuery}{body}",
 #   signatureHeader="X-ACCESS-SIGN",
 #   timestampHeader="X-ACCESS-TIMESTAMP",
-#   keyId="EXCHANGE_API_KEY", keyHeader="X-ACCESS-KEY",
+#   keyId=$EXCHANGE_API_KEY, keyHeader="X-ACCESS-KEY",
 #   encoding="hex",
 # })
 EXCHANGE_API_SECRET=yourPreferredPlugin()
@@ -189,7 +189,7 @@ The `aws-sigv4` scheme re-signs AWS SDK requests and ships as a separate plugin,
 # @plugin(@varlock/aws-sigv4-plugin)
 # ---
 # @proxy(domain="*.amazonaws.com", transform={
-#   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
+#   scheme="aws-sigv4", keyId=$AWS_ACCESS_KEY_ID,
 #   allowedServices=[bedrock, s3],
 # })
 AWS_SECRET_ACCESS_KEY=somePlugin()
