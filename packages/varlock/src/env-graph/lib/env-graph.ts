@@ -36,6 +36,7 @@ import {
   PROXY_APPROVAL_EACH_VALUES,
   PROXY_TRANSFORM_COMMON_OPTION_SPECS,
   parseProxySubstitutionTarget,
+  proxyTransformConsumedOptionName,
   validateProxyTransformConfig,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
   type ProxyTransformSchemeDef,
@@ -1333,21 +1334,43 @@ export class EnvGraph {
   private buildProxyTransform(obj: any, attachedItemKey: string | undefined): ProxyRuleTransform {
     const validationError = validateProxyTransformConfig(obj, this.getProxyTransformSchemeSpecs());
     if (validationError) throw new SchemaError(`@proxy: ${validationError}`);
-    const secretKey = _.isString(obj.secretKey) ? obj.secretKey : attachedItemKey;
-    if (!secretKey) {
-      throw new SchemaError('@proxy: transform.secretKey is required on a detached @proxy rule (an attached rule defaults it to the decorated item)');
-    }
     const spec = this.proxyTransformSchemes[obj.scheme];
+    // The scheme's consumed option (its own, or the common `secretKey` name)
+    // canonicalizes to `secretKey` in rule data, and defaults to the decorated
+    // item on attached rules.
+    const consumedOption = proxyTransformConsumedOptionName(spec);
+    const secretKey = _.isString(obj[consumedOption]) ? obj[consumedOption] : attachedItemKey;
+    if (!secretKey) {
+      throw new SchemaError(`@proxy: transform.${consumedOption} is required on a detached @proxy rule (an attached rule defaults it to the decorated item)`);
+    }
     const schemeOptions: Record<string, unknown> = {};
     for (const [key, optionSpec] of Object.entries(spec.options)) {
-      if (obj[key] === undefined) continue;
+      if (key === consumedOption || obj[key] === undefined) continue;
       // List options accept a single string or an array in the schema; the
       // runtime shape is always an array.
       schemeOptions[key] = optionSpec.type === 'stringList'
         ? EnvGraph.normalizeStringList(obj[key])
         : obj[key];
     }
-    return { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
+    const builtTransform = { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
+    // Item-name options must name real config items. Deliberately does NOT echo
+    // the offending value: if the author wrote a $ reference by mistake, the
+    // "unknown item" here is the item's resolved VALUE (possibly a secret).
+    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec.options };
+    for (const [option, optionSpec] of Object.entries(optionSpecs)) {
+      const itemName = builtTransform[option];
+      if (optionSpec.itemRole === undefined || !_.isString(itemName)) continue;
+      if (!this.configSchema[itemName]) {
+        // report the option under the name the schema author writes (the
+        // scheme's own consumed option), not the canonical secretKey field
+        const surfaceName = option === 'secretKey' ? consumedOption : option;
+        throw new SchemaError(
+          `@proxy: transform.${surfaceName} must be the name of a config item in this schema, and no matching item was found. `
+            + `Use the plain item name (e.g. ${surfaceName}="API_PASSWORD"), not a $ reference (which resolves to the item's value)`,
+        );
+      }
+    }
+    return builtTransform;
   }
 
   /**

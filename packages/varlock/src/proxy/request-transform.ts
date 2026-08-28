@@ -148,16 +148,23 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
  * The HTTP Basic signer: writes `Authorization: Basic base64(user:secret)`
  * with the REAL values, overwriting whatever the child sent (its own header
  * encodes a placeholder, which base64 hides from substitution entirely).
+ * `secretIn="username"` puts the secret in the userid position with an empty
+ * password, for single-token APIs.
  */
 const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
-  const username = input.credentials.usernameItem
-    ?? (typeof basicTransform.username === 'string' ? basicTransform.username : '');
+  const secret = input.credentials.secretKey;
+  let userid = typeof basicTransform.username === 'string' ? basicTransform.username : '';
+  let password = secret;
+  if (basicTransform.secretIn === 'username') {
+    userid = secret;
+    password = '';
+  }
   // RFC 7617: a colon in the userid would shift the user/password split.
-  if (username.includes(':')) {
+  if (userid.includes(':')) {
     return { ok: false, error: 'the Basic auth username contains ":", which is not allowed (it separates username from password)' };
   }
-  const token = Buffer.from(`${username}:${input.credentials.secretKey}`, 'utf8').toString('base64');
+  const token = Buffer.from(`${userid}:${password}`, 'utf8').toString('base64');
   return { ok: true, setHeaders: { authorization: `Basic ${token}` } };
 };
 

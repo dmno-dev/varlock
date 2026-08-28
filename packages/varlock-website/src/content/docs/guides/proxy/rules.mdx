@@ -160,10 +160,26 @@ Basic auth defeats plain substitution on its own: the child sends `Authorization
 REGISTRY_PASSWORD=yourPreferredPlugin()
 ```
 
+On a detached rule, name the password item explicitly:
+
+```env-spec title=".env.schema"
+# @proxy(domain="registry.example.com", transform={
+#   scheme="http-basic", password="REGISTRY_PASSWORD", username=$REGISTRY_USER,
+# })
+# ---
+# @sensitive
+REGISTRY_PASSWORD=yourPreferredPlugin()
+
+REGISTRY_USER=ci-bot
+```
+
 | Option | Meaning |
 |---|---|
-| `username` | Static username. Mutually exclusive with `usernameItem`; both omitted = empty username. |
-| `usernameItem` | Item holding the username, when it is itself managed config. |
+| `password` | The item holding the password (this scheme's consumed secret; replaces the generic `secretKey` name). Defaults to the decorated item on an attached rule. Takes an item **name**, never a literal password; if an API genuinely needs a fixed password, put it in an item. |
+| `username` | The username: a literal, or `$ITEM_NAME` to use another item's value. Omitted = empty username. |
+| `secretIn` | Which side of the `user:password` pair the secret occupies: `password` _(default)_ or `username`, for APIs that take a single token as the userid with an empty password (`curl -u "token:"` style). `username` must be unset in that case. |
+
+Note the asymmetry: `username` can be a `$` reference because a username is wire-visible config and the reference resolves to its value. Options that name credential items (`password` here, `secretKey`/`keyId` elsewhere) take the plain item **name** instead, never a `$` reference; the proxy resolves their real values at signing time, so secrets stay out of rule data. The schema validator rejects `$` references there.
 
 #### AWS SigV4 (plugin)
 

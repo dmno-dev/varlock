@@ -480,31 +480,37 @@ describe('proxy decorators', () => {
     expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /cannot target the "content-length" header/.test(e.message))).toBe(true);
   });
 
-  test('http-basic transform: builds, usernameItem joins the rule, exclusivity + colon rejected', async () => {
+  test('http-basic transform: username takes a literal or a $REF (resolved to the item value)', async () => {
     const graph = await loadGraph(outdent`
       # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", usernameItem="API_USER"})
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username=$API_USER})
       API_PASSWORD=real-password
 
-      # @sensitive
       API_USER=svc-user
     `);
     expect(await graph.getProxyRules()).toMatchObject([
       {
         domain: ['api.legacy.com'],
-        itemKeys: ['API_USER'],
-        transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', usernameItem: 'API_USER' },
+        itemKeys: [],
+        // $API_USER resolved to the item's VALUE - usernames are wire-visible
+        // config, so embedding the value in rule data is fine (unlike secrets)
+        transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: 'svc-user' },
       },
     ]);
 
+    const secretInBuilds = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", secretIn="username"})
+      API_TOKEN=the-token
+    `);
+    expect(await secretInBuilds.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } }]);
+
     const bothForms = await loadGraph(outdent`
       # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username="u", usernameItem="API_USER"})
-      API_PASSWORD=real-password
-
-      API_USER=svc-user
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", secretIn="username", username="u"})
+      API_TOKEN=the-token
     `);
-    await expect(bothForms.getProxyRules()).rejects.toThrow(/mutually exclusive/);
+    await expect(bothForms.getProxyRules()).rejects.toThrow(/username cannot be set when secretIn="username"/);
 
     const colonUser = await loadGraph(outdent`
       # ---
@@ -512,6 +518,65 @@ describe('proxy decorators', () => {
       API_PASSWORD=real-password
     `);
     await expect(colonUser.getProxyRules()).rejects.toThrow(/cannot contain ":"/);
+  });
+
+  test('http-basic: detached rules use password= (item name); literals and secretKey= are rejected', async () => {
+    const detached = await loadGraph(outdent`
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", password="REGISTRY_PASSWORD", username="ci-bot"})
+      # ---
+      # @sensitive
+      REGISTRY_PASSWORD=real-password
+    `);
+    expect(await detached.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', secretKey: 'REGISTRY_PASSWORD', username: 'ci-bot' } }]);
+
+    // the generic secretKey name is replaced by the scheme's own password option
+    const secretKeyName = await loadGraph(outdent`
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", secretKey="REGISTRY_PASSWORD"})
+      # ---
+      # @sensitive
+      REGISTRY_PASSWORD=real-password
+    `);
+    await expect(secretKeyName.getProxyRules()).rejects.toThrow(/unknown transform option "secretKey" for scheme "http-basic"/);
+
+    // a literal password is not an item name - rejected loudly, value not usable
+    const literalPassword = await loadGraph(outdent`
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", password="hunter2"})
+      # ---
+      BASELINE=1
+    `);
+    await expect(literalPassword.getProxyRules()).rejects.toThrow(/transform\.password must be the name of a config item/);
+  });
+
+  test('item-name transform options reject $ references and unknown items without echoing values', async () => {
+    // static guard (built-in schemes): a $REF on secretKey fails before it can
+    // resolve the secret's value into rule data
+    const refSecret = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="http-basic", password=$OTHER_SECRET})
+      API_PASSWORD=real-password
+
+      OTHER_SECRET=super-secret-value
+    `);
+    const errors = refSecret.configSchema.API_PASSWORD.decoratorSchemaErrors;
+    expect(errors.some((e) => /transform\.password takes the item's name as a plain string/.test(e.message))).toBe(true);
+
+    // resolve-time backstop (covers plugin schemes, where the static pass can't
+    // know which options are item names): unknown item, value NOT echoed
+    const refWire = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Sig"})
+      SIGNING_SECRET=shhh
+
+      TOKEN_ID=tok-real-value
+    `);
+    let thrown: Error | undefined;
+    await refWire.getProxyRules().catch((err) => {
+      thrown = err;
+    });
+    expect(thrown?.message).toMatch(/transform\.tokenId must be the name of a config item/);
+    expect(thrown?.message).not.toContain('tok-real-value');
   });
 
   test('transform: {timestamp} in stringToSign requires a timestampHeader', async () => {

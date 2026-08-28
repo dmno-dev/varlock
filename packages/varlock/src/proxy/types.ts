@@ -259,12 +259,23 @@ export type ProxyRuleHmacTransform = {
 
 /**
  * The common options every scheme shares. `scheme` is validated separately;
- * `secretKey`'s required-ness is placement-dependent (defaults to the
+ * the consumed option's required-ness is placement-dependent (defaults to the
  * decorated item on attached rules), so it is enforced at rule build.
+ *
+ * `secretKey` is the DEFAULT name for a scheme's consumed secret. A scheme may
+ * instead declare its own consumed-role option (e.g. http-basic's `password`),
+ * which replaces `secretKey` at the schema surface; rule data always
+ * canonicalizes to `secretKey`.
  */
 export const PROXY_TRANSFORM_COMMON_OPTION_SPECS: Record<string, ProxyTransformOptionSpec> = {
   secretKey: { type: 'string', itemRole: 'consumed' },
 };
+
+/** The scheme's consumed-option name at the schema surface (see above). */
+export function proxyTransformConsumedOptionName(spec: ProxyTransformSchemeSpec | undefined): string {
+  const own = spec ? Object.entries(spec.options).find(([, optionSpec]) => optionSpec.itemRole === 'consumed') : undefined;
+  return own?.[0] ?? 'secretKey';
+}
 
 const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
   options: {
@@ -294,27 +305,43 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
  * The HTTP Basic auth transform config. Basic auth defeats placeholder
  * substitution on its own: the child sends `Basic base64(user:placeholder)`,
  * and the encoded placeholder never appears as a substring the proxy could
- * swap. This scheme has the proxy write `Authorization: Basic
- * base64(user:realsecret)` itself, overwriting whatever the child sent.
+ * swap. This scheme has the proxy compose the `Authorization: Basic` header
+ * itself from the real secret, overwriting whatever the child sent.
  */
 export type ProxyRuleHttpBasicTransform = {
   scheme: 'http-basic';
-  /** Item key holding the password/token. Consumed, never substituted. */
+  /**
+   * Item key holding the secret (the password, or the whole token). Consumed,
+   * never substituted. In the schema this option is written as `password=`
+   * (the scheme's own consumed option); rule data canonicalizes to `secretKey`.
+   */
   secretKey: string;
-  /** Static username. Mutually exclusive with `usernameItem`; both omitted = empty username. */
+  /**
+   * The username: a literal, or `$ITEM_NAME` in the schema (resolved to that
+   * item's value at load, like any other decorator arg). Omitted = empty
+   * username. Unused when `secretIn="username"`.
+   */
   username?: string;
-  /** Item key holding the username (when it is itself managed config). */
-  usernameItem?: string;
+  /**
+   * Which side of the `user:password` pair the secret occupies. Default
+   * `password`. Some APIs take a single token as the userid with an empty
+   * password (`curl -u "token:"`); use `secretIn="username"` for those.
+   */
+  secretIn?: 'password' | 'username';
 };
 
 const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
   options: {
+    // The scheme's own consumed option, replacing the generic `secretKey` name
+    // at the schema surface. Takes the ITEM NAME holding the password - never a
+    // literal password (put a static password in an item if an API needs one).
+    password: { type: 'string', itemRole: 'consumed' },
     username: { type: 'string' },
-    usernameItem: { type: 'string', itemRole: 'wire' },
+    secretIn: { type: 'enum', enumValues: ['password', 'username'] },
   },
   validate: (config) => {
-    if (config.username !== undefined && config.usernameItem !== undefined) {
-      return 'transform.username (a static value) and transform.usernameItem (an item name) are mutually exclusive';
+    if (config.secretIn === 'username' && config.username !== undefined) {
+      return 'transform.username cannot be set when secretIn="username" (the secret occupies the username position and the password is empty)';
     }
     // RFC 7617: the userid may not contain a colon (it delimits user:password).
     if (typeof config.username === 'string' && config.username.includes(':')) {
@@ -389,8 +416,9 @@ export function validateProxyTransformConfig(
     return `unknown transform scheme "${schemeName}". Registered schemes: ${Object.keys(schemes).join(', ')} (plugin-provided schemes need their @plugin(...) declared)`;
   }
 
+  const schemeHasOwnConsumed = spec !== undefined && proxyTransformConsumedOptionName(spec) !== 'secretKey';
   const optionSpecs: Record<string, ProxyTransformOptionSpec> = {
-    ...PROXY_TRANSFORM_COMMON_OPTION_SPECS,
+    ...(schemeHasOwnConsumed ? {} : PROXY_TRANSFORM_COMMON_OPTION_SPECS),
     ...spec?.options,
   };
   if (spec) {

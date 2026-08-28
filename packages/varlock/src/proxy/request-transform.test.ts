@@ -152,22 +152,22 @@ describe('http-basic signer', () => {
     });
   });
 
-  test('prefers a resolved usernameItem credential over the static option', async () => {
+  test('secretIn="username" puts the secret in the userid position with an empty password', async () => {
     const result = await sign(
-      { scheme: 'http-basic', secretKey: 'API_PASSWORD', usernameItem: 'API_USER' } as any,
-      { ...input, credentials: { secretKey: 'real-password', usernameItem: 'item-user' } } as any,
+      { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } as any,
+      { ...input, credentials: { secretKey: 'the-token' } } as any,
       NOW_MS,
     );
     expect(result).toMatchObject({
       ok: true,
-      setHeaders: { authorization: `Basic ${Buffer.from('item-user:real-password').toString('base64')}` },
+      setHeaders: { authorization: `Basic ${Buffer.from('the-token:').toString('base64')}` },
     });
   });
 
-  test('fails closed on a username containing ":"', async () => {
+  test('fails closed on a userid containing ":" (including a secret in username position)', async () => {
     const result = await sign(
-      { scheme: 'http-basic', secretKey: 'API_PASSWORD', usernameItem: 'API_USER' } as any,
-      { ...input, credentials: { secretKey: 'real-password', usernameItem: 'user:evil' } } as any,
+      { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } as any,
+      { ...input, credentials: { secretKey: 'evil:token' } } as any,
       NOW_MS,
     );
     expect(result.ok).toBe(false);
