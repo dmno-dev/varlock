@@ -11,6 +11,8 @@ import { CacheStore, withDirLock } from './cache-store';
 vi.mock('../local-encrypt', () => ({
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   ensureKey: vi.fn(async () => {}),
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  ensureEncryptionReady: vi.fn(async () => {}),
   encryptValue: vi.fn(async (value: string) => `encrypted:${value}`),
   decryptValue: vi.fn(async (value: string) => value.replace('encrypted:', '')),
 }));

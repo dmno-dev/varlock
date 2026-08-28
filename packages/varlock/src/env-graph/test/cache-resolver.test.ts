@@ -25,6 +25,8 @@ vi.mock('../../lib/local-encrypt', () => ({
   decryptValue: vi.fn(async (value: string) => value.replace('encrypted:', '')),
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   ensureKey: vi.fn(async () => {}),
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  ensureEncryptionReady: vi.fn(async () => {}),
   keyExists: vi.fn(() => true),
 }));
 

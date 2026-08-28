@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CURRENT_PAYLOAD_VERSION, assertSupportedPayloadVersion, createKeyPair, encrypt, decrypt,
+  DEVICE_PAYLOAD_VERSION, IDENTITY_PAYLOAD_VERSION, assertSupportedPayloadVersion,
+  createKeyPair, encrypt, decrypt, readPayloadVersion,
 } from './crypto';
 
 describe('ECIES crypto', () => {
@@ -108,7 +109,7 @@ describe('assertSupportedPayloadVersion', () => {
   it('accepts a real v1 payload', async () => {
     const keyPair = await createKeyPair();
     const ciphertext = await encrypt(keyPair.publicKey, 'test');
-    expect(CURRENT_PAYLOAD_VERSION).toBe(0x01);
+    expect(DEVICE_PAYLOAD_VERSION).toBe(0x01);
     expect(() => assertSupportedPayloadVersion(ciphertext)).not.toThrow();
   });
 
@@ -116,9 +117,14 @@ describe('assertSupportedPayloadVersion', () => {
     expect(() => assertSupportedPayloadVersion(payloadWithVersion(0x01))).not.toThrow();
   });
 
-  it('rejects a v2 payload with an upgrade hint', () => {
-    expect(() => assertSupportedPayloadVersion(payloadWithVersion(0x02)))
-      .toThrow('unsupported encrypted payload version 2; upgrade varlock');
+  it('accepts a v2 (identity-encrypted) payload', () => {
+    expect(IDENTITY_PAYLOAD_VERSION).toBe(0x02);
+    expect(() => assertSupportedPayloadVersion(payloadWithVersion(0x02))).not.toThrow();
+  });
+
+  it('rejects a v3 payload with an upgrade hint', () => {
+    expect(() => assertSupportedPayloadVersion(payloadWithVersion(0x03)))
+      .toThrow('unsupported encrypted payload version 3; upgrade varlock');
   });
 
   it('reports the actual version number it found', () => {
@@ -131,5 +137,43 @@ describe('assertSupportedPayloadVersion', () => {
     expect(() => assertSupportedPayloadVersion('garbage-data')).not.toThrow();
     expect(() => assertSupportedPayloadVersion('not-valid-base64-ciphertext!')).not.toThrow();
     expect(() => assertSupportedPayloadVersion('')).not.toThrow();
+  });
+});
+
+describe('readPayloadVersion', () => {
+  it('reports the version byte of a real payload', async () => {
+    const keyPair = await createKeyPair();
+    const v1 = await encrypt(keyPair.publicKey, 'test');
+    const v2 = await encrypt(keyPair.publicKey, 'test', { version: IDENTITY_PAYLOAD_VERSION });
+    expect(readPayloadVersion(v1)).toBe(0x01);
+    expect(readPayloadVersion(v2)).toBe(0x02);
+  });
+
+  it('returns undefined for things that are not payloads', () => {
+    expect(readPayloadVersion('')).toBeUndefined();
+    expect(readPayloadVersion('not-valid-base64-ciphertext!')).toBeUndefined();
+  });
+});
+
+describe('identity (v2) payloads', () => {
+  it('round-trips encrypt → decrypt', async () => {
+    const keyPair = await createKeyPair();
+    const plaintext = 'identity-encrypted secret';
+
+    const ciphertext = await encrypt(keyPair.publicKey, plaintext, { version: IDENTITY_PAYLOAD_VERSION });
+    expect(Buffer.from(ciphertext, 'base64')[0]).toBe(0x02);
+
+    expect(await decrypt(keyPair.privateKey, keyPair.publicKey, ciphertext)).toBe(plaintext);
+  });
+
+  it('uses the same wire format as v1 apart from the version byte', async () => {
+    const keyPair = await createKeyPair();
+    const v1 = Buffer.from(await encrypt(keyPair.publicKey, 'test'), 'base64');
+    const v2 = Buffer.from(
+      await encrypt(keyPair.publicKey, 'test', { version: IDENTITY_PAYLOAD_VERSION }),
+      'base64',
+    );
+    expect(v2.length).toBe(v1.length);
+    expect(v2[1]).toBe(0x04); // uncompressed point prefix
   });
 });

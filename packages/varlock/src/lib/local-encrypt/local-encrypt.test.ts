@@ -104,11 +104,20 @@ describe('local-encrypt with file fallback', () => {
     expect(decrypted).toBe(plaintext);
   });
 
-  it('fails to decrypt with wrong key', async () => {
+  it('fails to decrypt a device-encrypted value with the wrong key', async () => {
+    await localEncrypt.ensureKey('key-a');
+    await localEncrypt.ensureKey('key-b');
+    const ciphertext = await localEncrypt.encryptValue('secret', 'key-a', { target: 'device' });
+    await expect(localEncrypt.decryptValue(ciphertext, 'key-b')).rejects.toThrow();
+  });
+
+  it('opens an identity-encrypted value regardless of which device key is named', async () => {
+    // v2 payloads belong to the identity, not to one device key: the key id
+    // only picks which wrap to unwrap through, and any wrap will do
     await localEncrypt.ensureKey('key-a');
     await localEncrypt.ensureKey('key-b');
     const ciphertext = await localEncrypt.encryptValue('secret', 'key-a');
-    await expect(localEncrypt.decryptValue(ciphertext, 'key-b')).rejects.toThrow();
+    expect(await localEncrypt.decryptValue(ciphertext, 'key-b')).toBe('secret');
   });
 
   it('fails to decrypt garbage ciphertext', async () => {

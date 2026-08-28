@@ -14,9 +14,10 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveNativeBinary, getInstalledPlatformPackageName } from './binary-resolver';
 import { DEFAULT_KEY_ID } from './constants';
-import { assertSupportedPayloadVersion } from './crypto';
+import { assertSupportedPayloadVersion, IDENTITY_PAYLOAD_VERSION, readPayloadVersion } from './crypto';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
+import * as identity from './identity';
 import { isWSL } from './wsl-detect';
 import type {
   BackendInfo, BackendType, NativeKeyDetail, NativeStatusResult,
@@ -25,6 +26,7 @@ import type {
 export type { BackendInfo, BackendType, NativeKeyDetail } from './types';
 
 export { DEFAULT_KEY_ID };
+export { IdentityBackendUnsupportedError, IdentityNotFoundError } from './identity';
 
 /** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
 function debug(msg: string) {
@@ -515,12 +517,12 @@ export async function ensureKey(keyId: string = DEFAULT_KEY_ID): Promise<void> {
 // ── Encrypt / Decrypt ──────────────────────────────────────────────────
 
 /**
- * Encrypt a plaintext value.
+ * Encrypt directly to the device key, producing a v1 payload.
  *
  * For hardware-backed backends, encryption uses the public key only (no biometric needed).
  * For file-based backend, uses the pure JS ECIES implementation.
  */
-export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
+async function encryptToDeviceKey(plaintext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     warnIfFileFallback(backend);
@@ -543,17 +545,13 @@ export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KE
 }
 
 /**
- * Decrypt a ciphertext value.
+ * Decrypt a v1 (device-direct) ciphertext value.
  *
  * For biometric-enabled backends (macOS Secure Enclave, Windows Hello),
  * uses the daemon client for session caching (avoids repeated biometric prompts).
  * For file-based backend, uses the pure JS ECIES implementation.
  */
-export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
-  // checked here rather than per-backend so payloads from a newer varlock fail
-  // the same way everywhere, including on the native binary paths
-  assertSupportedPayloadVersion(ciphertext);
-
+async function decryptWithDeviceKey(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     debug('decryptValue: using file backend');
@@ -639,11 +637,94 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   return result.plaintext;
 }
 
+// ── Identity routing ───────────────────────────────────────────────────
+
+/**
+ * Device-key crypto handed to the identity layer, which uses it to wrap and
+ * unwrap the identity private key. Always v1, never identity-routed: the wrap
+ * is what makes identity payloads readable in the first place.
+ */
+const deviceCrypto: identity.DeviceCrypto = {
+  encrypt: (plaintext, keyId) => encryptToDeviceKey(plaintext, keyId),
+  decrypt: (ciphertext, keyId) => decryptWithDeviceKey(ciphertext, keyId),
+};
+
+/**
+ * Whether new values should be encrypted to the identity key (v2) rather than
+ * straight to the device key (v1).
+ *
+ * Only the file backend for now. Hardware backends must not hold the identity
+ * private key in this process, so their v2 path waits for the native daemon.
+ */
+function shouldEncryptToIdentity(): boolean {
+  return getBackendInfo().type === 'file' && identity.isIdentityEnabled();
+}
+
+/**
+ * Make sure everything needed to encrypt is in place: the device key, plus the
+ * identity when this backend encrypts to one.
+ */
+export async function ensureEncryptionReady(keyId: string = DEFAULT_KEY_ID): Promise<void> {
+  await ensureKey(keyId);
+  if (shouldEncryptToIdentity()) {
+    await identity.ensureIdentity(deviceCrypto, keyId);
+  }
+}
+
+/**
+ * Encrypt a plaintext value.
+ *
+ * Routes to the identity key where that backend supports it, and to the device
+ * key otherwise. Pass `target: 'device'` to force a v1 payload.
+ */
+export async function encryptValue(
+  plaintext: string,
+  keyId: string = DEFAULT_KEY_ID,
+  opts?: { target?: 'auto' | 'device' },
+): Promise<string> {
+  if (opts?.target !== 'device' && shouldEncryptToIdentity()) {
+    debug('encryptValue: encrypting to identity key (v2)');
+    return identity.encryptToIdentity(deviceCrypto, plaintext, keyId);
+  }
+  return encryptToDeviceKey(plaintext, keyId);
+}
+
+/**
+ * Decrypt a ciphertext value, routing on the payload version byte.
+ *
+ * v1 payloads go to the device key exactly as they always have. v2 payloads
+ * need the identity private key unwrapped first, which only the file backend
+ * may do in-process.
+ */
+export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
+  // checked here rather than per-backend so payloads from a newer varlock fail
+  // the same way everywhere, including on the native binary paths
+  assertSupportedPayloadVersion(ciphertext);
+
+  if (readPayloadVersion(ciphertext) === IDENTITY_PAYLOAD_VERSION) {
+    const backend = getBackendInfo();
+    if (backend.type !== 'file') {
+      // custody: unwrapping here would put the identity private key in this
+      // process, which is exactly what hardware backends exist to prevent
+      throw new identity.IdentityBackendUnsupportedError(backend.type);
+    }
+    debug('decryptValue: identity-encrypted payload (v2)');
+    warnIfFileFallback(backend);
+    return identity.decryptWithIdentity(deviceCrypto, ciphertext);
+  }
+
+  return decryptWithDeviceKey(ciphertext, keyId);
+}
+
 /**
  * Invalidate the biometric session, requiring re-authentication for next decrypt.
  * Connects to the running daemon without spawning one (varlock lock runs in a separate process).
  */
 export async function lockSession(): Promise<void> {
+  // an unwrapped identity key held in this process outlives a daemon lock, so
+  // drop it too
+  identity.clearUnwrappedIdentityCache();
+
   const backend = getBackendInfo();
   if (!backend.biometricAvailable) return;
   const client = getDaemonClient();

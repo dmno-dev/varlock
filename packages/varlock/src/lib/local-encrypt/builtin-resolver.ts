@@ -190,6 +190,20 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         // Re-throw ResolutionErrors (e.g. batch cancellation) as-is
         if (err instanceof ResolutionError) throw err;
 
+        // An identity-encrypted value on a backend that cannot open one yet is
+        // a capability gap, not a corrupt value: say so rather than pointing at
+        // key mismatch.
+        if (err instanceof localEncrypt.IdentityBackendUnsupportedError) {
+          throw new ResolutionError(err.message, {
+            tip: 'Re-encrypt this value on a machine using the file backend, or wait for the daemon update.',
+          });
+        }
+        if (err instanceof localEncrypt.IdentityNotFoundError) {
+          throw new ResolutionError(err.message, {
+            tip: 'This value was encrypted to an identity key that is not on this machine.',
+          });
+        }
+
         const backend = localEncrypt.getBackendInfo();
         throw new ResolutionError(
           `Decryption failed: ${err instanceof Error ? err.message : err}`,

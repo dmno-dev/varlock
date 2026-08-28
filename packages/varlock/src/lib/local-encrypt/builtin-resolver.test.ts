@@ -119,12 +119,38 @@ describe('VarlockResolver with file fallback', () => {
 
     // bump the version byte to a format this build cannot read
     const buf = Buffer.from(ciphertext, 'base64');
-    buf[0] = 0x02;
+    buf[0] = 0x03;
 
     const resolver = new VarlockResolver([new StaticValueResolver(`local:${buf.toString('base64')}`)]);
     resolver.process();
 
-    await expect(resolver.resolve()).rejects.toThrow(/unsupported encrypted payload version 2; upgrade varlock/);
+    await expect(resolver.resolve()).rejects.toThrow(/unsupported encrypted payload version 3; upgrade varlock/);
+  });
+
+  it('decrypts an identity-encrypted (v2) payload end-to-end', async () => {
+    await localEncrypt.ensureKey();
+    const plaintext = 'identity-held-secret';
+    const ciphertext = await localEncrypt.encryptValue(plaintext);
+    // the file backend encrypts new values to the identity key
+    expect(Buffer.from(ciphertext, 'base64')[0]).toBe(0x02);
+
+    const resolver = new VarlockResolver([new StaticValueResolver(`local:${ciphertext}`)]);
+    resolver.process();
+    expect(resolver.schemaErrors).toHaveLength(0);
+
+    expect(await resolver.resolve()).toBe(plaintext);
+  });
+
+  it('still decrypts device-encrypted (v1) payloads', async () => {
+    await localEncrypt.ensureKey();
+    const plaintext = 'device-held-secret';
+    const ciphertext = await localEncrypt.encryptValue(plaintext, undefined, { target: 'device' });
+    expect(Buffer.from(ciphertext, 'base64')[0]).toBe(0x01);
+
+    const resolver = new VarlockResolver([new StaticValueResolver(`local:${ciphertext}`)]);
+    resolver.process();
+
+    expect(await resolver.resolve()).toBe(plaintext);
   });
 
   it('handles concurrent decrypt calls via batch queue', async () => {

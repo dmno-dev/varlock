@@ -15,7 +15,16 @@ import { webcrypto } from 'node:crypto';
 
 const subtle = webcrypto.subtle;
 
-const PAYLOAD_VERSION = 0x01;
+/** Payload encrypted directly to a device key (Secure Enclave / TPM / file) */
+export const DEVICE_PAYLOAD_VERSION = 0x01;
+/** Payload encrypted to an identity public key, which is itself wrapped to a device key */
+export const IDENTITY_PAYLOAD_VERSION = 0x02;
+
+export type PayloadVersion = typeof DEVICE_PAYLOAD_VERSION | typeof IDENTITY_PAYLOAD_VERSION;
+
+/** Every payload format version this build can read. */
+export const SUPPORTED_PAYLOAD_VERSIONS: Array<number> = [DEVICE_PAYLOAD_VERSION, IDENTITY_PAYLOAD_VERSION];
+
 const HKDF_SALT = new TextEncoder().encode('varlock-ecies-v1');
 const EC_ALGORITHM = { name: 'ECDH', namedCurve: 'P-256' };
 
@@ -66,20 +75,32 @@ function base64ToUint8(base64: string): Uint8Array {
 
 // ── Payload version ────────────────────────────────────────────────────
 
-/** The only payload format version this build can read. */
-export const CURRENT_PAYLOAD_VERSION = PAYLOAD_VERSION;
-
 function checkPayloadVersion(version: number) {
-  if (version !== PAYLOAD_VERSION) {
+  if (!SUPPORTED_PAYLOAD_VERSIONS.includes(version)) {
     throw new Error(`unsupported encrypted payload version ${version}; upgrade varlock`);
   }
+}
+
+/**
+ * Read the version byte of a payload, or undefined when the input is not one of
+ * our payloads at all (non-base64 junk, empty strings).
+ *
+ * The version byte is not covered by the AEAD tag, so it is a routing hint
+ * rather than an authenticated claim. Flipping it only sends the payload at the
+ * wrong key, where it fails to decrypt.
+ */
+export function readPayloadVersion(ciphertextBase64: string): number | undefined {
+  const payloadBytes = base64ToUint8(ciphertextBase64);
+  if (payloadBytes.byteLength === 0) return undefined;
+  if (bufferToBase64(payloadBytes) !== ciphertextBase64) return undefined;
+  return payloadBytes[0];
 }
 
 /**
  * Fail early and clearly on a payload written by a newer varlock.
  *
  * Called before handing a payload to any backend (including the native
- * binaries, whose error text we cannot change from here) so a future v2 payload
+ * binaries, whose error text we cannot change from here) so a future v3 payload
  * degrades into "upgrade varlock" rather than a decryption failure.
  *
  * Anything that is not one of our payloads at all (non-base64 junk, empty
@@ -87,10 +108,9 @@ function checkPayloadVersion(version: number) {
  * has.
  */
 export function assertSupportedPayloadVersion(ciphertextBase64: string) {
-  const payloadBytes = base64ToUint8(ciphertextBase64);
-  if (payloadBytes.byteLength === 0) return;
-  if (bufferToBase64(payloadBytes) !== ciphertextBase64) return;
-  checkPayloadVersion(payloadBytes[0]);
+  const version = readPayloadVersion(ciphertextBase64);
+  if (version === undefined) return;
+  checkPayloadVersion(version);
 }
 
 // ── HKDF-SHA256 ────────────────────────────────────────────────────────
@@ -160,11 +180,21 @@ export async function createKeyPair(): Promise<EcKeyPair> {
 /**
  * Encrypt plaintext using ECIES with the recipient's public key.
  *
+ * The wire format is identical for both payload versions. The version byte only
+ * records who the recipient key belongs to: a device key (v1) or an identity
+ * key (v2). That tells the reader which key to reach for.
+ *
  * @param publicKeyBase64 - Base64-encoded uncompressed P-256 public key (65 bytes raw)
  * @param plaintext - UTF-8 string to encrypt
+ * @param opts.version - payload version byte to stamp (defaults to device-direct v1)
  * @returns Base64-encoded ciphertext payload
  */
-export async function encrypt(publicKeyBase64: string, plaintext: string): Promise<string> {
+export async function encrypt(
+  publicKeyBase64: string,
+  plaintext: string,
+  opts?: { version?: PayloadVersion },
+): Promise<string> {
+  const version = opts?.version ?? DEVICE_PAYLOAD_VERSION;
   const recipientPublicKey = await importPublicKey(publicKeyBase64);
   const recipientPubKeyRaw = base64ToUint8(publicKeyBase64);
 
@@ -199,7 +229,7 @@ export async function encrypt(publicKeyBase64: string, plaintext: string): Promi
 
   // Assemble payload: version(1) | ephemeralPub(65) | nonce(12) | ciphertext(N) | tag(16)
   const payload = concatBuffers(
-    new Uint8Array([PAYLOAD_VERSION]),
+    new Uint8Array([version]),
     ephemeralPubKeyRaw,
     nonce,
     ciphertext,
@@ -213,6 +243,9 @@ export async function encrypt(publicKeyBase64: string, plaintext: string): Promi
 
 /**
  * Decrypt ciphertext using ECIES with the recipient's private key.
+ *
+ * Reads every supported payload version. The version byte says which key the
+ * payload was written for, so picking the right key pair is the caller's job.
  *
  * @param privateKeyBase64 - Base64-encoded PKCS8 private key
  * @param publicKeyBase64 - Base64-encoded uncompressed P-256 public key of the recipient

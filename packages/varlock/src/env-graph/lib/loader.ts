@@ -58,6 +58,13 @@ export async function loadEnvGraph(opts?: {
 
   // initialize cache store (encryption key is ensured lazily on first write)
   // auto policy: native-backend disk > env-key disk > in-process memory
+  //
+  // The file backend stays memory-backed even once an identity key exists. An
+  // identity makes cache entries portable, but it does not make them safer at
+  // rest here: the identity is wrapped to a device key that is itself a
+  // plaintext file sitting beside the cache. Which key a disk cache would use
+  // is decided by CacheStore's codec, so this policy only decides whether the
+  // cache reaches disk at all.
   if (!opts?.skipCache) {
     const backend = localEncrypt.getBackendInfo();
     const isCi = graph.ciEnvInfo.isCI;

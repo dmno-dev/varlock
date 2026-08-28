@@ -14,6 +14,7 @@ vi.mock('../../lib/local-encrypt', () => ({
   getBackendInfo: () => ({ type: mockBackendType, isFileFallback: mockBackendType === 'file' }),
   keyExists: () => true,
   ensureKey: vi.fn(async () => undefined),
+  ensureEncryptionReady: vi.fn(async () => undefined),
   encryptValue: vi.fn(async (v: string) => `enc:${v}`),
   decryptValue: vi.fn(async (v: string) => v.replace('enc:', '')),
 }));

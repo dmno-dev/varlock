@@ -339,6 +339,11 @@ export function assertValidCacheKey(key: string, label = 'cache key'): void {
  * envelope that records its cache key so ciphertexts cannot be swapped between
  * entries within the file. Cache keys are structured strings like
  * `plugin:name:key` or `resolver:path:item:text`.
+ *
+ * Which key protects those entries follows the same routing as env values: the
+ * identity key on backends that encrypt to one, the device key elsewhere.
+ * `ensureEncryptionReady` puts whichever of those the run needs in place before
+ * the first write, so a cache write never races key creation inside the lock.
  */
 export class CacheStore {
   private filePath: string;
@@ -349,7 +354,7 @@ export class CacheStore {
     const cacheDir = path.join(getUserVarlockDir(), 'cache');
     this.filePath = path.join(cacheDir, `${keyId}.json`);
     this.codec = codec ?? {
-      ensureReady: () => localEncrypt.ensureKey(keyId),
+      ensureReady: () => localEncrypt.ensureEncryptionReady(keyId),
       encrypt: (plaintext) => localEncrypt.encryptValue(plaintext, keyId),
       decrypt: (ciphertext) => localEncrypt.decryptValue(ciphertext, keyId),
     };
