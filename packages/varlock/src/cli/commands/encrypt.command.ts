@@ -14,6 +14,7 @@ import { CliExitError } from '../helpers/exit-error';
 import { multiselect, password } from '../helpers/prompts';
 import { gracefulExit } from 'exit-hook';
 import * as localEncrypt from '../../lib/local-encrypt';
+import { buildVarlockReference, LOCAL_SCHEME } from '../../lib/local-encrypt/reference';
 import { writeBackValue } from '../../lib/local-encrypt/write-back';
 import { commandSpec } from './encrypt.command-spec';
 
@@ -91,7 +92,7 @@ async function encryptFile(keyId: string, filePath: string) {
   let encryptedCount = 0;
   for (const item of filteredItems) {
     const ciphertext = await localEncrypt.encryptValue(item.value, keyId);
-    const result = writeBackValue(item.key, `varlock("local:${ciphertext}")`, resolvedPath);
+    const result = writeBackValue(item.key, buildVarlockReference(LOCAL_SCHEME, ciphertext), resolvedPath);
 
     if (result.updated) {
       encryptedCount++;
@@ -103,7 +104,7 @@ async function encryptFile(keyId: string, filePath: string) {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
-  const keyId = String(ctx.values['key-id'] || 'varlock-default');
+  const keyId = String(ctx.values['key-id'] || localEncrypt.DEFAULT_KEY_ID);
   const backend = localEncrypt.getBackendInfo();
 
   try {
@@ -186,5 +187,5 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   console.log('\nCopy this into your .env.local file and rename the key appropriately:\n');
-  console.log(`SOME_SENSITIVE_KEY=varlock("local:${ciphertext}")`);
+  console.log(`SOME_SENSITIVE_KEY=${buildVarlockReference(LOCAL_SCHEME, ciphertext)}`);
 };

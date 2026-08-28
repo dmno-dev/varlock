@@ -9,9 +9,9 @@ import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import prompts from '../../cli/helpers/prompts';
 import * as localEncrypt from './index';
+import { buildVarlockReference, LOCAL_SCHEME, parseVarlockReference } from './reference';
 import { writeBackValue } from './write-back';
 
-const LOCAL_PREFIX = 'local:';
 const PLUGIN_ICON = 'mdi:fingerprint';
 
 // ── Unified varlock() batch queue ──────────────────────────────
@@ -23,6 +23,8 @@ const PLUGIN_ICON = 'mdi:fingerprint';
 
 type VarlockBatchEntry = {
   kind: 'prompt' | 'decrypt';
+  /** local encryption key id this entry encrypts or decrypts with */
+  keyId: string;
   resolve: (value: string) => void;
   reject: (reason: unknown) => void;
 } & (
@@ -46,18 +48,18 @@ function enqueueBatchEntry(entry: VarlockBatchEntry) {
   }
 }
 
-function enqueueDecrypt(ciphertext: string): Promise<string> {
+function enqueueDecrypt(ciphertext: string, keyId: string): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     enqueueBatchEntry({
-      kind: 'decrypt', ciphertext, resolve, reject,
+      kind: 'decrypt', ciphertext, keyId, resolve, reject,
     });
   });
 }
 
-function enqueuePrompt(execute: () => Promise<string>): Promise<string> {
+function enqueuePrompt(keyId: string, execute: () => Promise<string>): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     enqueueBatchEntry({
-      kind: 'prompt', execute, resolve, reject,
+      kind: 'prompt', keyId, execute, resolve, reject,
     });
   });
 }
@@ -79,14 +81,16 @@ async function executeBatch() {
     return a.kind === 'prompt' ? -1 : 1;
   });
 
-  // Ensure encryption key exists before processing any items
-  await localEncrypt.ensureKey();
+  // Ensure every key this batch touches exists before processing any items
+  for (const keyId of new Set(batch.map((e) => e.keyId))) {
+    await localEncrypt.ensureKey(keyId);
+  }
 
   for (let i = 0; i < batch.length; i++) {
     const entry = batch[i];
     try {
       if (entry.kind === 'decrypt') {
-        const plaintext = await localEncrypt.decryptValue(entry.ciphertext);
+        const plaintext = await localEncrypt.decryptValue(entry.ciphertext, entry.keyId);
         entry.resolve(plaintext);
       } else {
         const result = await entry.execute();
@@ -122,8 +126,7 @@ function writeBackEncryptedValue(
   ciphertext: string,
   sourceFilePath: string | undefined,
 ) {
-  const prefixedCiphertext = `${LOCAL_PREFIX}${ciphertext}`;
-  return writeBackValue(itemKey, `varlock("${prefixedCiphertext}")`, sourceFilePath);
+  return writeBackValue(itemKey, buildVarlockReference(LOCAL_SCHEME, ciphertext), sourceFilePath);
 }
 
 
@@ -165,13 +168,24 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     return { mode: 'decrypt', payload };
   },
   async resolve(state: VarlockResolverState) {
+    const keyId = localEncrypt.DEFAULT_KEY_ID;
+
     if (state.mode === 'decrypt') {
-      let ciphertext = state.payload;
-      if (ciphertext.startsWith(LOCAL_PREFIX)) {
-        ciphertext = ciphertext.slice(LOCAL_PREFIX.length);
-      }
+      // dispatch on the reference scheme before touching any backend, so an
+      // unknown scheme reads as such instead of failing to decrypt garbage
+      let reference;
       try {
-        return await enqueueDecrypt(ciphertext);
+        reference = parseVarlockReference(state.payload);
+      } catch (err) {
+        throw new ResolutionError(
+          err instanceof Error ? err.message : String(err),
+          { tip: 'This value may have been written by a newer version of varlock. Try upgrading.' },
+        );
+      }
+
+      const ciphertext = reference.payload;
+      try {
+        return await enqueueDecrypt(ciphertext, keyId);
       } catch (err) {
         // Re-throw ResolutionErrors (e.g. batch cancellation) as-is
         if (err instanceof ResolutionError) throw err;
@@ -193,7 +207,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     // Prompt mode: enqueued into the unified batch so prompts run before decrypts
     // and cancellation propagates to all remaining items.
     const { itemKey, sourceFilePath } = state;
-    return enqueuePrompt(async () => {
+    return enqueuePrompt(keyId, async () => {
       const backend = localEncrypt.getBackendInfo();
 
       // Use daemon's native dialog on macOS Secure Enclave
@@ -201,6 +215,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         const client = localEncrypt.getDaemonClient();
         const ciphertext = await client.promptSecret({
           itemKey,
+          keyId,
           message: `Enter the secret value for ${itemKey}:`,
         });
 

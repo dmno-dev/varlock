@@ -13,14 +13,18 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { resolveNativeBinary, getInstalledPlatformPackageName } from './binary-resolver';
+import { DEFAULT_KEY_ID } from './constants';
+import { assertSupportedPayloadVersion } from './crypto';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
 import { isWSL } from './wsl-detect';
-import type { BackendInfo, BackendType, NativeStatusResult } from './types';
+import type {
+  BackendInfo, BackendType, NativeKeyDetail, NativeStatusResult,
+} from './types';
 
-export type { BackendInfo, BackendType } from './types';
+export type { BackendInfo, BackendType, NativeKeyDetail } from './types';
 
-const DEFAULT_KEY_ID = 'varlock-default';
+export { DEFAULT_KEY_ID };
 
 /** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
 function debug(msg: string) {
@@ -360,6 +364,8 @@ function runNativeBinaryJson<T = Record<string, unknown>>(
 let cachedBackendInfo: BackendInfo | undefined;
 /** Keys reported by the status command — avoids a separate key-exists .exe spawn on WSL2 */
 let cachedStatusKeys: Array<string> | undefined;
+/** Per-key metadata reported by the status command (binaries that predate it omit it) */
+let cachedKeyDetails: Array<NativeKeyDetail> | undefined;
 
 function detectBackendType(): { type: BackendType; isFileFallback: boolean } {
   const binaryPath = resolveNativeBinary();
@@ -394,6 +400,7 @@ export function getBackendInfo(): BackendInfo {
       const status = runNativeBinaryJson<NativeStatusResult>(['status']);
       debug(`getBackendInfo: status result: hardwareBacked=${status.hardwareBacked}, biometricAvailable=${status.biometricAvailable}, backend=${status.backend}, keys=${status.keys?.join(',')}`);
       cachedStatusKeys = status.keys;
+      cachedKeyDetails = status.keyDetails;
       cachedBackendInfo = {
         type,
         platform: process.platform,
@@ -472,6 +479,17 @@ export function keyExists(keyId: string = DEFAULT_KEY_ID): boolean {
   return result.exists;
 }
 
+/**
+ * Whether decrypts of this key should require user-presence verification
+ * (on machines that have a gate at all). Unknown keys, and keys reported by
+ * binaries without per-key metadata, default to true: prompting is the safe
+ * direction to fail in.
+ */
+function keyRequiresAuth(keyId: string): boolean {
+  const detail = cachedKeyDetails?.find((d) => d.keyId === keyId);
+  return detail?.requireAuth ?? true;
+}
+
 /** Generate a new encryption key. */
 export async function generateKey(keyId: string = DEFAULT_KEY_ID): Promise<{ keyId: string; publicKey: string }> {
   const backend = getBackendInfo();
@@ -479,7 +497,12 @@ export async function generateKey(keyId: string = DEFAULT_KEY_ID): Promise<{ key
     warnIfFileFallback(backend);
     return fileBackend.generateKey(keyId);
   }
-  return runNativeBinaryJson<{ keyId: string; publicKey: string }>(['generate-key', '--key-id', keyId]);
+  const result = runNativeBinaryJson<{ keyId: string; publicKey: string }>(['generate-key', '--key-id', keyId]);
+  // keep the status-derived caches coherent so lookups later in this same
+  // process (keyExists, decrypt routing) see the new key
+  cachedStatusKeys?.push(keyId);
+  cachedKeyDetails?.push({ keyId, requireAuth: true });
+  return result;
 }
 
 /** Ensure a key exists, generating one if necessary. */
@@ -527,6 +550,10 @@ export async function encryptValue(plaintext: string, keyId: string = DEFAULT_KE
  * For file-based backend, uses the pure JS ECIES implementation.
  */
 export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
+  // checked here rather than per-backend so payloads from a newer varlock fail
+  // the same way everywhere, including on the native binary paths
+  assertSupportedPayloadVersion(ciphertext);
+
   const backend = getBackendInfo();
   if (backend.type === 'file') {
     debug('decryptValue: using file backend');
@@ -534,9 +561,11 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
     return fileBackend.decryptValue(ciphertext, keyId);
   }
 
-  // Use daemon client for biometric backends (session caching)
+  // Use daemon client for biometric backends (session caching).
+  // A key whose metadata opts out of the presence gate takes the one-shot path
+  // below instead. No binary reports that today, so every key gates as before.
   // In WSL2, the .exe handles daemon management internally via --via-daemon
-  if (backend.biometricAvailable) {
+  if (backend.biometricAvailable && keyRequiresAuth(keyId)) {
     if (isWSL()) {
       debug('decryptValue: WSL2 biometric decrypt via --via-daemon');
       const binaryPath = resolveNativeBinary();
@@ -600,7 +629,8 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
     return client.decrypt(ciphertext, keyId);
   }
 
-  // Non-biometric native backend (e.g., Linux TPM without polkit) — one-shot
+  // One-shot decrypt: non-biometric native backend (e.g. Linux TPM without
+  // polkit), or a key that opted out of the presence gate
   debug('decryptValue: non-biometric one-shot decrypt');
   const result = runNativeBinaryJson<{ plaintext: string }>(
     ['decrypt', '--key-id', keyId, '--data', ciphertext],

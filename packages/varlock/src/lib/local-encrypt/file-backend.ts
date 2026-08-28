@@ -9,10 +9,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { getUserVarlockDir } from '../user-config-dir';
+import { DEFAULT_KEY_ID } from './constants';
 import { createKeyPair, encrypt, decrypt } from './crypto';
 
 const KEY_STORE_SUBDIR = 'local-encrypt/keys';
-const DEFAULT_KEY_ID = 'varlock-default';
 
 interface StoredKeyPair {
   keyId: string;

@@ -100,6 +100,33 @@ describe('VarlockResolver with file fallback', () => {
     expect(resolver.schemaErrors.length).toBeGreaterThan(0);
   });
 
+  it('throws a ResolutionError naming an unknown scheme', async () => {
+    await localEncrypt.ensureKey();
+
+    const resolver = new VarlockResolver([new StaticValueResolver('teamvault:AQIDBA==')]);
+    resolver.process();
+    expect(resolver.schemaErrors).toHaveLength(0);
+
+    const err = await resolver.resolve().then(() => undefined, (e) => e);
+    // must name the scheme rather than report a decryption failure
+    expect(err.message).toContain('unknown varlock() scheme "teamvault"');
+    expect(err.message).not.toMatch(/Decryption failed/);
+  });
+
+  it('reports an unsupported payload version instead of a generic failure', async () => {
+    await localEncrypt.ensureKey();
+    const ciphertext = await localEncrypt.encryptValue('some-secret');
+
+    // bump the version byte to a format this build cannot read
+    const buf = Buffer.from(ciphertext, 'base64');
+    buf[0] = 0x02;
+
+    const resolver = new VarlockResolver([new StaticValueResolver(`local:${buf.toString('base64')}`)]);
+    resolver.process();
+
+    await expect(resolver.resolve()).rejects.toThrow(/unsupported encrypted payload version 2; upgrade varlock/);
+  });
+
   it('handles concurrent decrypt calls via batch queue', async () => {
     await localEncrypt.ensureKey();
     const values = ['secret-1', 'secret-2', 'secret-3'];

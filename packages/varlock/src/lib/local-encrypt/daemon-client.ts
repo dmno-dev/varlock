@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process';
 
 import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
+import { DEFAULT_KEY_ID } from './constants';
 import { isWSL } from './wsl-detect';
 import type {
   KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
@@ -291,7 +292,7 @@ export class DaemonClient {
     await this.connectToSocket(socketPath);
   }
 
-  async decrypt(ciphertext: string, keyId = 'varlock-default'): Promise<string> {
+  async decrypt(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
     return this.withRetry(async () => {
       await this.ensureConnected();
       const result = await this.sendMessage({

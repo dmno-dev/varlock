@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { createKeyPair, encrypt, decrypt } from './crypto';
+import {
+  CURRENT_PAYLOAD_VERSION, assertSupportedPayloadVersion, createKeyPair, encrypt, decrypt,
+} from './crypto';
 
 describe('ECIES crypto', () => {
   it('round-trips encrypt → decrypt', async () => {
@@ -55,7 +57,7 @@ describe('ECIES crypto', () => {
     const tampered = buf.toString('base64');
 
     await expect(decrypt(keyPair.privateKey, keyPair.publicKey, tampered)).rejects.toThrow(
-      'Unsupported payload version',
+      'unsupported encrypted payload version 255',
     );
   });
 
@@ -91,5 +93,43 @@ describe('ECIES crypto', () => {
     expect(payload[0]).toBe(0x01); // version
     expect(payload[1]).toBe(0x04); // uncompressed point prefix
     expect(payload.length).toBe(1 + 65 + 12 + 4 + 16); // 98 bytes
+  });
+});
+
+describe('assertSupportedPayloadVersion', () => {
+  /** Build a payload-shaped buffer whose first byte is the given version */
+  function payloadWithVersion(version: number) {
+    const buf = Buffer.alloc(1 + 65 + 12 + 4 + 16);
+    buf[0] = version;
+    buf[1] = 0x04;
+    return buf.toString('base64');
+  }
+
+  it('accepts a real v1 payload', async () => {
+    const keyPair = await createKeyPair();
+    const ciphertext = await encrypt(keyPair.publicKey, 'test');
+    expect(CURRENT_PAYLOAD_VERSION).toBe(0x01);
+    expect(() => assertSupportedPayloadVersion(ciphertext)).not.toThrow();
+  });
+
+  it('accepts a synthetic v1 payload', () => {
+    expect(() => assertSupportedPayloadVersion(payloadWithVersion(0x01))).not.toThrow();
+  });
+
+  it('rejects a v2 payload with an upgrade hint', () => {
+    expect(() => assertSupportedPayloadVersion(payloadWithVersion(0x02)))
+      .toThrow('unsupported encrypted payload version 2; upgrade varlock');
+  });
+
+  it('reports the actual version number it found', () => {
+    expect(() => assertSupportedPayloadVersion(payloadWithVersion(0xFF)))
+      .toThrow('unsupported encrypted payload version 255');
+  });
+
+  it('leaves non-payload junk to the backend to report', () => {
+    // not canonical base64, so it is not one of our payloads at all
+    expect(() => assertSupportedPayloadVersion('garbage-data')).not.toThrow();
+    expect(() => assertSupportedPayloadVersion('not-valid-base64-ciphertext!')).not.toThrow();
+    expect(() => assertSupportedPayloadVersion('')).not.toThrow();
   });
 });

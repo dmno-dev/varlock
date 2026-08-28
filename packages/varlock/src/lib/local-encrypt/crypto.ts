@@ -64,6 +64,35 @@ function base64ToUint8(base64: string): Uint8Array {
   return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }
 
+// ── Payload version ────────────────────────────────────────────────────
+
+/** The only payload format version this build can read. */
+export const CURRENT_PAYLOAD_VERSION = PAYLOAD_VERSION;
+
+function checkPayloadVersion(version: number) {
+  if (version !== PAYLOAD_VERSION) {
+    throw new Error(`unsupported encrypted payload version ${version}; upgrade varlock`);
+  }
+}
+
+/**
+ * Fail early and clearly on a payload written by a newer varlock.
+ *
+ * Called before handing a payload to any backend (including the native
+ * binaries, whose error text we cannot change from here) so a future v2 payload
+ * degrades into "upgrade varlock" rather than a decryption failure.
+ *
+ * Anything that is not one of our payloads at all (non-base64 junk, empty
+ * strings) is left alone, so the backend keeps reporting it the way it always
+ * has.
+ */
+export function assertSupportedPayloadVersion(ciphertextBase64: string) {
+  const payloadBytes = base64ToUint8(ciphertextBase64);
+  if (payloadBytes.byteLength === 0) return;
+  if (bufferToBase64(payloadBytes) !== ciphertextBase64) return;
+  checkPayloadVersion(payloadBytes[0]);
+}
+
 // ── HKDF-SHA256 ────────────────────────────────────────────────────────
 
 /**
@@ -202,10 +231,7 @@ export async function decrypt(
   }
 
   // Parse payload
-  const version = payloadBytes[0];
-  if (version !== PAYLOAD_VERSION) {
-    throw new Error(`Unsupported payload version: ${version}`);
-  }
+  checkPayloadVersion(payloadBytes[0]);
 
   const ephemeralPubKeyRaw = payloadBytes.slice(1, 1 + PUBLIC_KEY_LENGTH);
   const nonce = payloadBytes.slice(1 + PUBLIC_KEY_LENGTH, HEADER_LENGTH);
