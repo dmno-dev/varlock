@@ -176,6 +176,20 @@ describe('http-basic signer', () => {
     });
   });
 
+  test('secretIn="username" with a literal password composes secret:literal', async () => {
+    const result = await sign(
+      {
+        scheme: 'http-basic', secretKey: 'GH_TOKEN', secretIn: 'username', password: 'x-oauth-basic',
+      } as any,
+      { ...input, credentials: { secretKey: 'the-token' } } as any,
+      NOW_MS,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      setHeaders: { authorization: `Basic ${Buffer.from('the-token:x-oauth-basic').toString('base64')}` },
+    });
+  });
+
   test('fails closed on a userid containing ":" (including a secret in username position)', async () => {
     const result = await sign(
       { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } as any,

@@ -164,7 +164,10 @@ const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   let password = secret;
   if (basicTransform.secretIn === 'username') {
     userid = secret;
-    password = '';
+    // an optional LITERAL password rides along (default empty); the secret
+    // itself is in the userid position
+    password = typeof basicTransform.password === 'string' && !basicTransform.password.startsWith('$')
+      ? basicTransform.password : '';
   }
   // RFC 7617: a colon in the userid would shift the user/password split.
   if (userid.includes(':')) {

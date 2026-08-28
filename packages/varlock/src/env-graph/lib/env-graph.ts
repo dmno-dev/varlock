@@ -1340,15 +1340,21 @@ export class EnvGraph {
     // canonicalizes to `secretKey` in rule data, and defaults to the decorated
     // item on attached rules.
     const consumedOption = proxyTransformConsumedOptionName(spec);
-    // consumed option arrives as a `$NAME` marker (captured pre-resolution)
-    const secretKey = (_.isString(obj[consumedOption]) ? obj[consumedOption].replace(/^\$/, '') : undefined)
-      ?? attachedItemKey;
+    // The consumed option arrives as a `$NAME` marker (captured pre-resolution)
+    // and canonicalizes to `secretKey`. A LITERAL on a literal-allowed consumed
+    // option (http-basic's password with secretIn="username") is ordinary
+    // config, so it stays a scheme option and the attached item supplies the
+    // secret instead.
+    const rawConsumed = obj[consumedOption];
+    const consumedRef = _.isString(rawConsumed) && rawConsumed.startsWith('$')
+      ? rawConsumed.slice(1) : undefined;
+    const secretKey = consumedRef ?? attachedItemKey;
     if (!secretKey) {
       throw new SchemaError(`@proxy: transform.${consumedOption} is required on a detached @proxy rule (an attached rule defaults it to the decorated item), e.g. ${consumedOption}=$SOME_ITEM`);
     }
     const schemeOptions: Record<string, unknown> = {};
     for (const [key, optionSpec] of Object.entries(spec.options)) {
-      if (key === consumedOption || obj[key] === undefined) continue;
+      if ((key === consumedOption && consumedRef !== undefined) || obj[key] === undefined) continue;
       // List options accept a single string or an array in the schema; the
       // runtime shape is always an array. Ref-only item options canonicalize
       // to bare names; literal-allowed ones keep the `$` marker so the signer

@@ -330,11 +330,17 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
 export type ProxyRuleHttpBasicTransform = {
   scheme: 'http-basic';
   /**
-   * Item key holding the secret (the password, or the whole token). Consumed,
-   * never substituted. In the schema this option is written as `password=`
-   * (the scheme's own consumed option); rule data canonicalizes to `secretKey`.
+   * Item key holding the secret (the password, or with `secretIn="username"`
+   * the token that occupies the userid). Consumed, never substituted. In the
+   * schema this option is written as `password=$ITEM` (the scheme's own
+   * consumed option); rule data canonicalizes to `secretKey`.
    */
   secretKey: string;
+  /**
+   * Only with `secretIn="username"`: a literal password for the (non-secret)
+   * password side. Default empty.
+   */
+  password?: string;
   /**
    * The username: a literal, or an item reference kept as a `$NAME` marker
    * (the proxy resolves the item's value at sign time). Omitted = empty
@@ -354,14 +360,22 @@ const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
     // The scheme's own consumed option, replacing the generic `secretKey` name
     // at the schema surface. Takes the ITEM NAME holding the password - never a
     // literal password (put a static password in an item if an API needs one).
-    password: { type: 'string', itemRole: 'consumed' },
+    // $ITEM reference to the secret. With secretIn="username" a plain literal
+    // is also allowed: the consumed secret occupies the userid there, so the
+    // password side becomes ordinary config (GitHub-style TOKEN:x-oauth-basic).
+    password: { type: 'string', itemRole: 'consumed', literalAllowed: true },
     // literal, or $ITEM reference (resolved by the proxy at sign time)
     username: { type: 'string', itemRole: 'wire', literalAllowed: true },
     secretIn: { type: 'enum', enumValues: ['password', 'username'] },
   },
   validate: (config) => {
-    if (config.secretIn === 'username' && config.username !== undefined) {
-      return 'transform.username cannot be set when secretIn="username" (the secret occupies the username position and the password is empty)';
+    const passwordIsLiteral = typeof config.password === 'string' && !config.password.startsWith('$');
+    if (config.secretIn === 'username') {
+      if (config.username !== undefined) {
+        return 'transform.username cannot be set when secretIn="username" (the consumed secret occupies the username position)';
+      }
+    } else if (passwordIsLiteral) {
+      return 'transform.password must be a reference to a config item, e.g. password=$REGISTRY_PASSWORD (a literal here would be a credential embedded in the schema). A literal password is only allowed with secretIn="username", where the secret occupies the username position';
     }
     // RFC 7617: the userid may not contain a colon (it delimits user:password).
     if (typeof config.username === 'string' && config.username.includes(':')) {

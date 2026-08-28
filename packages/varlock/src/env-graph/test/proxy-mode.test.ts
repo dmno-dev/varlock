@@ -541,15 +541,15 @@ describe('proxy decorators', () => {
   });
 
   test('credential options require $ references; refs never resolve; unknown targets fail loudly', async () => {
-    // a literal on a credential option fails statically for built-in schemes
+    // a literal on a credential option is rejected (at resolve time, since for
+    // http-basic its legality depends on secretIn)
     const literalSecret = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
       # @proxy(domain="api.a.com", transform={scheme="http-basic", password="hunter2"})
       API_PASSWORD=real-password
     `);
-    const errors = literalSecret.configSchema.API_PASSWORD.decoratorSchemaErrors;
-    expect(errors.some((e) => /transform\.password must be a reference to a config item/.test(e.message))).toBe(true);
+    await expect(literalSecret.getProxyRules()).rejects.toThrow(/transform\.password must be a reference to a config item/);
 
     // plugin schemes (unknown to the static pass) get the same error at resolve time
     const pluginLiteral = await loadGraph(outdent`
