@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import crypto from 'node:crypto';
 
 import {
+  BUILT_IN_TRANSFORM_SCHEMES,
   buildStringToSign, computeHmacTransform, computeTransformTimestamp, decodeTransformKey,
 } from './request-transform';
 import type { ProxyRuleHmacTransform } from './types';
@@ -119,5 +120,56 @@ describe('computeHmacTransform', () => {
     const result = computeHmacTransform({ ...baseTransform, keyEncoding: 'hex' }, 'not-hex!', fields, NOW_MS);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain('not valid hex');
+  });
+});
+
+describe('http-basic signer', () => {
+  const sign = BUILT_IN_TRANSFORM_SCHEMES['http-basic'].sign;
+  const input = {
+    method: 'GET',
+    host: 'api.example.com',
+    path: '/',
+    query: '',
+    body: Buffer.alloc(0),
+    headers: { authorization: 'Basic Z2FyYmFnZTpwbGFjZWhvbGRlcg==' },
+    credentials: { secretKey: 'real-password' },
+  };
+  const transform = { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: 'svc-user' };
+
+  test('writes Basic base64(user:realsecret), overwriting the child header', async () => {
+    const result = await sign(transform as any, input as any, NOW_MS);
+    expect(result).toMatchObject({
+      ok: true,
+      setHeaders: { authorization: `Basic ${Buffer.from('svc-user:real-password').toString('base64')}` },
+    });
+  });
+
+  test('defaults to an empty username when none is configured', async () => {
+    const result = await sign({ scheme: 'http-basic', secretKey: 'API_PASSWORD' } as any, input as any, NOW_MS);
+    expect(result).toMatchObject({
+      ok: true,
+      setHeaders: { authorization: `Basic ${Buffer.from(':real-password').toString('base64')}` },
+    });
+  });
+
+  test('prefers a resolved usernameItem credential over the static option', async () => {
+    const result = await sign(
+      { scheme: 'http-basic', secretKey: 'API_PASSWORD', usernameItem: 'API_USER' } as any,
+      { ...input, credentials: { secretKey: 'real-password', usernameItem: 'item-user' } } as any,
+      NOW_MS,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      setHeaders: { authorization: `Basic ${Buffer.from('item-user:real-password').toString('base64')}` },
+    });
+  });
+
+  test('fails closed on a username containing ":"', async () => {
+    const result = await sign(
+      { scheme: 'http-basic', secretKey: 'API_PASSWORD', usernameItem: 'API_USER' } as any,
+      { ...input, credentials: { secretKey: 'real-password', usernameItem: 'user:evil' } } as any,
+      NOW_MS,
+    );
+    expect(result.ok).toBe(false);
   });
 });

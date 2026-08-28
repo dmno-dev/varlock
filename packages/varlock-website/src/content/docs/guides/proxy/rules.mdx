@@ -134,7 +134,7 @@ Each scheme accepts its own option set. Options for the `hmac-*` schemes:
 
 | Option | Meaning |
 |---|---|
-| `scheme` | **(required)** `hmac-sha256` or `hmac-sha512` built in; plugins add more (e.g. `aws-sigv4`, see below). |
+| `scheme` | **(required)** `hmac-sha256`, `hmac-sha512`, or `http-basic` built in; plugins add more (e.g. `aws-sigv4`, see below). |
 | `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
 | `signatureHeader` | **(required)** Header the signature is written to. |
 | `secretKey` | Item whose value is the HMAC key. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
@@ -150,6 +150,20 @@ A few properties worth knowing:
 - **The transform rides its rule's match.** A request is signed when a rule carrying `transform=` matches it. For a domain with several rules, put the transform on one broad `domain=`-only rule and keep `path`/`method`/`block`/`approval` refinements on separate rules; two *different* transform configs matching the same request is a schema misconfiguration and the request fails closed.
 - **TLS only.** Like injection, signing refuses cleartext connections: a signature over plain http is trivially replayable.
 - If the transform-carrying rule requires `approval`, the request is signed only after the approval gate passes, mirroring how approval-gated injection works.
+
+#### HTTP Basic auth
+
+Basic auth defeats plain substitution on its own: the child sends `Authorization: Basic base64(user:placeholder)`, and since the placeholder is base64-encoded, it never appears as a substring the proxy could swap. The built-in `http-basic` scheme has the proxy write the header itself, with the real secret:
+
+```env-spec title=".env.schema"
+# @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
+REGISTRY_PASSWORD=yourPreferredPlugin()
+```
+
+| Option | Meaning |
+|---|---|
+| `username` | Static username. Mutually exclusive with `usernameItem`; both omitted = empty username. |
+| `usernameItem` | Item holding the username, when it is itself managed config. |
 
 #### AWS SigV4 (plugin)
 

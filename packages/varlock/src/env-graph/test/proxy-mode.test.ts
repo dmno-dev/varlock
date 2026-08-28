@@ -480,6 +480,40 @@ describe('proxy decorators', () => {
     expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /cannot target the "content-length" header/.test(e.message))).toBe(true);
   });
 
+  test('http-basic transform: builds, usernameItem joins the rule, exclusivity + colon rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", usernameItem="API_USER"})
+      API_PASSWORD=real-password
+
+      # @sensitive
+      API_USER=svc-user
+    `);
+    expect(await graph.getProxyRules()).toMatchObject([
+      {
+        domain: ['api.legacy.com'],
+        itemKeys: ['API_USER'],
+        transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', usernameItem: 'API_USER' },
+      },
+    ]);
+
+    const bothForms = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username="u", usernameItem="API_USER"})
+      API_PASSWORD=real-password
+
+      API_USER=svc-user
+    `);
+    await expect(bothForms.getProxyRules()).rejects.toThrow(/mutually exclusive/);
+
+    const colonUser = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username="a:b"})
+      API_PASSWORD=real-password
+    `);
+    await expect(colonUser.getProxyRules()).rejects.toThrow(/cannot contain ":"/);
+  });
+
   test('transform: {timestamp} in stringToSign requires a timestampHeader', async () => {
     const graph = await loadGraph(outdent`
       # ---

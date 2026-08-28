@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 
 import {
   BUILT_IN_TRANSFORM_SCHEME_SPECS,
-  type ProxyRuleHmacTransform, type ProxyTransformSchemeDef, type ProxyTransformSigner,
-  type ProxyTransformTimestampFormat,
+  type ProxyRuleHmacTransform, type ProxyRuleHttpBasicTransform, type ProxyTransformSchemeDef,
+  type ProxyTransformSigner, type ProxyTransformTimestampFormat,
 } from './types';
 
 /**
@@ -145,9 +145,33 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
 };
 
 /**
+ * The HTTP Basic signer: writes `Authorization: Basic base64(user:secret)`
+ * with the REAL values, overwriting whatever the child sent (its own header
+ * encodes a placeholder, which base64 hides from substitution entirely).
+ */
+const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
+  const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
+  const username = input.credentials.usernameItem
+    ?? (typeof basicTransform.username === 'string' ? basicTransform.username : '');
+  // RFC 7617: a colon in the userid would shift the user/password split.
+  if (username.includes(':')) {
+    return { ok: false, error: 'the Basic auth username contains ":", which is not allowed (it separates username from password)' };
+  }
+  const token = Buffer.from(`${username}:${input.credentials.secretKey}`, 'utf8').toString('base64');
+  return { ok: true, setHeaders: { authorization: `Basic ${token}` } };
+};
+
+const BUILT_IN_SIGNERS: Record<string, ProxyTransformSigner> = {
+  'hmac-sha256': signHmacTransform,
+  'hmac-sha512': signHmacTransform,
+  'http-basic': signHttpBasicTransform,
+};
+
+/**
  * The full built-in scheme registrations (spec + signer). Seeded into every
  * `EnvGraph` and used as the runtime default; plugins extend the set.
  */
 export const BUILT_IN_TRANSFORM_SCHEMES: Record<string, ProxyTransformSchemeDef> = Object.fromEntries(
-  Object.entries(BUILT_IN_TRANSFORM_SCHEME_SPECS).map(([name, spec]) => [name, { ...spec, sign: signHmacTransform }]),
+  Object.entries(BUILT_IN_TRANSFORM_SCHEME_SPECS)
+    .map(([name, spec]) => [name, { ...spec, sign: BUILT_IN_SIGNERS[name] }]),
 );

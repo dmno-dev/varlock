@@ -291,6 +291,40 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
 };
 
 /**
+ * The HTTP Basic auth transform config. Basic auth defeats placeholder
+ * substitution on its own: the child sends `Basic base64(user:placeholder)`,
+ * and the encoded placeholder never appears as a substring the proxy could
+ * swap. This scheme has the proxy write `Authorization: Basic
+ * base64(user:realsecret)` itself, overwriting whatever the child sent.
+ */
+export type ProxyRuleHttpBasicTransform = {
+  scheme: 'http-basic';
+  /** Item key holding the password/token. Consumed, never substituted. */
+  secretKey: string;
+  /** Static username. Mutually exclusive with `usernameItem`; both omitted = empty username. */
+  username?: string;
+  /** Item key holding the username (when it is itself managed config). */
+  usernameItem?: string;
+};
+
+const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
+  options: {
+    username: { type: 'string' },
+    usernameItem: { type: 'string', itemRole: 'wire' },
+  },
+  validate: (config) => {
+    if (config.username !== undefined && config.usernameItem !== undefined) {
+      return 'transform.username (a static value) and transform.usernameItem (an item name) are mutually exclusive';
+    }
+    // RFC 7617: the userid may not contain a colon (it delimits user:password).
+    if (typeof config.username === 'string' && config.username.includes(':')) {
+      return 'transform.username cannot contain ":" (it separates the username from the password in Basic auth)';
+    }
+    return undefined;
+  },
+};
+
+/**
  * Scheme SPECS built into core (validation without signers, so schema-side
  * code has no crypto imports). The matching signers live in
  * `request-transform.ts` (`BUILT_IN_TRANSFORM_SCHEMES`); plugins register
@@ -299,6 +333,7 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
 export const BUILT_IN_TRANSFORM_SCHEME_SPECS: Record<string, ProxyTransformSchemeSpec> = {
   'hmac-sha256': HMAC_SCHEME_SPEC,
   'hmac-sha512': HMAC_SCHEME_SPEC,
+  'http-basic': HTTP_BASIC_SCHEME_SPEC,
 };
 
 /** RFC 7230 header-name token. */

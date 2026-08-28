@@ -972,6 +972,45 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     await upstream.close();
   });
 
+  test('http-basic (built-in): proxy writes Basic base64(user:realsecret) over the child garbage header', async () => {
+    let upstreamAuth = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamAuth = String(req.headers.authorization ?? '');
+      res.end('{}');
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' }],
+      // note: no transformSchemes override - exercises the built-in default registry
+      rules: [
+        {
+          domain: [UPSTREAM_HOST],
+          itemKeys: [],
+          transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: 'svc-user' },
+        },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // the child's own Basic header encodes the placeholder - base64 hides it
+    // from substitution entirely, which is exactly why this scheme exists
+    const childBasic = Buffer.from('svc-user:vlk_ph_api_password').toString('base64');
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Authorization: Basic ${childBasic}\r\n\r\n`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamAuth).toBe(`Basic ${Buffer.from('svc-user:real-password').toString('base64')}`);
+    expect(upstreamAuth).not.toContain(childBasic);
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('binary bodies with no placeholder pass through byte-exact (no utf8 mangling)', async () => {
     const chunks: Array<Buffer> = [];
     const upstream = await startUpstream((req, res) => {
