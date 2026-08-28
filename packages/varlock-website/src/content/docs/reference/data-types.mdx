@@ -165,6 +165,7 @@ MY_BOOL=true
 ### `url`
 **Options:**
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
+- `allowedProtocols` (string[]): List of allowed protocols. Protocol names are case-insensitive and can include the trailing colon. If omitted, any valid URL protocol is allowed
 - `allowedDomains` (string[]): List of allowed domains
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL path (except root `/`)
 - `matches` (string|RegExp): Regular expression pattern the full URL must match. Use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
@@ -172,6 +173,9 @@ MY_BOOL=true
 ```env-spec
 # @type=url(prependHttps=true)
 MY_URL=example.com/foobar
+
+# @type=url(allowedProtocols=[postgres, postgresql])
+DATABASE_URL=postgres://root:password@localhost:5432/local
 
 # @type=url(noTrailingSlash=true, matches=/^https:\/\/api\./)
 API_URL=https://api.example.com/v1

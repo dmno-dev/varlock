@@ -65,6 +65,59 @@ describe('url data type', () => {
     });
   });
 
+  describe('allowedProtocols', () => {
+    it('accepts URLs with a listed protocol', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedProtocols=[postgres, postgresql])
+        DATABASE_URL=postgres://root:password@localhost:5432/local
+      `);
+      expect(g.configSchema.DATABASE_URL.isValid).toBe(true);
+    });
+
+    it('rejects URLs with an unlisted protocol', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedProtocols=[http, https])
+        DATABASE_URL=postgres://root:password@localhost:5432/local
+      `);
+      expect(g.configSchema.DATABASE_URL.isValid).toBe(false);
+      expect(g.configSchema.DATABASE_URL.validationErrors?.[0]?.message).toContain('Protocol (postgres) is not in allowed list');
+    });
+
+    it('matches protocol names case-insensitively with an optional trailing colon', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedProtocols=[POSTGRES:])
+        DATABASE_URL=postgres://root:password@localhost:5432/local
+      `);
+      expect(g.configSchema.DATABASE_URL.isValid).toBe(true);
+    });
+
+    it('accepts any valid URL protocol when omitted', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url
+        DATABASE_URL=postgres://root:password@localhost:5432/local
+      `);
+      expect(g.configSchema.DATABASE_URL.isValid).toBe(true);
+    });
+
+    it('requires an array of protocols', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedProtocols=postgres)
+        DATABASE_URL=postgres://root:password@localhost:5432/local
+      `);
+      expect(g.configSchema.DATABASE_URL.isValid).toBe(false);
+      expect(g.configSchema.DATABASE_URL.validationErrors?.[0]?.message).toContain('allowedProtocols must be an array of strings');
+    });
+
+    it('does not prepend HTTPS when the URL already has an allowed protocol', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(prependHttps=true, allowedProtocols=[postgres])
+        DATABASE_URL=postgres://root:password@localhost:5432/local
+      `);
+      expect(g.configSchema.DATABASE_URL.isValid).toBe(true);
+      expect(g.configSchema.DATABASE_URL.resolvedValue).toBe('postgres://root:password@localhost:5432/local');
+    });
+  });
+
   describe('noTrailingSlash', () => {
     it('accepts url without trailing slash', async () => {
       const g = await loadAndResolve(outdent`
