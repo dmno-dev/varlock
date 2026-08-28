@@ -176,7 +176,7 @@ REGISTRY_USER=ci-bot
 | Option | Meaning |
 |---|---|
 | `password` | Reference to the item holding the password, e.g. `password=$REGISTRY_PASSWORD` (this scheme's consumed secret; replaces the generic `secretKey` name). Defaults to the decorated item on an attached rule. Never a literal password; if an API genuinely needs a fixed password, put it in an item. |
-| `username` | The username: a literal, or a `$ITEM` reference. Omitted = empty username. |
+| `username` | The username: a literal, or a `$ITEM` reference. Omitted = empty username. For non-secret usernames only: a referenced item is wire-visible and substitutable like a `keys=` entry. If the userid IS the secret (a token), use `secretIn="username"` instead, so it gets consumed-secret protections (never substituted, placeholder leak-guarded). |
 | `secretIn` | Which side of the `user:password` pair the secret occupies: `password` _(default)_ or `username`, for APIs where the token is the userid (`curl -u "token:"` style). `username` must be unset in that case, and `password` may then be a plain literal for APIs that pair a secret userid with a fixed password (GitHub-style `TOKEN:x-oauth-basic`); it defaults to empty. |
 
 Options that point at other items always use `$ITEM` references, consistent with the rest of the schema language. Inside a `transform`, these references are special: the item's value is NOT resolved into the rule; the proxy captures the reference and resolves the real value only at signing time, so credentials never appear in rule data or anything derived from it. Credential options (`password`, `secretKey`, `keyId`) require the reference form; a literal there is rejected. `username` also accepts a plain literal, since a fixed username is ordinary config.
