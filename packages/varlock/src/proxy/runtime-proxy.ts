@@ -146,7 +146,7 @@ export type SessionEnvPayloadMeta = {
 
 type HostInfo = { host: string, port: number };
 
-type HeaderTransformFn = (value: string) => string;
+type HeaderTransformFn = (value: string, name: string) => string;
 
 function parseHostPort(value: string): HostInfo | null {
   // Parse via URL so bracketed IPv6 literals (`[::1]:443`) are handled — a plain
@@ -302,6 +302,26 @@ export type SubstitutionGuardRequest = {
 export type SubstitutionGuardViolation = | { kind: 'location'; item: RequestScopedManagedItem; location: ProxySubstitutionLocation; suggestion: string }
   | { kind: 'occurrences'; item: RequestScopedManagedItem; count: number };
 
+/**
+ * An injected item's placeholder found in a surface its rule has no targets on.
+ * The occurrences are forwarded unsubstituted (an unswapped placeholder is inert
+ * by design) and surfaced in the audit log so probing stays visible.
+ */
+export type CarriedPlaceholder = {
+  item: RequestScopedManagedItem;
+  /** Where the carried occurrences sat: `body`, `path`, `query`, or `header:<name>`. */
+  locations: Array<string>;
+};
+
+export type SubstitutionGuardResult = {
+  /** Fail-closed violation: the caller blocks the request instead of substituting. */
+  violation?: SubstitutionGuardViolation;
+  /** Keys of items with at least one occurrence at an allowed target (these get substituted). */
+  injectedKeys: Array<string>;
+  /** Per-item placeholder occurrences left inert in untargeted surfaces (empty on violation). */
+  carried: Array<CarriedPlaceholder>;
+};
+
 /** A string value in a request body, with the dotted path that locates it. */
 type BodyLeaf = { path: string; value: string };
 
@@ -355,56 +375,69 @@ function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<
   return `currently allowed: [${current.join(', ')}]. To allow it in the ${location}, set ${substituteInExample(targets, entry)} on the @proxy rule${extra}`;
 }
 
-/** Header-specific hint: names the offending header, the exact substituteIn edit, and any denylist note. */
-function headerSuggestion(name: string | undefined, denied: boolean, targets: Array<ProxySubstitutionTarget>): string {
-  const current = targets.map(proxySubstitutionTargetKey);
-  const where = name ? `the "${name}" header` : 'that header';
-  const entry = name ? `header:${name}` : 'header:<name>';
-  const deniedNote = denied
-    ? ` (${name} is excluded from the any-header default because it's commonly forwarded or logged)`
-    : '';
-  return `currently allowed: [${current.join(', ')}]${deniedNote}. To allow it in ${where}, set ${substituteInExample(targets, entry)} on the @proxy rule`;
+/**
+ * Whether an item's targets allow substitution in the named (lower-cased) header.
+ * The any-header default excludes a denylist of never-secret forward/log headers;
+ * an explicit header:<name> target still wins (so a named denied header is allowed).
+ */
+export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): boolean {
+  let anyHeader = false;
+  for (const t of item.targets) {
+    if (t.location !== 'header') continue;
+    if (t.name) {
+      if (t.name === name) return true;
+    } else {
+      anyHeader = true;
+    }
+  }
+  return anyHeader && !isNeverAutoSubstituteHeader(name);
 }
 
 /**
- * Enforce the substitution guards on the injected items for a request, *before*
- * any placeholder is swapped for its real value. Returns the first violation, or
- * undefined if every injected placeholder sits only where its rule allows and
- * within its occurrence cap.
+ * Evaluate the substitution guards on the injected items for a request, *before*
+ * any placeholder is swapped for its real value.
  *
- *  - placement guard: a placeholder occurrence anywhere the item's `targets` don't
- *    allow is an anomaly (default: any header). Each occurrence is checked against
- *    the exact target (specific header name, query param, or body path), which is
- *    what stops an injected secret from being swapped into a request body/query — a
- *    placeholder the agent was tricked into placing in, say, an email body on an
- *    otherwise-allowed host, even one whose body IS a substitution target at a
- *    different path.
- *  - cardinality guard: a valid request uses the secret a fixed number of times
- *    (default 1). An extra occurrence suggests an exfiltration copy (duplicate the
- *    token into an attacker-visible field while still making a valid call).
- *
- * Because placeholders are unique high-entropy tokens, the guard alone decides
- * placement; the actual substitution can stay a blind string-replace, since a
- * passing request has every occurrence at an allowed spot.
- *
- * Both fail closed: the caller blocks the request rather than substituting.
+ *  - carry-inert: a placeholder occurrence in a surface the item has NO targets on
+ *    (the body under the default header-only targets, a denylisted header, the URL
+ *    path without a `path` target, ...) is left alone: substitution is scoped per
+ *    surface, so the occurrence reaches the upstream as the literal placeholder,
+ *    which is inert by design. Reported as `carried` so the audit log keeps probing
+ *    visible. Blocking here would add no protection (the value is never substituted
+ *    there anyway) and bricks legitimate flows where an agent quotes its own
+ *    placeholder, e.g. a conversation transcript echoing an env var.
+ *  - placement guard (fail closed): when the item DOES have targets on a surface
+ *    that can't be substituted surgically (`body:<path>`, `query:<param>`), an
+ *    occurrence off the named path/param blocks the request. Substituting there is
+ *    a blind string-replace across the whole surface, so a stray occurrence would
+ *    either get the real value or require re-serializing the body/query to skip it.
+ *    This is what stops an injected secret being swapped into, say, an email-body
+ *    field on an otherwise-allowed host whose body IS a target at a different path.
+ *  - cardinality guard (fail closed): a valid request uses the secret a fixed
+ *    number of times (default 1), counting only occurrences at allowed targets
+ *    (carried occurrences are never substituted, so they don't count). An extra
+ *    allowed-surface occurrence suggests an exfiltration copy (duplicate the token
+ *    into an attacker-visible field while still making a valid call).
  */
 export function checkSubstitutionGuards(
   req: SubstitutionGuardRequest,
   hostItems: Array<RequestScopedManagedItem>,
-): SubstitutionGuardViolation | undefined {
+): SubstitutionGuardResult {
+  const injectedKeys: Array<string> = [];
+  const carried: Array<CarriedPlaceholder> = [];
   for (const item of hostItems) {
     const ph = item.placeholder;
     if (!ph) continue;
     const { targets } = item;
-    const anyHeader = targets.some((t) => t.location === 'header' && !t.name);
-    const headerNames = new Set(targets.flatMap((t) => (t.location === 'header' && t.name ? [t.name] : [])));
     const anyPath = targets.some((t) => t.location === 'path');
     const anyQuery = targets.some((t) => t.location === 'query' && !t.name);
     const queryNames = targets.flatMap((t) => (t.location === 'query' && t.name ? [t.name] : []));
     const bodyPaths = targets.flatMap((t) => (t.location === 'body' ? [t.path] : []));
     // `body:*` is the explicit escape hatch for bodies we can't parse into a path.
     const bodyAnywhere = bodyPaths.includes('*');
+    const carriedLocations: Array<string> = [];
+    const violation = (v: SubstitutionGuardViolation): SubstitutionGuardResult => (
+      { violation: v, injectedKeys: [], carried: [] }
+    );
 
     // Split the request target into the URL path and the query string: they are
     // separate substitution locations (`path` vs `query`/`query:<param>`).
@@ -412,75 +445,78 @@ export function checkSubstitutionGuards(
     const pathPart = queryStart === -1 ? req.requestTarget : req.requestTarget.slice(0, queryStart);
     const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
 
-    // Headers: total occurrences vs. those in an allowed header. The any-header
-    // default excludes a denylist of never-secret forward/log headers; an explicit
-    // header:<name> target still wins (so a named denied header is allowed).
-    let headerTotal = 0;
+    // Headers: substitution is applied per header value, so a disallowed header
+    // carries inert with no surgery needed.
     let headerAllowed = 0;
-    let offendingHeader: string | undefined;
     for (const h of req.headers) {
       const c = countOccurrences(h.value, ph);
       if (!c) continue;
-      headerTotal += c;
-      const allowed = headerNames.has(h.name) || (anyHeader && !isNeverAutoSubstituteHeader(h.name));
-      if (allowed) headerAllowed += c;
-      else offendingHeader ||= h.name;
-    }
-    if (headerAllowed < headerTotal) {
-      const denied = anyHeader && !!offendingHeader && isNeverAutoSubstituteHeader(offendingHeader);
-      return {
-        kind: 'location', item, location: 'header', suggestion: headerSuggestion(offendingHeader, denied, targets),
-      };
+      if (itemAllowsHeader(item, h.name)) headerAllowed += c;
+      else carriedLocations.push(`header:${h.name}`);
     }
 
     // URL path: all-or-nothing (`path` allows a token anywhere in the path).
     const pathTotal = countOccurrences(pathPart, ph);
-    if (pathTotal > 0 && !anyPath) {
-      return {
-        kind: 'location', item, location: 'path', suggestion: locationSuggestion('path', targets),
-      };
+    let pathAllowed = 0;
+    if (pathTotal > 0) {
+      if (anyPath) pathAllowed = pathTotal;
+      else carriedLocations.push('path');
     }
 
-    // Query string: total occurrences vs. those in an allowed param.
+    // Query string: `query` allows anywhere; `query:<param>` only the named
+    // param's value. An occurrence off the named param fails closed: the query
+    // is substituted as one string, so skipping it would need re-serialization.
+    // No query targets at all ⇒ the query is never substituted ⇒ carry inert.
     const queryTotal = countOccurrences(queryPart, ph);
     let queryAllowed = 0;
-    if (queryTotal) {
+    if (queryTotal > 0) {
       if (anyQuery) {
         queryAllowed = queryTotal;
       } else if (queryNames.length) {
         const params = new URLSearchParams(queryPart);
         for (const name of queryNames) for (const v of params.getAll(name)) queryAllowed += countOccurrences(v, ph);
+        if (queryAllowed < queryTotal) {
+          return violation({
+            kind: 'location', item, location: 'query', suggestion: locationSuggestion('query', targets),
+          });
+        }
+      } else {
+        carriedLocations.push('query');
       }
     }
-    if (queryAllowed < queryTotal) {
-      return {
-        kind: 'location', item, location: 'query', suggestion: locationSuggestion('query', targets),
-      };
-    }
 
-    // Body: total occurrences vs. those at an allowed path. `body:*` allows anywhere
-    // (no parse needed); otherwise an unparseable body (leaves === null) allows
-    // nothing, so a `body:<path>` target fails closed on a body we can't parse.
+    // Body: `body:*` allows anywhere (no parse needed). With `body:<path>` targets,
+    // an occurrence off an allowed path fails closed (same surgery argument as
+    // query params), and an unparseable body (leaves === null) allows nothing. With
+    // no body targets the body bytes are never touched, so occurrences carry inert.
     const bodyTotal = countOccurrences(req.body, ph);
     let bodyAllowed = 0;
-    if (bodyTotal && bodyAnywhere) {
-      bodyAllowed = bodyTotal;
-    } else if (bodyTotal && bodyPaths.length) {
-      const leaves = bodyStringLeaves(req.body, req.contentType);
-      if (leaves) {
-        for (const leaf of leaves) if (bodyPaths.includes(leaf.path)) bodyAllowed += countOccurrences(leaf.value, ph);
+    if (bodyTotal > 0) {
+      if (bodyAnywhere) {
+        bodyAllowed = bodyTotal;
+      } else if (bodyPaths.length) {
+        const leaves = bodyStringLeaves(req.body, req.contentType);
+        if (leaves) {
+          for (const leaf of leaves) if (bodyPaths.includes(leaf.path)) bodyAllowed += countOccurrences(leaf.value, ph);
+        }
+        if (bodyAllowed < bodyTotal) {
+          return violation({
+            kind: 'location', item, location: 'body', suggestion: locationSuggestion('body', targets),
+          });
+        }
+      } else {
+        carriedLocations.push('body');
       }
     }
-    if (bodyAllowed < bodyTotal) {
-      return {
-        kind: 'location', item, location: 'body', suggestion: locationSuggestion('body', targets),
-      };
-    }
 
-    const total = headerTotal + pathTotal + queryTotal + bodyTotal;
-    if (total > item.maxOccurrences) return { kind: 'occurrences', item, count: total };
+    const allowedTotal = headerAllowed + pathAllowed + queryAllowed + bodyAllowed;
+    if (allowedTotal > item.maxOccurrences) {
+      return violation({ kind: 'occurrences', item, count: allowedTotal });
+    }
+    if (allowedTotal > 0) injectedKeys.push(item.key);
+    if (carriedLocations.length) carried.push({ item, locations: carriedLocations });
   }
-  return undefined;
+  return { violation: undefined, injectedKeys, carried };
 }
 
 export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -495,20 +531,6 @@ export function replacePlaceholdersWithReal(value: string, managedItems: Array<P
     next = next.split(item.placeholder).join(item.realValue);
   }
   return next;
-}
-
-/**
- * Which managed items' placeholders actually appear in this request — i.e. the
- * secrets that will really be injected. Used for the audit log so it records
- * what was injected (keys only), not merely what was in scope.
- */
-function detectInjectedKeys(parts: Array<string>, hostItems: Array<ProxyManagedItem>): Array<string> {
-  const keys: Array<string> = [];
-  for (const item of hostItems) {
-    if (!item.placeholder) continue;
-    if (parts.some((part) => part.includes(item.placeholder))) keys.push(item.key);
-  }
-  return keys;
 }
 
 /**
@@ -651,10 +673,12 @@ function transformHeaders(
   const out: Record<string, string | Array<string>> = {};
   for (const [key, val] of Object.entries(headers)) {
     if (val === undefined) continue;
+    // node lower-cases incoming header names, so `key` is already the canonical
+    // (lower-cased) name the substitution targets match on.
     if (Array.isArray(val)) {
-      out[key] = val.map((v) => transformValue(v));
+      out[key] = val.map((v) => transformValue(v, key));
     } else {
-      out[key] = transformValue(String(val));
+      out[key] = transformValue(String(val), key);
     }
   }
   return out;
@@ -1101,7 +1125,6 @@ export async function startLocalProxyRuntime({
     const body = await readBody(req);
     const bodyText = body.toString('utf8');
     const scanParts = [t.requestTarget, JSON.stringify(req.headers), bodyText];
-    const injectedKeys = shouldRewrite ? detectInjectedKeys(scanParts, hostItems) : [];
 
     // Helpful-failure guard: when NO rule injects anything on this route yet the
     // request carries a managed placeholder, the real value won't be substituted
@@ -1129,7 +1152,11 @@ export async function startLocalProxyRuntime({
     // header, once. This is what keeps a clever request from moving the real secret
     // into an exfiltration-friendly spot (an email body, a duplicated field) on an
     // otherwise-allowed host — the secret is only ever substituted where the rule
-    // explicitly allows.
+    // explicitly allows. Occurrences in a surface the rule has no targets on are
+    // carried through unsubstituted (inert) rather than blocked; see
+    // checkSubstitutionGuards.
+    let injectedKeys: Array<string> = [];
+    let carriedPlaceholders: Array<{ key: string; locations: Array<string> }> = [];
     if (shouldRewrite && hostItems.length > 0) {
       const guardReq: SubstitutionGuardRequest = {
         headers: Object.entries(req.headers).map(([name, value]) => ({
@@ -1140,21 +1167,24 @@ export async function startLocalProxyRuntime({
         body: bodyText,
         contentType: getHeaderValue(req.headers, 'content-type'),
       };
-      const violation = checkSubstitutionGuards(guardReq, hostItems);
+      const guardResult = checkSubstitutionGuards(guardReq, hostItems);
+      const { violation } = guardResult;
       if (violation) {
         const decision = violation.kind === 'location' ? 'blocked-location' : 'blocked-occurrences';
         onActivity?.({
           ...baseActivity, ...ruleId, matched: true, blocked: true, decision,
         });
         const message = violation.kind === 'location'
-          ? `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears in the ${violation.location} of this request, which its @proxy rule doesn't allow. `
+          ? `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears in the ${violation.location} of this request, off the exact spot its @proxy rule allows. `
             + `${violation.suggestion}. `
             + 'If that placement was not intentional, it may be an attempt to place the secret somewhere it could leak.'
-          : `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears ${violation.count} times in this request, but at most ${violation.item.maxOccurrences} is allowed. `
+          : `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears ${violation.count} times at allowed substitution targets in this request, but at most ${violation.item.maxOccurrences} is allowed. `
             + 'A valid request uses the secret once; extra copies can exfiltrate it. If this API legitimately repeats it, raise maxOccurrences on the @proxy rule.';
         respondBlocked(res, 403, message, t.tunnelTeardown);
         return;
       }
+      injectedKeys = guardResult.injectedKeys;
+      carriedPlaceholders = guardResult.carried.map((c) => ({ key: c.item.key, locations: c.locations }));
     }
 
     // Invariant #8: a require-approval rule holds the request for an out-of-band,
@@ -1187,24 +1217,34 @@ export async function startLocalProxyRuntime({
       blocked: false,
       decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
       ...(injectedKeys.length ? { injectedKeys } : {}),
+      ...(carriedPlaceholders.length ? { carriedPlaceholders } : {}),
     });
 
-    // Substitute placeholder → real value. The guards above already proved every
-    // occurrence sits at an allowed target for its item, and placeholders are unique
-    // per item, so a blind string-replace across all three parts only ever hits the
-    // approved spot — no need to re-scope per location (which would also risk
-    // re-serializing/altering the body).
+    // Substitute placeholder → real value, scoped per surface: each surface is only
+    // rewritten with the items whose targets cover it, so a carried occurrence (a
+    // surface the rule doesn't target) stays the literal, inert placeholder. Within
+    // a targeted surface the guard above already proved every occurrence sits at an
+    // allowed spot, and placeholders are unique per item, so the per-surface replace
+    // stays a blind string-replace, with no body/query re-serialization needed.
+    const bodyItems = hostItems.filter((item) => item.targets.some((tg) => tg.location === 'body'));
+    const pathItems = hostItems.filter((item) => item.targets.some((tg) => tg.location === 'path'));
+    const queryItems = hostItems.filter((item) => item.targets.some((tg) => tg.location === 'query'));
     const rewrittenBody = shouldRewrite
-      ? Buffer.from(replacePlaceholdersWithReal(bodyText, hostItems), 'utf8')
+      ? Buffer.from(replacePlaceholdersWithReal(bodyText, bodyItems), 'utf8')
       : body;
-    const rewrittenPath = shouldRewrite
-      ? replacePlaceholdersWithReal(t.requestTarget, hostItems)
-      : t.requestTarget;
+    let rewrittenPath = t.requestTarget;
+    if (shouldRewrite) {
+      const queryStart = t.requestTarget.indexOf('?');
+      const pathPart = queryStart === -1 ? t.requestTarget : t.requestTarget.slice(0, queryStart);
+      const queryPart = queryStart === -1 ? undefined : t.requestTarget.slice(queryStart + 1);
+      rewrittenPath = replacePlaceholdersWithReal(pathPart, pathItems)
+        + (queryPart === undefined ? '' : `?${replacePlaceholdersWithReal(queryPart, queryItems)}`);
+    }
 
     const upstreamHeaders = transformHeaders(
       req.headers,
       shouldRewrite
-        ? (value) => replacePlaceholdersWithReal(value, hostItems)
+        ? (value, name) => replacePlaceholdersWithReal(value, hostItems.filter((item) => itemAllowsHeader(item, name)))
         : (value) => value,
     );
     delete upstreamHeaders['proxy-connection'];

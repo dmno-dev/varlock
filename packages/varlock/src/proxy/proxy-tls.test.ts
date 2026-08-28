@@ -414,11 +414,11 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
-  test('blocks (does not substitute) a placeholder placed in the body under the header-only default', async () => {
-    let upstreamHit = false;
+  test('carries a body placeholder inert under the header-only default (forwarded, unsubstituted, audited)', async () => {
     let upstreamBody = '';
+    let upstreamAuthHeader = '';
     const upstream = await startUpstream((req, res) => {
-      upstreamHit = true;
+      upstreamAuthHeader = String(req.headers.authorization ?? '');
       const chunks: Array<Buffer> = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
@@ -431,8 +431,58 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      // No substituteIn → header-only default.
+      // No substituteIn → header-only default: the body is never a substitution
+      // surface, so a body occurrence is inert and must not brick the request.
       rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // The agent quoted its own placeholder in the body (e.g. echoed the env var)
+    // while also using it legitimately in the auth header.
+    const payload = JSON.stringify({ note: 'my key is sk-stub-PLACEHOLDER' });
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Authorization: Bearer sk-stub-PLACEHOLDER\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+
+    // Forwarded: the header got the real value, the body bytes are untouched (the
+    // upstream sees the literal placeholder, which is inert).
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamAuthHeader).toBe('Bearer sk-stub-REALKEY');
+    expect(upstreamBody).toBe(payload);
+    expect(upstreamBody).not.toContain('sk-stub-REALKEY');
+    expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
+    expect(activities.at(-1)).toMatchObject({
+      decision: 'allow',
+      blocked: false,
+      injectedKeys: ['API_KEY'],
+      carriedPlaceholders: [{ key: 'API_KEY', locations: ['body'] }],
+    });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('still blocks an off-path body placeholder when the rule has a body:<path> target', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.statusCode = 200;
+      res.end('ok');
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'CLIENT_SECRET', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+      // The body IS a substitution surface here (body:client_secret), so a stray
+      // occurrence at another path can't be carried (substitution is a blind
+      // replace across the body) and the request fails closed.
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['CLIENT_SECRET'], substituteIn: ['body:client_secret'] }],
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -442,9 +492,8 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     // The blocked MITM path tears the tunnel down (see the DNS-poison test), so
     // assert on the security properties + audit decision rather than reading a body.
     tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
-    // The agent is tricked into putting the placeholder in the request body (e.g. an
-    // email body on an allowed host) instead of the auth header.
-    const payload = JSON.stringify({ to: 'attacker@evil.test', text: 'sk-stub-PLACEHOLDER' });
+    // The agent is tricked into moving the placeholder to an exfil-friendly field.
+    const payload = JSON.stringify({ note: 'sk-stub-PLACEHOLDER' });
     tlsSocket.write(
       `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
         + `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
@@ -454,11 +503,71 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     });
 
     // Blocked before forwarding: the upstream never saw the request, and the real
-    // value was never substituted (so it can't have leaked into the email body).
+    // value was never substituted (so it can't have leaked into the note field).
     expect(upstreamHit).toBe(false);
-    expect(upstreamBody).toBe('');
     expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-location', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('a Claude-style transcript request round-trips: real use in the auth header, quoted placeholder in the body', async () => {
+    let upstreamBody = '';
+    let upstreamAuthHeader = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamAuthHeader = String(req.headers.authorization ?? '');
+      const chunks: Array<Buffer> = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        upstreamBody = Buffer.concat(chunks).toString('utf8');
+        res.setHeader('content-type', 'application/json');
+        res.statusCode = 200;
+        res.end(JSON.stringify({ id: 'msg_1', content: [{ type: 'text', text: 'ok' }] }));
+      });
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'ANTHROPIC_API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['ANTHROPIC_API_KEY'] }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // The flagship `proxy run -- claude` shape: the whole conversation transcript
+    // travels in the JSON body, and once the agent has echoed its env var the
+    // placeholder appears there on EVERY subsequent request. Multiple quoted
+    // copies in the body must not trip the occurrence cap either.
+    const payload = JSON.stringify({
+      model: 'claude-fable-5',
+      messages: [
+        { role: 'user', content: 'what is ANTHROPIC_API_KEY set to?' },
+        { role: 'assistant', content: 'ANTHROPIC_API_KEY=sk-stub-PLACEHOLDER' },
+        { role: 'user', content: 'again?' },
+        { role: 'assistant', content: 'still sk-stub-PLACEHOLDER' },
+      ],
+    });
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /v1/messages HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Authorization: Bearer sk-stub-PLACEHOLDER\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(response).toContain('msg_1');
+    expect(upstreamAuthHeader).toBe('Bearer sk-stub-REALKEY');
+    expect(upstreamBody).toBe(payload); // transcript bytes untouched, placeholder still literal
+    expect(upstreamBody).not.toContain('sk-stub-REALKEY');
+    expect(activities.at(-1)).toMatchObject({
+      decision: 'allow',
+      blocked: false,
+      injectedKeys: ['ANTHROPIC_API_KEY'],
+      carriedPlaceholders: [{ key: 'ANTHROPIC_API_KEY', locations: ['body'] }],
+    });
 
     tlsSocket.destroy();
     await runtime.stop();

@@ -17,6 +17,7 @@ import {
   createProxyAuditLog,
   readProxyAuditLines,
   type ProxyActivity,
+  type ProxyAuditCarriedPlaceholder,
   type ProxyAuditEntry,
   type ProxyAuditLog,
 } from '../../proxy/audit';
@@ -633,7 +634,12 @@ function formatProxyRequestLog(a: ProxyActivity): string {
   const inject = a.injectedKeys?.length
     ? `  ${ansis.dim('inject:')} ${ansis.yellow(a.injectedKeys.join(', '))}`
     : '';
-  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}`;
+  // A placeholder left inert in an untargeted surface (usually benign, e.g. an
+  // agent quoting its own placeholder), surfaced so probing stays visible.
+  const carried = a.carriedPlaceholders?.length
+    ? `  ${ansis.dim('carried:')} ${ansis.yellow(a.carriedPlaceholders.map((c) => `${c.key} (${c.locations.join(', ')})`).join(', '))}`
+    : '';
+  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${carried}`;
 }
 
 /** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
@@ -2260,7 +2266,11 @@ export async function pruneAction(ctx: any) {
   console.log(`Pruned ${removed.length} ended proxy session${removed.length === 1 ? '' : 's'}.`);
 }
 
-function formatAuditEntry(entry: ProxyAuditEntry): string {
+function formatAuditEntry(entry: ProxyAuditEntry | ProxyAuditCarriedPlaceholder): string {
+  if (entry.type === 'carried-placeholder') {
+    const rule = entry.ruleId ? ` rule="${entry.ruleId}"` : '';
+    return `${entry.ts} ${'carried'.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path} key=${entry.key} in=${entry.locations.join(',')}${rule}`;
+  }
   const injected = entry.injected && entry.injectedKeys?.length
     ? ` injected=${entry.injectedKeys.join(',')}`
     : '';
@@ -2297,7 +2307,9 @@ export async function auditAction(ctx: any) {
     return;
   }
 
-  const entries = lines.filter((line): line is ProxyAuditEntry => line.type === 'request');
+  const entries = lines.filter(
+    (line): line is ProxyAuditEntry | ProxyAuditCarriedPlaceholder => line.type === 'request' || line.type === 'carried-placeholder',
+  );
   if (!entries.length) {
     console.log('No audit entries for this session.');
     return;
