@@ -307,9 +307,9 @@ export type SubstitutionGuardViolation = | { kind: 'location'; item: RequestScop
  * The occurrences are forwarded unsubstituted (an unswapped placeholder is inert
  * by design) and surfaced in the audit log so probing stays visible.
  */
-export type CarriedPlaceholder = {
+export type SkippedPlaceholder = {
   item: RequestScopedManagedItem;
-  /** Where the carried occurrences sat: `body`, `path`, `query`, or `header:<name>`. */
+  /** Where the skipped occurrences sat: `body`, `path`, `query`, or `header:<name>`. */
   locations: Array<string>;
 };
 
@@ -319,7 +319,7 @@ export type SubstitutionGuardResult = {
   /** Keys of items with at least one occurrence at an allowed target (these get substituted). */
   injectedKeys: Array<string>;
   /** Per-item placeholder occurrences left inert in untargeted surfaces (empty on violation). */
-  carried: Array<CarriedPlaceholder>;
+  skipped: Array<SkippedPlaceholder>;
 };
 
 /** A string value in a request body, with the dotted path that locates it. */
@@ -397,11 +397,11 @@ export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): 
  * Evaluate the substitution guards on the injected items for a request, *before*
  * any placeholder is swapped for its real value.
  *
- *  - carry-inert: a placeholder occurrence in a surface the item has NO targets on
+ *  - skip: a placeholder occurrence in a surface the item has NO targets on
  *    (the body under the default header-only targets, a denylisted header, the URL
  *    path without a `path` target, ...) is left alone: substitution is scoped per
  *    surface, so the occurrence reaches the upstream as the literal placeholder,
- *    which is inert by design. Reported as `carried` so the audit log keeps probing
+ *    which is inert by design. Reported as `skipped` so the audit log keeps probing
  *    visible. Blocking here would add no protection (the value is never substituted
  *    there anyway) and bricks legitimate flows where an agent quotes its own
  *    placeholder, e.g. a conversation transcript echoing an env var.
@@ -414,7 +414,7 @@ export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): 
  *    field on an otherwise-allowed host whose body IS a target at a different path.
  *  - cardinality guard (fail closed): a valid request uses the secret a fixed
  *    number of times (default 1), counting only occurrences at allowed targets
- *    (carried occurrences are never substituted, so they don't count). An extra
+ *    (skipped occurrences are never substituted, so they don't count). An extra
  *    allowed-surface occurrence suggests an exfiltration copy (duplicate the token
  *    into an attacker-visible field while still making a valid call).
  */
@@ -423,7 +423,7 @@ export function checkSubstitutionGuards(
   hostItems: Array<RequestScopedManagedItem>,
 ): SubstitutionGuardResult {
   const injectedKeys: Array<string> = [];
-  const carried: Array<CarriedPlaceholder> = [];
+  const skipped: Array<SkippedPlaceholder> = [];
   for (const item of hostItems) {
     const ph = item.placeholder;
     if (!ph) continue;
@@ -434,9 +434,9 @@ export function checkSubstitutionGuards(
     const bodyPaths = targets.flatMap((t) => (t.location === 'body' ? [t.path] : []));
     // `body:*` is the explicit escape hatch for bodies we can't parse into a path.
     const bodyAnywhere = bodyPaths.includes('*');
-    const carriedLocations: Array<string> = [];
+    const skippedLocations: Array<string> = [];
     const violation = (v: SubstitutionGuardViolation): SubstitutionGuardResult => (
-      { violation: v, injectedKeys: [], carried: [] }
+      { violation: v, injectedKeys: [], skipped: [] }
     );
 
     // Split the request target into the URL path and the query string: they are
@@ -446,13 +446,13 @@ export function checkSubstitutionGuards(
     const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
 
     // Headers: substitution is applied per header value, so a disallowed header
-    // carries inert with no surgery needed.
+    // is skipped (left inert) with no surgery needed.
     let headerAllowed = 0;
     for (const h of req.headers) {
       const c = countOccurrences(h.value, ph);
       if (!c) continue;
       if (itemAllowsHeader(item, h.name)) headerAllowed += c;
-      else carriedLocations.push(`header:${h.name}`);
+      else skippedLocations.push(`header:${h.name}`);
     }
 
     // URL path: all-or-nothing (`path` allows a token anywhere in the path).
@@ -460,13 +460,13 @@ export function checkSubstitutionGuards(
     let pathAllowed = 0;
     if (pathTotal > 0) {
       if (anyPath) pathAllowed = pathTotal;
-      else carriedLocations.push('path');
+      else skippedLocations.push('path');
     }
 
     // Query string: `query` allows anywhere; `query:<param>` only the named
     // param's value. An occurrence off the named param fails closed: the query
     // is substituted as one string, so skipping it would need re-serialization.
-    // No query targets at all ⇒ the query is never substituted ⇒ carry inert.
+    // No query targets at all ⇒ the query is never substituted ⇒ skip (leave inert).
     const queryTotal = countOccurrences(queryPart, ph);
     let queryAllowed = 0;
     if (queryTotal > 0) {
@@ -481,14 +481,14 @@ export function checkSubstitutionGuards(
           });
         }
       } else {
-        carriedLocations.push('query');
+        skippedLocations.push('query');
       }
     }
 
     // Body: `body:*` allows anywhere (no parse needed). With `body:<path>` targets,
     // an occurrence off an allowed path fails closed (same surgery argument as
     // query params), and an unparseable body (leaves === null) allows nothing. With
-    // no body targets the body bytes are never touched, so occurrences carry inert.
+    // no body targets the body bytes are never touched, so occurrences are skipped.
     const bodyTotal = countOccurrences(req.body, ph);
     let bodyAllowed = 0;
     if (bodyTotal > 0) {
@@ -505,7 +505,7 @@ export function checkSubstitutionGuards(
           });
         }
       } else {
-        carriedLocations.push('body');
+        skippedLocations.push('body');
       }
     }
 
@@ -514,9 +514,9 @@ export function checkSubstitutionGuards(
       return violation({ kind: 'occurrences', item, count: allowedTotal });
     }
     if (allowedTotal > 0) injectedKeys.push(item.key);
-    if (carriedLocations.length) carried.push({ item, locations: carriedLocations });
+    if (skippedLocations.length) skipped.push({ item, locations: skippedLocations });
   }
-  return { violation: undefined, injectedKeys, carried };
+  return { violation: undefined, injectedKeys, skipped };
 }
 
 export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
@@ -1153,10 +1153,10 @@ export async function startLocalProxyRuntime({
     // into an exfiltration-friendly spot (an email body, a duplicated field) on an
     // otherwise-allowed host — the secret is only ever substituted where the rule
     // explicitly allows. Occurrences in a surface the rule has no targets on are
-    // carried through unsubstituted (inert) rather than blocked; see
+    // skipped (forwarded unsubstituted, inert) rather than blocked; see
     // checkSubstitutionGuards.
     let injectedKeys: Array<string> = [];
-    let carriedPlaceholders: Array<{ key: string; locations: Array<string> }> = [];
+    let skippedPlaceholders: Array<{ key: string; locations: Array<string> }> = [];
     if (shouldRewrite && hostItems.length > 0) {
       const guardReq: SubstitutionGuardRequest = {
         headers: Object.entries(req.headers).map(([name, value]) => ({
@@ -1184,7 +1184,7 @@ export async function startLocalProxyRuntime({
         return;
       }
       injectedKeys = guardResult.injectedKeys;
-      carriedPlaceholders = guardResult.carried.map((c) => ({ key: c.item.key, locations: c.locations }));
+      skippedPlaceholders = guardResult.skipped.map((c) => ({ key: c.item.key, locations: c.locations }));
     }
 
     // Invariant #8: a require-approval rule holds the request for an out-of-band,
@@ -1217,11 +1217,11 @@ export async function startLocalProxyRuntime({
       blocked: false,
       decision: policyDecision?.verdict === 'require-approval' ? 'approval-granted' : 'allow',
       ...(injectedKeys.length ? { injectedKeys } : {}),
-      ...(carriedPlaceholders.length ? { carriedPlaceholders } : {}),
+      ...(skippedPlaceholders.length ? { skippedPlaceholders } : {}),
     });
 
     // Substitute placeholder → real value, scoped per surface: each surface is only
-    // rewritten with the items whose targets cover it, so a carried occurrence (a
+    // rewritten with the items whose targets cover it, so a skipped occurrence (a
     // surface the rule doesn't target) stays the literal, inert placeholder. Within
     // a targeted surface the guard above already proved every occurrence sits at an
     // allowed spot, and placeholders are unique per item, so the per-surface replace

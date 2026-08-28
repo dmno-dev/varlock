@@ -92,21 +92,21 @@ describe('checkSubstitutionGuards', () => {
 
   test('allows a placeholder in an allowed header within the occurrence cap', () => {
     const req = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }] };
-    expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ ...ok, injectedKeys: ['API_KEY'], carried: [] });
+    expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ ...ok, injectedKeys: ['API_KEY'], skipped: [] });
   });
 
-  test('carries a body placeholder inert under the any-header default (no block)', () => {
+  test('skips (does not substitute) a body placeholder under the any-header default', () => {
     // The agent quoted its own placeholder in the body (e.g. a conversation
     // transcript echoing the env var). The body is never a substitution surface for
-    // this item, so the occurrence is inert: forward it, report it as carried.
+    // this item, so the occurrence is inert: forward it, report it as skipped.
     const req = { ...emptyReq, ...jsonBody({ note: 'vlk_ph_key' }) };
     const result = checkSubstitutionGuards(req, [item()]);
     expect(result.violation).toBeUndefined();
     expect(result.injectedKeys).toEqual([]); // nothing at an allowed target, so nothing injected
-    expect(result.carried).toMatchObject([{ item: { key: 'API_KEY' }, locations: ['body'] }]);
+    expect(result.skipped).toMatchObject([{ item: { key: 'API_KEY' }, locations: ['body'] }]);
   });
 
-  test('a header use plus carried body occurrences: forwarded, body does not count toward the cap', () => {
+  test('a header use plus skipped body occurrences: forwarded, body does not count toward the cap', () => {
     const req = {
       ...emptyReq,
       headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }],
@@ -115,7 +115,7 @@ describe('checkSubstitutionGuards', () => {
     const result = checkSubstitutionGuards(req, [item()]); // header-only default, maxOccurrences 1
     expect(result.violation).toBeUndefined();
     expect(result.injectedKeys).toEqual(['API_KEY']);
-    expect(result.carried).toMatchObject([{ item: { key: 'API_KEY' }, locations: ['body'] }]);
+    expect(result.skipped).toMatchObject([{ item: { key: 'API_KEY' }, locations: ['body'] }]);
   });
 
   test('allows a body placeholder only at the exact path it was widened to', () => {
@@ -127,55 +127,55 @@ describe('checkSubstitutionGuards', () => {
   test('blocks a body placeholder at a DIFFERENT path than the one allowed (the exfil case)', () => {
     // body:client_secret is allowed, but the agent put the placeholder in `note`
     // instead. Since the body IS a substitution surface for this item, the blind
-    // body replace can't skip the stray occurrence: fail closed, no carry.
+    // body replace can't skip the stray occurrence: fail closed, no skipping.
     const req = { ...emptyReq, ...jsonBody({ note: 'vlk_ph_key' }) };
     expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'body', path: 'client_secret' }] })]))
       .toMatchObject({ violation: { kind: 'location', location: 'body' } });
   });
 
-  test('the any-header default carries denylisted forward/log headers inert (cookie, x-forwarded-*, ...)', () => {
+  test('the any-header default skips denylisted forward/log headers (cookie, x-forwarded-*, ...)', () => {
     // Placeholder redirected into a header the upstream might forward/log: not
-    // substituted there (so it stays inert), and reported as carried.
+    // substituted there (so it stays inert), and reported as skipped.
     for (const name of ['cookie', 'x-forwarded-for', 'host', 'referer', 'user-agent']) {
       const req = { ...emptyReq, headers: [{ name, value: 'x vlk_ph_key y' }] };
       expect(checkSubstitutionGuards(req, [item()]))
-        .toMatchObject({ ...ok, injectedKeys: [], carried: [{ locations: [`header:${name}`] }] });
+        .toMatchObject({ ...ok, injectedKeys: [], skipped: [{ locations: [`header:${name}`] }] });
     }
   });
 
   test('an explicit header:<name> target overrides the denylist', () => {
     const req = { ...emptyReq, headers: [{ name: 'cookie', value: 'session=vlk_ph_key' }] };
     expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'header', name: 'cookie' }] })]))
-      .toMatchObject({ ...ok, injectedKeys: ['API_KEY'], carried: [] });
+      .toMatchObject({ ...ok, injectedKeys: ['API_KEY'], skipped: [] });
   });
 
-  test('pins to a specific header name; other headers carry inert', () => {
+  test('pins to a specific header name; other headers are skipped', () => {
     const allowed = item({ targets: [{ location: 'header', name: 'authorization' }] });
     const inAuth = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }] };
     expect(checkSubstitutionGuards(inAuth, [allowed])).toMatchObject({ ...ok, injectedKeys: ['API_KEY'] });
     const inOther = { ...emptyReq, headers: [{ name: 'x-evil', value: 'vlk_ph_key' }] };
     expect(checkSubstitutionGuards(inOther, [allowed]))
-      .toMatchObject({ ...ok, injectedKeys: [], carried: [{ locations: ['header:x-evil'] }] });
+      .toMatchObject({ ...ok, injectedKeys: [], skipped: [{ locations: ['header:x-evil'] }] });
   });
 
-  test('carries a URL-path placeholder by default, substitutes it with substituteIn=[path]', () => {
+  test('skips a URL-path placeholder by default, substitutes it with substituteIn=[path]', () => {
     const req = { ...emptyReq, requestTarget: '/v1/vlk_ph_key/data' };
     expect(checkSubstitutionGuards(req, [item()]))
-      .toMatchObject({ ...ok, injectedKeys: [], carried: [{ locations: ['path'] }] });
+      .toMatchObject({ ...ok, injectedKeys: [], skipped: [{ locations: ['path'] }] });
     expect(checkSubstitutionGuards(req, [item({ targets: [{ location: 'path' }] })]))
-      .toMatchObject({ ...ok, injectedKeys: ['API_KEY'], carried: [] });
+      .toMatchObject({ ...ok, injectedKeys: ['API_KEY'], skipped: [] });
   });
 
   test('path and query are distinct: a path token is not covered by bare query (and vice versa)', () => {
     const inPath = { ...emptyReq, requestTarget: '/v1/vlk_ph_key/data?page=2' };
     expect(checkSubstitutionGuards(inPath, [item({ targets: [{ location: 'query' }] })]))
-      .toMatchObject({ ...ok, injectedKeys: [], carried: [{ locations: ['path'] }] });
+      .toMatchObject({ ...ok, injectedKeys: [], skipped: [{ locations: ['path'] }] });
     const inQuery = { ...emptyReq, requestTarget: '/v1/data?token=vlk_ph_key' };
     expect(checkSubstitutionGuards(inQuery, [item({ targets: [{ location: 'path' }] })]))
-      .toMatchObject({ ...ok, injectedKeys: [], carried: [{ locations: ['query'] }] });
+      .toMatchObject({ ...ok, injectedKeys: [], skipped: [{ locations: ['query'] }] });
     // ...and bare query does cover the query string
     expect(checkSubstitutionGuards(inQuery, [item({ targets: [{ location: 'query' }] })]))
-      .toMatchObject({ ...ok, injectedKeys: ['API_KEY'], carried: [] });
+      .toMatchObject({ ...ok, injectedKeys: ['API_KEY'], skipped: [] });
   });
 
   test('allows a placeholder in a named query param, blocks it in a different param', () => {
@@ -247,7 +247,7 @@ describe('checkSubstitutionGuards', () => {
   test('ignores items with an empty placeholder', () => {
     const req = { ...emptyReq, body: 'anything' };
     expect(checkSubstitutionGuards(req, [item({ placeholder: '' })]))
-      .toMatchObject({ ...ok, injectedKeys: [], carried: [] });
+      .toMatchObject({ ...ok, injectedKeys: [], skipped: [] });
   });
 });
 

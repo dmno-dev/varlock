@@ -414,7 +414,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
-  test('carries a body placeholder inert under the header-only default (forwarded, unsubstituted, audited)', async () => {
+  test('skips a body placeholder under the header-only default (forwarded, unsubstituted, audited)', async () => {
     let upstreamBody = '';
     let upstreamAuthHeader = '';
     const upstream = await startUpstream((req, res) => {
@@ -460,7 +460,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
       decision: 'allow',
       blocked: false,
       injectedKeys: ['API_KEY'],
-      carriedPlaceholders: [{ key: 'API_KEY', locations: ['body'] }],
+      skippedPlaceholders: [{ key: 'API_KEY', locations: ['body'] }],
     });
 
     tlsSocket.destroy();
@@ -480,7 +480,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'CLIENT_SECRET', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
       // The body IS a substitution surface here (body:client_secret), so a stray
-      // occurrence at another path can't be carried (substitution is a blind
+      // occurrence at another path can't be skipped (substitution is a blind
       // replace across the body) and the request fails closed.
       rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['CLIENT_SECRET'], substituteIn: ['body:client_secret'] }],
       egressMode: 'permissive',
@@ -566,7 +566,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
       decision: 'allow',
       blocked: false,
       injectedKeys: ['ANTHROPIC_API_KEY'],
-      carriedPlaceholders: [{ key: 'ANTHROPIC_API_KEY', locations: ['body'] }],
+      skippedPlaceholders: [{ key: 'ANTHROPIC_API_KEY', locations: ['body'] }],
     });
 
     tlsSocket.destroy();

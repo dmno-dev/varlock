@@ -17,7 +17,7 @@ import {
   createProxyAuditLog,
   readProxyAuditLines,
   type ProxyActivity,
-  type ProxyAuditCarriedPlaceholder,
+  type ProxyAuditSkippedPlaceholder,
   type ProxyAuditEntry,
   type ProxyAuditLog,
 } from '../../proxy/audit';
@@ -636,10 +636,10 @@ function formatProxyRequestLog(a: ProxyActivity): string {
     : '';
   // A placeholder left inert in an untargeted surface (usually benign, e.g. an
   // agent quoting its own placeholder), surfaced so probing stays visible.
-  const carried = a.carriedPlaceholders?.length
-    ? `  ${ansis.dim('carried:')} ${ansis.yellow(a.carriedPlaceholders.map((c) => `${c.key} (${c.locations.join(', ')})`).join(', '))}`
+  const skipped = a.skippedPlaceholders?.length
+    ? `  ${ansis.dim('skipped:')} ${ansis.yellow(a.skippedPlaceholders.map((c) => `${c.key} (${c.locations.join(', ')})`).join(', '))}`
     : '';
-  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${carried}`;
+  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${skipped}`;
 }
 
 /** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
@@ -2266,10 +2266,10 @@ export async function pruneAction(ctx: any) {
   console.log(`Pruned ${removed.length} ended proxy session${removed.length === 1 ? '' : 's'}.`);
 }
 
-function formatAuditEntry(entry: ProxyAuditEntry | ProxyAuditCarriedPlaceholder): string {
-  if (entry.type === 'carried-placeholder') {
+function formatAuditEntry(entry: ProxyAuditEntry | ProxyAuditSkippedPlaceholder): string {
+  if (entry.type === 'skipped-placeholder') {
     const rule = entry.ruleId ? ` rule="${entry.ruleId}"` : '';
-    return `${entry.ts} ${'carried'.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path} key=${entry.key} in=${entry.locations.join(',')}${rule}`;
+    return `${entry.ts} ${'skipped'.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path} key=${entry.key} in=${entry.locations.join(',')}${rule}`;
   }
   const injected = entry.injected && entry.injectedKeys?.length
     ? ` injected=${entry.injectedKeys.join(',')}`
@@ -2308,7 +2308,7 @@ export async function auditAction(ctx: any) {
   }
 
   const entries = lines.filter(
-    (line): line is ProxyAuditEntry | ProxyAuditCarriedPlaceholder => line.type === 'request' || line.type === 'carried-placeholder',
+    (line): line is ProxyAuditEntry | ProxyAuditSkippedPlaceholder => line.type === 'request' || line.type === 'skipped-placeholder',
   );
   if (!entries.length) {
     console.log('No audit entries for this session.');

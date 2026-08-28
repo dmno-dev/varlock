@@ -80,11 +80,11 @@ describe('proxy audit log', () => {
     expect((lines[2] as ProxyAuditEntry).injectedKeys).toBeUndefined();
   });
 
-  test('emits one carried-placeholder line per carried item, sharing the request fingerprint', async () => {
-    const uuid = 'carried-lines';
+  test('emits one skipped-placeholder line per skipped item, sharing the request fingerprint', async () => {
+    const uuid = 'skipped-lines';
     const log = createProxyAuditLog(uuid);
     log.record(allowActivity({
-      carriedPlaceholders: [
+      skippedPlaceholders: [
         { key: 'API_KEY', locations: ['body'] },
         { key: 'OTHER_KEY', locations: ['header:x-debug', 'body'] },
       ],
@@ -96,14 +96,14 @@ describe('proxy audit log', () => {
     const entry = lines[0] as ProxyAuditEntry;
     expect(entry).toMatchObject({ type: 'request', decision: 'allow' });
     expect(lines[1]).toMatchObject({
-      type: 'carried-placeholder',
+      type: 'skipped-placeholder',
       key: 'API_KEY',
       locations: ['body'],
       requestHash: entry.requestHash,
       ruleId: entry.ruleId,
     });
     expect(lines[2]).toMatchObject({
-      type: 'carried-placeholder',
+      type: 'skipped-placeholder',
       key: 'OTHER_KEY',
       locations: ['header:x-debug', 'body'],
     });

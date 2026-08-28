@@ -41,9 +41,9 @@ export type ProxyActivity = {
   /**
    * Injected items whose placeholder also appeared in a surface their rule doesn't
    * substitute in, forwarded unsubstituted (inert). Each produces a
-   * `carried-placeholder` audit line alongside the request entry.
+   * `skipped-placeholder` audit line alongside the request entry.
    */
-  carriedPlaceholders?: Array<{ key: string; locations: Array<string> }>;
+  skippedPlaceholders?: Array<{ key: string; locations: Array<string> }>;
 };
 
 /** First line of every audit file — makes the file self-describing after the session record is gone. */
@@ -75,13 +75,13 @@ export type ProxyAuditEntry = {
 };
 
 /**
- * One carried-placeholder event: an injected item's placeholder appeared in a
+ * One skipped-placeholder event: an injected item's placeholder appeared in a
  * request surface its rule has no substitution targets on, and was forwarded
  * unsubstituted (an unswapped placeholder is inert). Usually benign (an agent
  * quoting its own placeholder), but logged per item so probing stays visible.
  */
-export type ProxyAuditCarriedPlaceholder = {
-  type: 'carried-placeholder';
+export type ProxyAuditSkippedPlaceholder = {
+  type: 'skipped-placeholder';
   ts: string;
   host: string;
   method: string;
@@ -89,14 +89,14 @@ export type ProxyAuditCarriedPlaceholder = {
   path: string;
   /** Matches the accompanying request entry's fingerprint. */
   requestHash: string;
-  /** Key (name, never value) of the managed item whose placeholder was carried. */
+  /** Key (name, never value) of the managed item whose placeholder was skipped. */
   key: string;
   /** Where the unsubstituted occurrences sat, e.g. `body`, `path`, `query`, `header:<name>`. */
   locations: Array<string>;
   ruleId?: string;
 };
 
-export type ProxyAuditLine = ProxyAuditHeader | ProxyAuditEntry | ProxyAuditCarriedPlaceholder;
+export type ProxyAuditLine = ProxyAuditHeader | ProxyAuditEntry | ProxyAuditSkippedPlaceholder;
 
 // Resolved lazily (not a module-load const) so it honors the active
 // XDG_CONFIG_HOME / legacy-dir resolution at call time. Co-located in the
@@ -159,18 +159,18 @@ export function createProxyAuditLog(uuid: string, header?: Omit<ProxyAuditHeader
       const ts = new Date().toISOString();
       const entry = activityToEntry(activity, ts);
       enqueue(entry);
-      // One carried-placeholder line per carried item, sharing the request's
+      // One skipped-placeholder line per skipped item, sharing the request's
       // fingerprint so the two can be correlated.
-      for (const carried of activity.carriedPlaceholders ?? []) {
+      for (const skipped of activity.skippedPlaceholders ?? []) {
         enqueue({
-          type: 'carried-placeholder',
+          type: 'skipped-placeholder',
           ts,
           host: activity.host,
           method: activity.method,
           path: activity.path,
           requestHash: entry.requestHash,
-          key: carried.key,
-          locations: carried.locations,
+          key: skipped.key,
+          locations: skipped.locations,
           ...(activity.ruleId ? { ruleId: activity.ruleId } : {}),
         });
       }
