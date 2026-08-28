@@ -388,7 +388,7 @@ describe('proxy decorators', () => {
       # @proxy(domain="api.coinbase.com", transform={
       #   scheme="hmac-sha256", stringToSign="{timestamp}{method}{pathWithQuery}{body}",
       #   signatureHeader="CB-ACCESS-SIGN", timestampHeader="CB-ACCESS-TIMESTAMP",
-      #   keyId="CB_KEY_ID", keyHeader="CB-ACCESS-KEY", encoding="hex",
+      #   keyId=$CB_KEY_ID, keyHeader="CB-ACCESS-KEY", encoding="hex",
       # })
       CB_SECRET=shhh-real
 
@@ -428,7 +428,7 @@ describe('proxy decorators', () => {
   test('detached transform rule with explicit secretKey manages the item with no per-item @proxy at all', async () => {
     const graph = await loadGraph(outdent`
       # @proxy(domain="api.partner.com", transform={
-      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Signature", secretKey="HOOK_SECRET",
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Signature", secretKey=$HOOK_SECRET,
       # })
       # ---
       # @sensitive
@@ -480,21 +480,22 @@ describe('proxy decorators', () => {
     expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /cannot target the "content-length" header/.test(e.message))).toBe(true);
   });
 
-  test('http-basic transform: username takes a literal or a $REF (resolved to the item value)', async () => {
+  test('http-basic transform: username takes a literal or a $REF (captured as a marker, never resolved)', async () => {
     const graph = await loadGraph(outdent`
       # ---
       # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username=$API_USER})
       API_PASSWORD=real-password
 
+      # @sensitive
       API_USER=svc-user
     `);
     expect(await graph.getProxyRules()).toMatchObject([
       {
         domain: ['api.legacy.com'],
-        itemKeys: [],
-        // $API_USER resolved to the item's VALUE - usernames are wire-visible
-        // config, so embedding the value in rule data is fine (unlike secrets)
-        transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: 'svc-user' },
+        // the referenced username item is wire-role: managed + substitutable
+        itemKeys: ['API_USER'],
+        // captured as a $NAME marker; the proxy resolves the value at sign time
+        transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: '$API_USER' },
       },
     ]);
 
@@ -520,9 +521,9 @@ describe('proxy decorators', () => {
     await expect(colonUser.getProxyRules()).rejects.toThrow(/cannot contain ":"/);
   });
 
-  test('http-basic: detached rules use password= (item name); literals and secretKey= are rejected', async () => {
+  test('http-basic: detached rules pass the password as a $REF; secretKey= is rejected', async () => {
     const detached = await loadGraph(outdent`
-      # @proxy(domain="registry.example.com", transform={scheme="http-basic", password="REGISTRY_PASSWORD", username="ci-bot"})
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", password=$REGISTRY_PASSWORD, username="ci-bot"})
       # ---
       # @sensitive
       REGISTRY_PASSWORD=real-password
@@ -531,52 +532,42 @@ describe('proxy decorators', () => {
 
     // the generic secretKey name is replaced by the scheme's own password option
     const secretKeyName = await loadGraph(outdent`
-      # @proxy(domain="registry.example.com", transform={scheme="http-basic", secretKey="REGISTRY_PASSWORD"})
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", secretKey=$REGISTRY_PASSWORD})
       # ---
       # @sensitive
       REGISTRY_PASSWORD=real-password
     `);
     await expect(secretKeyName.getProxyRules()).rejects.toThrow(/unknown transform option "secretKey" for scheme "http-basic"/);
-
-    // a literal password is not an item name - rejected loudly, value not usable
-    const literalPassword = await loadGraph(outdent`
-      # @proxy(domain="registry.example.com", transform={scheme="http-basic", password="hunter2"})
-      # ---
-      BASELINE=1
-    `);
-    await expect(literalPassword.getProxyRules()).rejects.toThrow(/transform\.password must be the name of a config item/);
   });
 
-  test('item-name transform options reject $ references and unknown items without echoing values', async () => {
-    // static guard (built-in schemes): a $REF on secretKey fails before it can
-    // resolve the secret's value into rule data
-    const refSecret = await loadGraph(outdent`
+  test('credential options require $ references; refs never resolve; unknown targets fail loudly', async () => {
+    // a literal on a credential option fails statically for built-in schemes
+    const literalSecret = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
-      # @proxy(domain="api.a.com", transform={scheme="http-basic", password=$OTHER_SECRET})
+      # @proxy(domain="api.a.com", transform={scheme="http-basic", password="hunter2"})
       API_PASSWORD=real-password
-
-      OTHER_SECRET=super-secret-value
     `);
-    const errors = refSecret.configSchema.API_PASSWORD.decoratorSchemaErrors;
-    expect(errors.some((e) => /transform\.password takes the item's name as a plain string/.test(e.message))).toBe(true);
+    const errors = literalSecret.configSchema.API_PASSWORD.decoratorSchemaErrors;
+    expect(errors.some((e) => /transform\.password must be a reference to a config item/.test(e.message))).toBe(true);
 
-    // resolve-time backstop (covers plugin schemes, where the static pass can't
-    // know which options are item names): unknown item, value NOT echoed
-    const refWire = await loadGraph(outdent`
+    // plugin schemes (unknown to the static pass) get the same error at resolve time
+    const pluginLiteral = await loadGraph(outdent`
       # @plugin(./plugins/test-transform-plugin)
       # ---
-      # @proxy(domain="api.a.com", transform={scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Sig"})
+      # @proxy(domain="api.a.com", transform={scheme="test-sign", tokenId="tok-literal", signatureHeader="X-Sig"})
       SIGNING_SECRET=shhh
-
-      TOKEN_ID=tok-real-value
     `);
-    let thrown: Error | undefined;
-    await refWire.getProxyRules().catch((err) => {
-      thrown = err;
-    });
-    expect(thrown?.message).toMatch(/transform\.tokenId must be the name of a config item/);
-    expect(thrown?.message).not.toContain('tok-real-value');
+    await expect(pluginLiteral.getProxyRules()).rejects.toThrow(/transform\.tokenId must be a reference to a config item/);
+
+    // a ref to a nonexistent item names the MISSING ITEM, and since refs are
+    // captured pre-resolution, no value ever resolves into rule data
+    const missingItem = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="http-basic", password=$NO_SUCH_ITEM})
+      BASELINE=1
+    `);
+    await expect(missingItem.getProxyRules()).rejects.toThrow(/transform\.password references config item "NO_SUCH_ITEM", which does not exist/);
   });
 
   test('transform: {timestamp} in stringToSign requires a timestampHeader', async () => {
@@ -601,7 +592,7 @@ describe('proxy decorators', () => {
   test('transform: keyId and keyHeader must be set together', async () => {
     const graph = await loadGraph(outdent`
       # ---
-      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig", keyId="SOME_KEY_ID"})
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig", keyId=$SOME_KEY_ID})
       API_SECRET=shhh
 
       SOME_KEY_ID=kid
@@ -624,7 +615,7 @@ describe('proxy decorators', () => {
       # @plugin(./plugins/test-transform-plugin)
       # ---
       # @proxy(domain="api.example.com", transform={
-      #   scheme="test-sign", tokenId="TOKEN_ID", signatureHeader="X-Test-Sig",
+      #   scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Test-Sig",
       #   mode="fancy", allowedThings="one",
       # })
       SIGNING_SECRET=shhh-real
@@ -665,7 +656,7 @@ describe('proxy decorators', () => {
     const badEnum = await loadGraph(outdent`
       # @plugin(./plugins/test-transform-plugin)
       # ---
-      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId="T", signatureHeader="X-Test-Sig", mode="bogus"})
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId=$T, signatureHeader="X-Test-Sig", mode="bogus"})
       SIGNING_SECRET=shhh
     `);
     await expect(badEnum.getProxyRules()).rejects.toThrow(/transform\.mode must be one of plain, fancy/);
@@ -673,7 +664,7 @@ describe('proxy decorators', () => {
     const unknownOption = await loadGraph(outdent`
       # @plugin(./plugins/test-transform-plugin)
       # ---
-      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId="T", signatureHeader="X-Test-Sig", stringToSign="{body}"})
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId=$T, signatureHeader="X-Test-Sig", stringToSign="{body}"})
       SIGNING_SECRET=shhh
     `);
     await expect(unknownOption.getProxyRules()).rejects.toThrow(/unknown transform option "stringToSign" for scheme "test-sign"/);

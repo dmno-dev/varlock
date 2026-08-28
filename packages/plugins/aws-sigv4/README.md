@@ -8,7 +8,7 @@ The agent's AWS SDK signs requests normally, using the placeholder credentials v
 # @plugin(@varlock/aws-sigv4-plugin)
 # ---
 # @proxy(domain="*.amazonaws.com", transform={
-#   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
+#   scheme="aws-sigv4", keyId=$AWS_ACCESS_KEY_ID,
 #   allowedServices=[bedrock, s3],
 # })
 AWS_SECRET_ACCESS_KEY=somePlugin()

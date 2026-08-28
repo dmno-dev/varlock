@@ -154,7 +154,13 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
 const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
   const secret = input.credentials.secretKey;
-  let userid = typeof basicTransform.username === 'string' ? basicTransform.username : '';
+  // a `$NAME`-marked username is an item reference, resolved into credentials
+  let userid = '';
+  if (typeof basicTransform.username === 'string') {
+    userid = basicTransform.username.startsWith('$')
+      ? input.credentials.username ?? ''
+      : basicTransform.username;
+  }
   let password = secret;
   if (basicTransform.secretIn === 'username') {
     userid = secret;

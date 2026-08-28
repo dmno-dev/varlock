@@ -496,22 +496,17 @@ function assertProxyTransformArg(resolver: Resolver | undefined): void {
     return; // dynamic expression - validated at resolve time
   }
   const inner = resolver.objArgs ?? {};
-  // Options that name credential ITEMS must be plain static strings. A `$REF`
-  // or expression there resolves to the item's VALUE, which would embed a real
-  // secret in rule data (and produce confusing unknown-item errors). Checked
-  // here for built-in schemes; plugin schemes get the resolve-time
-  // unknown-item backstop in buildProxyTransform.
-  const schemeResolver = inner.scheme;
-  const staticScheme = schemeResolver?.isStatic && typeof schemeResolver.staticValue === 'string'
-    ? schemeResolver.staticValue : undefined;
-  const knownSpec = staticScheme !== undefined ? BUILT_IN_TRANSFORM_SCHEME_SPECS[staticScheme] : undefined;
+  // Item references inside transform options (`password=$API_PASSWORD`, which
+  // the parser expands to `ref(API_PASSWORD)`) are captured HERE, before
+  // resolution: the ref resolver is swapped for a static `$NAME` marker, so
+  // the referenced item's VALUE never resolves into rule data or any
+  // serialization of it. Scheme-agnostic on purpose (plugin schemes included);
+  // whether a given option may be a ref is validated against the scheme spec.
   for (const [key, val] of Object.entries(inner)) {
-    const isItemNameOption = key === 'secretKey' || knownSpec?.options[key]?.itemRole !== undefined;
-    if (isItemNameOption && val && !val.isStatic) {
-      throw new SchemaError(
-        `@proxy: transform.${key} takes the item's name as a plain string (e.g. ${key}="API_PASSWORD"), `
-          + 'not a reference or expression - a $ reference would resolve to the item\'s value',
-      );
+    if (val?.fnName !== 'ref') continue;
+    const refArg = (val as any).arrArgs?.[0];
+    if (refArg?.isStatic && typeof refArg.staticValue === 'string') {
+      inner[key] = new StaticValueResolver(`$${refArg.staticValue}`);
     }
   }
   const staticEntries: Record<string, unknown> = {};

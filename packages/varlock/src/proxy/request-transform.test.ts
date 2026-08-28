@@ -144,6 +144,18 @@ describe('http-basic signer', () => {
     });
   });
 
+  test('a $NAME-marked username resolves via credentials (item reference)', async () => {
+    const result = await sign(
+      { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: '$API_USER' } as any,
+      { ...input, credentials: { secretKey: 'real-password', username: 'item-user' } } as any,
+      NOW_MS,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      setHeaders: { authorization: `Basic ${Buffer.from('item-user:real-password').toString('base64')}` },
+    });
+  });
+
   test('defaults to an empty username when none is configured', async () => {
     const result = await sign({ scheme: 'http-basic', secretKey: 'API_PASSWORD' } as any, input as any, NOW_MS);
     expect(result).toMatchObject({

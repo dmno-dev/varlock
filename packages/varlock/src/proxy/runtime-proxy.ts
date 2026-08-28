@@ -30,7 +30,7 @@ import {
 import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
 import {
   PROXY_TRANSFORM_COMMON_OPTION_SPECS,
-  isNeverAutoSubstituteHeader, proxySubstitutionTargetKey,
+  isNeverAutoSubstituteHeader, proxySubstitutionTargetKey, proxyTransformItemRefName,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
   type ProxyRuleTransform, type ProxySubstitutionLocation, type ProxySubstitutionTarget,
   type ProxyTransformSchemeDef, type ProxyTransformSignResult,
@@ -526,8 +526,9 @@ export function collectConsumedTransformKeys(
     const spec = transformSchemes[rule.transform.scheme];
     const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-      const val = rule.transform[option];
-      if (optionSpec.itemRole === 'consumed' && typeof val === 'string') keys.add(val);
+      if (optionSpec.itemRole !== 'consumed') continue;
+      const itemName = proxyTransformItemRefName(optionSpec, rule.transform[option]);
+      if (itemName !== undefined) keys.add(itemName);
     }
   }
   return keys;
@@ -1380,9 +1381,8 @@ export async function startLocalProxyRuntime({
       const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...schemeDef.options };
       const credentials: Record<string, string> = {};
       for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-        if (!optionSpec.itemRole) continue;
-        const itemKey = activeTransform[option];
-        if (typeof itemKey !== 'string') continue;
+        const itemKey = proxyTransformItemRefName(optionSpec, activeTransform[option]);
+        if (itemKey === undefined) continue;
         const managedItem = managedItems.find((item) => item.key === itemKey);
         if (!managedItem) {
           blockTransform(502, `cannot sign this request - the transform credential ${itemKey} has no resolved value.`);

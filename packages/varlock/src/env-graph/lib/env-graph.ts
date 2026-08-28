@@ -37,6 +37,7 @@ import {
   PROXY_TRANSFORM_COMMON_OPTION_SPECS,
   parseProxySubstitutionTarget,
   proxyTransformConsumedOptionName,
+  proxyTransformItemRefName,
   validateProxyTransformConfig,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
   type ProxyTransformSchemeDef,
@@ -1339,18 +1340,26 @@ export class EnvGraph {
     // canonicalizes to `secretKey` in rule data, and defaults to the decorated
     // item on attached rules.
     const consumedOption = proxyTransformConsumedOptionName(spec);
-    const secretKey = _.isString(obj[consumedOption]) ? obj[consumedOption] : attachedItemKey;
+    // consumed option arrives as a `$NAME` marker (captured pre-resolution)
+    const secretKey = (_.isString(obj[consumedOption]) ? obj[consumedOption].replace(/^\$/, '') : undefined)
+      ?? attachedItemKey;
     if (!secretKey) {
-      throw new SchemaError(`@proxy: transform.${consumedOption} is required on a detached @proxy rule (an attached rule defaults it to the decorated item)`);
+      throw new SchemaError(`@proxy: transform.${consumedOption} is required on a detached @proxy rule (an attached rule defaults it to the decorated item), e.g. ${consumedOption}=$SOME_ITEM`);
     }
     const schemeOptions: Record<string, unknown> = {};
     for (const [key, optionSpec] of Object.entries(spec.options)) {
       if (key === consumedOption || obj[key] === undefined) continue;
       // List options accept a single string or an array in the schema; the
-      // runtime shape is always an array.
-      schemeOptions[key] = optionSpec.type === 'stringList'
-        ? EnvGraph.normalizeStringList(obj[key])
-        : obj[key];
+      // runtime shape is always an array. Ref-only item options canonicalize
+      // to bare names; literal-allowed ones keep the `$` marker so the signer
+      // can tell a reference from a literal.
+      let optionValue = obj[key];
+      if (optionSpec.type === 'stringList') {
+        optionValue = EnvGraph.normalizeStringList(optionValue);
+      } else if (optionSpec.itemRole !== undefined && !optionSpec.literalAllowed && _.isString(optionValue)) {
+        optionValue = optionValue.replace(/^\$/, '');
+      }
+      schemeOptions[key] = optionValue;
     }
     const builtTransform = { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
     // Item-name options must name real config items. Deliberately does NOT echo
@@ -1358,15 +1367,14 @@ export class EnvGraph {
     // "unknown item" here is the item's resolved VALUE (possibly a secret).
     const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec.options };
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-      const itemName = builtTransform[option];
-      if (optionSpec.itemRole === undefined || !_.isString(itemName)) continue;
+      const itemName = proxyTransformItemRefName(optionSpec, builtTransform[option]);
+      if (itemName === undefined) continue;
       if (!this.configSchema[itemName]) {
         // report the option under the name the schema author writes (the
         // scheme's own consumed option), not the canonical secretKey field
         const surfaceName = option === 'secretKey' ? consumedOption : option;
         throw new SchemaError(
-          `@proxy: transform.${surfaceName} must be the name of a config item in this schema, and no matching item was found. `
-            + `Use the plain item name (e.g. ${surfaceName}="API_PASSWORD"), not a $ reference (which resolves to the item's value)`,
+          `@proxy: transform.${surfaceName} references config item "${itemName}", which does not exist in this schema`,
         );
       }
     }
@@ -1383,8 +1391,9 @@ export class EnvGraph {
     const keys: Array<string> = [];
     const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-      const val = transform[option];
-      if (optionSpec.itemRole === role && _.isString(val)) keys.push(val);
+      if (optionSpec.itemRole !== role) continue;
+      const itemName = proxyTransformItemRefName(optionSpec, transform[option]);
+      if (itemName !== undefined) keys.push(itemName);
     }
     return keys;
   }

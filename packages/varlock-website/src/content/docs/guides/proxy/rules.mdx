@@ -137,8 +137,8 @@ Each scheme accepts its own option set. Options for the `hmac-*` schemes:
 | `scheme` | **(required)** `hmac-sha256`, `hmac-sha512`, or `http-basic` built in; plugins add more (e.g. `aws-sigv4`, see below). |
 | `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
 | `signatureHeader` | **(required)** Header the signature is written to. |
-| `secretKey` | Item whose value is the HMAC key. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
-| `keyId` / `keyHeader` | Optional companion item (an API key id) and the header it is written to. Set together. |
+| `secretKey` | Reference to the item whose value is the HMAC key, e.g. `secretKey=$PARTNER_SECRET`. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
+| `keyId` / `keyHeader` | Optional companion item reference (an API key id, e.g. `keyId=$EXCHANGE_API_KEY`) and the header it is written to. Set together. |
 | `timestampHeader` | Header the signing timestamp is written to. |
 | `encoding` | Signature output encoding: `base64` _(default)_ or `hex`. |
 | `keyEncoding` | How the secret decodes into key bytes: `raw` _(default)_, `base64`, or `hex`. Some APIs (Coinbase Prime) issue base64-encoded secrets. |
@@ -164,7 +164,7 @@ On a detached rule, name the password item explicitly:
 
 ```env-spec title=".env.schema"
 # @proxy(domain="registry.example.com", transform={
-#   scheme="http-basic", password="REGISTRY_PASSWORD", username=$REGISTRY_USER,
+#   scheme="http-basic", password=$REGISTRY_PASSWORD, username=$REGISTRY_USER,
 # })
 # ---
 # @sensitive
@@ -175,11 +175,11 @@ REGISTRY_USER=ci-bot
 
 | Option | Meaning |
 |---|---|
-| `password` | The item holding the password (this scheme's consumed secret; replaces the generic `secretKey` name). Defaults to the decorated item on an attached rule. Takes an item **name**, never a literal password; if an API genuinely needs a fixed password, put it in an item. |
-| `username` | The username: a literal, or `$ITEM_NAME` to use another item's value. Omitted = empty username. |
+| `password` | Reference to the item holding the password, e.g. `password=$REGISTRY_PASSWORD` (this scheme's consumed secret; replaces the generic `secretKey` name). Defaults to the decorated item on an attached rule. Never a literal password; if an API genuinely needs a fixed password, put it in an item. |
+| `username` | The username: a literal, or a `$ITEM` reference. Omitted = empty username. |
 | `secretIn` | Which side of the `user:password` pair the secret occupies: `password` _(default)_ or `username`, for APIs that take a single token as the userid with an empty password (`curl -u "token:"` style). `username` must be unset in that case. |
 
-Note the asymmetry: `username` can be a `$` reference because a username is wire-visible config and the reference resolves to its value. Options that name credential items (`password` here, `secretKey`/`keyId` elsewhere) take the plain item **name** instead, never a `$` reference; the proxy resolves their real values at signing time, so secrets stay out of rule data. The schema validator rejects `$` references there.
+Options that point at other items always use `$ITEM` references, consistent with the rest of the schema language. Inside a `transform`, these references are special: the item's value is NOT resolved into the rule; the proxy captures the reference and resolves the real value only at signing time, so credentials never appear in rule data or anything derived from it. Credential options (`password`, `secretKey`, `keyId`) require the reference form; a literal there is rejected. `username` also accepts a plain literal, since a fixed username is ordinary config.
 
 #### AWS SigV4 (plugin)
 

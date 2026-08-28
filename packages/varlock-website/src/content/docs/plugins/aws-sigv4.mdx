@@ -19,7 +19,7 @@ With this plugin, the agent's AWS SDK signs requests normally using the placehol
 # @plugin(@varlock/aws-sigv4-plugin)
 # ---
 # @proxy(domain="*.amazonaws.com", transform={
-#   scheme="aws-sigv4", keyId="AWS_ACCESS_KEY_ID",
+#   scheme="aws-sigv4", keyId=$AWS_ACCESS_KEY_ID,
 #   allowedServices=[bedrock, s3],
 # })
 AWS_SECRET_ACCESS_KEY=yourPreferredPlugin()
@@ -41,7 +41,7 @@ The scheme works with all of them as-is. The client is still an AWS SDK pointed 
 # ---
 # Broker Cloudflare R2 credentials the same way:
 # @proxy(domain="myaccount.r2.cloudflarestorage.com", transform={
-#   scheme="aws-sigv4", keyId="R2_ACCESS_KEY_ID",
+#   scheme="aws-sigv4", keyId=$R2_ACCESS_KEY_ID,
 # })
 R2_SECRET_ACCESS_KEY=yourPreferredPlugin()
 
@@ -53,8 +53,8 @@ R2_ACCESS_KEY_ID=yourPreferredPlugin()
 
 | Option | Meaning |
 |---|---|
-| `keyId` | **(required)** Item holding the AWS access key id (travels in the Credential scope). |
-| `sessionToken` | Item holding a session token for temporary credentials, sent and signed as `X-Amz-Security-Token`. |
+| `keyId` | **(required)** Reference to the item holding the AWS access key id, e.g. `keyId=$AWS_ACCESS_KEY_ID` (travels in the Credential scope). |
+| `sessionToken` | Reference to the item holding a session token for temporary credentials, sent and signed as `X-Amz-Security-Token`. |
 | `allowedRegions` | Only sign requests whose scope names one of these regions, e.g. `[us-east-1]`. Omitted = any. |
 | `allowedServices` | Only sign requests whose scope names one of these services, e.g. `[bedrock, s3]`. Omitted = any. |
 

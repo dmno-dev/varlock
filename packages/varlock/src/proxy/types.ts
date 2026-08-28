@@ -156,7 +156,26 @@ export type ProxyTransformOptionSpec = {
   /** For `type: 'enum'`. */
   enumValues?: ReadonlyArray<string>;
   itemRole?: 'consumed' | 'wire';
+  /**
+   * For itemRole options only: also accept a plain literal value (e.g. a
+   * static username) alongside the `$ITEM` reference form. Without this flag,
+   * itemRole options REQUIRE the reference form.
+   */
+  literalAllowed?: boolean;
 };
+
+/**
+ * Item-role option values are written as references (`password=$API_PASSWORD`),
+ * captured pre-resolution as `$NAME` markers so the item's value never resolves
+ * into rule data. Returns the bare item name when the option/value denote an
+ * item reference, or undefined for a literal (only valid with `literalAllowed`).
+ */
+export function proxyTransformItemRefName(optionSpec: ProxyTransformOptionSpec, value: unknown): string | undefined {
+  if (optionSpec.itemRole === undefined || typeof value !== 'string') return undefined;
+  if (value.startsWith('$')) return value.slice(1);
+  // canonicalized rule data stores bare names for ref-only options
+  return optionSpec.literalAllowed ? undefined : value;
+}
 
 /**
  * A transform scheme's declaration: its option specs plus an optional
@@ -317,8 +336,8 @@ export type ProxyRuleHttpBasicTransform = {
    */
   secretKey: string;
   /**
-   * The username: a literal, or `$ITEM_NAME` in the schema (resolved to that
-   * item's value at load, like any other decorator arg). Omitted = empty
+   * The username: a literal, or an item reference kept as a `$NAME` marker
+   * (the proxy resolves the item's value at sign time). Omitted = empty
    * username. Unused when `secretIn="username"`.
    */
   username?: string;
@@ -336,7 +355,8 @@ const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
     // at the schema surface. Takes the ITEM NAME holding the password - never a
     // literal password (put a static password in an item if an API needs one).
     password: { type: 'string', itemRole: 'consumed' },
-    username: { type: 'string' },
+    // literal, or $ITEM reference (resolved by the proxy at sign time)
+    username: { type: 'string', itemRole: 'wire', literalAllowed: true },
     secretIn: { type: 'enum', enumValues: ['password', 'username'] },
   },
   validate: (config) => {
@@ -434,6 +454,14 @@ export function validateProxyTransformConfig(
   for (const [key, optionSpec] of Object.entries(optionSpecs)) {
     const val = obj[key];
     if (val === undefined) continue;
+    if (optionSpec.itemRole !== undefined) {
+      if (typeof val !== 'string' || !val.trim()) return `transform.${key} must reference a config item, e.g. ${key}=$SOME_ITEM`;
+      const isRef = /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(val);
+      if (!isRef && !optionSpec.literalAllowed) {
+        return `transform.${key} must be a reference to a config item, e.g. ${key}=$SOME_ITEM (a literal value here would be a credential embedded in the schema)`;
+      }
+      continue;
+    }
     switch (optionSpec.type) {
       case 'string':
         if (typeof val !== 'string' || !val.trim()) return `transform.${key} must be a non-empty string`;
