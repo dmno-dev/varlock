@@ -35,9 +35,6 @@ export const IDENTITY_FILE_VERSION = 1;
 /** Identity used when a caller does not name one */
 export const DEFAULT_IDENTITY_ID = 'default';
 
-/** Set to opt out of the identity layer and keep writing device-direct v1 payloads */
-export const DISABLE_IDENTITY_ENV_VAR = '_VARLOCK_DISABLE_IDENTITY';
-
 export interface StoredIdentity {
   version: number;
   id: string;
@@ -96,10 +93,6 @@ export function identityExists(identityId: string = DEFAULT_IDENTITY_ID): boolea
   return fs.existsSync(getIdentityFilePath(identityId));
 }
 
-/** Whether the identity layer should be used at all (escape hatch for rollback) */
-export function isIdentityEnabled(): boolean {
-  return !process.env[DISABLE_IDENTITY_ENV_VAR];
-}
 
 export function readIdentity(identityId: string = DEFAULT_IDENTITY_ID): StoredIdentity | undefined {
   const filePath = getIdentityFilePath(identityId);

@@ -56,12 +56,10 @@ beforeEach(() => {
   fs.mkdirSync(testDir, { recursive: true });
   pretendNativeBinaryInstalled = false;
   process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK = '1';
-  delete process.env._VARLOCK_DISABLE_IDENTITY;
 });
 
 afterEach(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
-  delete process.env._VARLOCK_DISABLE_IDENTITY;
 });
 
 describe('file backend', () => {
@@ -92,24 +90,14 @@ describe('file backend', () => {
     expect(await second.decryptValue(ciphertext)).toBe('persisted secret');
   });
 
-  it('still reads device-encrypted (v1) values', async () => {
+  it('reads and writes device-encrypted (v1) values without creating an identity', async () => {
     const localEncrypt = await loadLocalEncrypt();
     await localEncrypt.ensureKey();
 
     const ciphertext = await localEncrypt.encryptValue('legacy secret', undefined, { target: 'device' });
     expect(versionOf(ciphertext)).toBe(DEVICE_PAYLOAD_VERSION);
-    expect(await localEncrypt.decryptValue(ciphertext)).toBe('legacy secret');
-  });
-
-  it('keeps writing v1 when the identity layer is switched off', async () => {
-    process.env._VARLOCK_DISABLE_IDENTITY = '1';
-    const localEncrypt = await loadLocalEncrypt();
-    await localEncrypt.ensureKey();
-
-    const ciphertext = await localEncrypt.encryptValue('opted out');
-    expect(versionOf(ciphertext)).toBe(DEVICE_PAYLOAD_VERSION);
     expect(fs.existsSync(path.join(testDir, 'identities', 'default.json'))).toBe(false);
-    expect(await localEncrypt.decryptValue(ciphertext)).toBe('opted out');
+    expect(await localEncrypt.decryptValue(ciphertext)).toBe('legacy secret');
   });
 
   it('rejects a v3 payload as an upgrade problem', async () => {
@@ -170,5 +158,15 @@ describe('hardware backend', () => {
     // routing does not send a hardware backend down the identity path
     await expect(localEncrypt.encryptValue('secret')).rejects.toThrow('unexpected spawn in test');
     expect(fs.existsSync(path.join(testDir, 'identities', 'default.json'))).toBe(false);
+  });
+
+  it('refuses a re-encryption pass, which is what `encrypt --upgrade` checks', async () => {
+    await loadLocalEncrypt();
+    const { canReEncryptLocally } = await import('./re-encrypt');
+
+    const result = canReEncryptLocally();
+    expect(result.ok).toBe(false);
+    expect((result as { reason: string }).reason).toMatch(/cannot re-encrypt values yet/);
+    expect((result as { reason: string }).reason).toMatch(/daemon update/);
   });
 });

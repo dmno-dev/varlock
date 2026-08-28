@@ -657,7 +657,7 @@ const deviceCrypto: identity.DeviceCrypto = {
  * private key in this process, so their v2 path waits for the native daemon.
  */
 function shouldEncryptToIdentity(): boolean {
-  return getBackendInfo().type === 'file' && identity.isIdentityEnabled();
+  return getBackendInfo().type === 'file';
 }
 
 /**

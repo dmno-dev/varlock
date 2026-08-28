@@ -15,6 +15,9 @@ import { multiselect, password } from '../helpers/prompts';
 import { gracefulExit } from 'exit-hook';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { buildVarlockReference, LOCAL_SCHEME } from '../../lib/local-encrypt/reference';
+import {
+  canReEncryptLocally, currentLocalTarget, deviceEncryptedSource, reEncryptFile,
+} from '../../lib/local-encrypt/re-encrypt';
 import { writeBackValue } from '../../lib/local-encrypt/write-back';
 import { commandSpec } from './encrypt.command-spec';
 
@@ -103,6 +106,74 @@ async function encryptFile(keyId: string, filePath: string) {
   console.log(`\nEncrypted ${encryptedCount} value${encryptedCount !== 1 ? 's' : ''} in ${filePath}`);
 }
 
+/** Every env file the graph actually reads from, in load order */
+async function getGraphEnvFilePaths(): Promise<Array<string>> {
+  const envGraph = await loadVarlockEnvGraph();
+  return envGraph.sortedDataSources
+    .filter((s): s is FileBasedDataSource => s instanceof FileBasedDataSource)
+    .map((s) => s.fullPath)
+    .filter((p) => fs.existsSync(p) && fs.statSync(p).isFile());
+}
+
+/**
+ * --upgrade: re-encrypt values that are already encrypted, moving them to the
+ * current encryption target (the identity key on the file backend).
+ *
+ * `encrypt` is meant to become the single re-encryption verb: a future
+ * `--to <vault>` will move values between targets, and key rotation and cloud
+ * migration will drive the same core. So the pass is described here as a source
+ * and a target and handed to reEncryptFile, rather than the flag knowing
+ * anything about v1 or v2.
+ */
+async function upgradeFiles(keyId: string, opts: { file?: string; dryRun: boolean }) {
+  const canReEncrypt = canReEncryptLocally();
+  if (!canReEncrypt.ok) {
+    console.log(`\n${canReEncrypt.reason}`);
+    console.log('No values were re-encrypted.');
+    return;
+  }
+  await localEncrypt.ensureEncryptionReady(keyId);
+
+  let filePaths: Array<string>;
+  if (opts.file) {
+    const resolvedPath = path.resolve(opts.file);
+    if (!fs.existsSync(resolvedPath)) throw new CliExitError(`File not found: ${resolvedPath}`);
+    filePaths = [resolvedPath];
+  } else {
+    filePaths = await getGraphEnvFilePaths();
+  }
+
+  const source = deviceEncryptedSource(keyId);
+  const target = currentLocalTarget(keyId);
+
+  let totalUpgraded = 0;
+  for (const envFilePath of filePaths) {
+    // sequential on purpose: each rewrite reads and writes the same file
+    const result = await reEncryptFile(envFilePath, { source, target, dryRun: opts.dryRun });
+    if (result.reEncrypted.length === 0) continue;
+
+    totalUpgraded += result.reEncrypted.length;
+    // a file outside the cwd reads better as its full path than as ../../..
+    const relativePath = path.relative(process.cwd(), envFilePath);
+    console.log(`\n${relativePath.startsWith('..') ? envFilePath : relativePath}`);
+    for (const key of result.reEncrypted) {
+      console.log(`  ${opts.dryRun ? 'Would re-encrypt' : 'Re-encrypted'}: ${key}`);
+    }
+    for (const skip of result.skipped.filter((s) => s.reason === 'write-back-failed')) {
+      console.log(`  Could not update: ${skip.key}`);
+    }
+  }
+
+  if (totalUpgraded === 0) {
+    console.log('\nNo values needed re-encrypting.');
+    return;
+  }
+  console.log(
+    `\n${opts.dryRun ? 'Would re-encrypt' : 'Re-encrypted'} ${totalUpgraded}`
+    + ` value${totalUpgraded !== 1 ? 's' : ''} to the current encryption target.`,
+  );
+}
+
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const keyId = String(ctx.values['key-id'] || localEncrypt.DEFAULT_KEY_ID);
   const backend = localEncrypt.getBackendInfo();
@@ -133,10 +204,22 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   const filePath = ctx.values.file;
+  const upgrade = Boolean(ctx.values.upgrade);
+  const dryRun = Boolean(ctx.values['dry-run']);
 
   // --file mode: encrypt all sensitive plaintext values in a .env file
   if (filePath) {
-    await encryptFile(keyId, filePath);
+    // --dry-run only describes the --upgrade pass. The interactive plaintext
+    // encryption has nothing to preview, so it is skipped rather than run for real.
+    if (!(upgrade && dryRun)) await encryptFile(keyId, filePath);
+    if (upgrade) await upgradeFiles(keyId, { file: filePath, dryRun });
+    return;
+  }
+
+  // --upgrade with no --file covers every env file in the graph. There is no
+  // single value to read in that case, so the stdin/prompt mode below is skipped.
+  if (upgrade) {
+    await upgradeFiles(keyId, { dryRun });
     return;
   }
 

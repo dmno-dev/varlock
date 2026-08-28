@@ -63,7 +63,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   fs.rmSync(testDir, { recursive: true, force: true });
-  delete process.env._VARLOCK_DISABLE_IDENTITY;
 });
 
 describe('identity store', () => {
@@ -192,11 +191,5 @@ describe('identity store', () => {
     fs.writeFileSync(filePath, JSON.stringify(stored));
 
     expect(() => identity.readIdentity()).toThrow('unsupported identity file version 2; upgrade varlock');
-  });
-
-  it('can be switched off with the escape-hatch env var', () => {
-    expect(identity.isIdentityEnabled()).toBe(true);
-    process.env._VARLOCK_DISABLE_IDENTITY = '1';
-    expect(identity.isIdentityEnabled()).toBe(false);
   });
 });

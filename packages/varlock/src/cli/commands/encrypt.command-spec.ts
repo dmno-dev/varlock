@@ -17,6 +17,19 @@ export const commandSpec = define({
       type: 'string',
       description: 'Path to a .env file — encrypts all sensitive plaintext values in-place',
     },
+    upgrade: {
+      type: 'boolean',
+      description: 'Also re-encrypt already-encrypted values to the current encryption target',
+      // Hidden until the native daemons can re-encrypt on hardware backends.
+      // Today it only works on the file backend, so advertising it would send
+      // most users to a flag that politely refuses.
+      hidden: true,
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'With --upgrade, report what would change without writing anything',
+      hidden: true,
+    },
   },
   examples: `
 Encrypts a value using device-local encryption (Secure Enclave / TPM / file-based),
@@ -30,4 +43,6 @@ Examples:
   varlock encrypt                        # Prompt interactively for a value
   varlock encrypt --file .env.local      # Encrypt @sensitive plaintext values in a file in-place
 `.trim(),
+  // NOTE: --upgrade and --dry-run are hidden while re-encryption only works on
+  // the file backend, so they are deliberately left out of the examples above.
 });
