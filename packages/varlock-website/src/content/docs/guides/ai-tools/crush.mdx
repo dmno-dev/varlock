@@ -18,6 +18,41 @@ For install, schema setup, and shared patterns, see the [AI Tools overview](/gui
 
 You can also paste a key in the TUI model picker (`ctrl+l`). Prefer env injection so the key is not typed into the UI or stored in project config.
 
+## OrcaRouter
+
+[OrcaRouter](https://www.orcarouter.ai) is an OpenAI-compatible AI gateway that exposes many models behind one endpoint, with adaptive routing, automatic failover, zero-markup inference, observability, and guardrails. It works with Crush as a custom `openai-compat` provider, so Crush's model calls can route through OrcaRouter without treating it as an anonymous custom base URL.
+
+Add the provider to `~/.config/crush/crush.json` and reference an env var for the key:
+
+```json title="~/.config/crush/crush.json"
+{
+  "providers": {
+    "orcarouter": {
+      "type": "openai-compat",
+      "base_url": "https://api.orcarouter.ai/v1",
+      "api_key": "$ORCAROUTER_API_KEY",
+      "models": [
+        {
+          "id": "orcarouter/auto",
+          "name": "OrcaRouter Auto"
+        }
+      ]
+    }
+  }
+}
+```
+
+Then declare the key in your schema and run Crush through varlock:
+
+```env-spec
+# @sensitive
+ORCAROUTER_API_KEY=op(op://api-local/orcarouter/api-key)
+```
+
+```bash
+varlock run -- crush
+```
+
 ## In a project
 
 Add to `.env.schema`:
