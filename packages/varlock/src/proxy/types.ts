@@ -57,12 +57,12 @@ export function proxySubstitutionTargetKey(target: ProxySubstitutionTarget): str
 
 /**
  * Headers the bare `header` (any-header) default will NOT substitute into: they're
- * never a legitimate place for a managed secret and are common forward/log sinks,
- * so a placeholder landing here is almost always an attempt to redirect the one
- * allowed substitution somewhere it leaks (e.g. a header the upstream forwards to a
- * webhook). Any `x-forwarded-*` header is covered by prefix. This narrows only the
- * default — an explicit `header:<name>` target (even for one of these) still wins,
- * for the rare API that genuinely authenticates via, say, a cookie.
+ * never a legitimate place for a managed secret and are common forward/log sinks
+ * (e.g. a header the upstream forwards to a webhook), so a placeholder landing here
+ * is skipped (left unsubstituted) instead. Any `x-forwarded-*` header is covered
+ * by prefix. This narrows only the default: an explicit `header:<name>` target
+ * (even for one of these) still wins, for the rare API that genuinely authenticates
+ * via, say, a cookie.
  */
 export const PROXY_NEVER_AUTO_SUBSTITUTE_HEADERS: ReadonlyArray<string> = ['cookie', 'host', 'forwarded', 'via', 'referer', 'origin', 'user-agent'];
 
@@ -111,13 +111,17 @@ export function parseProxySubstitutionTarget(raw: string): ParsedProxySubstituti
 }
 
 /**
- * Default cardinality cap when a rule doesn't set `maxOccurrences`: a placeholder
- * may appear at most once per request. A valid request uses the secret a fixed
- * number of times, so an extra occurrence is usually an exfiltration copy (the
- * secret duplicated into an attacker-visible field while a valid call is still
- * made).
+ * `@proxy(...)` options that no longer exist, mapped to the error explaining what
+ * replaced them. Checked before the unknown-option sweep so an upgrade gets the
+ * migration, not just "unknown option".
  */
-export const DEFAULT_PROXY_MAX_OCCURRENCES = 1;
+export const REMOVED_PROXY_RULE_OPTIONS: Record<string, string> = {
+  maxOccurrences:
+    '@proxy: maxOccurrences has been removed. A placeholder may now appear at most once per substitution '
+    + 'target, so a separate cap is no longer needed: listing a target in substituteIn is what grants it an '
+    + 'occurrence. If this API carries the secret in more than one place, name each one '
+    + '(e.g. substituteIn=["header:authorization", "body:signature"]) instead of raising a count.',
+};
 
 export type ProxyRule = {
   domain: Array<string>;
@@ -146,15 +150,15 @@ export type ProxyRule = {
    * as raw `substituteIn` entries (`header`, `header:authorization`, `query`,
    * `query:api_key`, `body:client_secret`). Validated at schema load; parsed into
    * structured targets at request time. Omitted ⇒ `DEFAULT_PROXY_SUBSTITUTION_TARGETS`
-   * (any header). A placeholder that reaches a spot no target allows is treated as
-   * an anomaly and the request is blocked, rather than silently substituted.
+   * (any header). A placeholder in a surface with no targets is skipped, forwarded
+   * unsubstituted (inert) and audited; one that lands off the exact spot within a
+   * `body:<path>`/`query:<param>`-targeted surface blocks the request (fail closed).
+   *
+   * Each target also carries its own cardinality: a placeholder may be substituted
+   * at most once per target per request, so a second copy at the same target blocks
+   * the request (see `checkSubstitutionGuards`).
    */
   substituteIn?: Array<string>;
-  /**
-   * Max times a single injected placeholder may appear in one request. Omitted ⇒
-   * `DEFAULT_PROXY_MAX_OCCURRENCES` (`1`). Exceeding it blocks the request.
-   */
-  maxOccurrences?: number;
 };
 
 export type ProxyManagedItem = {

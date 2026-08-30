@@ -295,17 +295,17 @@ describe('getRequestScopedManagedItems — per-rule key scoping', () => {
     });
   });
 
-  describe('substitution policy (targets + occurrence cap)', () => {
-    test('defaults to any-header, once, when the rule sets nothing', () => {
+  describe('substitution policy (targets)', () => {
+    test('defaults to any-header when the rule sets nothing', () => {
       const rules = [rule({ domain: ['api.x.com'], itemKeys: ['A'] })];
       const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/'), rules, items);
-      expect(scoped[0]).toMatchObject({ key: 'A', targets: [{ location: 'header' }], maxOccurrences: 1 });
+      expect(scoped[0]).toMatchObject({ key: 'A', targets: [{ location: 'header' }] });
     });
 
-    test('parses named targets (header:name, body:path) + maxOccurrences onto the scoped item', () => {
+    test('parses named targets (header:name, body:path) onto the scoped item', () => {
       const rules = [
         rule({
-          domain: ['api.x.com'], itemKeys: ['A'], substituteIn: ['header:authorization', 'body:client_secret'], maxOccurrences: 3,
+          domain: ['api.x.com'], itemKeys: ['A'], substituteIn: ['header:authorization', 'body:client_secret'],
         }),
       ];
       const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/'), rules, items);
@@ -313,14 +313,13 @@ describe('getRequestScopedManagedItems — per-rule key scoping', () => {
         { location: 'header', name: 'authorization' },
         { location: 'body', path: 'client_secret' },
       ]);
-      expect(scoped[0]!.maxOccurrences).toBe(3);
     });
 
-    test('merges targets (union) and maxOccurrences (max) across matching rules', () => {
+    test('merges targets (union) across matching rules', () => {
       const rules = [
         rule({ domain: ['api.x.com'], itemKeys: ['A'], substituteIn: ['header'] }),
         rule({
-          domain: ['api.x.com'], path: '/**', itemKeys: ['A'], substituteIn: ['query:api_key'], maxOccurrences: 2,
+          domain: ['api.x.com'], path: '/**', itemKeys: ['A'], substituteIn: ['query:api_key'],
         }),
       ];
       const scoped = getRequestScopedManagedItems(facts('api.x.com', 'GET', '/x'), rules, items);
@@ -328,7 +327,6 @@ describe('getRequestScopedManagedItems — per-rule key scoping', () => {
         { location: 'header' },
         { location: 'query', name: 'api_key' },
       ]);
-      expect(scoped[0]!.maxOccurrences).toBe(2);
     });
 
     test('a withheld approval rule does not widen an unconditional key’s targets', () => {

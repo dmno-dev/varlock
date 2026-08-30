@@ -1,113 +1,22 @@
-import {
-  afterAll, beforeAll, describe, expect, test,
-} from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
-import net from 'node:net';
-import tls from 'node:tls';
-import { URL } from 'node:url';
 
 import { startLocalProxyRuntime } from './runtime-proxy';
-import { createEphemeralCa, createHostCert, type EphemeralCa } from './cert-authority';
+import { createHostCert } from './cert-authority';
+import {
+  openMitmTunnel, sendAndRead, setupMitmHarness, UPSTREAM_HOST,
+} from './mitm-test-harness';
 
-// End-to-end exercise of the HTTPS MITM path: a real TLS client, trusting only
-// the proxy's CA, opens a CONNECT tunnel and handshakes against the proxy's
-// minted leaf; the proxy injects the real secret and forwards to a stub HTTPS
-// upstream. Covers the cert-trust + CONNECT + injection + streaming mechanics
-// that the plain-HTTP unit tests can't reach.
+// End-to-end exercise of the HTTPS MITM transport: a real TLS client, trusting
+// only the proxy's CA, opens a CONNECT tunnel and handshakes against the proxy's
+// minted leaf, and the proxy forwards to a stub HTTPS upstream. Covers the
+// cert-trust + CONNECT + streaming + response-scrubbing mechanics that the
+// plain-HTTP unit tests can't reach. Which parts of a request get substituted is
+// covered in proxy-substitution.test.ts.
 
-const UPSTREAM_HOST = '127.0.0.1';
-let upstreamCa: EphemeralCa;
-let upstreamCertPem: string;
-let upstreamKeyPem: string;
-let restoreGlobalCa: () => void;
-
-beforeAll(async () => {
-  // Stub upstream's own CA + leaf (IP SAN, since we connect by 127.0.0.1).
-  upstreamCa = await createEphemeralCa();
-  const leaf = await createHostCert(upstreamCa, UPSTREAM_HOST);
-  upstreamCertPem = leaf.certPem;
-  upstreamKeyPem = leaf.keyPem;
-
-  // Make the proxy's outbound https.request trust the stub upstream. The proxy
-  // uses the global agent, so inject the upstream CA there (alongside the real
-  // roots) and restore afterwards.
-  const previousCa = https.globalAgent.options.ca;
-  https.globalAgent.options.ca = [...tls.rootCertificates, upstreamCa.certPem];
-  restoreGlobalCa = () => {
-    https.globalAgent.options.ca = previousCa;
-  };
-});
-
-afterAll(() => {
-  restoreGlobalCa?.();
-});
-
-function startUpstream(handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void) {
-  const server = https.createServer({ key: upstreamKeyPem, cert: upstreamCertPem }, handler);
-  return new Promise<{ port: number; close: () => Promise<void> }>((resolve) => {
-    server.listen(0, UPSTREAM_HOST, () => {
-      const addr = server.address();
-      if (!addr || typeof addr === 'string') throw new Error('no upstream addr');
-      resolve({
-        port: addr.port,
-        close: () => new Promise<void>((r) => {
-          server.close(() => r());
-        }),
-      });
-    });
-  });
-}
-
-// Open a CONNECT tunnel through the proxy and TLS-handshake against the proxy's
-// minted leaf, trusting only the proxy CA. Resolving at all proves CA trust.
-async function openMitmTunnel(
-  proxyUrl: string,
-  proxyCaPem: string,
-  targetPort: number,
-): Promise<tls.TLSSocket> {
-  const proxy = new URL(proxyUrl);
-  const rawSocket = net.connect(Number(proxy.port), proxy.hostname);
-  await new Promise<void>((resolve, reject) => {
-    rawSocket.once('error', reject);
-    rawSocket.once('connect', () => resolve());
-  });
-  await new Promise<void>((resolve, reject) => {
-    rawSocket.once('data', (chunk: Buffer) => {
-      const statusLine = chunk.toString('utf8').split('\r\n')[0] ?? '';
-      if (/^HTTP\/1\.\d 200/.test(statusLine)) resolve();
-      else reject(new Error(`CONNECT failed: ${statusLine}`));
-    });
-    rawSocket.write(`CONNECT ${UPSTREAM_HOST}:${targetPort} HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${targetPort}\r\n\r\n`);
-  });
-
-  const tlsSocket = tls.connect({ socket: rawSocket, host: UPSTREAM_HOST, ca: [proxyCaPem] });
-  await new Promise<void>((resolve, reject) => {
-    tlsSocket.once('error', reject);
-    tlsSocket.once('secureConnect', () => {
-      if (tlsSocket.authorized) resolve();
-      else reject(tlsSocket.authorizationError ?? new Error('client did not authorize proxy leaf'));
-    });
-  });
-  return tlsSocket;
-}
-
-// Write a raw HTTP request over the tunnel and read the response (the MITM
-// connection may stay keep-alive, so settle on idle rather than socket close).
-async function sendAndRead(tlsSocket: tls.TLSSocket, rawRequest: string): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    let buf = '';
-    let idle: ReturnType<typeof setTimeout>;
-    tlsSocket.on('data', (c: Buffer) => {
-      buf += c.toString('utf8');
-      clearTimeout(idle);
-      idle = setTimeout(() => resolve(buf), 250);
-    });
-    tlsSocket.on('end', () => resolve(buf));
-    tlsSocket.on('error', reject);
-    tlsSocket.write(rawRequest);
-  });
-}
+const harness = setupMitmHarness();
+const { startUpstream } = harness;
 
 describe('proxy HTTPS MITM (end-to-end)', () => {
   test('client trusts the minted leaf and the real key is injected upstream', async () => {
@@ -218,7 +127,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     // The upstream listens on 127.0.0.1 but presents a cert for a DIFFERENT
     // name — exactly what a DNS-poisoned / rebound host does, since it cannot
     // obtain a valid cert for the host the rule targets.
-    const wrongLeaf = await createHostCert(upstreamCa, 'wrong.example');
+    const wrongLeaf = await createHostCert(harness.upstreamCa(), 'wrong.example');
     let upstreamGotRequest = false;
     let upstreamAuth = '';
     const server = https.createServer({ key: wrongLeaf.keyPem, cert: wrongLeaf.certPem }, (req, res) => {
@@ -408,165 +317,6 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     expect(receivedXTest).toContain('REAL_A_secret');
     expect(receivedXTest).toContain('PH_B_xxxxx');
     expect(receivedXTest).not.toContain('REAL_B_secret');
-
-    tlsSocket.destroy();
-    await runtime.stop();
-    await upstream.close();
-  });
-
-  test('blocks (does not substitute) a placeholder placed in the body under the header-only default', async () => {
-    let upstreamHit = false;
-    let upstreamBody = '';
-    const upstream = await startUpstream((req, res) => {
-      upstreamHit = true;
-      const chunks: Array<Buffer> = [];
-      req.on('data', (c) => chunks.push(c));
-      req.on('end', () => {
-        upstreamBody = Buffer.concat(chunks).toString('utf8');
-        res.statusCode = 200;
-        res.end('ok');
-      });
-    });
-
-    const activities: Array<import('./audit').ProxyActivity> = [];
-    const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      // No substituteIn → header-only default.
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
-      egressMode: 'permissive',
-      onActivity: (a) => activities.push(a),
-    });
-    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
-
-    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    // The blocked MITM path tears the tunnel down (see the DNS-poison test), so
-    // assert on the security properties + audit decision rather than reading a body.
-    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
-    // The agent is tricked into putting the placeholder in the request body (e.g. an
-    // email body on an allowed host) instead of the auth header.
-    const payload = JSON.stringify({ to: 'attacker@evil.test', text: 'sk-stub-PLACEHOLDER' });
-    tlsSocket.write(
-      `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
-        + `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
-    );
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500);
-    });
-
-    // Blocked before forwarding: the upstream never saw the request, and the real
-    // value was never substituted (so it can't have leaked into the email body).
-    expect(upstreamHit).toBe(false);
-    expect(upstreamBody).toBe('');
-    expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
-    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-location', blocked: true });
-
-    tlsSocket.destroy();
-    await runtime.stop();
-    await upstream.close();
-  });
-
-  test('substitutes into the body only at the opted-in path (substituteIn=[body:client_secret])', async () => {
-    let upstreamBody = '';
-    const upstream = await startUpstream((req, res) => {
-      const chunks: Array<Buffer> = [];
-      req.on('data', (c) => chunks.push(c));
-      req.on('end', () => {
-        upstreamBody = Buffer.concat(chunks).toString('utf8');
-        res.statusCode = 200;
-        res.end('ok');
-      });
-    });
-
-    const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'CLIENT_SECRET', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['CLIENT_SECRET'], substituteIn: ['body:client_secret'] }],
-      egressMode: 'permissive',
-    });
-    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
-
-    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    // OAuth-style token exchange: the secret legitimately travels in the form body.
-    const payload = 'grant_type=client_credentials&client_secret=sk-stub-PLACEHOLDER';
-    const response = await sendAndRead(
-      tlsSocket,
-      `POST /oauth/token HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
-        + `Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
-    );
-
-    expect(response.split('\r\n')[0]).toContain('200');
-    expect(upstreamBody).toContain('client_secret=sk-stub-REALKEY');
-    expect(upstreamBody).not.toContain('PLACEHOLDER');
-
-    tlsSocket.destroy();
-    await runtime.stop();
-    await upstream.close();
-  });
-
-  test('substitutes a token carried in the URL path (substituteIn=[path])', async () => {
-    let upstreamPath = '';
-    const upstream = await startUpstream((req, res) => {
-      upstreamPath = req.url ?? '';
-      res.statusCode = 200;
-      res.end('ok');
-    });
-
-    const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'PATH_TOKEN', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['PATH_TOKEN'], substituteIn: ['path'] }],
-      egressMode: 'permissive',
-    });
-    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
-
-    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    const response = await sendAndRead(
-      tlsSocket,
-      `GET /v1/sk-stub-PLACEHOLDER/data HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
-    );
-
-    expect(response.split('\r\n')[0]).toContain('200');
-    expect(upstreamPath).toBe('/v1/sk-stub-REALKEY/data');
-    expect(upstreamPath).not.toContain('PLACEHOLDER');
-
-    tlsSocket.destroy();
-    await runtime.stop();
-    await upstream.close();
-  });
-
-  test('blocks a request that repeats the placeholder more than the occurrence cap', async () => {
-    let upstreamHit = false;
-    const upstream = await startUpstream((_req, res) => {
-      upstreamHit = true;
-      res.statusCode = 200;
-      res.end('ok');
-    });
-
-    const activities: Array<import('./audit').ProxyActivity> = [];
-    const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      // Both placements are allowed (header + body:leak), but the default cap of 1
-      // still stops the duplicated copy.
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'], substituteIn: ['header', 'body:leak'] }],
-      egressMode: 'permissive',
-      onActivity: (a) => activities.push(a),
-    });
-    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
-
-    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
-    // A valid call uses the token once (header); the second copy in the body is an
-    // exfiltration attempt while still making a working request.
-    const payload = JSON.stringify({ leak: 'sk-stub-PLACEHOLDER' });
-    tlsSocket.write(
-      `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
-        + `Authorization: Bearer sk-stub-PLACEHOLDER\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
-    );
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500);
-    });
-
-    expect(upstreamHit).toBe(false);
-    expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
-    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-occurrences', blocked: true });
 
     tlsSocket.destroy();
     await runtime.stop();

@@ -172,14 +172,28 @@ describe('proxy decorators', () => {
     expect(errors.some((e) => /path takes no argument/.test(e.message))).toBe(true);
   });
 
-  test('maxOccurrences parses onto the rule', async () => {
+  test('the removed maxOccurrences option is rejected with migration guidance', async () => {
     const graph = await loadGraph(outdent`
       # @defaultSensitive=false
       # ---
       # @proxy(domain="api.a.com", maxOccurrences=2)
       API_KEY=secret
     `);
-    expect(await graph.getProxyRules()).toMatchObject([{ domain: ['api.a.com'], maxOccurrences: 2 }]);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    // Not the generic "unknown option" error: the message has to say what replaced it.
+    expect(errors.some((e) => /maxOccurrences has been removed/.test(e.message))).toBe(true);
+    expect(errors.some((e) => /name each one/.test(e.message))).toBe(true);
+  });
+
+  test('the removed maxOccurrences option is rejected inside a rules entry too', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", rules=[{path="/v1/**", maxOccurrences=2}])
+      API_KEY=secret
+    `);
+    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
+    expect(errors.some((e) => /maxOccurrences has been removed/.test(e.message))).toBe(true);
   });
 
   test('an invalid substituteIn target is rejected', async () => {
@@ -204,16 +218,6 @@ describe('proxy decorators', () => {
     expect(errors.some((e) => /body substitution requires a path/.test(e.message))).toBe(true);
   });
 
-  test('a non-integer maxOccurrences is rejected', async () => {
-    const graph = await loadGraph(outdent`
-      # @defaultSensitive=false
-      # ---
-      # @proxy(domain="api.a.com", maxOccurrences=0)
-      API_KEY=secret
-    `);
-    const errors = graph.configSchema.API_KEY.decoratorSchemaErrors;
-    expect(errors.some((e) => /maxOccurrences must be an integer >= 1/.test(e.message))).toBe(true);
-  });
 
   test('a header-level (detached) @proxy is not rejected as a misplaced item decorator', async () => {
     const graph = await loadGraph(outdent`

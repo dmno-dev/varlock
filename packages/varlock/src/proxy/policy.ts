@@ -1,5 +1,5 @@
 import {
-  DEFAULT_PROXY_MAX_OCCURRENCES, DEFAULT_PROXY_SUBSTITUTION_TARGETS,
+  DEFAULT_PROXY_SUBSTITUTION_TARGETS,
   parseProxySubstitutionTarget, proxySubstitutionTargetKey,
   type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxySubstitutionTarget,
 } from './types';
@@ -7,13 +7,11 @@ import {
 /**
  * A managed item scoped to a single request, carrying the merged substitution
  * policy from the matching rules that inject it: the `targets` its placeholder may
- * be substituted at, and the per-request `maxOccurrences` cap. Both are the union /
- * max across the active contributing rules (any rule that adds a target or raises
- * the cap wins), defaulting to any-header / once.
+ * be substituted at. The union across the active contributing rules (any rule that
+ * adds a target wins), defaulting to any header.
  */
 export type RequestScopedManagedItem = ProxyManagedItem & {
   targets: Array<ProxySubstitutionTarget>;
-  maxOccurrences: number;
 };
 
 /**
@@ -198,13 +196,13 @@ export function getRequestScopedManagedItems(
   }
   if (allowedKeys.size === 0) return [];
 
-  // Merge the substitution policy (targets + occurrence cap) for each allowed key,
-  // but only from rules whose contribution is *active* for this request: plain-allow
-  // rules always; approval rules only when the approval gate runs
-  // (`includeApprovalGatedKeys`). This mirrors the key-scoping above so a withheld
-  // approval rule can't quietly widen where a key may be substituted.
+  // Merge the substitution targets for each allowed key, but only from rules whose
+  // contribution is *active* for this request: plain-allow rules always; approval
+  // rules only when the approval gate runs (`includeApprovalGatedKeys`). This
+  // mirrors the key-scoping above so a withheld approval rule can't quietly widen
+  // where a key may be substituted. Each merged target carries one substitution's
+  // worth of budget, so unioning targets is also what grants cardinality.
   const targetsByKey = new Map<string, Map<string, ProxySubstitutionTarget>>();
-  const maxOccByKey = new Map<string, number>();
   for (const rule of rules) {
     if (rule.block) continue;
     if (rule.approval && !opts?.includeApprovalGatedKeys) continue;
@@ -214,7 +212,6 @@ export function getRequestScopedManagedItems(
         .map((raw) => parseProxySubstitutionTarget(raw))
         .flatMap((r) => (r.ok ? [r.target] : []))
       : DEFAULT_PROXY_SUBSTITUTION_TARGETS;
-    const ruleMaxOcc = rule.maxOccurrences ?? DEFAULT_PROXY_MAX_OCCURRENCES;
     for (const key of rule.itemKeys) {
       if (!allowedKeys.has(key)) continue;
       let targets = targetsByKey.get(key);
@@ -223,7 +220,6 @@ export function getRequestScopedManagedItems(
         targetsByKey.set(key, targets);
       }
       for (const target of ruleTargets) targets.set(proxySubstitutionTargetKey(target), target);
-      maxOccByKey.set(key, Math.max(maxOccByKey.get(key) ?? 0, ruleMaxOcc));
     }
   }
 
@@ -232,6 +228,5 @@ export function getRequestScopedManagedItems(
     .map((item) => ({
       ...item,
       targets: [...(targetsByKey.get(item.key)?.values() ?? DEFAULT_PROXY_SUBSTITUTION_TARGETS)],
-      maxOccurrences: maxOccByKey.get(item.key) ?? DEFAULT_PROXY_MAX_OCCURRENCES,
     }));
 }
