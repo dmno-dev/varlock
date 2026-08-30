@@ -40,9 +40,9 @@ export interface DaemonResponse {
 
 // ── Identity session protocol ──────────────────────────────────────────
 //
-// Shapes for the daemon work that follows the identity layer. Nothing wires
-// these up yet: they are here so the TS and native sides agree on the protocol
-// before either implements it.
+// Shapes for the identity session ops. The macOS daemon implements these; the
+// loader does not call them yet, so these types are what the two sides agree on
+// while the client side is built out.
 //
 // The daemon holds the unwrapped identity private key on behalf of a session,
 // so hardware backends can read v2 payloads without the key ever entering this
@@ -82,13 +82,27 @@ export interface SessionGrantRef {
   keyId: string;
 }
 
-/** `unlock-session` payload: open a grant so the daemon may hold the identity key */
-export interface UnlockSessionRequest extends SessionGrantRef {
+/**
+ * `unlock-session` payload: open a grant so the daemon may hold the identity key.
+ *
+ * `sessionId` is not sent. The daemon resolves the session from the connecting
+ * process itself, so a caller cannot name its way into someone else's session.
+ * One unlock covers every key it names, for a single user-presence check.
+ */
+export interface UnlockSessionRequest {
+  keyIds: Array<string>;
   identityId?: string;
   scope: SessionGrantScope;
   /** only meaningful for scope `duration`; clamped to MAX_SESSION_GRANT_MS */
   durationMs?: number;
 }
+
+/** How the daemon satisfied user presence for an unlock */
+export type UnlockPolicy = (
+  | 'biometrics'
+  | 'device-owner' // Touch ID, Apple Watch, or the device password
+  | 'no-presence-required' // key was created with --no-auth (CI)
+);
 
 /** A grant as the daemon reports it back (never includes key material) */
 export interface SessionGrantInfo extends SessionGrantRef {
@@ -98,11 +112,23 @@ export interface SessionGrantInfo extends SessionGrantRef {
   grantedAt: number;
   /** epoch ms; always set, since every scope is capped */
   expiresAt: number;
+  /** epoch ms of the last decrypt this grant served; absent until first use */
+  lastUsedAt?: number;
+  /** epoch ms when this session was unlocked */
+  sessionUnlockedAt: number;
+  /** epoch ms when the session's 12h cap runs out */
+  sessionExpiresAt: number;
+  /** how long this grant still has, as of when the daemon answered */
+  expiresInMs: number;
   /** how many decrypts this grant has served */
   useCount: number;
 }
 
-export type UnlockSessionResult = SessionGrantInfo;
+export interface UnlockSessionResult {
+  sessionId: string;
+  policy: UnlockPolicy;
+  grants: Array<SessionGrantInfo>;
+}
 
 /** `list-sessions` result: every live grant the daemon is holding */
 export interface ListSessionsResult {
@@ -127,19 +153,59 @@ export interface InvalidateSessionResult {
 }
 
 /**
- * `decrypt-v2` payload: decrypt an identity-encrypted payload under a grant.
+ * `decrypt-v2` payload: decrypt identity-encrypted payloads under a grant.
  *
  * `keyId` is the device key the identity is wrapped to, not the key the payload
- * was encrypted with. Without a live grant the daemon gates on user presence
- * first and, if that passes, serves the decrypt.
+ * was encrypted with. There is no implicit unlock: without a live grant the
+ * daemon refuses (`NO_SESSION_GRANT`) and the caller runs `unlock-session`.
+ *
+ * Payloads come as a batch, since a whole env file resolves at once, and the
+ * batch is one grant use: a `once` grant covers the call however many payloads
+ * it carried. `sessionId` is not sent; the daemon resolves it from the peer.
  */
-export interface DecryptV2Request extends SessionGrantRef {
-  ciphertext: string;
+export interface DecryptV2Request {
+  keyId: string;
+  ciphertexts: Array<string>;
   identityId?: string;
 }
 
 export interface DecryptV2Result {
-  plaintext: string;
+  plaintexts: Array<string>;
+  /** the grant that served this call, after its use was charged */
+  grant: SessionGrantInfo;
+}
+
+/** Error codes the daemon attaches to identity session failures */
+export type IdentitySessionErrorCode = (
+  | 'NO_SESSION_GRANT' // nothing unlocked for this (session x key)
+  | 'SESSION_GRANT_EXPIRED' // the grant or its session cap ran out
+  | 'SESSION_KEY_MISSING' // daemon no longer holds the key (restarted, or locked)
+  | 'NO_SESSION_IDENTITY' // the caller's session could not be identified
+  | 'BIOMETRIC_FAILED'
+  | 'IDENTITY_NOT_FOUND'
+  | 'IDENTITY_MALFORMED'
+  | 'IDENTITY_VERSION_UNSUPPORTED'
+  | 'IDENTITY_NO_WRAP_FOR_KEY'
+);
+
+/**
+ * Protocol version this build of varlock expects from the daemon.
+ *
+ * 1 (reported as an absent `protocolVersion`) is a daemon predating identity
+ * sessions. A client that needs the session ops can compare against this to tell
+ * a stale daemon from one that speaks them.
+ */
+export const DAEMON_PROTOCOL_VERSION = 2;
+
+/** `ping` result */
+export interface DaemonPingResult {
+  pong: boolean;
+  /** whether this session already holds a cached biometric context */
+  sessionWarm: boolean;
+  /** the session identity the daemon resolved for this process, if any */
+  sessionId?: string;
+  /** absent on daemons older than the identity session ops, which means 1 */
+  protocolVersion: number;
 }
 
 /** Metadata about a keychain item (no secret values) */

@@ -90,6 +90,35 @@ final class SecureEnclaveManager {
         return Data(privateKey.publicKey.x963Representation)
     }
 
+    /// Create an ephemeral Secure Enclave key for one unlock session.
+    ///
+    /// Access control is `.privateKeyUsage` only: no user presence, so the daemon can
+    /// unwrap under it silently for the life of the session. What keeps that safe is
+    /// that the key exists nowhere but this process's memory. Unlike `generateKey`,
+    /// no `.keydata` file is written, so there is nothing on disk for a later process
+    /// (or a reboot) to pick up and open silently. Ending the session scrubs the data
+    /// representation, and every blob wrapped under it becomes unreadable.
+    static func createEphemeralSessionKey() throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
+        var accessError: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            kCFAllocatorDefault,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [.privateKeyUsage],
+            &accessError
+        ) else {
+            let err = accessError?.takeRetainedValue()
+            throw EnclaveError.keyGenerationFailed(
+                err?.localizedDescription ?? "Failed to create session key access control"
+            )
+        }
+
+        do {
+            return try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: accessControl)
+        } catch {
+            throw EnclaveError.keyGenerationFailed(error.localizedDescription)
+        }
+    }
+
     /// Delete a key by removing its data representation file.
     static func deleteKey(keyId: String) -> Bool {
         let filePath = keyFilePath(for: keyId)
@@ -120,7 +149,9 @@ final class SecureEnclaveManager {
     // MARK: - Key Loading
 
     /// Load a Secure Enclave private key from its stored data representation.
-    private static func loadPrivateKey(keyId: String, context: LAContext?) throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
+    ///
+    /// Not private: the identity-session code loads custody keys through this too.
+    static func loadPrivateKey(keyId: String, context: LAContext?) throws -> SecureEnclave.P256.KeyAgreement.PrivateKey {
         let filePath = keyFilePath(for: keyId)
         guard let data = FileManager.default.contents(atPath: filePath) else {
             throw EnclaveError.keyNotFound(keyId)

@@ -28,10 +28,92 @@ For our use case (programmatically granting VarlockEnclave access to items creat
 
 These APIs are only used in the "select existing item" picker flow when VarlockEnclave doesn't already have access. Items created by VarlockEnclave itself (via "Create New") don't need ACL modification.
 
+## Identity unlock sessions
+
+Values can be encrypted to an identity key rather than straight to the device key
+(see `packages/varlock/src/lib/local-encrypt/identity.ts`). The identity private key
+is ECIES-wrapped to the device key, and only the daemon may unwrap it. Two enclave
+keys are involved:
+
+- the **custody key** is the existing biometric device key. It holds the wrap at rest,
+  so opening a session always costs one user-presence check.
+- the **session key** is created per unlock with `.privateKeyUsage` only (no presence).
+  It exists solely in daemon memory: no `.keydata` file is written. At unlock the
+  identity key is unwrapped once through the custody key and immediately re-wrapped
+  under the session key, and only that blob is kept. Later decrypts unwrap it silently.
+
+Ending a session scrubs the session key data, which crypto-erases every blob held under
+it. Nothing is persisted, so a daemon restart loses all sessions on purpose: a
+session-wrapped blob on disk plus a no-presence key would reopen silently after a
+reboot, defeating the biometric gate. A restart just means the next use costs one scan.
+
+Daemon actions (IPC protocol version 2, reported by `ping`):
+
+| action | what it does |
+| --- | --- |
+| `unlock-session` | one presence check, however many key ids; records grants and returns them |
+| `decrypt-v2` | decrypts a batch of v2 payloads under a live grant, no prompt |
+| `list-sessions` | live grants: scope, granted keys, unlock time, remaining TTL |
+| `invalidate-session` | no arguments drops everything; `sessionId` drops one session; both fields drop one grant |
+
+Grants are keyed by (session x key), where the session comes from `SessionScoping`.
+Scopes are `once`, `session`, and `duration`, and everything is capped at 12h from the
+session's first unlock.
+
+### Checking the single-scan unlock
+
+The design depends on the daemon driving the biometric itself with
+`LAContext.evaluatePolicy` and then handing that authenticated context to the enclave
+operation, so the custody unwrap does not raise a second sheet. That is a claim about
+a given machine and OS version, so it has a probe:
+
+```bash
+swift build --package-path swift
+./swift/.build/debug/VarlockEnclave probe-session-unlock --key-id varlock-default
+```
+
+It needs a real Mac with enrolled biometrics and asks for exactly one scan. Nobody has
+to count sheets: `LAContext.interactionNotAllowed` makes any operation that still wants
+UI fail instead of showing it, so a second prompt shows up as a failed phase.
+
+- `control-unauthenticated` must FAIL ("User interaction required"), which is what
+  proves the key is presence gated and the detection works
+- `handoff-unwrap-1` / `handoff-unwrap-2` must SUCCEED, proving one scan covers
+  several enclave operations
+- `session-key-silent-unwrap` must SUCCEED with no authentication at all
+
+A `"verdict": "single-scan"` means the handoff holds. `"double-prompt"` means it does
+not, and sessions would have to keep their key across soft locks with a daemon-enforced
+re-auth instead of crypto-erasing. Verified `single-scan` on macOS 26.1 (Apple silicon).
+
+To create a throwaway key rather than probing a real one:
+
+```bash
+./swift/.build/debug/VarlockEnclave generate-key --key-id varlock-probe-session
+./swift/.build/debug/VarlockEnclave probe-session-unlock --key-id varlock-probe-session
+./swift/.build/debug/VarlockEnclave delete-key --key-id varlock-probe-session
+```
+
+### End-to-end check (no human needed)
+
+`scripts/e2e-identity-session.ts` drives the whole protocol over the real socket
+against a throwaway `XDG_CONFIG_HOME`. Its custody key is created with `--no-auth`, so
+the unlock finds no presence requirement and never prompts:
+
+```bash
+swift build --package-path swift
+bun run scripts/e2e-identity-session.ts
+```
+
+It needs a Mac with a Secure Enclave, so it is a local check rather than a CI one.
+
 ## Structure
 
 - `swift/` — Swift Package Manager project (`VarlockEnclave` executable)
+- `swift/Sources/IdentitySessions/`: ECIES wire format and the grant table, in a library target so both are unit tested
 - `scripts/build-swift.ts` — Two-phase build: compile (cacheable) + bundle (mode-specific `.app` wrapping + codesign)
+- `scripts/generate-ecies-fixture.ts`: regenerates the cross-implementation ECIES vector the Swift tests pin
+- `scripts/e2e-identity-session.ts`: headless end-to-end run of the identity session actions
 - `resources/` — App icon and other bundle resources
 
 ## Building

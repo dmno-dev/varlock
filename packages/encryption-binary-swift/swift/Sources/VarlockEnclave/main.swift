@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import IdentitySessions
 
 // MARK: - JSON Output Helpers
 
@@ -27,6 +28,20 @@ func jsonSuccess(_ result: [String: Any]) -> Never {
     _exit(0)
 }
 
+/// Attach a stable code to identity/session errors so the TS client can branch on
+/// them (re-unlock, create an identity, upgrade varlock) without matching on text.
+func identityErrorResponse(_ error: Error) -> [String: Any] {
+    var response: [String: Any] = ["error": error.localizedDescription]
+    if let grantError = error as? SessionGrantError {
+        response["errorCode"] = grantError.code
+    } else if let storeError = error as? IdentityStore.IdentityStoreError {
+        response["errorCode"] = storeError.code
+    } else if let sessionError = error as? IdentitySessionManager.IdentitySessionError {
+        response["errorCode"] = sessionError.code
+    }
+    return response
+}
+
 func keychainErrorResponse(_ error: Error) -> [String: Any] {
     if let keychainError = error as? KeychainError {
         return [
@@ -49,6 +64,13 @@ func getArg(_ flag: String) -> String? {
 
 let defaultKeyId = "varlock-default"
 let noAuth = args.contains("--no-auth") // CI mode: skip biometric requirement
+
+/// IPC protocol version reported by `ping`.
+///
+/// 1 (reported as absent) is the original action set. 2 adds the identity session
+/// ops: unlock-session, decrypt-v2, list-sessions, and the per-session form of
+/// invalidate-session.
+let daemonProtocolVersion = 2
 
 switch command {
 
@@ -140,6 +162,12 @@ case "decrypt":
         jsonError(error.localizedDescription)
     }
 
+// MARK: - probe-session-unlock (manual, needs a real Mac + enrolled biometrics)
+
+case "probe-session-unlock":
+    let probeKeyId = getArg("--key-id") ?? defaultKeyId
+    jsonSuccess(SessionUnlockProbe.run(keyId: probeKeyId))
+
 // MARK: - status
 
 case "status":
@@ -176,7 +204,21 @@ case "daemon":
     }
 
     let sessionManager = SessionManager()
+    let identitySessions = IdentitySessionManager()
     let server = IPCServer(socketPath: socketPath)
+
+    // Never idle-quit while the daemon is holding an identity key for someone.
+    // Session state is memory-only, so quitting would silently cost them their
+    // unlock; the idle timer only applies when nothing is held.
+    sessionManager.hasLiveWork = {
+        identitySessions.hasLiveSessions()
+    }
+
+    // Sleep and screen lock already drop cached biometric contexts. Identity
+    // sessions go with them, which crypto-erases the keys held under them.
+    sessionManager.onSystemLock = {
+        identitySessions.invalidate()
+    }
 
     // Write PID file
     let pidPath = getArg("--pid-path")
@@ -251,6 +293,9 @@ case "daemon":
                     "pong": true,
                     "sessionWarm": sessionManager.isSessionWarm(sessionId: sessionId),
                     "sessionId": sessionId as Any,
+                    // Absent means 1 (a daemon predating identity sessions), so a
+                    // client can tell a stale daemon from one that speaks these ops.
+                    "protocolVersion": daemonProtocolVersion,
                 ],
             ]
 
@@ -293,7 +338,22 @@ case "daemon":
             }
 
             do {
-                let encrypted = try SecureEnclaveManager.encrypt(plaintext: valueData, keyId: promptKeyId)
+                let encrypted: Data
+                if let identityPublicKeyB64 = promptPayload?["identityPublicKey"] as? String {
+                    // Encrypt to the identity here, so only ciphertext crosses the
+                    // socket and the value never exists outside this process.
+                    guard let identityPublicKey = Data(base64Encoded: identityPublicKeyB64) else {
+                        return ["error": "Invalid base64 identityPublicKey"]
+                    }
+                    encrypted = try Ecies.encrypt(
+                        plaintext: valueData,
+                        toPublicKeyData: identityPublicKey,
+                        version: Ecies.identityPayloadVersion
+                    )
+                } else {
+                    // Legacy path: encrypt straight to the device key
+                    encrypted = try SecureEnclaveManager.encrypt(plaintext: valueData, keyId: promptKeyId)
+                }
                 return ["result": [
                     "ciphertext": encrypted.base64EncodedString(),
                 ]]
@@ -301,10 +361,93 @@ case "daemon":
                 return ["error": error.localizedDescription]
             }
 
+        // MARK: Identity session actions
+
+        case "unlock-session":
+            let payload = message["payload"] as? [String: Any]
+            let identityId = (payload?["identityId"] as? String) ?? IdentityStore.defaultIdentityId
+            let scope = SessionGrantScope(wireValue: payload?["scope"] as? String) ?? .session
+
+            // Accept one key or several: one unlock, one scan, however many keys.
+            var requestedKeyIds = (payload?["keyIds"] as? [String]) ?? []
+            if let single = payload?["keyId"] as? String { requestedKeyIds.append(single) }
+            if requestedKeyIds.isEmpty { requestedKeyIds = [defaultKeyId] }
+
+            // A caller may name the session it believes it is in, but it never
+            // overrides the identity we resolved from the peer process itself.
+            let durationMs = (payload?["durationMs"] as? NSNumber)?.int64Value
+
+            do {
+                let outcome = try identitySessions.unlock(
+                    sessionId: sessionId,
+                    keyIds: Array(Set(requestedKeyIds)).sorted(),
+                    identityId: identityId,
+                    scope: scope,
+                    durationMs: durationMs
+                )
+                statusBarMenu?.refresh()
+                let now = Int64(Date().timeIntervalSince1970 * 1000)
+                return ["result": [
+                    "sessionId": sessionId as Any,
+                    "policy": outcome.policy.rawValue,
+                    "grants": outcome.grants.map { $0.toDictionary(now: now) },
+                ]]
+            } catch {
+                return identityErrorResponse(error)
+            }
+
+        case "decrypt-v2":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            let keyId = (payload["keyId"] as? String) ?? defaultKeyId
+            let identityId = (payload["identityId"] as? String) ?? IdentityStore.defaultIdentityId
+
+            // Batch form is the normal one (a whole env file resolves at once);
+            // the single-ciphertext form is accepted for one-off callers.
+            var ciphertexts = (payload["ciphertexts"] as? [String]) ?? []
+            if let single = payload["ciphertext"] as? String { ciphertexts.append(single) }
+            guard !ciphertexts.isEmpty else {
+                return ["error": "Missing ciphertext in payload"]
+            }
+            let payloadDatas = ciphertexts.compactMap { Data(base64Encoded: $0) }
+            guard payloadDatas.count == ciphertexts.count else {
+                return ["error": "Invalid base64 in ciphertext payload"]
+            }
+
+            do {
+                let outcome = try identitySessions.decryptV2(
+                    sessionId: sessionId,
+                    keyId: keyId,
+                    identityId: identityId,
+                    payloads: payloadDatas
+                )
+                statusBarMenu?.refresh()
+                let now = Int64(Date().timeIntervalSince1970 * 1000)
+                return ["result": [
+                    "plaintexts": outcome.plaintexts,
+                    "grant": outcome.grant.toDictionary(now: now),
+                ]]
+            } catch {
+                return identityErrorResponse(error)
+            }
+
+        case "list-sessions":
+            return ["result": ["sessions": identitySessions.listGrants()]]
+
         case "invalidate-session":
-            sessionManager.invalidateAllSessions()
+            let payload = message["payload"] as? [String: Any]
+            let targetSessionId = payload?["sessionId"] as? String
+            let targetKeyId = payload?["keyId"] as? String
+
+            // No arguments keeps the original meaning: drop everything, including
+            // the cached biometric contexts.
+            if targetSessionId == nil && targetKeyId == nil {
+                sessionManager.invalidateAllSessions()
+            }
+            let invalidated = identitySessions.invalidate(sessionId: targetSessionId, keyId: targetKeyId)
             statusBarMenu?.refresh()
-            return ["result": "all sessions invalidated"]
+            return ["result": ["invalidated": invalidated]]
 
         // MARK: Keychain actions
 
@@ -489,6 +632,8 @@ case "help", "--help", "-h":
       decrypt --data <base64> [--key-id <id>]   Decrypt data (one-shot, testing)
       status                          Check Secure Enclave availability
       daemon --socket-path <path> [--pid-path <path>]   Start IPC daemon
+      probe-session-unlock [--key-id <id>]   Check that one biometric scan covers a
+                                             whole unlock on this machine
 
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)

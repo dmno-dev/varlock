@@ -25,6 +25,7 @@ import { resolveNativeBinary } from './binary-resolver';
 import { DEFAULT_KEY_ID } from './constants';
 import { isWSL } from './wsl-detect';
 import type {
+  DaemonPingResult, InvalidateSessionRequest,
   KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
 } from './types';
 
@@ -334,10 +335,35 @@ export class DaemonClient {
     });
   }
 
-  async invalidateSession(): Promise<void> {
+  /**
+   * Ask the daemon what it is and what it speaks.
+   *
+   * `protocolVersion` is absent on daemons older than the identity session ops,
+   * and is reported as 1 here so callers can compare it numerically.
+   */
+  async ping(): Promise<DaemonPingResult> {
     return this.withRetry(async () => {
       await this.ensureConnected();
-      await this.sendMessage({ action: 'invalidate-session' });
+      const result = await this.sendMessage({ action: 'ping' }) ?? {};
+      return {
+        pong: result.pong === true,
+        sessionWarm: result.sessionWarm === true,
+        sessionId: result.sessionId ?? undefined,
+        protocolVersion: typeof result.protocolVersion === 'number' ? result.protocolVersion : 1,
+      };
+    });
+  }
+
+  /**
+   * Drop cached auth and any identity grants the daemon is holding.
+   *
+   * With no arguments this drops everything, as it always has. Naming a session
+   * drops that session's grants; naming a key as well drops exactly one.
+   */
+  async invalidateSession(target?: InvalidateSessionRequest): Promise<void> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      await this.sendMessage({ action: 'invalidate-session', payload: target ?? {} });
     });
   }
 

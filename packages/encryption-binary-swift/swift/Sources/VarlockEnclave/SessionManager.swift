@@ -32,6 +32,16 @@ final class SessionManager {
     /// Called when the daemon should shut down due to inactivity
     var onDaemonTimeout: (() -> Void)?
 
+    /// Whether something is still being held that must outlive an idle stretch.
+    ///
+    /// Identity unlock sessions live only in daemon memory, so quitting while one is
+    /// open would silently throw away an unlock the user paid a fingerprint for. When
+    /// this returns true the idle timer re-arms instead of firing.
+    var hasLiveWork: (() -> Bool)?
+
+    /// Called on sleep / screen lock, alongside dropping cached biometric contexts.
+    var onSystemLock: (() -> Void)?
+
     private var daemonTimer: DispatchSourceTimer?
 
     init() {
@@ -116,6 +126,13 @@ final class SessionManager {
         }
     }
 
+    /// Sleep or screen lock: drop cached biometric contexts, and let anything else
+    /// holding key material (identity unlock sessions) clear itself too.
+    func handleSystemLock() {
+        invalidateAllSessions()
+        onSystemLock?()
+    }
+
     /// Resets the daemon shutdown timer (no Touch ID). Call for any IPC so the
     /// process stays up while clients use ping, encrypt, etc., not only decrypt.
     func noteIpcActivity() {
@@ -148,7 +165,13 @@ final class SessionManager {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + SessionManager.daemonInactivityTimeout)
         timer.setEventHandler { [weak self] in
-            self?.onDaemonTimeout?()
+            guard let self else { return }
+            // An open unlock session outranks idleness: re-arm rather than quit.
+            if self.hasLiveWork?() == true {
+                self.resetDaemonTimer()
+                return
+            }
+            self.onDaemonTimeout?()
         }
         timer.resume()
         daemonTimer = timer
@@ -166,7 +189,7 @@ final class SessionManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.invalidateAllSessions()
+            self?.handleSystemLock()
         }
 
         notificationCenter.addObserver(
@@ -174,7 +197,7 @@ final class SessionManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.invalidateAllSessions()
+            self?.handleSystemLock()
         }
 
         notificationCenter.addObserver(
@@ -182,7 +205,7 @@ final class SessionManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.invalidateAllSessions()
+            self?.handleSystemLock()
         }
 
         // Also invalidate when screens lock (available on macOS 13+)
@@ -191,7 +214,7 @@ final class SessionManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.invalidateAllSessions()
+            self?.handleSystemLock()
         }
     }
 }
