@@ -60,6 +60,43 @@ Grants are keyed by (session x key), where the session comes from `SessionScopin
 Scopes are `once`, `session`, and `duration`, and everything is capped at 12h from the
 session's first unlock.
 
+### What ends a session
+
+Beyond the TTL and the 12h cap, a `lockOn` policy decides which system events erase a
+session:
+
+| value | erased by |
+| --- | --- |
+| `screenLock` | screen lock and sleep |
+| `sleep` | sleep only; survives the screen locking (default) |
+| `none` | nothing but TTL expiry, the hard cap, or an explicit lock |
+
+Resolution order is per-session override, then machine config, then the built-in
+default of `sleep`:
+
+- **per-session**: `unlock-session` takes an optional `lockOn`. It is stored on the
+  session, and the lock observers consult each session's own policy, so a `screenLock`
+  session can be erased by the same event a `none` session in the same daemon survives.
+  Re-unlocking a session is how it changes its policy.
+- **machine config**: `sessions.lockOn` in the user-level config file varlock already
+  keeps at `<user varlock dir>/config.json` (the same file telemetry settings use):
+
+  ```json
+  { "sessions": { "lockOn": "sleep" } }
+  ```
+
+  Read fresh at each unlock, so an edit applies to the next unlock with no restart.
+  Machine-level only, never project config: a project must not get to weaken how long
+  this machine holds keys. A missing file or section is not an error. A value that is
+  present and unrecognized is reported on stderr and skipped, falling through to the
+  next source rather than failing the unlock.
+
+The 12h hard cap is not configurable, and an explicit lock (`invalidate-session` with no
+arguments, or the menu bar Lock) always erases everything whatever the policy says.
+Which macOS notification counts as which event: only `willSleepNotification` is `sleep`;
+display sleep and fast user switching are `screenLock`, so a display that sleeps after a
+couple of idle minutes does not read as the machine sleeping.
+
 ### Checking the single-scan unlock
 
 The design depends on the daemon driving the biometric itself with

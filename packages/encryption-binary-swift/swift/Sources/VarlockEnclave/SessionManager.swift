@@ -1,6 +1,7 @@
 import Foundation
 import LocalAuthentication
 import AppKit
+import IdentitySessions
 
 /// Manages biometric authentication sessions for the daemon, scoped per-session.
 ///
@@ -39,8 +40,13 @@ final class SessionManager {
     /// this returns true the idle timer re-arms instead of firing.
     var hasLiveWork: (() -> Bool)?
 
-    /// Called on sleep / screen lock, alongside dropping cached biometric contexts.
+    /// Called on an explicit lock, alongside dropping cached biometric contexts.
+    /// An explicit lock always erases everything, whatever any lock policy says.
     var onSystemLock: (() -> Void)?
+
+    /// Called on a system lock event (sleep, screen lock), which erases identity
+    /// sessions selectively according to each session's own policy.
+    var onLockEvent: ((SessionLockEvent) -> Void)?
 
     private var daemonTimer: DispatchSourceTimer?
 
@@ -126,11 +132,22 @@ final class SessionManager {
         }
     }
 
-    /// Sleep or screen lock: drop cached biometric contexts, and let anything else
-    /// holding key material (identity unlock sessions) clear itself too.
+    /// An explicit lock (menu bar, `varlock lock`): drop cached biometric contexts,
+    /// and erase every identity session regardless of its lock policy.
     func handleSystemLock() {
         invalidateAllSessions()
         onSystemLock?()
+    }
+
+    /// A system lock event. Cached biometric contexts always go, as they always
+    /// have. Identity sessions are judged one at a time against their own policy,
+    /// so a session set to survive screen lock does.
+    ///
+    /// The notification observers do nothing but call this, so the policy behavior
+    /// is testable without real sleep events.
+    func handleLockEvent(_ event: SessionLockEvent) {
+        invalidateAllSessions()
+        onLockEvent?(event)
     }
 
     /// Resets the daemon shutdown timer (no Touch ID). Call for any IPC so the
@@ -183,13 +200,15 @@ final class SessionManager {
         let workspace = NSWorkspace.shared
         let notificationCenter = workspace.notificationCenter
 
-        // Screen lock / sleep → invalidate ALL sessions
+        // The machine going to sleep is the one event treated as "sleep". Display
+        // sleep and fast user switching are screen-lock events: a display that
+        // sleeps after a couple of idle minutes must not read as the lid closing.
         notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleSystemLock()
+            self?.handleLockEvent(.sleep)
         }
 
         notificationCenter.addObserver(
@@ -197,7 +216,7 @@ final class SessionManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleSystemLock()
+            self?.handleLockEvent(.screenLock)
         }
 
         notificationCenter.addObserver(
@@ -205,16 +224,16 @@ final class SessionManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleSystemLock()
+            self?.handleLockEvent(.screenLock)
         }
 
-        // Also invalidate when screens lock (available on macOS 13+)
+        // Also fire when screens lock (available on macOS 13+)
         DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.screenIsLocked"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleSystemLock()
+            self?.handleLockEvent(.screenLock)
         }
     }
 }

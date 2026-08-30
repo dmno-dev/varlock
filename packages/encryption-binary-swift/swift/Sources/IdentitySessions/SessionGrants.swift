@@ -53,6 +53,8 @@ public struct SessionGrantInfo: Equatable {
     public let sessionUnlockedAt: Int64
     /// epoch ms when the session's hard cap runs out
     public let sessionExpiresAt: Int64
+    /// which system events erase this session, as resolved at unlock time
+    public let lockOn: SessionLockPolicy
     /// how many decrypts this grant has served
     public let useCount: Int
 
@@ -66,6 +68,7 @@ public struct SessionGrantInfo: Equatable {
             "expiresAt": expiresAt,
             "sessionUnlockedAt": sessionUnlockedAt,
             "sessionExpiresAt": sessionExpiresAt,
+            "lockOn": lockOn.rawValue,
             "useCount": useCount,
             "expiresInMs": max(0, expiresAt - now),
         ]
@@ -124,6 +127,9 @@ public final class SessionGrantTable {
         let unlockedAt: Int64
         /// unlockedAt + cap; every grant in the session is clamped to this
         let expiresAt: Int64
+        /// Which system events erase this session. Held per session rather than
+        /// globally, so one session can outlive a screen lock that ends another.
+        var lockOn: SessionLockPolicy
         var grants: [String: Grant] = [:] // keyed by keyId
     }
 
@@ -175,16 +181,21 @@ public final class SessionGrantTable {
         ref: SessionGrantRef,
         identityId: String,
         scope: SessionGrantScope,
-        durationMs: Int64? = nil
+        durationMs: Int64? = nil,
+        lockOn: SessionLockPolicy = .builtInDefault
     ) -> SessionGrantInfo {
         pruneExpired()
         let now = clock()
 
-        let state: SessionState
-        if let existing = sessions[ref.sessionId] {
+        var state: SessionState
+        if var existing = sessions[ref.sessionId] {
+            // The most recent unlock sets the session's lock policy, so re-unlocking
+            // is how someone changes their mind about it.
+            existing.lockOn = lockOn
+            sessions[ref.sessionId] = existing
             state = existing
         } else {
-            state = SessionState(unlockedAt: now, expiresAt: now + Self.maxGrantMs)
+            state = SessionState(unlockedAt: now, expiresAt: now + Self.maxGrantMs, lockOn: lockOn)
             sessions[ref.sessionId] = state
         }
 
@@ -288,6 +299,30 @@ public final class SessionGrantTable {
         return SessionGrantChange(dropped: dropped, closedSessions: closed.sorted())
     }
 
+    /// Drop the sessions whose own lock policy says this event ends them.
+    ///
+    /// Each session is judged individually, so a `screenLock` session can be erased
+    /// by the same event that a `none` session in the same daemon shrugs off.
+    @discardableResult
+    public func invalidate(onLockEvent event: SessionLockEvent) -> SessionGrantChange {
+        var dropped = 0
+        var closed: [String] = []
+
+        for (sid, state) in sessions where state.lockOn.erases(on: event) {
+            dropped += state.grants.count
+            sessions.removeValue(forKey: sid)
+            closed.append(sid)
+        }
+
+        return SessionGrantChange(dropped: dropped, closedSessions: closed.sorted())
+    }
+
+    /// The lock policy a live session is running under.
+    public func lockPolicy(forSession sessionId: String) -> SessionLockPolicy? {
+        pruneExpired()
+        return sessions[sessionId]?.lockOn
+    }
+
     /// Drop everything whose time is up, and report the sessions that closed.
     @discardableResult
     public func pruneExpired() -> SessionGrantChange {
@@ -347,6 +382,7 @@ public final class SessionGrantTable {
             lastUsedAt: grant.lastUsedAt,
             sessionUnlockedAt: session.unlockedAt,
             sessionExpiresAt: session.expiresAt,
+            lockOn: session.lockOn,
             useCount: grant.useCount
         )
     }

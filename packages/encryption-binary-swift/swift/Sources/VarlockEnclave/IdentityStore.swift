@@ -69,6 +69,21 @@ enum IdentityStore {
         return userVarlockDir + "/identities/\(identityId).json"
     }
 
+    /// The user-level config file varlock already keeps (telemetry settings live
+    /// here too). Machine-wide, never project-level: a project must not be able to
+    /// weaken how long this machine holds keys.
+    static var machineConfigPath: String {
+        return userVarlockDir + "/config.json"
+    }
+
+    /// Read the config file's contents, or nil when there is nothing to read.
+    ///
+    /// Read fresh at each unlock rather than cached or watched, so editing the file
+    /// takes effect on the next unlock with no daemon restart.
+    static func readMachineConfigData() -> Data? {
+        return FileManager.default.contents(atPath: machineConfigPath)
+    }
+
     static func read(identityId: String) throws -> StoredIdentity {
         let path = identityFilePath(identityId)
         guard let data = FileManager.default.contents(atPath: path) else {

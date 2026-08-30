@@ -95,6 +95,49 @@ export interface UnlockSessionRequest {
   scope: SessionGrantScope;
   /** only meaningful for scope `duration`; clamped to MAX_SESSION_GRANT_MS */
   durationMs?: number;
+  /**
+   * Which system events end this session. Omit to take the machine config, and
+   * then the built-in default. An unrecognized value is reported by the daemon on
+   * stderr and ignored, rather than failing the unlock.
+   */
+  lockOn?: SessionLockPolicy;
+}
+
+/**
+ * What ends an unlock session, short of its TTL running out.
+ *
+ * The 12h hard cap and explicit invalidation always apply and are not
+ * configurable: this only decides which system events erase a session.
+ *
+ * - `screenLock`: erased by screen lock and by sleep
+ * - `sleep`: erased by sleep; survives the screen locking
+ * - `none`: erased only by TTL expiry, the hard cap, or an explicit lock
+ */
+export type SessionLockPolicy = 'screenLock' | 'sleep' | 'none';
+
+export const SESSION_LOCK_POLICIES: Array<SessionLockPolicy> = ['screenLock', 'sleep', 'none'];
+
+/** Used when neither the session nor the machine config says otherwise */
+export const DEFAULT_SESSION_LOCK_POLICY: SessionLockPolicy = 'sleep';
+
+/** Where an effective lock policy came from */
+export type SessionLockPolicySource = 'session-override' | 'machine-config' | 'built-in-default';
+
+/**
+ * Machine-wide session settings, read by the daemon from the user-level config
+ * file (`<user varlock dir>/config.json`, the same file telemetry settings use).
+ * Never read from project config: a project must not get to weaken how long this
+ * machine holds keys.
+ *
+ * ```json
+ * { "sessions": { "lockOn": "sleep" } }
+ * ```
+ *
+ * The daemon reads it fresh at each unlock, so an edit applies to the next unlock
+ * with no restart. A missing file or section is not an error.
+ */
+export interface UserConfigSessionSettings {
+  lockOn?: SessionLockPolicy;
 }
 
 /** How the daemon satisfied user presence for an unlock */
@@ -118,6 +161,8 @@ export interface SessionGrantInfo extends SessionGrantRef {
   sessionUnlockedAt: number;
   /** epoch ms when the session's 12h cap runs out */
   sessionExpiresAt: number;
+  /** which system events erase this session, as resolved at unlock time */
+  lockOn: SessionLockPolicy;
   /** how long this grant still has, as of when the daemon answered */
   expiresInMs: number;
   /** how many decrypts this grant has served */
@@ -127,6 +172,10 @@ export interface SessionGrantInfo extends SessionGrantRef {
 export interface UnlockSessionResult {
   sessionId: string;
   policy: UnlockPolicy;
+  /** the effective lock policy for this session */
+  lockOn: SessionLockPolicy;
+  /** which of the three sources decided it */
+  lockOnSource: SessionLockPolicySource;
   grants: Array<SessionGrantInfo>;
 }
 

@@ -214,10 +214,15 @@ case "daemon":
         identitySessions.hasLiveSessions()
     }
 
-    // Sleep and screen lock already drop cached biometric contexts. Identity
-    // sessions go with them, which crypto-erases the keys held under them.
+    // An explicit lock erases every identity session, whatever their lock policy.
     sessionManager.onSystemLock = {
         identitySessions.invalidate()
+    }
+
+    // Sleep and screen lock are judged per session: each one is erased only if its
+    // own resolved lockOn policy says that event ends it.
+    sessionManager.onLockEvent = { event in
+        identitySessions.handleLockEvent(event)
     }
 
     // Write PID file
@@ -383,13 +388,16 @@ case "daemon":
                     keyIds: Array(Set(requestedKeyIds)).sorted(),
                     identityId: identityId,
                     scope: scope,
-                    durationMs: durationMs
+                    durationMs: durationMs,
+                    lockOnOverride: payload?["lockOn"] as? String
                 )
                 statusBarMenu?.refresh()
                 let now = Int64(Date().timeIntervalSince1970 * 1000)
                 return ["result": [
                     "sessionId": sessionId as Any,
                     "policy": outcome.policy.rawValue,
+                    "lockOn": outcome.lockOn.rawValue,
+                    "lockOnSource": outcome.lockOnSource.rawValue,
                     "grants": outcome.grants.map { $0.toDictionary(now: now) },
                 ]]
             } catch {
@@ -582,7 +590,9 @@ case "daemon":
         statusBarMenu = StatusBarMenu(
             sessionManager: sessionManager,
             onLock: {
-                sessionManager.invalidateAllSessions()
+                // Explicit lock: cached biometric contexts AND every identity
+                // session, whatever lock policy those sessions were opened with.
+                sessionManager.handleSystemLock()
                 statusBarMenu?.refresh()
             },
             onQuit: {

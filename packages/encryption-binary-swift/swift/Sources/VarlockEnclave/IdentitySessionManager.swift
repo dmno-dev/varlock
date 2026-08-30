@@ -43,6 +43,9 @@ final class IdentitySessionManager {
     struct UnlockOutcome {
         let grants: [SessionGrantInfo]
         let policy: UnlockPolicy
+        /// The resolved lock policy and where it came from
+        let lockOn: SessionLockPolicy
+        let lockOnSource: LockPolicyResolution.Source
     }
 
     enum IdentitySessionError: LocalizedError {
@@ -111,12 +114,20 @@ final class IdentitySessionManager {
         keyIds: [String],
         identityId: String,
         scope: SessionGrantScope,
-        durationMs: Int64?
+        durationMs: Int64?,
+        lockOnOverride: String? = nil
     ) throws -> UnlockOutcome {
         guard let sessionId, !sessionId.isEmpty else {
             throw IdentitySessionError.noSessionIdentity
         }
         let identity = try IdentityStore.read(identityId: identityId)
+
+        // What this unlock asked for, else the machine config, else the default.
+        // Read fresh so editing the config file needs no daemon restart.
+        let lockPolicy = LockPolicyResolution.resolve(
+            overrideWireValue: lockOnOverride,
+            machineConfigData: IdentityStore.readMachineConfigData()
+        )
 
         // Fail before prompting if none of the requested keys can open this identity
         let usableKeyIds = keyIds.filter { identity.wraps[$0] != nil }
@@ -166,12 +177,18 @@ final class IdentitySessionManager {
                     ref: SessionGrantRef(sessionId: sessionId, keyId: keyId),
                     identityId: identityId,
                     scope: scope,
-                    durationMs: durationMs
+                    durationMs: durationMs,
+                    lockOn: lockPolicy.policy
                 ))
             }
 
             reconcileLocked()
-            return UnlockOutcome(grants: granted, policy: policy)
+            return UnlockOutcome(
+                grants: granted,
+                policy: policy,
+                lockOn: lockPolicy.policy,
+                lockOnSource: lockPolicy.source
+            )
         }
     }
 
@@ -261,6 +278,27 @@ final class IdentitySessionManager {
             let change = grants.invalidate(sessionId: sessionId, keyId: keyId)
             reconcileLocked()
             return change.dropped
+        }
+    }
+
+    /// Handle a system lock event, erasing only the sessions whose own policy says
+    /// this event ends them.
+    ///
+    /// Separate from `invalidate()`, which is the explicit lock and always erases
+    /// everything. Called by the notification observers, and directly by tests.
+    @discardableResult
+    func handleLockEvent(_ event: SessionLockEvent) -> Int {
+        return queue.sync {
+            let change = grants.invalidate(onLockEvent: event)
+            reconcileLocked()
+            return change.dropped
+        }
+    }
+
+    /// The lock policy a live session resolved to, for tests and diagnostics.
+    func lockPolicy(forSession sessionId: String) -> SessionLockPolicy? {
+        return queue.sync {
+            return grants.lockPolicy(forSession: sessionId)
         }
     }
 

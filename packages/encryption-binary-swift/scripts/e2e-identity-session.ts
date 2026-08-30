@@ -182,6 +182,10 @@ try {
   check('grant is scoped to the requested key', sessionGrant.keyId === KEY_ID, unlocked);
   check('grant carries a 12h cap', sessionGrant.expiresAt - sessionGrant.grantedAt === 12 * 60 * 60 * 1000, unlocked);
 
+  check('default lock policy is sleep', unlocked.lockOn === 'sleep', unlocked);
+  check('default comes from the built-in default', unlocked.lockOnSource === 'built-in-default', unlocked);
+  check('policy is reported per grant', unlocked.grants?.[0]?.lockOn === 'sleep', unlocked.grants?.[0]);
+
   console.log('\ndecrypt-v2 batch');
   const decrypted = await client.send('decrypt-v2', { keyId: KEY_ID, ciphertexts: payloads });
   check('every payload decrypted', JSON.stringify(decrypted.plaintexts) === JSON.stringify(SECRETS), decrypted.plaintexts?.length);
@@ -241,6 +245,35 @@ try {
   await expectError('reports a missing identity clearly', () => client.send('unlock-session', {
     keyIds: [KEY_ID], identityId: 'no-such-identity', scope: 'session',
   }), 'IDENTITY_NOT_FOUND');
+
+  console.log('\nlock policy resolution');
+  const overridden = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session', lockOn: 'none' });
+  check('per-session override is honored', overridden.lockOn === 'none', overridden);
+  check('override is named as the source', overridden.lockOnSource === 'session-override', overridden);
+  check('override shows up in list-sessions', (await client.send('list-sessions')).sessions[0].lockOn === 'none');
+
+  // The daemon reads the config file fresh at each unlock, so no restart here.
+  const configPath = path.join(configHome, 'varlock', 'config.json');
+  fs.writeFileSync(configPath, `${JSON.stringify({ anonymousId: 'e2e', sessions: { lockOn: 'screenLock' } }, null, 2)}\n`);
+  const fromConfig = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  check('machine config beats the default', fromConfig.lockOn === 'screenLock', fromConfig);
+  check('config is named as the source', fromConfig.lockOnSource === 'machine-config', fromConfig);
+
+  const overrideWins = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session', lockOn: 'sleep' });
+  check('override still beats the machine config', overrideWins.lockOn === 'sleep', overrideWins);
+
+  fs.writeFileSync(configPath, `${JSON.stringify({ sessions: { lockOn: 'whenever-i-feel-like-it' } }, null, 2)}\n`);
+  const badConfig = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  check('invalid config value falls back to the default', badConfig.lockOn === 'sleep', badConfig);
+  check('and does not fail the unlock', badConfig.grants?.length === 1, badConfig);
+
+  const badOverride = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session', lockOn: 'sometimes' });
+  check('invalid override falls back too', badOverride.lockOn === 'sleep', badOverride);
+
+  fs.writeFileSync(configPath, '{ not json at all');
+  const brokenConfig = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  check('unparseable config does not break unlock', brokenConfig.lockOn === 'sleep', brokenConfig);
+  fs.rmSync(configPath, { force: true });
 
   console.log('\ninvalidate everything');
   await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
