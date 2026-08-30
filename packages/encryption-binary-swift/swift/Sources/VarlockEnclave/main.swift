@@ -41,6 +41,8 @@ func identityErrorResponse(_ error: Error) -> [String: Any] {
         response["errorCode"] = sessionError.code
     } else if let approvalError = error as? ApprovalRequest.ParseError {
         response["errorCode"] = approvalError.code
+    } else if let auditError = error as? AuthorizationAuditError {
+        response["errorCode"] = auditError.code
     }
     return response
 }
@@ -241,6 +243,13 @@ case "daemon":
     func requesterLines(forPid pid: pid_t?) -> [String] {
         guard let pid else { return ["Requested by an unidentified process"] }
         return describeRequester(forPid: pid).panelLines
+    }
+
+    /// One line naming the peer, for the authorization log. Same derivation as
+    /// the panel's lines, flattened.
+    func requesterSummary(forPid pid: pid_t?) -> String? {
+        guard let pid else { return nil }
+        return describeRequester(forPid: pid).auditSummary
     }
 
     // Never idle-quit while the daemon is holding an identity key for someone.
@@ -490,7 +499,8 @@ case "daemon":
                     sessionId: sessionId,
                     keyId: keyId,
                     identityId: identityId,
-                    payloads: payloadDatas
+                    payloads: payloadDatas,
+                    requester: requesterSummary(forPid: peerPid)
                 )
                 statusBarMenu?.refresh()
                 return ["result": [
@@ -514,7 +524,11 @@ case "daemon":
             if targetSessionId == nil && targetKeyId == nil {
                 sessionManager.invalidateAllSessions()
             }
-            let invalidated = identitySessions.invalidate(sessionId: targetSessionId, keyId: targetKeyId)
+            let invalidated = identitySessions.invalidate(
+                sessionId: targetSessionId,
+                keyId: targetKeyId,
+                requester: requesterSummary(forPid: peerPid)
+            )
             statusBarMenu?.refresh()
             return ["result": ["invalidated": invalidated]]
 

@@ -33,6 +33,13 @@ public struct RequesterDescription: Equatable {
     public var panelLines: [String] {
         return ["Requested by \(chainSummary)", sessionSummary]
     }
+
+    /// The same facts on one line, for the authorization log:
+    /// "node ← claude ← zsh (ttys004)".
+    public var auditSummary: String {
+        guard let terminalName else { return chainSummary }
+        return "\(chainSummary) (\(terminalName))"
+    }
 }
 
 public struct RequesterDescriber {

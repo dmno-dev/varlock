@@ -116,6 +116,7 @@ final class IdentitySessionManager {
 
     private var material: [String: SessionMaterial] = [:]
     private let grants: SessionGrantTable
+    private let audit: AuthorizationAuditLog
     private let queue = DispatchQueue(label: "dev.varlock.identity-session")
     private var pruneTimer: DispatchSourceTimer?
 
@@ -127,8 +128,12 @@ final class IdentitySessionManager {
     /// the policy lives on disk next to the key, which is not this type's job.
     var keyPolicy: (String) -> KeyAuthPolicy = { _ in .standard }
 
-    init(grants: SessionGrantTable = SessionGrantTable()) {
+    init(
+        grants: SessionGrantTable = SessionGrantTable(),
+        audit: AuthorizationAuditLog = AuthorizationAuditLog(directoryPath: IdentityStore.auditDir)
+    ) {
         self.grants = grants
+        self.audit = audit
         startPruneTimer()
     }
 
@@ -300,6 +305,26 @@ final class IdentitySessionManager {
                 ))
             }
 
+            // A session the daemon holds with no record of who opened it is the
+            // hole this log exists to close, so an unlock that cannot be recorded
+            // gives its keys straight back.
+            do {
+                try audit.append(AuthorizationRecord(
+                    kind: .unlock,
+                    sessionId: sessionId,
+                    keyIds: keysToOpen.sorted(),
+                    identityId: identityId,
+                    scope: chosenScope.rawValue,
+                    requester: requestContext.requesterLines.first
+                ))
+            } catch {
+                for keyId in keysToOpen {
+                    grants.invalidate(sessionId: sessionId, keyId: keyId)
+                }
+                reconcileLocked()
+                throw error
+            }
+
             reconcileLocked()
             return UnlockOutcome(
                 grants: granted,
@@ -358,11 +383,17 @@ final class IdentitySessionManager {
     ///
     /// The batch is one grant use: a `once` grant covers this call and is then spent,
     /// however many payloads it carried.
+    ///
+    /// Nothing is decrypted until the authorization is on disk. If the record
+    /// cannot be written the call is refused, which does spend a `once` grant on a
+    /// batch that returned nothing. That is the safe direction to fail in: the
+    /// alternative is handing back secrets with no record that it happened.
     func decryptV2(
         sessionId: String?,
         keyId: String,
         identityId: String,
-        payloads: [Data]
+        payloads: [Data],
+        requester: String? = nil
     ) throws -> (plaintexts: [String], grant: SessionGrantInfo) {
         guard let sessionId, !sessionId.isEmpty else {
             throw IdentitySessionError.noSessionIdentity
@@ -377,6 +408,16 @@ final class IdentitySessionManager {
                 reconcileLocked()
                 throw error
             }
+
+            try audit.append(AuthorizationRecord(
+                kind: .decrypt,
+                sessionId: sessionId,
+                keyIds: [keyId],
+                identityId: identityId,
+                payloadCount: payloads.count,
+                scope: consumed.info.scope.rawValue,
+                requester: requester
+            ))
 
             guard let held = material[sessionId],
                   let wrapped = held.wrappedIdentities[Self.blobKey(identityId, keyId)] else {
@@ -438,10 +479,28 @@ final class IdentitySessionManager {
     /// Omitting both arguments drops everything, which is what the argument-less
     /// `invalidate-session` has always done.
     @discardableResult
-    func invalidate(sessionId: String? = nil, keyId: String? = nil) -> Int {
+    func invalidate(sessionId: String? = nil, keyId: String? = nil, requester: String? = nil) -> Int {
         return queue.sync {
             let change = grants.invalidate(sessionId: sessionId, keyId: keyId)
             reconcileLocked()
+
+            // Recorded best effort, unlike the two paths above. Refusing to erase
+            // key material because a log line would not write is the wrong way
+            // round: the erase is the safe outcome, and blocking it to protect the
+            // record would leave the daemon holding keys it was told to drop.
+            if change.dropped > 0 {
+                do {
+                    try audit.append(AuthorizationRecord(
+                        kind: .invalidate,
+                        sessionId: sessionId ?? "*",
+                        keyIds: keyId.map { [$0] } ?? ["*"],
+                        payloadCount: 0,
+                        requester: requester
+                    ))
+                } catch {
+                    fputs("varlock: could not record an invalidation: \(error.localizedDescription)\n", stderr)
+                }
+            }
             return change.dropped
         }
     }

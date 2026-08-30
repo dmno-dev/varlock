@@ -76,6 +76,32 @@ enum IdentityStore {
         return userVarlockDir + "/config.json"
     }
 
+    /// Where the append-only authorization log lives. Under the user varlock dir
+    /// so it inherits that directory's owner-only access.
+    static var auditDir: String {
+        return userVarlockDir + "/audit"
+    }
+
+    /// Replace the config file's contents, owner-readable only.
+    ///
+    /// Written to a temporary file in the same directory and renamed over the
+    /// original, so a crash mid-write cannot leave a half-written config that the
+    /// next unlock would report as unparseable.
+    static func writeMachineConfigData(_ data: Data) throws {
+        try FileManager.default.createDirectory(
+            atPath: userVarlockDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let tempPath = machineConfigPath + ".tmp-\(ProcessInfo.processInfo.processIdentifier)"
+        try data.write(to: URL(fileURLWithPath: tempPath), options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tempPath)
+        _ = try FileManager.default.replaceItemAt(
+            URL(fileURLWithPath: machineConfigPath),
+            withItemAt: URL(fileURLWithPath: tempPath)
+        )
+    }
+
     /// Read the config file's contents, or nil when there is nothing to read.
     ///
     /// Read fresh at each unlock rather than cached or watched, so editing the file
