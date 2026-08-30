@@ -1,6 +1,7 @@
 import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex, isEncryptedBlob } from './runtime/crypto';
 import { evaluateInjectedEnvReuse } from './lib/injected-env-reuse';
+import { FrozenEnvFileError } from './lib/frozen-env-file';
 import { createDebug } from './lib/debug';
 import { isVarlockCliChild } from './lib/cli-child-marker';
 
@@ -42,11 +43,12 @@ function autoLoad() {
   let strippedInternalKeys: Array<string> = [];
 
   try {
-    // An already-injected __VARLOCK_ENV blob (e.g. from a parent `varlock run`, or handed
-    // into a sandbox) can be reused directly instead of re-resolving via the CLI - see
-    // evaluateInjectedEnvReuse for the conditions. Throws in explicit-trust mode
-    // (_VARLOCK_USE_INJECTED_ENV=1) when the blob is missing/unusable, which flows into
-    // the same load-failure handling below.
+    // A pre-resolved env graph can be consumed directly instead of re-resolving via the CLI:
+    // either a `varlock freeze` file shipped inside the deploy artifact, or an already-injected
+    // __VARLOCK_ENV blob (e.g. from a parent `varlock run`, or handed into a sandbox) - see
+    // evaluateInjectedEnvReuse for the conditions. Throws when a frozen env file is present but
+    // unusable, or in explicit-trust mode (_VARLOCK_USE_INJECTED_ENV=1) when the blob is
+    // missing/unusable, which flows into the same load-failure handling below.
     const reuseDecision = evaluateInjectedEnvReuse({
       env: process.env,
       preInjectionEnv: getPreInjectionProcessEnv(),
@@ -56,7 +58,7 @@ function autoLoad() {
     let parsed: any;
     let parsedJsonStr: string;
     if (reuseDecision.reuse) {
-      debug('reusing injected env blob - skipping resolution');
+      debug('reusing pre-resolved env from %s - skipping resolution', reuseDecision.source);
       parsed = reuseDecision.parsedEnv;
       parsedJsonStr = reuseDecision.blobJson;
       strippedInternalKeys = reuseDecision.strippedInternalKeys;
@@ -108,6 +110,9 @@ function autoLoad() {
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) {
       process.stderr.write(err.stderr);
+    } else if (err instanceof FrozenEnvFileError) {
+      // a setup/config problem, not a crash - a stack trace here is noise
+      process.stderr.write(`${err.message}\n`);
     } else {
       // eslint-disable-next-line no-console
       console.error(err);

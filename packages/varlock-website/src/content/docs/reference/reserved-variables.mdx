@@ -64,6 +64,19 @@ Values are matched case-insensitively; any other value is ignored (same as unset
 
 See [Reusing an injected env blob](/integrations/javascript/#reusing-an-injected-env-blob).
 
+### `_VARLOCK_USE_FROZEN_ENV`
+
+Controls whether [`varlock/auto-load`](/integrations/javascript/) and [`varlock run`](/reference/cli/load-and-run/#run) boot from a [frozen env file](/guides/frozen-env/) produced by [`varlock freeze`](/reference/cli/project/#freeze):
+
+- unset (default): use `.varlock-frozen-env` in the working directory if it is present, otherwise resolve normally
+- `1` / `true`: require `.varlock-frozen-env`. A missing file is a hard error, so a pipeline that failed to produce it cannot silently fall back to resolving at boot
+- `0` / `false`: never use a frozen env file
+- any other value: treated as a path to a frozen env file, relative to the working directory unless absolute, and required
+
+A frozen env file that is present but unusable (unreadable, encrypted with no `_VARLOCK_ENV_KEY`, or encrypted with a different key) is always an error, never a fallback to fresh resolution. Note that `1`/`true`/`0`/`false` are the only recognized toggles, so a value like `off` is read as a path and fails as a missing file.
+
+This takes precedence over an ambient [`__VARLOCK_ENV`](#__varlock_env) blob, and is independent of [`_VARLOCK_USE_INJECTED_ENV`](#_varlock_use_injected_env): setting that to `0` does not disable frozen env files. `varlock run` flags that change what a resolution produces (`--path`, `--filter`, `--clear-cache`, `--skip-cache`, `--include-internal`) are rejected when a frozen env file is in play.
+
 {/*
   Intentionally NOT documented for end users; internal/testing only.
   Kept here (and in VARLOCK_CONFIG_ENV_VARS with internal:true) for maintainer reference.
