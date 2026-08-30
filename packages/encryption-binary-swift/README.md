@@ -61,6 +61,13 @@ Grants are keyed by (session x key), where the session comes from `SessionScopin
 Scopes are `once`, `session`, and `duration`, and everything is capped at 12h from the
 session's first unlock.
 
+Every deadline is recorded twice: once in wall-clock time, which is what `expiresAt`
+reports and what a person reads, and once on `CLOCK_MONOTONIC_RAW`, which no clock
+change can move. Whichever runs out first ends the grant, so setting the system clock
+backwards cannot extend a session, and the cap still holds across a suspend because the
+raw monotonic clock keeps counting while the machine sleeps. `expiresInMs` comes from
+that pair rather than from the wall clock.
+
 ### What ends a session
 
 Beyond the TTL and the 12h cap, a `lockOn` policy decides which system events erase a
@@ -93,10 +100,86 @@ default of `sleep`:
   next source rather than failing the unlock.
 
 The 12h hard cap is not configurable, and an explicit lock (`invalidate-session` with no
-arguments, or the menu bar Lock) always erases everything whatever the policy says.
+arguments, or the menu bar Lock All) always erases everything whatever the policy says.
 Which macOS notification counts as which event: only `willSleepNotification` is `sleep`;
 display sleep and fast user switching are `screenLock`, so a display that sleeps after a
 couple of idle minutes does not read as the machine sleeping.
+
+The machine default is also editable from the menu bar, under "Lock Sessions On". That
+writes the same `sessions.lockOn` field, keeping every other key in the file.
+
+## The menu bar
+
+The status item is the passive indicator: a closed lock when the daemon holds nothing,
+an open one while any session is unlocked, with the session count next to it once there
+is more than one. Both are SF Symbols templates, so they follow the menu bar's own
+appearance.
+
+The menu is rebuilt each time it opens, and nothing in it ticks. Times are coarse for
+that reason: "9h left" is still true an hour later, where a countdown would be wrong the
+moment it was drawn.
+
+| item | what it does |
+| --- | --- |
+| one submenu per session | the terminal or process it belongs to, the keys it holds with scope and time left, how much of the 12h limit is left, and what will end it |
+| Lock This Session | inside a session's submenu; drops that session's grants and nothing else |
+| Lock All | erases every session and every cached biometric context, whatever their policy |
+| Lock Sessions On | the machine default for new sessions: Screen lock, Sleep, or Only manually |
+| Quit Daemon | stops the daemon, which also erases everything |
+
+Per-session policies are shown on their rows but are not editable there. A session's
+policy was settled when the user approved its unlock, and re-unlocking is how it
+changes; a menu that quietly rewrote it would be changing a decision after the fact.
+
+What the wording says is decided in `SessionMenuModel`, which has no AppKit in it and is
+unit tested, so `StatusBarMenu` is only the translation into `NSMenuItem`s.
+
+## The authorization log
+
+Before `decrypt-v2` unwraps anything, the daemon appends a line to
+`<user varlock dir>/audit/authorizations.jsonl` (0600, in a 0700 directory), flushes it
+with `fsync`, and reads it back off the disk. If any of that fails the decrypt is refused
+with `AUDIT_WRITE_FAILED` and no plaintext is produced. Unlocks are recorded the same way
+and hand their keys straight back if the record fails, so the daemon never holds a
+session that nothing says was opened.
+
+```json
+{"event":"decrypt-v2","identityId":"default","keyIds":["varlock-default"],"payloadCount":12,"requester":"node ← claude ← zsh (ttys004)","scope":"session","sessionId":"tty:ttys004:1756...","ts":"2026-08-30T15:42:22.881Z"}
+```
+
+Invalidations are recorded too, but best effort: refusing to erase key material because a
+log line would not write is the wrong way round, so those are reported on stderr and the
+erase goes ahead.
+
+Records hold identifiers, counts, and a description of the calling process. No plaintext,
+no ciphertext, and no key material ever goes in, which is what makes the file safe to read
+and to hand to someone else.
+
+## Peer posture
+
+Beyond checking the connecting process's binary name, the daemon asks the kernel two
+things about it: whether a debugger or tracer is attached (`CS_DEBUGGED` or `P_TRACED`),
+and whether it is running with the Hardened Runtime (`CS_RUNTIME`). Each check has its own
+stderr line and its own error code, `PEER_DEBUGGER_ATTACHED` and
+`PEER_HARDENED_RUNTIME_MISSING`, with `PEER_POSTURE_UNREADABLE` when the status word
+cannot be read at all.
+
+How hard they bite depends on the daemon's own code signature, read the same way, since a
+daemon that is not hardened itself is in no position to demand it of anyone:
+
+| daemon | debugger attached | no Hardened Runtime |
+| --- | --- | --- |
+| development (`swift build`, ad-hoc signed) | reported | reported |
+| signed release | rejected | reported |
+| `sessions.peerPosture: "strict"` | rejected | rejected |
+| `sessions.peerPosture: "warn"` | reported | reported |
+
+The hardening check only reports by default, even in release, because the processes that
+legitimately connect are frequently not hardened: the standalone `varlock` binary is
+ad-hoc signed by `bun build --compile`, and Homebrew's node and bun are ad-hoc signed too.
+Turn it into a rejection here once the release pipeline signs the CLI with
+`--options runtime`. Until then, anyone whose clients are all official builds can have it
+today with `strict`.
 
 ## The approval panel
 
@@ -188,6 +271,28 @@ To check the refusing path without a screen, run the daemon with
 ungated key take the approval path, which is how the end-to-end script covers
 `NO_UI`. Both variables only ever make the daemon stricter.
 
+### Seeing the menu
+
+The wording and grouping are unit tested, but the menu itself needs a person and a menu
+bar. Run the daemon from the same scratch setup as the panel check, unlock something from
+two different terminals, and open it.
+
+What to check by hand:
+
+- the icon is a closed lock before any unlock, and an open one after, with a "2" beside it
+  once two terminals have unlocked
+- each session's submenu names the terminal you actually unlocked from, and the key rows
+  read like `varlock-default: this session, 11h left`
+- "Lock This Session" on one of them leaves the other listed and still able to decrypt
+- "Lock All" empties the list and puts the closed lock back
+- "Lock Sessions On" starts with a checkmark on Sleep, and choosing another writes
+  `sessions.lockOn` into `$XDG_CONFIG_HOME/varlock/config.json` without disturbing
+  anything else in that file. Add an `anonymousId` to it first and check it survives
+- with a `config.json` that is not valid JSON, choosing a policy says so in an alert and
+  leaves the file alone
+- the times do not tick while the menu is open, and are right again the next time it is
+  opened
+
 ### Checking the single-scan unlock
 
 The design depends on the daemon driving the biometric itself with
@@ -228,7 +333,12 @@ To create a throwaway key rather than probing a real one:
 against a throwaway `XDG_CONFIG_HOME`. Its custody key is created with `--no-auth`, so
 the unlock finds no presence requirement and never prompts. It also starts a second
 daemon that cannot draw anything, and checks that every path needing approval
-answers `NO_UI` there instead of proceeding:
+answers `NO_UI` there instead of proceeding.
+
+It covers the authorization log as well (written, growing, holding no secrets, and
+denying decrypts and unlocks while it cannot be written), and restarts the daemon
+mid-run to prove that no grant survives it, which is the memory-only promise the design
+rests on:
 
 ```bash
 swift build --package-path swift
@@ -240,7 +350,8 @@ It needs a Mac with a Secure Enclave, so it is a local check rather than a CI on
 ## Structure
 
 - `swift/` — Swift Package Manager project (`VarlockEnclave` executable)
-- `swift/Sources/IdentitySessions/`: ECIES wire format, the grant table, and the approval decision logic (what to ask, which scopes to offer, what the panel says), in a library target so all of it is unit tested with no window server
+- `swift/Sources/IdentitySessions/`: ECIES wire format, the grant table and its deadlines, the approval decision logic (what to ask, which scopes to offer, what the panel says), the menu bar's wording, the authorization log writer, and the peer posture policy, in a library target so all of it is unit tested with no window server
+- `swift/Sources/SessionScoping/`: process inspection: session identity, the requester description the panel and the log use, and the code-signing facts behind the posture checks
 - `scripts/build-swift.ts` — Two-phase build: compile (cacheable) + bundle (mode-specific `.app` wrapping + codesign)
 - `scripts/generate-ecies-fixture.ts`: regenerates the cross-implementation ECIES vector the Swift tests pin
 - `scripts/e2e-identity-session.ts`: headless end-to-end run of the identity session actions
