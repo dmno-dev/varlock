@@ -1,0 +1,141 @@
+---
+title: Frozen env
+description: Resolve env values once at deploy time and ship them inside your deploy artifact
+---
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+
+`varlock freeze` resolves every value once and writes the result to an encrypted file. Your app boots from that file instead of re-resolving, and the file ships inside your deploy artifact so config and code travel together.
+
+This is for apps where you control the boot command but have no build step that would inline values for you: Elysia, Hono, Fastify, or Express on Bun or Node, and distroless Docker images. If you use a framework integration (Next.js, Vite, Astro, Nuxt, Cloudflare Workers), you already get equivalent behavior and do not need this. See [encrypted deployments](/guides/encrypted-deployments/).
+
+## The problem
+
+Setting environment variables on a platform and shipping code are two separate operations. There is no way to make them one, which causes three things:
+
+- **No atomic change.** A release that changes both code and config is two operations with a window in between, where one is live and the other is not.
+- **No rollback.** Config lives in the platform's store, not in the release, so rolling back code leaves the new config in place.
+- **No guarantee across replicas.** Values are re-resolved on every boot, so a replica that autoscales up at 3am can resolve differently from the one that booted at deploy time, with no signal that it happened.
+
+A frozen env file makes config part of the deploy unit, so all three go away. It also means boot no longer depends on your secret backend being reachable, which removes a source of cold-start latency and rate limits when many replicas start at once.
+
+## Setup
+
+<Steps>
+
+1. **Generate an encryption key, once**
+
+    <ExecCommandWidget command="varlock generate-key" showBinary={false} />
+
+    Set the result as `_VARLOCK_ENV_KEY` in your deploy pipeline and in your runtime environment. It is a long-lived bootstrap value, so it does not need to change per release.
+
+2. **Freeze at deploy time**
+
+    Run this wherever your .env files and resolver credentials are available, usually a CI job:
+
+    ```bash
+    varlock freeze --env production
+    ```
+
+    This writes `.varlock-frozen-env` in the current directory. Add it to your `.gitignore`.
+
+3. **Ship the file inside your deploy artifact**
+
+    It must be present at boot, in the app's working directory. In Docker that means copying it into the image, not mounting it at runtime. Mounting it separately reintroduces the split this is meant to remove.
+
+4. **Boot your app normally**
+
+    ```bash
+    bun server.js
+    ```
+
+    As long as your app imports `varlock/auto-load` (or you launch it with `varlock run`), varlock finds the file and uses it. No varlock CLI, no .env files, and no resolver credentials are needed in the runtime image.
+
+</Steps>
+
+## Example: Bun with Docker
+
+```dockerfile title="Dockerfile"
+FROM oven/bun:1 AS builder
+WORKDIR /app
+COPY . .
+RUN bun install --frozen-lockfile
+RUN bun build ./src/index.ts --target=bun --outdir dist
+# resolver credentials and .env files are only present in this stage
+RUN --mount=type=secret,id=varlock_key \
+    _VARLOCK_ENV_KEY=$(cat /run/secrets/varlock_key) bunx varlock freeze --env production
+
+FROM oven/bun:1
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.varlock-frozen-env ./
+CMD ["bun", "dist/index.js"]
+```
+
+Your entrypoint imports varlock as usual:
+
+```ts title="src/index.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { Elysia } from 'elysia';
+
+new Elysia()
+  .get('/', () => `hello from ${ENV.PUBLIC_APP_NAME}`)
+  .listen(ENV.PORT);
+```
+
+Types and sensitivity travel in the file, so `ENV.PORT` is still a number and log redaction still knows which values are secret.
+
+## Controlling the file
+
+Varlock uses `.varlock-frozen-env` in the working directory automatically when it is present. `_VARLOCK_USE_FROZEN_ENV` changes that:
+
+| Value | Behavior |
+| --- | --- |
+| unset | Use `.varlock-frozen-env` if present, otherwise resolve normally |
+| `1` / `true` | Require `.varlock-frozen-env`. A missing file is an error |
+| `0` / `false` | Never use a frozen env file |
+| any path | Require a frozen env file at that path, relative to the working directory unless absolute |
+
+Setting `_VARLOCK_USE_FROZEN_ENV=1` in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
+
+Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
+
+### Freeze options
+
+| Flag | Description |
+| --- | --- |
+| `--out`, `-o` | Output path (default `.varlock-frozen-env`) |
+| `--env` | Environment to resolve for (e.g. `production`) |
+| `--path`, `-p` | Entry .env file or directory, repeatable |
+| `--allow-plaintext` | Write unencrypted when `_VARLOCK_ENV_KEY` is not set |
+| `--clear-cache` | Clear the cache and re-resolve everything |
+| `--skip-cache` | Skip the cache for this invocation |
+
+## Encryption is required
+
+`varlock freeze` fails if `_VARLOCK_ENV_KEY` is not set. The file holds every resolved value, including secrets, and it is a portable standalone file: it gets copied between build stages, retained as a CI artifact, and read by anyone with access to your image layers or registry. That is a wider audience than the people who can reach your running container.
+
+Encryption protects against exactly that: image layers, registry access, CI artifact retention, and accidental commits. It does not protect against someone who already has code execution in the running container, since the key is in the environment right next to the file. This is the same tradeoff described in [encrypted deployments](/guides/encrypted-deployments/).
+
+`--allow-plaintext` exists for schemas with nothing sensitive in them. It prints a warning, and there is no config setting for it, so it cannot be turned on once and forgotten.
+
+## Tradeoffs
+
+**Rotating a secret takes effect on your next deploy, not on the next restart.** This is the entire point of freezing, but it inverts what most secret managers do, so everyone touching the deploy should know it. To pick up a rotated value, re-run `varlock freeze` and redeploy.
+
+**Rotating `_VARLOCK_ENV_KEY` breaks rollback.** Releases frozen under the old key cannot be decrypted with the new one, which is a problem precisely when you want to roll back. Keep the key stable, or plan to re-freeze and redeploy the releases you want to keep rollable.
+
+**A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, it wins over your .env files even after you edit them. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`.
+
+**Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Resolve those at boot instead of freezing them.
+
+## Related approaches
+
+| Approach | When it fits |
+| --- | --- |
+| `varlock freeze` | You control the boot command, have no build step, and want config pinned to the release |
+| [`varlock run`](/reference/cli-commands/#run) | The CLI, .env files, and resolver credentials are all available in the runtime environment |
+| [`ssrInjectMode: 'resolved-env'`](/guides/encrypted-deployments/) | You use a framework integration that injects the resolved env into build output |
+| [`varlock-wrangler deploy`](/integrations/cloudflare/) | Cloudflare Workers, where the resolved env is uploaded as a versioned secret binding |
