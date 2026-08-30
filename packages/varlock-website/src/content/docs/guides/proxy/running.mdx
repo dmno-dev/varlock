@@ -116,7 +116,7 @@ These flags apply only when **starting** a proxy. They also work on `proxy run` 
 
 ## Auditing
 
-Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected, never any values). A [skipped](/guides/proxy/rules/#substitution-surface) placeholder occurrence adds a `skipped-placeholder` line naming the item key and where it sat.
+Every request through the proxy is appended to a per-session, secrets-free audit log (host, method, path, a request hash, the matched rule, the decision, and which key names were injected, never any values). A [skipped](/guides/proxy/rules/#substitution-surface) placeholder adds one `skipped-placeholder` line per item, naming the key and the parts of the request its placeholder appeared in.
 
 ```bash
 varlock proxy audit                       # current/most-recent session
