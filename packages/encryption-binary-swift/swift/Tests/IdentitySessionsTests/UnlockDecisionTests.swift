@@ -9,7 +9,6 @@ import XCTest
 /// such a key still says so on the panel.
 final class UnlockDecisionTests: XCTestCase {
 
-    private let now: Int64 = 1_700_000_000_000
     private let hour: Int64 = 60 * 60 * 1000
 
     private func key(_ id: String, _ policy: KeyAuthPolicy = .standard, items: Int? = nil) -> RequestedKey {
@@ -17,7 +16,7 @@ final class UnlockDecisionTests: XCTestCase {
     }
 
     private func live(_ scope: SessionGrantScope, expiresIn: Int64) -> ExistingGrantSnapshot {
-        return ExistingGrantSnapshot(scope: scope, expiresAt: now + expiresIn)
+        return ExistingGrantSnapshot(scope: scope, remainingMs: expiresIn)
     }
 
     // MARK: - First unlock
@@ -26,8 +25,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev"), key("prod")],
             requestedScope: .session,
-            existing: [:],
-            now: now
+            existing: [:]
         )
         XCTAssertTrue(plan.requiresPrompt)
         XCTAssertFalse(plan.isDelta)
@@ -43,8 +41,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev"), key("prod")],
             requestedScope: .session,
-            existing: ["dev": live(.session, expiresIn: 4 * hour)],
-            now: now
+            existing: ["dev": live(.session, expiresIn: 4 * hour)]
         )
         XCTAssertTrue(plan.isDelta)
         XCTAssertEqual(plan.promptKeys.map { $0.keyId }, ["prod"])
@@ -58,8 +55,7 @@ final class UnlockDecisionTests: XCTestCase {
             existing: [
                 "dev": live(.session, expiresIn: 4 * hour),
                 "prod": live(.session, expiresIn: 4 * hour),
-            ],
-            now: now
+            ]
         )
         XCTAssertFalse(plan.requiresPrompt)
         XCTAssertFalse(plan.isDelta)
@@ -70,8 +66,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev")],
             requestedScope: .session,
-            existing: ["dev": ExistingGrantSnapshot(scope: .session, expiresAt: now - 1)],
-            now: now
+            existing: ["dev": ExistingGrantSnapshot(scope: .session, remainingMs: 0)]
         )
         XCTAssertTrue(plan.requiresPrompt)
         XCTAssertEqual(plan.refreshKeys.map { $0.keyId }, ["dev"])
@@ -84,8 +79,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev")],
             requestedScope: .session,
-            existing: ["dev": live(.once, expiresIn: 4 * hour)],
-            now: now
+            existing: ["dev": live(.once, expiresIn: 4 * hour)]
         )
         XCTAssertTrue(plan.requiresPrompt)
         XCTAssertEqual(plan.refreshKeys.map { $0.keyId }, ["dev"])
@@ -97,8 +91,7 @@ final class UnlockDecisionTests: XCTestCase {
                 requested: [key("dev")],
                 requestedScope: requested,
                 requestedDurationMs: 8 * hour,
-                existing: ["dev": live(.session, expiresIn: 2 * hour)],
-                now: now
+                existing: ["dev": live(.session, expiresIn: 2 * hour)]
             )
             XCTAssertFalse(plan.requiresPrompt, "session grant should cover a \(requested.rawValue) request")
         }
@@ -111,8 +104,7 @@ final class UnlockDecisionTests: XCTestCase {
             requested: [key("dev")],
             requestedScope: .duration,
             requestedDurationMs: hour,
-            existing: existing,
-            now: now
+            existing: existing
         )
         XCTAssertFalse(shorter.requiresPrompt)
 
@@ -120,8 +112,7 @@ final class UnlockDecisionTests: XCTestCase {
             requested: [key("dev")],
             requestedScope: .duration,
             requestedDurationMs: 8 * hour,
-            existing: existing,
-            now: now
+            existing: existing
         )
         XCTAssertTrue(longer.requiresPrompt)
     }
@@ -129,10 +120,10 @@ final class UnlockDecisionTests: XCTestCase {
     func testAOnceGrantCoversOnlyAnotherOnceRequest() {
         let existing = ["dev": live(.once, expiresIn: 4 * hour)]
         XCTAssertFalse(UnlockPlanner.plan(
-            requested: [key("dev")], requestedScope: .once, existing: existing, now: now
+            requested: [key("dev")], requestedScope: .once, existing: existing
         ).requiresPrompt)
         XCTAssertTrue(UnlockPlanner.plan(
-            requested: [key("dev")], requestedScope: .duration, requestedDurationMs: hour, existing: existing, now: now
+            requested: [key("dev")], requestedScope: .duration, requestedDurationMs: hour, existing: existing
         ).requiresPrompt)
     }
 
@@ -142,8 +133,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("prod", .everyTime)],
             requestedScope: .session,
-            existing: ["prod": live(.session, expiresIn: 4 * hour)],
-            now: now
+            existing: ["prod": live(.session, expiresIn: 4 * hour)]
         )
         XCTAssertTrue(plan.requiresPrompt)
         XCTAssertEqual(plan.refreshKeys.map { $0.keyId }, ["prod"])
@@ -154,8 +144,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("prod", .everyTime), key("staging", .everyTime)],
             requestedScope: .session,
-            existing: [:],
-            now: now
+            existing: [:]
         )
         XCTAssertEqual(plan.offeredScopes, [.once])
         XCTAssertEqual(plan.defaultScope, .once)
@@ -165,8 +154,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev"), key("prod", .everyTime)],
             requestedScope: .session,
-            existing: [:],
-            now: now
+            existing: [:]
         )
         XCTAssertEqual(plan.offeredScopes, [.session, .once, .duration])
         XCTAssertFalse(plan.isStrictOnly)
@@ -195,8 +183,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("varlock-default", items: 12)],
             requestedScope: .session,
-            existing: [:],
-            now: now
+            existing: [:]
         )
         let content = UnlockPanelContent.build(
             plan: plan,
@@ -212,8 +199,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev"), key("prod")],
             requestedScope: .session,
-            existing: ["dev": live(.session, expiresIn: 4 * hour)],
-            now: now
+            existing: ["dev": live(.session, expiresIn: 4 * hour)]
         )
         let content = UnlockPanelContent.build(plan: plan, requesterLines: [])
         XCTAssertEqual(content.title, "Also unlock prod?")
@@ -225,8 +211,7 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(
             requested: [key("dev"), key("prod", .everyTime)],
             requestedScope: .session,
-            existing: [:],
-            now: now
+            existing: [:]
         )
         let content = UnlockPanelContent.build(plan: plan, requesterLines: [])
         XCTAssertEqual(content.itemGroups.count, 2)
@@ -237,7 +222,7 @@ final class UnlockDecisionTests: XCTestCase {
     }
 
     func testClientSuppliedLinesAreMarkedAsSuch() {
-        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:], now: now)
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
         let content = UnlockPanelContent.build(
             plan: plan,
             requesterLines: ["Requested by node"],

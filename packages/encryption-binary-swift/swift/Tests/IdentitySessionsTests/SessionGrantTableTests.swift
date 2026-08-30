@@ -10,18 +10,31 @@ import XCTest
 /// the daemon to crypto-erase that session's key.
 final class SessionGrantTableTests: XCTestCase {
 
+    /// The settable clock, as a user would read it.
     private var now: Int64 = 1_700_000_000_000
+    /// The monotonic clock, which starts somewhere unrelated on purpose: nothing
+    /// may assume the two share an origin.
+    private var monotonicNow: Int64 = 42_000_000
 
     private func makeTable() -> SessionGrantTable {
-        return SessionGrantTable(clock: { [unowned self] in self.now })
+        return SessionGrantTable(
+            clock: { [unowned self] in self.now },
+            monotonicClock: { [unowned self] in self.monotonicNow }
+        )
     }
 
     private func ref(_ session: String, _ key: String) -> SessionGrantRef {
         return SessionGrantRef(sessionId: session, keyId: key)
     }
 
+    /// Time passing normally: both clocks move together.
     private func advance(hours: Double) {
-        now += Int64(hours * 60 * 60 * 1000)
+        advance(ms: Int64(hours * 60 * 60 * 1000))
+    }
+
+    private func advance(ms: Int64) {
+        now += ms
+        monotonicNow += ms
     }
 
     // MARK: - Granting
@@ -79,10 +92,10 @@ final class SessionGrantTableTests: XCTestCase {
         let info = table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 60_000)
         XCTAssertEqual(info.expiresAt, now + 60_000)
 
-        now += 59_000
+        advance(ms: 59_000)
         XCTAssertNoThrow(try table.consume(ref: ref("tty:a", "k1")))
 
-        now += 2_000
+        advance(ms: 2_000)
         XCTAssertThrowsError(try table.consume(ref: ref("tty:a", "k1"))) { error in
             XCTAssertEqual((error as? SessionGrantError)?.code, "SESSION_GRANT_EXPIRED")
         }
@@ -196,17 +209,101 @@ final class SessionGrantTableTests: XCTestCase {
         table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 1_000)
         table.grant(ref: ref("tty:b", "k1"), identityId: "default", scope: .session)
 
-        now += 2_000
+        advance(ms: 2_000)
         XCTAssertEqual(table.list().map(\.sessionId), ["tty:b"])
     }
 
-    func testWireDictionaryCarriesRemainingTtl() {
+    func testWireDictionaryCarriesRemainingTtl() throws {
         let table = makeTable()
-        let info = table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 90_000)
-        let dict = info.toDictionary(now: now + 30_000)
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 90_000)
+
+        advance(ms: 30_000)
+        let dict = try XCTUnwrap(table.list().first).toDictionary()
         XCTAssertEqual(dict["expiresInMs"] as? Int64, 60_000)
         XCTAssertEqual(dict["scope"] as? String, "duration")
         XCTAssertNil(dict["lastUsedAt"])
+    }
+
+    // MARK: - Clock changes
+
+    /// The point of the monotonic half of every deadline: winding the settable
+    /// clock back must not buy a grant one extra millisecond.
+    func testWindingTheWallClockBackDoesNotExtendAGrant() throws {
+        let table = makeTable()
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 60_000)
+
+        // A minute of real time passes, and someone puts the clock back an hour.
+        monotonicNow += 61_000
+        now -= 60 * 60 * 1000
+
+        XCTAssertThrowsError(try table.consume(ref: ref("tty:a", "k1"))) { error in
+            XCTAssertEqual((error as? SessionGrantError)?.code, "SESSION_GRANT_EXPIRED")
+        }
+        XCTAssertFalse(table.hasLiveSessions())
+    }
+
+    func testWindingTheWallClockBackDoesNotExtendTheSessionCap() throws {
+        let table = makeTable()
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .session)
+
+        monotonicNow += 13 * 60 * 60 * 1000
+        now -= 24 * 60 * 60 * 1000
+
+        XCTAssertThrowsError(try table.consume(ref: ref("tty:a", "k1")))
+        XCTAssertFalse(table.hasLiveSessions())
+    }
+
+    /// The other direction still ends the grant early: whichever deadline lands
+    /// first wins, and a forward jump is the wall clock landing first.
+    func testJumpingTheWallClockForwardStillExpiresAGrant() throws {
+        let table = makeTable()
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .session)
+
+        now += 13 * 60 * 60 * 1000
+
+        XCTAssertThrowsError(try table.consume(ref: ref("tty:a", "k1")))
+        XCTAssertFalse(table.hasLiveSessions())
+    }
+
+    /// Reported time left is never read off the settable clock, so a clock that
+    /// has been moved cannot make a grant look longer-lived than it is.
+    func testRemainingTimeIgnoresAWallClockThatMovedBackwards() {
+        let table = makeTable()
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 60_000)
+
+        monotonicNow += 45_000
+        now -= 60 * 60 * 1000
+
+        XCTAssertEqual(table.list().first?.remainingMs, 15_000)
+    }
+
+    func testRemainingTimeTakesTheNearerOfTheTwoDeadlines() {
+        let table = makeTable()
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .duration, durationMs: 60_000)
+
+        // The wall clock jumped forward, so it now runs out first.
+        now += 50_000
+        monotonicNow += 10_000
+
+        XCTAssertEqual(table.list().first?.remainingMs, 10_000)
+    }
+
+    func testDeadlineClampingAppliesToBothClocks() {
+        let table = makeTable()
+        table.grant(ref: ref("tty:a", "k1"), identityId: "default", scope: .session)
+
+        advance(hours: 6)
+        // Asking for a full 12h window six hours in must not reach past the cap on
+        // either clock, or the monotonic half would outlive the session.
+        table.grant(
+            ref: ref("tty:a", "k2"),
+            identityId: "default",
+            scope: .duration,
+            durationMs: SessionGrantTable.maxGrantMs
+        )
+
+        monotonicNow += 6 * 60 * 60 * 1000 + 1_000
+        XCTAssertFalse(table.hasLiveSessions())
     }
 
     // MARK: - Daemon lifetime

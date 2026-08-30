@@ -45,8 +45,15 @@ public struct SessionGrantInfo: Equatable {
     public let scope: SessionGrantScope
     /// epoch ms
     public let grantedAt: Int64
-    /// epoch ms; always set, since every scope is capped
+    /// epoch ms; always set, since every scope is capped. Display only: what
+    /// actually ends the grant is `remainingMs`, which the table measures on the
+    /// monotonic clock as well as this one.
     public let expiresAt: Int64
+    /// ms of life left, as the table measured it when it built this record.
+    ///
+    /// Not derived from `expiresAt` by the reader: the wall clock can be moved,
+    /// and this number cannot be.
+    public let remainingMs: Int64
     /// epoch ms of the last decrypt this grant served, nil until first use
     public let lastUsedAt: Int64?
     /// epoch ms when the session this grant belongs to was unlocked
@@ -58,7 +65,7 @@ public struct SessionGrantInfo: Equatable {
     /// how many decrypts this grant has served
     public let useCount: Int
 
-    public func toDictionary(now: Int64) -> [String: Any] {
+    public func toDictionary() -> [String: Any] {
         var dict: [String: Any] = [
             "sessionId": sessionId,
             "keyId": keyId,
@@ -70,7 +77,7 @@ public struct SessionGrantInfo: Equatable {
             "sessionExpiresAt": sessionExpiresAt,
             "lockOn": lockOn.rawValue,
             "useCount": useCount,
-            "expiresInMs": max(0, expiresAt - now),
+            "expiresInMs": remainingMs,
         ]
         if let lastUsedAt {
             dict["lastUsedAt"] = lastUsedAt
@@ -118,15 +125,16 @@ public final class SessionGrantTable {
         let identityId: String
         let scope: SessionGrantScope
         let grantedAt: Int64
-        var expiresAt: Int64
+        var deadline: GrantDeadline
         var lastUsedAt: Int64?
         var useCount: Int
     }
 
     private struct SessionState {
         let unlockedAt: Int64
-        /// unlockedAt + cap; every grant in the session is clamped to this
-        let expiresAt: Int64
+        /// unlockedAt + cap on both clocks; every grant in the session is clamped
+        /// to this
+        let deadline: GrantDeadline
         /// Which system events erase this session. Held per session rather than
         /// globally, so one session can outlive a screen lock that ends another.
         var lockOn: SessionLockPolicy
@@ -135,10 +143,19 @@ public final class SessionGrantTable {
 
     private var sessions: [String: SessionState] = [:]
     private let clock: () -> Int64
+    private let monotonicClock: () -> Int64
 
-    /// - Parameter clock: epoch milliseconds. Injected so tests can move time.
-    public init(clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
+    /// - Parameters:
+    ///   - clock: epoch milliseconds. Injected so tests can move time.
+    ///   - monotonicClock: `MonotonicClock` milliseconds, injected for the same
+    ///     reason. Tests drive the two independently, which is the only way to
+    ///     check that moving the settable clock cannot buy a grant more life.
+    public init(
+        clock: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
+        monotonicClock: @escaping () -> Int64 = { MonotonicClock.nowMs() }
+    ) {
         self.clock = clock
+        self.monotonicClock = monotonicClock
     }
 
     public func nowMs() -> Int64 { clock() }
@@ -196,6 +213,7 @@ public final class SessionGrantTable {
     ) -> SessionGrantInfo {
         pruneExpired()
         let now = clock()
+        let monotonicNow = monotonicClock()
 
         var state: SessionState
         if var existing = sessions[ref.sessionId] {
@@ -205,25 +223,29 @@ public final class SessionGrantTable {
             sessions[ref.sessionId] = existing
             state = existing
         } else {
-            state = SessionState(unlockedAt: now, expiresAt: now + Self.maxGrantMs, lockOn: lockOn)
+            state = SessionState(
+                unlockedAt: now,
+                deadline: GrantDeadline.after(Self.maxGrantMs, wallNow: now, monotonicNow: monotonicNow),
+                lockOn: lockOn
+            )
             sessions[ref.sessionId] = state
         }
 
-        let requestedExpiry: Int64
+        let requestedDeadline: GrantDeadline
         switch scope {
         case .once, .session:
-            requestedExpiry = state.expiresAt
+            requestedDeadline = state.deadline
         case .duration:
             let window = max(0, min(durationMs ?? Self.maxGrantMs, Self.maxGrantMs))
-            requestedExpiry = now + window
+            requestedDeadline = GrantDeadline.after(window, wallNow: now, monotonicNow: monotonicNow)
         }
 
         let grant = Grant(
             identityId: identityId,
             scope: scope,
             grantedAt: now,
-            // never past the session cap, whatever was asked for
-            expiresAt: min(requestedExpiry, state.expiresAt),
+            // never past the session cap, whatever was asked for, on either clock
+            deadline: GrantDeadline.earliest(requestedDeadline, state.deadline),
             lastUsedAt: nil,
             useCount: 0
         )
@@ -241,11 +263,13 @@ public final class SessionGrantTable {
         // Deliberately no prune first: an expired grant should still be found here
         // so the caller is told the session ran out, not that it never existed.
         let now = clock()
+        let monotonicNow = monotonicClock()
 
         guard let state = sessions[ref.sessionId], var grant = state.grants[ref.keyId] else {
             throw SessionGrantError.noGrant(ref)
         }
-        guard grant.expiresAt > now, state.expiresAt > now else {
+        guard !grant.deadline.isExpired(wallNow: now, monotonicNow: monotonicNow),
+              !state.deadline.isExpired(wallNow: now, monotonicNow: monotonicNow) else {
             // Drop it here rather than leaving a dead row for the next prune to find.
             drop(ref: ref)
             throw SessionGrantError.expired(ref)
@@ -337,18 +361,20 @@ public final class SessionGrantTable {
     @discardableResult
     public func pruneExpired() -> SessionGrantChange {
         let now = clock()
+        let monotonicNow = monotonicClock()
         var dropped = 0
         var closed: [String] = []
 
         for (sid, state) in sessions {
-            if state.expiresAt <= now {
+            if state.deadline.isExpired(wallNow: now, monotonicNow: monotonicNow) {
                 dropped += state.grants.count
                 sessions.removeValue(forKey: sid)
                 closed.append(sid)
                 continue
             }
             var remaining = state.grants
-            for (kid, grant) in state.grants where grant.expiresAt <= now {
+            for (kid, grant) in state.grants
+            where grant.deadline.isExpired(wallNow: now, monotonicNow: monotonicNow) {
                 remaining.removeValue(forKey: kid)
                 dropped += 1
             }
@@ -382,16 +408,19 @@ public final class SessionGrantTable {
     }
 
     private func info(ref: SessionGrantRef, grant: Grant, session: SessionState) -> SessionGrantInfo {
+        let now = clock()
+        let monotonicNow = monotonicClock()
         return SessionGrantInfo(
             sessionId: ref.sessionId,
             keyId: ref.keyId,
             identityId: grant.identityId,
             scope: grant.scope,
             grantedAt: grant.grantedAt,
-            expiresAt: grant.expiresAt,
+            expiresAt: grant.deadline.wall,
+            remainingMs: grant.deadline.remainingMs(wallNow: now, monotonicNow: monotonicNow),
             lastUsedAt: grant.lastUsedAt,
             sessionUnlockedAt: session.unlockedAt,
-            sessionExpiresAt: session.expiresAt,
+            sessionExpiresAt: session.deadline.wall,
             lockOn: session.lockOn,
             useCount: grant.useCount
         )

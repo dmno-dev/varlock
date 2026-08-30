@@ -42,12 +42,16 @@ public struct RequestedKey: Equatable {
 /// The part of a live grant that matters when deciding whether to ask again.
 public struct ExistingGrantSnapshot: Equatable {
     public let scope: SessionGrantScope
-    /// epoch ms
-    public let expiresAt: Int64
+    /// ms of life the grant has left, as the grant table measured it.
+    ///
+    /// A remaining window rather than an expiry instant, so the planner never has
+    /// to pick a clock. The table already reconciles the wall and monotonic
+    /// deadlines; this is the answer it arrived at.
+    public let remainingMs: Int64
 
-    public init(scope: SessionGrantScope, expiresAt: Int64) {
+    public init(scope: SessionGrantScope, remainingMs: Int64) {
         self.scope = scope
-        self.expiresAt = expiresAt
+        self.remainingMs = remainingMs
     }
 }
 
@@ -118,13 +122,11 @@ public enum UnlockPlanner {
     ///     live grant is already strong enough.
     ///   - requestedDurationMs: only meaningful when `requestedScope` is `duration`.
     ///   - existing: live grants for this session, keyed by key id.
-    ///   - now: epoch ms.
     public static func plan(
         requested: [RequestedKey],
         requestedScope: SessionGrantScope,
         requestedDurationMs: Int64? = nil,
-        existing: [String: ExistingGrantSnapshot],
-        now: Int64
+        existing: [String: ExistingGrantSnapshot]
     ) -> UnlockPlan {
         var newKeys: [RequestedKey] = []
         var refreshKeys: [RequestedKey] = []
@@ -141,7 +143,7 @@ public enum UnlockPlanner {
                 refreshKeys.append(key)
                 continue
             }
-            if covers(live: live, requestedScope: requestedScope, requestedDurationMs: requestedDurationMs, now: now) {
+            if covers(live: live, requestedScope: requestedScope, requestedDurationMs: requestedDurationMs) {
                 coveredKeys.append(key)
             } else {
                 refreshKeys.append(key)
@@ -176,10 +178,9 @@ public enum UnlockPlanner {
     static func covers(
         live: ExistingGrantSnapshot,
         requestedScope: SessionGrantScope,
-        requestedDurationMs: Int64?,
-        now: Int64
+        requestedDurationMs: Int64?
     ) -> Bool {
-        guard live.expiresAt > now else { return false }
+        guard live.remainingMs > 0 else { return false }
         switch live.scope {
         case .session:
             return true
@@ -188,7 +189,7 @@ public enum UnlockPlanner {
             case .once: return true
             case .duration:
                 let window = min(requestedDurationMs ?? SessionGrantTable.maxGrantMs, SessionGrantTable.maxGrantMs)
-                return live.expiresAt >= now + window
+                return live.remainingMs >= window
             case .session: return false
             }
         case .once:

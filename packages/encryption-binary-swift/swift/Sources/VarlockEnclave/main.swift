@@ -436,14 +436,13 @@ case "daemon":
                     requestContext: requestContext
                 )
                 statusBarMenu?.refresh()
-                let now = Int64(Date().timeIntervalSince1970 * 1000)
                 return ["result": [
                     "sessionId": sessionId as Any,
                     "policy": outcome.policy.rawValue,
                     "lockOn": outcome.lockOn.rawValue,
                     "lockOnSource": outcome.lockOnSource.rawValue,
                     "prompted": outcome.prompted,
-                    "grants": outcome.grants.map { $0.toDictionary(now: now) },
+                    "grants": outcome.grants.map { $0.toDictionary() },
                 ]]
             } catch {
                 return identityErrorResponse(error)
@@ -494,10 +493,9 @@ case "daemon":
                     payloads: payloadDatas
                 )
                 statusBarMenu?.refresh()
-                let now = Int64(Date().timeIntervalSince1970 * 1000)
                 return ["result": [
                     "plaintexts": outcome.plaintexts,
-                    "grant": outcome.grant.toDictionary(now: now),
+                    "grant": outcome.grant.toDictionary(),
                 ]]
             } catch {
                 return identityErrorResponse(error)

@@ -256,7 +256,7 @@ final class SessionLockPolicyTests: XCTestCase {
         let table = self.table()
         let info = table.grant(ref: ref("s"), identityId: "default", scope: .session, lockOn: .never)
         XCTAssertEqual(info.lockOn, .never)
-        XCTAssertEqual(info.toDictionary(now: 1_700_000_000_000)["lockOn"] as? String, "none")
+        XCTAssertEqual(info.toDictionary()["lockOn"] as? String, "none")
     }
 
     func testListReportsEachSessionsOwnPolicy() {

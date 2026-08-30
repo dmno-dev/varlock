@@ -331,7 +331,7 @@ final class IdentitySessionManager {
                 guard let live = grants.liveGrant(ref: SessionGrantRef(sessionId: sessionId, keyId: keyId)) else {
                     continue
                 }
-                existing[keyId] = ExistingGrantSnapshot(scope: live.scope, expiresAt: live.expiresAt)
+                existing[keyId] = ExistingGrantSnapshot(scope: live.scope, remainingMs: live.remainingMs)
             }
             let requested = keyIds.map {
                 RequestedKey(keyId: $0, policy: keyPolicy($0), itemCount: display.itemCounts[$0])
@@ -340,8 +340,7 @@ final class IdentitySessionManager {
                 requested: requested,
                 requestedScope: scope,
                 requestedDurationMs: durationMs,
-                existing: existing,
-                now: grants.nowMs()
+                existing: existing
             )
         }
     }
@@ -421,12 +420,17 @@ final class IdentitySessionManager {
 
     // MARK: - Listing and invalidation
 
-    func listGrants() -> [[String: Any]] {
+    /// Every live grant, typed. The menu bar reads this; `listGrants` is the same
+    /// thing flattened for the wire.
+    func liveGrantInfos() -> [SessionGrantInfo] {
         return queue.sync {
             reconcileLocked()
-            let now = grants.nowMs()
-            return grants.list().map { $0.toDictionary(now: now) }
+            return grants.list()
         }
+    }
+
+    func listGrants() -> [[String: Any]] {
+        return liveGrantInfos().map { $0.toDictionary() }
     }
 
     /// Drop grants and crypto-erase any session left holding nothing.
