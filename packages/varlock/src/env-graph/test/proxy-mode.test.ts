@@ -541,6 +541,46 @@ describe('proxy decorators', () => {
     expect(JSON.stringify(rules)).not.toContain('the-token');
   });
 
+  test('getTransformRoleKeys reports credentials per scheme shape (what `proxy rules` renders)', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.twilio.com", transform={
+      #   scheme="http-basic", username=$TWILIO_SID, password=$TWILIO_TOKEN,
+      # })
+      # ---
+      # @proxy(domain="api.stripe.com", transform={scheme="http-basic"})
+      STRIPE_KEY=sk_live_fake
+
+      # @proxy(domain="api.exchange.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig",
+      #   keyId=$EXCHANGE_KEY_ID, keyHeader="X-Key",
+      # })
+      EXCHANGE_SECRET=shhh
+
+      # @sensitive
+      TWILIO_SID=ACfake
+      # @sensitive
+      TWILIO_TOKEN=tokfake
+      # @sensitive
+      EXCHANGE_KEY_ID=key-id
+    `);
+    const rules = await graph.getProxyRules();
+    const consumedByDomain = Object.fromEntries(rules.map((rule) => [
+      rule.domain[0],
+      graph.getTransformRoleKeys(rule.transform!, 'consumed').sort(),
+    ]));
+    expect(consumedByDomain).toEqual({
+      // both http-basic sides are credentials
+      'api.twilio.com': ['TWILIO_SID', 'TWILIO_TOKEN'],
+      // attached, neither side given: the decorated item is the userid
+      'api.stripe.com': ['STRIPE_KEY'],
+      // hmac: only the secret is consumed (keyId is wire-visible)
+      'api.exchange.com': ['EXCHANGE_SECRET'],
+    });
+    // the wire-role keyId is substitutable, the consumed secrets are not
+    const exchangeRule = rules.find((rule) => rule.domain[0] === 'api.exchange.com');
+    expect(exchangeRule?.itemKeys).toEqual(['EXCHANGE_KEY_ID']);
+  });
+
   test('http-basic: a detached rule needs at least one credential reference', async () => {
     const noCredential = await loadGraph(outdent`
       # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
