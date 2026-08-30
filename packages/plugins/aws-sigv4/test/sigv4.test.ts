@@ -24,8 +24,8 @@ function placeholderAuthHeader(region: string, service: string): string {
 
 const BASE_TRANSFORM = {
   scheme: 'aws-sigv4',
-  secretKey: 'AWS_SECRET_ACCESS_KEY',
-  keyId: 'AWS_ACCESS_KEY_ID',
+  secretKey: { itemRef: 'AWS_SECRET_ACCESS_KEY' },
+  keyId: { itemRef: 'AWS_ACCESS_KEY_ID' },
 } satisfies AwsSigv4TransformOptions;
 
 const BASE_CREDENTIALS = { secretKey: SECRET_KEY, keyId: ACCESS_KEY };
@@ -121,7 +121,7 @@ describe('signAwsSigv4Transform', () => {
   test('hashes the outbound body bytes and includes a session token when configured', async () => {
     const body = Buffer.from('{"TableName":"widgets"}', 'utf8');
     const result = await signAwsSigv4Transform(
-      { ...BASE_TRANSFORM, sessionToken: 'AWS_SESSION_TOKEN' },
+      { ...BASE_TRANSFORM, sessionToken: { itemRef: 'AWS_SESSION_TOKEN' } },
       {
         ...iamInput,
         method: 'POST',

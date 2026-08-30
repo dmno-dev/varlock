@@ -62,7 +62,7 @@ describe('decodeTransformKey', () => {
 describe('computeHmacTransform', () => {
   const baseTransform: ProxyRuleHmacTransform = {
     scheme: 'hmac-sha256',
-    secretKey: 'SECRET',
+    secretKey: { itemRef: 'SECRET' },
     stringToSign: '{body}',
     signatureHeader: 'x-signature',
   };
@@ -142,7 +142,7 @@ describe('http-basic signer', () => {
 
   test('literal username + referenced password, overwriting the child header', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: 'svc-user', password: '$API_PASSWORD' } as any,
+      { scheme: 'http-basic', username: 'svc-user', password: { itemRef: 'API_PASSWORD' } } as any,
       { ...baseInput, credentials: { password: 'real-password' } } as any,
       NOW_MS,
     );
@@ -151,7 +151,7 @@ describe('http-basic signer', () => {
 
   test('referenced token as the userid with an empty password (curl -u "token:")', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: '$API_TOKEN' } as any,
+      { scheme: 'http-basic', username: { itemRef: 'API_TOKEN' } } as any,
       { ...baseInput, credentials: { username: 'the-token' } } as any,
       NOW_MS,
     );
@@ -160,7 +160,7 @@ describe('http-basic signer', () => {
 
   test('referenced token as the userid with a literal password (GitHub style)', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: '$GH_TOKEN', password: 'x-oauth-basic' } as any,
+      { scheme: 'http-basic', username: { itemRef: 'GH_TOKEN' }, password: 'x-oauth-basic' } as any,
       { ...baseInput, credentials: { username: 'the-token' } } as any,
       NOW_MS,
     );
@@ -169,7 +169,7 @@ describe('http-basic signer', () => {
 
   test('both sides referenced (Twilio style)', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: '$TWILIO_SID', password: '$TWILIO_AUTH_TOKEN' } as any,
+      { scheme: 'http-basic', username: { itemRef: 'TWILIO_SID' }, password: { itemRef: 'TWILIO_AUTH_TOKEN' } } as any,
       { ...baseInput, credentials: { username: 'the-sid', password: 'the-token' } } as any,
       NOW_MS,
     );
@@ -178,7 +178,7 @@ describe('http-basic signer', () => {
 
   test('an unset side is empty (referenced password with no username)', async () => {
     const result = await sign(
-      { scheme: 'http-basic', password: '$API_PASSWORD' } as any,
+      { scheme: 'http-basic', password: { itemRef: 'API_PASSWORD' } } as any,
       { ...baseInput, credentials: { password: 'real-password' } } as any,
       NOW_MS,
     );
@@ -187,7 +187,7 @@ describe('http-basic signer', () => {
 
   test('fails closed on a userid containing ":"', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: '$API_TOKEN' } as any,
+      { scheme: 'http-basic', username: { itemRef: 'API_TOKEN' } } as any,
       { ...baseInput, credentials: { username: 'evil:token' } } as any,
       NOW_MS,
     );

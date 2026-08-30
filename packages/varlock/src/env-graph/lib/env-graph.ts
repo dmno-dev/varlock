@@ -40,6 +40,7 @@ import {
   proxyTransformItemRefName,
   validateProxyTransformConfig,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
+  type ProxyTransformItemRef,
   type ProxyTransformSchemeDef,
 } from '../../proxy/types';
 import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
@@ -1325,6 +1326,24 @@ export class EnvGraph {
   }
 
   /**
+   * Item names referenced by `transform={...}` options, read from the
+   * UNRESOLVED decorator args. Credential options take their item name from
+   * here rather than from the resolved value, so a referenced credential's
+   * value never reaches rule data. Options the scheme does not mark as
+   * credentials keep resolving normally (a `$REF` there is an ordinary value).
+   */
+  private static extractTransformItemRefs(dec: any): Record<string, string> {
+    const optionResolvers = dec?.decValueResolver?.objArgs?.transform?.objArgs ?? {};
+    const refs: Record<string, string> = {};
+    for (const [option, resolver] of Object.entries<any>(optionResolvers)) {
+      if (resolver?.fnName !== 'ref') continue;
+      const refArg = resolver.arrArgs?.[0];
+      if (refArg?.isStatic && typeof refArg.staticValue === 'string') refs[option] = refArg.staticValue;
+    }
+    return refs;
+  }
+
+  /**
    * Validate and normalize a resolved `transform={...}` object into the runtime
    * shape, driven entirely by the registered scheme's option specs (so plugin
    * schemes get the same treatment as built-ins). `secretKey` defaults to the
@@ -1332,17 +1351,31 @@ export class EnvGraph {
    * consumes); a detached rule has no item to default to, so there it must be
    * explicit.
    */
-  private buildProxyTransform(obj: any, attachedItemKey: string | undefined): ProxyRuleTransform {
+  private buildProxyTransform(
+    obj: any,
+    attachedItemKey: string | undefined,
+    itemRefs: Record<string, string>,
+  ): ProxyRuleTransform {
     const spec = this.proxyTransformSchemes[obj?.scheme];
+    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
+
+    // Credential options carry the referenced item's NAME (never its resolved
+    // value). Every other option keeps whatever it resolved to, so a `$REF` on
+    // an ordinary option still works normally.
+    const config: Record<string, unknown> = { ...obj };
+    for (const [option, itemName] of Object.entries(itemRefs)) {
+      if (optionSpecs[option]?.itemRole === undefined) continue;
+      config[option] = { itemRef: itemName };
+    }
+
     // Place an attached rule's decorated item BEFORE validating, so validation
     // (and its error messages) see the config that will actually run. Schemes
     // with several credential positions decide the placement themselves.
-    let config: Record<string, unknown> = { ...obj };
     const consumedOption = proxyTransformConsumedOptionName(spec);
     if (spec && attachedItemKey) {
-      const itemRef = `$${attachedItemKey}`;
+      const itemRef: ProxyTransformItemRef = { itemRef: attachedItemKey };
       if (spec.placeAttachedItem) {
-        config = spec.placeAttachedItem(config, itemRef);
+        Object.assign(config, spec.placeAttachedItem(config, itemRef));
       } else if (consumedOption && config[consumedOption] === undefined) {
         config[consumedOption] = itemRef;
       }
@@ -1357,26 +1390,19 @@ export class EnvGraph {
       throw new SchemaError(`@proxy: transform.${consumedOption} is required on a detached @proxy rule (an attached rule defaults it to the decorated item), e.g. ${consumedOption}=$SOME_ITEM`);
     }
 
-    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec!.options };
     const builtTransform: Record<string, unknown> = { scheme: config.scheme };
     for (const [key, optionSpec] of Object.entries(optionSpecs)) {
       if (config[key] === undefined) continue;
-      let optionValue = config[key];
-      if (optionSpec.type === 'stringList') {
-        // a single string or an array in the schema; always an array at runtime
-        optionValue = EnvGraph.normalizeStringList(optionValue);
-      } else if (optionSpec.itemRole !== undefined && !optionSpec.literalAllowed && _.isString(optionValue)) {
-        // ref-only credential options canonicalize to bare item names;
-        // literal-allowed ones keep the `$` marker so the signer can tell a
-        // reference from a literal
-        optionValue = optionValue.replace(/^\$/, '');
-      }
-      builtTransform[key] = optionValue;
+      // list options accept a single string or an array in the schema; the
+      // runtime shape is always an array
+      builtTransform[key] = optionSpec.type === 'stringList'
+        ? EnvGraph.normalizeStringList(config[key])
+        : config[key];
     }
 
-    // Every credential reference must name a real config item. Deliberately
-    // reports the item NAME only: references are captured pre-resolution, so no
-    // value is available here to leak into the message.
+    // Every credential reference must name a real config item. Reports the item
+    // NAME only: names come from the unresolved args, so no value is available
+    // here to leak into the message.
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
       const itemName = proxyTransformItemRefName(optionSpec, builtTransform[option]);
       if (itemName === undefined) continue;
@@ -1412,6 +1438,7 @@ export class EnvGraph {
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
+    itemRefs: Record<string, string> = {},
   ): ProxyRule {
     const method = EnvGraph.normalizeStringList(obj?.method);
     // Kept as raw target strings (validated above); parsed into structured targets
@@ -1419,7 +1446,7 @@ export class EnvGraph {
     const substituteIn = EnvGraph.normalizeStringList(obj?.substituteIn)
       .filter((raw) => parseProxySubstitutionTarget(raw).ok);
     const transform = _.isPlainObject(obj?.transform)
-      ? this.buildProxyTransform(obj.transform, attachedItemKey)
+      ? this.buildProxyTransform(obj.transform, attachedItemKey, itemRefs)
       : undefined;
     // Consumed-role items (the signing secret) never substitute, so they must
     // not participate in the rule's substitution scope even when the rule is
@@ -1457,8 +1484,9 @@ export class EnvGraph {
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
+    itemRefs: Record<string, string> = {},
   ): Array<ProxyRule> {
-    const out: Array<ProxyRule> = [this.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey)];
+    const out: Array<ProxyRule> = [this.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey, itemRefs)];
     if (Array.isArray(obj?.rules)) {
       for (const entry of obj.rules) {
         out.push(this.buildProxyRuleFromObj(entry, domain, []));
@@ -1477,7 +1505,8 @@ export class EnvGraph {
       const domain = EnvGraph.normalizeStringList(resolved?.obj?.domain);
       if (domain.length === 0) continue;
       const itemKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
-      rules.push(...this.expandProxyRules(resolved?.obj, domain, itemKeys, undefined));
+      const itemRefs = EnvGraph.extractTransformItemRefs(rootProxyDec);
+      rules.push(...this.expandProxyRules(resolved?.obj, domain, itemKeys, undefined, itemRefs));
     }
 
     // attached rules from item-level @proxy(...)
@@ -1490,7 +1519,8 @@ export class EnvGraph {
         if (domain.length === 0) continue;
         const extraKeys = EnvGraph.normalizeStringList(resolved?.obj?.keys);
         const itemKeys = _.uniq([itemKey, ...extraKeys]);
-        rules.push(...this.expandProxyRules(resolved?.obj, domain, itemKeys, itemKey));
+        const itemRefs = EnvGraph.extractTransformItemRefs(itemProxyDec);
+        rules.push(...this.expandProxyRules(resolved?.obj, domain, itemKeys, itemKey, itemRefs));
       }
     }
 

@@ -165,16 +165,23 @@ export type ProxyTransformOptionSpec = {
 };
 
 /**
- * Item-role option values are written as references (`password=$API_PASSWORD`),
- * captured pre-resolution as `$NAME` markers so the item's value never resolves
- * into rule data. Returns the bare item name when the option/value denote an
- * item reference, or undefined for a literal (only valid with `literalAllowed`).
+ * An item reference in rule data: the NAME of the item holding a credential,
+ * never its value. Written in a schema as `password=$API_PASSWORD`; the item
+ * name is read from the unresolved decorator args at rule build, so the
+ * referenced value never lands in rule data or anything serialized from it.
+ * A distinct object shape (rather than a `$`-prefixed string) keeps a quoted
+ * literal that happens to start with `$` unambiguous.
  */
+export type ProxyTransformItemRef = { itemRef: string };
+
+export function isProxyTransformItemRef(value: unknown): value is ProxyTransformItemRef {
+  return typeof value === 'object' && value !== null && typeof (value as any).itemRef === 'string';
+}
+
+/** The referenced item name, or undefined when the option holds a literal. */
 export function proxyTransformItemRefName(optionSpec: ProxyTransformOptionSpec, value: unknown): string | undefined {
-  if (optionSpec.itemRole === undefined || typeof value !== 'string') return undefined;
-  if (value.startsWith('$')) return value.slice(1);
-  // canonicalized rule data stores bare names for ref-only options
-  return optionSpec.literalAllowed ? undefined : value;
+  if (optionSpec.itemRole === undefined) return undefined;
+  return isProxyTransformItemRef(value) ? value.itemRef : undefined;
 }
 
 /**
@@ -193,7 +200,7 @@ export type ProxyTransformSchemeSpec = {
    * is unset. A scheme with more than one credential position (http-basic's
    * username/password) overrides this to decide which side the item fills.
    */
-  placeAttachedItem?: (config: Record<string, unknown>, itemRef: string) => Record<string, unknown>;
+  placeAttachedItem?: (config: Record<string, unknown>, itemRef: ProxyTransformItemRef) => Record<string, unknown>;
 };
 
 /**
@@ -233,6 +240,14 @@ export type ProxyTransformSignResult = | {
   setHeaders: Record<string, string>;
   /** Headers to remove first (e.g. placeholder-signed originals being replaced). */
   removeHeaders?: Array<string>;
+  /**
+   * Values this signer put on the wire that must never come back to the child,
+   * for schemes whose output is REVERSIBLE (http-basic's base64 credential
+   * token). The runtime scrubs them from the response and treats them as a
+   * leak if they appear. A digest-style signature needs nothing here: it cannot
+   * be reversed into the secret.
+   */
+  scrubFromResponse?: Array<string>;
 } | {
   ok: false;
   error: string;
@@ -255,11 +270,11 @@ export type ProxyTransformSigner = (
 export type ProxyRuleTransform = {
   scheme: string;
   /**
-   * Item key whose real value the signer consumes, for schemes using the
-   * common single-secret shape (hmac, aws-sigv4). Never substituted. Schemes
-   * with their own credential positions (http-basic) carry those instead.
+   * Reference to the item whose real value the signer consumes, for schemes
+   * using the common single-secret shape (hmac, aws-sigv4). Never substituted.
+   * Schemes with their own credential positions (http-basic) carry those.
    */
-  secretKey?: string;
+  secretKey?: ProxyTransformItemRef;
 } & Record<string, unknown>;
 
 /**
@@ -268,14 +283,14 @@ export type ProxyRuleTransform = {
  */
 export type ProxyRuleHmacTransform = {
   scheme: 'hmac-sha256' | 'hmac-sha512';
-  /** Item key whose real value is the HMAC key. Consumed, never substituted. */
-  secretKey: string;
+  /** Reference to the item whose value is the HMAC key. Consumed, never substituted. */
+  secretKey: ProxyTransformItemRef;
   /** Template over `PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS`, e.g. `{timestamp}{method}{path}{body}`. */
   stringToSign: string;
   /** Header the computed signature is written to. */
   signatureHeader: string;
-  /** Optional companion item (an API key id) written to `keyHeader`. Wire-visible, substituted normally too. */
-  keyId?: string;
+  /** Optional companion item reference (an API key id) written to `keyHeader`. Wire-visible, substituted normally too. */
+  keyId?: ProxyTransformItemRef;
   keyHeader?: string;
   /** Header the signing timestamp is written to (most HMAC schemes require it). */
   timestampHeader?: string;
@@ -344,12 +359,12 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
 export type ProxyRuleHttpBasicTransform = {
   scheme: 'http-basic';
   /**
-   * The userid: a literal, or a `$NAME` marker for a consumed credential the
-   * proxy resolves at sign time. Omitted = empty userid.
+   * The userid: a literal, or a reference to a consumed credential the proxy
+   * resolves at sign time. Omitted = empty userid.
    */
-  username?: string;
+  username?: string | ProxyTransformItemRef;
   /** The password, same forms as `username`. Omitted = empty password. */
-  password?: string;
+  password?: string | ProxyTransformItemRef;
 };
 
 const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
@@ -372,12 +387,12 @@ const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
     return config;
   },
   validate: (config) => {
-    const isRef = (val: unknown) => typeof val === 'string' && val.startsWith('$');
+    const isRef = isProxyTransformItemRef;
     if (!isRef(config.username) && !isRef(config.password)) {
       return 'transform needs a credential: reference the item holding the secret with username=$SOME_ITEM or password=$SOME_ITEM. On an attached rule the decorated item fills whichever side you leave unset (the userid when you set neither)';
     }
     // RFC 7617: the userid may not contain a colon (it delimits user:password).
-    if (typeof config.username === 'string' && !isRef(config.username) && config.username.includes(':')) {
+    if (typeof config.username === 'string' && config.username.includes(':')) {
       return 'transform.username cannot contain ":" (it separates the username from the password in Basic auth)';
     }
     return undefined;
@@ -468,13 +483,13 @@ export function validateProxyTransformConfig(
     const val = obj[key];
     if (val === undefined) continue;
     if (optionSpec.itemRole !== undefined) {
-      if (typeof val !== 'string') return `transform.${key} must be a string`;
-      const isRef = /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(val);
+      const isRef = isProxyTransformItemRef(val);
       // A literal is only ordinary config where the scheme allows one; an empty
       // literal is meaningful there (an explicitly empty Basic userid).
       if (!isRef && !optionSpec.literalAllowed) {
         return `transform.${key} must be a reference to a config item, e.g. ${key}=$SOME_ITEM (a literal value here would be a credential embedded in the schema)`;
       }
+      if (!isRef && typeof val !== 'string') return `transform.${key} must be a string or a $SOME_ITEM reference`;
       continue;
     }
     switch (optionSpec.type) {
@@ -519,6 +534,36 @@ export function validateProxyTransformConfig(
 
   if (!opts?.partial) {
     if (schemeName === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
+
+    // Two roles naming the same item would resolve one item into both a
+    // consumed and a wire-visible position, sending the signing secret
+    // upstream. Reject regardless of scheme.
+    const itemByOption = new Map<string, string>();
+    for (const [key, optionSpec] of Object.entries(optionSpecs)) {
+      const itemName = proxyTransformItemRefName(optionSpec, obj[key]);
+      if (itemName !== undefined) itemByOption.set(key, itemName);
+    }
+    for (const [keyA, itemA] of itemByOption) {
+      for (const [keyB, itemB] of itemByOption) {
+        if (keyA < keyB && itemA === itemB) {
+          return `transform.${keyA} and transform.${keyB} both reference "${itemA}"; each credential role needs its own item (one of these is sent upstream, the other is consumed by the signer)`;
+        }
+      }
+    }
+
+    // Two options writing the same destination header (case-insensitively)
+    // would silently overwrite each other, e.g. the key id clobbering the
+    // computed signature.
+    const headerTargets = new Map<string, string>();
+    for (const [key, optionSpec] of Object.entries(optionSpecs)) {
+      if (optionSpec.type !== 'headerName' || typeof obj[key] !== 'string') continue;
+      const lower = (obj[key] as string).toLowerCase();
+      const existing = headerTargets.get(lower);
+      if (existing) {
+        return `transform.${existing} and transform.${key} both write the "${lower}" header; one would overwrite the other`;
+      }
+      headerTargets.set(lower, key);
+    }
     for (const [key, optionSpec] of Object.entries(spec!.options)) {
       if (optionSpec.required && obj[key] === undefined) {
         return `transform.${key} is required for scheme "${schemeName}"`;

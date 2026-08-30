@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import {
-  BUILT_IN_TRANSFORM_SCHEME_SPECS,
+  BUILT_IN_TRANSFORM_SCHEME_SPECS, isProxyTransformItemRef,
   type ProxyRuleHmacTransform, type ProxyRuleHttpBasicTransform, type ProxyTransformSchemeDef,
   type ProxyTransformSigner, type ProxyTransformTimestampFormat,
 } from './types';
@@ -153,11 +153,11 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
  */
 const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
-  // Each side is a literal, or a `$NAME` marker whose real value the runtime
+  // Each side is a literal, or an item reference whose real value the runtime
   // resolved into credentials under the same option name.
-  const resolveSide = (configured: string | undefined, option: 'username' | 'password') => {
-    if (typeof configured !== 'string') return '';
-    return configured.startsWith('$') ? input.credentials[option] ?? '' : configured;
+  const resolveSide = (configured: unknown, option: 'username' | 'password') => {
+    if (isProxyTransformItemRef(configured)) return input.credentials[option] ?? '';
+    return typeof configured === 'string' ? configured : '';
   };
   const userid = resolveSide(basicTransform.username, 'username');
   const password = resolveSide(basicTransform.password, 'password');
@@ -166,7 +166,11 @@ const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
     return { ok: false, error: 'the Basic auth username contains ":", which is not allowed (it separates username from password)' };
   }
   const token = Buffer.from(`${userid}:${password}`, 'utf8').toString('base64');
-  return { ok: true, setHeaders: { authorization: `Basic ${token}` } };
+  // The Basic token is reversible, so an endpoint that reflects `Authorization`
+  // would hand the child a decodable credential. Declare it (and the raw
+  // credentials) so the runtime scrubs them from responses.
+  const scrubFromResponse = [token, ...Object.values(input.credentials).filter(Boolean)];
+  return { ok: true, setHeaders: { authorization: `Basic ${token}` }, scrubFromResponse };
 };
 
 const BUILT_IN_SIGNERS: Record<string, ProxyTransformSigner> = {

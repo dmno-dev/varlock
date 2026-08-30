@@ -38,6 +38,9 @@ import {
 
 const LOCALHOST = '127.0.0.1';
 
+/** Stand-in written over a reflected transform credential in a response. */
+const REDACTED_TRANSFORM_VALUE = '[redacted by varlock]';
+
 export type ProxyReconfigureInput = {
   managedItems: Array<ProxyManagedItem>;
   rules: Array<ProxyRule>;
@@ -1015,14 +1018,14 @@ export async function startLocalProxyRuntime({
   // Mutable so `reconfigure` can hot-swap the enforced policy on a live proxy.
   // The request handlers below close over these bindings, so reassigning them
   // changes behavior on the next request (in-flight requests already snapshotted).
-  let managedItems = initialManagedItems;
-  let rules = initialRules;
-  let egressMode = initialEgressMode;
-  let transformSchemes = initialTransformSchemes ?? BUILT_IN_TRANSFORM_SCHEMES;
+  let activeManagedItems = initialManagedItems;
+  let activeRules = initialRules;
+  let activeEgressMode = initialEgressMode;
+  let activeTransformSchemes = initialTransformSchemes ?? BUILT_IN_TRANSFORM_SCHEMES;
   // Item keys consumed by transform signers (signing secrets), per the scheme
   // option specs. Static per config, so computed here and on reconfigure rather
   // than per request.
-  let consumedTransformKeys = collectConsumedTransformKeys(rules, transformSchemes);
+  let activeConsumedTransformKeys = collectConsumedTransformKeys(activeRules, activeTransformSchemes);
   // Set via setSessionEnvPayloadJson right after startup (and on each reload).
   let sessionEnvPayloadJson: string | undefined;
   let sessionEnvPayloadMeta: SessionEnvPayloadMeta | undefined;
@@ -1097,6 +1100,20 @@ export async function startLocalProxyRuntime({
       handleInternalRequest(req, res, t);
       return;
     }
+
+    // Snapshot the hot-swappable policy for this request. `reconfigure()` can
+    // replace these bindings while the request is in flight (body read,
+    // approval gate, upstream verification are all awaits), and a request must
+    // be evaluated, injected, and signed against ONE consistent policy.
+    const {
+      rules, managedItems, egressMode, transformSchemes, consumedTransformKeys,
+    } = {
+      rules: activeRules,
+      managedItems: activeManagedItems,
+      egressMode: activeEgressMode,
+      transformSchemes: activeTransformSchemes,
+      consumedTransformKeys: activeConsumedTransformKeys,
+    };
 
     const baseActivity = {
       host: t.host, method: t.method, path: t.pathOnly, url: t.requestTarget,
@@ -1325,6 +1342,10 @@ export async function startLocalProxyRuntime({
       ? replacePlaceholdersWithReal(t.requestTarget, hostItems)
       : t.requestTarget;
 
+    // Items whose values must be scrubbed from the response: everything
+    // substituted into the request, plus anything a signer declares below.
+    const responseScrubItems: Array<ProxyManagedItem> = [...hostItems];
+
     const upstreamHeaders = transformHeaders(
       req.headers,
       shouldRewrite
@@ -1422,6 +1443,17 @@ export async function startLocalProxyRuntime({
       for (const [name, value] of Object.entries(signResult.setHeaders)) {
         upstreamHeaders[name.toLowerCase()] = value;
       }
+      // Values the signer put on the wire in reversible form must not come back
+      // to the child. Consumed credentials are not in `hostItems` (they are
+      // never substituted), so response scrubbing would not otherwise know them.
+      for (const value of signResult.scrubFromResponse ?? []) {
+        if (!value) continue;
+        responseScrubItems.push({
+          key: `${activeTransform.scheme} credential`,
+          placeholder: REDACTED_TRANSFORM_VALUE,
+          realValue: value,
+        });
+      }
     }
 
     // The success audit entry is recorded only after signing succeeded - a
@@ -1463,7 +1495,8 @@ export async function startLocalProxyRuntime({
         }
         : {}),
     }, (upstreamRes) => {
-      forwardUpstreamResponseWithRedaction(upstreamRes, res, hostItems, shouldRewrite, {
+      const shouldScrubResponse = shouldRewrite || responseScrubItems.length > 0;
+      forwardUpstreamResponseWithRedaction(upstreamRes, res, responseScrubItems, shouldScrubResponse, {
         host: t.host,
         method: t.method,
         path: t.pathOnly,
@@ -1604,8 +1637,8 @@ export async function startLocalProxyRuntime({
       return;
     }
 
-    const shouldRewrite = hostMatchesProxyRules(hostInfo.host, rules);
-    const shouldAllowEgress = egressMode === 'permissive' || shouldRewrite;
+    const shouldRewrite = hostMatchesProxyRules(hostInfo.host, activeRules);
+    const shouldAllowEgress = activeEgressMode === 'permissive' || shouldRewrite;
     if (!shouldAllowEgress) {
       // CONNECT only exposes host:port; the per-request audit entry (method/path)
       // comes later from the MITM handler for allowed hosts. Here we record the
@@ -1737,11 +1770,11 @@ export async function startLocalProxyRuntime({
       sessionEnvPayloadMeta = meta;
     },
     reconfigure: (next) => {
-      managedItems = next.managedItems;
-      rules = next.rules;
-      egressMode = next.egressMode;
-      if (next.transformSchemes) transformSchemes = next.transformSchemes;
-      consumedTransformKeys = collectConsumedTransformKeys(rules, transformSchemes);
+      activeManagedItems = next.managedItems;
+      activeRules = next.rules;
+      activeEgressMode = next.egressMode;
+      if (next.transformSchemes) activeTransformSchemes = next.transformSchemes;
+      activeConsumedTransformKeys = collectConsumedTransformKeys(activeRules, activeTransformSchemes);
     },
     stop: async () => {
       // Detach the tunnel WS server first so it stops accepting upgrades.

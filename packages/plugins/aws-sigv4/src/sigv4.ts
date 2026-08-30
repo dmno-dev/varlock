@@ -36,9 +36,11 @@ export const AWS_SIGV4_STRIP_HEADERS = ['authorization', 'x-amz-date', 'x-amz-se
 /** The shape of this scheme's validated transform config. */
 export type AwsSigv4TransformOptions = {
   scheme: 'aws-sigv4';
-  secretKey: string;
-  keyId: string;
-  sessionToken?: string;
+  // credential positions hold item references; the runtime resolves their real
+  // values into `input.credentials` under the same option names
+  secretKey: { itemRef: string };
+  keyId: { itemRef: string };
+  sessionToken?: { itemRef: string };
   allowedRegions?: Array<string>;
   allowedServices?: Array<string>;
 };

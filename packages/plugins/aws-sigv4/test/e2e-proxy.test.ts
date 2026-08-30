@@ -129,7 +129,7 @@ describe('aws-sigv4 re-signing through the real proxy MITM pipeline', () => {
         {
           domain: [UPSTREAM_HOST],
           itemKeys: ['AWS_ACCESS_KEY_ID'],
-          transform: { scheme: 'aws-sigv4', secretKey: 'AWS_SECRET_ACCESS_KEY', keyId: 'AWS_ACCESS_KEY_ID' },
+          transform: { scheme: 'aws-sigv4', secretKey: { itemRef: 'AWS_SECRET_ACCESS_KEY' }, keyId: { itemRef: 'AWS_ACCESS_KEY_ID' } },
         },
       ],
       transformSchemes: { 'aws-sigv4': SIGV4_SCHEME_DEF },

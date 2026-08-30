@@ -496,19 +496,6 @@ function assertProxyTransformArg(resolver: Resolver | undefined): void {
     return; // dynamic expression - validated at resolve time
   }
   const inner = resolver.objArgs ?? {};
-  // Item references inside transform options (`password=$API_PASSWORD`, which
-  // the parser expands to `ref(API_PASSWORD)`) are captured HERE, before
-  // resolution: the ref resolver is swapped for a static `$NAME` marker, so
-  // the referenced item's VALUE never resolves into rule data or any
-  // serialization of it. Scheme-agnostic on purpose (plugin schemes included);
-  // whether a given option may be a ref is validated against the scheme spec.
-  for (const [key, val] of Object.entries(inner)) {
-    if (val?.fnName !== 'ref') continue;
-    const refArg = (val as any).arrArgs?.[0];
-    if (refArg?.isStatic && typeof refArg.staticValue === 'string') {
-      inner[key] = new StaticValueResolver(`$${refArg.staticValue}`);
-    }
-  }
   const staticEntries: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(inner)) {
     // Include every key so unknown options fail loudly here; only static values

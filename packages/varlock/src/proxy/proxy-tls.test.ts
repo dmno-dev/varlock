@@ -578,11 +578,11 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
 describe('request signing (transform=) over MITM', () => {
   const SIGNING_TRANSFORM = {
     scheme: 'hmac-sha256',
-    secretKey: 'SIGNING_SECRET',
+    secretKey: { itemRef: 'SIGNING_SECRET' },
     stringToSign: '{timestamp}{method}{pathWithQuery}{body}',
     signatureHeader: 'x-signature',
     timestampHeader: 'x-timestamp',
-    keyId: 'KEY_ID',
+    keyId: { itemRef: 'KEY_ID' },
     keyHeader: 'x-api-key',
     encoding: 'hex',
   } as const;
@@ -775,7 +775,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     { key: 'TOKEN_ID', placeholder: 'vlk_ph_token_id', realValue: 'tok-real-value' },
   ];
   const TEST_TRANSFORM = {
-    scheme: 'test-sign', secretKey: 'SIGNING_SECRET', tokenId: 'TOKEN_ID', signatureHeader: 'x-test-sig',
+    scheme: 'test-sign', secretKey: { itemRef: 'SIGNING_SECRET' }, tokenId: { itemRef: 'TOKEN_ID' }, signatureHeader: 'x-test-sig',
   };
 
   test('resolves credentials per the option specs, applies set/remove headers, audits ONE allow entry', async () => {
@@ -914,7 +914,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
           domain: [UPSTREAM_HOST],
           itemKeys: [],
           transform: {
-            signatureHeader: 'x-test-sig', allowedThings: ['b', 'a'], tokenId: 'TOKEN_ID', scheme: 'test-sign', secretKey: 'SIGNING_SECRET',
+            signatureHeader: 'x-test-sig', allowedThings: ['b', 'a'], tokenId: { itemRef: 'TOKEN_ID' }, scheme: 'test-sign', secretKey: { itemRef: 'SIGNING_SECRET' },
           },
         },
       ],
@@ -985,7 +985,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
         {
           domain: [UPSTREAM_HOST],
           itemKeys: [],
-          transform: { scheme: 'http-basic', username: 'svc-user', password: '$API_PASSWORD' },
+          transform: { scheme: 'http-basic', username: 'svc-user', password: { itemRef: 'API_PASSWORD' } },
         },
       ],
       egressMode: 'permissive',
@@ -1005,6 +1005,42 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     expect(response.split('\r\n')[0]).toContain('200');
     expect(upstreamAuth).toBe(`Basic ${Buffer.from('svc-user:real-password').toString('base64')}`);
     expect(upstreamAuth).not.toContain(childBasic);
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('http-basic: a reflected Authorization header is scrubbed from the response', async () => {
+    // an endpoint that echoes the request's Authorization back would otherwise
+    // hand the child a base64 token it can decode into the real password
+    const upstream = await startUpstream((req, res) => {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ echoed: String(req.headers.authorization ?? '') }));
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' }],
+      rules: [
+        {
+          domain: [UPSTREAM_HOST],
+          itemKeys: [],
+          transform: { scheme: 'http-basic', username: 'svc-user', password: { itemRef: 'API_PASSWORD' } },
+        },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    const basicToken = Buffer.from('svc-user:real-password').toString('base64');
+    expect(response).not.toContain(basicToken);
+    expect(response).not.toContain('real-password');
 
     tlsSocket.destroy();
     await runtime.stop();
