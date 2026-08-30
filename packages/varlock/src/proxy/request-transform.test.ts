@@ -125,77 +125,73 @@ describe('computeHmacTransform', () => {
 
 describe('http-basic signer', () => {
   const sign = BUILT_IN_TRANSFORM_SCHEMES['http-basic'].sign;
-  const input = {
+  const baseInput = {
     method: 'GET',
     host: 'api.example.com',
     path: '/',
     query: '',
     body: Buffer.alloc(0),
     headers: { authorization: 'Basic Z2FyYmFnZTpwbGFjZWhvbGRlcg==' },
-    credentials: { secretKey: 'real-password' },
   };
-  const transform = { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: 'svc-user' };
-
-  test('writes Basic base64(user:realsecret), overwriting the child header', async () => {
-    const result = await sign(transform as any, input as any, NOW_MS);
+  const expectBasic = (result: any, userid: string, password: string) => {
     expect(result).toMatchObject({
       ok: true,
-      setHeaders: { authorization: `Basic ${Buffer.from('svc-user:real-password').toString('base64')}` },
+      setHeaders: { authorization: `Basic ${Buffer.from(`${userid}:${password}`).toString('base64')}` },
     });
-  });
+  };
 
-  test('a $NAME-marked username resolves via credentials (item reference)', async () => {
+  test('literal username + referenced password, overwriting the child header', async () => {
     const result = await sign(
-      { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: '$API_USER' } as any,
-      { ...input, credentials: { secretKey: 'real-password', username: 'item-user' } } as any,
+      { scheme: 'http-basic', username: 'svc-user', password: '$API_PASSWORD' } as any,
+      { ...baseInput, credentials: { password: 'real-password' } } as any,
       NOW_MS,
     );
-    expect(result).toMatchObject({
-      ok: true,
-      setHeaders: { authorization: `Basic ${Buffer.from('item-user:real-password').toString('base64')}` },
-    });
+    expectBasic(result, 'svc-user', 'real-password');
   });
 
-  test('defaults to an empty username when none is configured', async () => {
-    const result = await sign({ scheme: 'http-basic', secretKey: 'API_PASSWORD' } as any, input as any, NOW_MS);
-    expect(result).toMatchObject({
-      ok: true,
-      setHeaders: { authorization: `Basic ${Buffer.from(':real-password').toString('base64')}` },
-    });
-  });
-
-  test('secretIn="username" puts the secret in the userid position with an empty password', async () => {
+  test('referenced token as the userid with an empty password (curl -u "token:")', async () => {
     const result = await sign(
-      { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } as any,
-      { ...input, credentials: { secretKey: 'the-token' } } as any,
+      { scheme: 'http-basic', username: '$API_TOKEN' } as any,
+      { ...baseInput, credentials: { username: 'the-token' } } as any,
       NOW_MS,
     );
-    expect(result).toMatchObject({
-      ok: true,
-      setHeaders: { authorization: `Basic ${Buffer.from('the-token:').toString('base64')}` },
-    });
+    expectBasic(result, 'the-token', '');
   });
 
-  test('secretIn="username" with a literal password composes secret:literal', async () => {
+  test('referenced token as the userid with a literal password (GitHub style)', async () => {
     const result = await sign(
-      {
-        scheme: 'http-basic', secretKey: 'GH_TOKEN', secretIn: 'username', password: 'x-oauth-basic',
-      } as any,
-      { ...input, credentials: { secretKey: 'the-token' } } as any,
+      { scheme: 'http-basic', username: '$GH_TOKEN', password: 'x-oauth-basic' } as any,
+      { ...baseInput, credentials: { username: 'the-token' } } as any,
       NOW_MS,
     );
-    expect(result).toMatchObject({
-      ok: true,
-      setHeaders: { authorization: `Basic ${Buffer.from('the-token:x-oauth-basic').toString('base64')}` },
-    });
+    expectBasic(result, 'the-token', 'x-oauth-basic');
   });
 
-  test('fails closed on a userid containing ":" (including a secret in username position)', async () => {
+  test('both sides referenced (Twilio style)', async () => {
     const result = await sign(
-      { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } as any,
-      { ...input, credentials: { secretKey: 'evil:token' } } as any,
+      { scheme: 'http-basic', username: '$TWILIO_SID', password: '$TWILIO_AUTH_TOKEN' } as any,
+      { ...baseInput, credentials: { username: 'the-sid', password: 'the-token' } } as any,
+      NOW_MS,
+    );
+    expectBasic(result, 'the-sid', 'the-token');
+  });
+
+  test('an unset side is empty (referenced password with no username)', async () => {
+    const result = await sign(
+      { scheme: 'http-basic', password: '$API_PASSWORD' } as any,
+      { ...baseInput, credentials: { password: 'real-password' } } as any,
+      NOW_MS,
+    );
+    expectBasic(result, '', 'real-password');
+  });
+
+  test('fails closed on a userid containing ":"', async () => {
+    const result = await sign(
+      { scheme: 'http-basic', username: '$API_TOKEN' } as any,
+      { ...baseInput, credentials: { username: 'evil:token' } } as any,
       NOW_MS,
     );
     expect(result.ok).toBe(false);
   });
 });
+

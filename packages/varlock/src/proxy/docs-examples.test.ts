@@ -18,20 +18,30 @@ const DOC_EXAMPLES: Record<string, string> = {
     # @sensitive
     EXCHANGE_API_KEY=some-key
   `,
-  httpBasicAttached: outdent`
+  httpBasicTokenAsUserid: outdent`
+    # ---
+    # @proxy(domain="api.stripe.com", transform={scheme="http-basic"})
+    STRIPE_SECRET_KEY=some-secret
+  `,
+  httpBasicUsernameGiven: outdent`
     # ---
     # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
     REGISTRY_PASSWORD=some-password
   `,
-  httpBasicDetached: outdent`
-    # @proxy(domain="registry.example.com", transform={
-    #   scheme="http-basic", password=$REGISTRY_PASSWORD, username=$REGISTRY_USER,
+  httpBasicPasswordGiven: outdent`
+    # ---
+    # @proxy(domain="api.github.com", transform={scheme="http-basic", password="x-oauth-basic"})
+    GH_TOKEN=some-secret
+  `,
+  httpBasicBothReferenced: outdent`
+    # @proxy(domain="api.twilio.com", transform={
+    #   scheme="http-basic", username=$TWILIO_ACCOUNT_SID, password=$TWILIO_AUTH_TOKEN,
     # })
     # ---
     # @sensitive
-    REGISTRY_PASSWORD=some-password
-
-    REGISTRY_USER=ci-bot
+    TWILIO_ACCOUNT_SID=some-sid
+    # @sensitive
+    TWILIO_AUTH_TOKEN=some-secret
   `,
 };
 
@@ -47,6 +57,7 @@ describe('docs examples load cleanly', () => {
       // no credential VALUE ever lands in rule data
       expect(JSON.stringify(rules)).not.toContain('some-secret');
       expect(JSON.stringify(rules)).not.toContain('some-password');
+      expect(JSON.stringify(rules)).not.toContain('some-sid');
     });
   }
 });

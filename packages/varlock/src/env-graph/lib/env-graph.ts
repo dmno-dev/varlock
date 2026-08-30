@@ -1333,58 +1333,60 @@ export class EnvGraph {
    * explicit.
    */
   private buildProxyTransform(obj: any, attachedItemKey: string | undefined): ProxyRuleTransform {
-    const validationError = validateProxyTransformConfig(obj, this.getProxyTransformSchemeSpecs());
-    if (validationError) throw new SchemaError(`@proxy: ${validationError}`);
-    const spec = this.proxyTransformSchemes[obj.scheme];
-    // The scheme's consumed option (its own, or the common `secretKey` name)
-    // canonicalizes to `secretKey` in rule data, and defaults to the decorated
-    // item on attached rules.
+    const spec = this.proxyTransformSchemes[obj?.scheme];
+    // Place an attached rule's decorated item BEFORE validating, so validation
+    // (and its error messages) see the config that will actually run. Schemes
+    // with several credential positions decide the placement themselves.
+    let config: Record<string, unknown> = { ...obj };
     const consumedOption = proxyTransformConsumedOptionName(spec);
-    // The consumed option arrives as a `$NAME` marker (captured pre-resolution)
-    // and canonicalizes to `secretKey`. A LITERAL on a literal-allowed consumed
-    // option (http-basic's password with secretIn="username") is ordinary
-    // config, so it stays a scheme option and the attached item supplies the
-    // secret instead.
-    const rawConsumed = obj[consumedOption];
-    const consumedRef = _.isString(rawConsumed) && rawConsumed.startsWith('$')
-      ? rawConsumed.slice(1) : undefined;
-    const secretKey = consumedRef ?? attachedItemKey;
-    if (!secretKey) {
+    if (spec && attachedItemKey) {
+      const itemRef = `$${attachedItemKey}`;
+      if (spec.placeAttachedItem) {
+        config = spec.placeAttachedItem(config, itemRef);
+      } else if (consumedOption && config[consumedOption] === undefined) {
+        config[consumedOption] = itemRef;
+      }
+    }
+
+    const validationError = validateProxyTransformConfig(config, this.getProxyTransformSchemeSpecs());
+    if (validationError) throw new SchemaError(`@proxy: ${validationError}`);
+    // Single-secret schemes need their consumed option; a detached rule has no
+    // decorated item to default it from. (Multi-position schemes state their
+    // own requirement in `validate`.)
+    if (consumedOption && config[consumedOption] === undefined) {
       throw new SchemaError(`@proxy: transform.${consumedOption} is required on a detached @proxy rule (an attached rule defaults it to the decorated item), e.g. ${consumedOption}=$SOME_ITEM`);
     }
-    const schemeOptions: Record<string, unknown> = {};
-    for (const [key, optionSpec] of Object.entries(spec.options)) {
-      if ((key === consumedOption && consumedRef !== undefined) || obj[key] === undefined) continue;
-      // List options accept a single string or an array in the schema; the
-      // runtime shape is always an array. Ref-only item options canonicalize
-      // to bare names; literal-allowed ones keep the `$` marker so the signer
-      // can tell a reference from a literal.
-      let optionValue = obj[key];
+
+    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec!.options };
+    const builtTransform: Record<string, unknown> = { scheme: config.scheme };
+    for (const [key, optionSpec] of Object.entries(optionSpecs)) {
+      if (config[key] === undefined) continue;
+      let optionValue = config[key];
       if (optionSpec.type === 'stringList') {
+        // a single string or an array in the schema; always an array at runtime
         optionValue = EnvGraph.normalizeStringList(optionValue);
       } else if (optionSpec.itemRole !== undefined && !optionSpec.literalAllowed && _.isString(optionValue)) {
+        // ref-only credential options canonicalize to bare item names;
+        // literal-allowed ones keep the `$` marker so the signer can tell a
+        // reference from a literal
         optionValue = optionValue.replace(/^\$/, '');
       }
-      schemeOptions[key] = optionValue;
+      builtTransform[key] = optionValue;
     }
-    const builtTransform = { scheme: obj.scheme, secretKey, ...schemeOptions } as ProxyRuleTransform;
-    // Item-name options must name real config items. Deliberately does NOT echo
-    // the offending value: if the author wrote a $ reference by mistake, the
-    // "unknown item" here is the item's resolved VALUE (possibly a secret).
-    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec.options };
+
+    // Every credential reference must name a real config item. Deliberately
+    // reports the item NAME only: references are captured pre-resolution, so no
+    // value is available here to leak into the message.
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
       const itemName = proxyTransformItemRefName(optionSpec, builtTransform[option]);
       if (itemName === undefined) continue;
       if (!this.configSchema[itemName]) {
-        // report the option under the name the schema author writes (the
-        // scheme's own consumed option), not the canonical secretKey field
-        const surfaceName = option === 'secretKey' ? consumedOption : option;
         throw new SchemaError(
-          `@proxy: transform.${surfaceName} references config item "${itemName}", which does not exist in this schema`,
+          `@proxy: transform.${option} references config item "${itemName}", which does not exist in this schema`,
         );
       }
     }
-    return builtTransform;
+    return builtTransform as ProxyRuleTransform;
   }
 
   /**

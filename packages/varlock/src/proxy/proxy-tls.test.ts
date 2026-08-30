@@ -985,7 +985,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
         {
           domain: [UPSTREAM_HOST],
           itemKeys: [],
-          transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: 'svc-user' },
+          transform: { scheme: 'http-basic', username: 'svc-user', password: '$API_PASSWORD' },
         },
       ],
       egressMode: 'permissive',

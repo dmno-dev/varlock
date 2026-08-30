@@ -187,6 +187,13 @@ export function proxyTransformItemRefName(optionSpec: ProxyTransformOptionSpec, 
 export type ProxyTransformSchemeSpec = {
   options: Record<string, ProxyTransformOptionSpec>;
   validate?: (config: Record<string, unknown>) => string | undefined;
+  /**
+   * Place an ATTACHED rule's decorated item into the config, as a `$NAME`
+   * reference. Defaults to filling the scheme's single consumed option when it
+   * is unset. A scheme with more than one credential position (http-basic's
+   * username/password) overrides this to decide which side the item fills.
+   */
+  placeAttachedItem?: (config: Record<string, unknown>, itemRef: string) => Record<string, unknown>;
 };
 
 /**
@@ -247,8 +254,12 @@ export type ProxyTransformSigner = (
  */
 export type ProxyRuleTransform = {
   scheme: string;
-  /** Item key whose real value the signer consumes. Never substituted. */
-  secretKey: string;
+  /**
+   * Item key whose real value the signer consumes, for schemes using the
+   * common single-secret shape (hmac, aws-sigv4). Never substituted. Schemes
+   * with their own credential positions (http-basic) carry those instead.
+   */
+  secretKey?: string;
 } & Record<string, unknown>;
 
 /**
@@ -291,9 +302,12 @@ export const PROXY_TRANSFORM_COMMON_OPTION_SPECS: Record<string, ProxyTransformO
 };
 
 /** The scheme's consumed-option name at the schema surface (see above). */
-export function proxyTransformConsumedOptionName(spec: ProxyTransformSchemeSpec | undefined): string {
-  const own = spec ? Object.entries(spec.options).find(([, optionSpec]) => optionSpec.itemRole === 'consumed') : undefined;
-  return own?.[0] ?? 'secretKey';
+export function proxyTransformConsumedOptionName(spec: ProxyTransformSchemeSpec | undefined): string | undefined {
+  const own = spec ? Object.entries(spec.options).filter(([, optionSpec]) => optionSpec.itemRole === 'consumed') : [];
+  if (own.length === 1) return own[0][0];
+  // no own consumed option = the scheme uses the common `secretKey`; more than
+  // one = the scheme places credentials itself (see placeAttachedItem)
+  return own.length === 0 ? 'secretKey' : undefined;
 }
 
 const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
@@ -330,55 +344,40 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
 export type ProxyRuleHttpBasicTransform = {
   scheme: 'http-basic';
   /**
-   * Item key holding the secret (the password, or with `secretIn="username"`
-   * the token that occupies the userid). Consumed, never substituted. In the
-   * schema this option is written as `password=$ITEM` (the scheme's own
-   * consumed option); rule data canonicalizes to `secretKey`.
-   */
-  secretKey: string;
-  /**
-   * Only with `secretIn="username"`: a literal password for the (non-secret)
-   * password side. Default empty.
-   */
-  password?: string;
-  /**
-   * The username: a literal, or an item reference kept as a `$NAME` marker
-   * (the proxy resolves the item's value at sign time). Omitted = empty
-   * username. Unused when `secretIn="username"`.
+   * The userid: a literal, or a `$NAME` marker for a consumed credential the
+   * proxy resolves at sign time. Omitted = empty userid.
    */
   username?: string;
-  /**
-   * Which side of the `user:password` pair the secret occupies. Default
-   * `password`. Some APIs take a single token as the userid with an empty
-   * password (`curl -u "token:"`); use `secretIn="username"` for those.
-   */
-  secretIn?: 'password' | 'username';
+  /** The password, same forms as `username`. Omitted = empty password. */
+  password?: string;
 };
 
 const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
   options: {
-    // The scheme's own consumed option, replacing the generic `secretKey` name
-    // at the schema surface. Takes the ITEM NAME holding the password - never a
-    // literal password (put a static password in an item if an API needs one).
-    // $ITEM reference to the secret. With secretIn="username" a plain literal
-    // is also allowed: the consumed secret occupies the userid there, so the
-    // password side becomes ordinary config (GitHub-style TOKEN:x-oauth-basic).
+    // The two credential positions, symmetric: each takes a literal (ordinary
+    // config, e.g. a service-account name or a fixed `x-oauth-basic` password)
+    // or a `$ITEM` reference, which is a consumed credential the proxy resolves
+    // at sign time.
+    username: { type: 'string', itemRole: 'consumed', literalAllowed: true },
     password: { type: 'string', itemRole: 'consumed', literalAllowed: true },
-    // literal, or $ITEM reference (resolved by the proxy at sign time)
-    username: { type: 'string', itemRole: 'wire', literalAllowed: true },
-    secretIn: { type: 'enum', enumValues: ['password', 'username'] },
+  },
+  // The decorated item fills whichever side was left unset. With neither given
+  // it is the userid: a single-credential Basic API almost always sends the
+  // token as the userid with an empty password (`curl -u "token:"`). An empty
+  // userid with a secret password is vanishingly rare and is written
+  // explicitly as `username=""`.
+  placeAttachedItem: (config, itemRef) => {
+    if (config.username === undefined) return { ...config, username: itemRef };
+    if (config.password === undefined) return { ...config, password: itemRef };
+    return config;
   },
   validate: (config) => {
-    const passwordIsLiteral = typeof config.password === 'string' && !config.password.startsWith('$');
-    if (config.secretIn === 'username') {
-      if (config.username !== undefined) {
-        return 'transform.username cannot be set when secretIn="username" (the consumed secret occupies the username position)';
-      }
-    } else if (passwordIsLiteral) {
-      return 'transform.password must be a reference to a config item, e.g. password=$REGISTRY_PASSWORD (a literal here would be a credential embedded in the schema). A literal password is only allowed with secretIn="username", where the secret occupies the username position';
+    const isRef = (val: unknown) => typeof val === 'string' && val.startsWith('$');
+    if (!isRef(config.username) && !isRef(config.password)) {
+      return 'transform needs a credential: reference the item holding the secret with username=$SOME_ITEM or password=$SOME_ITEM. On an attached rule the decorated item fills whichever side you leave unset (the userid when you set neither)';
     }
     // RFC 7617: the userid may not contain a colon (it delimits user:password).
-    if (typeof config.username === 'string' && config.username.includes(':')) {
+    if (typeof config.username === 'string' && !isRef(config.username) && config.username.includes(':')) {
       return 'transform.username cannot contain ":" (it separates the username from the password in Basic auth)';
     }
     return undefined;
@@ -469,8 +468,10 @@ export function validateProxyTransformConfig(
     const val = obj[key];
     if (val === undefined) continue;
     if (optionSpec.itemRole !== undefined) {
-      if (typeof val !== 'string' || !val.trim()) return `transform.${key} must reference a config item, e.g. ${key}=$SOME_ITEM`;
+      if (typeof val !== 'string') return `transform.${key} must be a string`;
       const isRef = /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(val);
+      // A literal is only ordinary config where the scheme allows one; an empty
+      // literal is meaningful there (an explicitly empty Basic userid).
       if (!isRef && !optionSpec.literalAllowed) {
         return `transform.${key} must be a reference to a config item, e.g. ${key}=$SOME_ITEM (a literal value here would be a credential embedded in the schema)`;
       }

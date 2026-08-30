@@ -480,57 +480,76 @@ describe('proxy decorators', () => {
     expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /cannot target the "content-length" header/.test(e.message))).toBe(true);
   });
 
-  test('http-basic transform: username takes a literal or a $REF (captured as a marker, never resolved)', async () => {
-    const graph = await loadGraph(outdent`
+  test('http-basic: the decorated item fills the side left unset (userid when neither is given)', async () => {
+    // neither given: the item is the userid with an empty password
+    // (curl -u "token:", the single-credential Basic convention)
+    const bare = await loadGraph(outdent`
       # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username=$API_USER})
-      API_PASSWORD=real-password
-
-      # @sensitive
-      API_USER=svc-user
+      # @proxy(domain="api.stripe.com", transform={scheme="http-basic"})
+      STRIPE_SECRET_KEY=sk_live_real
     `);
-    expect(await graph.getProxyRules()).toMatchObject([
-      {
-        domain: ['api.legacy.com'],
-        // the referenced username item is wire-role: managed + substitutable
-        itemKeys: ['API_USER'],
-        // captured as a $NAME marker; the proxy resolves the value at sign time
-        transform: { scheme: 'http-basic', secretKey: 'API_PASSWORD', username: '$API_USER' },
-      },
-    ]);
+    expect(await bare.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: '$STRIPE_SECRET_KEY' } }]);
 
-    const secretInBuilds = await loadGraph(outdent`
+    // username given: the item is the password
+    const withUsername = await loadGraph(outdent`
       # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", secretIn="username"})
-      API_TOKEN=the-token
-    `);
-    expect(await secretInBuilds.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', secretKey: 'API_TOKEN', secretIn: 'username' } }]);
-
-    const bothForms = await loadGraph(outdent`
-      # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", secretIn="username", username="u"})
-      API_TOKEN=the-token
-    `);
-    await expect(bothForms.getProxyRules()).rejects.toThrow(/username cannot be set when secretIn="username"/);
-
-    const colonUser = await loadGraph(outdent`
-      # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username="a:b"})
-      API_PASSWORD=real-password
-    `);
-    await expect(colonUser.getProxyRules()).rejects.toThrow(/cannot contain ":"/);
-  });
-
-  test('http-basic: detached rules pass the password as a $REF; secretKey= is rejected', async () => {
-    const detached = await loadGraph(outdent`
-      # @proxy(domain="registry.example.com", transform={scheme="http-basic", password=$REGISTRY_PASSWORD, username="ci-bot"})
-      # ---
-      # @sensitive
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
       REGISTRY_PASSWORD=real-password
     `);
-    expect(await detached.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', secretKey: 'REGISTRY_PASSWORD', username: 'ci-bot' } }]);
+    expect(await withUsername.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: 'ci-bot', password: '$REGISTRY_PASSWORD' } }]);
 
-    // the generic secretKey name is replaced by the scheme's own password option
+    // password given (a literal): the item is the userid (GitHub style)
+    const withPassword = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.github.com", transform={scheme="http-basic", password="x-oauth-basic"})
+      GH_TOKEN=the-token
+    `);
+    expect(await withPassword.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: '$GH_TOKEN', password: 'x-oauth-basic' } }]);
+
+    // an explicitly empty userid pushes the item to the password side
+    const emptyUsername = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username=""})
+      LEGACY_PASSWORD=real-password
+    `);
+    expect(await emptyUsername.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: '', password: '$LEGACY_PASSWORD' } }]);
+  });
+
+  test('http-basic: both sides can be references, and both become consumed credentials', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.twilio.com", transform={
+      #   scheme="http-basic", username=$TWILIO_SID, password=$TWILIO_AUTH_TOKEN,
+      # })
+      # ---
+      # @sensitive
+      TWILIO_SID=the-sid
+      # @sensitive
+      TWILIO_AUTH_TOKEN=the-token
+    `);
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      {
+        // neither is substitutable: both are consumed by the signer
+        itemKeys: [],
+        transform: { scheme: 'http-basic', username: '$TWILIO_SID', password: '$TWILIO_AUTH_TOKEN' },
+      },
+    ]);
+    // both are managed (placeholder in the child env), values never in rule data
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((item) => item.key).sort()).toEqual(['TWILIO_AUTH_TOKEN', 'TWILIO_SID']);
+    expect(JSON.stringify(rules)).not.toContain('the-sid');
+    expect(JSON.stringify(rules)).not.toContain('the-token');
+  });
+
+  test('http-basic: a detached rule needs at least one credential reference', async () => {
+    const noCredential = await loadGraph(outdent`
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
+      # ---
+      BASELINE=1
+    `);
+    await expect(noCredential.getProxyRules()).rejects.toThrow(/transform needs a credential/);
+
+    // the generic secretKey name is not part of this scheme's surface
     const secretKeyName = await loadGraph(outdent`
       # @proxy(domain="registry.example.com", transform={scheme="http-basic", secretKey=$REGISTRY_PASSWORD})
       # ---
@@ -541,15 +560,15 @@ describe('proxy decorators', () => {
   });
 
   test('credential options require $ references; refs never resolve; unknown targets fail loudly', async () => {
-    // a literal on a credential option is rejected (at resolve time, since for
-    // http-basic its legality depends on secretIn)
+    // hmac's secretKey is ref-only: a literal there is a credential in the schema
     const literalSecret = await loadGraph(outdent`
-      # @defaultSensitive=false
+      # @proxy(domain="api.a.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig", secretKey="hunter2",
+      # })
       # ---
-      # @proxy(domain="api.a.com", transform={scheme="http-basic", password="hunter2"})
-      API_PASSWORD=real-password
+      BASELINE=1
     `);
-    await expect(literalSecret.getProxyRules()).rejects.toThrow(/transform\.password must be a reference to a config item/);
+    await expect(literalSecret.getProxyRules()).rejects.toThrow(/transform\.secretKey must be a reference to a config item/);
 
     // plugin schemes (unknown to the static pass) get the same error at resolve time
     const pluginLiteral = await loadGraph(outdent`

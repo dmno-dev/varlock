@@ -145,30 +145,22 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
 };
 
 /**
- * The HTTP Basic signer: writes `Authorization: Basic base64(user:secret)`
+ * The HTTP Basic signer: writes `Authorization: Basic base64(user:password)`
  * with the REAL values, overwriting whatever the child sent (its own header
  * encodes a placeholder, which base64 hides from substitution entirely).
- * `secretIn="username"` puts the secret in the userid position with an empty
- * password, for single-token APIs.
+ * Either side may be the credential, so this covers a secret password, a
+ * token-as-userid (`curl -u "token:"`), and both-sides-secret alike.
  */
 const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
-  const secret = input.credentials.secretKey;
-  // a `$NAME`-marked username is an item reference, resolved into credentials
-  let userid = '';
-  if (typeof basicTransform.username === 'string') {
-    userid = basicTransform.username.startsWith('$')
-      ? input.credentials.username ?? ''
-      : basicTransform.username;
-  }
-  let password = secret;
-  if (basicTransform.secretIn === 'username') {
-    userid = secret;
-    // an optional LITERAL password rides along (default empty); the secret
-    // itself is in the userid position
-    password = typeof basicTransform.password === 'string' && !basicTransform.password.startsWith('$')
-      ? basicTransform.password : '';
-  }
+  // Each side is a literal, or a `$NAME` marker whose real value the runtime
+  // resolved into credentials under the same option name.
+  const resolveSide = (configured: string | undefined, option: 'username' | 'password') => {
+    if (typeof configured !== 'string') return '';
+    return configured.startsWith('$') ? input.credentials[option] ?? '' : configured;
+  };
+  const userid = resolveSide(basicTransform.username, 'username');
+  const password = resolveSide(basicTransform.password, 'password');
   // RFC 7617: a colon in the userid would shift the user/password split.
   if (userid.includes(':')) {
     return { ok: false, error: 'the Basic auth username contains ":", which is not allowed (it separates username from password)' };

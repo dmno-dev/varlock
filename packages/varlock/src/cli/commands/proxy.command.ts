@@ -2373,7 +2373,9 @@ async function rulesAction(ctx: any) {
       // A block rule denies the request, so it never injects — don't imply otherwise.
       if (rule.itemKeys.length && !rule.block) parts.push(`→ inject ${ansis.yellow(rule.itemKeys.join(', '))}`);
       if (rule.transform && !rule.block) {
-        parts.push(`→ sign ${ansis.yellow(rule.transform.scheme)} ${ansis.dim(`(secret: ${rule.transform.secretKey})`)}`);
+        const consumedKeys = envGraph.getTransformRoleKeys(rule.transform, 'consumed');
+        const secretNote = consumedKeys.length ? ` ${ansis.dim(`(secret: ${consumedKeys.join(', ')})`)}` : '';
+        parts.push(`→ sign ${ansis.yellow(rule.transform.scheme)}${secretNote}`);
       }
       console.log(`  • ${parts.filter(Boolean).join('  ')}`);
     }
