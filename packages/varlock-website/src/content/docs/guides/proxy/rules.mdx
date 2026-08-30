@@ -67,9 +67,9 @@ Even in `permissive` mode, if a request carries a placeholder that **no rule inj
 
 ### Substitution surface
 
-Matching a rule decides **which host** a secret may go to. `substituteIn` decides **where inside the request** the placeholder gets swapped for the real value, and each place you name is worth exactly one swap. This exists because the proxy substitutes by finding the placeholder in the outbound bytes: without limits, an agent that was prompt-injected could place the placeholder somewhere the real value then leaks. The classic case is a request to an allowed host that forwards the value onward, e.g. asking a mail API to send an email whose body contains the placeholder.
+Matching a rule decides **which host** a secret may go to. `substituteIn` decides **where inside the request** the placeholder is swapped for the real value, and each place you name is worth one swap. Without that, a prompt-injected agent could put the placeholder somewhere the real value then leaks: the classic case is asking a mail API on an allowed host to send an email whose body contains it.
 
-**`substituteIn`, where the swap may happen.** By default a secret is only substituted into request **headers** (any header). That covers the common case, since most APIs authenticate with an `Authorization` or `X-Api-Key` header. If the placeholder shows up in a part of the request the rule has no targets on (the body, say, under the header-only default), that occurrence is **skipped**: the part is never rewritten, and the request is forwarded with the literal placeholder still in place, which is harmless because an unswapped placeholder is just an inert string. This happens routinely in agent sessions, for example when an agent echoes its own env var and the placeholder ends up quoted in the conversation transcript it sends with every API call. Each skipped occurrence is recorded as a `skipped-placeholder` event in the [audit log](/guides/proxy/running/#auditing) (the item key and where it was found), so anything probing at the secret stays visible. Targets can be as broad or as specific as you want:
+By default a secret is only substituted into request **headers** (any header), which covers most APIs. Targets can be as broad or as specific as you want:
 
 | Target | Allows substitution in |
 |---|---|
@@ -81,9 +81,13 @@ Matching a rule decides **which host** a secret may go to. `substituteIn` decide
 | `body:client_secret` | only the value at that body path (see below) |
 | `body:*` | anywhere in the body (escape hatch for unparseable bodies, see below) |
 
-Pin as tightly as the API allows: with `header:authorization` the secret is only ever swapped into that one header (some providers forward custom headers onward), and a body path pins it to the one field it belongs in. A placeholder anywhere outside the targets stays an inert placeholder.
+Pin as tightly as the API allows: `header:authorization` keeps the secret out of every other header (some providers forward custom ones onward), and a body path pins it to one field.
 
-The bare `header` default still excludes a handful of headers that are never a legitimate secret and are common forward/log sinks: `cookie`, `host`, `x-forwarded-*`, `forwarded`, `via`, `referer`, `origin`, and `user-agent`. A placeholder landing in one of those is skipped (left unsubstituted) even under the any-header default. If an API genuinely authenticates through one (a session cookie, say), name it explicitly with `substituteIn=[header:cookie]` and the explicit target wins.
+The bare `header` default excludes headers that are never a legitimate secret and are common forward/log sinks: `cookie`, `host`, `x-forwarded-*`, `forwarded`, `via`, `referer`, `origin`, and `user-agent`. If an API really authenticates through one, name it explicitly (`substituteIn=[header:cookie]`) and the explicit target wins.
+
+**Placeholders outside your targets are left alone.** An occurrence in a part of the request no target covers (the body, under the header-only default) is **skipped**: those bytes are never rewritten, and the request is forwarded with the literal placeholder, which is inert. This is routine with agents, which quote their own env var into the conversation transcript they send with every call. Each skipped occurrence is logged as a `skipped-placeholder` [audit event](/guides/proxy/running/#auditing) naming the item and where it was found, so probing stays visible.
+
+**Body substitution always requires a path.** `substituteIn=[body]` is a schema error, deliberately: "anywhere in the body" is the easiest surface to exfiltrate from, and a placeholder placed once in the wrong field would pass any count check. A path is a dotted path into a JSON body (`client_secret`, `data.token`, `items[0].key`) or a field name in an `application/x-www-form-urlencoded` body. The content type selects the parser, and a body that can't be parsed as declared fails closed.
 
 ```env-spec title=".env.schema"
 # OAuth token exchange carries the secret in a form field:
@@ -91,15 +95,9 @@ The bare `header` default still excludes a handful of headers that are never a l
 CLIENT_SECRET=yourPreferredPlugin()
 ```
 
-**Body substitution always requires a path.** There is no bare `body` target: `substituteIn=[body]` is a schema error. This is deliberate. "Anywhere in the body" is the easiest surface to exfiltrate from (the email-body attack above), and a count limit alone doesn't close it: the placeholder placed **once** in the wrong field would still pass. Naming the path (`body:client_secret`) is what actually pins the secret to the field it belongs in.
+For a body varlock can't parse into a path (XML/SOAP, protobuf, plain text, a signed blob), `body:*` allows the placeholder anywhere in it. That reopens the surface a path exists to close, so scope the rule tightly with `path` and `method`, and don't use it on an endpoint that echoes, forwards, or stores body content.
 
-A body path is a dotted path into a JSON body (`client_secret`, `data.token`, `items[0].key`) or a field name in an `application/x-www-form-urlencoded` body. The content type selects the parser; a body that can't be parsed as declared fails closed.
-
-For a body format varlock can't parse into a path (XML/SOAP, protobuf, plain text, a signed blob), use the wildcard `body:*`. It allows the placeholder anywhere in the body, so it reopens the "anywhere in the body" surface: only reach for it when a path won't work, and scope the rule tightly with `path` and `method` to the one endpoint that needs it. Don't use it on an endpoint that echoes, forwards, or stores body content (a mail-send or note-create endpoint), where it would let a secret leak.
-
-**One substitution per target.** Each target you list is worth exactly one swap per request. A second occurrence at the *same* target is treated as an exfiltration attempt (duplicate the token into an attacker-visible field while still making a working call) and the request is blocked, because the proxy has no way to tell which copy is the real use. Skipped occurrences belong to no target, so they never count.
-
-Since the budget is per target, an API that carries the secret in two places just needs both places named, with nothing else to configure:
+**One substitution per target.** A second occurrence at the *same* target is blocked, since the proxy can't tell the real use from an exfiltration copy. Skipped occurrences belong to no target, so they never count against it. Note that the bare `header` target is a single target covering every header, so the default allows the secret in one header, not one per header. An API that carries it in two places just names both, which tightens the rule rather than loosening it:
 
 ```env-spec title=".env.schema"
 # One substitution in the auth header, one in the body's signature field:
@@ -107,14 +105,10 @@ Since the budget is per target, an API that carries the secret in two places jus
 SIGNING_KEY=yourPreferredPlugin()
 ```
 
-Note that the bare `header` target is a *single* target covering every header, so under the default the secret may be substituted into one header, not one per header. For an API that wants it in two headers, name them: `substituteIn=["header:authorization", "header:x-api-key"]`. Naming the second place is always the fix, and it tightens the rule rather than loosening it.
+Two things still fail closed, and both return a `403` naming the item, where the placeholder was found, and how to adjust the rule:
 
-**When the proxy still blocks.** Skipping only applies to surfaces the rule has no targets on. Two cases fail closed:
-
-- **Off-path occurrences inside a targeted body or query.** When a rule has a `body:<path>` (or `query:<param>`) target and the placeholder also shows up at a different path or param in that same body or query, the request is blocked. Substitution within a targeted surface is a single find-and-replace across it, so a stray occurrence there would either receive the real value or require rewriting the body to skip it.
-- **A repeat at one target**, as above: two copies at the same target are ambiguous about which is the real use, so the request is blocked rather than substituting both.
-
-Blocked requests get a `403` naming the item, where the placeholder was found, and how to adjust the rule if the placement is legitimate.
+- **A repeat at one target**, as above.
+- **An occurrence off the named spot inside a targeted body or query.** With a `body:<path>` or `query:<param>` target, substitution is one find-and-replace across that whole surface, so a stray occurrence elsewhere in it can't be skipped without rewriting the body.
 
 ## Controlling what the agent sees
 
