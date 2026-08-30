@@ -29,6 +29,7 @@ public enum Ecies {
         case payloadTooShort
         case unsupportedVersion(UInt8)
         case malformedPrivateKey(String)
+        case malformedPublicKey(String)
         case decryptionFailed(String)
 
         public var errorDescription: String? {
@@ -36,9 +37,41 @@ public enum Ecies {
             case .payloadTooShort: return "Payload too short"
             case .unsupportedVersion(let v): return "Unsupported encrypted payload version \(v); upgrade varlock"
             case .malformedPrivateKey(let msg): return "Malformed private key: \(msg)"
+            case .malformedPublicKey(let msg): return "Malformed recipient public key: \(msg)"
             case .decryptionFailed(let msg): return "Unable to decrypt value: \(msg)"
             }
         }
+
+        /// Stable code the TS client can branch on without matching message text.
+        public var code: String {
+            switch self {
+            case .payloadTooShort: return "PAYLOAD_TOO_SHORT"
+            case .unsupportedVersion: return "PAYLOAD_VERSION_UNSUPPORTED"
+            case .malformedPrivateKey: return "MALFORMED_PRIVATE_KEY"
+            case .malformedPublicKey: return "MALFORMED_PUBLIC_KEY"
+            case .decryptionFailed: return "DECRYPTION_FAILED"
+            }
+        }
+    }
+
+    /// Validate a recipient public key up front.
+    ///
+    /// Callers that are about to do something slow or interactive use this so a
+    /// bad key is an immediate error rather than something found out after a
+    /// dialog has been put in front of somebody.
+    public static func recipientPublicKeyData(base64: String) throws -> Data {
+        guard let data = Data(base64Encoded: base64) else {
+            throw EciesError.malformedPublicKey("not valid base64")
+        }
+        guard data.count == publicKeyLength else {
+            throw EciesError.malformedPublicKey("expected \(publicKeyLength) bytes, got \(data.count)")
+        }
+        do {
+            _ = try P256.KeyAgreement.PublicKey(x963Representation: data)
+        } catch {
+            throw EciesError.malformedPublicKey("not a P-256 public key")
+        }
+        return data
     }
 
     // MARK: - HKDF

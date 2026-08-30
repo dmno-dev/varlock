@@ -9,6 +9,10 @@
  * the biometric handoff itself to `probe-session-unlock`, which does need a real
  * finger.
  *
+ * It also covers the authorization log (that it is written, that it grows, that
+ * it holds no secrets, and that a decrypt is denied when it cannot be written),
+ * and restarts the daemon to prove that no grant survives it.
+ *
  * The approval panel is covered here only in its refusing form. A second daemon
  * runs with `_VARLOCK_UI_MODE=headless` and `_VARLOCK_FORCE_UNLOCK_PROMPT=1`,
  * which together say "a question is required and there is no screen to ask on",
@@ -44,6 +48,21 @@ const IDENTITY_ID = 'default';
 const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-e2e-'));
 const env = { ...process.env, XDG_CONFIG_HOME: configHome };
 const socketPath = path.join(configHome, 'daemon.sock');
+const auditPath = path.join(configHome, 'varlock', 'audit', 'authorizations.jsonl');
+
+/** Permission bits as a three-digit octal string, e.g. "600". */
+function permissionsOf(target: string): string {
+  return (fs.statSync(target).mode % 0o1000).toString(8).padStart(3, '0');
+}
+
+/** Every authorization record written so far, oldest first. */
+function readAudit(): Array<any> {
+  if (!fs.existsSync(auditPath)) return [];
+  return fs.readFileSync(auditPath, 'utf-8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line));
+}
 
 let failures = 0;
 function check(label: string, condition: boolean, detail?: unknown) {
@@ -93,7 +112,12 @@ class Client {
     }
   }
 
-  send(action: string, payload?: Record<string, unknown>): Promise<any> {
+  /**
+   * `timeoutMs` is per call. Anything that must answer without drawing UI gets a
+   * short one: a check that only ever passes because it timed out is a check
+   * that stopped testing anything.
+   */
+  send(action: string, payload?: Record<string, unknown>, opts: { timeoutMs?: number } = {}): Promise<any> {
     const id = Math.random().toString(36).slice(2);
     const body = Buffer.from(JSON.stringify({ id, action, payload }), 'utf-8');
     const prefix = Buffer.alloc(4);
@@ -101,8 +125,10 @@ class Client {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       setTimeout(() => {
-        if (this.pending.delete(id)) reject(new Error(`timed out waiting for ${action}`));
-      }, 30_000);
+        if (this.pending.delete(id)) {
+          reject(Object.assign(new Error(`timed out waiting for ${action}`), { code: 'E2E_TIMEOUT' }));
+        }
+      }, opts.timeoutMs ?? 30_000);
       this.socket.write(Buffer.concat([prefix, body]));
     });
   }
@@ -112,12 +138,16 @@ class Client {
   }
 }
 
-async function expectError(label: string, fn: () => Promise<unknown>, expectedCode?: string) {
+/**
+ * Every call here names the code it expects. Accepting any failure would let a
+ * timeout, a crashed daemon, or a dialog nobody can dismiss count as a pass.
+ */
+async function expectError(label: string, fn: () => Promise<unknown>, expectedCode: string) {
   try {
     const result = await fn();
     check(label, false, { unexpectedSuccess: result });
   } catch (err: any) {
-    check(label, expectedCode === undefined || err.code === expectedCode, { code: err.code, message: err.message });
+    check(label, err.code === expectedCode, { expected: expectedCode, code: err.code, message: err.message });
   }
 }
 
@@ -172,9 +202,21 @@ async function startDaemon(opts: { socket: string; label: string; extraEnv?: Rec
   return daemon;
 }
 
-const daemon = await startDaemon({ socket: socketPath, label: 'daemon' });
+async function stopDaemon(child: ReturnType<typeof spawn>) {
+  const exited = new Promise<void>((resolve) => {
+    child.once('exit', () => resolve());
+  });
+  child.kill('SIGTERM');
+  await Promise.race([
+    exited, new Promise((resolve) => {
+      setTimeout(resolve, 5_000);
+    }),
+  ]);
+}
 
-const client = new Client();
+let daemon = await startDaemon({ socket: socketPath, label: 'daemon' });
+
+let client = new Client();
 await client.connect();
 
 // A second daemon, started later, that cannot draw anything.
@@ -220,6 +262,53 @@ try {
   check('single-ciphertext form works', second.plaintexts?.[0] === SECRETS[0], second);
   check('session grant survives repeated use', second.grant?.useCount === 2, second.grant);
 
+  console.log('\nauthorization log');
+  check('audit file exists after the first decrypt', fs.existsSync(auditPath), auditPath);
+  const auditAfterDecrypts = readAudit();
+  check('records the unlock and both decrypts', auditAfterDecrypts.length >= 3, auditAfterDecrypts.length);
+  const decryptRecords = auditAfterDecrypts.filter((r) => r.event === 'decrypt-v2');
+  check('decrypt records name the key and payload count', decryptRecords.some(
+    (r) => r.keyIds?.[0] === KEY_ID && r.payloadCount === SECRETS.length,
+  ), decryptRecords);
+  check('records carry the session identity', decryptRecords.every((r) => r.sessionId === sessionId), decryptRecords);
+  check('records carry the scope used', decryptRecords.every((r) => r.scope === 'session'), decryptRecords);
+  check('records describe the requester', decryptRecords.every(
+    (r) => typeof r.requester === 'string' && r.requester.length > 0,
+  ), decryptRecords);
+  check('unlock is recorded too', auditAfterDecrypts.some((r) => r.event === 'unlock-session'), auditAfterDecrypts);
+  check('audit file is owner-only', permissionsOf(auditPath) === '600', permissionsOf(auditPath));
+  check(
+    'audit directory is owner-only',
+    permissionsOf(path.dirname(auditPath)) === '700',
+    permissionsOf(path.dirname(auditPath)),
+  );
+
+  const rawAudit = fs.readFileSync(auditPath, 'utf-8');
+  check('no plaintext in the log', !SECRETS.some((secret) => secret.length > 0 && rawAudit.includes(secret)));
+  check('no key material in the log', !rawAudit.includes(identityKeyPair.privateKey.slice(0, 24)));
+  check('no ciphertext in the log', !rawAudit.includes(payloads[0].slice(0, 24)));
+
+  const beforeGrowth = readAudit().length;
+  await client.send('decrypt-v2', { keyId: KEY_ID, ciphertext: payloads[0] });
+  check('the log grows with each authorization', readAudit().length === beforeGrowth + 1, readAudit().length);
+
+  console.log('\nauthorization log that cannot be written');
+  // Nothing is decrypted that cannot be accounted for, so making the log
+  // unwritable has to deny rather than degrade to silence.
+  fs.chmodSync(auditPath, 0o400);
+  await expectError('decrypt is denied when the record cannot be written', () => client.send('decrypt-v2', {
+    keyId: KEY_ID, ciphertexts: [payloads[0]],
+  }), 'AUDIT_WRITE_FAILED');
+  await expectError('unlock is denied too', () => client.send('unlock-session', {
+    keyIds: [KEY_ID], scope: 'session',
+  }), 'AUDIT_WRITE_FAILED');
+  check('a denied unlock leaves no grant behind', (await client.send('list-sessions')).sessions.length === 0);
+
+  fs.chmodSync(auditPath, 0o600);
+  await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  const recovered = await client.send('decrypt-v2', { keyId: KEY_ID, ciphertexts: [payloads[0]] });
+  check('decrypt works again once the log does', recovered.plaintexts?.[0] === SECRETS[0], recovered);
+
   console.log('\nwrong key id');
   await expectError('refused for a key with no grant', () => client.send('decrypt-v2', {
     keyId: 'some-other-key', ciphertexts: [payloads[0]],
@@ -261,10 +350,18 @@ try {
   }), 'SESSION_GRANT_EXPIRED');
 
   console.log('\nprompt-secret shape');
-  await expectError('rejects a malformed identity public key', () => client.send('prompt-secret', {
+  // The recipient key is checked before any dialog is drawn, so this has to come
+  // back immediately. The short timeout is the assertion: if a dialog ever gets
+  // in front of this call again, the check fails in a second instead of quietly
+  // passing on the timeout half a minute later.
+  await expectError('rejects a malformed identity public key without prompting', () => client.send('prompt-secret', {
     identityPublicKey: 'not base64 at all!!',
     message: 'e2e should never see this dialog',
-  }));
+  }, { timeoutMs: 3_000 }), 'MALFORMED_PUBLIC_KEY');
+  await expectError('rejects a well-formed base64 that is not a key', () => client.send('prompt-secret', {
+    identityPublicKey: Buffer.from('still not a p-256 point').toString('base64'),
+    message: 'e2e should never see this dialog',
+  }, { timeoutMs: 3_000 }), 'MALFORMED_PUBLIC_KEY');
 
   console.log('\nunknown identity');
   await expectError('reports a missing identity clearly', () => client.send('unlock-session', {
@@ -338,9 +435,44 @@ try {
     title: 'Use the deploy token?', allowedScopes: ['forever'],
   }), 'APPROVAL_NO_SCOPES');
   check('approval never touches the grant table', (await headlessClient.send('list-sessions')).sessions.length === 0);
+
+  // -- sessions die with the daemon --
+
+  console.log('\ndaemon restart');
+  // The whole design rests on session material being memory-only: a
+  // session-wrapped blob that survived a restart, plus a session key with no
+  // presence requirement, would reopen silently after a reboot. So the death is
+  // asserted rather than assumed.
+  await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  check('a grant is live before the restart', (await client.send('list-sessions')).sessions.length === 1);
+  const auditBeforeRestart = readAudit().length;
+
+  client.close();
+  await stopDaemon(daemon);
+
+  daemon = await startDaemon({ socket: socketPath, label: 'daemon-2' });
+  client = new Client();
+  await client.connect();
+
+  const afterRestart = await client.send('ping');
+  check('the same session identity comes back', afterRestart.sessionId === sessionId, afterRestart);
+  check('no grant survived the restart', (await client.send('list-sessions')).sessions.length === 0);
+  await expectError('decrypt is refused after a restart', () => client.send('decrypt-v2', {
+    keyId: KEY_ID, ciphertexts: [payloads[0]],
+  }), 'NO_SESSION_GRANT');
+
+  // The sessions are gone; the record of them is not.
+  check('the authorization log survives the restart', readAudit().length >= auditBeforeRestart, readAudit().length);
+
+  await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  const reopened = await client.send('decrypt-v2', { keyId: KEY_ID, ciphertexts: [payloads[0]] });
+  check('unlocking again works after a restart', reopened.plaintexts?.[0] === SECRETS[0], reopened);
 } finally {
   client.close();
   headlessClient?.close();
+  // The audit file may have been left read-only by the denial checks, and the
+  // scratch directory has to be removable either way.
+  if (fs.existsSync(auditPath)) fs.chmodSync(auditPath, 0o600);
   daemon.kill('SIGTERM');
   headlessDaemon?.kill('SIGTERM');
   await new Promise((resolve) => {

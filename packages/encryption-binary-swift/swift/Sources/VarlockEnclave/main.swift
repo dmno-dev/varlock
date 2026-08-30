@@ -43,6 +43,8 @@ func identityErrorResponse(_ error: Error) -> [String: Any] {
         response["errorCode"] = approvalError.code
     } else if let auditError = error as? AuthorizationAuditError {
         response["errorCode"] = auditError.code
+    } else if let eciesError = error as? Ecies.EciesError {
+        response["errorCode"] = eciesError.code
     }
     return response
 }
@@ -372,9 +374,23 @@ case "daemon":
             let itemKey = promptPayload?["itemKey"] as? String
             let promptMessage = promptPayload?["message"] as? String
                 ?? "Enter the secret value to encrypt:"
+            let promptKeyId = (promptPayload?["keyId"] as? String) ?? defaultKeyId
+
+            // Check the recipient key before drawing anything. Finding out after
+            // the dialog means the user types a secret into a prompt that was
+            // never going to work, and leaves a modal on screen with nobody to
+            // dismiss it if the caller was a script.
+            var identityPublicKey: Data?
+            if let identityPublicKeyB64 = promptPayload?["identityPublicKey"] as? String {
+                do {
+                    identityPublicKey = try Ecies.recipientPublicKeyData(base64: identityPublicKeyB64)
+                } catch {
+                    return identityErrorResponse(error)
+                }
+            }
 
             guard let value = SecureInputDialog.prompt(
-                title: "Varlock — Enter Secret",
+                title: "Varlock: Enter Secret",
                 message: promptMessage,
                 itemKey: itemKey
             ) else {
@@ -382,19 +398,15 @@ case "daemon":
             }
 
             // Encrypt the entered value immediately
-            let promptKeyId = (promptPayload?["keyId"] as? String) ?? defaultKeyId
             guard let valueData = value.data(using: .utf8) else {
                 return ["error": "Value is not valid UTF-8"]
             }
 
             do {
                 let encrypted: Data
-                if let identityPublicKeyB64 = promptPayload?["identityPublicKey"] as? String {
+                if let identityPublicKey {
                     // Encrypt to the identity here, so only ciphertext crosses the
                     // socket and the value never exists outside this process.
-                    guard let identityPublicKey = Data(base64Encoded: identityPublicKeyB64) else {
-                        return ["error": "Invalid base64 identityPublicKey"]
-                    }
                     encrypted = try Ecies.encrypt(
                         plaintext: valueData,
                         toPublicKeyData: identityPublicKey,
