@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import IdentitySessions
+import SessionScoping
 
 // MARK: - JSON Output Helpers
 
@@ -38,6 +39,8 @@ func identityErrorResponse(_ error: Error) -> [String: Any] {
         response["errorCode"] = storeError.code
     } else if let sessionError = error as? IdentitySessionManager.IdentitySessionError {
         response["errorCode"] = sessionError.code
+    } else if let approvalError = error as? ApprovalRequest.ParseError {
+        response["errorCode"] = approvalError.code
     }
     return response
 }
@@ -69,8 +72,9 @@ let noAuth = args.contains("--no-auth") // CI mode: skip biometric requirement
 ///
 /// 1 (reported as absent) is the original action set. 2 adds the identity session
 /// ops: unlock-session, decrypt-v2, list-sessions, and the per-session form of
-/// invalidate-session.
-let daemonProtocolVersion = 2
+/// invalidate-session. 3 adds the daemon-drawn approval panel: unlock-session can
+/// now answer APPROVAL_DENIED or NO_UI, and request-approval exists.
+let daemonProtocolVersion = 3
 
 switch command {
 
@@ -78,13 +82,28 @@ switch command {
 
 case "generate-key":
     let keyId = getArg("--key-id") ?? defaultKeyId
+    // A key that asks every time never receives a lasting grant: every batch of
+    // decrypts costs a fresh approval and a fresh scan.
+    let authEveryTime = args.contains("--auth-every-time")
+
+    if authEveryTime && noAuth {
+        jsonError("--auth-every-time and --no-auth ask for opposite things")
+    }
+
+    // First gated key on this machine: say what is being set up before macOS
+    // starts asking for fingerprints. Once, ever.
+    FirstRunSetup.showIfNeeded(requireAuth: !noAuth)
 
     do {
         let pubKeyData = try SecureEnclaveManager.generateKey(keyId: keyId, requireAuth: !noAuth)
+        if authEveryTime {
+            try KeyAuthPolicyStore.write(policy: .everyTime, for: keyId)
+        }
         jsonSuccess([
             "keyId": keyId,
             "publicKey": pubKeyData.base64EncodedString(),
             "publicKeyBytes": pubKeyData.count,
+            "authMode": (authEveryTime ? KeyAuthPolicy.everyTime : KeyAuthPolicy.standard).rawValue,
         ])
     } catch {
         jsonError(error.localizedDescription)
@@ -95,6 +114,7 @@ case "generate-key":
 case "delete-key":
     let keyId = getArg("--key-id") ?? defaultKeyId
     let deleted = SecureEnclaveManager.deleteKey(keyId: keyId)
+    KeyAuthPolicyStore.remove(for: keyId)
     jsonSuccess(["keyId": keyId, "deleted": deleted])
 
 // MARK: - list-keys
@@ -207,6 +227,22 @@ case "daemon":
     let identitySessions = IdentitySessionManager()
     let server = IPCServer(socketPath: socketPath)
 
+    // The panel is drawn by this process on purpose: the daemon is the one that
+    // verified the peer and holds the keys, so it is the only party that can say
+    // truthfully who is asking.
+    identitySessions.promptHandler = { content in
+        guard let decision = ApprovalPanel.present(content: content) else { return .noUi }
+        return decision.approved ? .approved(decision) : .denied
+    }
+    identitySessions.keyPolicy = { keyId in KeyAuthPolicyStore.policy(for: keyId) }
+
+    /// Lines describing the connecting process, read off the peer rather than
+    /// taken from the message. These are the trust-bearing lines on the panel.
+    func requesterLines(forPid pid: pid_t?) -> [String] {
+        guard let pid else { return ["Requested by an unidentified process"] }
+        return describeRequester(forPid: pid).panelLines
+    }
+
     // Never idle-quit while the daemon is holding an identity key for someone.
     // Session state is memory-only, so quitting would silently cost them their
     // unlock; the idle timer only applies when nothing is held.
@@ -261,7 +297,7 @@ case "daemon":
     }
 
     // Handle IPC messages (sessionId is resolved from the peer's TTY or process tree)
-    server.messageHandler = { message, sessionId in
+    server.messageHandler = { message, sessionId, peerPid in
         guard let action = message["action"] as? String else {
             return ["error": "Missing action"]
         }
@@ -382,6 +418,13 @@ case "daemon":
             // overrides the identity we resolved from the peer process itself.
             let durationMs = (payload?["durationMs"] as? NSNumber)?.int64Value
 
+            // Optional decoration from the client (item counts, project name). It
+            // only ever changes the wording on the panel.
+            let requestContext = IdentitySessionManager.UnlockRequestContext(
+                requesterLines: requesterLines(forPid: peerPid),
+                display: UnlockDisplayInfo.from(payload: payload)
+            )
+
             do {
                 let outcome = try identitySessions.unlock(
                     sessionId: sessionId,
@@ -389,7 +432,8 @@ case "daemon":
                     identityId: identityId,
                     scope: scope,
                     durationMs: durationMs,
-                    lockOnOverride: payload?["lockOn"] as? String
+                    lockOnOverride: payload?["lockOn"] as? String,
+                    requestContext: requestContext
                 )
                 statusBarMenu?.refresh()
                 let now = Int64(Date().timeIntervalSince1970 * 1000)
@@ -398,8 +442,27 @@ case "daemon":
                     "policy": outcome.policy.rawValue,
                     "lockOn": outcome.lockOn.rawValue,
                     "lockOnSource": outcome.lockOnSource.rawValue,
+                    "prompted": outcome.prompted,
                     "grants": outcome.grants.map { $0.toDictionary(now: now) },
                 ]]
+            } catch {
+                return identityErrorResponse(error)
+            }
+
+        case "request-approval":
+            // Generic and stateless: put a question on the trusted display and
+            // report the answer. Nothing is unlocked and nothing is recorded here,
+            // so the caller (the proxy) keeps its own record of what it may do.
+            do {
+                let request = try ApprovalRequest.from(payload: message["payload"] as? [String: Any])
+                let content = request.panelContent(requesterLines: requesterLines(forPid: peerPid))
+                guard let decision = ApprovalPanel.present(content: content) else {
+                    return identityErrorResponse(IdentitySessionManager.IdentitySessionError.noUi)
+                }
+                if decision.approved && request.requireBiometric {
+                    try identitySessions.verifyUserPresence(reason: request.title.lowercased())
+                }
+                return ["result": ApprovalOutcome(decision: decision).toDictionary()]
             } catch {
                 return identityErrorResponse(error)
             }
@@ -633,7 +696,8 @@ case "help", "--help", "-h":
     varlock-enclave - Secure Enclave encryption daemon for Varlock
 
     COMMANDS:
-      generate-key [--key-id <id>]    Create a new Secure Enclave key
+      generate-key [--key-id <id>] [--auth-every-time]
+                                      Create a new Secure Enclave key
       delete-key [--key-id <id>]      Delete a Secure Enclave key
       list-keys                       List all Varlock Secure Enclave keys
       key-exists [--key-id <id>]      Check if a key exists
@@ -651,6 +715,8 @@ case "help", "--help", "-h":
       --data-stdin        Read base64 data from stdin (one line)
       --socket-path <path>  Unix socket path for daemon mode
       --pid-path <path>   PID file path for daemon mode
+      --no-auth           Create a key with no user-presence requirement (CI)
+      --auth-every-time   Create a key that must be approved for every read
 
     All output is JSON. Errors return {"error": "message"}.
     """

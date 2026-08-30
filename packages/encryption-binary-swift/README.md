@@ -47,14 +47,15 @@ it. Nothing is persisted, so a daemon restart loses all sessions on purpose: a
 session-wrapped blob on disk plus a no-presence key would reopen silently after a
 reboot, defeating the biometric gate. A restart just means the next use costs one scan.
 
-Daemon actions (IPC protocol version 2, reported by `ping`):
+Daemon actions (IPC protocol version 3, reported by `ping`):
 
 | action | what it does |
 | --- | --- |
-| `unlock-session` | one presence check, however many key ids; records grants and returns them |
+| `unlock-session` | one approval and one presence check, however many key ids; records grants and returns them |
 | `decrypt-v2` | decrypts a batch of v2 payloads under a live grant, no prompt |
 | `list-sessions` | live grants: scope, granted keys, unlock time, remaining TTL |
 | `invalidate-session` | no arguments drops everything; `sessionId` drops one session; both fields drop one grant |
+| `request-approval` | asks a yes/no question on the panel and reports the answer; no key operation attached |
 
 Grants are keyed by (session x key), where the session comes from `SessionScoping`.
 Scopes are `once`, `session`, and `duration`, and everything is capped at 12h from the
@@ -97,6 +98,96 @@ Which macOS notification counts as which event: only `willSleepNotification` is 
 display sleep and fast user switching are `screenLock`, so a display that sleeps after a
 couple of idle minutes does not read as the machine sleeping.
 
+## The approval panel
+
+A gated key raises a panel before anything else happens. The daemon draws it,
+because the daemon is the process that verified the peer and holds the keys, so it
+is the only party that can say truthfully who is asking. It shows:
+
+- **who is asking**, derived from the connecting process: the process chain
+  (`node ← claude ← zsh`) and the terminal it is attached to. These lines are read
+  off the peer, so a caller cannot dress itself up as something else.
+- **what would be unlocked**: the key ids, with a value count per key when the
+  client sent one.
+- **for how long**: this session (the default), once, or a set time (1, 4, or 8
+  hours). Everything is still capped at 12h.
+- optional **client-supplied context** (project name and path), drawn dimmed and
+  below the derived lines. It is decoration: it changes the wording, never the
+  decision.
+
+Only after the user approves does the daemon drive `LAContext.evaluatePolicy`, so
+the system's Touch ID sheet appears once, after the panel, with a reason line that
+repeats what the panel said.
+
+A second unlock in the same session asks only about what is new ("Also unlock
+prod?"), and asks nothing at all when every key requested is already covered by a
+live grant.
+
+Two answers other than yes:
+
+- **`APPROVAL_DENIED`**: the user was asked and said no.
+- **`NO_UI`**: there is no window server to ask on (an SSH session, a headless
+  runner). The daemon refuses rather than skipping the question, and the client is
+  expected to say so in the terminal.
+
+### Keys that ask every time
+
+A key created with `--auth-every-time` never receives a lasting grant. The panel
+offers `once` alone for it, and every later batch of decrypts asks again. In a
+mixed batch it is listed under its own "asks every time" heading, and it takes a
+`once` grant no matter which scope the rest of the batch was approved for.
+
+The policy is recorded next to the key, in `<key store>/<keyId>.policy.json`. A key
+with no such file is a normal key, which is what everything created so far is.
+
+### `request-approval`
+
+The same panel with a different subject: a title, some description lines, the
+scopes it may offer, and optionally `requireBiometric` to add a presence check
+after the approve click. Nothing is unlocked and nothing is recorded, so the caller
+(the proxy) keeps its own account of what it may do. It answers
+`{ decision, scope, durationMs? }`, where a denial is a normal result rather than
+an error.
+
+### First run
+
+The first time a gated key is created on a machine, `generate-key` shows a short
+"Setting up biometrics for varlock" panel before the key exists, so the first Touch
+ID prompt a user ever sees has been introduced. It is informational, appears once
+ever (tracked by a marker file next to the key store), is skipped for `--no-auth`
+keys and on machines that already have keys, and closes itself after 20 seconds so
+an unattended run cannot hang.
+
+### Seeing the panel
+
+The panel needs a person, so it is a manual check:
+
+```bash
+swift build --package-path swift
+
+# a throwaway gated key and identity live under a scratch config home
+export XDG_CONFIG_HOME=$(mktemp -d)
+./swift/.build/debug/VarlockEnclave generate-key --key-id varlock-panel-demo
+```
+
+Then write an identity wrapped to that key and run the daemon against it. The
+quickest route is to copy the setup block from `scripts/e2e-identity-session.ts`
+and drop the `--no-auth` flag: with a gated key, `unlock-session` shows the panel,
+and approving it raises exactly one Touch ID sheet.
+
+What to check by hand:
+
+- the process chain names the terminal you are actually typing in
+- "This session" is preselected, and "For a set time" enables the duration menu
+- Cancel comes back as `APPROVAL_DENIED`, and nothing is listed by `list-sessions`
+- approving, then asking for the same key again, shows no second panel
+- asking for a second key shows the "also unlock" wording and lists only that key
+
+To check the refusing path without a screen, run the daemon with
+`_VARLOCK_UI_MODE=headless`. Adding `_VARLOCK_FORCE_UNLOCK_PROMPT=1` makes even an
+ungated key take the approval path, which is how the end-to-end script covers
+`NO_UI`. Both variables only ever make the daemon stricter.
+
 ### Checking the single-scan unlock
 
 The design depends on the daemon driving the biometric itself with
@@ -135,7 +226,9 @@ To create a throwaway key rather than probing a real one:
 
 `scripts/e2e-identity-session.ts` drives the whole protocol over the real socket
 against a throwaway `XDG_CONFIG_HOME`. Its custody key is created with `--no-auth`, so
-the unlock finds no presence requirement and never prompts:
+the unlock finds no presence requirement and never prompts. It also starts a second
+daemon that cannot draw anything, and checks that every path needing approval
+answers `NO_UI` there instead of proceeding:
 
 ```bash
 swift build --package-path swift
@@ -147,7 +240,7 @@ It needs a Mac with a Secure Enclave, so it is a local check rather than a CI on
 ## Structure
 
 - `swift/` — Swift Package Manager project (`VarlockEnclave` executable)
-- `swift/Sources/IdentitySessions/`: ECIES wire format and the grant table, in a library target so both are unit tested
+- `swift/Sources/IdentitySessions/`: ECIES wire format, the grant table, and the approval decision logic (what to ask, which scopes to offer, what the panel says), in a library target so all of it is unit tested with no window server
 - `scripts/build-swift.ts` — Two-phase build: compile (cacheable) + bundle (mode-specific `.app` wrapping + codesign)
 - `scripts/generate-ecies-fixture.ts`: regenerates the cross-implementation ECIES vector the Swift tests pin
 - `scripts/e2e-identity-session.ts`: headless end-to-end run of the identity session actions

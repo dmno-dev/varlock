@@ -170,6 +170,16 @@ public final class SessionGrantTable {
         return sessions.filter { !$0.value.grants.isEmpty }.keys.sorted()
     }
 
+    /// The live grant for one (session x key), if there is one.
+    ///
+    /// Read-only, and it charges nothing. This is what the unlock planner reads to
+    /// tell a first unlock from an add-on to a session that is already open.
+    public func liveGrant(ref: SessionGrantRef) -> SessionGrantInfo? {
+        pruneExpired()
+        guard let state = sessions[ref.sessionId], let grant = state.grants[ref.keyId] else { return nil }
+        return info(ref: ref, grant: grant, session: state)
+    }
+
     // MARK: - Granting
 
     /// Record a grant, opening the session if this is its first one.

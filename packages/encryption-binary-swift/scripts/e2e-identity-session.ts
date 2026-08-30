@@ -9,6 +9,13 @@
  * the biometric handoff itself to `probe-session-unlock`, which does need a real
  * finger.
  *
+ * The approval panel is covered here only in its refusing form. A second daemon
+ * runs with `_VARLOCK_UI_MODE=headless` and `_VARLOCK_FORCE_UNLOCK_PROMPT=1`,
+ * which together say "a question is required and there is no screen to ask on",
+ * and every path that needs approval must answer NO_UI rather than proceeding.
+ * Both env vars can only make the daemon stricter, never more permissive. Seeing
+ * the panel itself needs a person; the package README says how.
+ *
  * Needs a Mac with a Secure Enclave. Run it after building the binary:
  *
  *   swift build --package-path packages/encryption-binary-swift/swift
@@ -59,9 +66,11 @@ class Client {
   private buffer = Buffer.alloc(0);
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 
+  constructor(private readonly connectTo: string = socketPath) {}
+
   async connect() {
     await new Promise<void>((resolve, reject) => {
-      this.socket = net.createConnection(socketPath);
+      this.socket = net.createConnection(this.connectTo);
       this.socket.once('connect', resolve);
       this.socket.once('error', reject);
     });
@@ -144,28 +153,38 @@ const payloads = await Promise.all(
 
 // -- daemon --
 
-const daemon = spawn(binary, ['daemon', '--socket-path', socketPath, '--pid-path', path.join(configHome, 'daemon.pid')], {
-  env,
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-await new Promise<void>((resolve, reject) => {
-  let out = '';
-  daemon.stdout.on('data', (d) => {
-    out += d.toString();
-    if (out.includes('"ready"')) resolve();
+async function startDaemon(opts: { socket: string; label: string; extraEnv?: Record<string, string> }) {
+  const daemon = spawn(
+    binary,
+    ['daemon', '--socket-path', opts.socket, '--pid-path', `${opts.socket}.pid`],
+    { env: { ...env, ...opts.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  await new Promise<void>((resolve, reject) => {
+    let out = '';
+    daemon.stdout.on('data', (d) => {
+      out += d.toString();
+      if (out.includes('"ready"')) resolve();
+    });
+    daemon.stderr.on('data', (d) => process.stderr.write(`[${opts.label}] ${d}`));
+    daemon.on('exit', (code) => reject(new Error(`${opts.label} exited early with code ${code}: ${out}`)));
+    setTimeout(() => reject(new Error(`${opts.label} did not become ready`)), 10_000);
   });
-  daemon.stderr.on('data', (d) => process.stderr.write(`[daemon] ${d}`));
-  daemon.on('exit', (code) => reject(new Error(`daemon exited early with code ${code}: ${out}`)));
-  setTimeout(() => reject(new Error('daemon did not become ready')), 10_000);
-});
+  return daemon;
+}
+
+const daemon = await startDaemon({ socket: socketPath, label: 'daemon' });
 
 const client = new Client();
 await client.connect();
 
+// A second daemon, started later, that cannot draw anything.
+let headlessDaemon: ReturnType<typeof spawn> | undefined;
+let headlessClient: Client | undefined;
+
 try {
   console.log('\nping');
   const ping = await client.send('ping');
-  check('reports protocol version 2', ping.protocolVersion === 2, ping);
+  check('reports protocol version 3', ping.protocolVersion === 3, ping);
   const sessionId = ping.sessionId;
   check('peer has a session identity', typeof sessionId === 'string' && sessionId.length > 0, ping);
 
@@ -175,8 +194,14 @@ try {
   }), 'NO_SESSION_GRANT');
 
   console.log('\nunlock-session');
-  const unlocked = await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+  const unlocked = await client.send('unlock-session', {
+    keyIds: [KEY_ID],
+    scope: 'session',
+    // Optional decoration. It may reach the panel's wording and nothing else.
+    display: { projectName: 'e2e-project', projectPath: configHome, itemCounts: { [KEY_ID]: 3 } },
+  });
   check('no prompt needed for a --no-auth key', unlocked.policy === 'no-presence-required', unlocked);
+  check('reports that nobody was asked', unlocked.prompted === false, unlocked);
   check('one grant returned', unlocked.grants?.length === 1, unlocked);
   const sessionGrant = unlocked.grants?.[0] ?? {};
   check('grant is scoped to the requested key', sessionGrant.keyId === KEY_ID, unlocked);
@@ -279,9 +304,45 @@ try {
   await client.send('unlock-session', { keyIds: [KEY_ID], scope: 'session' });
   const all = await client.send('invalidate-session');
   check('drops remaining grants', all.invalidated === 1, all);
+
+  // -- approval paths, on a daemon that has no screen to ask on --
+
+  console.log('\nheadless daemon (nothing can be approved)');
+  const headlessSocket = path.join(configHome, 'headless.sock');
+  headlessDaemon = await startDaemon({
+    socket: headlessSocket,
+    label: 'headless',
+    extraEnv: { _VARLOCK_UI_MODE: 'headless', _VARLOCK_FORCE_UNLOCK_PROMPT: '1' },
+  });
+  headlessClient = new Client(headlessSocket);
+  await headlessClient.connect();
+
+  await expectError('unlock refuses when nobody can be asked', () => headlessClient!.send('unlock-session', {
+    keyIds: [KEY_ID], scope: 'session',
+  }), 'NO_UI');
+  await expectError('nothing was unlocked on the way out', () => headlessClient!.send('decrypt-v2', {
+    keyId: KEY_ID, ciphertexts: [payloads[0]],
+  }), 'NO_SESSION_GRANT');
+  check('no grant was recorded', (await headlessClient.send('list-sessions')).sessions.length === 0);
+
+  console.log('\nrequest-approval');
+  await expectError('refuses when nobody can be asked', () => headlessClient!.send('request-approval', {
+    title: 'Use the deploy token?',
+    descriptionLines: ['POST https://api.example.com/deploy'],
+    allowedScopes: ['once', 'session'],
+  }), 'NO_UI');
+  await expectError('needs a title', () => headlessClient!.send('request-approval', {
+    descriptionLines: ['no title here'],
+  }), 'APPROVAL_MISSING_TITLE');
+  await expectError('needs at least one usable scope', () => headlessClient!.send('request-approval', {
+    title: 'Use the deploy token?', allowedScopes: ['forever'],
+  }), 'APPROVAL_NO_SCOPES');
+  check('approval never touches the grant table', (await headlessClient.send('list-sessions')).sessions.length === 0);
 } finally {
   client.close();
+  headlessClient?.close();
   daemon.kill('SIGTERM');
+  headlessDaemon?.kill('SIGTERM');
   await new Promise((resolve) => {
     setTimeout(resolve, 500);
   });

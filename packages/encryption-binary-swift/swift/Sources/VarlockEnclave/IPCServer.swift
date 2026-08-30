@@ -16,8 +16,12 @@ final class IPCServer {
     private let handlersQueue = DispatchQueue(label: "dev.varlock.ipc.handlers")
     private var isRunning = false
 
-    /// Handler for incoming messages. Second parameter is the peer's TTY identity (nil if unknown).
-    var messageHandler: ((_ message: [String: Any], _ sessionId: String?) -> [String: Any])?
+    /// Handler for incoming messages.
+    ///
+    /// `sessionId` is the peer's session identity (nil if unknown). `peerPid` is
+    /// the connecting process, which approval panels use to describe who is asking;
+    /// both are read from the socket, never from the message body.
+    var messageHandler: ((_ message: [String: Any], _ sessionId: String?, _ peerPid: pid_t?) -> [String: Any])?
 
     /// Called after accept (new client) and after each successfully parsed JSON message.
     var onConnectionActivity: (() -> Void)?
@@ -265,13 +269,9 @@ final class IPCServer {
             }
         }
 
-        // Resolve the peer's session identity once per connection
-        let sessionId: String?
-        if let peerPid = getPeerPid(fd: fd) {
-            sessionId = getSessionIdentifier(forPid: peerPid)
-        } else {
-            sessionId = nil
-        }
+        // Resolve the peer's identity once per connection
+        let peerPid = getPeerPid(fd: fd)
+        let sessionId: String? = peerPid.flatMap { getSessionIdentifier(forPid: $0) }
 
         while isRunning {
             // Read 4-byte length prefix (little-endian)
@@ -301,8 +301,8 @@ final class IPCServer {
 
             onConnectionActivity?()
 
-            // Handle message with the peer's TTY identity
-            let response = messageHandler?(json, sessionId) ?? ["error": "No handler"]
+            // Handle message with the peer's identity as read off the socket
+            let response = messageHandler?(json, sessionId, peerPid) ?? ["error": "No handler"]
             sendResponse(fd: fd, id: json["id"] as? String, response: response)
         }
     }

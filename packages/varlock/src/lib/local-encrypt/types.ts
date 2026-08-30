@@ -51,7 +51,7 @@ export interface DaemonResponse {
 // grant, and the same key in a different session is too.
 
 /** Daemon actions added for identity-backed sessions */
-export type IdentityDaemonAction = 'unlock-session' | 'list-sessions' | 'decrypt-v2';
+export type IdentityDaemonAction = 'unlock-session' | 'list-sessions' | 'decrypt-v2' | 'request-approval';
 
 /**
  * How long a grant survives.
@@ -101,6 +101,24 @@ export interface UnlockSessionRequest {
    * stderr and ignored, rather than failing the unlock.
    */
   lockOn?: SessionLockPolicy;
+  /** optional context for the approval panel; see `UnlockDisplayInfo` */
+  display?: UnlockDisplayInfo;
+}
+
+/**
+ * Extra context for the approval panel, sent by this client.
+ *
+ * Decoration only. The daemon works out who is asking from the connecting
+ * process itself, and those derived lines are what the panel presents as
+ * trustworthy; anything here is shown as secondary and can never change which
+ * keys are unlocked, which scopes are offered, or whether a prompt happens.
+ * The daemon trims and flattens these values before drawing them.
+ */
+export interface UnlockDisplayInfo {
+  /** how many encrypted values each key covers, keyed by key id */
+  itemCounts?: Record<string, number>;
+  projectName?: string;
+  projectPath?: string;
 }
 
 /**
@@ -177,7 +195,46 @@ export interface UnlockSessionResult {
   /** which of the three sources decided it */
   lockOnSource: SessionLockPolicySource;
   grants: Array<SessionGrantInfo>;
+  /**
+   * Whether the user was actually shown the approval panel. False when every key
+   * asked for was already covered by a live grant, or when the key carries no
+   * presence gate at all.
+   */
+  prompted: boolean;
 }
+
+/**
+ * `request-approval` payload: put a question on the daemon's panel and report
+ * the answer.
+ *
+ * Generic and stateless. No key operation is attached and the daemon records
+ * nothing, so the caller keeps its own account of what it was allowed to do.
+ * Wording is the caller's, but the daemon trims it and draws it as secondary to
+ * the requester lines it derived itself.
+ */
+export interface RequestApprovalRequest {
+  title: string;
+  descriptionLines?: Array<string>;
+  /** extra caller-supplied context lines, e.g. the request being approved */
+  contextLines?: Array<string>;
+  /** which scopes the panel may offer; defaults to `once` alone */
+  allowedScopes?: Array<SessionGrantScope>;
+  defaultScope?: SessionGrantScope;
+  /** run a user-presence check after the approve click, on top of the panel */
+  requireBiometric?: boolean;
+  /** label for the confirm button; defaults to "Approve" */
+  confirmLabel?: string;
+}
+
+export interface RequestApprovalResult {
+  decision: 'approved' | 'denied';
+  scope: SessionGrantScope;
+  /** present only when an approved decision chose the `duration` scope */
+  durationMs?: number;
+}
+
+/** Error codes the daemon attaches to a malformed `request-approval` */
+export type ApprovalRequestErrorCode = 'APPROVAL_MISSING_TITLE' | 'APPROVAL_NO_SCOPES';
 
 /** `list-sessions` result: every live grant the daemon is holding */
 export interface ListSessionsResult {
@@ -230,6 +287,8 @@ export type IdentitySessionErrorCode = (
   | 'SESSION_GRANT_EXPIRED' // the grant or its session cap ran out
   | 'SESSION_KEY_MISSING' // daemon no longer holds the key (restarted, or locked)
   | 'NO_SESSION_IDENTITY' // the caller's session could not be identified
+  | 'APPROVAL_DENIED' // the user was shown the panel and said no
+  | 'NO_UI' // no screen to ask on (SSH, headless); tell the user in the terminal
   | 'BIOMETRIC_FAILED'
   | 'IDENTITY_NOT_FOUND'
   | 'IDENTITY_MALFORMED'
@@ -241,10 +300,12 @@ export type IdentitySessionErrorCode = (
  * Protocol version this build of varlock expects from the daemon.
  *
  * 1 (reported as an absent `protocolVersion`) is a daemon predating identity
- * sessions. A client that needs the session ops can compare against this to tell
- * a stale daemon from one that speaks them.
+ * sessions. 2 speaks the identity session ops. 3 draws the approval panel, which
+ * means unlock-session can answer APPROVAL_DENIED or NO_UI, and request-approval
+ * exists. A client that needs any of those can compare against this to tell a
+ * stale daemon from one that speaks them.
  */
-export const DAEMON_PROTOCOL_VERSION = 2;
+export const DAEMON_PROTOCOL_VERSION = 3;
 
 /** `ping` result */
 export interface DaemonPingResult {

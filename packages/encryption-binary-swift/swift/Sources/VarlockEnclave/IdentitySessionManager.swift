@@ -46,6 +46,26 @@ final class IdentitySessionManager {
         /// The resolved lock policy and where it came from
         let lockOn: SessionLockPolicy
         let lockOnSource: LockPolicyResolution.Source
+        /// Whether the user was actually shown the approval panel for this call.
+        let prompted: Bool
+    }
+
+    /// What the daemon knows about who is asking, gathered before any panel.
+    ///
+    /// `requesterLines` are derived by the daemon from the peer process itself and
+    /// are the trust-bearing part. `display` is decoration the client sent: it
+    /// changes the wording, never the decision.
+    struct UnlockRequestContext {
+        var requesterLines: [String] = []
+        var display: UnlockDisplayInfo = UnlockDisplayInfo()
+    }
+
+    /// The answer to an approval panel, or the reason there wasn't one.
+    enum UnlockPromptOutcome {
+        case approved(PanelDecision)
+        case denied
+        /// No window server, so nobody could be asked.
+        case noUi
     }
 
     enum IdentitySessionError: LocalizedError {
@@ -53,6 +73,8 @@ final class IdentitySessionManager {
         case biometricFailed(String)
         case sessionKeyMissing
         case notUtf8
+        case approvalDenied
+        case noUi
 
         var errorDescription: String? {
             switch self {
@@ -64,6 +86,10 @@ final class IdentitySessionManager {
                 return "The unlock session is no longer held by the daemon; unlock again"
             case .notUtf8:
                 return "Decrypted data is not valid UTF-8"
+            case .approvalDenied:
+                return "The unlock was not approved"
+            case .noUi:
+                return "This Mac has no screen available to approve on; run this from a desktop session"
             }
         }
 
@@ -73,6 +99,8 @@ final class IdentitySessionManager {
             case .biometricFailed: return "BIOMETRIC_FAILED"
             case .sessionKeyMissing: return "SESSION_KEY_MISSING"
             case .notUtf8: return "NOT_UTF8"
+            case .approvalDenied: return "APPROVAL_DENIED"
+            case .noUi: return "NO_UI"
             }
         }
     }
@@ -91,6 +119,14 @@ final class IdentitySessionManager {
     private let queue = DispatchQueue(label: "dev.varlock.identity-session")
     private var pruneTimer: DispatchSourceTimer?
 
+    /// Shows the approval panel. Injected so the manager never imports the view,
+    /// and so a caller with no display can be told `NO_UI` instead of guessing.
+    var promptHandler: ((PanelContent) -> UnlockPromptOutcome)?
+
+    /// How often a given key must be re-approved. Injected for the same reason:
+    /// the policy lives on disk next to the key, which is not this type's job.
+    var keyPolicy: (String) -> KeyAuthPolicy = { _ in .standard }
+
     init(grants: SessionGrantTable = SessionGrantTable()) {
         self.grants = grants
         startPruneTimer()
@@ -102,20 +138,24 @@ final class IdentitySessionManager {
 
     // MARK: - Unlock
 
-    /// Open (or extend) a session: one user-presence check, however many keys.
+    /// Open (or extend) a session: one approval, one user-presence check, however
+    /// many keys.
     ///
-    /// The single check is the whole point of the two-key model. We drive the
-    /// biometric ourselves with `LAContext.evaluatePolicy` and then hand that
-    /// authenticated context to the enclave operation, so the custody unwrap does
-    /// not raise a second system sheet. `probe-session-unlock` proves that on a
-    /// real machine; see the package README.
+    /// The order matters. The panel comes first, because it is the part that says
+    /// who is asking and what they get; the system's biometric sheet can only say
+    /// "varlock wants something". Only after the user has approved do we drive
+    /// `LAContext.evaluatePolicy` and hand that authenticated context to the
+    /// enclave operation, so the custody unwrap does not raise a second sheet.
+    /// `probe-session-unlock` proves that handoff on a real machine; see the
+    /// package README.
     func unlock(
         sessionId: String?,
         keyIds: [String],
         identityId: String,
         scope: SessionGrantScope,
         durationMs: Int64?,
-        lockOnOverride: String? = nil
+        lockOnOverride: String? = nil,
+        requestContext: UnlockRequestContext = UnlockRequestContext()
     ) throws -> UnlockOutcome {
         guard let sessionId, !sessionId.isEmpty else {
             throw IdentitySessionError.noSessionIdentity
@@ -138,18 +178,89 @@ final class IdentitySessionManager {
             )
         }
 
-        let (context, policy) = try contextForUnlock(
-            identityId: identityId,
-            keyIds: usableKeyIds,
+        // A key created with `--no-auth` has no gate to satisfy, so there is
+        // nothing to approve and nothing to scan: that path stays silent.
+        let silentContext = silentContextIfUngated(
             probeWrap: identity.wraps[usableKeyIds[0]],
             probeKeyId: usableKeyIds[0]
         )
+        let needsPresence = silentContext == nil
+        let mustAsk = needsPresence || UiAvailability.isPromptForced
+
+        var keysToOpen = usableKeyIds
+        var carriedGrants: [SessionGrantInfo] = []
+        var chosenScope = scope
+        var chosenDurationMs = durationMs
+        var prompted = false
+
+        if mustAsk {
+            let plan = planUnlock(
+                sessionId: sessionId,
+                keyIds: usableKeyIds,
+                scope: scope,
+                durationMs: durationMs,
+                display: requestContext.display
+            )
+
+            guard plan.requiresPrompt else {
+                // Everything asked for is already covered by a live grant. Asking
+                // again would be a prompt that changes nothing, so we hand back
+                // what the session already holds.
+                silentContext?.invalidate()
+                let live = liveGrants(sessionId: sessionId, keyIds: usableKeyIds)
+                return UnlockOutcome(
+                    grants: live,
+                    policy: needsPresence ? .biometrics : .none,
+                    // Nothing was re-granted, so the live grants keep the policy
+                    // they were opened under rather than taking this call's.
+                    lockOn: live.first?.lockOn ?? lockPolicy.policy,
+                    lockOnSource: lockPolicy.source,
+                    prompted: false
+                )
+            }
+
+            let content = UnlockPanelContent.build(
+                plan: plan,
+                requesterLines: requestContext.requesterLines,
+                display: requestContext.display
+            )
+            switch promptHandler?(content) ?? .noUi {
+            case .noUi:
+                silentContext?.invalidate()
+                throw IdentitySessionError.noUi
+            case .denied:
+                silentContext?.invalidate()
+                throw IdentitySessionError.approvalDenied
+            case .approved(let decision):
+                chosenScope = decision.scope
+                chosenDurationMs = decision.durationMs
+            }
+
+            prompted = true
+            keysToOpen = plan.promptKeys.map { $0.keyId }
+            carriedGrants = liveGrants(sessionId: sessionId, keyIds: plan.coveredKeys.map { $0.keyId })
+        }
+
+        let context: LAContext
+        let policy: UnlockPolicy
+        if let silentContext {
+            context = silentContext
+            policy = .none
+        } else {
+            // The system sheet repeats what the panel just said, so the two cannot
+            // disagree about which keys this scan is paying for.
+            (context, policy) = try authenticate(reason: Self.unlockReason(
+                identityId: identityId,
+                keyIds: keysToOpen,
+                requesterSummary: requestContext.requesterLines.first
+            ))
+        }
         defer { context.invalidate() }
 
         return try queue.sync {
-            var granted: [SessionGrantInfo] = []
+            var granted: [SessionGrantInfo] = carriedGrants
 
-            for keyId in usableKeyIds {
+            for keyId in keysToOpen {
                 guard let wrapBase64 = identity.wraps[keyId] else { continue }
                 guard let wrapData = Data(base64Encoded: wrapBase64) else {
                     throw IdentityStore.IdentityStoreError.malformed(identityId)
@@ -173,11 +284,18 @@ final class IdentitySessionManager {
                 )
                 material[sessionId]?.wrappedIdentities[Self.blobKey(identityId, keyId)] = rewrapped
 
+                // A key set to ask every time only ever takes a `once` grant, no
+                // matter what the rest of the batch was approved for.
+                let policyForKey = keyPolicy(keyId)
                 granted.append(grants.grant(
                     ref: SessionGrantRef(sessionId: sessionId, keyId: keyId),
                     identityId: identityId,
-                    scope: scope,
-                    durationMs: durationMs,
+                    scope: UnlockPlanner.effectiveScope(chosen: chosenScope, policy: policyForKey),
+                    durationMs: UnlockPlanner.effectiveDurationMs(
+                        chosen: chosenScope,
+                        chosenDurationMs: chosenDurationMs,
+                        policy: policyForKey
+                    ),
                     lockOn: lockPolicy.policy
                 ))
             }
@@ -187,8 +305,51 @@ final class IdentitySessionManager {
                 grants: granted,
                 policy: policy,
                 lockOn: lockPolicy.policy,
-                lockOnSource: lockPolicy.source
+                lockOnSource: lockPolicy.source,
+                prompted: prompted
             )
+        }
+    }
+
+    // MARK: - Planning
+
+    /// Work out what this unlock still has to ask about.
+    ///
+    /// The rules themselves live in `UnlockPlanner`, which knows nothing about
+    /// enclaves or windows and is unit tested on its own. All this does is read
+    /// the live grants and each key's policy and hand them over.
+    private func planUnlock(
+        sessionId: String,
+        keyIds: [String],
+        scope: SessionGrantScope,
+        durationMs: Int64?,
+        display: UnlockDisplayInfo
+    ) -> UnlockPlan {
+        return queue.sync {
+            var existing: [String: ExistingGrantSnapshot] = [:]
+            for keyId in keyIds {
+                guard let live = grants.liveGrant(ref: SessionGrantRef(sessionId: sessionId, keyId: keyId)) else {
+                    continue
+                }
+                existing[keyId] = ExistingGrantSnapshot(scope: live.scope, expiresAt: live.expiresAt)
+            }
+            let requested = keyIds.map {
+                RequestedKey(keyId: $0, policy: keyPolicy($0), itemCount: display.itemCounts[$0])
+            }
+            return UnlockPlanner.plan(
+                requested: requested,
+                requestedScope: scope,
+                requestedDurationMs: durationMs,
+                existing: existing,
+                now: grants.nowMs()
+            )
+        }
+    }
+
+    /// Live grants for the named keys, for the keys that still have one.
+    private func liveGrants(sessionId: String, keyIds: [String]) -> [SessionGrantInfo] {
+        return queue.sync {
+            keyIds.compactMap { grants.liveGrant(ref: SessionGrantRef(sessionId: sessionId, keyId: $0)) }
         }
     }
 
@@ -312,38 +473,40 @@ final class IdentitySessionManager {
 
     // MARK: - Authentication
 
-    /// Get a context the custody unwrap can run under, prompting only if it must.
+    /// A context the custody unwrap can run under with no gate at all, if this key
+    /// turns out not to have one. Returns nil when the key is presence gated.
     ///
     /// A key created with `--no-auth` (CI) has no presence requirement, and asking
     /// the machine is more reliable than trying to read the access control back off
     /// a stored key. So we try one non-interactive unwrap first: it either works,
-    /// which proves there was no gate to satisfy, or it fails and we authenticate
-    /// for real. A gated key can never be opened by that probe, so this cannot
-    /// weaken the gate; it only avoids prompting where there is nothing to prompt for.
-    private func contextForUnlock(
-        identityId: String,
-        keyIds: [String],
-        probeWrap: String?,
-        probeKeyId: String
-    ) throws -> (LAContext, UnlockPolicy) {
-        if let probeWrap, let probeData = Data(base64Encoded: probeWrap) {
-            let silent = LAContext()
-            silent.interactionNotAllowed = true
-            if var probed = try? SecureEnclaveManager.decrypt(
-                payload: probeData,
-                keyId: probeKeyId,
-                context: silent
-            ) {
-                scrub(&probed)
-                return (silent, .none)
-            }
-            silent.invalidate()
+    /// which proves there was no gate to satisfy, or it fails and the caller has to
+    /// ask for real. A gated key can never be opened by that probe, so this cannot
+    /// weaken the gate; it only avoids asking where there is nothing to ask about.
+    private func silentContextIfUngated(probeWrap: String?, probeKeyId: String) -> LAContext? {
+        guard let probeWrap, let probeData = Data(base64Encoded: probeWrap) else { return nil }
+        let silent = LAContext()
+        silent.interactionNotAllowed = true
+        if var probed = try? SecureEnclaveManager.decrypt(
+            payload: probeData,
+            keyId: probeKeyId,
+            context: silent
+        ) {
+            scrub(&probed)
+            return silent
         }
-        return try authenticate(identityId: identityId, keyIds: keyIds)
+        silent.invalidate()
+        return nil
+    }
+
+    /// One user-presence check with no key operation attached, used by
+    /// `request-approval` when the caller asks for a biometric on top of the panel.
+    func verifyUserPresence(reason: String) throws {
+        let (context, _) = try authenticate(reason: reason)
+        context.invalidate()
     }
 
     /// One user-presence check, then hand the authenticated context to the enclave.
-    private func authenticate(identityId: String, keyIds: [String]) throws -> (LAContext, UnlockPolicy) {
+    private func authenticate(reason: String) throws -> (LAContext, UnlockPolicy) {
         let context = LAContext()
 
         // Prefer biometrics. Machines with no enrolled sensor (or a locked-out one)
@@ -365,7 +528,7 @@ final class IdentitySessionManager {
 
         let semaphore = DispatchSemaphore(value: 0)
         var evalError: Error?
-        context.evaluatePolicy(policy, localizedReason: Self.unlockReason(identityId: identityId, keyIds: keyIds)) { success, error in
+        context.evaluatePolicy(policy, localizedReason: reason) { success, error in
             if !success { evalError = error }
             semaphore.signal()
         }
@@ -387,14 +550,21 @@ final class IdentitySessionManager {
         return (context, resolved)
     }
 
-    /// Plain, informative prompt copy. No new dialogs in this change: this is the
-    /// system sheet's reason line.
-    static func unlockReason(identityId: String, keyIds: [String]) -> String {
+    /// Plain, informative prompt copy for the system sheet's reason line. It says
+    /// the same thing the panel said, so a user who reads only one of them is not
+    /// told two different stories.
+    static func unlockReason(identityId: String, keyIds: [String], requesterSummary: String? = nil) -> String {
         let keyList = keyIds.sorted().joined(separator: ", ")
+        var reason: String
         if identityId == IdentityStore.defaultIdentityId {
-            return "unlock varlock encryption key \(keyList)"
+            reason = "unlock varlock encryption key \(keyList)"
+        } else {
+            reason = "unlock varlock identity \"\(identityId)\" with key \(keyList)"
         }
-        return "unlock varlock identity \"\(identityId)\" with key \(keyList)"
+        if let requesterSummary, !requesterSummary.isEmpty {
+            reason += ", \(requesterSummary.prefix(80))"
+        }
+        return reason
     }
 
     // MARK: - Session key material
