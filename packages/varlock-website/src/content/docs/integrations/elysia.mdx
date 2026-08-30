@@ -1,0 +1,143 @@
+---
+title: Elysia
+description: How to use varlock with an Elysia server on Bun, including deploy-time frozen env
+---
+import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+[Elysia](https://elysiajs.com) needs no integration package. Import `varlock/auto-load` and read values through the typed `ENV` proxy, the same as any other [JavaScript project](/integrations/javascript/).
+
+The part worth reading is [deploying](#deploying). Elysia has no build step that inlines env values, so unlike Next.js or Vite there is nothing to bake your config into. `varlock freeze` fills that gap.
+
+Check out the [Elysia example project](https://github.com/dmno-dev/varlock-examples/tree/main/integrations/elysia) for a working reference.
+
+---
+
+## Setup
+
+<Steps>
+
+1. **Install varlock**
+    <InstallJsDepsWidget packages="varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema`**
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Turn off Bun's own `.env` loading**
+
+    Bun loads `.env` files itself based on `NODE_ENV`/`BUN_ENV`, which feeds values into varlock behind its back. Let varlock own env loading:
+
+    ```toml title="bunfig.toml"
+    env = false
+    ```
+
+    See the [Bun integration docs](/integrations/bun/) for the other ways to disable it, including for compiled binaries.
+
+1. **Import `varlock/auto-load` first in your entrypoint**
+
+    ```ts title="src/server.ts" ins={1,2}
+    import 'varlock/auto-load';
+    import { ENV } from 'varlock/env';
+    import { Elysia } from 'elysia';
+
+    new Elysia()
+      .get('/', () => ({ message: ENV.PUBLIC_MESSAGE }))
+      .listen(ENV.PORT);
+    ```
+
+    The import must come first, so env is loaded and validated before anything else runs. If you would rather keep it out of app code, drop the import and launch with `varlock run -- bun src/server.ts` instead.
+
+</Steps>
+
+## Leak prevention
+
+Because varlock knows which items are `@sensitive`, both protections work in Elysia with no extra setup:
+
+```ts
+.get('/log-demo', () => {
+  console.log('SOME_API_KEY =', ENV.SOME_API_KEY); // logged redacted
+  return 'ok';
+})
+
+.get('/leak-demo', () => {
+  return { oops: ENV.SOME_API_KEY }; // blocked, request fails with a 500
+})
+```
+
+Elysia builds responses with the standard `Response` API, which varlock patches, so a sensitive value returned from a handler is caught before it reaches the client. See [leak prevention](/guides/secrets/#leak-prevention).
+
+## Deploying
+
+Locally, varlock resolves your `.env` files on every boot. In a deploy that is usually the wrong default: it means config lives in your platform's settings rather than in the release, so it can't change atomically with your code and doesn't roll back with it. It also makes every boot depend on your secret backend being reachable.
+
+[`varlock freeze`](/guides/frozen-env/) resolves everything once at deploy time and writes an encrypted file that ships inside your deploy artifact. Your app boots from that file.
+
+<Steps>
+
+1. **Generate a key, once**
+
+    <ExecCommandWidget command="varlock generate-key" showBinary={false} />
+
+    Set the result as `_VARLOCK_ENV_KEY` in your deploy pipeline and your runtime environment.
+
+1. **Bundle and freeze at deploy time**
+
+    ```bash
+    bun build ./src/server.ts --target=bun --outdir dist
+    APP_ENV=production varlock freeze
+    ```
+
+    Run `freeze` where your `.env` files and secret backends are reachable, usually a CI job. It writes `.varlock-frozen-env` and prints which environment it captured.
+
+1. **Ship the frozen file with your code**
+
+    ```dockerfile title="Dockerfile"
+    FROM oven/bun:1
+    WORKDIR /app
+    COPY dist/server.js bunfig.toml ./
+    COPY .varlock-frozen-env ./
+    CMD ["bun", "server.js"]
+    ```
+
+    Copy it into the image rather than mounting it at runtime. Mounting it separately puts config back outside the release, which is the thing this avoids.
+
+1. **Boot normally**
+
+    ```bash
+    bun server.js
+    ```
+
+</Steps>
+
+That image needs nothing else: no `.env` files, no `node_modules`, and no varlock CLI. Values, coerced types, and sensitivity all travel inside the frozen file, so `ENV.PORT` is still a number and log redaction still works.
+
+Set `_VARLOCK_USE_FROZEN_ENV=1` in production so a missing frozen file is a hard error instead of a silent fall back to normal resolution.
+
+:::caution[Values are pinned once frozen]
+Rotating a secret takes effect on your next deploy, not on the next restart. Re-run `varlock freeze` and redeploy. See [tradeoffs](/guides/frozen-env/#tradeoffs) for the full list, including how key rotation interacts with rollback.
+:::
+
+### Standalone binaries
+
+`bun build --compile` works the same way. The binary reads `.varlock-frozen-env` from its working directory, so ship the two together:
+
+```bash
+bun build ./src/server.ts --compile --outfile server --no-compile-autoload-dotenv
+APP_ENV=production varlock freeze
+```
+
+`--no-compile-autoload-dotenv` stops the compiled binary from doing Bun's own `.env` loading, matching the `bunfig.toml` setting above.
+
+### Choosing an environment
+
+If your schema sets [`@currentEnv`](/reference/root-decorators/#currentenv), the `--env` flag does not apply, and `varlock freeze` errors rather than silently capturing the wrong environment. Set the flag item instead:
+
+```bash
+APP_ENV=production varlock freeze
+```
+
+### Other options
+
+`freeze` is not the only way to deploy. If the varlock CLI, your `.env` files, and your resolver credentials are all available in the runtime environment, `varlock run -- bun server.js` works too and re-resolves on every boot. See [related approaches](/guides/frozen-env/#related-approaches) for the comparison.
