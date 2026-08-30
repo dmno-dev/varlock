@@ -669,6 +669,27 @@ case "daemon":
     do {
         try server.start()
 
+        // Signal handling goes in before anything announces itself, and the
+        // dispatch sources go in before the default action is turned off.
+        //
+        // Order matters both ways. A SIGTERM arriving between `SIG_IGN` and a
+        // resumed source would be neither killed nor handled, and the daemon
+        // would sit there holding session keys with nothing left to stop it; the
+        // other way round, the worst case is the default action, which at least
+        // ends the process. And doing all of it before the status item is built
+        // means a slow window server cannot leave a stretch of startup where the
+        // daemon cannot be asked to stop.
+        let sigTermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        sigTermSource.setEventHandler { shutdownDaemon() }
+        sigTermSource.resume()
+
+        let sigIntSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        sigIntSource.setEventHandler { shutdownDaemon() }
+        sigIntSource.resume()
+
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+
         // Print ready message to stdout so the JS launcher knows we're ready
         jsonOutput(["ready": true, "pid": ProcessInfo.processInfo.processIdentifier, "socketPath": socketPath])
         fflush(stdout)
@@ -712,17 +733,6 @@ case "daemon":
 
         // We need a run loop for NSWorkspace notifications (sleep/lock detection)
         // and for the status bar menu to work
-        signal(SIGTERM, SIG_IGN)
-        signal(SIGINT, SIG_IGN)
-
-        let sigTermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        sigTermSource.setEventHandler { shutdownDaemon() }
-        sigTermSource.resume()
-
-        let sigIntSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-        sigIntSource.setEventHandler { shutdownDaemon() }
-        sigIntSource.resume()
-
         app.run()
     } catch IPCError.lockHeld {
         // Another daemon won the race (parallel spawn — e.g. turbo tasks).

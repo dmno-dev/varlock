@@ -202,7 +202,25 @@ async function startDaemon(opts: { socket: string; label: string; extraEnv?: Rec
   return daemon;
 }
 
-async function stopDaemon(child: ReturnType<typeof spawn>) {
+function isAlive(pid: number | undefined): boolean {
+  if (pid === undefined) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stop a daemon and make sure it is really gone.
+ *
+ * A daemon left behind is holding enclave sessions on somebody's machine, with a
+ * config home about to be deleted underneath it, so this escalates rather than
+ * hoping. It also reports the escalation as a failed check: a daemon that does
+ * not answer SIGTERM is a bug in the daemon, not a tidiness problem here.
+ */
+async function stopDaemon(child: ReturnType<typeof spawn>, label: string) {
   const exited = new Promise<void>((resolve) => {
     child.once('exit', () => resolve());
   });
@@ -212,6 +230,15 @@ async function stopDaemon(child: ReturnType<typeof spawn>) {
       setTimeout(resolve, 5_000);
     }),
   ]);
+
+  if (!isAlive(child.pid)) return;
+  child.kill('SIGKILL');
+  await Promise.race([
+    exited, new Promise((resolve) => {
+      setTimeout(resolve, 2_000);
+    }),
+  ]);
+  check(`${label} exits on SIGTERM`, false, { pid: child.pid, note: 'needed SIGKILL' });
 }
 
 let daemon = await startDaemon({ socket: socketPath, label: 'daemon' });
@@ -448,7 +475,7 @@ try {
   const auditBeforeRestart = readAudit().length;
 
   client.close();
-  await stopDaemon(daemon);
+  await stopDaemon(daemon, 'daemon');
 
   daemon = await startDaemon({ socket: socketPath, label: 'daemon-2' });
   client = new Client();
@@ -473,11 +500,11 @@ try {
   // The audit file may have been left read-only by the denial checks, and the
   // scratch directory has to be removable either way.
   if (fs.existsSync(auditPath)) fs.chmodSync(auditPath, 0o600);
-  daemon.kill('SIGTERM');
-  headlessDaemon?.kill('SIGTERM');
-  await new Promise((resolve) => {
-    setTimeout(resolve, 500);
-  });
+  // Waited on rather than given a fixed moment to die. A daemon this script
+  // leaves running is holding enclave sessions on somebody's machine, with a
+  // config home that is about to be deleted out from under it.
+  await stopDaemon(daemon, 'daemon');
+  if (headlessDaemon) await stopDaemon(headlessDaemon, 'headless daemon');
   try {
     runBinary(['delete-key', '--key-id', KEY_ID]);
   } catch { /* best effort */ }
