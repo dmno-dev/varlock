@@ -45,6 +45,23 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForConfigErrors(envGraph);
   showPluginWarnings(envGraph);
 
+  // Which environment actually got frozen. `--env` is only a fallback, so a schema using
+  // `@currentEnv` ignores it (same as `varlock load --env`) - but here that silently bakes
+  // the wrong environment's values into a deploy artifact, which is the exact failure this
+  // command exists to prevent. Refuse rather than warn: a frozen file is consumed without
+  // re-resolution, so nothing downstream gets another chance to catch it.
+  const envFlagKey = envGraph.rootDataSource?.envFlagKey;
+  const frozenEnv = envGraph.rootDataSource?.envFlagValue;
+  const requestedEnv = ctx.values.env;
+  if (requestedEnv && envFlagKey && String(frozenEnv) !== requestedEnv) {
+    throw new CliExitError(
+      `--env ${requestedEnv} was ignored: this schema sets @currentEnv, so the environment comes from ${envFlagKey} (currently "${frozenEnv}")`,
+      {
+        suggestion: `Set the value instead, e.g. \`${envFlagKey}=${requestedEnv} varlock freeze\`, and drop --env.`,
+      },
+    );
+  }
+
   const serialized = envGraph.getSerializedGraph();
 
   // Override provenance describes process.env overrides at the ORIGINAL invocation, so
@@ -70,6 +87,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const relOutPath = path.relative(process.cwd(), outPath) || outPath;
 
   console.log(`Froze ${itemCount} env var${itemCount === 1 ? '' : 's'} into ${ansis.bold(relOutPath)}`);
+  // always state the environment - this file gets shipped, and picking the wrong one is
+  // the easiest mistake to make and the hardest to notice
+  if (frozenEnv !== undefined) console.log(ansis.gray(`  environment: ${ansis.bold(String(frozenEnv))}`));
   console.log(ansis.gray(`  ${encryptionKey ? 'encrypted with _VARLOCK_ENV_KEY' : 'UNENCRYPTED'}`));
   console.log('');
 

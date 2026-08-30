@@ -181,7 +181,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   let serializedGraph: SerializedEnvGraph;
 
   if (reuseDecision.reuse) {
-    debug('reusing injected env blob - skipping resolution');
+    debug('reusing pre-resolved env from %s - skipping resolution', reuseDecision.source);
     serializedGraph = reuseDecision.parsedEnv;
     // same shape as getResolvedEnvStringObject: unset items stay undefined, so they still
     // mask any inherited value when the child env is built. The blob never carries
