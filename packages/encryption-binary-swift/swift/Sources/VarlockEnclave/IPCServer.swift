@@ -259,12 +259,24 @@ final class IPCServer {
             }
         }
 
-        // Verify the connecting process is an allowed client
+        // Verify the connecting process is an allowed client, and that it is in a
+        // state worth handing secrets to. Both are read off the socket's peer,
+        // never from anything in the message.
         if let peerPid = getPeerPid(fd: fd) {
+            let path = getProcessPath(pid: peerPid) ?? "unknown"
             guard verifyPeerProcess(pid: peerPid) != nil else {
-                let path = getProcessPath(pid: peerPid) ?? "unknown"
                 fputs("varlock: rejected IPC connection from unauthorized process (pid=\(peerPid), path=\(path))\n", stderr)
-                sendResponse(fd: fd, response: ["error": "Unauthorized client process"])
+                sendResponse(fd: fd, response: [
+                    "error": "Unauthorized client process",
+                    "errorCode": "PEER_NOT_ALLOWED",
+                ])
+                return
+            }
+            if let violation = PeerPosture.check(pid: peerPid, path: path) {
+                sendResponse(fd: fd, response: [
+                    "error": violation.clientMessage,
+                    "errorCode": violation.code,
+                ])
                 return
             }
         }
