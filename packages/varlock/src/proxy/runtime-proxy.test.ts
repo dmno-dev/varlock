@@ -11,7 +11,7 @@ import { URL } from 'node:url';
 import type { ProxyActivity } from './audit';
 import {
   checkSubstitutionGuards, dataPlaneAuthOk, findUninjectedPlaceholder, parseProxyAuthToken,
-  replacePlaceholdersWithReal, startLocalProxyRuntime,
+  startLocalProxyRuntime, substitutePlaceholdersInSurface,
   type SubstitutionGuardRequest,
 } from './runtime-proxy';
 import type { RequestScopedManagedItem } from './policy';
@@ -59,16 +59,50 @@ describe('findUninjectedPlaceholder (helpful-failure guard)', () => {
   });
 });
 
-describe('replacePlaceholdersWithReal', () => {
+describe('substitutePlaceholdersInSurface', () => {
+  // A's placeholder is a strict prefix of B's: the shape `ensureUnique` produces
+  // when two items' derived placeholders collide (it appends `_1`).
+  const overlapping = [
+    { key: 'A', placeholder: 'vlk_x', realValue: 'REAL_A' },
+    { key: 'B', placeholder: 'vlk_x_1', realValue: 'REAL_B' },
+  ] as any;
+  const allKeys = new Set(['A', 'B']);
+
   test('substitutes the longest placeholder first so substring placeholders are not corrupted', () => {
-    // P1 is a prefix of P2 — naive left-to-right replacement would splice R1 into
-    // P2's text and never match P2 correctly.
-    const managedItems = [
-      { key: 'A', placeholder: 'vlk_x', realValue: 'REAL_A' },
-      { key: 'B', placeholder: 'vlk_x_1', realValue: 'REAL_B' },
-    ];
+    // Naive left-to-right replacement would splice REAL_A into B's text and never
+    // match B correctly.
     const input = 'a=vlk_x&b=vlk_x_1';
-    expect(replacePlaceholdersWithReal(input, managedItems as any)).toBe('a=REAL_A&b=REAL_B');
+    expect(substitutePlaceholdersInSurface(input, overlapping, allKeys)).toBe('a=REAL_A&b=REAL_B');
+  });
+
+  test('leaves a skipped placeholder untouched even when a substitutable one is its prefix', () => {
+    // B is skipped in this surface (not in substituteKeys) while A, a prefix of B's
+    // placeholder, is substitutable. Matching only A's list would rewrite B's bytes
+    // into `REAL_A_1`, modifying supposedly inert text AND emitting the wrong secret.
+    const input = 'note=vlk_x_1';
+    expect(substitutePlaceholdersInSurface(input, overlapping, new Set(['A']))).toBe('note=vlk_x_1');
+  });
+
+  test('still substitutes the shorter placeholder where it stands on its own', () => {
+    const input = 'auth=vlk_x&note=vlk_x_1';
+    expect(substitutePlaceholdersInSurface(input, overlapping, new Set(['A']))).toBe('auth=REAL_A&note=vlk_x_1');
+  });
+
+  test('substitutes nothing when the surface allows no items', () => {
+    expect(substitutePlaceholdersInSurface('a=vlk_x&b=vlk_x_1', overlapping, new Set())).toBe('a=vlk_x&b=vlk_x_1');
+  });
+
+  test('never rescans a substituted value, so a real value containing a placeholder is left alone', () => {
+    const items = [
+      { key: 'A', placeholder: 'PH_A', realValue: 'real-with-PH_B-inside' },
+      { key: 'B', placeholder: 'PH_B', realValue: 'REAL_B' },
+    ] as any;
+    expect(substitutePlaceholdersInSurface('x=PH_A', items, new Set(['A', 'B']))).toBe('x=real-with-PH_B-inside');
+  });
+
+  test('ignores empty placeholders and returns the input unchanged when there are none', () => {
+    expect(substitutePlaceholdersInSurface('anything', [{ key: 'C', placeholder: '', realValue: 'RC' }] as any, new Set(['C'])))
+      .toBe('anything');
   });
 });
 

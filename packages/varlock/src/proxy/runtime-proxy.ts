@@ -519,18 +519,61 @@ export function checkSubstitutionGuards(
   return { violation: undefined, injectedKeys, skipped };
 }
 
-export function replacePlaceholdersWithReal(value: string, managedItems: Array<ProxyManagedItem>): string {
-  let next = value;
-  // Longest placeholder first, mirroring the scrub direction: if one placeholder
-  // is a substring of another (e.g. `vlk_x` and `vlk_x_1`), replacing the shorter
-  // one first would corrupt the longer one and splice in the wrong real value.
-  const sortedByPlaceholderLength = [...managedItems]
+/**
+ * Substitute placeholder → real value within ONE request surface (a single header
+ * value, the URL path, the query string, or the body).
+ *
+ * `allItems` is *every* managed placeholder, not just the substitutable ones, and
+ * `substituteKeys` selects which of them this surface may swap. Matching is
+ * leftmost-longest across all of them, which is what keeps overlapping placeholders
+ * honest: one placeholder can be a substring of another (`ensureUnique` resolves a
+ * collision by appending `_1`, and explicit `@placeholder` values can overlap too),
+ * so a shorter placeholder must never match inside its longer sibling. Filtering the
+ * list down to the surface's own items before replacing would do exactly that, and
+ * would rewrite bytes the guard classified as skipped.
+ *
+ * Every match outside `substituteKeys` is re-emitted verbatim, so a skipped
+ * placeholder reaches the upstream byte-for-byte unchanged. Matched regions are
+ * never rescanned, so a real value that happens to contain another placeholder's
+ * text can't be substituted a second time.
+ */
+export function substitutePlaceholdersInSurface(
+  value: string,
+  allItems: Array<ProxyManagedItem>,
+  substituteKeys: ReadonlySet<string>,
+): string {
+  // Longest first, so on a tie at the same index the longer placeholder wins.
+  const items = allItems
     .filter((item) => !!item.placeholder)
     .sort((a, b) => b.placeholder.length - a.placeholder.length);
-  for (const item of sortedByPlaceholderLength) {
-    next = next.split(item.placeholder).join(item.realValue);
+  if (!items.length) return value;
+
+  // Next match index per item, advanced lazily: each placeholder scans forward only,
+  // so the whole pass costs about one indexOf sweep per placeholder.
+  const nextIndex = items.map((item) => value.indexOf(item.placeholder));
+  let out = '';
+  let pos = 0;
+  while (true) {
+    let bestIdx = -1;
+    let bestItem = -1;
+    for (let i = 0; i < items.length; i += 1) {
+      // A cached index inside an already-consumed match is stale; re-scan from pos.
+      if (nextIndex[i] !== -1 && nextIndex[i]! < pos) {
+        nextIndex[i] = value.indexOf(items[i]!.placeholder, pos);
+      }
+      const idx = nextIndex[i]!;
+      if (idx === -1) continue;
+      if (bestIdx === -1 || idx < bestIdx) {
+        bestIdx = idx;
+        bestItem = i;
+      }
+    }
+    if (bestIdx === -1) return out + value.slice(pos);
+    const item = items[bestItem]!;
+    out += value.slice(pos, bestIdx);
+    out += substituteKeys.has(item.key) ? item.realValue : item.placeholder;
+    pos = bestIdx + item.placeholder.length;
   }
-  return next;
 }
 
 /**
@@ -1220,31 +1263,39 @@ export async function startLocalProxyRuntime({
       ...(skippedPlaceholders.length ? { skippedPlaceholders } : {}),
     });
 
-    // Substitute placeholder → real value, scoped per surface: each surface is only
-    // rewritten with the items whose targets cover it, so a skipped occurrence (a
-    // surface the rule doesn't target) stays the literal, inert placeholder. Within
-    // a targeted surface the guard above already proved every occurrence sits at an
-    // allowed spot, and placeholders are unique per item, so the per-surface replace
-    // stays a blind string-replace, with no body/query re-serialization needed.
-    const bodyItems = hostItems.filter((item) => item.targets.some((tg) => tg.location === 'body'));
-    const pathItems = hostItems.filter((item) => item.targets.some((tg) => tg.location === 'path'));
-    const queryItems = hostItems.filter((item) => item.targets.some((tg) => tg.location === 'query'));
+    // Substitute placeholder → real value, scoped per surface: a surface only swaps
+    // the items whose targets cover it, so a skipped occurrence (in a surface the
+    // rule doesn't target) stays the literal, inert placeholder. Within a targeted
+    // surface the guard above already proved every occurrence sits at an allowed
+    // spot, so no body/query re-serialization is needed. Every call still matches
+    // against ALL managed placeholders, not just the surface's own, so an
+    // overlapping placeholder can't be clobbered from inside its longer sibling
+    // (see substitutePlaceholdersInSurface).
+    const keysForLocation = (location: ProxySubstitutionLocation) => new Set(
+      hostItems.filter((item) => item.targets.some((tg) => tg.location === location)).map((item) => item.key),
+    );
     const rewrittenBody = shouldRewrite
-      ? Buffer.from(replacePlaceholdersWithReal(bodyText, bodyItems), 'utf8')
+      ? Buffer.from(substitutePlaceholdersInSurface(bodyText, managedItems, keysForLocation('body')), 'utf8')
       : body;
     let rewrittenPath = t.requestTarget;
     if (shouldRewrite) {
       const queryStart = t.requestTarget.indexOf('?');
       const pathPart = queryStart === -1 ? t.requestTarget : t.requestTarget.slice(0, queryStart);
       const queryPart = queryStart === -1 ? undefined : t.requestTarget.slice(queryStart + 1);
-      rewrittenPath = replacePlaceholdersWithReal(pathPart, pathItems)
-        + (queryPart === undefined ? '' : `?${replacePlaceholdersWithReal(queryPart, queryItems)}`);
+      rewrittenPath = substitutePlaceholdersInSurface(pathPart, managedItems, keysForLocation('path'))
+        + (queryPart === undefined
+          ? ''
+          : `?${substitutePlaceholdersInSurface(queryPart, managedItems, keysForLocation('query'))}`);
     }
 
     const upstreamHeaders = transformHeaders(
       req.headers,
       shouldRewrite
-        ? (value, name) => replacePlaceholdersWithReal(value, hostItems.filter((item) => itemAllowsHeader(item, name)))
+        ? (value, name) => substitutePlaceholdersInSurface(
+          value,
+          managedItems,
+          new Set(hostItems.filter((item) => itemAllowsHeader(item, name)).map((item) => item.key)),
+        )
         : (value) => value,
     );
     delete upstreamHeaders['proxy-connection'];

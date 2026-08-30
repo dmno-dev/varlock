@@ -468,6 +468,62 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
+  test('an overlapping placeholder skipped in one surface is not clobbered by a shorter one substituted there', async () => {
+    // SHORT's placeholder is a strict prefix of LONG's (the shape `ensureUnique`
+    // produces on a collision). They are targeted at DIFFERENT surfaces: SHORT only
+    // in the body at `note`, LONG only in headers. A per-surface replace that looked
+    // at just that surface's own items would match SHORT inside LONG's body bytes
+    // and emit `REAL_SHORT_1`, modifying text the guard called skipped and leaking
+    // the wrong secret into the body.
+    let upstreamBody = '';
+    let upstreamAuthHeader = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamAuthHeader = String(req.headers.authorization ?? '');
+      const chunks: Array<Buffer> = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        upstreamBody = Buffer.concat(chunks).toString('utf8');
+        res.statusCode = 200;
+        res.end('ok');
+      });
+    });
+
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [
+        { key: 'SHORT', placeholder: 'sk-stub-PH', realValue: 'sk-stub-REALSHORT' },
+        { key: 'LONG', placeholder: 'sk-stub-PH_1', realValue: 'sk-stub-REALLONG' },
+      ],
+      rules: [
+        { domain: [UPSTREAM_HOST], itemKeys: ['LONG'] }, // header-only default
+        { domain: [UPSTREAM_HOST], itemKeys: ['SHORT'], substituteIn: ['body:note'] },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    // LONG's placeholder in both the auth header (its own allowed surface) and the
+    // body field that SHORT (but not LONG) may be substituted into.
+    const payload = JSON.stringify({ note: 'sk-stub-PH_1' });
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Authorization: Bearer sk-stub-PH_1\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    // The header swapped LONG's own real value; the body is untouched, with LONG's
+    // placeholder still literal and neither real value spliced in.
+    expect(upstreamAuthHeader).toBe('Bearer sk-stub-REALLONG');
+    expect(upstreamBody).toBe(payload);
+    expect(upstreamBody).not.toContain('sk-stub-REALSHORT');
+    expect(upstreamBody).not.toContain('sk-stub-REALLONG');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('still blocks an off-path body placeholder when the rule has a body:<path> target', async () => {
     let upstreamHit = false;
     const upstream = await startUpstream((_req, res) => {
