@@ -60,6 +60,9 @@ public struct SessionGrantInfo: Equatable {
     public let sessionUnlockedAt: Int64
     /// epoch ms when the session's hard cap runs out
     public let sessionExpiresAt: Int64
+    /// ms left on the session's hard cap, measured the same way as `remainingMs`.
+    /// Never shorter than `remainingMs`, since every grant is clamped to the cap.
+    public let sessionRemainingMs: Int64
     /// which system events erase this session, as resolved at unlock time
     public let lockOn: SessionLockPolicy
     /// how many decrypts this grant has served
@@ -75,6 +78,7 @@ public struct SessionGrantInfo: Equatable {
             "expiresAt": expiresAt,
             "sessionUnlockedAt": sessionUnlockedAt,
             "sessionExpiresAt": sessionExpiresAt,
+            "sessionExpiresInMs": sessionRemainingMs,
             "lockOn": lockOn.rawValue,
             "useCount": useCount,
             "expiresInMs": remainingMs,
@@ -421,6 +425,7 @@ public final class SessionGrantTable {
             lastUsedAt: grant.lastUsedAt,
             sessionUnlockedAt: session.unlockedAt,
             sessionExpiresAt: session.deadline.wall,
+            sessionRemainingMs: session.deadline.remainingMs(wallNow: now, monotonicNow: monotonicNow),
             lockOn: session.lockOn,
             useCount: grant.useCount
         )

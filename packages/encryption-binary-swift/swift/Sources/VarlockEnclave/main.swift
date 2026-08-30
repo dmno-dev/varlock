@@ -664,15 +664,38 @@ case "daemon":
         // Set up status bar menu
         statusBarMenu = StatusBarMenu(
             sessionManager: sessionManager,
-            onLock: {
-                // Explicit lock: cached biometric contexts AND every identity
-                // session, whatever lock policy those sessions were opened with.
-                sessionManager.handleSystemLock()
-                statusBarMenu?.refresh()
-            },
-            onQuit: {
-                shutdownDaemon()
-            }
+            actions: StatusBarMenu.Actions(
+                liveGrants: {
+                    identitySessions.liveGrantInfos()
+                },
+                lockAll: {
+                    // Explicit lock: cached biometric contexts AND every identity
+                    // session, whatever lock policy those sessions were opened with.
+                    sessionManager.handleSystemLock()
+                    statusBarMenu?.refresh()
+                },
+                lockSession: { sessionId in
+                    identitySessions.invalidate(sessionId: sessionId, requester: "menu bar")
+                    statusBarMenu?.refresh()
+                },
+                currentLockPolicy: {
+                    // Read from the file rather than cached, for the same reason
+                    // unlock does: an edit applies without a restart.
+                    LockPolicyResolution.machineLockPolicy(
+                        fromConfigData: IdentityStore.readMachineConfigData()
+                    ) ?? .builtInDefault
+                },
+                setLockPolicy: { policy in
+                    let updated = try MachineConfigEdit.settingLockOn(
+                        policy,
+                        in: IdentityStore.readMachineConfigData()
+                    )
+                    try IdentityStore.writeMachineConfigData(updated)
+                },
+                quit: {
+                    shutdownDaemon()
+                }
+            )
         )
 
         // We need a run loop for NSWorkspace notifications (sleep/lock detection)
