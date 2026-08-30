@@ -89,6 +89,18 @@ pub struct StoredKey {
     /// How the private key is protected
     pub protection: Protection,
     pub created_at: String,
+    /// Should using this key cost a user-presence check?
+    ///
+    /// False only for a key created with `--no-auth`, which is the CI case: the
+    /// key is still protected at rest, there is just nobody to ask. Key files
+    /// written before this field existed are read as `true`, so an upgrade never
+    /// silently drops a prompt.
+    #[serde(default = "default_require_auth")]
+    pub require_auth: bool,
+}
+
+fn default_require_auth() -> bool {
+    true
 }
 
 /// Information about what key protection is available on this platform.
@@ -414,7 +426,7 @@ pub fn list_keys() -> Vec<String> {
 
 /// Generate a new key pair and store it with platform-specific protection.
 /// Returns the base64 public key.
-pub fn generate_key(key_id: &str) -> Result<String, String> {
+pub fn generate_key(key_id: &str, require_auth: bool) -> Result<String, String> {
     let key_pair = crate::crypto::generate_key_pair()?;
 
     // Decode the private key to protect it
@@ -430,6 +442,7 @@ pub fn generate_key(key_id: &str) -> Result<String, String> {
         protected_private_key: protected,
         protection,
         created_at: now_iso8601(),
+        require_auth,
     };
 
     write_stored_key(&stored)?;
@@ -541,57 +554,42 @@ pub fn load_key(key_id: &str) -> Result<(Vec<u8>, String), String> {
 
 /// Load just the public key (no protection needed).
 pub fn load_public_key(key_id: &str) -> Result<String, String> {
+    Ok(read_stored_key(key_id)?.public_key)
+}
+
+/// Whether using this key should cost a user-presence check.
+///
+/// A key this machine does not have answers `true`: refusing to prompt for a
+/// key we cannot find would be the wrong default, and the caller fails on the
+/// missing key a moment later anyway.
+pub fn key_requires_auth(key_id: &str) -> bool {
+    read_stored_key(key_id).map(|stored| stored.require_auth).unwrap_or(true)
+}
+
+/// Per-key metadata, for the `status` command. No secret material.
+pub fn key_details() -> Vec<serde_json::Value> {
+    list_keys()
+        .into_iter()
+        .filter_map(|key_id| {
+            let stored = read_stored_key(&key_id).ok()?;
+            Some(serde_json::json!({
+                "keyId": stored.key_id,
+                "requireAuth": stored.require_auth,
+                "protection": stored.protection.to_string(),
+                "createdAt": stored.created_at,
+            }))
+        })
+        .collect()
+}
+
+fn read_stored_key(key_id: &str) -> Result<StoredKey, String> {
     let path = get_key_file_path(key_id);
     let data = fs::read_to_string(&path).map_err(|_| format!("Key not found: {key_id}"))?;
-    let stored: StoredKey =
-        serde_json::from_str(&data).map_err(|e| format!("Corrupted key file: {e}"))?;
-    Ok(stored.public_key)
+    serde_json::from_str(&data).map_err(|e| format!("Corrupted key file: {e}"))
 }
 
 fn now_iso8601() -> String {
-    // Simple ISO 8601 without external crate
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    // Approximate UTC — good enough for metadata
-    let days = secs / 86400;
-    let time_of_day = secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-
-    // Calculate year/month/day from days since epoch (simplified)
-    let mut y = 1970i64;
-    let mut remaining_days = days as i64;
-    loop {
-        let days_in_year = if is_leap_year(y) { 366 } else { 365 };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        y += 1;
-    }
-    let mut m = 1u32;
-    let days_in_months = if is_leap_year(y) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-    for dim in days_in_months {
-        if remaining_days < dim {
-            break;
-        }
-        remaining_days -= dim;
-        m += 1;
-    }
-    let d = remaining_days + 1;
-
-    format!("{y:04}-{m:02}-{d:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
-}
-
-fn is_leap_year(y: i64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    crate::timefmt::now_iso8601_seconds()
 }
 
 #[cfg(test)]

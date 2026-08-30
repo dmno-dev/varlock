@@ -30,10 +30,14 @@ zeroize = "1"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-# Platform — Linux (nix for peer credentials in IPC, secret-service for keyring storage)
+# Platform — Linux (nix for peer credentials in IPC, secret-service for keyring
+# storage, zbus for the logind sleep/lock signals that end unlock sessions).
+# zbus is already in the tree underneath secret-service; naming it here pins the
+# same version rather than adding to the dependency set.
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.29", features = ["process", "socket", "user", "fs"] }
 secret-service = { version = "4", default-features = false, features = ["rt-async-io-crypto-rust"] }
+zbus = "4"
 
 # Platform — Windows
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -51,6 +55,17 @@ windows = { version = "0.58", features = [
     "Win32_Security_Authorization",
     "Win32_System_Threading",
     "Win32_System_Memory",
+    # Peer session scoping: parent process walk + process creation times
+    "Win32_System_Diagnostics_ToolHelp",
+    # Sleep-inclusive monotonic clock for grant deadlines (QueryInterruptTime)
+    "Win32_System_WindowsProgramming",
+    # Lock events: suspend notifications, and workstation lock via a
+    # message-only window
+    "Win32_System_Power",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_LibraryLoader",
+    # WNDCLASSW carries GDI handle fields, so the window class needs this too
+    "Win32_Graphics_Gdi",
     # Windows Hello (UserConsentVerifier)
     "Security_Credentials_UI",
     "Foundation",

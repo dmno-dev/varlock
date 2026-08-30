@@ -43,17 +43,75 @@ Binaries ship uncompressed. Do not reintroduce UPX (or any other executable pack
 
 ## Architecture
 
-- `src/main.rs` — CLI interface (generate-key, encrypt, decrypt, status, daemon)
-- `src/crypto.rs` — ECIES encryption using pure Rust crates (no OpenSSL)
-- `src/key_store/` — Platform-specific key protection:
-  - `windows_tpm.rs` — NCrypt TPM seal (Platform Crypto Provider)
-  - `windows.rs` — DPAPI fallback
-  - `windows_hello.rs` — Windows Hello presence gate (daemon)
-  - `linux.rs` — TPM2 via tpm2-tools
-  - `scalar.rs` — shared P-256 scalar ↔ PKCS8 helpers
-- `src/daemon.rs` — Long-lived IPC daemon for biometric session caching
-- `src/ipc.rs` — IPC server (Unix socket on Linux, named pipe on Windows)
-- `src/daemon_client.rs` — Named pipe client for `--via-daemon` mode (WSL2 support)
+- `src/main.rs`: CLI interface (generate-key, encrypt, decrypt, status, daemon)
+- `src/crypto.rs`: ECIES encryption using pure Rust crates (no OpenSSL)
+- `src/key_store/`: Platform-specific key protection:
+  - `windows_tpm.rs`: NCrypt TPM seal (Platform Crypto Provider)
+  - `windows.rs`: DPAPI fallback
+  - `windows_hello.rs`: Windows Hello presence gate (daemon)
+  - `linux.rs`: TPM2 via tpm2-tools
+  - `scalar.rs`: shared P-256 scalar ↔ PKCS8 helpers
+- `src/identity_sessions/`: identity-backed unlock sessions (see below)
+- `src/secure_mem.rs`: locked, dump-excluded, zeroize-on-drop buffers
+- `src/daemon.rs`: Long-lived IPC daemon for biometric session caching
+- `src/ipc.rs`: IPC server (Unix socket on Linux, named pipe on Windows)
+- `src/daemon_client.rs`: Named pipe client for `--via-daemon` mode (WSL2 support)
+
+## Identity sessions
+
+Values are encrypted to an identity key rather than straight to the device key:
+
+```
+device key (NCrypt/TPM, DPAPI, TPM2, Secret Service) -> identity key -> values
+```
+
+The daemon holds the unwrapped identity key on behalf of one session so a whole
+env file resolves without a prompt per value. A grant is what makes that holding
+legitimate. The ops are the same ones the macOS (Swift) daemon speaks, so a
+client cannot tell the two apart:
+
+- `unlock-session`: open or extend a session's hold on one or more keys
+- `decrypt-v2`: decrypt a batch of identity payloads under a live grant
+- `list-sessions`: every live grant, with no key material
+- `invalidate-session`: drop everything, one session, or one grant
+
+`ping` reports `protocolVersion: 3`.
+
+Rules worth knowing:
+
+- A grant is keyed by (session x key). The session is resolved from the
+  connecting process, never from anything in the message.
+- Scopes are `once`, `session`, and `duration`, all capped at 12 hours.
+- Deadlines are held on both the wall clock and a sleep-inclusive monotonic
+  clock, and whichever runs out first ends the grant.
+- Every authorization is appended to `<user varlock dir>/audit/authorizations.jsonl`
+  and read back off disk before any plaintext is returned. A decrypt whose record
+  cannot be written is refused.
+- Nothing is persisted. A daemon restart loses every session on purpose.
+
+### What ends a session early
+
+`lockOn` is `screenLock`, `sleep` (the default), or `none`, taken from the
+unlock, then from `sessions.lockOn` in the user config file, then from the
+default. The daemon's ready line reports which triggers it actually wired:
+
+| event | Windows | Linux |
+| --- | --- | --- |
+| `sleep` | `PowerRegisterSuspendResumeNotification` | logind `PrepareForSleep` |
+| `screenLock` | `WTSRegisterSessionNotification` | logind session `Lock` |
+
+Desktop-environment screensaver locks on Linux (GNOME, KDE) do not always reach
+logind, and are not yet wired. A machine with no source for an event runs its
+sessions to their TTL instead, and says so on stderr at startup.
+
+### Where the key is held
+
+macOS re-wraps the identity key under a per-session Secure Enclave key. Neither
+NCrypt nor TPM2 gives a cheap equivalent, so the hold here is guarded memory: a
+fixed-size allocation that never grows, `mlock`/`VirtualLock`ed, marked
+`MADV_DONTDUMP` on Linux, and zeroized when the session ends. The daemon also
+disables core dumps and clears `PR_SET_DUMPABLE` on Linux at startup. A
+TPM-resident session key is a later step.
 
 ## WSL2 Support
 

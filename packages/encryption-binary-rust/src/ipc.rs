@@ -18,10 +18,36 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 const MAX_MESSAGE_SIZE: u32 = 10_000_000; // 10MB safety limit
 
+/// What the daemon knows about who is connected, worked out from the connection
+/// itself rather than from anything in the message.
+///
+/// This distinction is the whole point of the type. The identity session ops
+/// hand out held key material, so the session they act on has to be one the
+/// caller cannot name: `session_id` is derived from the peer process, and
+/// `claimed_session_id` is whatever the message said, kept separately and used
+/// only by the older device-decrypt path that has always accepted it.
+#[derive(Debug, Clone, Default)]
+pub struct PeerContext {
+    /// Session identity resolved from the connecting process.
+    pub session_id: Option<String>,
+    /// One line naming the peer, for the authorization log.
+    pub requester: Option<String>,
+    /// The session id the message claimed. Never trusted for grants.
+    pub claimed_session_id: Option<String>,
+}
 
+impl PeerContext {
+    /// The key the pre-identity `decrypt` path warms its biometric session
+    /// under. It has always fallen back to the client-reported value, which is
+    /// what makes WSL2 callers work at all, so that behaviour is preserved here
+    /// rather than tightened underneath them.
+    pub fn legacy_session_key(&self) -> Option<String> {
+        self.session_id.clone().or_else(|| self.claimed_session_id.clone())
+    }
+}
 
 /// Message handler callback type.
-pub type MessageHandler = Box<dyn Fn(Value, Option<String>) -> Value + Send + Sync>;
+pub type MessageHandler = Box<dyn Fn(Value, PeerContext) -> Value + Send + Sync>;
 
 /// IPC server that listens for length-prefixed JSON messages.
 pub struct IpcServer {
@@ -129,11 +155,11 @@ impl IpcServer {
                         continue;
                     }
 
-                    // Get peer session identity
-                    let tty_id = get_peer_session_id(&stream);
+                    // Who is connected, read off the connection
+                    let peer = describe_unix_peer(&stream);
 
                     std::thread::spawn(move || {
-                        handle_client(stream, handler, on_activity, running, tty_id);
+                        handle_client(stream, handler, on_activity, running, peer);
                     });
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -222,7 +248,6 @@ impl IpcServer {
             let handler = self.message_handler.clone();
             let on_activity = self.on_activity.clone();
             let running = self.running.clone();
-            let tty_id: Option<String> = None;
 
             // HANDLE is !Send, but it's safe to use from another thread
             // since we transfer exclusive ownership. Pass as raw pointer.
@@ -241,7 +266,10 @@ impl IpcServer {
                     return;
                 }
 
-                handle_windows_client(pipe, handler, on_activity, running, tty_id);
+                // Who is connected, read off the pipe rather than the message
+                let peer = describe_pipe_peer(pipe);
+
+                handle_windows_client(pipe, handler, on_activity, running, peer);
                 unsafe {
                     let _ = DisconnectNamedPipe(pipe);
                     let _ = CloseHandle(pipe);
@@ -273,7 +301,7 @@ fn handle_client(
     handler: Option<Arc<MessageHandler>>,
     on_activity: Option<Arc<dyn Fn() + Send + Sync>>,
     running: Arc<AtomicBool>,
-    tty_id: Option<String>,
+    peer: PeerContext,
 ) {
     // Set blocking for reads
     let _ = stream.set_nonblocking(false);
@@ -315,8 +343,14 @@ fn handle_client(
         // Handle message
         let id = message.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
+        let mut peer = peer.clone();
+        peer.claimed_session_id = message
+            .get("ttyId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         let response = if let Some(ref handler) = handler {
-            handler(message, tty_id.clone())
+            handler(message, peer)
         } else {
             serde_json::json!({"error": "No handler"})
         };
@@ -400,20 +434,39 @@ fn verify_unix_client(_stream: &UnixStream) -> bool {
 
 // ── Peer session identity (Linux) ───────────────────────────────
 
+/// Everything the daemon can say about a Unix peer, from the socket alone.
 #[cfg(target_os = "linux")]
-fn get_peer_session_id(stream: &UnixStream) -> Option<String> {
+fn describe_unix_peer(stream: &UnixStream) -> PeerContext {
     use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
     use std::os::fd::AsFd;
 
-    let creds = getsockopt(&stream.as_fd(), PeerCredentials).ok()?;
-    let pid = creds.pid();
+    let pid = getsockopt(&stream.as_fd(), PeerCredentials)
+        .ok()
+        .map(|creds| creds.pid())
+        .filter(|pid| *pid > 0)
+        .map(|pid| pid as u32);
 
-    if pid <= 0 {
-        return None;
+    PeerContext {
+        session_id: pid.and_then(get_peer_session_id),
+        requester: pid.map(describe_requester),
+        claimed_session_id: None,
     }
+}
 
-    let parent_session_id = get_parent_session_id(pid as u32);
-    let ai_session = get_ai_session_from_env(pid as u32);
+/// macOS has no `SO_PEERCRED` equivalent wired up here, and runs the Swift
+/// daemon in production anyway. The socket's 0600 permissions still restrict it
+/// to the owning user; what is missing is a session identity, which means the
+/// identity session ops answer `NO_SESSION_IDENTITY` on this build rather than
+/// guessing one.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn describe_unix_peer(_stream: &UnixStream) -> PeerContext {
+    PeerContext::default()
+}
+
+#[cfg(target_os = "linux")]
+fn get_peer_session_id(pid: u32) -> Option<String> {
+    let parent_session_id = get_parent_session_id(pid);
+    let ai_session = get_ai_session_from_env(pid);
 
     match (ai_session, parent_session_id) {
         (Some((key, value)), Some(parent)) => Some(format!("env:{key}:{value}|{parent}")),
@@ -421,6 +474,25 @@ fn get_peer_session_id(stream: &UnixStream) -> Option<String> {
         (None, Some(parent)) => Some(parent),
         (None, None) => None,
     }
+}
+
+/// One line naming the connecting process, for the authorization log.
+///
+/// Derived from the process itself, never from the message, so a line in the log
+/// says who actually asked. Deliberately short: the log is a record of
+/// authorizations, not a process dump.
+#[cfg(target_os = "linux")]
+fn describe_requester(pid: u32) -> String {
+    let name = std::fs::read_link(format!("/proc/{pid}/exe"))
+        .ok()
+        .and_then(|path| path.file_name().map(|n| n.to_string_lossy().to_string()))
+        .or_else(|| {
+            std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .ok()
+                .map(|comm| comm.trim().to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+    format!("{name} (pid {pid})")
 }
 
 #[cfg(target_os = "linux")]
@@ -489,18 +561,18 @@ fn get_ptree_session_id(pid: u32) -> Option<String> {
     Some(format!("ptree:{scope_pid}:{start_time}"))
 }
 
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 /// Shells are one-shot command wrappers and should never scope a no-TTY session.
-#[cfg(target_os = "linux")]
 const SHELL_RUNNER_NAMES: &[&str] = &["sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh"];
 
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 /// Varlock CLI launchers are also one-shot; scope to the host that invoked them.
-#[cfg(target_os = "linux")]
 const VARLOCK_LAUNCHER_NAMES: &[&str] = &["varlock", "varlock.exe", "varlock.cmd"];
 
 /// Runtime/package-manager processes are wrappers only when their command line
 /// shows they are launching the Varlock CLI. A long-lived process like Vite may
 /// also be `node` or `bun`, and should remain a valid session scope.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 const PACKAGE_MANAGER_RUNNER_NAMES: &[&str] = &[
     "bun", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg",
 ];
@@ -524,7 +596,7 @@ fn parse_env_pairs<'a>(entries: impl Iterator<Item = &'a [u8]>) -> std::collecti
         .collect()
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 fn contains_runner_name(names: &[&str], name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     names.contains(&lower.as_str())
@@ -549,19 +621,26 @@ fn process_command_line_launches_varlock(pid: u32) -> bool {
     process_args_launches_varlock(process_args(pid).iter().map(String::as_str))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn process_args_launches_varlock<'a>(args: impl Iterator<Item = &'a str>) -> bool {
     args.into_iter().any(|arg| {
-        let name = std::path::Path::new(arg)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let name = file_name_of(arg).to_ascii_lowercase();
         VARLOCK_LAUNCHER_NAMES.contains(&name.as_str())
             || arg.contains("/node_modules/.bin/varlock")
             || arg.contains("/varlock/bin/cli.js")
             || arg.contains("/packages/varlock/bin/cli.js")
     })
+}
+
+/// The last path component of an argument, splitting on both separators.
+///
+/// `std::path::Path` only treats `\` as a separator when compiled for Windows,
+/// and the arguments this reads can describe either platform's paths (a WSL
+/// caller's command line names Windows paths). Doing it by hand keeps the answer
+/// the same wherever the check runs.
+#[cfg(any(target_os = "linux", test))]
+fn file_name_of(arg: &str) -> &str {
+    arg.rsplit(['/', '\\']).next().unwrap_or(arg)
 }
 
 #[cfg(target_os = "linux")]
@@ -587,7 +666,7 @@ fn is_ephemeral_runner(pid: u32) -> bool {
 }
 
 /// Pick a stable scope PID from an ancestry chain (peer first, app root last).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 fn select_scope_pid_from_chain(
     chain: &[u32],
     is_ephemeral: impl Fn(u32) -> bool,
@@ -636,9 +715,211 @@ fn get_process_start_time(pid: u32) -> Option<u64> {
     fields.get(19)?.parse().ok()
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
-fn get_peer_session_id(_stream: &UnixStream) -> Option<String> {
-    None
+// ── Peer session identity (Windows) ─────────────────────────────
+
+/// Everything the daemon can say about a named-pipe peer.
+///
+/// The pipe tells us the client's PID, which is the only trustworthy starting
+/// point: the `ttyId` field a client may put in a message is kept separately in
+/// [`PeerContext::claimed_session_id`] and never used to scope a grant.
+#[cfg(windows)]
+fn describe_pipe_peer(pipe: windows::Win32::Foundation::HANDLE) -> PeerContext {
+    let pid = client_process_id(pipe);
+    PeerContext {
+        session_id: pid.and_then(get_peer_session_id),
+        requester: pid.map(describe_requester),
+        claimed_session_id: None,
+    }
+}
+
+#[cfg(windows)]
+fn client_process_id(pipe: windows::Win32::Foundation::HANDLE) -> Option<u32> {
+    use windows::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    let mut client_pid = 0u32;
+    // Safety: `pipe` is a connected named pipe handle owned by this thread.
+    let ok = unsafe { GetNamedPipeClientProcessId(pipe, &mut client_pid) };
+    if ok.is_err() || client_pid == 0 {
+        return None;
+    }
+    Some(client_pid)
+}
+
+/// Scope a Windows peer to a stable ancestor of its process tree.
+///
+/// Windows has no controlling terminal, so there is no equivalent of the Linux
+/// `tty:` scope: every session here is the process-tree kind. The chain walk and
+/// the choice of which ancestor to scope to are the same shared code the Linux
+/// path uses, so a shell wrapper or a `bun`/`npx` launcher is skipped
+/// identically on both.
+///
+/// Reading another process's environment on Windows needs `ReadProcessMemory`
+/// against its PEB, so the agent-session environment variables the Linux path
+/// prefers (`CLAUDE_CODE_SESSION_ID` and friends) are not consulted here. Two
+/// agent sessions under one editor process therefore share a scope on Windows
+/// where they would not on Linux. That is a coarser session, never a wider one:
+/// the scope is still a single process tree on a single machine.
+#[cfg(windows)]
+fn get_peer_session_id(pid: u32) -> Option<String> {
+    let mut chain: Vec<u32> = vec![pid];
+    let mut current = pid;
+
+    for _ in 0..64 {
+        let parent = get_parent_pid(current)?;
+        // 0 is "no parent recorded"; 4 is the System process, which is as far up
+        // as a user process's ancestry meaningfully goes.
+        if parent == 0 || parent == 4 || parent == current {
+            break;
+        }
+        // A recycled PID whose creation time is newer than its child's is not
+        // really the parent: Windows reuses PIDs freely, so an ancestry walk
+        // that ignored this could scope a session to an unrelated process.
+        if let (Some(parent_started), Some(child_started)) =
+            (get_process_start_time(parent), get_process_start_time(current))
+        {
+            if parent_started > child_started {
+                break;
+            }
+        }
+        chain.push(parent);
+        current = parent;
+    }
+
+    let scope_pid = select_scope_pid_from_chain(&chain, is_ephemeral_runner)?;
+    let start_time = get_process_start_time(scope_pid).unwrap_or(0);
+    Some(format!("ptree:{scope_pid}:{start_time}"))
+}
+
+#[cfg(windows)]
+fn describe_requester(pid: u32) -> String {
+    let name = process_image_name(pid).unwrap_or_else(|| "unknown".to_string());
+    format!("{name} (pid {pid})")
+}
+
+/// The executable file name for a process, without its path.
+#[cfg(windows)]
+fn process_image_name(pid: u32) -> Option<String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // Safety: opening with the most limited access that answers the question.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+
+    let mut buffer = [0u16; 1024];
+    let mut length = buffer.len() as u32;
+    // Safety: `buffer` is large enough and `length` describes it.
+    let ok = unsafe {
+        QueryFullProcessImageNameW(
+            process,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buffer.as_mut_ptr()),
+            &mut length,
+        )
+    };
+    // Safety: the handle came from a successful OpenProcess and is closed once.
+    unsafe {
+        let _ = CloseHandle(process);
+    }
+    if ok.is_err() || length == 0 {
+        return None;
+    }
+
+    let path = String::from_utf16_lossy(&buffer[..length as usize]);
+    Some(path.rsplit('\\').next().unwrap_or(&path).to_string())
+}
+
+/// The command line of a process, so a `node`/`bun` ancestor can be recognised
+/// as a varlock launcher rather than a long-lived app worth scoping to.
+///
+/// Windows keeps the command line in the process's own PEB, which reading would
+/// mean `ReadProcessMemory`. Rather than do that, this reports no arguments,
+/// which makes [`is_ephemeral_runner`] treat a runtime process as a real scope.
+/// The failure direction is a session that is scoped slightly too narrowly (an
+/// extra unlock), never one shared with a process that should not have it.
+#[cfg(windows)]
+fn process_command_line_launches_varlock(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn is_ephemeral_runner(pid: u32) -> bool {
+    let Some(name) = process_image_name(pid) else { return false };
+    // Windows executables carry a .exe suffix that the shared name lists do not.
+    let name = name.strip_suffix(".exe").unwrap_or(&name).to_string();
+
+    contains_runner_name(SHELL_RUNNER_NAMES, &name)
+        || contains_runner_name(VARLOCK_LAUNCHER_NAMES, &name)
+        || (contains_runner_name(PACKAGE_MANAGER_RUNNER_NAMES, &name)
+            && process_command_line_launches_varlock(pid))
+}
+
+/// The parent PID, via a process snapshot. Windows has no `/proc`.
+#[cfg(windows)]
+fn get_parent_pid(pid: u32) -> Option<u32> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    // Safety: a process-list snapshot of the whole system takes no input buffer.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.ok()?;
+
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    let mut parent = None;
+    // Safety: `entry` is sized as the API requires and the snapshot is live.
+    unsafe {
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32ProcessID == pid {
+                    parent = Some(entry.th32ParentProcessID);
+                    break;
+                }
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+    }
+    parent
+}
+
+/// Process creation time, in 100ns units. Pairs with the PID to identify one
+/// run of a process rather than the number Windows may hand out again later.
+#[cfg(windows)]
+fn get_process_start_time(pid: u32) -> Option<u64> {
+    use windows::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // Safety: opening with the most limited access that answers the question.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.ok()?;
+
+    let mut creation = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    // Safety: four valid output parameters for a handle we just opened.
+    let ok = unsafe {
+        GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user)
+    };
+    // Safety: the handle came from a successful OpenProcess and is closed once.
+    unsafe {
+        let _ = CloseHandle(process);
+    }
+    if ok.is_err() {
+        return None;
+    }
+
+    Some(((creation.dwHighDateTime as u64) << 32) | creation.dwLowDateTime as u64)
 }
 
 // ── Windows pipe security ───────────────────────────────────────
@@ -809,7 +1090,7 @@ fn handle_windows_client(
     handler: Option<Arc<MessageHandler>>,
     on_activity: Option<Arc<dyn Fn() + Send + Sync>>,
     running: Arc<AtomicBool>,
-    tty_id: Option<String>,
+    peer: PeerContext,
 ) {
     use windows::Win32::Storage::FileSystem::{ReadFile, WriteFile, FlushFileBuffers};
 
@@ -863,13 +1144,18 @@ fn handle_windows_client(
 
         let id = message.get("id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-        // On Windows, use client-reported ttyId from the message (set by --via-daemon callers)
-        let effective_tty_id = tty_id.clone().or_else(|| {
-            message.get("ttyId").and_then(|v| v.as_str()).map(|s| s.to_string())
-        });
+        // WSL2 callers reach the daemon through a fresh `varlock-local-encrypt.exe`
+        // each time, and pass the session they believe they are in as `ttyId`.
+        // The legacy decrypt path still honours that; the identity session ops
+        // read `session_id` instead, which came off the pipe.
+        let mut peer = peer.clone();
+        peer.claimed_session_id = message
+            .get("ttyId")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         let response = if let Some(ref handler) = handler {
-            handler(message, effective_tty_id)
+            handler(message, peer)
         } else {
             serde_json::json!({"error": "No handler"})
         };
@@ -912,6 +1198,106 @@ fn send_windows_response(
 
 // ── Tests ───────────────────────────────────────────────────────
 
+/// The scope-selection rules, which are shared by every platform and depend on
+/// nothing but the ancestry chain handed to them.
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[test]
+    fn a_peer_context_prefers_the_derived_session_over_the_claimed_one() {
+        let peer = PeerContext {
+            session_id: Some("ptree:50:900".into()),
+            requester: Some("node (pid 100)".into()),
+            claimed_session_id: Some("tty:someone-elses-session".into()),
+        };
+        assert_eq!(peer.legacy_session_key().as_deref(), Some("ptree:50:900"));
+    }
+
+    #[test]
+    fn the_legacy_path_still_falls_back_to_the_claimed_session() {
+        // This is what keeps WSL2 callers working: the pipe cannot tell us which
+        // shell inside WSL asked, so the pre-identity decrypt path accepts what
+        // the message said. The identity ops read `session_id` and so refuse.
+        let peer = PeerContext {
+            session_id: None,
+            requester: None,
+            claimed_session_id: Some("tty:pts-3:900".into()),
+        };
+        assert_eq!(peer.legacy_session_key().as_deref(), Some("tty:pts-3:900"));
+        assert_eq!(peer.session_id, None);
+    }
+
+    #[test]
+    fn test_select_scope_pid_shallow_codex_tree() {
+        // [bun, codex-app]
+        let chain = [100u32, 50];
+        assert_eq!(select_scope_pid_from_chain(&chain, |_| false), Some(50));
+    }
+
+    #[test]
+    fn test_select_scope_pid_grandchild_codex_tree() {
+        // [bun, codex-worker, codex-app]
+        let chain = [100u32, 80, 50];
+        assert_eq!(select_scope_pid_from_chain(&chain, |_| false), Some(50));
+    }
+
+    #[test]
+    fn test_select_scope_pid_shell_wrapper() {
+        // [bun, sh, codex-worker, codex-app]
+        let chain = [100u32, 99, 80, 50];
+        let is_shell = |pid: u32| pid == 99;
+        assert_eq!(select_scope_pid_from_chain(&chain, is_shell), Some(80));
+    }
+
+    #[test]
+    fn test_select_scope_pid_package_manager_wrapper() {
+        // [varlock-local-encrypt peer, bun, codex-worker, codex-app]
+        let chain = [100u32, 99, 80, 50];
+        let is_package_manager = |pid: u32| pid == 99;
+        assert_eq!(select_scope_pid_from_chain(&chain, is_package_manager), Some(80));
+    }
+
+    #[test]
+    fn test_package_manager_names_are_conditional_wrappers() {
+        for name in ["bun", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg"] {
+            assert!(
+                contains_runner_name(PACKAGE_MANAGER_RUNNER_NAMES, name),
+                "{name} should be a conditional wrapper",
+            );
+            assert!(
+                !contains_runner_name(SHELL_RUNNER_NAMES, name),
+                "{name} should not be an unconditional shell wrapper",
+            );
+        }
+    }
+
+    #[test]
+    fn test_select_scope_pid_cursor_style() {
+        // [node, zsh, claude, extension-host, cursor]
+        let chain = [100u32, 99, 88, 77, 50];
+        let is_shell = |pid: u32| pid == 99;
+        assert_eq!(select_scope_pid_from_chain(&chain, is_shell), Some(88));
+    }
+
+    #[test]
+    fn test_select_scope_pid_too_shallow() {
+        let chain = [100u32];
+        assert_eq!(select_scope_pid_from_chain(&chain, |_| false), None);
+    }
+
+    #[test]
+    fn varlock_launchers_are_recognised_with_and_without_an_exe_suffix() {
+        assert!(process_args_launches_varlock(["/usr/local/bin/varlock"].into_iter()));
+        assert!(process_args_launches_varlock(["C:\\tools\\varlock.exe"].into_iter()));
+        assert!(process_args_launches_varlock(
+            ["node", "/repo/node_modules/.bin/varlock", "run"].into_iter()
+        ));
+        assert!(!process_args_launches_varlock(["node", "server.js"].into_iter()));
+    }
+}
+
+/// The `/proc`-backed half, which only exists on Linux.
 #[cfg(test)]
 #[cfg(target_os = "linux")]
 mod tests {
@@ -955,78 +1341,12 @@ mod tests {
         assert!(!parsed.contains_key("INVALID"));
     }
 
-    #[test]
-    fn test_select_scope_pid_shallow_codex_tree() {
-        // [bun, codex-app]
-        let chain = [100u32, 50];
-        assert_eq!(
-            select_scope_pid_from_chain(&chain, |_| false),
-            Some(50),
-        );
-    }
 
-    #[test]
-    fn test_select_scope_pid_grandchild_codex_tree() {
-        // [bun, codex-worker, codex-app]
-        let chain = [100u32, 80, 50];
-        assert_eq!(
-            select_scope_pid_from_chain(&chain, |_| false),
-            Some(50),
-        );
-    }
 
-    #[test]
-    fn test_select_scope_pid_shell_wrapper() {
-        // [bun, sh, codex-worker, codex-app]
-        let chain = [100u32, 99, 80, 50];
-        let is_shell = |pid: u32| pid == 99;
-        assert_eq!(
-            select_scope_pid_from_chain(&chain, is_shell),
-            Some(80),
-        );
-    }
 
-    #[test]
-    fn test_select_scope_pid_package_manager_wrapper() {
-        // [varlock-local-encrypt peer, bun, codex-worker, codex-app]
-        let chain = [100u32, 99, 80, 50];
-        let is_package_manager = |pid: u32| pid == 99;
-        assert_eq!(
-            select_scope_pid_from_chain(&chain, is_package_manager),
-            Some(80),
-        );
-    }
 
-    #[test]
-    fn test_package_manager_names_are_conditional_wrappers() {
-        for name in ["bun", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "yarnpkg"] {
-            assert!(
-                contains_runner_name(PACKAGE_MANAGER_RUNNER_NAMES, name),
-                "{name} should be a conditional wrapper",
-            );
-            assert!(
-                !contains_runner_name(SHELL_RUNNER_NAMES, name),
-                "{name} should not be an unconditional shell wrapper",
-            );
-        }
-    }
 
-    #[test]
-    fn test_select_scope_pid_cursor_style() {
-        // [node, zsh, claude, extension-host, cursor]
-        let chain = [100u32, 99, 88, 77, 50];
-        let is_shell = |pid: u32| pid == 99;
-        assert_eq!(
-            select_scope_pid_from_chain(&chain, is_shell),
-            Some(88),
-        );
-    }
 
-    #[test]
-    fn test_select_scope_pid_too_shallow() {
-        let chain = [100u32];
-        assert_eq!(select_scope_pid_from_chain(&chain, |_| false), None);
-    }
 
     #[test]
     fn test_get_ptree_session_id_self() {

@@ -8,9 +8,13 @@
 mod crypto;
 mod daemon;
 mod daemon_client;
+mod identity_sessions;
 mod ipc;
 mod key_store;
 mod secure_mem;
+#[cfg(test)]
+mod test_support;
+mod timefmt;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde_json::json;
@@ -77,14 +81,18 @@ fn json_success(result: serde_json::Value) -> ! {
 
 fn cmd_generate_key(args: &[String]) {
     let key_id = get_key_id(args);
+    // CI mode: the key is still protected at rest, there is just nobody to ask
+    // for presence. Matches the Swift binary's flag of the same name.
+    let require_auth = !args.contains(&"--no-auth".to_string());
 
-    match key_store::generate_key(&key_id) {
+    match key_store::generate_key(&key_id, require_auth) {
         Ok(public_key) => {
             let pub_bytes = BASE64.decode(&public_key).unwrap_or_default();
             json_success(json!({
                 "keyId": key_id,
                 "publicKey": public_key,
                 "publicKeyBytes": pub_bytes.len(),
+                "requireAuth": require_auth,
             }));
         }
         Err(e) => json_error(&e),
@@ -231,6 +239,9 @@ fn cmd_status() {
         "platform": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "keys": keys,
+        // Per-key metadata, so the TS side can tell which keys carry a presence
+        // gate without opening any of them.
+        "keyDetails": key_store::key_details(),
     });
 
     // Include setup hints for optional features.
@@ -365,7 +376,9 @@ fn cmd_help() {
     let help = r#"varlock-local-encrypt - Cross-platform local encryption for Varlock
 
 COMMANDS:
-  generate-key [--key-id <id>]    Create a new encryption key
+  generate-key [--key-id <id>] [--no-auth]
+                                  Create a new encryption key
+                                  (--no-auth: no user-presence check, for CI)
   rewrap-key [--key-id <id>]      Re-wrap key with best available protection (optional; auto on decrypt)
   delete-key [--key-id <id>]      Delete an encryption key
   list-keys                       List all Varlock encryption keys
