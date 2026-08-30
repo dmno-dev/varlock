@@ -270,21 +270,65 @@ async function runApprovalGate(input: {
   }
 }
 
+/** One managed placeholder occurrence located in a request surface. */
+type PlaceholderMatch = { item: ProxyManagedItem; index: number };
+
 /**
- * Number of non-overlapping occurrences of `needle` in `haystack`. Uses an
- * indexOf scan rather than `split` so it stays O(n) time / O(1) extra space: an
- * untrusted agent controls the request and could repeat a placeholder many times,
- * and `split` would allocate an array proportional to the match count.
+ * Every managed placeholder occurrence in `value`, left to right, matched
+ * **leftmost-longest** across all of `allItems` and never overlapping.
+ *
+ * This is the single source of truth for "where are the placeholders", shared by
+ * the guard and the substitution so the two can never disagree. That matters
+ * because placeholders can contain one another (`ensureUnique` resolves a
+ * collision by appending `_1`, and explicit `@placeholder` values can overlap
+ * freely): a per-item substring search would charge the shorter item for bytes
+ * that belong to the longer one, and substitution would then leave those bytes
+ * alone, so the guard could block a request in which nothing would have been
+ * substituted at all.
+ *
+ * Scanning is an indexOf sweep per placeholder with each item's next match cached,
+ * rather than a `split`, so an agent repeating a placeholder many times can't make
+ * this allocate proportionally to the match count in the common (no-match) case.
  */
-function countOccurrences(haystack: string, needle: string): number {
-  if (!needle) return 0;
-  let count = 0;
-  let idx = haystack.indexOf(needle);
-  while (idx !== -1) {
-    count += 1;
-    idx = haystack.indexOf(needle, idx + needle.length);
+function findPlaceholderMatches(value: string, allItems: Array<ProxyManagedItem>): Array<PlaceholderMatch> {
+  // Longest first, so on a tie at the same index the longer placeholder wins.
+  const items = allItems
+    .filter((item) => !!item.placeholder)
+    .sort((a, b) => b.placeholder.length - a.placeholder.length);
+  const matches: Array<PlaceholderMatch> = [];
+  if (!items.length) return matches;
+
+  const nextIndex = items.map((item) => value.indexOf(item.placeholder));
+  let pos = 0;
+  while (true) {
+    let bestIdx = -1;
+    let bestItem = -1;
+    for (let i = 0; i < items.length; i += 1) {
+      // A cached index inside an already-consumed match is stale; re-scan from pos.
+      if (nextIndex[i] !== -1 && nextIndex[i]! < pos) {
+        nextIndex[i] = value.indexOf(items[i]!.placeholder, pos);
+      }
+      const idx = nextIndex[i]!;
+      if (idx === -1) continue;
+      if (bestIdx === -1 || idx < bestIdx) {
+        bestIdx = idx;
+        bestItem = i;
+      }
+    }
+    if (bestIdx === -1) return matches;
+    const item = items[bestItem]!;
+    matches.push({ item, index: bestIdx });
+    pos = bestIdx + item.placeholder.length;
   }
-  return count;
+}
+
+/** Per-item-key occurrence counts in one surface, using the shared matcher. */
+function countPlaceholderMatches(value: string, allItems: Array<ProxyManagedItem>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const match of findPlaceholderMatches(value, allItems)) {
+    counts.set(match.item.key, (counts.get(match.item.key) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /** A request decomposed into the parts the substitution guards inspect. */
@@ -438,13 +482,68 @@ export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): 
 export function checkSubstitutionGuards(
   req: SubstitutionGuardRequest,
   hostItems: Array<RequestScopedManagedItem>,
+  /**
+   * Every managed placeholder in the session, so occurrences are attributed exactly
+   * as substitution will attribute them (see `findPlaceholderMatches`). Defaults to
+   * the injected items, which is right only when no other managed placeholder could
+   * appear; the runtime passes the full list.
+   */
+  allItems: Array<ProxyManagedItem> = hostItems,
 ): SubstitutionGuardResult {
   const injectedKeys: Array<string> = [];
   const skipped: Array<SkippedPlaceholder> = [];
+
+  // Split the request target into the URL path and the query string: they are
+  // separate substitution locations (`path` vs `query`/`query:<param>`).
+  const queryStart = req.requestTarget.indexOf('?');
+  const pathPart = queryStart === -1 ? req.requestTarget : req.requestTarget.slice(0, queryStart);
+  const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
+
+  // Tokenize each surface ONCE, against every managed placeholder, then read
+  // per-item counts out of the result. Doing this per item with a plain substring
+  // search would disagree with substitution whenever one placeholder contains
+  // another.
+  const headerCounts = req.headers.map((h) => ({ name: h.name, counts: countPlaceholderMatches(h.value, allItems) }));
+  const pathCounts = countPlaceholderMatches(pathPart, allItems);
+  const queryCounts = countPlaceholderMatches(queryPart, allItems);
+  const bodyCounts = countPlaceholderMatches(req.body, allItems);
+
+  // Named query params and body paths are only needed when some item targets them,
+  // and parsing is the expensive part, so both are computed at most once and only
+  // on demand. `bodyLeafCounts === null` means the body could not be parsed for its
+  // content type, which allows nothing (fail closed).
+  let queryParamCounts: Map<string, Map<string, number>> | undefined;
+  const getQueryParamCounts = () => {
+    if (!queryParamCounts) {
+      queryParamCounts = new Map();
+      for (const [name, value] of new URLSearchParams(queryPart)) {
+        const existing = queryParamCounts.get(name);
+        const counts = countPlaceholderMatches(value, allItems);
+        if (!existing) {
+          queryParamCounts.set(name, counts);
+        } else {
+          // A repeated param (?a=1&a=2) contributes all of its values.
+          for (const [key, n] of counts) existing.set(key, (existing.get(key) ?? 0) + n);
+        }
+      }
+    }
+    return queryParamCounts;
+  };
+  let bodyLeafCounts: Array<{ path: string; counts: Map<string, number> }> | null | undefined;
+  const getBodyLeafCounts = () => {
+    if (bodyLeafCounts === undefined) {
+      const leaves = bodyStringLeaves(req.body, req.contentType);
+      bodyLeafCounts = leaves
+        ? leaves.map((leaf) => ({ path: leaf.path, counts: countPlaceholderMatches(leaf.value, allItems) }))
+        : null;
+    }
+    return bodyLeafCounts;
+  };
+
   for (const item of hostItems) {
-    const ph = item.placeholder;
-    if (!ph) continue;
+    if (!item.placeholder) continue;
     const { targets } = item;
+    const countFor = (counts: Map<string, number>) => counts.get(item.key) ?? 0;
     const anyPath = targets.some((t) => t.location === 'path');
     const anyQuery = targets.some((t) => t.location === 'query' && !t.name);
     const queryNames = targets.flatMap((t) => (t.location === 'query' && t.name ? [t.name] : []));
@@ -462,18 +561,12 @@ export function checkSubstitutionGuards(
       if (n > 0) perTarget.set(targetKey, (perTarget.get(targetKey) ?? 0) + n);
     };
 
-    // Split the request target into the URL path and the query string: they are
-    // separate substitution locations (`path` vs `query`/`query:<param>`).
-    const queryStart = req.requestTarget.indexOf('?');
-    const pathPart = queryStart === -1 ? req.requestTarget : req.requestTarget.slice(0, queryStart);
-    const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
-
     // Headers: substitution is applied per header value, so a disallowed header
     // is skipped (left inert) with no surgery needed. Occurrences land on whichever
     // target allowed that header, so two headers covered by the bare `header` target
     // share one budget while `header:a` + `header:b` get one each.
-    for (const h of req.headers) {
-      const c = countOccurrences(h.value, ph);
+    for (const h of headerCounts) {
+      const c = countFor(h.counts);
       if (!c) continue;
       const targetKey = headerTargetKey(item, h.name);
       if (targetKey) countAt(targetKey, c);
@@ -481,7 +574,7 @@ export function checkSubstitutionGuards(
     }
 
     // URL path: all-or-nothing (`path` allows a token anywhere in the path).
-    const pathTotal = countOccurrences(pathPart, ph);
+    const pathTotal = countFor(pathCounts);
     if (pathTotal > 0) {
       if (anyPath) countAt('path', pathTotal);
       else skippedLocations.push('path');
@@ -491,16 +584,15 @@ export function checkSubstitutionGuards(
     // param's value. An occurrence off the named param fails closed: the query
     // is substituted as one string, so skipping it would need re-serialization.
     // No query targets at all ⇒ the query is never substituted ⇒ skip (leave inert).
-    const queryTotal = countOccurrences(queryPart, ph);
+    const queryTotal = countFor(queryCounts);
     if (queryTotal > 0) {
       if (anyQuery) {
         countAt('query', queryTotal);
       } else if (queryNames.length) {
-        const params = new URLSearchParams(queryPart);
+        const params = getQueryParamCounts();
         let queryAllowed = 0;
         for (const name of queryNames) {
-          let perParam = 0;
-          for (const v of params.getAll(name)) perParam += countOccurrences(v, ph);
+          const perParam = countFor(params.get(name) ?? new Map());
           countAt(`query:${name}`, perParam);
           queryAllowed += perParam;
         }
@@ -518,17 +610,17 @@ export function checkSubstitutionGuards(
     // an occurrence off an allowed path fails closed (same surgery argument as
     // query params), and an unparseable body (leaves === null) allows nothing. With
     // no body targets the body bytes are never touched, so occurrences are skipped.
-    const bodyTotal = countOccurrences(req.body, ph);
+    const bodyTotal = countFor(bodyCounts);
     if (bodyTotal > 0) {
       if (bodyAnywhere) {
         countAt('body:*', bodyTotal);
       } else if (bodyPaths.length) {
-        const leaves = bodyStringLeaves(req.body, req.contentType);
+        const leaves = getBodyLeafCounts();
         let bodyAllowed = 0;
         if (leaves) {
           for (const leaf of leaves) {
             if (!bodyPaths.includes(leaf.path)) continue;
-            const c = countOccurrences(leaf.value, ph);
+            const c = countFor(leaf.counts);
             countAt(`body:${leaf.path}`, c);
             bodyAllowed += c;
           }
@@ -583,38 +675,16 @@ export function substitutePlaceholdersInSurface(
   allItems: Array<ProxyManagedItem>,
   substituteKeys: ReadonlySet<string>,
 ): string {
-  // Longest first, so on a tie at the same index the longer placeholder wins.
-  const items = allItems
-    .filter((item) => !!item.placeholder)
-    .sort((a, b) => b.placeholder.length - a.placeholder.length);
-  if (!items.length) return value;
-
-  // Next match index per item, advanced lazily: each placeholder scans forward only,
-  // so the whole pass costs about one indexOf sweep per placeholder.
-  const nextIndex = items.map((item) => value.indexOf(item.placeholder));
+  const matches = findPlaceholderMatches(value, allItems);
+  if (!matches.length) return value;
   let out = '';
   let pos = 0;
-  while (true) {
-    let bestIdx = -1;
-    let bestItem = -1;
-    for (let i = 0; i < items.length; i += 1) {
-      // A cached index inside an already-consumed match is stale; re-scan from pos.
-      if (nextIndex[i] !== -1 && nextIndex[i]! < pos) {
-        nextIndex[i] = value.indexOf(items[i]!.placeholder, pos);
-      }
-      const idx = nextIndex[i]!;
-      if (idx === -1) continue;
-      if (bestIdx === -1 || idx < bestIdx) {
-        bestIdx = idx;
-        bestItem = i;
-      }
-    }
-    if (bestIdx === -1) return out + value.slice(pos);
-    const item = items[bestItem]!;
-    out += value.slice(pos, bestIdx);
-    out += substituteKeys.has(item.key) ? item.realValue : item.placeholder;
-    pos = bestIdx + item.placeholder.length;
+  for (const match of matches) {
+    out += value.slice(pos, match.index);
+    out += substituteKeys.has(match.item.key) ? match.item.realValue : match.item.placeholder;
+    pos = match.index + match.item.placeholder.length;
   }
+  return out + value.slice(pos);
 }
 
 /**
@@ -1251,7 +1321,9 @@ export async function startLocalProxyRuntime({
         body: bodyText,
         contentType: getHeaderValue(req.headers, 'content-type'),
       };
-      const guardResult = checkSubstitutionGuards(guardReq, hostItems);
+      // Pass every managed placeholder, not just the injected ones, so the guard
+      // attributes occurrences exactly as the substitution below will.
+      const guardResult = checkSubstitutionGuards(guardReq, hostItems, managedItems);
       const { violation } = guardResult;
       if (violation) {
         const decision = violation.kind === 'location' ? 'blocked-location' : 'blocked-occurrences';

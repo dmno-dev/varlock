@@ -295,6 +295,67 @@ describe('checkSubstitutionGuards', () => {
       .toMatchObject({ violation: { kind: 'location', location: 'body' } });
   });
 
+  describe('overlapping placeholders are classified exactly as substitution matches them', () => {
+    // SHORT's placeholder is a strict prefix of LONG's. Counting per item with a
+    // plain substring search would charge SHORT for bytes that belong to LONG and
+    // that substitution never touches, blocking requests where nothing would have
+    // been substituted at all.
+    const SHORT = item({ key: 'SHORT', placeholder: 'vlk_x', realValue: 'REAL_SHORT' });
+    const LONG = item({ key: 'LONG', placeholder: 'vlk_x_1', realValue: 'REAL_LONG' });
+    const bodyTargeted = { ...SHORT, targets: [{ location: 'body' as const, path: 'note' }] };
+
+    test('a longer skipped placeholder is not counted as an occurrence of its shorter prefix', () => {
+      // Two of LONG's placeholders in the body; LONG has no body target, so both are
+      // skipped. SHORT may substitute at body:note but has no occurrence of its own.
+      const req = { ...emptyReq, ...jsonBody({ note: 'vlk_x_1', other: 'vlk_x_1' }) };
+      const result = checkSubstitutionGuards(req, [bodyTargeted, LONG]);
+      expect(result.violation).toBeUndefined();
+      expect(result.injectedKeys).toEqual([]);
+      expect(result.skipped).toMatchObject([{ item: { key: 'LONG' }, locations: ['body'] }]);
+    });
+
+    test('a longer placeholder outside the shorter item’s named body path is not an off-path violation', () => {
+      const req = { ...emptyReq, ...jsonBody({ elsewhere: 'vlk_x_1' }) };
+      expect(checkSubstitutionGuards(req, [bodyTargeted, LONG]))
+        .toMatchObject({ ...ok, injectedKeys: [], skipped: [{ item: { key: 'LONG' }, locations: ['body'] }] });
+    });
+
+    test('the shorter placeholder still counts where it stands on its own', () => {
+      const req = { ...emptyReq, ...jsonBody({ note: 'vlk_x', other: 'vlk_x_1' }) };
+      const result = checkSubstitutionGuards(req, [bodyTargeted, LONG]);
+      expect(result.violation).toBeUndefined();
+      expect(result.injectedKeys).toEqual(['SHORT']);
+      expect(result.skipped).toMatchObject([{ item: { key: 'LONG' }, locations: ['body'] }]);
+    });
+
+    test('a longer skipped placeholder in a header is not charged to its shorter prefix', () => {
+      // SHORT allows any header; the header holds LONG's placeholder, and LONG's
+      // rule is header-only too, so LONG is the one injected.
+      const req = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_x_1' }] };
+      const result = checkSubstitutionGuards(req, [SHORT, LONG]);
+      expect(result.violation).toBeUndefined();
+      expect(result.injectedKeys).toEqual(['LONG']);
+    });
+
+    test('two longer placeholders in headers do not trip the shorter item’s per-target budget', () => {
+      const req = {
+        ...emptyReq,
+        headers: [
+          { name: 'authorization', value: 'Bearer vlk_x_1' },
+          { name: 'x-other', value: 'vlk_x_1' },
+        ],
+      };
+      // LONG legitimately blocks (two copies at its own `header` target), but the
+      // violation must be LONG's, never SHORT's.
+      expect(checkSubstitutionGuards(req, [SHORT, LONG]))
+        .toMatchObject({
+          violation: {
+            kind: 'occurrences', item: { key: 'LONG' }, target: 'header', count: 2,
+          },
+        });
+    });
+  });
+
   test('body:* allows the placeholder anywhere in an unparseable (e.g. XML) body', () => {
     const xml = '<soap:Envelope><auth><token>vlk_ph_key</token></auth></soap:Envelope>';
     const req = { ...emptyReq, body: xml, contentType: 'application/xml' };
