@@ -115,7 +115,6 @@ describe('checkSubstitutionGuards', () => {
     placeholder: 'vlk_ph_key',
     realValue: 'sk-real',
     targets: [{ location: 'header' }],
-    maxOccurrences: 1,
     ...over,
   });
   const jsonBody = (obj: unknown): Partial<SubstitutionGuardRequest> => ({
@@ -140,13 +139,15 @@ describe('checkSubstitutionGuards', () => {
     expect(result.skipped).toMatchObject([{ item: { key: 'API_KEY' }, locations: ['body'] }]);
   });
 
-  test('a header use plus skipped body occurrences: forwarded, body does not count toward the cap', () => {
+  test('a header use plus skipped body occurrences: forwarded, body spends no target budget', () => {
     const req = {
       ...emptyReq,
       headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }],
       ...jsonBody({ note: 'vlk_ph_key', quoted: 'echo vlk_ph_key' }),
     };
-    const result = checkSubstitutionGuards(req, [item()]); // header-only default, maxOccurrences 1
+    // Header-only default: the two body copies belong to no target, so the single
+    // `header` substitution is still within budget.
+    const result = checkSubstitutionGuards(req, [item()]);
     expect(result.violation).toBeUndefined();
     expect(result.injectedKeys).toEqual(['API_KEY']);
     expect(result.skipped).toMatchObject([{ item: { key: 'API_KEY' }, locations: ['body'] }]);
@@ -224,20 +225,10 @@ describe('checkSubstitutionGuards', () => {
       .toMatchObject({ violation: { kind: 'location', location: 'query' } });
   });
 
-  test('blocks when a placeholder appears at allowed targets more times than the occurrence cap', () => {
-    // Valid use in the header PLUS an exfil copy at the same body path (both allowed).
-    const req = {
-      ...emptyReq,
-      headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }],
-      ...jsonBody({ client_secret: 'vlk_ph_key' }),
-    };
-    const allowed = item({ targets: [{ location: 'header' }, { location: 'body', path: 'client_secret' }] });
-    expect(checkSubstitutionGuards(req, [allowed])).toMatchObject({ violation: { kind: 'occurrences', count: 2 } });
-  });
-
-  test('blocks two occurrences across allowed headers under the default cap', () => {
-    // Legit auth header + attacker copy in another header: both spots are allowed,
-    // so both would be substituted, and which copy is the real use is ambiguous. Fail closed.
+  test('blocks two occurrences that land on the SAME target (bare header covers both)', () => {
+    // Legit auth header + attacker copy in another header: both are covered by the
+    // one `header` target, so both would be substituted and which copy is the real
+    // use is ambiguous. Fail closed.
     const req = {
       ...emptyReq,
       headers: [
@@ -245,17 +236,57 @@ describe('checkSubstitutionGuards', () => {
         { name: 'x-duplicate', value: 'vlk_ph_key' },
       ],
     };
-    expect(checkSubstitutionGuards(req, [item()])).toMatchObject({ violation: { kind: 'occurrences', count: 2 } });
+    expect(checkSubstitutionGuards(req, [item()]))
+      .toMatchObject({ violation: { kind: 'occurrences', target: 'header', count: 2 } });
   });
 
-  test('allows repeated occurrences when maxOccurrences is raised', () => {
+  test('blocks two occurrences in the same header value', () => {
+    const req = { ...emptyReq, headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key vlk_ph_key' }] };
+    expect(checkSubstitutionGuards(req, [item()]))
+      .toMatchObject({ violation: { kind: 'occurrences', target: 'header', count: 2 } });
+  });
+
+  test('allows one occurrence per DISTINCT target with no extra configuration', () => {
+    // The author declared both places legitimate, so each gets its own substitution.
+    // This is the case that used to need maxOccurrences=2.
     const req = {
       ...emptyReq,
       headers: [{ name: 'authorization', value: 'Bearer vlk_ph_key' }],
-      ...jsonBody({ client_secret: 'vlk_ph_key' }),
+      ...jsonBody({ signature: 'vlk_ph_key' }),
     };
-    const allowed = item({ targets: [{ location: 'header' }, { location: 'body', path: 'client_secret' }], maxOccurrences: 2 });
+    const allowed = item({
+      targets: [{ location: 'header', name: 'authorization' }, { location: 'body', path: 'signature' }],
+    });
     expect(checkSubstitutionGuards(req, [allowed])).toMatchObject({ ...ok, injectedKeys: ['API_KEY'] });
+  });
+
+  test('allows the same secret in two separately named headers', () => {
+    const req = {
+      ...emptyReq,
+      headers: [
+        { name: 'authorization', value: 'Bearer vlk_ph_key' },
+        { name: 'x-api-key', value: 'vlk_ph_key' },
+      ],
+    };
+    const allowed = item({
+      targets: [{ location: 'header', name: 'authorization' }, { location: 'header', name: 'x-api-key' }],
+    });
+    expect(checkSubstitutionGuards(req, [allowed])).toMatchObject({ ...ok, injectedKeys: ['API_KEY'] });
+  });
+
+  test('the broadest allowing target wins, so declaring header AND header:<name> grants no extra budget', () => {
+    // Without this, an occurrence in `authorization` could bill to `header:authorization`
+    // while a second in `x-evil` billed to `header`, letting two copies through.
+    const req = {
+      ...emptyReq,
+      headers: [
+        { name: 'authorization', value: 'Bearer vlk_ph_key' },
+        { name: 'x-evil', value: 'vlk_ph_key' },
+      ],
+    };
+    const allowed = item({ targets: [{ location: 'header' }, { location: 'header', name: 'authorization' }] });
+    expect(checkSubstitutionGuards(req, [allowed]))
+      .toMatchObject({ violation: { kind: 'occurrences', target: 'header', count: 2 } });
   });
 
   test('fails closed when a body:path target is set but the body cannot be parsed', () => {

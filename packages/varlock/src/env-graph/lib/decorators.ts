@@ -14,7 +14,7 @@ import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
-import { PROXY_APPROVAL_EACH_VALUES, parseProxySubstitutionTarget } from '../../proxy/types';
+import { PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS, parseProxySubstitutionTarget } from '../../proxy/types';
 
 
 export abstract class DecoratorInstance {
@@ -379,11 +379,20 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
-const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules'] as const;
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'rules'] as const;
 /** Per-entry options inside the `rules=[{...}]` array form. Each entry is a
  * policy refinement for the parent's `domain`, so it cannot re-set `domain` or
  * `keys` (injection is controlled by the parent rule). */
-const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'] as const;
+const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval', 'substituteIn'] as const;
+
+/** Reject an option that used to exist with its migration, before the generic
+ * unknown-option sweep turns it into a bare "unknown option" error. */
+function assertNoRemovedProxyOptions(keys: Array<string>): void {
+  for (const key of keys) {
+    const removed = REMOVED_PROXY_RULE_OPTIONS[key];
+    if (removed) throw new SchemaError(removed);
+  }
+}
 /** Inner options of the `approval={...}` object form. */
 const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
@@ -428,15 +437,6 @@ function assertProxySubstituteInArg(resolver: Resolver | undefined): void {
     return;
   }
   if (resolver.isStatic) check(resolver.staticValue);
-}
-
-/** A static `maxOccurrences` must be an integer >= 1. */
-function assertProxyMaxOccurrencesArg(resolver: Resolver | undefined): void {
-  if (!resolver?.isStatic) return;
-  const val = resolver.staticValue;
-  if (typeof val !== 'number' || !Number.isInteger(val) || val < 1) {
-    throw new SchemaError(`@proxy: maxOccurrences must be an integer >= 1, not ${JSON.stringify(val)}`);
-  }
 }
 
 /**
@@ -493,6 +493,7 @@ function assertProxyRulesArg(resolver: Resolver | undefined): void {
       throw new SchemaError('@proxy: each rules entry must be an object, e.g. {path="/v1/**", block=true}');
     }
     const inner = entry.objArgs ?? {};
+    assertNoRemovedProxyOptions(Object.keys(inner));
     for (const key of Object.keys(inner)) {
       if (!VALID_PROXY_RULE_ENTRY_OPTIONS.includes(key as typeof VALID_PROXY_RULE_ENTRY_OPTIONS[number])) {
         throw new SchemaError(
@@ -506,7 +507,6 @@ function assertProxyRulesArg(resolver: Resolver | undefined): void {
     assertProxyBooleanArg(inner.block, 'block');
     assertProxyApprovalArg(inner.approval);
     assertProxySubstituteInArg(inner.substituteIn);
-    assertProxyMaxOccurrencesArg(inner.maxOccurrences);
   }
 }
 
@@ -517,6 +517,7 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
 
   // Reject unknown options so a typo (e.g. `aproval=true`, `blok=true`) fails loudly
   // instead of silently producing a permissive rule.
+  assertNoRemovedProxyOptions(Object.keys(argsVal.objArgs));
   for (const key of Object.keys(argsVal.objArgs)) {
     if (!VALID_PROXY_OPTIONS.includes(key as typeof VALID_PROXY_OPTIONS[number])) {
       throw new SchemaError(
@@ -532,7 +533,6 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   assertProxyBooleanArg(argsVal.objArgs?.block, 'block');
   assertProxyApprovalArg(argsVal.objArgs?.approval);
   assertProxySubstituteInArg(argsVal.objArgs?.substituteIn);
-  assertProxyMaxOccurrencesArg(argsVal.objArgs?.maxOccurrences);
   assertProxyRulesArg(argsVal.objArgs?.rules);
 
   if (argsVal.arrArgs?.length) {

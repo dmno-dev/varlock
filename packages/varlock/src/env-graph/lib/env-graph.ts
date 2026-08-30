@@ -33,7 +33,7 @@ import { isVarlockReservedKey } from './reserved-vars';
 import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
-  PROXY_APPROVAL_EACH_VALUES,
+  PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS,
   parseProxySubstitutionTarget,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
 } from '../../proxy/types';
@@ -1206,8 +1206,10 @@ export class EnvGraph {
     // doesn't fire for header/root @proxy decorators), so a typo like `blok=true`
     // fails loudly instead of silently producing a permissive rule. Entries that
     // reach the recursive call have already been filtered to the per-entry set.
-    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules'];
+    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'rules'];
     for (const key of Object.keys(obj ?? {})) {
+      const removed = REMOVED_PROXY_RULE_OPTIONS[key];
+      if (removed) throw new SchemaError(removed);
       if (!validOptions.includes(key)) {
         throw new SchemaError(`@proxy: unknown option "${key}". Valid options: ${validOptions.join(', ')}`);
       }
@@ -1257,13 +1259,6 @@ export class EnvGraph {
         if (!parsed.ok) throw new SchemaError(`@proxy: ${parsed.error}`);
       }
     }
-    if (obj?.maxOccurrences !== undefined) {
-      const val = obj.maxOccurrences;
-      if (!_.isNumber(val) || !Number.isInteger(val) || val < 1) {
-        throw new SchemaError(`@proxy: maxOccurrences must resolve to an integer >= 1, got ${JSON.stringify(val)}`);
-      }
-    }
-
     // `rules=[{...}]`: each entry is a policy refinement for the parent's domain.
     if (obj?.rules !== undefined) {
       if (!Array.isArray(obj.rules)) {
@@ -1274,8 +1269,10 @@ export class EnvGraph {
           throw new SchemaError(`@proxy: each rules entry must be an object, got ${JSON.stringify(entry)}`);
         }
         for (const key of Object.keys(entry)) {
-          if (!['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'].includes(key)) {
-            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval, substituteIn, maxOccurrences (domain and keys are set on the parent @proxy)`);
+          const removed = REMOVED_PROXY_RULE_OPTIONS[key];
+          if (removed) throw new SchemaError(removed);
+          if (!['path', 'method', 'block', 'approval', 'substituteIn'].includes(key)) {
+            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval, substituteIn (domain and keys are set on the parent @proxy)`);
           }
         }
         // reuse the per-option type checks for the entry (path/method/block/approval)
@@ -1329,7 +1326,6 @@ export class EnvGraph {
       ...(method.length ? { method } : {}),
       ...(_.isBoolean(obj?.block) ? { block: obj.block } : {}),
       ...(substituteIn.length ? { substituteIn } : {}),
-      ...(_.isNumber(obj?.maxOccurrences) ? { maxOccurrences: obj.maxOccurrences } : {}),
       ...EnvGraph.buildProxyApprovalFields(obj),
     };
   }

@@ -697,7 +697,7 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
-  test('blocks a request that repeats the placeholder more than the occurrence cap', async () => {
+  test('blocks a request that repeats the placeholder at the same substitution target', async () => {
     let upstreamHit = false;
     const upstream = await startUpstream((_req, res) => {
       upstreamHit = true;
@@ -708,9 +708,9 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     const activities: Array<import('./audit').ProxyActivity> = [];
     const runtime = await startLocalProxyRuntime({
       managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
-      // Both placements are allowed (header + body:leak), but the default cap of 1
-      // still stops the duplicated copy.
-      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'], substituteIn: ['header', 'body:leak'] }],
+      // Header-only default: every header is covered by the one `header` target, so
+      // two headers are two substitutions at the same target.
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
       egressMode: 'permissive',
       onActivity: (a) => activities.push(a),
     });
@@ -718,12 +718,11 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
 
     const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
     tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
-    // A valid call uses the token once (header); the second copy in the body is an
-    // exfiltration attempt while still making a working request.
-    const payload = JSON.stringify({ leak: 'sk-stub-PLACEHOLDER' });
+    // A valid call uses the token once (the auth header); the copy in a second
+    // header is an exfiltration attempt that still makes a working request.
     tlsSocket.write(
-      `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
-        + `Authorization: Bearer sk-stub-PLACEHOLDER\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+      `GET /data HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + 'Authorization: Bearer sk-stub-PLACEHOLDER\r\nX-Duplicate: sk-stub-PLACEHOLDER\r\n\r\n',
     );
     await new Promise((resolve) => {
       setTimeout(resolve, 500);
@@ -732,6 +731,52 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     expect(upstreamHit).toBe(false);
     expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-occurrences', blocked: true });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('substitutes into two separately named targets in one request (no cap to configure)', async () => {
+    let upstreamAuthHeader = '';
+    let upstreamBody = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamAuthHeader = String(req.headers.authorization ?? '');
+      const chunks: Array<Buffer> = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        upstreamBody = Buffer.concat(chunks).toString('utf8');
+        res.statusCode = 200;
+        res.end('ok');
+      });
+    });
+
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'SIGNING_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+      // Two named targets: the author declared both places, so each gets one
+      // substitution. This used to require maxOccurrences=2.
+      rules: [
+        {
+          domain: [UPSTREAM_HOST],
+          itemKeys: ['SIGNING_KEY'],
+          substituteIn: ['header:authorization', 'body:signature'],
+        },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const payload = JSON.stringify({ signature: 'sk-stub-PLACEHOLDER' });
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /sign HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Authorization: Bearer sk-stub-PLACEHOLDER\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamAuthHeader).toBe('Bearer sk-stub-REALKEY');
+    expect(upstreamBody).toBe(JSON.stringify({ signature: 'sk-stub-REALKEY' }));
 
     tlsSocket.destroy();
     await runtime.stop();

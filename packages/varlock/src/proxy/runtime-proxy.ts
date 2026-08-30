@@ -300,7 +300,8 @@ export type SubstitutionGuardRequest = {
 };
 
 export type SubstitutionGuardViolation = | { kind: 'location'; item: RequestScopedManagedItem; location: ProxySubstitutionLocation; suggestion: string }
-  | { kind: 'occurrences'; item: RequestScopedManagedItem; count: number };
+  /** More than one occurrence at the same substitution target (`target` is its key). */
+  | { kind: 'occurrences'; item: RequestScopedManagedItem; target: string; count: number };
 
 /**
  * An injected item's placeholder found in a surface its rule has no targets on.
@@ -376,21 +377,33 @@ function locationSuggestion(location: ProxySubstitutionLocation, targets: Array<
 }
 
 /**
- * Whether an item's targets allow substitution in the named (lower-cased) header.
- * The any-header default excludes a denylist of never-secret forward/log headers;
- * an explicit header:<name> target still wins (so a named denied header is allowed).
+ * Which of an item's targets allows substitution in the named (lower-cased) header,
+ * as a target key, or undefined if none does. The any-header default excludes a
+ * denylist of never-secret forward/log headers; an explicit `header:<name>` target
+ * covers a denied header (so a named denylisted header is still allowed).
+ *
+ * The broadest allowing target wins, so declaring both `header` and `header:x` can't
+ * split one header's occurrences across two targets and double its budget.
  */
-export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): boolean {
+function headerTargetKey(item: RequestScopedManagedItem, name: string): string | undefined {
   let anyHeader = false;
+  let named = false;
   for (const t of item.targets) {
     if (t.location !== 'header') continue;
     if (t.name) {
-      if (t.name === name) return true;
+      if (t.name === name) named = true;
     } else {
       anyHeader = true;
     }
   }
-  return anyHeader && !isNeverAutoSubstituteHeader(name);
+  if (anyHeader && !isNeverAutoSubstituteHeader(name)) return 'header';
+  if (named) return `header:${name}`;
+  return undefined;
+}
+
+/** Whether an item's targets allow substitution in the named (lower-cased) header. */
+export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): boolean {
+  return headerTargetKey(item, name) !== undefined;
 }
 
 /**
@@ -412,11 +425,15 @@ export function itemAllowsHeader(item: RequestScopedManagedItem, name: string): 
  *    either get the real value or require re-serializing the body/query to skip it.
  *    This is what stops an injected secret being swapped into, say, an email-body
  *    field on an otherwise-allowed host whose body IS a target at a different path.
- *  - cardinality guard (fail closed): a valid request uses the secret a fixed
- *    number of times (default 1), counting only occurrences at allowed targets
- *    (skipped occurrences are never substituted, so they don't count). An extra
- *    allowed-surface occurrence suggests an exfiltration copy (duplicate the token
- *    into an attacker-visible field while still making a valid call).
+ *  - cardinality guard (fail closed): each target may be substituted at most ONCE
+ *    per request. A second occurrence at the same target is an exfiltration copy
+ *    (duplicate the token into an attacker-visible field while still making a valid
+ *    call), and the proxy can't tell which copy is the real use, so it blocks. The
+ *    budget is per target rather than per request because listing a target is the
+ *    author declaring that spot legitimate: `substituteIn=[header:authorization,
+ *    body:signature]` gets one substitution in each with nothing further to
+ *    configure, while `[header]` still allows only one header in total. Skipped
+ *    occurrences belong to no target and never count.
  */
 export function checkSubstitutionGuards(
   req: SubstitutionGuardRequest,
@@ -438,6 +455,12 @@ export function checkSubstitutionGuards(
     const violation = (v: SubstitutionGuardViolation): SubstitutionGuardResult => (
       { violation: v, injectedKeys: [], skipped: [] }
     );
+    // Occurrences that will be substituted, tallied per target key. Each target
+    // gets a budget of one, so this is also the cardinality check.
+    const perTarget = new Map<string, number>();
+    const countAt = (targetKey: string, n: number) => {
+      if (n > 0) perTarget.set(targetKey, (perTarget.get(targetKey) ?? 0) + n);
+    };
 
     // Split the request target into the URL path and the query string: they are
     // separate substitution locations (`path` vs `query`/`query:<param>`).
@@ -446,20 +469,21 @@ export function checkSubstitutionGuards(
     const queryPart = queryStart === -1 ? '' : req.requestTarget.slice(queryStart + 1);
 
     // Headers: substitution is applied per header value, so a disallowed header
-    // is skipped (left inert) with no surgery needed.
-    let headerAllowed = 0;
+    // is skipped (left inert) with no surgery needed. Occurrences land on whichever
+    // target allowed that header, so two headers covered by the bare `header` target
+    // share one budget while `header:a` + `header:b` get one each.
     for (const h of req.headers) {
       const c = countOccurrences(h.value, ph);
       if (!c) continue;
-      if (itemAllowsHeader(item, h.name)) headerAllowed += c;
+      const targetKey = headerTargetKey(item, h.name);
+      if (targetKey) countAt(targetKey, c);
       else skippedLocations.push(`header:${h.name}`);
     }
 
     // URL path: all-or-nothing (`path` allows a token anywhere in the path).
     const pathTotal = countOccurrences(pathPart, ph);
-    let pathAllowed = 0;
     if (pathTotal > 0) {
-      if (anyPath) pathAllowed = pathTotal;
+      if (anyPath) countAt('path', pathTotal);
       else skippedLocations.push('path');
     }
 
@@ -468,13 +492,18 @@ export function checkSubstitutionGuards(
     // is substituted as one string, so skipping it would need re-serialization.
     // No query targets at all ⇒ the query is never substituted ⇒ skip (leave inert).
     const queryTotal = countOccurrences(queryPart, ph);
-    let queryAllowed = 0;
     if (queryTotal > 0) {
       if (anyQuery) {
-        queryAllowed = queryTotal;
+        countAt('query', queryTotal);
       } else if (queryNames.length) {
         const params = new URLSearchParams(queryPart);
-        for (const name of queryNames) for (const v of params.getAll(name)) queryAllowed += countOccurrences(v, ph);
+        let queryAllowed = 0;
+        for (const name of queryNames) {
+          let perParam = 0;
+          for (const v of params.getAll(name)) perParam += countOccurrences(v, ph);
+          countAt(`query:${name}`, perParam);
+          queryAllowed += perParam;
+        }
         if (queryAllowed < queryTotal) {
           return violation({
             kind: 'location', item, location: 'query', suggestion: locationSuggestion('query', targets),
@@ -490,14 +519,19 @@ export function checkSubstitutionGuards(
     // query params), and an unparseable body (leaves === null) allows nothing. With
     // no body targets the body bytes are never touched, so occurrences are skipped.
     const bodyTotal = countOccurrences(req.body, ph);
-    let bodyAllowed = 0;
     if (bodyTotal > 0) {
       if (bodyAnywhere) {
-        bodyAllowed = bodyTotal;
+        countAt('body:*', bodyTotal);
       } else if (bodyPaths.length) {
         const leaves = bodyStringLeaves(req.body, req.contentType);
+        let bodyAllowed = 0;
         if (leaves) {
-          for (const leaf of leaves) if (bodyPaths.includes(leaf.path)) bodyAllowed += countOccurrences(leaf.value, ph);
+          for (const leaf of leaves) {
+            if (!bodyPaths.includes(leaf.path)) continue;
+            const c = countOccurrences(leaf.value, ph);
+            countAt(`body:${leaf.path}`, c);
+            bodyAllowed += c;
+          }
         }
         if (bodyAllowed < bodyTotal) {
           return violation({
@@ -509,9 +543,16 @@ export function checkSubstitutionGuards(
       }
     }
 
-    const allowedTotal = headerAllowed + pathAllowed + queryAllowed + bodyAllowed;
-    if (allowedTotal > item.maxOccurrences) {
-      return violation({ kind: 'occurrences', item, count: allowedTotal });
+    let allowedTotal = 0;
+    for (const [targetKey, count] of perTarget) {
+      // One substitution per target: a second copy at the same spot is ambiguous
+      // (which one is the real use?) and would put the secret in both.
+      if (count > 1) {
+        return violation({
+          kind: 'occurrences', item, target: targetKey, count,
+        });
+      }
+      allowedTotal += count;
     }
     if (allowedTotal > 0) injectedKeys.push(item.key);
     if (skippedLocations.length) skipped.push({ item, locations: skippedLocations });
@@ -1190,14 +1231,14 @@ export async function startLocalProxyRuntime({
     }
 
     // Substitution guards: before any placeholder is swapped for its real value,
-    // enforce *where* (target: header / header:name / query:param / body:path) and
-    // *how often* (occurrence cap) each injected secret may appear. Default is any
-    // header, once. This is what keeps a clever request from moving the real secret
-    // into an exfiltration-friendly spot (an email body, a duplicated field) on an
-    // otherwise-allowed host — the secret is only ever substituted where the rule
-    // explicitly allows. Occurrences in a surface the rule has no targets on are
-    // skipped (forwarded unsubstituted, inert) rather than blocked; see
-    // checkSubstitutionGuards.
+    // enforce *where* (target: header / header:name / query:param / body:path) each
+    // injected secret may appear, and that it appears at most once per target.
+    // Default is any header, once. This is what keeps a clever request from moving
+    // the real secret into an exfiltration-friendly spot (an email body, a
+    // duplicated field) on an otherwise-allowed host: the secret is only ever
+    // substituted where the rule explicitly allows. Occurrences in a surface the
+    // rule has no targets on are skipped (forwarded unsubstituted, inert) rather
+    // than blocked; see checkSubstitutionGuards.
     let injectedKeys: Array<string> = [];
     let skippedPlaceholders: Array<{ key: string; locations: Array<string> }> = [];
     if (shouldRewrite && hostItems.length > 0) {
@@ -1221,8 +1262,9 @@ export async function startLocalProxyRuntime({
           ? `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears in the ${violation.location} of this request, off the exact spot its @proxy rule allows. `
             + `${violation.suggestion}. `
             + 'If that placement was not intentional, it may be an attempt to place the secret somewhere it could leak.'
-          : `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears ${violation.count} times at allowed substitution targets in this request, but at most ${violation.item.maxOccurrences} is allowed. `
-            + 'A valid request uses the secret once; extra copies can exfiltrate it. If this API legitimately repeats it, raise maxOccurrences on the @proxy rule.';
+          : `Blocked by the varlock credential proxy: ${violation.item.key}'s placeholder appears ${violation.count} times at the same substitution target (${violation.target}) in this request, but each target may be substituted only once. `
+            + 'A valid request uses the secret once per place it belongs; an extra copy at the same target can exfiltrate it, and the proxy cannot tell which copy is the real use. '
+            + `If this API genuinely carries it in more than one place, name each one so each gets its own substitution: ${substituteInExample(violation.item.targets, '<the-other-place>')}.`;
         respondBlocked(res, 403, message, t.tunnelTeardown);
         return;
       }
