@@ -391,6 +391,64 @@ case "daemon":
             : .denied
     }
     identitySessions.keyPolicy = { keyId in KeyAuthPolicyStore.policy(for: keyId) }
+    // Where "has Touch ID been set up for varlock here" is recorded. Kept out of
+    // the manager so it never has to know about the file system.
+    identitySessions.needsBiometricSetup = { BiometricSetupStore.needsSetup() }
+    identitySessions.recordBiometricSetup = { BiometricSetupStore.markSetupComplete() }
+
+    /// Approval for a device-key read (the pre-identity payload format).
+    ///
+    /// These values are as sensitive as any other, and until now this path went
+    /// straight to `evaluatePolicy`, which is the system sheet with nothing
+    /// behind it. It now draws the same panel every other release goes through,
+    /// so there is no path to a secret that does not say who is asking first.
+    sessionManager.authorize = { [weak identitySessions] reason, peerPid in
+        guard let identitySessions else {
+            throw IdentitySessionManager.IdentitySessionError.noUi
+        }
+        // Setup first and alone, exactly as an identity unlock does it.
+        try identitySessions.runBiometricSetupIfNeeded()
+
+        let requester = panelRequesterForPid(peerPid)
+        let content = PanelContent(
+            titleSegments: [.plain("Unlock "), .code(UnlockPanelContent.defaultKeyDisplayName)],
+            subtitle: nil,
+            requester: requester,
+            keyRows: [PanelKeyRow(
+                keyId: defaultKeyId,
+                displayName: UnlockPanelContent.defaultKeyDisplayName
+            )],
+            notes: [
+                "These values are encrypted to this Mac's device key, the format varlock "
+                + "used before unlock sessions. Approving covers this terminal for a few minutes.",
+            ],
+            factLine: "Recorded to the audit log",
+            scopes: [.once],
+            defaultScope: .once,
+            confirmButtonTitle: "Unlock"
+        )
+        let attempt = identitySessions.beginPresence()
+        guard let outcome = ApprovalPanel.present(
+            content: content,
+            presenceReason: reason,
+            attempt: attempt
+        ) else {
+            attempt?.context.invalidate()
+            throw IdentitySessionManager.IdentitySessionError.noUi
+        }
+        guard outcome.decision.approved else {
+            outcome.proof?.context.invalidate()
+            throw IdentitySessionManager.IdentitySessionError.approvalDenied
+        }
+        guard let proof = outcome.proof else {
+            // Approved with no presence check behind it. Nothing here may open a
+            // key on the strength of a click alone.
+            throw IdentitySessionManager.IdentitySessionError.biometricFailed(
+                "The approval completed without a presence check"
+            )
+        }
+        return proof.context
+    }
 
     // Never idle-quit while the daemon is holding an identity key for someone.
     // Session state is memory-only, so quitting would silently cost them their
@@ -462,7 +520,10 @@ case "daemon":
             let keyId = (payload["keyId"] as? String) ?? defaultKeyId
 
             do {
-                let context = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
+                let context = try sessionManager.getAuthenticatedContext(
+                    sessionId: sessionId,
+                    peerPid: peerPid
+                )
                 let decrypted = try SecureEnclaveManager.decrypt(
                     payload: ciphertext,
                     keyId: keyId,
@@ -737,7 +798,7 @@ case "daemon":
 
             // Password reads require biometric gate
             do {
-                _ = try sessionManager.getAuthenticatedContext(sessionId: sessionId)
+                _ = try sessionManager.getAuthenticatedContext(sessionId: sessionId, peerPid: peerPid)
             } catch {
                 return ["error": error.localizedDescription]
             }

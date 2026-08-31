@@ -60,6 +60,16 @@ public struct ExecutionChainBuilder {
     /// and is never the answer to "who is asking".
     static let ownNames: Set<String> = ["varlock", "varlock-local-encrypt", "VarlockEnclave"]
 
+    /// Wrappers that exist to go and fetch the real command.
+    ///
+    /// `bunx varlock load` is varlock being run, and saying so is the whole job
+    /// of the line under the hop.
+    static let commandWrappers: Set<String> = ["npx", "bunx", "pnpx", "dlx"]
+
+    /// Words that follow an interpreter or package manager before the real
+    /// command starts.
+    static let wrapperSubcommands: Set<String> = ["run", "exec", "x", "dlx", "--"]
+
     private let provider: ProcessProvider
     private let posture: PostureProbe
     private let sessionMetadata: AgentSessionMetadataReader
@@ -120,7 +130,12 @@ public struct ExecutionChainBuilder {
             hops.append(ExecutionHop(
                 pid: walkedProcess.snapshot.pid,
                 name: isLauncher ? launcherName(walkedProcess) : walkedProcess.displayName,
-                via: walkedProcess.scriptName == nil ? nil : "via \(walkedProcess.executableName)",
+                // "varlock via node" is true and useless: node is how varlock
+                // ships, not who is asking. The interpreter is still there in
+                // the path when the chain is opened.
+                via: walkedProcess.scriptName == nil || walkedProcess.isOwnProcess
+                    ? nil
+                    : "via \(walkedProcess.executableName)",
                 path: isLauncher
                     ? walkedProcess.bundlePath.map { ($0 as NSString).deletingLastPathComponent }
                     : walkedProcess.path,
@@ -128,12 +143,12 @@ public struct ExecutionChainBuilder {
                 // The terminal belongs on the row a person recognises: the app
                 // they launched, or failing that whatever started the chain.
                 terminalName: index == 0 ? terminal : nil,
-                // Only the process that connected: what varlock itself was asked
-                // to do is the useful half, and every hop's argv would be a wall.
-                invocation: walkedProcess.snapshot.pid == pid
-                    ? Self.invocation(from: walkedProcess.arguments)
-                    : nil,
+                // Read for every hop, because an auto-load's useful line is the
+                // host's command rather than varlock's own. Only the requester's
+                // is drawn.
+                invocation: Self.invocation(from: walkedProcess.arguments),
                 posture: hopPosture(walkedProcess),
+                isRequester: walkedProcess.snapshot.pid == pid,
                 isLauncher: isLauncher,
                 isImportant: index == importantIndex,
                 agentSession: index == session?.index ? session?.session : nil,
@@ -183,11 +198,56 @@ public struct ExecutionChainBuilder {
     /// arguments (the part that says what is happening) always survive.
     public static func invocation(from arguments: [String]) -> String? {
         guard let program = arguments.first else { return nil }
-        let name = (program as NSString).lastPathComponent
-        guard !name.isEmpty else { return nil }
-        let line = ([name] + arguments.dropFirst()).joined(separator: " ")
+
+        // "bunx varlock load", "node .../node_modules/.bin/varlock load" and
+        // "/opt/homebrew/bin/varlock load" are the same act, and the only useful
+        // way to say it is the way the user typed it. So when varlock appears
+        // anywhere in the front of the command line, the line starts there.
+        var tokens = arguments
+        if let index = tokens.firstIndex(where: { isOwnCommand($0) }) {
+            tokens = ["varlock"] + tokens.dropFirst(index + 1)
+        } else if let script = scriptToken(in: tokens) {
+            // "node .../node_modules/.bin/next dev" is "next dev" to everyone
+            // except the person who wrote the launcher script.
+            tokens = [(script.token as NSString).lastPathComponent] + tokens.dropFirst(script.index + 1)
+        } else {
+            let name = (program as NSString).lastPathComponent
+            guard !name.isEmpty else { return nil }
+            tokens = [name] + tokens.dropFirst()
+        }
+
+        let line = tokens.joined(separator: " ")
         guard line.count > maxInvocationLength else { return line }
         return String(line.prefix(maxInvocationLength - 1)) + "\u{2026}"
+    }
+
+    /// The script an interpreter or wrapper was pointed at, if that is the shape
+    /// of this command line.
+    static func scriptToken(in tokens: [String]) -> (index: Int, token: String)? {
+        guard let program = tokens.first else { return nil }
+        let name = (program as NSString).lastPathComponent
+        guard interpreterNames.contains(name) || commandWrappers.contains(name) else { return nil }
+        for (index, token) in tokens.enumerated().dropFirst() {
+            if token.hasPrefix("-") { continue }
+            if interpreterSubcommands.contains(token) || commandWrappers.contains(token) { continue }
+            let leaf = (token as NSString).lastPathComponent
+            guard !leaf.isEmpty else { continue }
+            guard token.contains("/") || leaf.contains(".") else {
+                // A bare word after a wrapper is the command itself ("bunx next").
+                return commandWrappers.contains(name) ? (index, token) : nil
+            }
+            return (index, token)
+        }
+        return nil
+    }
+
+    /// Whether one argv token names varlock's own CLI, however it was reached.
+    static func isOwnCommand(_ token: String) -> Bool {
+        var name = (token as NSString).lastPathComponent
+        for suffix in [".js", ".mjs", ".cjs", ".ts"] where name.hasSuffix(suffix) {
+            name = String(name.dropLast(suffix.count))
+        }
+        return ownNames.contains(name)
     }
 
     /// Enough for a subcommand and its first arguments, and no more.
@@ -217,7 +277,12 @@ public struct ExecutionChainBuilder {
         // An interpreter's signature says nothing about the script it was given,
         // so claiming "signed and hardened" here would be true of the wrong
         // thing. The panel says what is actually running instead.
-        if walkedProcess.scriptName != nil { return .interpretedScript }
+        //
+        // varlock's own CLI is the exception, and not because we trust ourselves:
+        // the daemon verifies the peer's code signature before it will speak to
+        // it at all, so warning the user about the script here would be warning
+        // them about the check that already happened.
+        if walkedProcess.scriptName != nil, !walkedProcess.isOwnProcess { return .interpretedScript }
         let facts = posture.posture(forPid: walkedProcess.snapshot.pid)
         guard facts.isReadable else { return .unknown }
         return facts.signatureValid && facts.hasHardenedRuntime ? .signedHardened : .unhardened
@@ -327,8 +392,8 @@ struct WalkedProcess {
     var isInterpreter: Bool { ExecutionChainBuilder.interpreterNames.contains(executableName) }
 
     var isOwnProcess: Bool {
-        if ExecutionChainBuilder.ownNames.contains(executableName) { return true }
-        if let script = scriptName, ExecutionChainBuilder.ownNames.contains(script) { return true }
+        if ExecutionChainBuilder.isOwnCommand(executableName) { return true }
+        if let script = scriptName, ExecutionChainBuilder.isOwnCommand(script) { return true }
         return false
     }
 
@@ -336,20 +401,19 @@ struct WalkedProcess {
     ///
     /// This is the whole reason the chain exists: `bun` is not the actor, the
     /// file it is running is, and that file is mutable in a way a signed binary
-    /// is not.
+    /// is not. A wrapper counts too, because `bunx varlock` is varlock being run
+    /// and saying "bun" would name the delivery van.
     var scriptName: String? {
-        guard isInterpreter else { return nil }
-        for argument in arguments.dropFirst() {
-            if argument.hasPrefix("-") { continue }
-            if ExecutionChainBuilder.interpreterSubcommands.contains(argument) { continue }
-            let name = (argument as NSString).lastPathComponent
-            guard !name.isEmpty else { continue }
-            // A bare word with no path and no extension is a package script or a
-            // sub-command, not a file: naming it would be a guess.
-            guard argument.contains("/") || name.contains(".") else { return nil }
-            return name
-        }
-        return nil
+        guard isInterpreter || isWrapperInvocation else { return nil }
+        guard let script = ExecutionChainBuilder.scriptToken(in: arguments) else { return nil }
+        let name = (script.token as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    /// Whether the command line was written as a wrapper fetching something else.
+    var isWrapperInvocation: Bool {
+        guard let program = arguments.first else { return false }
+        return ExecutionChainBuilder.commandWrappers.contains((program as NSString).lastPathComponent)
     }
 
     /// What the panel calls this hop.

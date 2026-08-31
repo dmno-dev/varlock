@@ -48,6 +48,17 @@ final class SessionManager {
     /// sessions selectively according to each session's own policy.
     var onLockEvent: ((SessionLockEvent) -> Void)?
 
+    /// How to get the user's approval before a device-key read.
+    ///
+    /// Injected, and set by the daemon to the approval panel. Without it this
+    /// path evaluated a policy directly, which on macOS means the system's own
+    /// sheet appearing with nothing behind it: no statement of who was asking or
+    /// what they wanted, and after a lock it looked like the machine demanding a
+    /// fingerprint out of nowhere. Every presence check now happens with our
+    /// panel already on screen; the only exception is the one-time setup step,
+    /// which says what it is.
+    var authorize: ((_ reason: String, _ peerPid: pid_t?) throws -> LAContext)?
+
     private var daemonTimer: DispatchSourceTimer?
 
     init() {
@@ -66,7 +77,7 @@ final class SessionManager {
     /// reuse duration return the cached context without re-prompting.
     ///
     /// Processes with no identifiable session always require fresh authentication.
-    func getAuthenticatedContext(sessionId: String?) throws -> LAContext {
+    func getAuthenticatedContext(sessionId: String?, peerPid: pid_t? = nil) throws -> LAContext {
         return try queue.sync {
             // Check for cached context from a previous auth in this session
             if let key = sessionId, let context = contexts[key] {
@@ -74,7 +85,16 @@ final class SessionManager {
                 return context
             }
 
-            // Need fresh auth (first time for this session, or always for unidentifiable callers)
+            // Need fresh auth (first time for this session, or always for
+            // unidentifiable callers). Through the panel where one is wired up,
+            // so the user is asked rather than merely prompted.
+            if let authorize {
+                let approved = try authorize("decrypt your secrets", peerPid)
+                if let key = sessionId { contexts[key] = approved }
+                resetDaemonTimer()
+                return approved
+            }
+
             let context = LAContext()
             context.touchIDAuthenticationAllowableReuseDuration = SessionManager.sessionTimeout
 

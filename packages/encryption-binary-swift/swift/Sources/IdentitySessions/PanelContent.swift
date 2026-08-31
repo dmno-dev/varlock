@@ -138,6 +138,9 @@ public struct PanelContent: Equatable {
     /// The quiet fact in the top bar. A standing truth about approvals, not
     /// something about this one request.
     public let factLine: String?
+    /// How the client says varlock came to be running, which changes how the
+    /// chain words its command line.
+    public let invocationMode: UnlockInvocationMode?
     public let scopes: [SessionGrantScope]
     public let defaultScope: SessionGrantScope
     public let confirmButtonTitle: String
@@ -150,6 +153,7 @@ public struct PanelContent: Equatable {
         keyRows: [PanelKeyRow] = [],
         notes: [String] = [],
         factLine: String? = nil,
+        invocationMode: UnlockInvocationMode? = nil,
         scopes: [SessionGrantScope],
         defaultScope: SessionGrantScope,
         confirmButtonTitle: String,
@@ -161,6 +165,7 @@ public struct PanelContent: Equatable {
         self.keyRows = keyRows
         self.notes = notes
         self.factLine = factLine
+        self.invocationMode = invocationMode
         self.scopes = scopes
         self.defaultScope = defaultScope
         self.confirmButtonTitle = confirmButtonTitle
@@ -317,6 +322,27 @@ public struct UnlockKeyDisplay: Equatable {
     }
 }
 
+/// How varlock came to be running, as the client reported it.
+///
+/// The daemon reads the command line off the kernel, which is the half worth
+/// trusting, but a command line cannot say whether varlock was typed or
+/// imported: an auto-load spawns the same CLI a person would. So the client says
+/// which it was and the panel keeps the two apart, saying "auto-loaded inside"
+/// rather than showing an internal command nobody typed.
+public enum UnlockInvocationMode: String, Equatable {
+    case cli
+    case autoLoad = "auto-load"
+    case sdk
+
+    /// Whether varlock is running inside something rather than as a command.
+    public var isHosted: Bool { self != .cli }
+
+    public init?(wireValue: String?) {
+        guard let wireValue, let parsed = UnlockInvocationMode(rawValue: wireValue) else { return nil }
+        self = parsed
+    }
+}
+
 /// Client-supplied decoration for an unlock panel.
 ///
 /// None of this is trusted. It only ever adds a line to the panel; it can never
@@ -329,21 +355,26 @@ public struct UnlockDisplayInfo: Equatable {
     public let itemCounts: [String: Int]
     /// key id -> what the client says that key covers, in detail
     public let keys: [String: UnlockKeyDisplay]
+    /// How the client says varlock came to be running.
+    public let invocationMode: UnlockInvocationMode?
 
     public init(
         projectName: String? = nil,
         projectPath: String? = nil,
         itemCounts: [String: Int] = [:],
-        keys: [String: UnlockKeyDisplay] = [:]
+        keys: [String: UnlockKeyDisplay] = [:],
+        invocationMode: UnlockInvocationMode? = nil
     ) {
         self.projectName = projectName
         self.projectPath = projectPath
         self.itemCounts = itemCounts
         self.keys = keys
+        self.invocationMode = invocationMode
     }
 
     public var isEmpty: Bool {
         return projectName == nil && projectPath == nil && itemCounts.isEmpty && keys.isEmpty
+            && invocationMode == nil
     }
 
     /// How many values a key covers, from either form the client sent.
@@ -373,7 +404,8 @@ public struct UnlockDisplayInfo: Equatable {
             projectName: trimmedNonEmpty(display["projectName"]),
             projectPath: trimmedNonEmpty(display["projectPath"]),
             itemCounts: counts,
-            keys: keys
+            keys: keys,
+            invocationMode: UnlockInvocationMode(wireValue: display["invocationMode"] as? String)
         )
     }
 
@@ -426,6 +458,7 @@ public enum UnlockPanelContent {
             keyRows: plan.promptKeys.map { row(for: $0, display: display) },
             notes: notes(for: plan),
             factLine: factLine(plan: plan, lockOn: lockOn),
+            invocationMode: display.invocationMode,
             scopes: plan.offeredScopes,
             defaultScope: plan.defaultScope,
             confirmButtonTitle: "Unlock"

@@ -33,6 +33,7 @@ final class PanelChainView: NSView {
     init(
         chain: ExecutionChain,
         fallbackSummary: String,
+        invocationMode: UnlockInvocationMode? = nil,
         startExpanded: Bool = false,
         onLayoutChanged: @escaping () -> Void
     ) {
@@ -86,7 +87,7 @@ final class PanelChainView: NSView {
             // How varlock itself was invoked, from the kernel rather than from
             // anything the client said. Evidence, so it keeps company with the
             // paths and appears when the chain is opened.
-            if let invocation = hop.invocation {
+            if hop.isRequester, let invocation = invocationText(hop: hop, chain: chain, mode: invocationMode) {
                 let line = invocationRow(invocation, insideSession: hop.isInsideSession)
                 column.addArrangedSubview(line)
                 invocationRows.append(line)
@@ -198,6 +199,25 @@ final class PanelChainView: NSView {
         return container
     }
 
+    /// What the line under varlock's hop says.
+    ///
+    /// A typed command is shown as one ("$ varlock load"). A load from inside a
+    /// host process is not: the command a person would recognise is the host's,
+    /// and varlock's own internal invocation would be a command nobody ran. The
+    /// framing word is client-reported and the command is the kernel's, which is
+    /// the split the whole panel is built on.
+    private func invocationText(
+        hop: ExecutionHop,
+        chain: ExecutionChain,
+        mode: UnlockInvocationMode?
+    ) -> String? {
+        guard let mode, mode.isHosted else {
+            return hop.invocation.map { "$ \($0)" }
+        }
+        guard let host = chain.hostInvocation ?? hop.invocation else { return nil }
+        return "auto-loaded inside \(host)"
+    }
+
     /// The command line under the hop that ran it.
     private func invocationRow(_ text: String, insideSession: Bool) -> NSView {
         let rail = ChainRailView(
@@ -207,7 +227,7 @@ final class PanelChainView: NSView {
             railAbove: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail,
             railBelow: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail
         )
-        let label = PanelStyle.label("$ " + text, size: 10, color: PanelStyle.inkTertiary, mono: true)
+        let label = PanelStyle.label(text, size: 10, color: PanelStyle.inkTertiary, mono: true)
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         rail.addSubview(label)
@@ -452,7 +472,7 @@ final class PanelChainView: NSView {
 /// The rail is drawn in two halves so a session can begin in the middle of a row:
 /// grey above the hop the session is rooted at, tinted below it and all the way
 /// down. That is what makes "inside the session" a visible span.
-final class ChainRailView: NSView {
+final class ChainRailView: NSView, PanelClickTarget {
     enum Emphasis {
         /// The hop that decides what runs.
         case actor
@@ -524,6 +544,13 @@ final class ChainRailView: NSView {
     override func mouseUp(with event: NSEvent) {
         guard let onClick, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick()
+    }
+
+    /// Only the rows that do something take the click; the rest let it fall
+    /// through, so a chain row is not a dead button.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard onClick != nil else { return nil }
+        return clickTargetHitTest(point)
     }
 
     override func resetCursorRects() {

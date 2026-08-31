@@ -39,6 +39,21 @@ final class ApprovalPanel: NSObject {
     /// answer rather than a dead socket.
     static let timeoutSeconds: TimeInterval = 120
 
+    /// How long the panel must have been on screen and in front before the scan
+    /// is armed.
+    ///
+    /// macOS puts its own sheet up the instant a policy is evaluated, and that
+    /// sheet covers us. Arming on the same frame as the panel opened meant the
+    /// system sheet appeared over a panel nobody had a chance to read, and a
+    /// finger already on the sensor approved something unseen. A beat is enough
+    /// to see what is being asked; the scan still approves without a click.
+    static let armingDelaySeconds: TimeInterval = 0.8
+
+    /// How long to keep waiting for the panel to actually be frontmost before
+    /// arming anyway. Something else stealing focus must not cost the user their
+    /// unlock.
+    static let readinessTimeoutSeconds: TimeInterval = 3
+
     /// Ends the modal when the flow produced an answer, rather than when a
     /// button's own handling did.
     private static let flowFinishedResponse = NSApplication.ModalResponse(rawValue: 9001)
@@ -69,8 +84,12 @@ final class ApprovalPanel: NSObject {
     private var attemptGeneration = 0
     private var presenceReason = ""
     private var proof: IdentitySessionManager.PresenceProof?
+    /// Why the last check ended, which is what the hint line is about.
+    private var lastFailure: IdentitySessionManager.PresenceFailure.Kind = .failed
     /// Guards against a presence callback arriving after the modal has ended.
     private var modalRunning = false
+    /// The panel arms itself once, ever. Every later scan is a button press.
+    private var hasAutoArmed = false
 
     /// Show a panel and wait for the answer.
     ///
@@ -196,7 +215,7 @@ final class ApprovalPanel: NSObject {
             // panel has to be what the user is looking at, not something buried
             // behind the window that stole focus.
             self.bringToFront()
-            self.perform(effect: self.flow.start())
+            self.armWhenReadable(deadline: Date().addingTimeInterval(Self.readinessTimeoutSeconds))
         }
 
         let heartbeat = PanelDebug.isEnabled ? MainLoop.every(2) { [weak self] in
@@ -231,6 +250,35 @@ final class ApprovalPanel: NSObject {
             return Outcome(decision: PanelDecision.denied(defaultScope: content.defaultScope), proof: nil)
         }
         return Outcome(decision: decision, proof: proof)
+    }
+
+    /// Arm the scan only once the panel is genuinely readable.
+    ///
+    /// "Readable" is the whole point: on screen, in front, and there long enough
+    /// to have been read. The system's biometric sheet lands on top of us the
+    /// moment we evaluate, so anything armed before that is a question asked
+    /// behind a curtain.
+    private func armWhenReadable(deadline: Date) {
+        guard modalRunning, !hasAutoArmed else { return }
+        guard let window else { return }
+
+        let readable = window.isVisible && window.isKeyWindow && NSApp.isActive
+        guard readable || Date() >= deadline else {
+            _ = MainLoop.after(0.1) { [weak self] in self?.armWhenReadable(deadline: deadline) }
+            return
+        }
+
+        PanelDebug.note("panel-readable", [
+            "isKeyWindow": window.isKeyWindow,
+            "isVisible": window.isVisible,
+            "waitedForFront": readable,
+        ])
+        _ = MainLoop.after(Self.armingDelaySeconds) { [weak self] in
+            guard let self, self.modalRunning, !self.hasAutoArmed else { return }
+            self.hasAutoArmed = true
+            PanelDebug.note("arming-after-delay", ["seconds": Self.armingDelaySeconds])
+            self.perform(effect: self.flow.start())
+        }
     }
 
     /// Put the panel where a person is already looking: centred, a little above
@@ -364,21 +412,40 @@ final class ApprovalPanel: NSObject {
                 // user meant to approve.
                 self.syncSelectionIntoFlow()
                 self.perform(effect: self.flow.apply(.scanSucceeded))
-            case .failure:
-                // Not a refusal. Leave the panel up with a way to try again.
+            case .failure(let error):
+                // Not a refusal, and never re-armed on its own: the panel goes
+                // back to resting, and only a click asks the system again.
+                let failure = error as? IdentitySessionManager.PresenceFailure
+                self.lastFailure = failure?.kind ?? .failed
+                if failure?.kind == .wantsPassword {
+                    // The user asked for the password from inside the sheet.
+                    // Move the panel onto that path, but do not present anything:
+                    // the next sheet is the one they click for.
+                    self.switchToPassword(present: false)
+                }
                 self.perform(effect: self.flow.apply(.scanFailed))
             }
         }
     }
 
+    /// What the panel says after a check ended without an answer.
+    ///
+    /// Dismissing the sheet is the common one and is not a failure of anything:
+    /// it says so plainly and points at the button, because that button is the
+    /// only thing that will ask again.
     private func failureHint() -> String {
         guard flow.failedScans > 0 else { return "" }
-        if flow.presenceMode == .embedded {
+        let button = confirmButton?.title ?? "Approve"
+        switch lastFailure {
+        case .cancelled:
+            return "Touch ID canceled. Click \(button) to scan again, or Deny to refuse."
+        case .wantsPassword:
+            return "Click \(button) to enter your password, or Deny to refuse."
+        case .failed:
             return flow.failedScans > 1
-                ? "Still not verified. Adjust how long to allow if you want, then try again, or Deny to refuse."
-                : "Not verified. Try again, or Deny to refuse."
+                ? "Still not verified. Adjust how long to allow if you want, then click \(button), or Deny to refuse."
+                : "Not verified. Click \(button) to try again, or Deny to refuse."
         }
-        return "Not verified. Press \(confirmButton?.title ?? "the button") to try again, or Deny to refuse."
     }
 
     private func setStatus(_ text: String) {
@@ -405,11 +472,21 @@ final class ApprovalPanel: NSObject {
     /// never listening on two contexts at once, and the callback from the one we
     /// walked away from is ignored by generation.
     @objc private func usePasswordPressed(_ sender: Any) {
+        // A click on the link is an invitation, so this one does present.
+        switchToPassword(present: true)
+    }
+
+    /// Move this approval onto the device-password check.
+    ///
+    /// `present` says whether to raise the system sheet now. It is only ever true
+    /// for a click: the panel does not put a sheet on screen that nobody asked
+    /// for, however the biometric check ended.
+    private func switchToPassword(present: Bool) {
         guard let fallback = attempt?.passwordFallback() else {
-            setStatus("This Mac has no password check available.")
+            if present { setStatus("This Mac has no password check available.") }
             return
         }
-        PanelDebug.note("switch-to-password")
+        PanelDebug.note("switch-to-password", ["present": present])
         attemptGeneration += 1
         attempt?.context.invalidate()
         attempt = fallback
@@ -424,6 +501,10 @@ final class ApprovalPanel: NSObject {
         passwordLink?.isHidden = true
         hintLabel?.stringValue = ""
         relayout()
+        guard present else {
+            perform(effect: .showControls)
+            return
+        }
         perform(effect: flow.apply(.confirmPressed))
     }
 
@@ -552,6 +633,7 @@ final class ApprovalPanel: NSObject {
         let chain = PanelChainView(
             chain: content.requester.chain ?? .empty,
             fallbackSummary: content.requester.summary,
+            invocationMode: content.invocationMode,
             startExpanded: expandChain
         ) { [weak self] in self?.relayout() }
         chain.translatesAutoresizingMaskIntoConstraints = false

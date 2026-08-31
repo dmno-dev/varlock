@@ -137,6 +137,14 @@ final class IdentitySessionManager {
     /// the policy lives on disk next to the key, which is not this type's job.
     var keyPolicy: (String) -> KeyAuthPolicy = { _ in .standard }
 
+    /// Whether Touch ID still has to be set up for varlock on this machine (or
+    /// set up again, after the enrolment changed). Injected because where that is
+    /// recorded is the store's business, not this type's.
+    var needsBiometricSetup: () -> Bool = { false }
+
+    /// Remember that the setup scan just happened.
+    var recordBiometricSetup: () -> Void = {}
+
     init(
         grants: SessionGrantTable = SessionGrantTable(),
         audit: AuthorizationAuditLog = AuthorizationAuditLog(directoryPath: IdentityStore.auditDir)
@@ -251,6 +259,19 @@ final class IdentitySessionManager {
                 keyIds: plan.promptKeys.map { $0.keyId },
                 requesterSummary: requestContext.requester.summary
             )
+            // Setup first, alone, and only then the panel: see
+            // `runBiometricSetupIfNeeded`. The attempt the panel arms is created
+            // afterwards, so the scan that set Touch ID up cannot be the scan
+            // that approves this unlock.
+            if needsPresence {
+                do {
+                    try runBiometricSetupIfNeeded()
+                } catch {
+                    silentContext?.invalidate()
+                    throw error
+                }
+            }
+
             // No presence check to make when the key is ungated: the panel is only
             // up because a prompt was forced, so it keeps its plain button.
             let attempt = needsPresence ? beginPresence() : nil
@@ -597,11 +618,75 @@ final class IdentitySessionManager {
         return nil
     }
 
+    /// Do the first-use Touch ID setup, on its own, before any panel exists.
+    ///
+    /// macOS raises its own sheet the moment a policy is evaluated, and on first
+    /// use (or after a re-enrolment) that sheet lands on top of whatever is
+    /// behind it. With the approval panel behind it, one finger satisfied both:
+    /// the setup and the approval, before anyone had read what was being
+    /// unlocked. So this runs alone, with nothing drawn, says what it is, and
+    /// throws its context away afterwards. The approval is a separate scan taken
+    /// while the panel is on screen, which costs a first run two scans on
+    /// purpose.
+    ///
+    /// Does nothing when setup is already recorded for this enrolment, or when
+    /// there is no screen to ask on (the unlock then fails as `NO_UI`, which is
+    /// the honest answer rather than a prompt nobody can see).
+    func runBiometricSetupIfNeeded() throws {
+        guard needsBiometricSetup(), UiAvailability.canShowUi() else { return }
+
+        PanelDebug.note("setup-presence-begin")
+        do {
+            // A context of its own, invalidated immediately: a setup scan must
+            // never be able to stand in for an approval.
+            let (context, _) = try authenticate(reason: BiometricSetupPolicy.setupReason)
+            context.invalidate()
+        } catch {
+            PanelDebug.note("setup-presence-completed", ["success": false])
+            throw error
+        }
+        recordBiometricSetup()
+        PanelDebug.note("setup-presence-completed", ["success": true])
+    }
+
     /// One user-presence check with no key operation attached, used by
     /// `request-approval` when the caller asks for a biometric on top of the panel.
     func verifyUserPresence(reason: String) throws {
         let (context, _) = try authenticate(reason: reason)
         context.invalidate()
+    }
+
+    /// Why a presence check ended without an answer.
+    ///
+    /// Dismissing the system sheet is not a refusal of the request, and it is not
+    /// a sensor failure either: it means "not now, not this way". The panel says
+    /// something different for each, and re-arms for none of them.
+    struct PresenceFailure: LocalizedError {
+        enum Kind {
+            /// The user dismissed the sheet.
+            case cancelled
+            /// The user asked for the password instead, from inside the sheet.
+            case wantsPassword
+            /// The check ran and did not succeed.
+            case failed
+        }
+
+        let kind: Kind
+        let message: String
+
+        var errorDescription: String? { message }
+
+        init(error: Error?) {
+            message = error?.localizedDescription ?? "Authentication failed"
+            switch (error as? LAError)?.code {
+            case .userCancel, .systemCancel, .appCancel:
+                kind = .cancelled
+            case .userFallback:
+                kind = .wantsPassword
+            default:
+                kind = .failed
+            }
+        }
     }
 
     /// A satisfied user-presence check, and the context it was satisfied under.
@@ -672,10 +757,8 @@ final class IdentitySessionManager {
                 MainLoop.perform {
                     guard success else {
                         // Deliberately not invalidated: the panel may offer another
-                        // go, and the embedded view is bound to this context.
-                        completion(.failure(IdentitySessionError.biometricFailed(
-                            error?.localizedDescription ?? "Authentication failed"
-                        )))
+                        // go, on this same context.
+                        completion(.failure(PresenceFailure(error: error)))
                         return
                     }
                     // From here on the context must not raise UI of its own, so a

@@ -18,6 +18,13 @@
  * cannot check by looking: `evaluatePolicy` is invoked within a couple of seconds
  * of the panel opening. Completing the scan still needs a finger. Arming does not.
  *
+ * It also asserts the ORDER, which is the second bug this feature had: macOS puts
+ * its own sheet up the moment a policy is evaluated, so a check armed before the
+ * panel was readable meant the system sheet covered a panel nobody had read, and
+ * one finger approved something unseen. Two rules encode the fix: a scan is only
+ * ever armed while our panel is on screen, and the first-use setup scan happens
+ * on its own, before the panel exists.
+ *
  * Needs a Mac with a Secure Enclave, enrolled biometrics, and a desktop session:
  * it creates a REAL gated key, so macOS will put a Touch ID prompt on screen for a
  * moment. Nobody has to answer it; the daemon is killed as soon as the assertion
@@ -48,6 +55,17 @@ const ARMING_DEADLINE_MS = 5_000;
 
 const KEY_ID = 'varlock-e2e-panel-arming';
 const IDENTITY_ID = 'default';
+
+/**
+ * Says whether a run is about first use or about the normal case.
+ *
+ * A scratch config home is a fresh machine, so without this every run here would
+ * be testing first use. The daemon reads the same variable a person would reach
+ * for if the detection ever misjudged their machine.
+ */
+function setupEnv(firstUse: boolean): Record<string, string> {
+  return { _VARLOCK_BIOMETRIC_SETUP: firstUse ? '1' : '0' };
+}
 
 const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-arming-'));
 const env = { ...process.env, XDG_CONFIG_HOME: configHome };
@@ -108,11 +126,32 @@ fs.writeFileSync(
   { mode: 0o600 },
 );
 
+/**
+ * A scan may only ever be armed while our panel is up.
+ *
+ * Walks the debug log in order and checks that every `evaluatePolicy-invoked`
+ * has a live panel behind it: a `panel-shown` since the last `present-returned`.
+ * The setup scan is deliberately not one of these; it has its own note, and its
+ * own assertion that it happens before any panel.
+ */
+function assertNoScanWithoutAPanel(stderr: string) {
+  const events = [...stderr.matchAll(/varlock-panel \[\d+ms\] (\S+)/g)].map((m) => m[1]);
+  let panelIsUp = false;
+  let orphanScans = 0;
+  for (const event of events) {
+    if (event === 'panel-shown') panelIsUp = true;
+    else if (event === 'present-returned') panelIsUp = false;
+    else if (event === 'evaluatePolicy-invoked' && !panelIsUp) orphanScans++;
+  }
+  check('no biometric sheet was raised without the panel on screen', orphanScans === 0, { events });
+}
+
 async function armingRun(
   label: string,
   slug: string,
   extraEnv: Record<string, string>,
   expectArming: boolean,
+  opts: { skipSetupMarker?: boolean; lockFirst?: boolean } = {},
 ) {
   console.log(`\n${label}`);
   // Short, because a unix socket path has a hard length limit and the scratch
@@ -122,7 +161,15 @@ async function armingRun(
   const daemon = spawn(
     binary,
     ['daemon', '--socket-path', socket, '--pid-path', `${socket}.pid`],
-    { env: { ...env, _VARLOCK_PANEL_DEBUG: '1', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      env: {
+        ...env,
+        _VARLOCK_PANEL_DEBUG: '1',
+        ...setupEnv(opts.skipSetupMarker ?? false),
+        ...extraEnv,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
   );
   daemon.stderr.on('data', (d) => {
     stderr += d.toString();
@@ -144,6 +191,15 @@ async function armingRun(
       client.once('connect', resolve);
     });
 
+    if (opts.lockFirst) {
+      // Open and immediately drop a session, the way the menu bar's Lock does,
+      // before anything asks again.
+      send(client, 'invalidate-session', {});
+      await new Promise((resolve) => {
+        setTimeout(resolve, 300);
+      });
+    }
+
     // Deliberately not awaited: with a gated key this call blocks on a human, and
     // the human is the part we are doing without.
     send(client, 'unlock-session', { keyIds: [KEY_ID], scope: 'session' });
@@ -155,7 +211,21 @@ async function armingRun(
       });
     }
 
+    assertNoScanWithoutAPanel(stderr);
+    if (opts.skipSetupMarker) {
+      // First use is about the setup scan happening alone. The panel comes after
+      // it, and nobody is here to complete it, so there is nothing else to say.
+      client.destroy();
+      return stderr;
+    }
+
     check('the panel was shown', stderr.includes('panel-shown'), stderr.slice(-400));
+    check(
+      'the panel was drawn before any biometric sheet was asked for',
+      !stderr.includes('evaluatePolicy-invoked')
+        || stderr.indexOf('panel-shown') < stderr.indexOf('evaluatePolicy-invoked'),
+      stderr.slice(-600),
+    );
 
     // The panel now reads the peer's ancestry before it draws. That inspection
     // touches other processes, so it is exactly the kind of work that could
@@ -214,9 +284,34 @@ async function armingRun(
 }
 
 try {
-  // The shipped default: the check is armed as the panel opens, so the scan is
-  // the approval.
+  // First use on this machine: setting Touch ID up is its own scan, with the
+  // panel not yet drawn, so one finger cannot do both jobs.
+  const firstUse = await armingRun('first use (setup step)', 'setup', {}, false, { skipSetupMarker: true });
+  check('the setup scan was raised', firstUse.includes('setup-presence-begin'), firstUse.slice(-400));
+  check(
+    'nothing was drawn behind the setup prompt',
+    !firstUse.includes('panel-shown'),
+    firstUse.slice(-600),
+  );
+  check(
+    'and no approval scan was armed by it',
+    !firstUse.includes('evaluatePolicy-invoked'),
+    firstUse.slice(-600),
+  );
+
+  // The shipped default: the check is armed once the panel has been readable
+  // for a beat, so the scan is the approval and the approval is legible.
   const armed = await armingRun('embedded prompt (default)', 'embedded', {}, true);
+  check(
+    'setup is not repeated once it has been recorded',
+    !armed.includes('setup-presence-begin'),
+    armed.slice(-400),
+  );
+  check(
+    'the panel was readable before the scan was armed',
+    /panel-readable[\s\S]*arming-after-delay[\s\S]*evaluatePolicy-invoked/.test(armed),
+    armed.slice(-800),
+  );
   check(
     'the presence attempt is bound to the context that gets evaluated',
     /presence-attempt .*contextInstance=(\w+)/.test(armed)
@@ -232,6 +327,18 @@ try {
   // misbehaves. It must wait for the button rather than arming on open, and it
   // must still arm when that button is pressed.
   await armingRun('system dialog fallback', 'fallback', { _VARLOCK_EMBEDDED_PROMPT: '0' }, false);
+
+  // Locking must not make the machine ask for a fingerprint on its own: a
+  // re-request from a client that is still connected goes through the panel like
+  // any other, and nothing raises a sheet in between.
+  const afterLock = await armingRun('re-request after a lock', 'relock', {}, true, { lockFirst: true });
+  assertNoScanWithoutAPanel(afterLock);
+  check(
+    'locking raised no prompt of its own',
+    (afterLock.match(/evaluatePolicy-invoked/g) ?? []).length
+      <= (afterLock.match(/panel-shown/g) ?? []).length,
+    afterLock.slice(-600),
+  );
 } finally {
   try {
     runBinary(['delete-key', '--key-id', KEY_ID]);

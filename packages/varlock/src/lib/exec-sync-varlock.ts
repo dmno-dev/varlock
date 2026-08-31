@@ -69,6 +69,11 @@ function mergeExecEnv(
   for (const key of Object.keys(merged)) {
     if (key.toUpperCase() === 'NODE_OPTIONS') delete merged[key];
   }
+  // Every call through here is varlock being loaded BY something, not a person
+  // typing a command, and the unlock panel says so ("auto-loaded inside next
+  // dev") rather than showing an internal command line nobody typed. The child
+  // is the process that talks to the daemon, so it has to be told.
+  merged._VARLOCK_INVOCATION_MODE = 'auto-load';
   if (opts?.integrationTelemetry) {
     // __VARLOCK_INTEGRATION is for our internal use only — the integration-provided
     // identity is authoritative and always wins over any inherited/user-set value.

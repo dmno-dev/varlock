@@ -124,7 +124,24 @@ export interface UnlockDisplayInfo {
   projectPath?: string;
   /** what each key is being asked to open, keyed by key id */
   keys?: Record<string, UnlockKeyDisplay>;
+  /** how varlock came to be running; see `UnlockInvocationMode` */
+  invocationMode?: UnlockInvocationMode;
 }
+
+/**
+ * How varlock came to be running, as only the client can know.
+ *
+ * The daemon reads the command line off the kernel, which is the trustworthy
+ * half, but a command line cannot say whether varlock was typed or imported:
+ * an auto-load spawns the same CLI a person would. So the client says which it
+ * was, the daemon says what the command was, and the panel keeps the two
+ * apart.
+ *
+ * - `cli`: somebody ran a varlock command
+ * - `auto-load`: a host process loaded varlock (auto-load, a framework integration)
+ * - `sdk`: varlock is being used as a library in a host process
+ */
+export type UnlockInvocationMode = 'cli' | 'auto-load' | 'sdk';
 
 /**
  * What one key covers, as the client sees it.

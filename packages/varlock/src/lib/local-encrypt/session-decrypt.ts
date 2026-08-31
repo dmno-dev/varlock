@@ -13,9 +13,10 @@
  * the behaviour the identity layer exists to get rid of.
  */
 
+import path from 'node:path';
 import { DaemonError, type DaemonClient } from './daemon-client';
 import type {
-  SessionGrantInfo, UnlockDisplayInfo, UnlockKeyDisplay, UnlockValueFile,
+  SessionGrantInfo, UnlockDisplayInfo, UnlockInvocationMode, UnlockKeyDisplay, UnlockValueFile,
 } from './types';
 
 /** Thrown when the user was shown the unlock panel and said no */
@@ -152,6 +153,21 @@ async function decryptGroup(
 }
 
 /**
+ * How varlock came to be running here.
+ *
+ * `auto-load` is set by whatever spawned this CLI, because from inside the child
+ * an auto-load and a typed command look identical: both are the varlock CLI.
+ * Failing that, an entry point named varlock is somebody running varlock, and
+ * anything else is varlock being used as a library.
+ */
+export function detectInvocationMode(): UnlockInvocationMode {
+  const declared = process.env._VARLOCK_INVOCATION_MODE;
+  if (declared === 'auto-load' || declared === 'cli' || declared === 'sdk') return declared;
+  const entry = process.argv[1] ? path.basename(process.argv[1]).replace(/\.(c|m)?[jt]s$/, '') : '';
+  return entry === 'varlock' ? 'cli' : 'sdk';
+}
+
+/**
  * Describe what this batch is asking each key to open.
  *
  * The panel says who is asking on its own authority, but it cannot know what
@@ -197,6 +213,7 @@ function buildDisplayInfo(
   }
 
   return {
+    invocationMode: detectInvocationMode(),
     ...supplied,
     // how much each key is being asked to cover, so the panel can say so
     itemCounts: Object.fromEntries([...groups].map(([keyId, indexes]) => [keyId, indexes.length])),

@@ -193,8 +193,32 @@ A gated key raises a panel before anything else happens. The daemon draws it,
 because the daemon is the process that verified the peer and holds the keys, so it
 is the only party that can say truthfully who is asking.
 
-The panel arms the presence check the moment it opens, so **the scan is the
+The panel arms the presence check a beat after it opens, so **the scan is the
 approval**: the common case costs one gesture, with no separate confirm click.
+
+The beat matters. macOS raises its own biometric sheet the instant a policy is
+evaluated, and that sheet covers whatever is behind it. Arming on the same frame
+the panel opened meant the system sheet appeared over a panel nobody had had a
+chance to read, and a finger already on the sensor approved something unseen. So
+the panel waits until it is on screen and frontmost, holds for
+`ApprovalPanel.armingDelaySeconds`, and only then evaluates.
+
+**Setting Touch ID up is not approving anything.** The first time varlock uses
+the sensor on a machine, and again after the enrolled fingerprints change, macOS
+wants an interaction of its own. That happens first, alone, with nothing drawn
+behind it and with wording that says what it is ("varlock is setting up Touch ID
+approvals"). Its context is thrown away, so it cannot stand in for an approval.
+The panel comes after, and its scan is the one that unlocks. First run therefore
+costs two scans, on purpose. What has been set up is recorded next to the key
+store (`.biometric-setup.json`, a hash of the enrolment), and
+`_VARLOCK_BIOMETRIC_SETUP=0`/`1` overrides the decision if it ever misjudges a
+machine.
+
+**The panel arms itself once, ever.** If the system sheet is dismissed, that is
+not a refusal and not a failure: the panel stays up, unarmed, and says "Touch ID
+canceled. Click Approve to scan again". Nothing re-presents the sheet without a
+click. Choosing "Enter Password" inside the sheet moves the panel onto the
+password path and waits for that click too.
 
 The panel is a window the daemon draws itself, not an `NSAlert`: the layout is the
 message, and an alert can hold text and buttons and nothing else. It never embeds
@@ -213,7 +237,9 @@ The panel shows, top to bottom:
   to read off a panel.
 - the **key box**: one row per key, with the vault it belongs to and how many
   values it covers. A row opens to the value names, grouped by the file that
-  defined them, under a line saying they were reported by the client. They were:
+  defined them, under a line saying they were reported by the client. A client
+  that sent no value names gets a row with no chevron that does not respond to a
+  click, because an affordance that opens nothing is a lie. They were:
   the daemon has no way to know what an env value is called, and does not lend its
   credibility to a string a caller sent. None of it is bound into the crypto.
 - the **execution chain**: the line of processes leading to the caller, read off
@@ -226,7 +252,12 @@ The panel shows, top to bottom:
   anything the client sent. What a mark means is said under the hop it belongs to
   ("a script run by bun: approval trusts this file, not the signed interpreter"),
   never in a legend at the bottom that a reader would have to match back up to a
-  row.
+  row. varlock's own hop is named plainly: `bunx varlock load` shows as `varlock`
+  and not as "varlock via bun", since bun is how varlock ships rather than who is
+  asking, and its command line reads as it was typed (`$ varlock load`). When
+  varlock was loaded by a host process instead of run by a person, the line says
+  so and names the host's command (`auto-loaded inside next dev`): the mode is
+  client-reported, the command is the kernel's.
 
   Colour on the chain means exactly one thing at a time. Green is a signature we
   checked, amber is a script whose source is mutable, purple is a coding-agent
@@ -294,6 +325,13 @@ accepts the device password. That fallback stays button-driven rather than armin
 itself, since it is the shape this flow already had in the field. An ungated key
 keeps the plain button flow, and shows no panel at all unless a prompt was forced.
 `_VARLOCK_EMBEDDED_PROMPT=0` forces the fallback on a machine that could embed.
+
+Every path to a secret goes through this panel. The device-key format that
+predates unlock sessions used to authenticate on its own, which on macOS is the
+system sheet with nothing behind it: no statement of who was asking or what they
+wanted, and after a lock it read as the machine demanding a fingerprint out of
+nowhere. That path now draws the same panel. The only presence check that ever
+happens without it is the setup step above, which says what it is.
 
 Two answers other than yes:
 

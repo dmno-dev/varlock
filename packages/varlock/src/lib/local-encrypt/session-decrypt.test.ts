@@ -146,6 +146,21 @@ describe.skipIf(process.platform === 'win32')('v2 decryption through the daemon'
     });
   });
 
+  it('tells the panel how varlock came to be running', async () => {
+    const payload = v2Payload('mode');
+    harness.setConfig({ plaintexts: { [payload]: 'x' } });
+    process.env._VARLOCK_INVOCATION_MODE = 'auto-load';
+
+    const localEncrypt = await loadLocalEncrypt();
+    await localEncrypt.decryptIdentityPayloads([{ ciphertext: payload, keyId: 'varlock-default' }]);
+    delete process.env._VARLOCK_INVOCATION_MODE;
+
+    // A spawned auto-load is the same CLI a person would run, so the child has
+    // to be told which it was; the daemon reads the command itself.
+    const display = harness.callsOf('unlock-session')[0].payload.display as any;
+    expect(display.invocationMode).toBe('auto-load');
+  });
+
   it('still reports counts when the caller knows no value names', async () => {
     const payload = v2Payload('nameless');
     harness.setConfig({ plaintexts: { [payload]: 'x' } });

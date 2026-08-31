@@ -59,6 +59,8 @@ public struct ExecutionHop: Equatable {
     /// the value names the client reported for itself.
     public let invocation: String?
     public let posture: HopPosture
+    /// The process that actually connected to the daemon.
+    public let isRequester: Bool
     /// The app the user launched. Drawn small, at the top, with its icon.
     public let isLauncher: Bool
     /// The hop that decides what runs. Drawn large; everything else is quiet.
@@ -81,6 +83,7 @@ public struct ExecutionHop: Equatable {
         terminalName: String? = nil,
         invocation: String? = nil,
         posture: HopPosture = .unknown,
+        isRequester: Bool = false,
         isLauncher: Bool = false,
         isImportant: Bool = false,
         agentSession: AgentSession? = nil,
@@ -94,11 +97,15 @@ public struct ExecutionHop: Equatable {
         self.terminalName = terminalName
         self.invocation = invocation
         self.posture = posture
+        self.isRequester = isRequester
         self.isLauncher = isLauncher
         self.isImportant = isImportant
         self.agentSession = agentSession
         self.isInsideSession = isInsideSession
     }
+
+    /// Whether this hop is varlock itself, however it was started.
+    public var isVarlock: Bool { ExecutionChainBuilder.isOwnCommand(name) }
 
     /// Whether a coding-agent session begins here.
     public var isSessionRoot: Bool { agentSession != nil }
@@ -154,6 +161,22 @@ public struct ExecutionChain: Equatable {
     }
 
     public static let empty = ExecutionChain(hops: [])
+
+    /// What the host process was running, when varlock was loaded by one rather
+    /// than run by a person.
+    ///
+    /// An auto-load spawns the same CLI a person would, so the useful line is not
+    /// varlock's own internal command but the command it was loaded inside: the
+    /// nearest thing above it that is not varlock.
+    public var hostInvocation: String? {
+        guard let requesterIndex = hops.firstIndex(where: { $0.isRequester }) else { return nil }
+        let above = hops[..<requesterIndex].reversed().filter { !$0.isVarlock && !$0.isLauncher }
+        // The host is whatever loaded varlock, which is a program rather than the
+        // shell that started that program. A shell answers only when there is
+        // nothing else to point at.
+        let program = above.first { !ExecutionChainBuilder.shellNames.contains($0.name) }
+        return (program ?? above.first)?.invocation
+    }
 
     /// The hop a coding-agent session begins at, when the request came from one.
     public var sessionRootHop: ExecutionHop? {

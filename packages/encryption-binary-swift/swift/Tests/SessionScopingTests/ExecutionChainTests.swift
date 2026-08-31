@@ -113,10 +113,57 @@ final class ExecutionChainTests: XCTestCase {
             ),
         ]).build(forPid: 300)
 
-        // Named by what was typed, not by where the binary happened to live, and
-        // only on the process that actually connected.
+        // Named by what was typed, not by where the binary happened to live.
         XCTAssertEqual(chain.hops.last?.invocation, "varlock run -- next dev")
-        XCTAssertNil(chain.hops.first?.invocation)
+        // Only one hop is the process that connected, and only that one's
+        // command line is drawn.
+        XCTAssertEqual(chain.hops.map { $0.isRequester }, [false, true])
+    }
+
+    func testVarlockIsNamedPlainlyHoweverItWasStarted() {
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bunx", "varlock", "load"]
+            ),
+        ], posture: FakePosture(facts: [300: Self.signed])).build(forPid: 300)
+
+        let hop = try? XCTUnwrap(chain.hops.last)
+        // "varlock via bun" is true and useless: bun is how varlock ships, not
+        // who is asking. The interpreter stays in the path, which the expanded
+        // chain shows.
+        XCTAssertEqual(hop?.name, "varlock")
+        XCTAssertNil(hop?.via)
+        XCTAssertNil(hop?.advisory)
+        XCTAssertEqual(hop?.posture, .signedHardened)
+        XCTAssertEqual(hop?.invocation, "varlock load")
+    }
+
+    func testTheHostCommandIsFoundForAVarlockLoadedInsideSomethingElse() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, path: "/bin/zsh", args: ["-zsh"]),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/usr/local/bin/node",
+                args: ["node", "/app/node_modules/.bin/next", "dev"]
+            ),
+            FakeProc(
+                pid: 400,
+                ppid: 300,
+                path: "/app/node_modules/.bin/varlock",
+                args: ["/app/node_modules/.bin/varlock", "load", "--format", "json-full"]
+            ),
+        ]).build(forPid: 400)
+
+        // An auto-load runs the same CLI a person would, so varlock's own
+        // command line is not the one worth showing: the host's is.
+        XCTAssertEqual(chain.hostInvocation, "next dev")
+        XCTAssertEqual(chain.hops.last?.invocation, "varlock load --format json-full")
     }
 
     func testALongCommandLineKeepsTheSubcommandAndTheFirstArguments() {

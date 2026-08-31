@@ -9,8 +9,24 @@ import IdentitySessions
 /// quiet ghost button. Drawing them here is what lets the approve action and the
 /// scan be one object rather than two things sitting near each other.
 
+/// A view whose whole area is the click target.
+///
+/// AppKit hands a click to the deepest view under the pointer, and an
+/// `NSTextField` swallows it rather than passing it on. Every row on this panel
+/// is mostly text, so without this the clickable parts were the gaps between the
+/// words: the vault row looked expandable and did nothing when you clicked its
+/// name.
+protocol PanelClickTarget: NSView {}
+
+extension PanelClickTarget {
+    func clickTargetHitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+        return bounds.contains(convert(point, from: superview)) ? self : nil
+    }
+}
+
 /// A flat, layer-drawn button.
-final class PanelButton: NSControl {
+final class PanelButton: NSControl, PanelClickTarget {
     enum Style {
         case primary
         /// The refusal: red on a tinted ground, with a stop mark.
@@ -170,6 +186,10 @@ final class PanelButton: NSControl {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return isEnabled ? clickTargetHitTest(point) : nil
+    }
+
     override var intrinsicContentSize: NSSize {
         let fitting = contentRow.fittingSize
         switch style {
@@ -262,7 +282,7 @@ final class PanelSegmentedControl: NSView {
 }
 
 /// One segment of the scope control.
-final class PanelSegmentButton: NSView {
+final class PanelSegmentButton: NSView, PanelClickTarget {
     private let field = PanelStyle.label("", size: 12, color: PanelStyle.ink)
     private let onClick: (NSView) -> Void
     private var titleText: String
@@ -316,13 +336,17 @@ final class PanelSegmentButton: NSView {
         onClick(self)
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return clickTargetHitTest(point)
+    }
+
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 }
 
 /// A row that toggles something open, and says so by rotating a chevron.
-final class PanelDisclosureRow: NSView {
+final class PanelDisclosureRow: NSView, PanelClickTarget {
     private let onToggle: (Bool) -> Void
     private(set) var isOpen = false
     private let chevron: NSTextField
@@ -354,6 +378,10 @@ final class PanelDisclosureRow: NSView {
         isOpen.toggle()
         applyChevron()
         onToggle(isOpen)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return clickTargetHitTest(point)
     }
 
     override func resetCursorRects() {
