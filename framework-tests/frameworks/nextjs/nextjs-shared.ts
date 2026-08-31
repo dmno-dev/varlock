@@ -572,6 +572,177 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             ],
           });
         });
+
+        describe.skipIf(!runBuildScenarios)('output=standalone', () => {
+          // Standalone container-deploy semantics. When the standalone server boots
+          // without any fresh resolution (no `varlock run`, no reachable varlock CLI),
+          // it falls back to the env blob baked into the bundled runtime at build time.
+          // That snapshot is authoritative for blob-only boots, but runtime env values
+          // that CONFLICT with it (e.g. `docker run -e REDIS_URL=...` for a var the
+          // build resolved differently or not at all) cannot be validated or applied,
+          // so the boot must fail loudly and point at `varlock run`.
+          // The standalone output is copied outside the project tree (so the varlock
+          // CLI cannot be found by walking up to the fixture node_modules) and booted
+          // with a minimal env, mimicking a real container image.
+          const standalonePort = 15000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 5 : 0);
+          const standaloneCopyDir = `/tmp/varlock-next-standalone-${label}-${webpackOrTurbo}`;
+          const standaloneTemplateFiles = {
+            '.env.schema': {
+              path: 'schemas/.env.schema',
+              append: '\n# provided at boot time only (e.g. `docker run -e ...`)\nRUNTIME_BOOT_VAR= # @dynamic\nRUNTIME_BOOT_SECRET= # @sensitive\n',
+            },
+            'next.config.mjs': {
+              path: '_base/next.config.mjs',
+              replacements: { '// OUTPUT-MODE': "output: 'standalone'," },
+            },
+            'app/page.tsx': 'pages/runtime-boot-page.tsx',
+          };
+          // shared shell prelude: build, copy the standalone output outside the project
+          // tree, make the varlock CLI unreachable, cd to the (version-dependent) dir
+          // holding server.js
+          const standalonePrepare = [
+            `next build ${buildToolFlag}`.replace(/\s+/g, ' ').trim(),
+            `rm -rf ${standaloneCopyDir}`,
+            `cp -R .next/standalone ${standaloneCopyDir}`,
+            // remove all package-manager bin dirs so the varlock CLI is unreachable
+            `find ${standaloneCopyDir} -type d -name .bin -prune -exec rm -rf {} +`,
+            // server.js is nested at the traced workspace root, which varies by next
+            // version (it walks up to whatever lockfiles it finds above the project)
+            `cd "$(dirname "$(find ${standaloneCopyDir} -name server.js -not -path "*/node_modules/*" | head -1)")"`,
+            'NODE_BIN="$(command -v node)"',
+          ];
+
+          // 1) Conflicting runtime env values must fail the boot loudly. The server is
+          // booted in the background and poked with a request (the bundled runtime may
+          // load lazily on first request depending on next version), then its log is
+          // dumped for the output assertions.
+          const conflictBootCommand = `${standalonePrepare.join(' && ')} && (${[
+            [
+              'env -i PATH=/usr/bin:/bin NODE_ENV=production',
+              `HOSTNAME=127.0.0.1 PORT=${standalonePort}`,
+              'RUNTIME_BOOT_VAR=runtime-boot-value RUNTIME_BOOT_SECRET=runtime-boot-secret-value',
+              '"$NODE_BIN" server.js > standalone-boot.log 2>&1 & SRV_PID=$!',
+            ].join(' '),
+            'sleep 8',
+            `curl -s -o /dev/null --max-time 10 http://127.0.0.1:${standalonePort}/ || true`,
+            'sleep 2',
+            'kill $SRV_PID 2>/dev/null || true',
+            'cat standalone-boot.log',
+          ].join('; ')})`;
+
+          nextEnv.describeScenario('standalone boot with conflicting runtime env fails loudly', {
+            command: `sh -c '${conflictBootCommand}'`,
+            env: { NODE_ENV: 'production' },
+            expectSuccess: true, // the script itself exits 0; assertions run on the dumped server log
+            timeout: 300_000,
+            templateFiles: standaloneTemplateFiles,
+            outputAssertions: [
+              {
+                description: 'boot fails with conflict error naming the keys and the varlock run remedy',
+                shouldContain: [
+                  'conflicts with the build-time env snapshot',
+                  'RUNTIME_BOOT_VAR',
+                  'varlock run',
+                ],
+                shouldNotContain: [
+                  // the conflicting runtime values must never be served
+                  'runtime var via ENV: runtime-boot-value',
+                ],
+              },
+            ],
+          });
+
+          // 2) Blob-only boot (no runtime-provided values): the baked snapshot is
+          // authoritative and the server boots and serves normally.
+          const blobOnlyBootCommand = [
+            ...standalonePrepare,
+            [
+              'env -i PATH=/usr/bin:/bin NODE_ENV=production',
+              `HOSTNAME=127.0.0.1 PORT=${standalonePort + 1}`,
+              '"$NODE_BIN" server.js',
+            ].join(' '),
+          ].join(' && ');
+
+          nextEnv.describeDevScenario('standalone blob-only boot serves baked values', {
+            command: `sh -c '${blobOnlyBootCommand}'`,
+            env: { NODE_ENV: 'production' },
+            readyPattern: /Ready in|Starting\.\.\./,
+            readyTimeout: 240_000,
+            timeout: 300_000,
+            templateFiles: standaloneTemplateFiles,
+            requests: [
+              {
+                label: 'page serves build-time state without errors',
+                path: '/',
+                bodyAssertions: {
+                  shouldContain: [
+                    'Varlock Framework Test - runtime boot',
+                    'runtime var via ENV: undefined',
+                    'runtime-secret-missing',
+                  ],
+                },
+              },
+            ],
+            outputAssertions: [
+              {
+                description: 'no conflict error for a blob-only boot',
+                shouldNotContain: ['conflicts with the build-time env snapshot'],
+              },
+            ],
+          });
+
+          // 3) The documented container topology: boot via `varlock run`, which
+          // re-resolves against the runtime env (validated + coerced) and injects
+          // fresh values, superseding the baked snapshot entirely.
+          const varlockRunBootCommand = [
+            `next build ${buildToolFlag}`.replace(/\s+/g, ' ').trim(),
+            `rm -rf ${standaloneCopyDir}`,
+            `cp -R .next/standalone ${standaloneCopyDir}`,
+            `SERVER_DIR="$(dirname "$(find ${standaloneCopyDir} -name server.js -not -path "*/node_modules/*" | head -1)")"`,
+            // a real image would COPY the env files in next to the server
+            'cp .env.schema .env.prod "$SERVER_DIR/"',
+            'cd "$SERVER_DIR"',
+            'NODE_BIN="$(command -v node)"',
+            'VARLOCK_BIN="$(command -v varlock)"',
+            [
+              // node stays on PATH so the varlock bin shim (and spawned server) can run
+              'env -i PATH="/usr/bin:/bin:$(dirname "$NODE_BIN")" NODE_ENV=production',
+              `HOSTNAME=127.0.0.1 PORT=${standalonePort + 2} APP_ENV=prod`,
+              'RUNTIME_BOOT_VAR=runtime-boot-value RUNTIME_BOOT_SECRET=runtime-boot-secret-value',
+              '"$VARLOCK_BIN" run -- "$NODE_BIN" server.js',
+            ].join(' '),
+          ].join(' && ');
+
+          nextEnv.describeDevScenario('standalone boot via varlock run resolves runtime env', {
+            command: `sh -c '${varlockRunBootCommand}'`,
+            env: { NODE_ENV: 'production' },
+            readyPattern: /Ready in|Starting\.\.\./,
+            readyTimeout: 240_000,
+            timeout: 300_000,
+            templateFiles: standaloneTemplateFiles,
+            requests: [
+              {
+                label: 'page serves validated boot-provided env values',
+                path: '/',
+                bodyAssertions: {
+                  shouldContain: [
+                    'Varlock Framework Test - runtime boot',
+                    'runtime var via ENV: runtime-boot-value',
+                    'runtime var via process.env: runtime-boot-value',
+                    'runtime-secret-present',
+                  ],
+                  shouldNotContain: ['runtime-secret-missing'],
+                },
+              },
+            ],
+            outputAssertions: [
+              {
+                description: 'no conflict error when booting via varlock run',
+                shouldNotContain: ['conflicts with the build-time env snapshot'],
+              },
+            ],
+          });
+        });
       });
     });
   });

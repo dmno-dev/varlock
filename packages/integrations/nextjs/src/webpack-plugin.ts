@@ -209,8 +209,13 @@ export function createWebpackConfigFn(
         if (rawEnv && encryptionKey) {
           envPayload = encryptEnvBlobSync(rawEnv, encryptionKey);
         }
+        // the baked env is a build-time fallback: a blob already present in the actual
+        // runtime env (fresh boot-time resolution, `varlock run`) always wins. The
+        // `__varlockEnvInjectedAtBuild` marker tells initVarlockEnv the blob was resolved
+        // at build time, so runtime env values conflicting with it are a misconfiguration
+        // (they cannot be validated or applied) and must fail the boot loudly.
         const envInline = envPayload
-          ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`
+          ? `if (!process.env.__VARLOCK_ENV) { process.env.__VARLOCK_ENV = ${JSON.stringify(envPayload)}; globalThis.__varlockEnvInjectedAtBuild = true; }`
           : '';
 
         const updatedSourceStr = [

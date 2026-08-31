@@ -2,6 +2,7 @@ import { redactString } from './lib/redaction';
 
 import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
+import { envValueMatchesBlobItem } from '../lib/injected-env-provenance';
 import { debug } from './lib/debug';
 
 // TODO: would like to move all of the redaction utils out of this file
@@ -550,6 +551,47 @@ export function initVarlockEnv(opts?: {
     ].join('\n'));
     throw new Error('initVarlockEnv failed');
   }
+  // When the blob was baked into the build output and used as a boot-time fallback
+  // (marker set by the injection preludes; e.g. Next.js standalone in a container where
+  // the varlock CLI is unreachable), it was resolved at BUILD time. Values in the actual
+  // runtime environment never had a chance to act as overrides during that resolution,
+  // and they cannot be validated or coerced here (the blob carries no schema/type info).
+  // A runtime value that CONFLICTS with the blob is therefore evidence of
+  // misconfiguration: someone is supplying config (`docker run -e REDIS_URL=...`) that
+  // this boot would silently ignore. Fail closed with the remedy instead.
+  // Absent values are fine: blob-only deployments (e.g. serverless) intentionally
+  // deliver every value via the blob, so nothing is present in the runtime env to check.
+  // The globalThis marker is mirrored into an env var so child processes that inherit
+  // the baked blob (e.g. render workers) apply the same semantics.
+  const envInjectedAtBuild = !!(globalThis as any).__varlockEnvInjectedAtBuild
+    || (processExists && process.env.__VARLOCK_ENV_INJECTED_AT_BUILD === '1');
+  if (envInjectedAtBuild && processExists) {
+    process.env.__VARLOCK_ENV_INJECTED_AT_BUILD = '1';
+    const conflictingKeys: Array<string> = [];
+    for (const itemKey in serializedEnvData.config) {
+      const ambientValue = envState.originalProcessEnv[itemKey];
+      if (ambientValue === undefined) continue;
+      const item = serializedEnvData.config[itemKey];
+      if (envValueMatchesBlobItem(ambientValue, item, serializedEnvData.settings)) continue;
+      conflictingKeys.push(itemKey);
+    }
+    if (conflictingKeys.length) {
+      const conflictMessage = [
+        '[varlock] ❌ Runtime environment conflicts with the build-time env snapshot',
+        `This server booted from env values baked into the build (the varlock CLI was not available to re-resolve), but the runtime environment provides different values for: ${conflictingKeys.join(', ')}`,
+        'These runtime values cannot be validated or applied from a baked snapshot, so they would be silently ignored.',
+        'Fix: boot via `varlock run` (or make the varlock CLI available) so env is re-resolved and validated at boot.',
+        'To boot anyway using the baked values, set _VARLOCK_ALLOW_BAKED_ENV_CONFLICTS=1 (the runtime values for these keys will be ignored by ENV).',
+      ].join('\n');
+      if (['1', 'true'].includes(process.env._VARLOCK_ALLOW_BAKED_ENV_CONFLICTS || '')) {
+        // eslint-disable-next-line no-console
+        console.error(conflictMessage.replace('❌', '⚠️'));
+      } else {
+        throw new Error(conflictMessage);
+      }
+    }
+  }
+
   Object.assign(varlockSettings, serializedEnvData.settings);
   envState.configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);
@@ -594,7 +636,11 @@ export function initVarlockEnv(opts?: {
         // echo (a genuine ambient value would have acted as an override and resolved to it),
         // so clear it rather than leave it shadowing the fresh resolution.
         // `@injectUndefinedAsEmpty` opts back into dotenv-style empty-string injection.
-        delete process.env[itemKey];
+        // EXCEPT for build-baked blobs: no resolution happened in this process, so the
+        // echo reasoning cannot hold and a present value is genuine runtime env. Deleting
+        // it would destroy runtime-provided config (conflicts either threw above or were
+        // explicitly allowed via _VARLOCK_ALLOW_BAKED_ENV_CONFLICTS), so leave it alone.
+        if (!envInjectedAtBuild) delete process.env[itemKey];
       } else {
         envState.injectedProcessEnvKeys?.push(itemKey);
         process.env[itemKey] = envStrValue ?? '';

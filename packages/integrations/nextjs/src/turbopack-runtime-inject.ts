@@ -91,7 +91,12 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // Load both init bundles — server (full, node:zlib/node:http) and edge (no node builtins)
   const initServerSrc = fs.readFileSync(require.resolve('varlock/init-server'), 'utf8');
   const initEdgeSrc = fs.readFileSync(require.resolve('varlock/init-edge'), 'utf8');
-  const envInline = `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`;
+  // the baked env is a build-time fallback: a blob already present in the actual
+  // runtime env (fresh boot-time resolution, `varlock run`) always wins. The
+  // `__varlockEnvInjectedAtBuild` marker tells initVarlockEnv the blob was resolved
+  // at build time, so runtime env values conflicting with it are a misconfiguration
+  // (they cannot be validated or applied) and must fail the boot loudly.
+  const envInline = `if (!process.env.__VARLOCK_ENV) { process.env.__VARLOCK_ENV = ${JSON.stringify(envPayload)}; globalThis.__varlockEnvInjectedAtBuild = true; }`;
 
   // The CJS init bundles use `exports.X = ...` at the end, so we must provide
   // a dummy `exports` object when wrapping in an IIFE to avoid ReferenceError.

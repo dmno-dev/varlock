@@ -172,6 +172,8 @@ To integrate varlock into a Next.js application, use our [`@varlock/nextjs-integ
 
     :::note[The override only needs to apply at build/dev time]
     On serverless platforms (e.g. Vercel, Cloudflare), the fully-resolved env is baked into your build output by the config plugin, so the production server does not re-load `.env` files. This means you only need the `@next/env` override to be active when you run `next dev` and `next build`. There is no separate runtime config to set on the platform.
+
+    The baked env is a build-time snapshot, so values passed in the runtime environment (`docker run -e ...`) cannot be validated or applied to it. If the runtime env conflicts with the snapshot for a schema-declared key, varlock fails loudly with an error naming the keys instead of silently ignoring the runtime values. Self-hosted containers (e.g. `output: 'standalone'`) that pass env vars at boot should start the server through a `varlock run` entrypoint (see the [Docker guide](/integrations/docker/)), which re-resolves against the runtime environment with full validation and coercion. Blob-only deploys, where no schema values are set in the runtime env, boot from the snapshot as before.
     :::
 
 </Steps>

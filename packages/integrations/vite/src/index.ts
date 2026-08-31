@@ -416,6 +416,10 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
       } else {
         lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
       }
+      // marks the blob as resolved at BUILD time, so initVarlockEnv treats runtime env
+      // values conflicting with it as a misconfiguration (they never had a chance to act
+      // as overrides during resolution and cannot be validated now) and fails the boot
+      lines.push('globalThis.__varlockEnvInjectedAtBuild = true;');
     }
 
     // inject custom entry code from integrations (e.g., CF bindings loader) —

@@ -18,6 +18,10 @@ While many have traditionally shied away from using environment-specific `.env` 
 
 At the very least, you'll often need to inject an environment flag (e.g., `APP_ENV`) and a _secret-zero_ which allows access to the rest of your secrets in deployed environments. For local workflows, consider [device-local encryption](/guides/local-encryption/) to secure local secret-zero handling.
 
+:::caution[Overrides apply at resolution time]
+Process overrides are applied when varlock _resolves_ your config: during `varlock run`, `varlock load`, or a framework integration running at dev/build time. Some deployments boot from env values that were already resolved and baked in earlier, for example a framework integration's build output on a serverless platform, or a standalone server image booted without the varlock CLI. In those deployments the process env at boot is not an override source: resolution already happened, and a conflicting env var would fail the boot with an error naming the keys rather than being silently ignored. To have boot-time env vars respected as overrides, boot through [`varlock run`](/reference/cli/load-and-run/#run) (see the [Docker guide](/integrations/docker/)).
+:::
+
 That said, as a first step to adopting `varlock`, you could rely entirely on process overrides to inject all config values, but still benefit from having a clear schema with validation applied to them.
 
 ### Loading environment-specific `.env` files
