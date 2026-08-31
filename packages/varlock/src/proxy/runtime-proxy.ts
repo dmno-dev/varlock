@@ -1241,7 +1241,7 @@ export async function startLocalProxyRuntime({
       && scanParts.some((part) => part.includes(item.placeholder)));
     if (signingSecretLeak) {
       blockTransform(403, `this request to ${t.host}${t.pathOnly} carries the placeholder for ${signingSecretLeak.key}, `
-        + 'which is a signing secret - the proxy uses it to sign matching requests and it is never sent in a request. Remove it from the request.', shouldRewrite);
+        + 'which is a signing credential: the proxy applies the real value itself when signing matching requests, so the child never sends it. Remove it from the request.', shouldRewrite);
       return;
     }
 

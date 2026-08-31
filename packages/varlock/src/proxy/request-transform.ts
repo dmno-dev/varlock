@@ -9,13 +9,13 @@ import {
 /**
  * Request signing (the `transform=` option on a `@proxy` rule).
  *
- * The proxy computes an HMAC signature over a template derived from the final
- * outbound request - after placeholder substitution, so the signature covers
- * exactly the bytes the upstream receives - and writes it (plus an optional key
- * id and timestamp) into headers before forwarding. The signing secret is
- * consumed here and never appears in the request itself, which is a stronger
- * boundary than placeholder substitution: the child cannot produce a valid
- * signature even in principle, because it never holds the key.
+ * A signer turns the final outbound request - after placeholder substitution,
+ * so it covers exactly the bytes the upstream receives - plus the real
+ * credentials into request headers. The hmac schemes send only a derived
+ * signature, so the secret never leaves the proxy; http-basic sends the
+ * credentials themselves, base64-encoded, because that is what Basic auth is.
+ * Either way the credential is consumed here rather than substituted, so the
+ * child cannot produce a valid request itself: it never holds the value.
  *
  * Everything in this file is pure (time injected) so it can be tested with
  * fixed vectors.

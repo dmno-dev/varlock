@@ -2388,7 +2388,7 @@ async function rulesAction(ctx: any) {
     const item = envGraph.configSchema[key];
     if (!item) continue;
     if (consumedTransformKeys.has(key) && !substitutableKeys.has(key)) {
-      secrets.push({ key, label: `${ansis.green('signing secret')}: placeholder; consumed by the proxy to sign matching requests, never sent` });
+      secrets.push({ key, label: `${ansis.green('signing credential')}: placeholder; the proxy applies the real value when it signs, never the child` });
     } else if (managedKeys.has(key)) {
       secrets.push({ key, label: `${ansis.green('proxied')}: placeholder; real value injected on matching hosts` });
     } else if (omittedSet.has(key)) {
