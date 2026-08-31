@@ -46,6 +46,14 @@ import {
 import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
 import { parseDuration } from '../../lib/duration';
 
+/**
+ * Item references found in `transform={...}` options: `direct` maps an option
+ * written as a bare `$ITEM` to that item name; `nested` maps an option whose
+ * value merely interpolates references (e.g. `"acct-${ID}"`) to the names it
+ * mentions.
+ */
+type TransformItemRefs = { direct: Record<string, string>; nested: Record<string, Array<string>> };
+
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
 
@@ -1332,15 +1340,36 @@ export class EnvGraph {
    * value never reaches rule data. Options the scheme does not mark as
    * credentials keep resolving normally (a `$REF` there is an ordinary value).
    */
-  private static extractTransformItemRefs(dec: any): Record<string, string> {
+  private static extractTransformItemRefs(dec: any): {
+    direct: Record<string, string>;
+    nested: Record<string, Array<string>>;
+  } {
     const optionResolvers = dec?.decValueResolver?.objArgs?.transform?.objArgs ?? {};
-    const refs: Record<string, string> = {};
+    const direct: Record<string, string> = {};
+    const nested: Record<string, Array<string>> = {};
+    const collectRefNames = (resolver: any, out: Set<string>) => {
+      if (!resolver) return;
+      if (resolver.fnName === 'ref') {
+        const refArg = resolver.arrArgs?.[0];
+        if (refArg?.isStatic && typeof refArg.staticValue === 'string') out.add(refArg.staticValue);
+        return;
+      }
+      for (const child of resolver.arrArgs ?? []) collectRefNames(child, out);
+      for (const child of Object.values(resolver.objArgs ?? {})) collectRefNames(child, out);
+    };
     for (const [option, resolver] of Object.entries<any>(optionResolvers)) {
-      if (resolver?.fnName !== 'ref') continue;
-      const refArg = resolver.arrArgs?.[0];
-      if (refArg?.isStatic && typeof refArg.staticValue === 'string') refs[option] = refArg.staticValue;
+      if (resolver?.fnName === 'ref') {
+        const refArg = resolver.arrArgs?.[0];
+        if (refArg?.isStatic && typeof refArg.staticValue === 'string') direct[option] = refArg.staticValue;
+        continue;
+      }
+      // an interpolated/computed value (e.g. `username="acct-${ACCOUNT_ID}"`),
+      // which resolves normally - but must not carry a secret's value
+      const refNames = new Set<string>();
+      collectRefNames(resolver, refNames);
+      if (refNames.size) nested[option] = [...refNames];
     }
-    return refs;
+    return { direct, nested };
   }
 
   /**
@@ -1354,7 +1383,7 @@ export class EnvGraph {
   private buildProxyTransform(
     obj: any,
     attachedItemKey: string | undefined,
-    itemRefs: Record<string, string>,
+    itemRefs: TransformItemRefs,
   ): ProxyRuleTransform {
     const spec = this.proxyTransformSchemes[obj?.scheme];
     const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
@@ -1363,9 +1392,22 @@ export class EnvGraph {
     // value). Every other option keeps whatever it resolved to, so a `$REF` on
     // an ordinary option still works normally.
     const config: Record<string, unknown> = { ...obj };
-    for (const [option, itemName] of Object.entries(itemRefs)) {
+    for (const [option, itemName] of Object.entries(itemRefs.direct)) {
       if (optionSpecs[option]?.itemRole === undefined) continue;
       config[option] = { itemRef: itemName };
+    }
+    // An interpolated credential (`password="pre-\${SECRET}"`) resolves to a
+    // string holding the real value, which would put a secret straight into
+    // rule data. Interpolating non-sensitive config is fine.
+    for (const [option, refNames] of Object.entries(itemRefs.nested)) {
+      if (optionSpecs[option]?.itemRole === undefined) continue;
+      const sensitiveRef = refNames.find((name) => this.configSchema[name]?.isSensitive);
+      if (sensitiveRef) {
+        throw new SchemaError(
+          `@proxy: transform.${option} interpolates "${sensitiveRef}", which varlock treats as sensitive, so its value would be embedded in the rule. `
+            + `If it is the credential, pass it by reference (${option}=$${sensitiveRef}); if it is not a secret, mark it @sensitive=false`,
+        );
+      }
     }
 
     // Place an attached rule's decorated item BEFORE validating, so validation
@@ -1438,7 +1480,7 @@ export class EnvGraph {
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
-    itemRefs: Record<string, string> = {},
+    itemRefs: TransformItemRefs = { direct: {}, nested: {} },
   ): ProxyRule {
     const method = EnvGraph.normalizeStringList(obj?.method);
     // Kept as raw target strings (validated above); parsed into structured targets
@@ -1484,7 +1526,7 @@ export class EnvGraph {
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
-    itemRefs: Record<string, string> = {},
+    itemRefs: TransformItemRefs = { direct: {}, nested: {} },
   ): Array<ProxyRule> {
     const out: Array<ProxyRule> = [this.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey, itemRefs)];
     if (Array.isArray(obj?.rules)) {

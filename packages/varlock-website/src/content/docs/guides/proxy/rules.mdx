@@ -186,6 +186,8 @@ TWILIO_AUTH_TOKEN=yourPreferredPlugin()
 
 Every referenced item is a consumed credential: managed (the child sees a placeholder), never substituted, and leak-guarded. A rule needs at least one reference, so a detached rule with two literals is a schema error. For the rare API wanting an empty userid with a secret password, set `username=""` explicitly, which pushes the decorated item to the password side.
 
+A literal side can interpolate other config, e.g. `username="acct-${ACCOUNT_ID}"`. Since varlock treats items as sensitive by default, the interpolated item must be marked [`@sensitive=false`](/reference/item-decorators/#sensitive); interpolating a sensitive item is a schema error, because its value would be embedded in the rule rather than resolved at signing time. Credentials always go through `$ITEM` references.
+
 #### AWS SigV4 (plugin)
 
 The `aws-sigv4` scheme re-signs AWS SDK requests and ships as a separate plugin, [`@varlock/aws-sigv4-plugin`](/plugins/aws-sigv4/), so core varlock carries no AWS dependencies. AWS never receives the secret access key either; every request carries a signature computed from it. Configure the SDK in the child with the **placeholder** credentials (varlock's proxied env does this automatically) and point it at the proxy; the SDK signs normally, and the proxy strips the placeholder signature and re-signs with the real keys.
