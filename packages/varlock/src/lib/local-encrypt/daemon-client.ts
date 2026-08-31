@@ -24,9 +24,12 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { resolveNativeBinary } from './binary-resolver';
 import { DEFAULT_KEY_ID } from './constants';
 import { isWSL } from './wsl-detect';
-import type {
-  DaemonPingResult, InvalidateSessionRequest,
-  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+import {
+  DAEMON_PROTOCOL_VERSION,
+  type DaemonPingResult, type DecryptV2Request, type DecryptV2Result,
+  type InvalidateSessionRequest, type InvalidateSessionResult, type ListSessionsResult,
+  type KeychainFixAccessResult, type KeychainItemMeta, type KeychainItemRef,
+  type KeychainSetResult, type UnlockSessionRequest, type UnlockSessionResult,
 } from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
@@ -47,6 +50,25 @@ export class DaemonError extends Error {
   constructor(message: string, readonly code?: string) {
     super(message);
     this.name = 'DaemonError';
+  }
+}
+
+/**
+ * Thrown when the daemon on this machine is too old for the op being asked of
+ * it, and restarting it did not produce a newer one.
+ *
+ * That means the binary on disk is itself old, so the fix is a reinstall rather
+ * than anything the client can retry.
+ */
+export class StaleDaemonError extends Error {
+  constructor(readonly running: number, readonly required: number) {
+    super(
+      `The varlock encryption daemon on this machine speaks protocol v${running}, `
+      + `but this version of varlock needs v${required}. Restarting it did not help, `
+      + 'so the installed native helper is out of date. Reinstall varlock (and its '
+      + '@varlock/native-helper-* dependency) to get a matching helper.',
+    );
+    this.name = 'StaleDaemonError';
   }
 }
 
@@ -231,6 +253,8 @@ export class DaemonClient {
   private connectingPromise: Promise<void> | null = null;
   /** Set after we spawn a daemon in this process — skip stale check to avoid restart loops */
   private spawnedInThisProcess = false;
+  /** Set after one protocol-driven restart, so a still-old daemon errors instead of looping */
+  private restartedForProtocol = false;
 
   async ensureConnected(): Promise<void> {
     if (this.isConnected && this.socket) return;
@@ -308,10 +332,19 @@ export class DaemonClient {
     });
   }
 
+  /**
+   * Read a secret in the daemon's own secure input dialog and get it back
+   * already encrypted, so the plaintext never crosses the socket.
+   *
+   * Passing `identityPublicKey` makes the daemon encrypt to that identity (a v2
+   * payload) instead of to the device key. macOS only: this op exists on the
+   * Swift daemon and not the Rust one, which offers `encrypt` instead.
+   */
   async promptSecret(opts?: {
     itemKey?: string;
     message?: string;
     keyId?: string;
+    identityPublicKey?: string;
   }): Promise<string | undefined> {
     return this.withRetry(async () => {
       await this.ensureConnected();
@@ -322,6 +355,7 @@ export class DaemonClient {
             itemKey: opts?.itemKey,
             message: opts?.message,
             keyId: opts?.keyId,
+            identityPublicKey: opts?.identityPublicKey,
           },
         }, INTERACTIVE_TIMEOUT_MS);
         if (result && typeof result === 'object' && 'ciphertext' in result) {
@@ -355,15 +389,114 @@ export class DaemonClient {
   }
 
   /**
+   * Make sure the running daemon is new enough for what we are about to ask it.
+   *
+   * A daemon that outlives an upgrade keeps serving the old protocol, and the
+   * caller would get "Unknown action" for an op this build depends on. So when
+   * the running one is too old we terminate it and let the next connect spawn a
+   * fresh one from the binary now on disk. That happens at most once per
+   * process: if the respawn is also old, the binary itself is old and no amount
+   * of restarting will fix it.
+   */
+  private async ensureProtocolVersion(minVersion: number, opName: string): Promise<void> {
+    const running = (await this.ping()).protocolVersion;
+    if (running >= minVersion) return;
+
+    if (this.restartedForProtocol) throw new StaleDaemonError(running, minVersion);
+    this.restartedForProtocol = true;
+
+    process.stderr.write(
+      `[varlock] The running encryption daemon speaks protocol v${running}, but "${opName}" `
+      + `needs v${minVersion}. Restarting it.\n`,
+    );
+    // forceCleanup kills the daemon by pid and clears its state files, so the
+    // ensureConnected inside the next ping spawns one from the current binary
+    this.forceCleanup();
+
+    const afterRestart = (await this.ping()).protocolVersion;
+    if (afterRestart < minVersion) throw new StaleDaemonError(afterRestart, minVersion);
+  }
+
+  /**
+   * Open a grant so the daemon may hold the identity key on this session's
+   * behalf. One call covers every key it names, for a single presence check.
+   *
+   * Uses the interactive timeout: the daemon may be drawing the approval panel
+   * and waiting on a person, which takes as long as it takes.
+   */
+  async unlockSession(request: UnlockSessionRequest): Promise<UnlockSessionResult> {
+    await this.ensureProtocolVersion(DAEMON_PROTOCOL_VERSION, 'unlock-session');
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'unlock-session',
+        payload: request,
+      }, INTERACTIVE_TIMEOUT_MS);
+      return result as UnlockSessionResult;
+    });
+  }
+
+  /**
+   * Decrypt identity-encrypted payloads under a grant this session already
+   * holds. There is no implicit unlock: without a grant the daemon answers
+   * NO_SESSION_GRANT and the caller runs `unlock-session` first.
+   */
+  async decryptV2(request: DecryptV2Request): Promise<DecryptV2Result> {
+    await this.ensureProtocolVersion(DAEMON_PROTOCOL_VERSION, 'decrypt-v2');
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'decrypt-v2',
+        payload: request,
+      }, BIOMETRIC_TIMEOUT_MS);
+      return result as DecryptV2Result;
+    });
+  }
+
+  /** Every live grant the daemon is holding, across all sessions */
+  async listSessions(): Promise<ListSessionsResult> {
+    await this.ensureProtocolVersion(DAEMON_PROTOCOL_VERSION, 'list-sessions');
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({ action: 'list-sessions' });
+      return { sessions: (result as ListSessionsResult | undefined)?.sessions ?? [] };
+    });
+  }
+
+  /**
+   * Encrypt to an identity public key using the daemon.
+   *
+   * Only needed where the daemon has to hand back ciphertext for a value this
+   * process never sees, which is the secret-capture path on the Rust daemon.
+   * Ordinary encryption needs no daemon at all: the recipient is a public key.
+   */
+  async encryptToIdentity(plaintext: string, identityPublicKey: string): Promise<string> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'encrypt',
+        payload: { plaintext, identityPublicKey },
+      });
+      return String(result);
+    });
+  }
+
+  /**
    * Drop cached auth and any identity grants the daemon is holding.
    *
    * With no arguments this drops everything, as it always has. Naming a session
-   * drops that session's grants; naming a key as well drops exactly one.
+   * drops that session's grants; naming a key as well drops exactly one. The
+   * targeted forms only exist on daemons that speak the session protocol, so
+   * they check the version first while the bare form stays compatible.
    */
-  async invalidateSession(target?: InvalidateSessionRequest): Promise<void> {
+  async invalidateSession(target?: InvalidateSessionRequest): Promise<InvalidateSessionResult> {
+    if (target?.sessionId || target?.keyId) {
+      await this.ensureProtocolVersion(DAEMON_PROTOCOL_VERSION, 'invalidate-session');
+    }
     return this.withRetry(async () => {
       await this.ensureConnected();
-      await this.sendMessage({ action: 'invalidate-session', payload: target ?? {} });
+      const result = await this.sendMessage({ action: 'invalidate-session', payload: target ?? {} });
+      return { invalidated: (result as InvalidateSessionResult | undefined)?.invalidated ?? 0 };
     });
   }
 
@@ -663,6 +796,11 @@ export class DaemonClient {
       ], {
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        // Explicit, because under Bun (which the compiled varlock binary runs
+        // on) a child with no `env` inherits the env this process started with,
+        // not the current one. The daemon resolves the key store and identity
+        // files from the environment, so it has to see the same one we do.
+        env: process.env,
       });
 
       const timeout = setTimeout(() => {

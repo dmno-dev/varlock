@@ -18,15 +18,25 @@ import { assertSupportedPayloadVersion, IDENTITY_PAYLOAD_VERSION, readPayloadVer
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
 import * as identity from './identity';
+import {
+  clearKnownGrants, decryptIdentityPayloadsViaDaemon, type IdentityPayloadRequest,
+} from './session-decrypt';
 import { isWSL } from './wsl-detect';
 import type {
-  BackendInfo, BackendType, NativeKeyDetail, NativeStatusResult,
+  BackendInfo, BackendType, InvalidateSessionRequest, NativeKeyDetail, NativeStatusResult,
+  SessionGrantInfo, UnlockDisplayInfo,
 } from './types';
 
-export type { BackendInfo, BackendType, NativeKeyDetail } from './types';
+export type {
+  BackendInfo, BackendType, NativeKeyDetail, SessionGrantInfo, UnlockDisplayInfo,
+} from './types';
 
 export { DEFAULT_KEY_ID };
-export { IdentityBackendUnsupportedError, IdentityNotFoundError } from './identity';
+export {
+  IdentityBackendUnsupportedError, IdentityNotFoundError, IdentityWrapMissingError,
+} from './identity';
+export { UnlockDeclinedError, UnlockNoUiError } from './session-decrypt';
+export { StaleDaemonError } from './daemon-client';
 
 /** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
 function debug(msg: string) {
@@ -34,6 +44,9 @@ function debug(msg: string) {
     process.stderr.write(`[varlock:local-encrypt] ${msg}\n`);
   }
 }
+
+/** The same debug logger, for the sibling modules that make up this layer */
+export const debugLog = debug;
 
 const SHELL_RUNNER_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'csh', 'tcsh']);
 const VARLOCK_LAUNCHER_NAMES = new Set(['varlock', 'varlock.exe', 'varlock.cmd']);
@@ -281,6 +294,13 @@ function runNativeBinary(args: Array<string>, opts?: { timeout?: number; sensiti
   const output = execFileSync(binaryPath, args, {
     encoding: 'utf-8',
     timeout: opts?.timeout ?? 30_000,
+    // Passed explicitly rather than left to inherit. Under Bun, which is what
+    // the compiled varlock binary runs on, a child with no `env` gets the env
+    // this process *started* with, so anything set at runtime (XDG_CONFIG_HOME,
+    // HOME) would be invisible to the helper and it would read a different key
+    // store than the one this process is using. Node inherits the live env, so
+    // being explicit is what makes the two agree.
+    env: process.env,
   }).trim();
   debug(`runNativeBinary result: ${opts?.sensitiveOutput ? `<${output.length} chars>` : output.slice(0, 200)}`);
   return output;
@@ -303,7 +323,8 @@ function spawnNativeBinaryAsync(
   const timeoutMs = opts.timeout ?? 30_000;
   return new Promise((resolve, reject) => {
     debug(`spawnNativeBinaryAsync: ${binaryPath} ${redactDataArg(args).join(' ')}`);
-    const proc = spawn(binaryPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    // env passed explicitly for the same reason as in runNativeBinary above
+    const proc = spawn(binaryPath, args, { stdio: ['pipe', 'pipe', 'pipe'], env: process.env });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -401,6 +422,11 @@ export function getBackendInfo(): BackendInfo {
     try {
       const status = runNativeBinaryJson<NativeStatusResult>(['status']);
       debug(`getBackendInfo: status result: hardwareBacked=${status.hardwareBacked}, biometricAvailable=${status.biometricAvailable}, backend=${status.backend}, keys=${status.keys?.join(',')}`);
+      // keyDetails decides whether a decrypt goes through the daemon at all, so
+      // a helper that does not report it is worth seeing in a debug log
+      debug(`getBackendInfo: keyDetails=${status.keyDetails
+        ? status.keyDetails.map((d) => `${d.keyId}:requireAuth=${d.requireAuth}`).join(',')
+        : '<not reported by this helper>'}`);
       cachedStatusKeys = status.keys;
       cachedKeyDetails = status.keyDetails;
       cachedBackendInfo = {
@@ -483,11 +509,23 @@ export function keyExists(keyId: string = DEFAULT_KEY_ID): boolean {
 
 /**
  * Whether decrypts of this key should require user-presence verification
- * (on machines that have a gate at all). Unknown keys, and keys reported by
- * binaries without per-key metadata, default to true: prompting is the safe
- * direction to fail in.
+ * (on machines that have a gate at all).
+ *
+ * Three cases, and all three are pinned by tests:
+ *
+ *   - the binary reports no `keyDetails` at all (an older native helper): true,
+ *     because prompting when we did not need to is the safe way to be wrong
+ *   - the key was created with `--no-auth` (CI and headless hosts): false, so it
+ *     takes the one-shot non-interactive path with no daemon and no session
+ *   - anything else, including `--auth-every-time` keys: true
+ *
+ * The `--no-auth` case is the one that changed: those keys used to be routed
+ * through the daemon like every other key, because no binary reported the flag.
  */
-function keyRequiresAuth(keyId: string): boolean {
+export function keyRequiresAuth(keyId: string): boolean {
+  // the per-key metadata arrives with the backend probe, so make sure that has
+  // happened: without this the answer depends on whether something else ran first
+  getBackendInfo();
   const detail = cachedKeyDetails?.find((d) => d.keyId === keyId);
   return detail?.requireAuth ?? true;
 }
@@ -650,14 +688,43 @@ const deviceCrypto: identity.DeviceCrypto = {
 };
 
 /**
+ * Whether this process is allowed to unwrap the identity private key itself.
+ *
+ * True only on the file backend, where the device key guarding the wrap is a
+ * plaintext file anyway, so routing through a daemon would protect nothing. On
+ * every hardware backend the daemon does the unwrapping and the key never
+ * reaches V8.
+ */
+function mayUnwrapIdentityInProcess(): boolean {
+  return getBackendInfo().type === 'file';
+}
+
+function identityOpts() {
+  return { allowInProcessUnwrap: mayUnwrapIdentityInProcess() };
+}
+
+/**
+ * Whether v2 payloads can be opened at all here.
+ *
+ * WSL is the one place they cannot. It reaches the Windows daemon by running the
+ * helper .exe once per call, and each of those runs is its own session, so there
+ * is no session for a grant to belong to. Writes there stay on v1 so a WSL
+ * machine never produces a value it cannot read back.
+ */
+export function canUseIdentityEncryption(): boolean {
+  return !isWSL();
+}
+
+/**
  * Whether new values should be encrypted to the identity key (v2) rather than
  * straight to the device key (v1).
  *
- * Only the file backend for now. Hardware backends must not hold the identity
- * private key in this process, so their v2 path waits for the native daemon.
+ * Every backend that can read a v2 payload also writes them. Encryption itself
+ * is public-key only, so it needs no daemon, no grant and no presence check on
+ * any backend: what decides this is purely whether reading back would work.
  */
 function shouldEncryptToIdentity(): boolean {
-  return getBackendInfo().type === 'file';
+  return canUseIdentityEncryption();
 }
 
 /**
@@ -667,8 +734,23 @@ function shouldEncryptToIdentity(): boolean {
 export async function ensureEncryptionReady(keyId: string = DEFAULT_KEY_ID): Promise<void> {
   await ensureKey(keyId);
   if (shouldEncryptToIdentity()) {
-    await identity.ensureIdentity(deviceCrypto, keyId);
+    await identity.ensureIdentity(deviceCrypto, keyId, undefined, identityOpts());
   }
+}
+
+/**
+ * The public key new values are encrypted to, creating the identity if this is
+ * its first use. Undefined when this machine writes v1 payloads.
+ *
+ * Callers that hand encryption to the daemon (the secure input dialog) need the
+ * recipient without doing the encrypting themselves.
+ */
+export async function getEncryptionIdentityPublicKey(
+  keyId: string = DEFAULT_KEY_ID,
+): Promise<string | undefined> {
+  if (!shouldEncryptToIdentity()) return undefined;
+  const stored = await identity.ensureIdentity(deviceCrypto, keyId, undefined, identityOpts());
+  return stored.publicKey;
 }
 
 /**
@@ -684,17 +766,54 @@ export async function encryptValue(
 ): Promise<string> {
   if (opts?.target !== 'device' && shouldEncryptToIdentity()) {
     debug('encryptValue: encrypting to identity key (v2)');
-    return identity.encryptToIdentity(deviceCrypto, plaintext, keyId);
+    return identity.encryptToIdentity(deviceCrypto, plaintext, keyId, undefined, identityOpts());
   }
   return encryptToDeviceKey(plaintext, keyId);
 }
 
 /**
+ * Open identity-encrypted (v2) payloads as one group.
+ *
+ * This is the batched entry point, and the one callers resolving a whole env
+ * file should reach for: on a hardware backend the whole group costs a single
+ * unlock, where the same payloads opened one at a time could cost one each.
+ * Results come back in the order they were passed in.
+ */
+export async function decryptIdentityPayloads(
+  payloads: Array<IdentityPayloadRequest>,
+  opts?: { display?: UnlockDisplayInfo },
+): Promise<Array<string>> {
+  if (payloads.length === 0) return [];
+  for (const payload of payloads) assertSupportedPayloadVersion(payload.ciphertext);
+
+  const backend = getBackendInfo();
+
+  if (backend.type === 'file') {
+    debug(`decryptIdentityPayloads: ${payloads.length} payload(s) via the file backend`);
+    warnIfFileFallback(backend);
+    const plaintexts: Array<string> = [];
+    for (const payload of payloads) {
+      plaintexts.push(await identity.decryptWithIdentity(deviceCrypto, payload.ciphertext));
+    }
+    return plaintexts;
+  }
+
+  if (!canUseIdentityEncryption()) {
+    throw new identity.IdentityBackendUnsupportedError(backend.type);
+  }
+
+  debug(`decryptIdentityPayloads: ${payloads.length} payload(s) via the daemon session`);
+  return decryptIdentityPayloadsViaDaemon(getDaemonClient(), payloads, opts);
+}
+
+/**
  * Decrypt a ciphertext value, routing on the payload version byte.
  *
- * v1 payloads go to the device key exactly as they always have. v2 payloads
- * need the identity private key unwrapped first, which only the file backend
- * may do in-process.
+ * v1 payloads go to the device key exactly as they always have. v2 payloads go
+ * through the identity: in-process on the file backend, and through the daemon's
+ * unlock session everywhere else. Decrypting a single value is just a batch of
+ * one, so callers with several should use `decryptIdentityPayloads` instead and
+ * pay for one unlock rather than one per value.
  */
 export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
   // checked here rather than per-backend so payloads from a newer varlock fail
@@ -702,35 +821,70 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
   assertSupportedPayloadVersion(ciphertext);
 
   if (readPayloadVersion(ciphertext) === IDENTITY_PAYLOAD_VERSION) {
-    const backend = getBackendInfo();
-    if (backend.type !== 'file') {
-      // custody: unwrapping here would put the identity private key in this
-      // process, which is exactly what hardware backends exist to prevent
-      throw new identity.IdentityBackendUnsupportedError(backend.type);
-    }
     debug('decryptValue: identity-encrypted payload (v2)');
-    warnIfFileFallback(backend);
-    return identity.decryptWithIdentity(deviceCrypto, ciphertext);
+    const [plaintext] = await decryptIdentityPayloads([{ ciphertext, keyId }]);
+    return plaintext;
   }
 
   return decryptWithDeviceKey(ciphertext, keyId);
 }
 
 /**
- * Invalidate the biometric session, requiring re-authentication for next decrypt.
- * Connects to the running daemon without spawning one (varlock lock runs in a separate process).
+ * Invalidate unlock sessions, so the next decrypt has to ask again.
+ *
+ * With no target this drops everything the daemon is holding, as it always has.
+ * `sessionId` drops one session's grants; the caller's own session is named by
+ * passing no id and letting the daemon resolve it from the connection, which is
+ * what `varlock lock --current` does.
+ *
+ * Connects to a running daemon without spawning one: locking a daemon that is
+ * not there is already the state the user asked for.
  */
-export async function lockSession(): Promise<void> {
+export async function lockSession(target?: InvalidateSessionRequest): Promise<number> {
   // an unwrapped identity key held in this process outlives a daemon lock, so
-  // drop it too
+  // drop it too, along with the grants this process thought it had
   identity.clearUnwrappedIdentityCache();
+  clearKnownGrants();
 
   const backend = getBackendInfo();
-  if (!backend.biometricAvailable) return;
+  if (!backend.biometricAvailable) return 0;
   const client = getDaemonClient();
   const connected = await client.tryConnect();
   if (!connected) {
     throw new Error('No encryption daemon is running');
   }
-  await client.invalidateSession();
+  const result = await client.invalidateSession(target);
+  return result.invalidated;
+}
+
+/**
+ * The session id the daemon resolves for this process.
+ *
+ * Derived by the daemon from the connection, never claimed by us, so it is the
+ * one way to name "my own session" without being able to name anyone else's.
+ * Undefined when no daemon is running or it could not place this caller.
+ */
+export async function getCurrentSessionId(): Promise<string | undefined> {
+  const backend = getBackendInfo();
+  if (!backend.biometricAvailable) return undefined;
+  const client = getDaemonClient();
+  const connected = await client.tryConnect();
+  if (!connected) return undefined;
+  return (await client.ping()).sessionId;
+}
+
+/**
+ * Every unlock session the daemon is currently holding.
+ *
+ * Connects without spawning: a daemon that is not running holds nothing, which
+ * is an empty list rather than an error.
+ */
+export async function listSessions(): Promise<Array<SessionGrantInfo>> {
+  const backend = getBackendInfo();
+  if (!backend.biometricAvailable) return [];
+  const client = getDaemonClient();
+  const connected = await client.tryConnect();
+  if (!connected) return [];
+  const result = await client.listSessions();
+  return result.sessions;
 }

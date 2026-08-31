@@ -5,9 +5,11 @@
  * Works cross-platform using the local-encrypt abstraction layer.
  */
 
+import path from 'node:path';
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import prompts from '../../cli/helpers/prompts';
+import { IDENTITY_PAYLOAD_VERSION, readPayloadVersion } from './crypto';
 import * as localEncrypt from './index';
 import { buildVarlockReference, LOCAL_SCHEME, parseVarlockReference } from './reference';
 import { writeBackValue } from './write-back';
@@ -20,6 +22,11 @@ const PLUGIN_ICON = 'mdi:fingerprint';
 // Prompts are sorted first so the user enters values before biometric decrypts.
 // If the user cancels a prompt or biometric auth, all remaining items in the
 // batch are rejected immediately.
+//
+// Identity-encrypted (v2) values are the exception to "sequentially": they are
+// opened as one group before the loop runs, so a file full of secrets costs a
+// single unlock instead of one per value. The loop then just hands out results
+// that are already in hand.
 
 type VarlockBatchEntry = {
   kind: 'prompt' | 'decrypt';
@@ -70,6 +77,37 @@ function bailRemaining(batch: Array<VarlockBatchEntry>, startIndex: number, erro
   }
 }
 
+type DecryptBatchEntry = Extract<VarlockBatchEntry, { kind: 'decrypt' }>;
+
+function isIdentityEntry(entry: VarlockBatchEntry): entry is DecryptBatchEntry {
+  return entry.kind === 'decrypt'
+    && readPayloadVersion(entry.ciphertext) === IDENTITY_PAYLOAD_VERSION;
+}
+
+/**
+ * Open every identity-encrypted entry in the batch as one group.
+ *
+ * Run once, at the first v2 value the loop reaches rather than up front, so the
+ * prompts sorted ahead of it still get the user's attention first: nobody wants
+ * an unlock panel over the top of a dialog asking them to type a secret.
+ */
+async function openIdentityEntries(
+  batch: Array<VarlockBatchEntry>,
+): Promise<Map<VarlockBatchEntry, string>> {
+  const identityEntries = batch.filter(isIdentityEntry);
+  const opened = new Map<VarlockBatchEntry, string>();
+  if (identityEntries.length === 0) return opened;
+
+  const plaintexts = await localEncrypt.decryptIdentityPayloads(
+    identityEntries.map((entry) => ({ ciphertext: entry.ciphertext, keyId: entry.keyId })),
+    // decoration for the unlock panel. The daemon works out who is asking from
+    // the connection itself and treats all of this as secondary.
+    { display: { projectName: path.basename(process.cwd()), projectPath: process.cwd() } },
+  );
+  identityEntries.forEach((entry, i) => opened.set(entry, plaintexts[i]));
+  return opened;
+}
+
 async function executeBatch() {
   const batch = pendingBatch;
   pendingBatch = undefined;
@@ -86,11 +124,26 @@ async function executeBatch() {
     await localEncrypt.ensureKey(keyId);
   }
 
+  let identityValues: Map<VarlockBatchEntry, string> | undefined;
+
   for (let i = 0; i < batch.length; i++) {
     const entry = batch[i];
     try {
       if (entry.kind === 'decrypt') {
-        const plaintext = await localEncrypt.decryptValue(entry.ciphertext, entry.keyId);
+        if (isIdentityEntry(entry) && !identityValues) {
+          // the single unlock that covers every v2 value in this batch; a failure
+          // here belongs to all of them, so it takes the whole rest of the batch
+          try {
+            identityValues = await openIdentityEntries(batch);
+          } catch (err) {
+            bailRemaining(batch, i, err instanceof Error ? err : new Error(String(err)));
+            return;
+          }
+        }
+        const alreadyOpened = identityValues?.get(entry);
+        const plaintext = alreadyOpened !== undefined
+          ? alreadyOpened
+          : await localEncrypt.decryptValue(entry.ciphertext, entry.keyId);
         entry.resolve(plaintext);
       } else {
         const result = await entry.execute();
@@ -127,6 +180,40 @@ function writeBackEncryptedValue(
   sourceFilePath: string | undefined,
 ) {
   return writeBackValue(itemKey, buildVarlockReference(LOCAL_SCHEME, ciphertext), sourceFilePath);
+}
+
+/**
+ * Encrypt a value the user just typed at the terminal.
+ *
+ * The two native daemons capture secrets differently, on purpose. macOS has
+ * `prompt-secret`: the Swift daemon draws its own dialog, so the value is read
+ * and encrypted without ever crossing the socket, and the branch above uses it.
+ * The Rust daemon has no such op and is not going to grow one, because on
+ * Windows and Linux the reading happens here in the terminal. What it offers
+ * instead is `encrypt` with an `identityPublicKey`, which is what this uses, so
+ * both platforms end up with the daemon minting the ciphertext.
+ *
+ * Do not "unify" these by pointing one platform at the other's op: neither
+ * daemon implements the other's, and the difference is about which process owns
+ * the input, not about the encryption. The in-process fallback is safe either
+ * way, since encrypting to an identity needs nothing but its public key.
+ */
+async function encryptCapturedSecret(plaintext: string, keyId: string): Promise<string> {
+  const backend = localEncrypt.getBackendInfo();
+  const identityPublicKey = await localEncrypt.getEncryptionIdentityPublicKey(keyId);
+
+  if (identityPublicKey && backend.type !== 'file' && localEncrypt.canUseIdentityEncryption()) {
+    try {
+      return await localEncrypt.getDaemonClient().encryptToIdentity(plaintext, identityPublicKey);
+    } catch (err) {
+      // A daemon that will not start is no reason to lose the value the user
+      // just typed: the same encryption runs here from the same public key.
+      localEncrypt.debugLog(
+        `daemon encrypt failed, encrypting in-process: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+  return localEncrypt.encryptValue(plaintext, keyId);
 }
 
 
@@ -190,12 +277,37 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         // Re-throw ResolutionErrors (e.g. batch cancellation) as-is
         if (err instanceof ResolutionError) throw err;
 
-        // An identity-encrypted value on a backend that cannot open one yet is
-        // a capability gap, not a corrupt value: say so rather than pointing at
-        // key mismatch.
+        // The unlock questions have their own answers. None of these mean the
+        // value is corrupt, so none of them should point at a key mismatch.
+        if (err instanceof localEncrypt.UnlockDeclinedError) {
+          throw new ResolutionError('Unlock was declined', {
+            tip: 'Run the command again and approve the unlock to decrypt these values.',
+          });
+        }
+        if (err instanceof localEncrypt.UnlockNoUiError) {
+          throw new ResolutionError(err.message, {
+            tip: [
+              'Unlocking needs a graphical session to show the panel on, so this cannot run over plain SSH.',
+              'For a headless or CI host, create a key that needs no presence check:',
+              '  varlock-local-encrypt generate-key --key-id <id> --no-auth',
+            ].join('\n'),
+          });
+        }
+        if (err instanceof localEncrypt.StaleDaemonError) {
+          throw new ResolutionError(err.message, {
+            tip: 'The native helper is older than this varlock. Reinstall to get a matching one.',
+          });
+        }
+        // An identity-encrypted value somewhere that cannot open one is a
+        // capability gap, not a corrupt value: say so.
         if (err instanceof localEncrypt.IdentityBackendUnsupportedError) {
           throw new ResolutionError(err.message, {
-            tip: 'Re-encrypt this value on a machine using the file backend, or wait for the daemon update.',
+            tip: 'Run `varlock encrypt --upgrade` from native Windows, or keep these values device-encrypted.',
+          });
+        }
+        if (err instanceof localEncrypt.IdentityWrapMissingError) {
+          throw new ResolutionError(err.message, {
+            tip: 'Set the value again on this machine with `varlock encrypt` or `KEY=varlock(prompt)`.',
           });
         }
         if (err instanceof localEncrypt.IdentityNotFoundError) {
@@ -224,12 +336,21 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     return enqueuePrompt(keyId, async () => {
       const backend = localEncrypt.getBackendInfo();
 
-      // Use daemon's native dialog on macOS Secure Enclave
+      // Use daemon's native dialog on macOS Secure Enclave.
+      //
+      // Only the Swift daemon has `prompt-secret`, because only it draws the
+      // dialog. The Rust daemon deliberately has no such op: on Windows and
+      // Linux the value is typed into the terminal below and handed to the
+      // daemon's `encrypt` op instead. That asymmetry is intentional and the two
+      // daemons are not meant to converge here, so do not "fix" one to match the
+      // other. Either way the recipient is the identity public key, so the
+      // daemon returns a v2 payload.
       if (backend.type === 'secure-enclave' && backend.biometricAvailable) {
         const client = localEncrypt.getDaemonClient();
         const ciphertext = await client.promptSecret({
           itemKey,
           keyId,
+          identityPublicKey: await localEncrypt.getEncryptionIdentityPublicKey(keyId),
           message: `Enter the secret value for ${itemKey}:`,
         });
 
@@ -278,7 +399,7 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
         });
       }
 
-      const ciphertext = await localEncrypt.encryptValue(rawValue);
+      const ciphertext = await encryptCapturedSecret(rawValue, keyId);
       const writeBackResult = writeBackEncryptedValue(itemKey, ciphertext, sourceFilePath);
 
       if (!writeBackResult.updated) {

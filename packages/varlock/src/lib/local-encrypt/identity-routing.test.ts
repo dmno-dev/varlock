@@ -2,8 +2,10 @@
  * Payload-version routing in the orchestration layer (index.ts).
  *
  * Covers both halves of the custody rule: the file backend runs the whole v2
- * flow in TS, and a hardware backend refuses to, because unwrapping the
- * identity key here would put it in this process.
+ * flow in TS, and a hardware backend hands the opening to the daemon, because
+ * unwrapping the identity key here would put it in this process. The daemon side
+ * of that is exercised in session-decrypt.test.ts; what is pinned here is that
+ * routing sends it there at all, and never down the in-process path.
  */
 
 import {
@@ -133,7 +135,7 @@ describe('hardware backend', () => {
     expect(backend.hardwareBacked).toBe(true);
   });
 
-  it('refuses a v2 payload with a clear message instead of unwrapping in-process', async () => {
+  it('hands a v2 payload to the daemon rather than unwrapping it in-process', async () => {
     // build the v2 payload on the file backend, then hand it to the hardware one
     process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK = '1';
     pretendNativeBinaryInstalled = false;
@@ -146,27 +148,59 @@ describe('hardware backend', () => {
     pretendNativeBinaryInstalled = true;
     const hardwareBacked = await loadLocalEncrypt();
 
+    // There is no daemon here and no way to start one, so this cannot succeed.
+    // Failing at the socket is the assertion: it means routing went looking for
+    // the daemon rather than quietly opening the identity in this process, which
+    // it could have done, since the wrap on disk is one this key could unwrap.
     const err = await hardwareBacked.decryptValue(ciphertext).then(() => undefined, (e) => e);
-    expect(err).toBeInstanceOf(hardwareBacked.IdentityBackendUnsupportedError);
-    expect(err.message).toMatch(/not yet supported on the \S+ backend/);
-    expect(err.message).toMatch(/daemon update/);
+    expect(err).toBeDefined();
+    expect(String(err.message)).toMatch(/daemon\.sock|unexpected spawn in test/);
   });
 
-  it('keeps encrypting new values to the device key (v1)', async () => {
-    const localEncrypt = await loadLocalEncrypt();
-    // the native encrypt path is not exercised here; what matters is that
-    // routing does not send a hardware backend down the identity path
-    await expect(localEncrypt.encryptValue('secret')).rejects.toThrow('unexpected spawn in test');
-    expect(fs.existsSync(path.join(testDir, 'identities', 'default.json'))).toBe(false);
+  it('encrypts new values to the identity key, with no daemon involved', async () => {
+    // an identity this machine already has a wrap for, so nothing has to be
+    // created; the mocked spawn throwing is what proves no native call happened
+    process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK = '1';
+    pretendNativeBinaryInstalled = false;
+    const fileBacked = await loadLocalEncrypt();
+    await fileBacked.ensureKey();
+    await fileBacked.encryptValue('seed the identity');
+
+    delete process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK;
+    pretendNativeBinaryInstalled = true;
+    const hardwareBacked = await loadLocalEncrypt();
+
+    // encryption is public-key only, so a hardware backend does it right here:
+    // no spawn, no daemon, no presence check
+    const ciphertext = await hardwareBacked.encryptValue('secret');
+    expect(versionOf(ciphertext)).toBe(IDENTITY_PAYLOAD_VERSION);
   });
 
-  it('refuses a re-encryption pass, which is what `encrypt --upgrade` checks', async () => {
+  it('allows a re-encryption pass, which is what `encrypt --upgrade` checks', async () => {
     await loadLocalEncrypt();
     const { canReEncryptLocally } = await import('./re-encrypt');
 
-    const result = canReEncryptLocally();
-    expect(result.ok).toBe(false);
-    expect((result as { reason: string }).reason).toMatch(/cannot re-encrypt values yet/);
-    expect((result as { reason: string }).reason).toMatch(/daemon update/);
+    expect(canReEncryptLocally()).toEqual({ ok: true });
+  });
+
+  it('refuses to add a device wrap to an identity created elsewhere', async () => {
+    // an identity file that came from another machine: it has a public key and a
+    // wrap, but not one this device can open
+    fs.mkdirSync(path.join(testDir, 'identities'), { recursive: true });
+    fs.writeFileSync(path.join(testDir, 'identities', 'default.json'), JSON.stringify({
+      version: 1,
+      id: 'default',
+      publicKey: Buffer.alloc(65, 4).toString('base64'),
+      wraps: { 'some-other-device-key': 'AQID' },
+      createdAt: new Date().toISOString(),
+    }));
+
+    const localEncrypt = await loadLocalEncrypt();
+    const err = await localEncrypt.encryptValue('secret').then(() => undefined, (e) => e);
+
+    // adding a wrap means unwrapping through a key that has one, which would put
+    // the identity key in this process
+    expect(err).toBeInstanceOf(localEncrypt.IdentityWrapMissingError);
+    expect(err.message).toMatch(/created on another device/);
   });
 });

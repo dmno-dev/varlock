@@ -146,6 +146,20 @@ final class SecureEnclaveManager {
         return FileManager.default.fileExists(atPath: keyFilePath(for: keyId))
     }
 
+    /// When a key was created, as an ISO 8601 string, for `status` to report.
+    ///
+    /// Taken from the stored key file's creation date, since nothing records it
+    /// separately. Second precision, matching the Rust helper's `createdAt`. Nil
+    /// when the filesystem does not report one, in which case the field is left
+    /// out rather than guessed.
+    static func keyCreatedAt(keyId: String) -> String? {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: keyFilePath(for: keyId))
+        guard let created = attributes?[.creationDate] as? Date else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: created)
+    }
+
     // MARK: - Key Loading
 
     /// Load a Secure Enclave private key from its stored data representation.

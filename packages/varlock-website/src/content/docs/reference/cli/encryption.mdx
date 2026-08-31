@@ -1,6 +1,6 @@
 ---
 title: Encryption commands
-description: CLI reference for encrypt, reveal, lock, audit, and generate-key
+description: CLI reference for encrypt, reveal, sessions, lock, audit, and generate-key
 ---
 
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
@@ -22,7 +22,9 @@ varlock encrypt [options]
 ```
 
 **Options:**
-- `--file`:    Path to a `.env` file; encrypts all sensitive plaintext values in-place
+- `--file`:      Path to a `.env` file; encrypts all sensitive plaintext values in-place
+- `--upgrade`:   Also re-encrypt already-encrypted values to the current encryption target
+- `--dry-run`:   With `--upgrade`, report what would change without writing anything
 
 **Examples:**
 ```bash
@@ -35,7 +37,23 @@ varlock encrypt < secret.txt
 
 # Encrypt all sensitive plaintext values in a .env file
 varlock encrypt --file .env.local
+
+# Migrate already-encrypted values onto the current target
+varlock encrypt --upgrade --dry-run
+varlock encrypt --upgrade
 ```
+
+#### `--upgrade`
+
+Re-encrypts values that are **already** encrypted, moving them to whatever varlock currently encrypts to. In practice that means migrating older device-encrypted values onto your identity key, which is what lets a single approval cover a whole [unlock session](/guides/local-encryption/#unlock-sessions) instead of prompting repeatedly.
+
+With no `--file` it covers every env file in the loaded graph. Only entries that actually change are rewritten; plaintext values, `varlock(prompt)` placeholders, and values already at the target are left byte for byte as they were. Pair it with `--dry-run` first to see the list.
+
+Existing values keep working whether or not you run this, so it is a migration you can take when it suits you.
+
+:::note[Not available on WSL]
+WSL runs the Windows helper once per call, so there is no session for an unlock to live in. `--upgrade` declines there rather than writing values it could not read back. Run it from native Windows instead.
+:::
 
 In single-value mode, you'll either be prompted to enter a value (hidden input) or the value will be read from stdin when piped. The encrypted output is printed for you to copy into your `.env.local` file:
 ```
@@ -98,18 +116,64 @@ Non-sensitive values are not shown by `varlock reveal`. Use [`varlock printenv`]
 
 <div>
 
-## `varlock lock` ||lock||
+## `varlock sessions` ||sessions||
 
-Locks the encryption daemon, requiring biometric authentication (e.g., Touch ID) for the next decrypt operation. This invalidates the current biometric session cache.
+Lists the [unlock sessions](/guides/local-encryption/#unlock-sessions) the encryption daemon is currently holding.
 
 ```bash
-varlock lock
+varlock sessions [options]
 ```
+
+**Options:**
+- `--json`: Print the raw session records as JSON
+
+Each row is one grant: the session it belongs to, the key it covers, when it was unlocked, how long it has left, how many decrypts it has served, and which system event will end it.
+
+```text title="$ varlock sessions"
+SESSION                KEY              UNLOCKED     EXPIRES IN  USES  LOCKS ON
+tty:ttys004:1756...    varlock-default  10:42:11 AM  7h 18m      12    sleep
+```
+
+Nothing here is secret. The daemon reports identifiers and counts, never key material, so the output is safe to paste into an issue.
+
+With no daemon running there are no sessions to hold, so this prints an empty list rather than an error.
+
+</div>
+
+<div>
+
+## `varlock lock` ||lock||
+
+Ends unlock sessions, so the next decrypt has to be approved again.
+
+```bash
+varlock lock [options]
+```
+
+**Options:**
+- `--session <id>`: Lock one session by id, as listed by `varlock sessions`
+- `--current`:      Lock only the session you run the command in
+
+With no options this locks every session on the machine, which is what you want when stepping away.
+
+**Examples:**
+```bash
+# Lock everything
+varlock lock
+
+# Lock only this terminal's session, leaving others running
+varlock lock --current
+
+# Lock one specific session
+varlock lock --session "tty:ttys004:1756..."
+```
+
+`--current` takes no id on purpose. The daemon derives the session from the connection itself, which is what makes it impossible to name your way into someone else's.
 
 This command only has an effect when using a biometric-enabled encryption backend (macOS Secure Enclave, Windows Hello, or Linux with polkit/PAM biometric setup). On other backends, it will display a message and exit.
 
 :::tip
-Use `varlock lock` when stepping away from your machine to ensure the next person to decrypt a secret must authenticate biometrically.
+On macOS the same thing is available from the menu bar: "Lock All" for everything, or "Lock This Session" inside a session's submenu.
 :::
 
 </div>

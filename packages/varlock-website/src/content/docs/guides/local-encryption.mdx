@@ -73,11 +73,121 @@ varlock reveal API_KEY         # securely reveal specific item
 varlock reveal API_KEY --copy  # copy to clipboard
 ```
 
-Use [`varlock lock`](/reference/cli/encryption/#lock) to invalidate biometric session cache when stepping away:
+Use [`varlock sessions`](/reference/cli/encryption/#sessions) to see what is currently unlocked, and [`varlock lock`](/reference/cli/encryption/#lock) to end a session when stepping away:
 
 ```bash
-varlock lock
+varlock sessions          # what is unlocked right now
+varlock lock --current    # end this terminal's session
+varlock lock              # end every session on the machine
 ```
+
+## Unlock sessions
+
+On a machine with a presence check (Touch ID, Windows Hello, polkit/PAM), values are encrypted to an **identity key** rather than straight to the device key. The identity key sits in between:
+
+```
+device key -> identity key -> your values
+```
+
+The identity's private key is never stored in the clear. It is wrapped to your device key, so opening it goes through the same hardware gate as before. What changes is how often you are asked. The daemon unwraps the identity once, holds it for the session, and every later decrypt in that session runs with no prompt. One approval covers a whole env file, and it keeps covering it until something ends the session.
+
+This replaces the old behavior, where the enclave's own reuse window meant a re-prompt every five minutes.
+
+Encryption is unaffected: it only needs the identity's public key, so writing a value never prompts, never needs the daemon, and works on headless hosts.
+
+### The unlock panel
+
+When an unlock is needed, the daemon draws a panel before anything is decrypted. The daemon draws it rather than the CLI because the daemon is the process that verified who connected, so it is the only one that can say truthfully who is asking. It shows:
+
+- **Who is asking**, read from the connecting process: the process chain (`node ← claude ← zsh`) and the terminal it is attached to. A caller cannot dress itself up as something else, because these lines are derived rather than sent.
+- **What would be unlocked**: the key ids, with a count of how many values each covers.
+- **For how long**: the scope.
+- Optionally the project name and path, shown dimmed underneath. That part is sent by the CLI, so it is treated as decoration: it changes the wording, never the decision.
+
+Only after you approve does the system's Touch ID sheet appear. A second unlock in the same session asks only about keys that are new, and asks nothing at all when everything requested is already covered.
+
+Two answers other than yes:
+
+- **Declined**: you were asked and said no. Varlock reports that rather than a decryption failure.
+- **No UI**: there is no graphical session to ask on, such as a plain SSH connection. The daemon refuses rather than skipping the question. For a host that genuinely has nobody to ask, create a key with no presence gate: `varlock-local-encrypt generate-key --key-id <id> --no-auth`.
+
+### Scopes
+
+The panel offers a scope, which decides how long one approval lasts:
+
+| Scope | Lasts |
+|-------|-------|
+| `once` | a single batch of decrypts |
+| `session` | until the session ends (the default) |
+| `duration` | a window you pick: 1, 4, or 8 hours |
+
+Everything is capped at 12 hours from the session's first unlock, whatever the scope. That cap is not configurable.
+
+A key created with `varlock-local-encrypt generate-key --auth-every-time` never receives a lasting grant. It is offered `once` and nothing else, so every batch asks again. Use it for the handful of values where a session is too loose.
+
+### What ends a session
+
+Beyond the TTL and the 12 hour cap, a lock policy decides which system events erase a session. Set the machine default in your user-level varlock config (`~/.config/varlock/config.json`, or `~/.varlock/config.json` on older installs):
+
+```json title="~/.config/varlock/config.json"
+{ "sessions": { "lockOn": "sleep" } }
+```
+
+| Value | Erased by |
+|-------|-----------|
+| `screenLock` | screen lock and sleep |
+| `sleep` | sleep only, surviving the screen locking (the default) |
+| `none` | nothing but TTL expiry, the 12 hour cap, or an explicit lock |
+
+The daemon reads this file fresh at every unlock, so an edit applies to the next unlock with no restart. It is read only from the user-level config, never from project config: a project must not get to weaken how long your machine holds keys. On macOS you can also set it from the menu bar under "Lock Sessions On", which writes the same field.
+
+Only `willSleepNotification` counts as sleep. Display sleep and fast user switching count as screen lock, so a display that dims after a couple of idle minutes does not read as the machine sleeping.
+
+Sessions never survive a daemon restart, on purpose. Nothing about them is written to disk, so a reboot means the next use costs one more approval.
+
+### Locking
+
+| Surface | What it ends |
+|---------|--------------|
+| `varlock lock` | every session on the machine |
+| `varlock lock --current` | only the session you run it in |
+| `varlock lock --session <id>` | one session, named from `varlock sessions` |
+| Menu bar → Lock All (macOS) | every session, and every cached biometric context |
+| Menu bar → Lock This Session (macOS) | that one session |
+| Menu bar → Quit Daemon (macOS) | stops the daemon, which erases everything |
+
+`--current` takes no id. The daemon works out which session is calling from the connection itself, which is also why there is no way to name your way into someone else's.
+
+The macOS menu bar shows a closed lock when nothing is held and an open one while any session is unlocked, with a submenu per session listing its keys, scopes, and remaining time. Per-session policies are shown there but not editable: a session's policy was settled when you approved it, and re-unlocking is how it changes.
+
+### The authorization log
+
+Before any v2 decrypt releases plaintext, the daemon appends a record to `<user varlock dir>/audit/authorizations.jsonl` (mode 0600, in a 0700 directory), flushes it, and reads it back. If that fails, the decrypt is refused and no plaintext is produced. Unlocks are recorded the same way.
+
+```json
+{"event":"decrypt-v2","identityId":"default","keyIds":["varlock-default"],"payloadCount":12,"requester":"node ← claude ← zsh (ttys004)","scope":"session","sessionId":"tty:ttys004:1756...","ts":"2026-08-30T15:42:22.881Z"}
+```
+
+Records hold identifiers, counts, and a description of the calling process. No plaintext, no ciphertext, and no key material goes in, which is what makes the file safe to read and to share.
+
+Invalidations are recorded too, but best effort: refusing to erase key material because a log line would not write is the wrong way round, so those go to stderr and the erase proceeds.
+
+### Migrating existing values
+
+Existing encrypted values keep working with no action. They are device-encrypted, they still decrypt, and nothing breaks. They just do not get the session behavior, because they are not tied to an identity key.
+
+To move them over, use [`varlock encrypt --upgrade`](/reference/cli/encryption/#encrypt):
+
+```bash
+varlock encrypt --upgrade --dry-run   # report what would change
+varlock encrypt --upgrade             # re-encrypt in place
+```
+
+With no `--file` this covers every env file in your graph. It decrypts each value and re-encrypts it to your identity key, rewriting only the entries that change.
+
+:::note[WSL]
+WSL reaches the Windows daemon by running the helper `.exe` once per call, and each of those runs is its own session, so there is nowhere for an unlock to be held. Values written from WSL stay device-encrypted, which its daemon reads normally, and `--upgrade` declines there rather than producing values it could not read back. Run the upgrade from native Windows if you want the session behavior.
+:::
 
 ## Backend selection overview
 
@@ -134,6 +244,16 @@ sudo varlock-local-encrypt setup --linux-biometrics
 Once configured, varlock's normal decrypt flow requires user presence, so everyday loads are no longer unattended. Enable this only on interactive machines, not headless servers.
 
 Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the TPM unseal isn't bound to polkit, so (as noted above) other code already running as your user can still unseal directly. It means "a human approved this load," not "only a human can ever decrypt."
+
+### What an unlock session does and does not protect
+
+Sessions are about how often you are asked, not about how well the secret is held. Some specifics worth knowing before you set `lockOn` to `none` and a 12 hour cap:
+
+- **A session TTL is a re-authentication cadence, not at-rest protection.** While a session is open, the daemon is holding an unwrapped key in memory precisely so it does not have to ask again. A shorter TTL means you re-authenticate sooner; it does not make the values harder to read while the session is live.
+- **Anything running as your user can ask the daemon.** The daemon checks who is connecting and shows it on the panel, but that is an integrity check on the request, not a boundary against your own account. Code running as you can wait for a session you opened and use it, and root or a debugger attached to the daemon can read the key straight out of memory. Local encryption raises the cost of a stolen disk or a committed env file, not of an attacker already executing as you.
+- **Session keys live in RAM, which sleep can write to disk.** Nothing about a session is persisted, but macOS writes memory to a sleepimage when it hibernates. FileVault is what encrypts that file, so on a machine without FileVault a `lockOn: none` session that survives sleep is a key sitting in an unencrypted file on disk. The default (`sleep`) erases sessions before that can happen, which is why it is the default.
+- **The peer posture checks mostly report, for now.** The macOS daemon asks the kernel whether the connecting process has a debugger attached and whether it runs with the Hardened Runtime. A signed release daemon rejects a debugged peer, but the Hardened Runtime check only reports, because plenty of legitimate callers are not hardened: the standalone `varlock` binary is ad-hoc signed by its compiler, as are Homebrew's node and bun. It becomes a rejection once the release pipeline signs the CLI with `--options runtime`. Until then, if every client on your machine is an official build, you can turn it on yourself with `{ "sessions": { "peerPosture": "strict" } }` in your user config.
+- **The 12 hour cap is not negotiable.** Whatever scope is approved and whatever `lockOn` says, no grant outlives 12 hours from the session's first unlock. Deadlines are tracked on both the wall clock and a monotonic clock, so moving the system clock backwards cannot extend a session, and the cap keeps counting while the machine sleeps.
 
 ## Platform details & setup
 

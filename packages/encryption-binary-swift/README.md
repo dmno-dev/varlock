@@ -220,8 +220,16 @@ offers `once` alone for it, and every later batch of decrypts asks again. In a
 mixed batch it is listed under its own "asks every time" heading, and it takes a
 `once` grant no matter which scope the rest of the batch was approved for.
 
-The policy is recorded next to the key, in `<key store>/<keyId>.policy.json`. A key
-with no such file is a normal key, which is what everything created so far is.
+The policy is recorded next to the key, in `<key store>/<keyId>.policy.json`, which
+`generate-key` now always writes. It carries two separate things: `authMode`, which
+is this policy, and `requireAuth`, which records whether the key was created with
+`--no-auth` and so carries no presence gate at all. The second cannot be read back
+off a stored enclave key, so the file is the only record of it, and `status` reports
+both per key in `keyDetails` for the TypeScript side to route on.
+
+A key with no such file, which is anything created before the file existed, reads as
+gated and normal. That includes keys made with `--no-auth` back then: they keep the
+routing they always had until they are regenerated, which is the safe way to be wrong.
 
 ### `request-approval`
 

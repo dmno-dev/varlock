@@ -183,6 +183,8 @@ export interface SessionGrantInfo extends SessionGrantRef {
   lockOn: SessionLockPolicy;
   /** how long this grant still has, as of when the daemon answered */
   expiresInMs: number;
+  /** how long the session's 12h cap still has, as of when the daemon answered */
+  sessionExpiresInMs: number;
   /** how many decrypts this grant has served */
   useCount: number;
 }

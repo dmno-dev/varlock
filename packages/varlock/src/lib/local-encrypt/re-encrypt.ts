@@ -8,9 +8,10 @@
  * to carry `encrypt --to <vault>`, key rotation, and cloud migration, so it
  * takes source and target rather than hardcoding v1 to v2.
  *
- * A local pass can only run where this process may hold both keys. That means
- * the file backend for now; hardware backends wait for the daemon that can do
- * the same work without handing the identity key to V8.
+ * A local pass runs wherever both halves can happen. Encrypting always can, since
+ * it only needs a public key. Decrypting is the half that varies: in-process on
+ * the file backend, and through the daemon's unlock session on hardware ones, so
+ * the identity key is never handed to V8.
  */
 
 import fs from 'node:fs';
@@ -89,14 +90,21 @@ export function currentLocalTarget(keyId: string = DEFAULT_KEY_ID): ReEncryptTar
   };
 }
 
-/** Whether this machine can run a local re-encryption pass at all */
+/**
+ * Whether this machine can run a local re-encryption pass at all.
+ *
+ * The one place it cannot is WSL, which reaches the Windows daemon a process at
+ * a time and so has no session to hold an unlock in. Values there stay on v1,
+ * which its own daemon reads perfectly well.
+ */
 export function canReEncryptLocally(): { ok: true } | { ok: false; reason: string } {
   const backend = localEncrypt.getBackendInfo();
-  if (backend.type !== 'file') {
+  if (!localEncrypt.canUseIdentityEncryption()) {
     return {
       ok: false,
-      reason: `The ${backend.type} backend cannot re-encrypt values yet, because that means holding the `
-        + 'identity key in this process. It arrives with the daemon update.',
+      reason: `The ${backend.type} backend cannot re-encrypt values from WSL, because the Windows `
+        + 'daemon is reached one process at a time from here and an unlock session cannot be '
+        + 'held open across those calls. Values stay device-encrypted, which still loads normally.',
     };
   }
   return { ok: true };

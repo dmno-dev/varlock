@@ -100,9 +100,17 @@ case "generate-key":
 
     do {
         let pubKeyData = try SecureEnclaveManager.generateKey(keyId: keyId, requireAuth: !noAuth)
-        if authEveryTime {
-            try KeyAuthPolicyStore.write(policy: .everyTime, for: keyId)
-        }
+        // Always written now, not just for --auth-every-time. The access-control
+        // flag set above cannot be read back off a stored key, so this sidecar is
+        // the only record that a --no-auth key carries no presence gate, and
+        // `status` needs it to tell the TS side how to route decrypts.
+        try KeyAuthPolicyStore.write(
+            record: KeyAuthRecord(
+                policy: authEveryTime ? .everyTime : .standard,
+                requireAuth: !noAuth
+            ),
+            for: keyId
+        )
         jsonSuccess([
             "keyId": keyId,
             "publicKey": pubKeyData.base64EncodedString(),
@@ -202,6 +210,8 @@ case "status":
     seAvailable = true // If this binary runs on real hardware, SE is available
     #endif
 
+    let keyIds = SecureEnclaveManager.listKeys()
+
     jsonSuccess([
         "secureEnclaveAvailable": seAvailable,
         "backend": "secure-enclave",
@@ -217,7 +227,21 @@ case "status":
             return "unknown"
             #endif
         }(),
-        "keys": SecureEnclaveManager.listKeys(),
+        "keys": keyIds,
+        // Per-key metadata, so the TS side can tell which keys carry a presence
+        // gate without opening any of them. Same shape as the Rust helper's
+        // `key_details()`, since one client reads both.
+        "keyDetails": keyIds.map { keyId -> [String: Any] in
+            var detail: [String: Any] = [
+                "keyId": keyId,
+                "requireAuth": KeyAuthPolicyStore.record(for: keyId).requireAuth,
+                "protection": "secure-enclave",
+            ]
+            if let createdAt = SecureEnclaveManager.keyCreatedAt(keyId: keyId) {
+                detail["createdAt"] = createdAt
+            }
+            return detail
+        },
     ])
 
 // MARK: - daemon

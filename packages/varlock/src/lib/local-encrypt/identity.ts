@@ -12,9 +12,12 @@
  * goes through whatever gate the device backend applies. Values are then
  * encrypted to the identity public key as v2 payloads.
  *
- * Custody rule: for hardware backends the identity private key must never enter
- * this process, so only the native daemon may unwrap it. This module is used
- * for the file backend, which already does all of its crypto in TS anyway.
+ * Custody rule: for hardware backends the identity private key must never be
+ * *unwrapped* in this process, so only the native daemon may open v2 payloads.
+ * Creating an identity is different: the key pair is born here, wrapped to the
+ * device key straight away, and the private half is dropped without ever being
+ * cached. Callers say which of the two they are allowed to do via
+ * `allowInProcessUnwrap`.
  *
  * Nothing here ever touches project files. Identities live in user-level state
  * at `<user varlock dir>/identities/<id>.json`, mode 0600.
@@ -59,15 +62,40 @@ export interface DeviceCrypto {
   decrypt(ciphertext: string, keyId: string): Promise<string>;
 }
 
-/** Thrown when a v2 payload turns up on a backend whose identity path is not built yet */
+/**
+ * Thrown when a v2 payload turns up somewhere that has no way to open one.
+ *
+ * Every backend can now, with one exception: WSL reaches the Windows daemon by
+ * running the helper .exe per call, and each of those runs is its own session,
+ * so an unlock session cannot be held across them.
+ */
 export class IdentityBackendUnsupportedError extends Error {
   constructor(public backendType: string) {
     super(
-      `Identity-encrypted values are not yet supported on the ${backendType} backend; `
-      + 'support arrives with the daemon update. Until then, encrypt with the file backend '
-      + 'or keep using device-encrypted values.',
+      `Identity-encrypted values cannot be opened from WSL (${backendType} backend). `
+      + 'The Windows daemon is reached one process at a time from here, so an unlock '
+      + 'session cannot be held open across calls.',
     );
     this.name = 'IdentityBackendUnsupportedError';
+  }
+}
+
+/**
+ * Thrown when an identity exists but carries no wrap this machine can open, and
+ * the caller is not allowed to make one by unwrapping in-process.
+ *
+ * Adding a wrap means holding the identity private key here, which is exactly
+ * what hardware backends exist to prevent, so it is refused rather than done
+ * quietly.
+ */
+export class IdentityWrapMissingError extends Error {
+  constructor(identityId: string, deviceKeyId: string) {
+    super(
+      `Identity "${identityId}" has no wrap for this machine's key "${deviceKeyId}", and `
+      + 'adding one would mean holding the identity key outside the secure hardware. '
+      + 'This identity was created on another device.',
+    );
+    this.name = 'IdentityWrapMissingError';
   }
 }
 
@@ -163,7 +191,7 @@ function addWrapToIdentity(identityId: string, deviceKeyId: string, wrapped: str
  * Without this every decrypt in a load would re-run a device-key unwrap. The
  * key is only ever held here on the file backend, where the device key it was
  * wrapped to is itself a plaintext file, so this does not weaken anything.
- * Hardware backends never reach this module.
+ * Hardware backends pass `allowInProcessUnwrap: false` and never populate it.
  */
 const unwrappedPrivateKeys = new Map<string, string>();
 
@@ -181,11 +209,17 @@ export function clearUnwrappedIdentityCache() {
 /**
  * Create a new identity whose private key is wrapped to the given device key.
  * Returns undefined when another process created one first.
+ *
+ * The key pair is generated here on every backend. That is not a custody
+ * problem: it is wrapped to the device key immediately, and on backends that
+ * may not hold it the private half is dropped rather than cached, so the only
+ * way back to it afterwards is through the device key's gate.
  */
 async function createIdentity(
   device: DeviceCrypto,
   deviceKeyId: string,
   identityId: string,
+  allowInProcessUnwrap: boolean,
 ): Promise<StoredIdentity | undefined> {
   const keyPair = await createKeyPair();
   const wrapped = await device.encrypt(keyPair.privateKey, deviceKeyId);
@@ -199,7 +233,9 @@ async function createIdentity(
   };
   if (!tryWriteNewIdentity(identity)) return undefined;
 
-  unwrappedPrivateKeys.set(cacheKeyFor(identityId, deviceKeyId), keyPair.privateKey);
+  if (allowInProcessUnwrap) {
+    unwrappedPrivateKeys.set(cacheKeyFor(identityId, deviceKeyId), keyPair.privateKey);
+  }
   return identity;
 }
 
@@ -241,11 +277,12 @@ async function resolveIdentity(
   device: DeviceCrypto,
   deviceKeyId: string,
   identityId: string,
+  allowInProcessUnwrap: boolean,
 ): Promise<StoredIdentity> {
   let existing = readIdentity(identityId);
 
   if (!existing) {
-    const created = await createIdentity(device, deviceKeyId, identityId);
+    const created = await createIdentity(device, deviceKeyId, identityId, allowInProcessUnwrap);
     if (created) return created;
     // someone else created one between our read and our write: adopt theirs,
     // and fall through so it picks up a wrap for our device key if it needs one
@@ -254,6 +291,11 @@ async function resolveIdentity(
   }
 
   if (existing.wraps[deviceKeyId]) return existing;
+
+  // Adding a wrap means opening the identity with a device key that already has
+  // one, which puts the private key in this process. Backends that must not
+  // hold it say so instead of doing it.
+  if (!allowInProcessUnwrap) throw new IdentityWrapMissingError(identityId, deviceKeyId);
 
   const privateKey = await unwrapIdentityPrivateKey(device, existing, identityId);
   const wrapped = await device.encrypt(privateKey, deviceKeyId);
@@ -280,12 +322,14 @@ export async function ensureIdentity(
   device: DeviceCrypto,
   deviceKeyId: string,
   identityId: string = DEFAULT_IDENTITY_ID,
+  opts?: { allowInProcessUnwrap?: boolean },
 ): Promise<StoredIdentity> {
+  const allowInProcessUnwrap = opts?.allowInProcessUnwrap ?? true;
   const pendingKey = cacheKeyFor(identityId, deviceKeyId);
   const pending = pendingEnsures.get(pendingKey);
   if (pending) return pending;
 
-  const ensuring = resolveIdentity(device, deviceKeyId, identityId)
+  const ensuring = resolveIdentity(device, deviceKeyId, identityId, allowInProcessUnwrap)
     .finally(() => pendingEnsures.delete(pendingKey));
   pendingEnsures.set(pendingKey, ensuring);
   return ensuring;
@@ -293,14 +337,20 @@ export async function ensureIdentity(
 
 // ── Encrypt / Decrypt ──────────────────────────────────────────────────
 
-/** Encrypt a value to the identity public key, producing a v2 payload. */
+/**
+ * Encrypt a value to the identity public key, producing a v2 payload.
+ *
+ * Encryption is public-key only, so this runs the same way on every backend and
+ * never needs the daemon, a grant, or a presence check.
+ */
 export async function encryptToIdentity(
   device: DeviceCrypto,
   plaintext: string,
   deviceKeyId: string,
   identityId: string = DEFAULT_IDENTITY_ID,
+  opts?: { allowInProcessUnwrap?: boolean },
 ): Promise<string> {
-  const identity = await ensureIdentity(device, deviceKeyId, identityId);
+  const identity = await ensureIdentity(device, deviceKeyId, identityId, opts);
   return encrypt(identity.publicKey, plaintext, { version: IDENTITY_PAYLOAD_VERSION });
 }
 

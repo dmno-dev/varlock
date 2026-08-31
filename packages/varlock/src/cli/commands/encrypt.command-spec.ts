@@ -20,15 +20,10 @@ export const commandSpec = define({
     upgrade: {
       type: 'boolean',
       description: 'Also re-encrypt already-encrypted values to the current encryption target',
-      // Hidden until the native daemons can re-encrypt on hardware backends.
-      // Today it only works on the file backend, so advertising it would send
-      // most users to a flag that politely refuses.
-      hidden: true,
     },
     'dry-run': {
       type: 'boolean',
       description: 'With --upgrade, report what would change without writing anything',
-      hidden: true,
     },
   },
   examples: `
@@ -38,11 +33,17 @@ producing a varlock("local:...") reference that is safe to commit.
 Single-value mode reads from stdin (or prompts interactively) so secrets stay out of
 shell history. --file mode encrypts all @sensitive plaintext values in a .env file in place.
 
+--upgrade re-encrypts values that are already encrypted, moving them to the current
+encryption target. Use it to migrate older device-encrypted values onto an identity key,
+which is what lets one unlock cover a whole session instead of prompting repeatedly.
+Existing values keep working either way, so this is a migration you can take when you
+want it. With no --file it covers every env file in the graph.
+
 Examples:
   echo "$MY_SECRET" | varlock encrypt    # Encrypt a value from stdin (non-interactive, agent-friendly)
   varlock encrypt                        # Prompt interactively for a value
   varlock encrypt --file .env.local      # Encrypt @sensitive plaintext values in a file in-place
+  varlock encrypt --upgrade --dry-run    # Report which values would be re-encrypted
+  varlock encrypt --upgrade              # Re-encrypt them to the current target
 `.trim(),
-  // NOTE: --upgrade and --dry-run are hidden while re-encryption only works on
-  // the file backend, so they are deliberately left out of the examples above.
 });
