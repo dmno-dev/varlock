@@ -123,6 +123,10 @@ final class ApprovalPanel: NSObject {
         panel.flow = ApprovalFlow(content: content, presenceMode: mode)
         let window = panel.buildWindow(content: content, mode: mode)
         guard let view = window.contentView else { return nil }
+        // Icons fill themselves in from the run loop, which a command that never
+        // runs one would never give them. Pump it briefly so the picture shows
+        // what the panel actually shows.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         view.layoutSubtreeIfNeeded()
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: rep)
@@ -634,40 +638,24 @@ final class ApprovalPanel: NSObject {
         return fullWidth(row)
     }
 
-    /// The lock mark. Says who is asking before a single word is read, which is
-    /// the one job the top bar has.
+    /// varlock's own mark. Says who is asking before a single word is read,
+    /// which is the one job the top bar has, so it is the real app icon rather
+    /// than something that merely looks like a lock.
     private func logoMark() -> NSView {
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.backgroundColor = PanelStyle.color(0x33_33_3B).cgColor
-        box.layer?.borderColor = PanelStyle.color(0x45_45_4E).cgColor
-        box.layer?.borderWidth = 1
-        box.layer?.cornerRadius = 5
-        box.translatesAutoresizingMaskIntoConstraints = false
-
-        let image = NSImageView()
-        image.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "varlock")
-        image.contentTintColor = PanelStyle.accent
-        image.imageScaling = .scaleProportionallyUpOrDown
-        image.translatesAutoresizingMaskIntoConstraints = false
-        box.addSubview(image)
-
-        NSLayoutConstraint.activate([
-            box.widthAnchor.constraint(equalToConstant: 20),
-            box.heightAnchor.constraint(equalToConstant: 20),
-            image.centerXAnchor.constraint(equalTo: box.centerXAnchor),
-            image.centerYAnchor.constraint(equalTo: box.centerYAnchor),
-            image.widthAnchor.constraint(equalToConstant: 10),
-            image.heightAnchor.constraint(equalToConstant: 12),
-        ])
-        return box
+        return PanelIconView(
+            side: 20,
+            placeholder: NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "varlock")
+        ) {
+            PanelIcons.varlockMark()
+        }
     }
 
     private func actionRow(content: PanelContent, mode: ApprovalPresenceMode) -> NSView {
         let row = PanelStyle.row(spacing: 10)
         let deny = PanelButton(
             title: content.cancelButtonTitle,
-            style: .ghost,
+            style: .deny,
+            glyph: .stop,
             target: self,
             action: #selector(denyPressed(_:))
         )

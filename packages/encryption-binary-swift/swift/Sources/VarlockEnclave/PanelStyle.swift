@@ -9,8 +9,10 @@ import IdentitySessions
 /// panel that changes colour with the user's theme is one more thing an
 /// impostor could get right by accident.
 enum PanelStyle {
-    /// Inner width of the panel's content, matching the design.
-    static let contentWidth: CGFloat = 340
+    /// Inner width of the panel's content. Wide enough that a typical binary
+    /// path fits in the chain's quiet column: a truncated path is evidence you
+    /// cannot check, which is worse than a slightly wider window.
+    static let contentWidth: CGFloat = 430
     static let contentInset: CGFloat = 20
 
     static let panelBackground = color(0x21_21_25)
@@ -34,18 +36,26 @@ enum PanelStyle {
     static let chainDot = color(0x4A_4A_52)
 
     static let accent = color(0xFF_5D_73)
+    /// The agent session's colour, used for its hop and for the rail beneath it.
+    static let sessionDot = color(0xB4_8C_E8)
+    static let sessionInk = color(0xCD_B6_F0)
+    static let sessionTitleInk = color(0x9A_87_B8)
+    static let sessionRail = color(0x5B_47_79)
+    static let sessionRowBackground = color(0x2C_23_37)
+    static let sessionTagBackground = color(0x47_36_5C)
     static let vaultLocal = color(0x4A_72_D8)
     static let warn = color(0xD9_A2_4A)
     static let ok = color(0x57_B0_6A)
-    static let agentBadgeInk = color(0xB4_8C_E8)
-    static let agentBadgeBackground = color(0x33_28_3F)
-    static let agentBadgeBorder = color(0x47_36_5C)
 
     static let primaryButton = color(0x2F_6F_ED)
     static let primaryButtonPressed = color(0x27_5C_C8)
-    static let ghostButton = color(0x2F_2F_35)
-    static let ghostButtonPressed = color(0x3A_3A_42)
-    static let ghostButtonBorder = color(0x3D_3D_44)
+    /// Deny reads as a refusal, not as a second choice: red on a tinted ground
+    /// rather than a solid red button, which would compete with the approve
+    /// action it is meant to sit quietly beside.
+    static let denyInk = color(0xF0_8A_8A)
+    static let denyButton = color(0x33_23_26)
+    static let denyButtonPressed = color(0x40_2B_2F)
+    static let denyButtonBorder = color(0x5A_31_36)
     static let segmentTrack = color(0x2B_2B_30)
     static let segmentTrackBorder = color(0x3A_3A_41)
 

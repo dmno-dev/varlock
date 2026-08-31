@@ -24,14 +24,24 @@ final class ExecutionChainTests: XCTestCase {
         isReadable: true
     )
 
+    /// Session records as an agent would have written them, by pid.
+    private struct FakeSessionMetadata: AgentSessionMetadataReader {
+        var records: [pid_t: AgentSessionMetadata] = [:]
+        func metadata(for product: AgentProduct, pid: pid_t, processStartTime: Int) -> AgentSessionMetadata? {
+            return records[pid]
+        }
+    }
+
     private func builder(
         _ procs: [FakeProc],
         ttyNames: [dev_t: String] = [:],
-        posture: FakePosture = FakePosture()
+        posture: FakePosture = FakePosture(),
+        sessionMetadata: AgentSessionMetadataReader = FakeSessionMetadata()
     ) -> ExecutionChainBuilder {
         return ExecutionChainBuilder(
             provider: FakeProcessProvider(procs, ttyNames: ttyNames),
-            posture: posture
+            posture: posture,
+            sessionMetadata: sessionMetadata
         )
     }
 
@@ -83,10 +93,22 @@ final class ExecutionChainTests: XCTestCase {
         // The interpreter's own signature is real and says nothing about the
         // script it was handed, so the panel refuses to launder one into the other.
         XCTAssertEqual(actor?.posture, .interpretedScript)
+        // The warning belongs to that hop, and is drawn under it rather than in
+        // a legend the reader would have to match back up to a row.
         XCTAssertEqual(
-            chain.postureNote,
-            "bun is running a script: the actor is agent.ts, not the signed interpreter"
+            actor?.advisory,
+            "a script run by bun: approval trusts this file, not the signed interpreter"
         )
+        XCTAssertNil(chain.hops.first { $0.name == "zsh" }?.advisory)
+    }
+
+    func testOnlyACheckedSignatureGetsAWord() {
+        XCTAssertEqual(HopPosture.signedHardened.inlineLabel, "signed")
+        // Nothing to say about a hop we could not vouch for. Silence is honest;
+        // a word would read as a verdict.
+        XCTAssertNil(HopPosture.unhardened.inlineLabel)
+        XCTAssertNil(HopPosture.unknown.inlineLabel)
+        XCTAssertNil(HopPosture.interpretedScript.inlineLabel)
     }
 
     func testAnInterpreterWithNoScriptStaysItself() {
@@ -168,8 +190,57 @@ final class ExecutionChainTests: XCTestCase {
         ]).build(forPid: 300)
 
         XCTAssertEqual(chain.agentSession?.productName, "Claude Code")
-        XCTAssertEqual(chain.agentSession?.pid, 150)
+        XCTAssertEqual(chain.sessionRootHop?.pid, 150)
+        // No record on disk, so the process start is the best answer there is.
         XCTAssertEqual(chain.agentSession?.startTime, 1_700_000_000)
+        XCTAssertNil(chain.agentSession?.title)
+    }
+
+    func testTheSessionIsAHopWhereItActuallySitsInTheAncestry() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 150, ppid: 100, startTime: 1_700_000_000, path: "/Users/dev/.local/bin/claude"),
+            FakeProc(pid: 200, ppid: 150, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, path: "/opt/homebrew/bin/varlock"),
+        ]).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops.map { $0.isSessionRoot }, [false, true, false, false])
+        // Everything started by the agent reads as inside its session; the app
+        // that launched the agent does not.
+        XCTAssertEqual(chain.hops.map { $0.isInsideSession }, [false, false, true, true])
+        // The agent is not also the actor: what is running is what it started.
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "zsh")
+    }
+
+    func testTheSessionHopIsNeverFoldedAway() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 150, ppid: 100, path: "/Users/dev/.local/bin/claude"),
+            FakeProc(pid: 200, ppid: 150, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, path: "/Users/dev/.bun/bin/bun", args: ["bun", "agent.ts"]),
+            FakeProc(pid: 400, ppid: 300, path: "/opt/homebrew/bin/varlock"),
+        ]).build(forPid: 400)
+
+        XCTAssertTrue(chain.collapsesWhenResting)
+        XCTAssertEqual(chain.restingHops.map { $0.name }, ["iTerm2", "claude", "agent.ts"])
+        XCTAssertEqual(chain.expanderLabel, "2 more steps (zsh, varlock)")
+    }
+
+    func testTheSessionTitleComesFromTheAgentsOwnRecord() {
+        let chain = builder(
+            [
+                FakeProc(pid: 150, ppid: 1, startTime: 1_700_000_000, path: "/Users/dev/.local/bin/claude"),
+                FakeProc(pid: 300, ppid: 150, path: "/opt/homebrew/bin/varlock"),
+            ],
+            sessionMetadata: FakeSessionMetadata(records: [
+                150: AgentSessionMetadata(title: "vault panel redesign", startTime: 1_700_000_042),
+            ])
+        ).build(forPid: 300)
+
+        XCTAssertEqual(chain.agentSession?.title, "vault panel redesign")
+        // The agent's own record of when the session began beats the process
+        // start, since a session can outlive the process that opened it.
+        XCTAssertEqual(chain.agentSession?.startTime, 1_700_000_042)
     }
 
     func testAnAgentSessionIsFoundThroughTheEnvironmentItExported() {
@@ -183,7 +254,7 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.agentSession?.productName, "Claude Code")
         // The topmost process carrying the marker is the one nearest the agent,
         // so its start time is the closest thing to the session's.
-        XCTAssertEqual(chain.agentSession?.pid, 200)
+        XCTAssertEqual(chain.sessionRootHop?.pid, 200)
     }
 
     func testAnEmptyMarkerIsNotASession() {
@@ -198,7 +269,7 @@ final class ExecutionChainTests: XCTestCase {
     func testAProcessTheDaemonCannotReadDegradesToAnEmptyChain() {
         let chain = builder([]).build(forPid: 999)
         XCTAssertTrue(chain.isEmpty)
-        XCTAssertNil(chain.postureNote)
+        XCTAssertNil(chain.agentSession)
         XCTAssertNil(chain.expanderLabel)
     }
 

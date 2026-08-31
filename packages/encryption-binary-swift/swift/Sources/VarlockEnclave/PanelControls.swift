@@ -13,7 +13,8 @@ import IdentitySessions
 final class PanelButton: NSControl {
     enum Style {
         case primary
-        case ghost
+        /// The refusal: red on a tinted ground, with a stop mark.
+        case deny
         /// An underlined text link, for the secondary way through.
         case link
     }
@@ -40,7 +41,7 @@ final class PanelButton: NSControl {
         let color: NSColor
         switch style {
         case .primary: color = .white
-        case .ghost: color = PanelStyle.ink
+        case .deny: color = PanelStyle.denyInk
         case .link: color = PanelStyle.inkTertiary
         }
         titleField = PanelStyle.label(title, size: size, color: color, weight: weight)
@@ -81,6 +82,16 @@ final class PanelButton: NSControl {
                 image.heightAnchor.constraint(equalToConstant: 17),
             ])
             contentRow.addArrangedSubview(image)
+        case .stop:
+            let image = NSImageView()
+            image.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
+            image.contentTintColor = PanelStyle.denyInk
+            image.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                image.widthAnchor.constraint(equalToConstant: 13),
+                image.heightAnchor.constraint(equalToConstant: 13),
+            ])
+            contentRow.addArrangedSubview(image)
         }
 
         if style == .link {
@@ -116,6 +127,8 @@ final class PanelButton: NSControl {
         case touchID
         /// A static padlock, for a machine with no sensor to breathe about.
         case lock
+        /// A circled cross, on the refusal.
+        case stop
     }
 
     private func applyBackground() {
@@ -123,9 +136,9 @@ final class PanelButton: NSControl {
         case .primary:
             layer?.backgroundColor = (pressed ? PanelStyle.primaryButtonPressed : PanelStyle.primaryButton).cgColor
             layer?.borderWidth = 0
-        case .ghost:
-            layer?.backgroundColor = (pressed ? PanelStyle.ghostButtonPressed : PanelStyle.ghostButton).cgColor
-            layer?.borderColor = PanelStyle.ghostButtonBorder.cgColor
+        case .deny:
+            layer?.backgroundColor = (pressed ? PanelStyle.denyButtonPressed : PanelStyle.denyButton).cgColor
+            layer?.borderColor = PanelStyle.denyButtonBorder.cgColor
             layer?.borderWidth = 1
         case .link:
             layer?.backgroundColor = NSColor.clear.cgColor

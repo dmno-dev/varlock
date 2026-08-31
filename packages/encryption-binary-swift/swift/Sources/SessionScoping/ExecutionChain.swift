@@ -27,8 +27,14 @@ public enum HopPosture: Equatable {
     /// Nothing could be read. Drawn as neutral, never as either answer.
     case unknown
 
-    /// Whether this posture is worth a legend line at the bottom of the chain.
-    public var needsExplaining: Bool { self == .interpretedScript }
+    /// The word that goes next to the mark once the chain is opened.
+    ///
+    /// Only for what we actually checked. There is no word for "unhardened" or
+    /// "unknown", because a hop the daemon could not vouch for should read as
+    /// unremarked rather than as accused.
+    public var inlineLabel: String? {
+        return self == .signedHardened ? "signed" : nil
+    }
 }
 
 /// One process in the chain.
@@ -51,6 +57,14 @@ public struct ExecutionHop: Equatable {
     public let isLauncher: Bool
     /// The hop that decides what runs. Drawn large; everything else is quiet.
     public let isImportant: Bool
+    /// Set on the process that is the root of a coding-agent session. That hop is
+    /// where the session actually begins in the ancestry, so it is drawn there
+    /// rather than as a note floating beside the chain.
+    public let agentSession: AgentSession?
+    /// Whether this hop is running inside the session rooted above it. The panel
+    /// tints the rail for these, so "inside the session" is something you can see
+    /// rather than something you work out.
+    public let isInsideSession: Bool
 
     public init(
         pid: pid_t,
@@ -61,7 +75,9 @@ public struct ExecutionHop: Equatable {
         terminalName: String? = nil,
         posture: HopPosture = .unknown,
         isLauncher: Bool = false,
-        isImportant: Bool = false
+        isImportant: Bool = false,
+        agentSession: AgentSession? = nil,
+        isInsideSession: Bool = false
     ) {
         self.pid = pid
         self.name = name
@@ -72,27 +88,51 @@ public struct ExecutionHop: Equatable {
         self.posture = posture
         self.isLauncher = isLauncher
         self.isImportant = isImportant
+        self.agentSession = agentSession
+        self.isInsideSession = isInsideSession
     }
 
-    /// Hops that are neither the launcher nor the actor: shells, wrappers, and
-    /// varlock itself. Present for completeness, drawn small, first to collapse.
-    public var isMinor: Bool { !isImportant && !isLauncher }
+    /// Whether a coding-agent session begins here.
+    public var isSessionRoot: Bool { agentSession != nil }
+
+    /// The one thing about this hop a person should know before approving.
+    ///
+    /// It sits under the hop it is about rather than in a legend at the bottom of
+    /// the chain: a warning a reader has to match back up to a row is a warning
+    /// that gets skipped.
+    public var advisory: String? {
+        guard posture == .interpretedScript, let via else { return nil }
+        let interpreter = via.hasPrefix("via ") ? String(via.dropFirst(4)) : via
+        return "a script run by \(interpreter): approval trusts this file, not the signed interpreter"
+    }
+
+    /// Hops that are neither the launcher, the actor, nor the root of a session:
+    /// shells, wrappers, and varlock itself. Present for completeness, drawn
+    /// small, and the first thing to fold away.
+    ///
+    /// A session root is never one of these. Which session a request came from is
+    /// the single most load-bearing fact on the panel when there is one, and a
+    /// fact that important does not go behind a disclosure.
+    public var isMinor: Bool { !isImportant && !isLauncher && !isSessionRoot }
 }
 
 /// A coding-agent session the chain is running inside.
 ///
-/// Named by product and start time rather than by id: "Claude Code session,
-/// started 2:14 PM" is what a person can check against their own screen. The raw
-/// session id is a machine's business and lives in the audit log.
-public struct AgentSessionBadge: Equatable {
+/// Named by product, the session's own human title, and when it started. Never by
+/// id: a uuid is not something a person can check against their own screen, and
+/// the raw id is a machine's business that lives in the audit log.
+public struct AgentSession: Equatable {
     public let productName: String
-    public let pid: pid_t
-    /// Seconds since the epoch, as the kernel reported the process's start.
+    /// What the agent itself calls this session. nil when it could not be read,
+    /// which costs the row its title and nothing else.
+    public let title: String?
+    /// Seconds since the epoch: the agent's own record of when the session began
+    /// where that is available, and the process start otherwise.
     public let startTime: Int?
 
-    public init(productName: String, pid: pid_t, startTime: Int?) {
+    public init(productName: String, title: String?, startTime: Int?) {
         self.productName = productName
-        self.pid = pid
+        self.title = title
         self.startTime = startTime
     }
 }
@@ -100,14 +140,22 @@ public struct AgentSessionBadge: Equatable {
 /// The whole chain, launcher first, the process that connected last.
 public struct ExecutionChain: Equatable {
     public let hops: [ExecutionHop]
-    public let agentSession: AgentSessionBadge?
 
-    public init(hops: [ExecutionHop], agentSession: AgentSessionBadge? = nil) {
+    public init(hops: [ExecutionHop]) {
         self.hops = hops
-        self.agentSession = agentSession
     }
 
     public static let empty = ExecutionChain(hops: [])
+
+    /// The hop a coding-agent session begins at, when the request came from one.
+    public var sessionRootHop: ExecutionHop? {
+        return hops.first { $0.isSessionRoot }
+    }
+
+    /// That session, for anything that only needs to know which one it was.
+    public var agentSession: AgentSession? {
+        return sessionRootHop?.agentSession
+    }
 
     public var isEmpty: Bool { hops.isEmpty }
 
@@ -138,22 +186,5 @@ public struct ExecutionChain: Equatable {
         let names = folded.map { $0.name }.joined(separator: ", ")
         let count = folded.count == 1 ? "1 more step" : "\(folded.count) more steps"
         return "\(count) (\(names))"
-    }
-
-    /// The legend for the posture marks, built from what this chain actually
-    /// contains, so the panel never explains a badge it did not draw.
-    public var postureNote: String? {
-        var parts: [String] = []
-        if let interpreted = hops.first(where: { $0.posture == .interpretedScript }), let via = interpreted.via {
-            let interpreter = via.hasPrefix("via ") ? String(via.dropFirst(4)) : via
-            parts.append(
-                "\(interpreter) is running a script: the actor is \(interpreted.name), "
-                + "not the signed interpreter"
-            )
-        }
-        if hops.contains(where: { $0.posture == .signedHardened }) {
-            parts.append("signed and hardened")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 }

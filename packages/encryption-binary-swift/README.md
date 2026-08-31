@@ -221,20 +221,44 @@ The panel shows, top to bottom:
   interpreter running it), the app that was launched sits at the top with its icon
   and the controlling terminal, and shells and varlock itself are drawn small and
   fold into "N more steps" on a long chain. Opening that shows each hop's path and
-  code-signing posture: a green dot for signed with the hardened runtime, an amber
-  triangle where an interpreter is running a script, and nothing at all where the
-  daemon could not read an answer. A request from a coding-agent session gets a
-  badge naming the product and when the session started.
+  the word for its code-signing posture: a green dot and "signed" for signed with
+  the hardened runtime, an amber triangle where an interpreter is running a
+  script, and nothing at all where the daemon could not read an answer. What a
+  mark means is said under the hop it belongs to ("a script run by bun: approval
+  trusts this file, not the signed interpreter"), never in a legend at the bottom
+  that a reader would have to match back up to a row.
+- a **coding-agent session**, when there is one, as a hop in that chain at the
+  place it really sits in the ancestry: a tinted row tagged "session root",
+  carrying the product, the session's own title, and when it started. The rail
+  below it is tinted to match, so every process inside the session is a span you
+  can see rather than a relationship you have to work out, and that hop is never
+  folded away. The title comes from the
+  agent's own on-disk record of the session, matched to the process by pid and
+  checked against its start time so a recycled pid cannot put somebody else's
+  session on the panel. No uuid is ever shown: where the agent has no name but
+  its own session id, the row goes without a title.
 - **for how long**: this session (the default), once, or a set time (1, 4, or 8
   hours). Everything is still capped at 12h.
-- the **actions**: a quiet Deny, and a wide approve button carrying the glyph. On a
-  machine with no usable sensor the approve button is the password path itself and
-  there is no link offering it separately; where there is a sensor, "Use
-  password..." moves this same approval onto the device-password check.
+- the **actions**: Deny, red with a stop mark, and a wide approve button carrying
+  the glyph. On a machine with no usable sensor the approve button is the password
+  path itself and there is no link offering it separately; where there is a
+  sensor, "Use password..." moves this same approval onto the device-password
+  check.
 
 Reading the chain is best effort and bounded by a deadline
 (`ExecutionChainBuilder`): a process that exits mid-walk, a signature that cannot
-be checked, or a slow machine costs the panel a detail, never its appearance.
+be checked, a session record that cannot be read, or a slow machine costs the
+panel a detail, never its appearance.
+
+Icons follow the same rule (`PanelIcons`). A hop whose binary lives in an `.app`
+gets that app's real icon, an agent session gets the agent's app icon where it is
+installed, and a tool with no bundle to ask (bun, node, deno, python) gets a small
+tile carrying its initial. Shells and anything unrecognised get the terminal
+symbol. None of it is resolved on the path that draws the panel: every icon starts
+as the generic mark and is filled in from the run loop, because a picture is never
+worth delaying an approval for. Dropping a real icon at
+`Contents/Resources/tool-icons/<executable>.png` in the app bundle overrides the
+tile without a code change.
 
 Client-supplied context (project name and path, value names, vault labels) only
 ever changes the wording. It can never change which keys are unlocked, which

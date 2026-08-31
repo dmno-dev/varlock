@@ -62,15 +62,18 @@ public struct ExecutionChainBuilder {
 
     private let provider: ProcessProvider
     private let posture: PostureProbe
+    private let sessionMetadata: AgentSessionMetadataReader
     private let clock: () -> Date
 
     public init(
         provider: ProcessProvider = LiveProcessProvider(),
         posture: PostureProbe = LivePostureProbe(),
+        sessionMetadata: AgentSessionMetadataReader = LiveAgentSessionMetadataReader(),
         clock: @escaping () -> Date = Date.init
     ) {
         self.provider = provider
         self.posture = posture
+        self.sessionMetadata = sessionMetadata
         self.clock = clock
     }
 
@@ -106,7 +109,10 @@ public struct ExecutionChainBuilder {
         // Launcher first, the process that connected last: the order things
         // happened in, which is the order a person reconstructs them in.
         let ordered = Array(walked.reversed())
-        let importantIndex = importantHopIndex(ordered)
+        // Found before the hops are built, because where the session begins
+        // changes which hop is the actor and which hops read as inside it.
+        let session = agentSession(in: ordered, startedAt: started)
+        let importantIndex = importantHopIndex(ordered, sessionRootIndex: session?.index)
 
         var hops: [ExecutionHop] = []
         for (index, walkedProcess) in ordered.enumerated() {
@@ -124,14 +130,15 @@ public struct ExecutionChainBuilder {
                 terminalName: index == 0 ? terminal : nil,
                 posture: hopPosture(walkedProcess),
                 isLauncher: isLauncher,
-                isImportant: index == importantIndex
+                isImportant: index == importantIndex,
+                agentSession: index == session?.index ? session?.session : nil,
+                // Everything below the session root ran inside it, which the
+                // panel draws as one span rather than leaving to be inferred.
+                isInsideSession: session.map { index > $0.index } ?? false
             ))
         }
 
-        return ExecutionChain(
-            hops: hops,
-            agentSession: agentSession(in: ordered, startedAt: started)
-        )
+        return ExecutionChain(hops: hops)
     }
 
     /// Which hop actually decides what runs.
@@ -140,8 +147,14 @@ public struct ExecutionChainBuilder {
     /// the script is not. Failing that it is the first thing below the launcher
     /// that is neither a shell nor varlock, and failing that the shell itself,
     /// which for a plain terminal is the honest answer.
-    private func importantHopIndex(_ ordered: [WalkedProcess]) -> Int {
-        let candidates = ordered.enumerated().filter { !($0.element.bundlePath != nil && $0.offset == 0) }
+    ///
+    /// The session root is never the answer either. It has a treatment of its own
+    /// and marking it twice would say the agent is what is running, when what is
+    /// running is whatever the agent started.
+    private func importantHopIndex(_ ordered: [WalkedProcess], sessionRootIndex: Int?) -> Int {
+        let candidates = ordered.enumerated().filter {
+            !($0.element.bundlePath != nil && $0.offset == 0) && $0.offset != sessionRootIndex
+        }
         if let script = candidates.last(where: { $0.element.scriptName != nil && !$0.element.isOwnProcess }) {
             return script.offset
         }
@@ -153,7 +166,7 @@ public struct ExecutionChainBuilder {
         if let shell = candidates.last(where: { !$0.element.isOwnProcess }) {
             return shell.offset
         }
-        return ordered.count - 1
+        return candidates.last?.offset ?? ordered.count - 1
     }
 
     /// What to call the app at the top of the chain.
@@ -194,18 +207,29 @@ public struct ExecutionChainBuilder {
     /// environment it exported, which is what survives into the shell an agent
     /// runs commands in.
     struct AgentMarker {
-        let productName: String
+        let product: AgentProduct
         let executableNames: Set<String>
         let environmentKeys: Set<String>
     }
 
     static let agentMarkers: [AgentMarker] = [
         AgentMarker(
-            productName: "Claude Code",
+            product: .claudeCode,
             executableNames: ["claude"],
             environmentKeys: ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]
         ),
+        AgentMarker(
+            product: .codex,
+            executableNames: ["codex"],
+            environmentKeys: []
+        ),
     ]
+
+    /// A session, and which hop it is rooted at.
+    struct FoundSession {
+        let index: Int
+        let session: AgentSession
+    }
 
     /// The agent session this request came from, if it came from one.
     ///
@@ -213,14 +237,14 @@ public struct ExecutionChainBuilder {
     /// every argument list. Only if that finds nothing is the environment read,
     /// which costs a syscall per process, and only until the deadline: a badge is
     /// worth having, never worth making an unlock wait.
-    private func agentSession(in ordered: [WalkedProcess], startedAt: Date) -> AgentSessionBadge? {
-        for walkedProcess in ordered {
+    private func agentSession(in ordered: [WalkedProcess], startedAt: Date) -> FoundSession? {
+        for (index, walkedProcess) in ordered.enumerated() {
             for marker in Self.agentMarkers where marker.executableNames.contains(walkedProcess.executableName) {
-                return badge(marker: marker, process: walkedProcess)
+                return found(marker: marker, index: index, process: walkedProcess)
             }
         }
 
-        for walkedProcess in ordered {
+        for (index, walkedProcess) in ordered.enumerated() {
             guard clock().timeIntervalSince(startedAt) < Self.deadlineSeconds else { return nil }
             guard let environment = provider.environment(for: walkedProcess.snapshot.pid) else { continue }
             for marker in Self.agentMarkers {
@@ -228,17 +252,30 @@ public struct ExecutionChainBuilder {
                     guard let value = environment[key] else { return false }
                     return !value.isEmpty && value != "0"
                 }
-                if matched { return badge(marker: marker, process: walkedProcess) }
+                if matched { return found(marker: marker, index: index, process: walkedProcess) }
             }
         }
         return nil
     }
 
-    private func badge(marker: AgentMarker, process: WalkedProcess) -> AgentSessionBadge {
-        return AgentSessionBadge(
-            productName: marker.productName,
+    /// The session as the panel will say it: product, the session's own title
+    /// where the agent recorded one, and when it began.
+    private func found(marker: AgentMarker, index: Int, process: WalkedProcess) -> FoundSession {
+        let processStart = process.snapshot.startTime > 0 ? process.snapshot.startTime : nil
+        let metadata = sessionMetadata.metadata(
+            for: marker.product,
             pid: process.snapshot.pid,
-            startTime: process.snapshot.startTime > 0 ? process.snapshot.startTime : nil
+            processStartTime: process.snapshot.startTime
+        )
+        return FoundSession(
+            index: index,
+            session: AgentSession(
+                productName: marker.product.displayName,
+                title: metadata?.title,
+                // The agent's own record of when the session began where there is
+                // one, since a session can outlive the process that started it.
+                startTime: metadata?.startTime ?? processStart
+            )
         )
     }
 }

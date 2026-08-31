@@ -9,11 +9,20 @@ import SessionScoping
 /// Size carries the meaning: the hop that decides what runs is large, the app
 /// that was launched is small context at the top, and the boring hops in between
 /// fold away until someone asks for them.
+///
+/// A coding-agent session is a hop like any other, sitting where it really is in
+/// the ancestry, marked in purple with its own title and start time. The rail
+/// below it is tinted the same purple, so everything running inside that session
+/// is a span you can see rather than a relationship you have to work out. It is
+/// never folded away: which session a request came from is the most load-bearing
+/// fact on the panel when there is one.
 final class PanelChainView: NSView {
     private let onLayoutChanged: () -> Void
     private var expanded = false
     private var foldedRows: [NSView] = []
-    private var expanderRow: NSView?
+    private var pathLabels: [NSTextField] = []
+    /// Marks that grow a word when the chain is opened.
+    private var postureLabels: [(label: NSTextField, posture: HopPosture)] = []
 
     init(chain: ExecutionChain, fallbackSummary: String, onLayoutChanged: @escaping () -> Void) {
         self.onLayoutChanged = onLayoutChanged
@@ -52,46 +61,37 @@ final class PanelChainView: NSView {
 
         let collapsing = chain.collapsesWhenResting
         for (index, hop) in chain.hops.enumerated() {
-            let row = hopRow(
-                hop,
-                isFirst: index == 0,
-                isLast: index == chain.hops.count - 1
-            )
+            let row = hopRow(hop, isFirst: index == 0, isLast: index == chain.hops.count - 1)
             column.addArrangedSubview(row)
             if collapsing, hop.isMinor {
                 row.isHidden = true
                 foldedRows.append(row)
             }
+
+            // The warning about a hop goes under that hop. A legend at the
+            // bottom of the chain is a warning the reader has to match back up
+            // to a row, which is a warning that gets skipped.
+            guard let advisory = hop.advisory else { continue }
+            let sub = advisoryRow(
+                advisory,
+                insideSession: hop.isInsideSession,
+                // Nothing follows the last hop's advisory, so its rail ends there
+                // instead of trailing off into the bottom of the card.
+                endsTheChain: index == chain.hops.count - 1 && !collapsing
+            )
+            column.addArrangedSubview(sub)
+            if collapsing, hop.isMinor {
+                sub.isHidden = true
+                foldedRows.append(sub)
+            }
         }
 
         if collapsing, let label = chain.expanderLabel {
-            let expander = expanderView(label: label)
-            expanderRow = expander
-            column.addArrangedSubview(expander)
-        }
-
-        if let badge = chain.agentSession {
-            let badgeRow = PanelStyle.row(spacing: 6)
-            badgeRow.addArrangedSubview(agentBadge(badge))
-            badgeRow.addArrangedSubview(PanelStyle.spacer())
-            column.setCustomSpacing(8, after: column.arrangedSubviews.last ?? badgeRow)
-            column.addArrangedSubview(indented(badgeRow))
-        }
-
-        if let note = chain.postureNote {
-            let marks = chain.hops.contains { $0.posture == .interpretedScript } ? "\u{25B2} " : "\u{25CF} "
-            let noteLabel = PanelStyle.label(
-                marks + note,
-                size: 11,
-                color: chain.hops.contains { $0.posture == .interpretedScript }
-                    ? PanelStyle.warn
-                    : PanelStyle.inkTertiary
-            )
-            noteLabel.lineBreakMode = .byWordWrapping
-            noteLabel.maximumNumberOfLines = 3
-            noteLabel.preferredMaxLayoutWidth = PanelStyle.contentWidth - 40
-            column.setCustomSpacing(8, after: column.arrangedSubviews.last ?? noteLabel)
-            column.addArrangedSubview(indented(noteLabel))
+            // The folded hops sit inside the session when the last one does, so
+            // the expander's own rail segment is tinted to match rather than
+            // breaking the span in half.
+            let insideSession = chain.collapsibleHops.last?.isInsideSession ?? false
+            column.addArrangedSubview(expanderView(label: label, insideSession: insideSession))
         }
     }
 
@@ -113,33 +113,93 @@ final class PanelChainView: NSView {
     }
 
     private func hopRow(_ hop: ExecutionHop, isFirst: Bool, isLast: Bool) -> NSView {
-        let container = ChainRailView(isFirst: isFirst, isLast: isLast, isImportant: hop.isImportant)
+        let container = ChainRailView(
+            isFirst: isFirst,
+            isLast: isLast,
+            emphasis: hop.isSessionRoot ? .session : (hop.isImportant ? .actor : .quiet),
+            // The tint starts halfway down the session root's own row, which is
+            // where the session actually begins.
+            railAbove: hop.isInsideSession ? PanelStyle.sessionRail : PanelStyle.chainRail,
+            railBelow: hop.isInsideSession || hop.isSessionRoot
+                ? PanelStyle.sessionRail
+                : PanelStyle.chainRail
+        )
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        let row = PanelStyle.row(spacing: 8)
+        let row = hop.isSessionRoot ? sessionRow(hop) : processRow(hop)
         row.translatesAutoresizingMaskIntoConstraints = false
 
-        if let bundlePath = hop.bundlePath, let icon = appIcon(bundlePath: bundlePath) {
-            let imageView = NSImageView()
-            imageView.image = icon
-            imageView.translatesAutoresizingMaskIntoConstraints = false
+        // The session root is a tinted, labelled row rather than one more line
+        // with a different coloured dot. Which session a request came from is
+        // the fact most likely to change the answer, so it has to be impossible
+        // to skim past.
+        let host: NSView
+        if hop.isSessionRoot {
+            let tinted = NSView()
+            tinted.wantsLayer = true
+            tinted.layer?.backgroundColor = PanelStyle.sessionRowBackground.cgColor
+            tinted.layer?.cornerRadius = 7
+            tinted.translatesAutoresizingMaskIntoConstraints = false
+            tinted.addSubview(row)
             NSLayoutConstraint.activate([
-                imageView.widthAnchor.constraint(equalToConstant: 16),
-                imageView.heightAnchor.constraint(equalToConstant: 16),
+                row.leadingAnchor.constraint(equalTo: tinted.leadingAnchor, constant: 8),
+                row.trailingAnchor.constraint(equalTo: tinted.trailingAnchor, constant: -8),
+                row.topAnchor.constraint(equalTo: tinted.topAnchor, constant: 6),
+                row.bottomAnchor.constraint(equalTo: tinted.bottomAnchor, constant: -6),
             ])
-            row.addArrangedSubview(imageView)
+            host = tinted
+        } else {
+            host = row
         }
 
-        let nameSize: CGFloat = hop.isImportant ? 14.5 : 11.5
-        let nameColor = hop.isImportant ? PanelStyle.ink : PanelStyle.inkTertiary
+        container.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            host.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            host.topAnchor.constraint(equalTo: container.topAnchor, constant: hop.isSessionRoot ? 2 : 3),
+            host.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: hop.isSessionRoot ? -2 : -3),
+            container.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
+        ])
+        return container
+    }
+
+    /// The amber line under a hop, saying the one thing about it worth knowing.
+    private func advisoryRow(_ text: String, insideSession: Bool, endsTheChain: Bool) -> NSView {
+        let rail = ChainRailView(
+            isFirst: false,
+            isLast: endsTheChain,
+            emphasis: .none,
+            railAbove: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail,
+            railBelow: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail
+        )
+        let label = PanelStyle.label("\u{25B2} " + text, size: 10.5, color: PanelStyle.warn)
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 3
+        label.preferredMaxLayoutWidth = PanelStyle.contentWidth - 70
+        label.translatesAutoresizingMaskIntoConstraints = false
+        rail.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 42),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: rail.trailingAnchor),
+            label.topAnchor.constraint(equalTo: rail.topAnchor),
+            label.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -3),
+            rail.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
+        ])
+        return rail
+    }
+
+    /// An ordinary process: what it is, what is running it, and how hardened it is.
+    private func processRow(_ hop: ExecutionHop) -> NSStackView {
+        let row = PanelStyle.row(spacing: 8)
+
+        row.addArrangedSubview(icon(for: hop))
+
         var nameText = hop.name
-        if let terminal = hop.terminalName {
-            nameText += " \u{00B7} \(terminal)"
-        }
+        if let terminal = hop.terminalName { nameText += " \u{00B7} \(terminal)" }
         row.addArrangedSubview(PanelStyle.label(
             nameText,
-            size: nameSize,
-            color: nameColor,
+            size: hop.isImportant ? 14.5 : 11.5,
+            color: hop.isImportant ? PanelStyle.ink : PanelStyle.inkTertiary,
             weight: hop.isImportant ? .semibold : .regular,
             mono: !hop.isLauncher
         ))
@@ -150,100 +210,139 @@ final class PanelChainView: NSView {
             row.addArrangedSubview(mark)
         }
         row.addArrangedSubview(PanelStyle.spacer())
-
-        // Paths are evidence, not identity: they only appear once the chain has
-        // been opened, and they sit in the quiet column on the right.
-        if let path = hop.path {
-            let pathLabel = PanelStyle.label(
-                abbreviate(path),
-                size: 9.5,
-                color: PanelStyle.inkQuiet,
-                mono: true
-            )
-            pathLabel.isHidden = true
-            pathLabels.append(pathLabel)
-            row.addArrangedSubview(pathLabel)
-        }
-
-        container.addSubview(row)
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            row.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            row.topAnchor.constraint(equalTo: container.topAnchor, constant: 3),
-            row.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
-            container.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
-        ])
-        return container
+        if let path = hop.path { row.addArrangedSubview(pathLabel(path)) }
+        return row
     }
 
-    private var pathLabels: [NSTextField] = []
+    /// The session root: which agent, which session, and when it started.
+    private func sessionRow(_ hop: ExecutionHop) -> NSStackView {
+        let row = PanelStyle.row(spacing: 8)
+        guard let session = hop.agentSession else { return row }
 
+        row.addArrangedSubview(icon(for: hop))
+        let name = PanelStyle.label(
+            session.productName,
+            size: 12.5,
+            color: PanelStyle.sessionInk,
+            weight: .semibold
+        )
+        // Which agent it is, and that this row is the session root, are the two
+        // things this row exists to say. A long session title gives way to them
+        // rather than the other way round.
+        name.setContentCompressionResistancePriority(.required, for: .horizontal)
+        row.addArrangedSubview(name)
+        row.addArrangedSubview(sessionRootTag())
+        if let title = session.title {
+            let titleLabel = PanelStyle.label(
+                "\u{201C}\(title)\u{201D}",
+                size: 11.5,
+                color: PanelStyle.sessionTitleInk
+            )
+            titleLabel.font = NSFontManager.shared.convert(
+                NSFont.systemFont(ofSize: 11.5),
+                toHaveTrait: .italicFontMask
+            )
+            row.addArrangedSubview(titleLabel)
+        }
+        row.addArrangedSubview(PanelStyle.spacer())
+        if let started = startedLabel(session.startTime) {
+            row.addArrangedSubview(PanelStyle.label(
+                "started \(started)",
+                size: 9.5,
+                color: PanelStyle.inkQuiet
+            ))
+        }
+        if let path = hop.path { pathLabels.append(pathLabel(path)) }
+        return row
+    }
+
+    /// The chip that says out loud what the tint means.
+    private func sessionRootTag() -> NSView {
+        let box = NSView()
+        box.wantsLayer = true
+        box.layer?.backgroundColor = PanelStyle.sessionTagBackground.cgColor
+        box.layer?.cornerRadius = 4
+        let field = PanelStyle.label("SESSION ROOT", size: 8.5, color: PanelStyle.sessionInk, weight: .bold)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.setContentCompressionResistancePriority(.required, for: .horizontal)
+        box.addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 5),
+            field.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -5),
+            field.topAnchor.constraint(equalTo: box.topAnchor, constant: 1.5),
+            field.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -1.5),
+        ])
+        return box
+    }
+
+    /// Paths are evidence, not identity: they appear only once the chain has been
+    /// opened, and they sit in the quiet column on the right. Truncated in the
+    /// middle, because the ends of a path are the parts that identify it.
+    private func pathLabel(_ path: String) -> NSTextField {
+        let label = PanelStyle.label(abbreviate(path), size: 9.5, color: PanelStyle.inkQuiet, mono: true)
+        label.lineBreakMode = .byTruncatingMiddle
+        label.isHidden = true
+        pathLabels.append(label)
+        return label
+    }
+
+    /// The mark, and once the chain is opened the word for it.
+    ///
+    /// The word only ever appears next to something we actually checked. An
+    /// absent mark means "we are not saying", which is honest; a grey dot would
+    /// read as a verdict.
     private func postureMark(_ posture: HopPosture) -> NSView? {
         switch posture {
         case .signedHardened:
-            return PanelStyle.label("\u{25CF}", size: 10, color: PanelStyle.ok)
+            let label = PanelStyle.label("\u{25CF}", size: 10, color: PanelStyle.ok)
+            postureLabels.append((label, posture))
+            return label
         case .interpretedScript:
             return PanelStyle.label("\u{25B2}", size: 11, color: PanelStyle.warn)
         case .unhardened, .unknown:
-            // Deliberately nothing. An absent badge means "we are not saying",
-            // which is honest; a grey dot would read as a verdict.
             return nil
         }
     }
 
-    private func expanderView(label: String) -> NSView {
-        let field = PanelStyle.label(
-            "\u{2304} \(label) \u{00B7} paths and signatures \u{25B8}",
-            size: 10.5,
-            color: PanelStyle.inkQuiet
+    private func expanderView(label: String, insideSession: Bool) -> NSView {
+        let field = PanelStyle.label(collapsedLabel(label), size: 10.5, color: PanelStyle.inkQuiet)
+        let rail = ChainRailView(
+            isFirst: false,
+            isLast: false,
+            emphasis: .none,
+            railAbove: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail,
+            railBelow: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail
         )
-        let row = ClickableRow { [weak self] in self?.toggleExpanded(field: field, label: label) }
+        rail.onClick = { [weak self] in self?.toggleExpanded(field: field, label: label) }
         field.translatesAutoresizingMaskIntoConstraints = false
-        row.addSubview(field)
+        rail.addSubview(field)
         NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16),
-            field.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor),
-            field.topAnchor.constraint(equalTo: row.topAnchor, constant: 2),
-            field.bottomAnchor.constraint(equalTo: row.bottomAnchor),
-            row.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
+            field.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 16),
+            field.trailingAnchor.constraint(lessThanOrEqualTo: rail.trailingAnchor),
+            field.topAnchor.constraint(equalTo: rail.topAnchor, constant: 2),
+            field.bottomAnchor.constraint(equalTo: rail.bottomAnchor),
+            rail.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
         ])
-        return row
+        return rail
+    }
+
+    private func collapsedLabel(_ label: String) -> String {
+        return "\u{2304} \(label) \u{00B7} paths and signatures \u{25B8}"
     }
 
     private func toggleExpanded(field: NSTextField, label: String) {
         expanded.toggle()
         for row in foldedRows { row.isHidden = !expanded }
         for path in pathLabels { path.isHidden = !expanded }
-        field.stringValue = expanded
-            ? "\u{2303} fewer steps"
-            : "\u{2304} \(label) \u{00B7} paths and signatures \u{25B8}"
+        for (label, posture) in postureLabels {
+            let word = posture.inlineLabel.map { " \($0)" } ?? ""
+            label.stringValue = "\u{25CF}" + (expanded ? word : "")
+        }
+        field.stringValue = expanded ? "\u{2303} fewer steps" : collapsedLabel(label)
         onLayoutChanged()
     }
 
-    private func agentBadge(_ badge: AgentSessionBadge) -> NSView {
-        let box = NSView()
-        box.wantsLayer = true
-        box.layer?.backgroundColor = PanelStyle.agentBadgeBackground.cgColor
-        box.layer?.borderColor = PanelStyle.agentBadgeBorder.cgColor
-        box.layer?.borderWidth = 1
-        box.layer?.cornerRadius = 5
-
-        var text = "\(badge.productName) session"
-        if let started = startedLabel(badge.startTime) { text += " \u{00B7} started \(started)" }
-        let field = PanelStyle.label(text, size: 10.5, color: PanelStyle.agentBadgeInk)
-        field.translatesAutoresizingMaskIntoConstraints = false
-        box.addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
-            field.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
-            field.topAnchor.constraint(equalTo: box.topAnchor, constant: 1),
-            field.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -1),
-        ])
-        return box
-    }
-
-    /// "2:14 PM": the thing a person can check against their own screen. The raw
-    /// session id belongs in the audit log, where a machine reads it.
+    /// "2:14 PM": the thing a person can check against their own screen.
     private func startedLabel(_ startTime: Int?) -> String? {
         guard let startTime, startTime > 0 else { return nil }
         let formatter = DateFormatter()
@@ -252,11 +351,13 @@ final class PanelChainView: NSView {
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(startTime)))
     }
 
-    private func appIcon(bundlePath: String) -> NSImage? {
-        guard FileManager.default.fileExists(atPath: bundlePath) else { return nil }
-        let icon = NSWorkspace.shared.icon(forFile: bundlePath)
-        icon.size = NSSize(width: 16, height: 16)
-        return icon
+    /// This hop's picture: the app's own icon where there is one, a tool tile
+    /// where there is not, and a terminal when we know nothing. Filled in from the
+    /// run loop, so a cold LaunchServices lookup cannot delay the panel.
+    private func icon(for hop: ExecutionHop) -> NSView {
+        return PanelIconView(side: 16, placeholder: PanelIcons.genericTerminal()) {
+            PanelIcons.icon(for: hop) ?? PanelIcons.genericTerminal()
+        }
     }
 
     private func abbreviate(_ path: String) -> String {
@@ -269,15 +370,37 @@ final class PanelChainView: NSView {
 }
 
 /// Draws the vertical rail and this hop's dot behind a chain row.
+///
+/// The rail is drawn in two halves so a session can begin in the middle of a row:
+/// grey above the hop the session is rooted at, tinted below it and all the way
+/// down. That is what makes "inside the session" a visible span.
 final class ChainRailView: NSView {
+    enum Emphasis {
+        /// The hop that decides what runs.
+        case actor
+        /// The root of a coding-agent session.
+        case session
+        /// Everything else on the rail.
+        case quiet
+        /// Not a hop at all (the expander line): rail, no dot.
+        case none
+    }
+
     private let isFirst: Bool
     private let isLast: Bool
-    private let isImportant: Bool
+    private let emphasis: Emphasis
+    private let railAbove: NSColor
+    private let railBelow: NSColor
 
-    init(isFirst: Bool, isLast: Bool, isImportant: Bool) {
+    /// Set when the row is something to click.
+    var onClick: (() -> Void)?
+
+    init(isFirst: Bool, isLast: Bool, emphasis: Emphasis, railAbove: NSColor, railBelow: NSColor) {
         self.isFirst = isFirst
         self.isLast = isLast
-        self.isImportant = isImportant
+        self.emphasis = emphasis
+        self.railAbove = railAbove
+        self.railBelow = railBelow
         super.init(frame: .zero)
         wantsLayer = true
     }
@@ -289,40 +412,41 @@ final class ChainRailView: NSView {
         let midY = bounds.midY
         let railX: CGFloat = 5
 
-        PanelStyle.chainRail.setFill()
-        let top = isFirst ? midY : bounds.maxY
-        let bottom = isLast ? midY : bounds.minY
-        NSRect(x: railX - 1, y: bottom, width: 2, height: top - bottom).fill()
+        // AppKit's origin is bottom left, so "above" is the higher y.
+        if !isFirst {
+            railAbove.setFill()
+            NSRect(x: railX - 1, y: midY, width: 2, height: bounds.maxY - midY).fill()
+        }
+        if !isLast {
+            railBelow.setFill()
+            NSRect(x: railX - 1, y: bounds.minY, width: 2, height: midY - bounds.minY).fill()
+        }
 
-        let side: CGFloat = isImportant ? 9 : 7
+        let side: CGFloat
+        let color: NSColor
+        switch emphasis {
+        case .actor: (side, color) = (9, PanelStyle.accent)
+        case .session: (side, color) = (9, PanelStyle.sessionDot)
+        case .quiet: (side, color) = (7, PanelStyle.chainDot)
+        case .none: return
+        }
         let dot = NSBezierPath(ovalIn: NSRect(
             x: railX - side / 2,
             y: midY - side / 2,
             width: side,
             height: side
         ))
-        (isImportant ? PanelStyle.accent : PanelStyle.chainDot).setFill()
+        color.setFill()
         dot.fill()
     }
-}
-
-/// A view that reports a click. Used for rows that open something.
-final class ClickableRow: NSView {
-    private let onClick: () -> Void
-
-    init(onClick: @escaping () -> Void) {
-        self.onClick = onClick
-        super.init(frame: .zero)
-    }
-
-    required init?(coder: NSCoder) { fatalError("not used") }
 
     override func mouseUp(with event: NSEvent) {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        guard let onClick, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick()
     }
 
     override func resetCursorRects() {
+        guard onClick != nil else { return }
         addCursorRect(bounds, cursor: .pointingHand)
     }
 }
