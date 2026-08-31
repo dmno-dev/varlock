@@ -53,8 +53,10 @@ export default defineConfig([
     publint: true, // validate the published package shape
     attw: {
       level: 'error',
-      // varlock is esm-only: the node10 algorithm and `require()` from a cjs consumer
-      // are both out of scope (engines.node is >=22.3, and require(esm) covers the rest)
+      // varlock is esm-first: the node10 algorithm and `require()` of the esm-only
+      // entrypoints are out of scope (engines.node is >=22.3, and require(esm) covers
+      // the rest). The runtime entrypoints additionally ship real CJS builds (see the
+      // cjs config below) for consumers that must require() them.
       profile: 'esm-only',
       // internal test harness, deliberately only reachable via the `ts-src` condition
       excludeEntrypoints: ['./test-helpers'],
@@ -95,6 +97,39 @@ export default defineConfig([
     onSuccess: process.env.BUILD_TYPE === 'release'
       ? 'bun run scripts/strip-vendor-sourcemap-content.ts'
       : undefined,
+  },
+  // CJS builds of the runtime entry points that integrations require() from CJS output
+  // (nextjs plugin, expo metro/babel). require(esm) is flagged on Node 22.0-22.11, and
+  // Next's next.config.ts require hook cannot load .mjs files at all (it re-transpiles
+  // them to CJS but Node still evaluates .mjs as ESM). These modules already coordinate
+  // state across multiple instances via globalThis, so a CJS copy alongside the ESM one
+  // is safe. Exposed via the `require` condition in package.json exports.
+  {
+    entry: [
+      'src/runtime/env.ts',
+      'src/runtime/patch-server-response.ts',
+      'src/runtime/patch-console.ts',
+      'src/runtime/crypto.ts',
+      'src/lib/exec-sync-varlock.ts',
+    ],
+
+    noExternal: ['@env-spec/utils'],
+
+    dts: true,
+    sourcemap: true,
+    treeshake: true,
+
+    clean: false, // main build already cleaned
+    outDir: 'dist',
+
+    format: ['cjs'],
+    platform: 'node',
+    target: 'node22',
+
+    define: {
+      __VARLOCK_SEA_BUILD__: 'false',
+      __VARLOCK_BUILD_TYPE__: JSON.stringify(process.env.BUILD_TYPE || 'dev'),
+    },
   },
   initBundle('init-server'),
   initBundle('init-edge'),
