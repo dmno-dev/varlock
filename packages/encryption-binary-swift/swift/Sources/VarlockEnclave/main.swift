@@ -204,7 +204,12 @@ case "probe-session-unlock":
 
 case "probe-embedded-unlock":
     let embeddedProbeKeyId = getArg("--key-id") ?? defaultKeyId
-    jsonSuccess(EmbeddedUnlockProbe.run(keyId: embeddedProbeKeyId))
+    let embeddedProbeTimeout = TimeInterval(getArg("--timeout").flatMap { Double($0) } ?? 60)
+    jsonSuccess(EmbeddedUnlockProbe.run(
+        keyId: embeddedProbeKeyId,
+        verbose: args.contains("--verbose"),
+        timeoutSeconds: embeddedProbeTimeout
+    ))
 
 // MARK: - status
 

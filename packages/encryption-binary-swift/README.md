@@ -230,8 +230,10 @@ live grant.
 When biometrics are unavailable, not enrolled, or locked out after too many
 failures, there is nothing to embed. The panel falls back to its confirm button
 raising the standard system dialog under `deviceOwnerAuthentication`, which still
-accepts the device password. An ungated key keeps the plain button flow, and shows
-no panel at all unless a prompt was forced.
+accepts the device password. That fallback stays button-driven rather than arming
+itself, since it is the shape this flow already had in the field. An ungated key
+keeps the plain button flow, and shows no panel at all unless a prompt was forced.
+`_VARLOCK_EMBEDDED_PROMPT=0` forces the fallback on a machine that could embed.
 
 Two answers other than yes:
 
@@ -391,9 +393,37 @@ embedded view still opens the custody key with no further UI, which is what the
 panel depends on. `"embedded-handoff-lost"` means it does not, and the panel would
 have to go back to raising the system dialog.
 
-The half a program cannot check is that no separate dialog appeared. That is what
-the person running it confirms: the Touch ID prompt should be inside the probe
+Verified `embedded-single-scan` on macOS 26.1 (Apple silicon, Touch ID), from an
+unsigned `swift build` binary with no app bundle: one scan in the probe's own
+window, then two custody unwraps under `interactionNotAllowed` with no second
+prompt.
+
+`--verbose` streams a timestamped lifecycle log to stderr, and the same log is in
+the JSON either way. `--timeout <seconds>` shortens the wait. The log is the thing
+to send when the prompt does not arm: it records `canEvaluatePolicy` and the
+biometry type, whether the view is bound to the same context that gets evaluated,
+the view's intrinsic and actual size, whether the window was key and the app
+active, the exact moment `evaluatePolicy` was invoked, and its completion verbatim.
+A heartbeat every two seconds adds the view's subview and layer counts, which is
+how a prompt that is waiting for a finger can be told from one that never engaged.
+
+The one thing a program cannot check is that no separate dialog appeared. That is
+what the person running it confirms: the Touch ID prompt should be inside the probe
 window, with nothing else popping up.
+
+### If the inline prompt does not arm
+
+It failed to arm once during development: the window drew its labels, no
+fingerprint glyph appeared, the sensor did nothing, and no system dialog appeared
+either. The cause was ordering. `evaluatePolicy` was being called before
+`NSApplication.run()`, so the evaluation started with no run loop pumping and the
+inline UI never attached to the view. Both the probe and the panel now evaluate
+from inside the running loop, and both pin the view to a real size rather than
+letting a stack view collapse something that reports no intrinsic size.
+
+If it ever regresses, `_VARLOCK_EMBEDDED_PROMPT=0` on the daemon sends the panel
+back to the system dialog raised by its own button. That costs a gesture and never
+weakens the check.
 
 ### End-to-end check (no human needed)
 

@@ -429,8 +429,17 @@ final class ApprovalPanel: NSObject {
         row.alignment = .centerY
         row.spacing = 8
 
-        let authView = LAAuthenticationView(context: context)
+        let authView = LAAuthenticationView(context: context, controlSize: .regular)
         authView.translatesAutoresizingMaskIntoConstraints = false
+        // The view reports no intrinsic size (it answers -1 on both axes), so a
+        // stack view is free to collapse it, and a collapsed view draws no glyph
+        // and catches no touch. Pin it to the size it says it wants to be, with a
+        // floor so it can never end up invisible.
+        let fitting = authView.fittingSize
+        NSLayoutConstraint.activate([
+            authView.widthAnchor.constraint(equalToConstant: max(fitting.width, 32)),
+            authView.heightAnchor.constraint(equalToConstant: max(fitting.height, 32)),
+        ])
         row.addArrangedSubview(authView)
         row.addArrangedSubview(label("Touch ID to approve", size: NSFont.systemFontSize, color: .labelColor))
 

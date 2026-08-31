@@ -674,7 +674,8 @@ final class IdentitySessionManager {
         let context = LAContext()
 
         var biometricError: NSError?
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &biometricError) {
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &biometricError),
+           UiAvailability.embeddedPromptEnabled {
             return PresenceAttempt(
                 context: context,
                 mode: .embedded,
