@@ -34,6 +34,11 @@ export default defineConfig([
     define: integrationIdentity,
   },
   // Other entry points only run at build time where varlock is always available.
+  // These require() varlock's runtime entry points, which is why varlock ships real CJS
+  // builds of them (`require` condition): require() of an .mjs file breaks Node <22.12
+  // (no require(esm)) and breaks Next's next.config.ts loader, whose require hook
+  // re-transpiles required .mjs files to CJS but Node still evaluates them as ESM
+  // ("exports is not defined in ES module scope").
   {
     entry: [
       'src/plugin.ts',

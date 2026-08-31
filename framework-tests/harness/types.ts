@@ -86,6 +86,8 @@ export interface TestScenario {
   templateFiles?: TemplateFileMap;
   /** Inline files to write (written after templateFiles, can override) */
   files?: Array<ProjectFile>;
+  /** Skeleton files to delete for this scenario (restored from _base before the next one) */
+  deleteFiles?: Array<string>;
   /** Extra env vars for the build command */
   env?: Record<string, string>;
   /** Command to run (auto-prefixed with `{pm} exec`, e.g. 'next build' → 'pnpm exec next build') */
@@ -181,6 +183,8 @@ export interface DevServerScenario {
   templateFiles?: TemplateFileMap;
   /** Inline files to write */
   files?: Array<ProjectFile>;
+  /** Skeleton files to delete for this scenario (restored from _base before the next one) */
+  deleteFiles?: Array<string>;
   /** Extra env vars for the dev server process */
   env?: Record<string, string>;
   /** Command to run (auto-prefixed with `{pm} exec`) */

@@ -20,6 +20,12 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Use catalog for any potentially common dependencies
 - CI workflows use `bun run` to execute scripts and `bunx` for one-off commands
 
+## Building
+
+- `bun run build` at the repo root builds all packages via Turborepo, in dependency order
+- To build a single package, go through turbo so its workspace deps build first: `bunx turbo run build` from the package directory, or `bunx turbo run build --filter=<pkg>` from the root
+- Do **not** build a package with `bun run --filter <pkg> build`: bun's filter does not build the package's workspace dependencies, and some builds require their dist output to exist (e.g. varlock's d.ts bundling inlines the emitted declarations from `packages/utils`, so it fails if that package was never built)
+
 ## Scripts
 
 - Write any scripts which may end up being saved in **TypeScript** (`.ts`), not JavaScript

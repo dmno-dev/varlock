@@ -80,8 +80,14 @@
     },
     "./env": {
       "ts-src": "./src/runtime/env.ts",
-      "types": "./dist/runtime/env.d.mts",
-      "import": "./dist/runtime/env.mjs",
+      "import": {
+        "types": "./dist/runtime/env.d.mts",
+        "default": "./dist/runtime/env.mjs"
+      },
+      "require": {
+        "types": "./dist/runtime/env.d.cts",
+        "default": "./dist/runtime/env.cjs"
+      },
       "default": "./dist/runtime/env.mjs"
     },
     "./auto-load": {
@@ -92,8 +98,14 @@
     },
     "./patch-console": {
       "ts-src": "./src/runtime/patch-console.ts",
-      "types": "./dist/runtime/patch-console.d.mts",
-      "import": "./dist/runtime/patch-console.mjs",
+      "import": {
+        "types": "./dist/runtime/patch-console.d.mts",
+        "default": "./dist/runtime/patch-console.mjs"
+      },
+      "require": {
+        "types": "./dist/runtime/patch-console.d.cts",
+        "default": "./dist/runtime/patch-console.cjs"
+      },
       "default": "./dist/runtime/patch-console.mjs"
     },
     "./patch-response": {
@@ -104,8 +116,14 @@
     },
     "./patch-server-response": {
       "ts-src": "./src/runtime/patch-server-response.ts",
-      "types": "./dist/runtime/patch-server-response.d.mts",
-      "import": "./dist/runtime/patch-server-response.mjs",
+      "import": {
+        "types": "./dist/runtime/patch-server-response.d.mts",
+        "default": "./dist/runtime/patch-server-response.mjs"
+      },
+      "require": {
+        "types": "./dist/runtime/patch-server-response.d.cts",
+        "default": "./dist/runtime/patch-server-response.cjs"
+      },
       "default": "./dist/runtime/patch-server-response.mjs"
     },
     "./init-server": {
@@ -122,14 +140,26 @@
     },
     "./encrypt-env": {
       "ts-src": "./src/runtime/crypto.ts",
-      "types": "./dist/runtime/crypto.d.mts",
-      "import": "./dist/runtime/crypto.mjs",
+      "import": {
+        "types": "./dist/runtime/crypto.d.mts",
+        "default": "./dist/runtime/crypto.mjs"
+      },
+      "require": {
+        "types": "./dist/runtime/crypto.d.cts",
+        "default": "./dist/runtime/crypto.cjs"
+      },
       "default": "./dist/runtime/crypto.mjs"
     },
     "./exec-sync-varlock": {
       "ts-src": "./src/lib/exec-sync-varlock.ts",
-      "types": "./dist/lib/exec-sync-varlock.d.mts",
-      "import": "./dist/lib/exec-sync-varlock.mjs",
+      "import": {
+        "types": "./dist/lib/exec-sync-varlock.d.mts",
+        "default": "./dist/lib/exec-sync-varlock.mjs"
+      },
+      "require": {
+        "types": "./dist/lib/exec-sync-varlock.d.cts",
+        "default": "./dist/lib/exec-sync-varlock.cjs"
+      },
       "default": "./dist/lib/exec-sync-varlock.mjs"
     },
     "./config": {

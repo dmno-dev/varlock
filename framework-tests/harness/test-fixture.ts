@@ -229,7 +229,7 @@ export class FrameworkTestEnv {
    * isolated — e.g. a config override or extra route from one scenario
    * doesn't silently carry over into the next.
    */
-  private applyFiles(scenario: Pick<TestScenario, 'templateFiles' | 'files'>): void {
+  private applyFiles(scenario: Pick<TestScenario, 'templateFiles' | 'files' | 'deleteFiles'>): void {
     for (const dest of this.prevScenarioFiles) {
       const basePath = join(this.filesDir, '_base', dest);
       const destPath = join(this.dir, dest);
@@ -272,6 +272,16 @@ export class FrameworkTestEnv {
           content = `${content}\n${srcRef.append}`;
         }
         writeFileSync(destPath, content);
+      }
+    }
+
+    // Delete skeleton files this scenario doesn't want (e.g. _base/next.config.mjs
+    // when testing next.config.ts, which Next would otherwise ignore). Tracking them
+    // in prevScenarioFiles restores the _base version before the next scenario.
+    if (scenario.deleteFiles) {
+      for (const dest of scenario.deleteFiles) {
+        this.prevScenarioFiles.add(dest);
+        rmSync(join(this.dir, dest), { force: true });
       }
     }
 
