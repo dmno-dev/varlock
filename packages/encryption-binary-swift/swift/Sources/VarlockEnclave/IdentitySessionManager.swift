@@ -644,7 +644,10 @@ final class IdentitySessionManager {
         /// two a way to disagree.
         func evaluate(reason: String, completion: @escaping (Result<PresenceProof, Error>) -> Void) {
             context.evaluatePolicy(policy, localizedReason: reason) { [context, resolvedPolicy] success, error in
-                DispatchQueue.main.async {
+                // Not `DispatchQueue.main.async`: the panel is drawn from inside a
+                // main-queue work item, so a block posted to that queue would wait
+                // for the panel to close before delivering the panel's own answer.
+                MainLoop.perform {
                     guard success else {
                         // Deliberately not invalidated: the panel may offer another
                         // go, and the embedded view is bound to this context.

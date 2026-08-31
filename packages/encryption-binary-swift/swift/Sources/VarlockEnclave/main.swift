@@ -202,6 +202,12 @@ case "probe-session-unlock":
 
 // MARK: - probe-embedded-unlock (manual, needs a real Mac + enrolled biometrics)
 
+case "probe-laright":
+    jsonSuccess(LARightProbe.run(
+        verbose: args.contains("--verbose"),
+        timeoutSeconds: TimeInterval(getArg("--timeout").flatMap { Double($0) } ?? 60)
+    ))
+
 case "probe-embedded-unlock":
     let embeddedProbeKeyId = getArg("--key-id") ?? defaultKeyId
     let embeddedProbeTimeout = TimeInterval(getArg("--timeout").flatMap { Double($0) } ?? 60)
@@ -836,6 +842,8 @@ case "help", "--help", "-h":
                                              whole unlock on this machine
       probe-embedded-unlock [--key-id <id>]  Same check for the panel's embedded
                                              Touch ID prompt
+      probe-laright                          Spike: does LARight draw its prompt
+                                             inline, and can its key hold our wrap
 
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)

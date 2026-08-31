@@ -302,6 +302,24 @@ and drop the `--no-auth` flag: with a gated key, `unlock-session` shows the pane
 The panel is what `varlock load` shows against a gated key, so that is the better
 check: it exercises the same path a user actually meets.
 
+`scripts/e2e-panel-arming.ts` covers the part a person cannot see, which is that the
+presence check is actually armed. Run it first; if it fails, the panel is inert and
+there is no point looking at it:
+
+```bash
+swift build --package-path swift
+bun run scripts/e2e-panel-arming.ts
+```
+
+It creates a real gated key, so a Touch ID prompt appears for a moment. Nobody needs
+to answer it.
+
+The first run on a machine with no keys yet has its own sequence worth watching once:
+the "Setting up biometrics" panel appears first (Continue, or it closes itself after
+20 seconds), and then the unlock panel must come to the front. If the system draws
+its own authentication alert over the panel that is fine, but when that alert closes
+the unlock panel has to be the thing in front, with its controls live.
+
 What to check by hand:
 
 - **there is a Touch ID glyph in the panel** (ours, the system's, or the system's
@@ -440,14 +458,18 @@ Two earlier failures are fixed and were real, but neither was the cause of that:
 - the view reports no intrinsic size on either axis (`-1`), so a stack view is free
   to collapse it to nothing. Both now pin it to a real size.
 
-**There is no reliable way to detect which presentation happened.** Two signals were
-tried and both are unsound. Checking whether the bound view drew anything of its own
-gives a false positive: it builds internal layers and subviews whether or not it
-presents, so it reports "inline" during a run the user watched present a separate
-alert. Scanning on-screen windows for an authentication agent gives a false negative:
-no such window was listed during that same run. The probe logs both as raw
-observations and labels the derived `presentation` field accordingly, but the honest
-answer is that only a person looking at the screen can tell.
+**Detecting which presentation happened is unreliable.** Checking whether the bound
+view drew anything of its own is a false positive: it builds internal layers and
+subviews whether or not it presents, so it reported "inline" during a run that was
+watched presenting a separate alert. Scanning on-screen windows for an
+authentication agent is better but not dependable: it listed nothing during one run
+that visibly presented an alert, and correctly caught `coreautha` during another.
+The probe logs both as raw observations. Treat a positive window sighting as real
+evidence and its absence as no evidence, and remember that only a person looking at
+the screen can settle it.
+
+Presentation also appears to be **nondeterministic**: across rounds the same build
+has produced the standard alert on some runs and nothing at all on others.
 
 Because of that, the panel does not depend on the answer. It draws its own Touch ID
 glyph, with the system's view layered on top: if the system renders inline, its
@@ -458,6 +480,62 @@ system alert in the second.
 `_VARLOCK_EMBEDDED_PROMPT=0` on the daemon skips the inline view entirely and goes
 back to the system dialog raised by the panel's own button. No blank area, one extra
 gesture, and the check is never weakened.
+
+#### The panel must arm from the run loop, not the main queue
+
+The daemon reaches the panel from a background IPC thread, so it draws the panel
+inside a `DispatchQueue.main.sync` work item and then spins a nested modal loop
+there. The main queue is serial: anything posted to it with
+`DispatchQueue.main.async` cannot run until that enclosing item returns, which does
+not happen while the panel is up. The panel kept drawing, so it looked fine, while
+the block that starts the Touch ID evaluation, the 120s timeout, and the
+evaluation's own completion handler all sat in the queue unreached.
+
+That is why a panel could appear with a fingerprint glyph, a dead sensor, and no
+system prompt anywhere: nothing was ever armed, and a bound `LAAuthenticationView`
+suppresses the standard alert while its evaluation is not running. The probe never
+hit it, because it owns its run loop through `NSApplication.run()`.
+
+Everything the panel schedules now goes through `MainLoop`, which posts run-loop
+blocks and timers in the common and modal-panel modes rather than main-queue items.
+`scripts/e2e-panel-arming.ts` asserts the arming happens, so this cannot regress
+quietly.
+
+#### LARight does not appear to change the answer either
+
+WWDC22's "Streamline local authorization flows" presents `LARight` as the API whose
+system-driven UI renders inside the application window, so it was worth a spike:
+`probe-laright` drives `LARight.authorize` with an `LAAuthenticationView` on screen
+to watch. On macOS 26.1, unsigned dev build, one run recorded:
+
+```
+authorize-completed authAgentWindows=coreautha error=<none> state=2 inlineViewDrewSomething=false
+```
+
+The authorization succeeded, our view drew nothing, and the system authentication
+agent had a window on screen. That is the standard alert again, not an inline
+prompt.
+
+The custody half is blocked earlier still. A persisted right is what owns a key, and
+creating one fails here:
+
+```
+custody-save-failed error=... (OSStatus error -34018 ...)
+```
+
+`-34018` is `errSecMissingEntitlement`: `LARightStore` needs a keychain access group
+entitlement the current build does not carry. So an `LARight`-backed custody key is
+not a small change. It would need entitlement work before the interesting question
+(whether `LAPrivateKey.exchangeKeys` can serve our ECIES unwrap, which the headers
+say it should) can even be asked on this machine.
+
+Worth knowing for whoever picks this up: the pieces do line up on paper.
+`LAPersistedRight.key` is a Secure Enclave `LAPrivateKey`, and it advertises
+`exchangeKeys(publicKey:algorithm:parameters:)` with
+`kSecKeyAlgorithmECDHKeyExchangeCofactorX963SHA256`, which is exactly the ECDH our
+wrap format performs. Migration would also be cheap in this architecture: an
+identity can carry more than one wrap, so a right-backed key can be added as an
+extra wrap and the old one retired later, with no stored value re-encrypted.
 
 #### Bundle identity is not the explanation
 

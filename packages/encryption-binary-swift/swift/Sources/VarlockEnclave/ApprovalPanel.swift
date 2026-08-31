@@ -85,6 +85,10 @@ final class ApprovalPanel: NSObject {
     ) -> Outcome? {
         guard UiAvailability.canShowUi() else { return nil }
 
+        PanelDebug.note("present-called", [
+            "mode": String(describing: attempt?.mode ?? .none),
+            "onMainThread": Thread.isMainThread,
+        ])
         var outcome: Outcome?
         let work = {
             let panel = ApprovalPanel()
@@ -93,8 +97,12 @@ final class ApprovalPanel: NSObject {
         if Thread.isMainThread {
             work()
         } else {
+            // The IPC handler is on a background queue, so the panel is drawn from
+            // inside a main-queue work item. Everything the panel schedules has to
+            // survive that; see `MainLoop`.
             DispatchQueue.main.sync { work() }
         }
+        PanelDebug.note("present-returned", ["approved": outcome?.decision.approved ?? false])
         return outcome
     }
 
@@ -111,6 +119,13 @@ final class ApprovalPanel: NSObject {
         self.presenceReason = presenceReason
         let mode = attempt?.mode ?? .none
         flow = ApprovalFlow(content: content, presenceMode: mode)
+        if let attempt {
+            PanelDebug.note("presence-attempt", [
+                "mode": String(describing: mode),
+                "contextInstance": String(UInt(bitPattern: ObjectIdentifier(attempt.context).hashValue), radix: 16),
+                "interactionNotAllowed": attempt.context.interactionNotAllowed,
+            ])
+        }
 
         let alert = NSAlert()
         self.alert = alert
@@ -142,26 +157,55 @@ final class ApprovalPanel: NSObject {
         alert.window.level = .floating
         NSApp.activate(ignoringOtherApps: true)
         alert.layout()
+        PanelDebug.note("panel-shown", [
+            "isVisible": alert.window.isVisible,
+            "isKeyWindow": alert.window.isKeyWindow,
+            "appIsActive": NSApp.isActive,
+            "occlusion": alert.window.occlusionState.contains(.visible) ? "visible" : "occluded",
+        ])
 
-        // An unanswered panel must not pin a client socket open forever.
+        // Everything below is scheduled through `MainLoop`, never
+        // `DispatchQueue.main.async`. The daemon reaches this code from a
+        // background IPC thread via `DispatchQueue.main.sync`, so the main queue
+        // has a work item in flight for as long as the panel is up, and anything
+        // posted back to that queue would not run until the panel had already
+        // closed. That is what silently stopped the presence check from ever being
+        // armed: a panel with a glyph, a dead sensor, and no prompt anywhere.
         timedOut = false
-        let deadline = DispatchWorkItem { [weak self] in
+        let deadline = MainLoop.after(Self.timeoutSeconds) { [weak self] in
             guard let self, !self.timedOut, self.modalRunning else { return }
             self.timedOut = true
+            PanelDebug.note("timed-out")
             NSApp.abortModal()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.timeoutSeconds, execute: deadline)
 
         // Arm the prompt once the modal loop is running, so it has a live window.
         modalRunning = true
-        DispatchQueue.main.async { [weak self] in
+        MainLoop.perform { [weak self] in
             guard let self else { return }
+            // The modal is up now, so take the front for real. If the system puts
+            // its own alert over us it is welcome to, but when that closes this
+            // panel has to be what the user is looking at, not something buried
+            // behind the window that stole focus.
+            self.bringToFront()
             self.perform(effect: self.flow.start())
         }
+
+        let heartbeat = PanelDebug.isEnabled ? MainLoop.every(2) { [weak self] in
+            guard let self else { return }
+            PanelDebug.note("heartbeat", [
+                "state": String(describing: self.flow.state),
+                "isKeyWindow": alert.window.isKeyWindow,
+                "isVisible": alert.window.isVisible,
+                "appIsActive": NSApp.isActive,
+                "authAgentWindows": EmbeddedUnlockProbe.authAgentWindowOwners().joined(separator: ","),
+            ])
+        } : nil
 
         _ = alert.runModal()
         modalRunning = false
         deadline.cancel()
+        heartbeat?.cancel()
 
         // The flow is the authority on what was answered, not the button code:
         // Cancel is the first button in embedded mode and the second otherwise.
@@ -180,6 +224,24 @@ final class ApprovalPanel: NSObject {
         return Outcome(decision: decision, proof: proof)
     }
 
+    /// Take the front, so the panel is what the user sees.
+    ///
+    /// Called once the modal is running, and again whenever a presence check ends
+    /// without an answer: the system's own alert steals focus while it is up, and
+    /// when it goes away the panel underneath has to come back rather than sit
+    /// behind whatever was in front before.
+    private func bringToFront() {
+        guard let window = alert?.window else { return }
+        window.level = .floating
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        PanelDebug.note("brought-to-front", [
+            "isKeyWindow": window.isKeyWindow,
+            "isVisible": window.isVisible,
+            "appIsActive": NSApp.isActive,
+        ])
+    }
+
     /// A context nobody is going to use must not be left alive.
     private func invalidateProof() {
         proof?.context.invalidate()
@@ -189,6 +251,11 @@ final class ApprovalPanel: NSObject {
     // MARK: - Flow
 
     private func perform(effect: ApprovalFlowEffect) {
+        PanelDebug.note("flow-effect", [
+            "effect": String(describing: effect),
+            "state": String(describing: flow.state),
+            "scope": flow.scope.rawValue,
+        ])
         switch effect {
         case .beginScan:
             retryButton?.isHidden = true
@@ -201,6 +268,8 @@ final class ApprovalPanel: NSObject {
             confirmButton?.isEnabled = true
             if flow.presenceMode == .embedded { retryButton?.isHidden = false }
             setStatus(failureHint())
+            // A check that just ended may have had a system alert over us.
+            if flow.failedScans > 0 { bringToFront() }
         case .finish(let decision):
             NSApp.stopModal(withCode: decision.approved
                 ? Self.flowFinishedResponse
@@ -209,8 +278,25 @@ final class ApprovalPanel: NSObject {
     }
 
     private func beginScan() {
-        guard let attempt else { return }
+        guard let attempt else {
+            PanelDebug.note("begin-scan-skipped", ["reason": "no presence attempt"])
+            return
+        }
+        PanelDebug.note("evaluatePolicy-invoked", [
+            "mode": String(describing: attempt.mode),
+            "contextInstance": String(UInt(bitPattern: ObjectIdentifier(attempt.context).hashValue), radix: 16),
+            "reason": presenceReason,
+        ])
         attempt.evaluate(reason: presenceReason) { [weak self] result in
+            switch result {
+            case .success:
+                PanelDebug.note("evaluatePolicy-completed", ["success": true])
+            case .failure(let error):
+                PanelDebug.note("evaluatePolicy-completed", [
+                    "success": false,
+                    "error": error.localizedDescription,
+                ])
+            }
             guard let self, self.modalRunning else {
                 if case .success(let proof) = result { proof.context.invalidate() }
                 return

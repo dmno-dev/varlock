@@ -1,0 +1,222 @@
+/**
+ * Checks that the daemon's approval panel actually ARMS its user-presence check.
+ *
+ * The panel drawing is not the thing that can silently break. What broke, and what
+ * nobody could see, is the evaluation behind it never starting: the panel appeared
+ * with its Touch ID glyph, the sensor did nothing, and no system prompt came up
+ * either, because the bound view suppresses the standard alert while the
+ * evaluation is not running. There was no scan surface anywhere, and every visible
+ * part looked correct.
+ *
+ * The cause was scheduling. The IPC handler is on a background queue, so the panel
+ * is drawn from inside a `DispatchQueue.main.sync` work item, and the arming was
+ * posted with `DispatchQueue.main.async`. The main queue is serial, so that block
+ * could not run until the enclosing item returned, which it never does while the
+ * modal loop is up. The probe never hit this because it owns its run loop.
+ *
+ * So this asserts the one thing that proves the wiring is live, and that a person
+ * cannot check by looking: `evaluatePolicy` is invoked within a couple of seconds
+ * of the panel opening. Completing the scan still needs a finger. Arming does not.
+ *
+ * Needs a Mac with a Secure Enclave, enrolled biometrics, and a desktop session:
+ * it creates a REAL gated key, so macOS will put a Touch ID prompt on screen for a
+ * moment. Nobody has to answer it; the daemon is killed as soon as the assertion
+ * is made. Run it after building:
+ *
+ *   swift build --package-path packages/encryption-binary-swift/swift
+ *   bun run packages/encryption-binary-swift/scripts/e2e-panel-arming.ts
+ */
+
+import net from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+import { createKeyPair } from '../../varlock/src/lib/local-encrypt/crypto';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const binary = path.resolve(here, '../swift/.build/debug/VarlockEnclave');
+
+if (!fs.existsSync(binary)) {
+  throw new Error(`binary not built at ${binary}; run: swift build --package-path packages/encryption-binary-swift/swift`);
+}
+
+/** How long the panel gets to arm before we call it broken. */
+const ARMING_DEADLINE_MS = 5_000;
+
+const KEY_ID = 'varlock-e2e-panel-arming';
+const IDENTITY_ID = 'default';
+
+const configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-arming-'));
+const env = { ...process.env, XDG_CONFIG_HOME: configHome };
+
+let failures = 0;
+function check(label: string, condition: boolean, detail?: unknown) {
+  if (condition) {
+    console.log(`  ok   ${label}`);
+  } else {
+    failures++;
+    console.log(`  FAIL ${label}${detail === undefined ? '' : ` -> ${JSON.stringify(detail)}`}`);
+  }
+}
+
+function runBinary(args: Array<string>): any {
+  return JSON.parse(execFileSync(binary, args, { env, encoding: 'utf-8' }));
+}
+
+function send(socket: net.Socket, action: string, payload?: Record<string, unknown>) {
+  const body = Buffer.from(JSON.stringify({ id: Math.random().toString(36).slice(2), action, payload }), 'utf-8');
+  const prefix = Buffer.alloc(4);
+  prefix.writeUInt32LE(body.length, 0);
+  socket.write(Buffer.concat([prefix, body]));
+}
+
+// -- a real gated key, which is the whole point: an ungated one never prompts --
+
+console.log(`config home: ${configHome}`);
+
+// Skip the one-time "setting up biometrics" panel. It is real and wanted, but it
+// blocks `generate-key` on a human (or its own 20s auto-dismiss), and this script
+// is about what happens after. The first-run sequence has its own manual check in
+// the README.
+fs.mkdirSync(path.join(configHome, 'varlock', 'secure-enclave'), { recursive: true, mode: 0o700 });
+fs.writeFileSync(path.join(configHome, 'varlock', 'secure-enclave', '.setup-shown'), '');
+
+const generated = runBinary(['generate-key', '--key-id', KEY_ID]);
+check('gated custody key created', generated.ok === true, generated);
+
+const identityKeyPair = await createKeyPair();
+const wrapped = runBinary([
+  'encrypt',
+  '--key-id',
+  KEY_ID,
+  '--data',
+  Buffer.from(identityKeyPair.privateKey, 'utf-8').toString('base64'),
+]);
+fs.mkdirSync(path.join(configHome, 'varlock', 'identities'), { recursive: true, mode: 0o700 });
+fs.writeFileSync(
+  path.join(configHome, 'varlock', 'identities', `${IDENTITY_ID}.json`),
+  `${JSON.stringify({
+    version: 1,
+    id: IDENTITY_ID,
+    publicKey: identityKeyPair.publicKey,
+    wraps: { [KEY_ID]: wrapped.ciphertext },
+    createdAt: new Date().toISOString(),
+  }, null, 2)}\n`,
+  { mode: 0o600 },
+);
+
+async function armingRun(
+  label: string,
+  slug: string,
+  extraEnv: Record<string, string>,
+  expectArming: boolean,
+) {
+  console.log(`\n${label}`);
+  // Short, because a unix socket path has a hard length limit and the scratch
+  // directory already eats most of it.
+  const socket = path.join(configHome, `${slug}.sock`);
+  let stderr = '';
+  const daemon = spawn(
+    binary,
+    ['daemon', '--socket-path', socket, '--pid-path', `${socket}.pid`],
+    { env: { ...env, _VARLOCK_PANEL_DEBUG: '1', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  daemon.stderr.on('data', (d) => {
+    stderr += d.toString();
+  });
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let out = '';
+      daemon.stdout.on('data', (d) => {
+        out += d.toString();
+        if (out.includes('"ready"')) resolve();
+      });
+      daemon.on('exit', (code) => reject(new Error(`daemon exited early with code ${code}: ${out}`)));
+      setTimeout(() => reject(new Error('daemon did not become ready')), 10_000);
+    });
+
+    const client = net.createConnection(socket);
+    await new Promise((resolve) => {
+      client.once('connect', resolve);
+    });
+
+    // Deliberately not awaited: with a gated key this call blocks on a human, and
+    // the human is the part we are doing without.
+    send(client, 'unlock-session', { keyIds: [KEY_ID], scope: 'session' });
+
+    const deadline = Date.now() + ARMING_DEADLINE_MS;
+    while (Date.now() < deadline && !stderr.includes('evaluatePolicy-invoked')) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+
+    check('the panel was shown', stderr.includes('panel-shown'), stderr.slice(-400));
+
+    // Assert on the ORDER of the flow's effects rather than on what has or has
+    // not happened by a deadline. Someone sitting at this machine can press the
+    // panel's button while the script runs, and a timing-based check would call
+    // that a failure; the order is the thing that actually encodes the design.
+    const firstEffect = stderr.match(/flow-effect .*effect=(\w+)/)?.[1];
+    if (expectArming) {
+      check('the check is armed as the panel opens', firstEffect === 'beginScan', { firstEffect });
+      check(
+        `evaluatePolicy was invoked within ${ARMING_DEADLINE_MS}ms of the panel opening`,
+        stderr.includes('evaluatePolicy-invoked'),
+        stderr.slice(-600),
+      );
+    } else {
+      check('the panel waits rather than arming on open', firstEffect === 'showControls', { firstEffect });
+      // If a button did get pressed (a human at the keyboard, or a later round),
+      // arming still has to have gone through the flow rather than happening on
+      // its own.
+      if (stderr.includes('evaluatePolicy-invoked')) {
+        check(
+          'the fallback arms only after the button, and does arm then',
+          /effect=showControls[\s\S]*effect=beginScan[\s\S]*evaluatePolicy-invoked/.test(stderr),
+          stderr.slice(-600),
+        );
+      }
+    }
+    client.destroy();
+  } finally {
+    daemon.kill('SIGKILL');
+    await new Promise((resolve) => {
+      setTimeout(resolve, 300);
+    });
+  }
+  return stderr;
+}
+
+try {
+  // The shipped default: the check is armed as the panel opens, so the scan is
+  // the approval.
+  const armed = await armingRun('embedded prompt (default)', 'embedded', {}, true);
+  check(
+    'the presence attempt is bound to the context that gets evaluated',
+    /presence-attempt .*contextInstance=(\w+)/.test(armed)
+      && (() => {
+        const bound = armed.match(/presence-attempt .*contextInstance=(\w+)/)?.[1];
+        const evaluated = armed.match(/evaluatePolicy-invoked .*contextInstance=(\w+)/)?.[1];
+        return Boolean(bound) && bound === evaluated;
+      })(),
+    armed.slice(-600),
+  );
+
+  // The escape hatch, which people are told to reach for when the inline prompt
+  // misbehaves. It must wait for the button rather than arming on open, and it
+  // must still arm when that button is pressed.
+  await armingRun('system dialog fallback', 'fallback', { _VARLOCK_EMBEDDED_PROMPT: '0' }, false);
+} finally {
+  try {
+    runBinary(['delete-key', '--key-id', KEY_ID]);
+  } catch { /* best effort */ }
+  fs.rmSync(configHome, { recursive: true, force: true });
+}
+
+console.log(failures === 0 ? '\npanel arming checks passed' : `\n${failures} check(s) failed`);
+process.exit(failures === 0 ? 0 : 1);
