@@ -288,15 +288,22 @@ try {
   // panel not yet drawn, so one finger cannot do both jobs.
   const firstUse = await armingRun('first use (setup step)', 'setup', {}, false, { skipSetupMarker: true });
   check('the setup scan was raised', firstUse.includes('setup-presence-begin'), firstUse.slice(-400));
+  // Asserted as an ORDER, not an absence: somebody sitting at this machine can
+  // answer the setup prompt while the script runs, and the panel then appears
+  // exactly as designed. What must never happen is the panel being up while the
+  // setup prompt is, or a scan being armed before setup finished.
+  const setupDone = firstUse.indexOf('setup-presence-completed');
+  const firstPanel = firstUse.indexOf('panel-shown');
+  const firstScan = firstUse.indexOf('evaluatePolicy-invoked');
   check(
     'nothing was drawn behind the setup prompt',
-    !firstUse.includes('panel-shown'),
-    firstUse.slice(-600),
+    firstPanel === -1 || (setupDone !== -1 && setupDone < firstPanel),
+    { setupDone, firstPanel },
   );
   check(
-    'and no approval scan was armed by it',
-    !firstUse.includes('evaluatePolicy-invoked'),
-    firstUse.slice(-600),
+    'and no approval scan was armed until setup was finished',
+    firstScan === -1 || (setupDone !== -1 && setupDone < firstScan),
+    { setupDone, firstScan },
   );
 
   // The shipped default: the check is armed once the panel has been readable

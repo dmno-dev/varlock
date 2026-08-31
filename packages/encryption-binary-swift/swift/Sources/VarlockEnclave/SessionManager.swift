@@ -57,7 +57,9 @@ final class SessionManager {
     /// fingerprint out of nowhere. Every presence check now happens with our
     /// panel already on screen; the only exception is the one-time setup step,
     /// which says what it is.
-    var authorize: ((_ reason: String, _ peerPid: pid_t?) throws -> LAContext)?
+    /// The wording is not passed in: the panel owns what the user is told, and
+    /// what the system's own sheet says is derived from the same content.
+    var authorize: ((_ peerPid: pid_t?) throws -> LAContext)?
 
     private var daemonTimer: DispatchSourceTimer?
 
@@ -94,7 +96,7 @@ final class SessionManager {
         // mean the lock waiting on the panel and the panel waiting on the main
         // thread the lock is blocking.
         if let authorize {
-            let approved = try authorize("decrypt your secrets", peerPid)
+            let approved = try authorize(peerPid)
             queue.sync {
                 if let key = sessionId { contexts[key] = approved }
                 resetDaemonTimer()

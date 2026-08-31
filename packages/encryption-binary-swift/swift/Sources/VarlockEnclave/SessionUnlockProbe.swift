@@ -116,10 +116,7 @@ enum SessionUnlockProbe {
         var evalError: Error?
         context.evaluatePolicy(
             policy,
-            localizedReason: IdentitySessionManager.unlockReason(
-                identityId: IdentityStore.defaultIdentityId,
-                keyIds: [keyId]
-            )
+            localizedReason: "unlock \(UnlockPanelContent.displayName(forKeyId: keyId))"
         ) { success, error in
             if !success { evalError = error }
             semaphore.signal()

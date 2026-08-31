@@ -402,7 +402,7 @@ case "daemon":
     /// straight to `evaluatePolicy`, which is the system sheet with nothing
     /// behind it. It now draws the same panel every other release goes through,
     /// so there is no path to a secret that does not say who is asking first.
-    sessionManager.authorize = { [weak identitySessions] reason, peerPid in
+    sessionManager.authorize = { [weak identitySessions] peerPid in
         guard let identitySessions else {
             throw IdentitySessionManager.IdentitySessionError.noUi
         }
@@ -428,9 +428,10 @@ case "daemon":
             confirmButtonTitle: "Unlock"
         )
         let attempt = identitySessions.beginPresence()
+        // The sheet says what the panel says, in the shortest form that is true.
         guard let outcome = ApprovalPanel.present(
             content: content,
-            presenceReason: reason,
+            presenceReason: content.presenceReason,
             attempt: attempt
         ) else {
             attempt?.context.invalidate()

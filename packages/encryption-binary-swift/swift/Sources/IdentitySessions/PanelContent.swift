@@ -111,6 +111,18 @@ public struct PanelKeyRow: Equatable {
         self.note = note
     }
 
+    /// What this key is called out loud, in the one-line sentence macOS builds
+    /// for its own sheet.
+    ///
+    /// Never a key id: `varlock-default` is an implementation detail, and the
+    /// default key has no name of its own worth saying, so its vault (when there
+    /// is one) is the friendlier thing to name. Any other key is called what the
+    /// user called it.
+    public var spokenName: String {
+        if keyId == UnlockPanelContent.defaultKeyId { return vaultLabel ?? displayName }
+        return displayName
+    }
+
     /// "12 values", or nil when the client said nothing about how many.
     public var valueCountLabel: String? {
         guard let valueCount, valueCount > 0 else { return nil }
@@ -184,6 +196,17 @@ public struct PanelContent: Equatable {
         case .once: return "Once"
         case .duration: return "For a set time"
         }
+    }
+
+    /// The one line macOS puts in its own sheet, as a verb phrase.
+    ///
+    /// macOS builds the sentence itself ("Varlock is trying to ..."), so this is
+    /// only ever the tail of one. It is deliberately the shortest true thing:
+    /// the panel is the surface that says who is asking and what they get, and
+    /// repeating any of that on a sheet that covers the panel would be two
+    /// voices telling the same story badly. Key ids never appear.
+    public var presenceReason: String {
+        return UnlockPanelContent.presenceReason(forRows: keyRows)
     }
 
     /// Where the values listed under a key row came from. Said out loud on the
@@ -470,7 +493,7 @@ public enum UnlockPanelContent {
     /// The vault tag names the vault a key lives in. Without vaults there is only
     /// the local one, and a tag repeating the row's own name would be noise, so
     /// it is left off in that case.
-    static func row(for key: RequestedKey, display: UnlockDisplayInfo) -> PanelKeyRow {
+    public static func row(for key: RequestedKey, display: UnlockDisplayInfo) -> PanelKeyRow {
         let supplied = display.keys[key.keyId]
         let name = displayName(forKeyId: key.keyId)
         let vaultLabel = supplied?.vaultLabel ?? defaultKeyDisplayName
@@ -483,6 +506,23 @@ public enum UnlockPanelContent {
             files: supplied?.files ?? [],
             note: key.policy == .everyTime ? "asks every time" : nil
         )
+    }
+
+    /// The line macOS puts in its own sheet, for a set of key rows.
+    public static func presenceReason(forRows rows: [PanelKeyRow]) -> String {
+        let names = rows.map { $0.spokenName }
+        switch names.count {
+        case 0: return "unlock your encrypted values"
+        case 1: return "unlock \(names[0])"
+        case 2: return "unlock \(names[0]) and \(names[1])"
+        default: return "unlock \(names.count) encryption keys"
+        }
+    }
+
+    /// The same line for a bare list of keys, where there is no panel to take it
+    /// from.
+    public static func presenceReason(forKeyIds keyIds: [String], display: UnlockDisplayInfo) -> String {
+        return presenceReason(forRows: keyIds.map { row(for: RequestedKey(keyId: $0), display: display) })
     }
 
     /// What a key is called on the panel.

@@ -281,16 +281,44 @@ final class ApprovalPanel: NSObject {
         }
     }
 
-    /// Put the panel where a person is already looking: centred, a little above
-    /// the middle, so it does not land under the cursor or off a small screen.
+    /// Roughly how much of the middle of the screen macOS takes for its own
+    /// biometric sheet. Its exact size is not ours to know, so this is a
+    /// deliberate over-estimate: being too careful costs a little screen, being
+    /// too optimistic costs the user their view of what they are approving.
+    static let systemSheetHalfHeight: CGFloat = 190
+
+    /// Margin kept above the panel, and between the panel and the sheet.
+    static let screenMargin: CGFloat = 44
+
+    /// Put the panel where the system's own sheet cannot cover what matters.
+    ///
+    /// macOS centres its biometric sheet, and it lands on top of us: a panel
+    /// centred too was a panel the user could not read while the scan they were
+    /// answering was live. So the panel is anchored high instead, and the layout
+    /// puts everything that decides an answer (what is being unlocked, and who
+    /// is asking) above everything that merely takes it (scope, buttons). What
+    /// the sheet covers is the bottom of the panel.
+    ///
+    /// A panel too tall to clear the sheet entirely still sits as high as it
+    /// fits, so the top of it stays readable.
     private func positionOnScreen(_ window: NSWindow) {
         guard let screen = NSScreen.main else { return }
         let frame = window.frame
         let visible = screen.visibleFrame
-        window.setFrameOrigin(NSPoint(
-            x: visible.midX - frame.width / 2,
-            y: visible.midY - frame.height / 2 + visible.height * 0.12
-        ))
+
+        // As high as the screen allows.
+        let topAnchored = visible.maxY - Self.screenMargin - frame.height
+        // Or lower, if the panel is short enough to sit clear of the sheet and
+        // still be near the middle where the eye is.
+        let clearOfSheet = visible.midY + Self.systemSheetHalfHeight + Self.screenMargin
+        let y = max(min(topAnchored, clearOfSheet), visible.minY + Self.screenMargin)
+
+        window.setFrameOrigin(NSPoint(x: visible.midX - frame.width / 2, y: y))
+        PanelDebug.note("panel-positioned", [
+            "y": Int(y),
+            "height": Int(frame.height),
+            "clearsSystemSheet": y >= clearOfSheet,
+        ])
     }
 
     /// Take the front, so the panel is what the user sees.
@@ -587,6 +615,14 @@ final class ApprovalPanel: NSObject {
         // Grow downward from where the panel already is, so an expanding row does
         // not move the buttons out from under the pointer.
         frame.origin.y = topEdge - frame.height
+        // Unless growing downward would push it off the screen, in which case it
+        // climbs instead: the top of the panel is the part that has to stay.
+        if let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            let lowest = visible.minY + Self.screenMargin
+            if frame.origin.y < lowest {
+                frame.origin.y = min(lowest, visible.maxY - Self.screenMargin - frame.height)
+            }
+        }
         window.setFrame(frame, display: true, animate: false)
     }
 

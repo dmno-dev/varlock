@@ -342,6 +342,66 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(content.requester.details.last, PanelContextLine.clientSupplied("Project: my-app (~/code/my-app)"))
     }
 
+    // MARK: - What the system's own sheet says
+
+    func testTheSystemSheetSaysTheShortestTrueThing() {
+        // macOS builds the sentence ("Varlock is trying to ..."), so this is only
+        // ever its tail. The panel is the surface that says who is asking and
+        // what they get; a sheet that covers the panel and repeats it badly is
+        // the worst of both.
+        let plan = UnlockPlanner.plan(
+            requested: [key("varlock-default", items: 12)],
+            requestedScope: .session,
+            existing: [:]
+        )
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: "Requested by node in ttys004"),
+            display: UnlockDisplayInfo(projectName: "acme-api")
+        )
+        XCTAssertEqual(content.presenceReason, "unlock local encryption")
+        // The requester belongs to the panel, and the key id belongs to nobody.
+        XCTAssertFalse(content.presenceReason.contains("node"))
+        XCTAssertFalse(content.presenceReason.contains("varlock-default"))
+    }
+
+    func testTheSheetNamesEveryKeyItCanAndCountsTheRest() {
+        func reason(_ keyIds: [String]) -> String {
+            let plan = UnlockPlanner.plan(
+                requested: keyIds.map { key($0) },
+                requestedScope: .session,
+                existing: [:]
+            )
+            return UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: "")).presenceReason
+        }
+        XCTAssertEqual(reason(["dev"]), "unlock dev")
+        XCTAssertEqual(reason(["dev", "prod"]), "unlock dev and prod")
+        XCTAssertEqual(reason(["dev", "prod", "staging"]), "unlock 3 encryption keys")
+    }
+
+    func testTheSheetPrefersAVaultNameOverTheDefaultKeysNonName() {
+        let display = UnlockDisplayInfo(keys: [
+            "varlock-default": UnlockKeyDisplay(vaultLabel: "acme-team vault"),
+        ])
+        XCTAssertEqual(
+            UnlockPanelContent.presenceReason(forKeyIds: ["varlock-default"], display: display),
+            "unlock acme-team vault"
+        )
+        // Without one, the default key still has something to be called.
+        XCTAssertEqual(
+            UnlockPanelContent.presenceReason(forKeyIds: ["varlock-default"], display: UnlockDisplayInfo()),
+            "unlock local encryption"
+        )
+        // A key the user named keeps its own name, whatever vault it is in.
+        XCTAssertEqual(
+            UnlockPanelContent.presenceReason(
+                forKeyIds: ["prod"],
+                display: UnlockDisplayInfo(keys: ["prod": UnlockKeyDisplay(vaultLabel: "acme-team vault")])
+            ),
+            "unlock prod"
+        )
+    }
+
     // MARK: - Client-supplied decoration
 
     func testDisplayInfoIsReadLeniently() {

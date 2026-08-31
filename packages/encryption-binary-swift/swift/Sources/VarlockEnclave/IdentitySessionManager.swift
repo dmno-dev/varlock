@@ -252,13 +252,11 @@ final class IdentitySessionManager {
                 requester: requestContext.requester,
                 display: requestContext.display
             )
-            // The prompt's own reason line says the same thing the panel says, so
-            // a user who reads only one of them is not told two different stories.
-            let reason = Self.unlockReason(
-                identityId: identityId,
-                keyIds: plan.promptKeys.map { $0.keyId },
-                requesterSummary: requestContext.requester.summary
-            )
+            // The system's sheet is built from the same content the panel draws,
+            // so the two can never tell different stories. It stays a short verb
+            // phrase: the sheet lands on top of the panel, and a sheet that
+            // repeats who is asking is the panel's job done twice and worse.
+            let reason = content.presenceReason
             // Setup first, alone, and only then the panel: see
             // `runBiometricSetupIfNeeded`. The attempt the panel arms is created
             // afterwards, so the scan that set Touch ID up cannot be the scan
@@ -311,10 +309,9 @@ final class IdentitySessionManager {
             // panel with no presence check attached, which the flow does not do
             // today; keeping the blocking path means that can never silently
             // become an unlock nobody authenticated.
-            (context, policy) = try authenticate(reason: Self.unlockReason(
-                identityId: identityId,
-                keyIds: keysToOpen,
-                requesterSummary: requestContext.requester.summary
+            (context, policy) = try authenticate(reason: UnlockPanelContent.presenceReason(
+                forKeyIds: keysToOpen,
+                display: requestContext.display
             ))
         }
         defer { context.invalidate() }
@@ -848,23 +845,6 @@ final class IdentitySessionManager {
         // user a second sheet for one unlock.
         context.interactionNotAllowed = true
         return (context, resolved)
-    }
-
-    /// Plain, informative prompt copy for the system sheet's reason line. It says
-    /// the same thing the panel said, so a user who reads only one of them is not
-    /// told two different stories.
-    static func unlockReason(identityId: String, keyIds: [String], requesterSummary: String? = nil) -> String {
-        let keyList = keyIds.sorted().joined(separator: ", ")
-        var reason: String
-        if identityId == IdentityStore.defaultIdentityId {
-            reason = "unlock varlock encryption key \(keyList)"
-        } else {
-            reason = "unlock varlock identity \"\(identityId)\" with key \(keyList)"
-        }
-        if let requesterSummary, !requesterSummary.isEmpty {
-            reason += ", \(requesterSummary.prefix(80))"
-        }
-        return reason
     }
 
     // MARK: - Session key material
