@@ -23,6 +23,10 @@
  *   bun run packages/encryption-binary-swift/scripts/demo-panel.ts --only agent
  *
  * Each panel waits for a real answer, so approve or deny to move to the next one.
+ *
+ * `--gated` makes the scratch keys presence-gated instead, which is the only way
+ * to see the embedded Touch ID view: an ungated key has nothing to scan for. The
+ * keys still live in the scratch config home and go with it.
  */
 
 import net from 'node:net';
@@ -84,6 +88,8 @@ if (!fs.existsSync(binary)) {
 }
 
 const only = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : undefined;
+/** Real presence-gated keys, so the panel carries a real scan. */
+const gated = process.argv.includes('--gated');
 
 // -- a throwaway world: scratch config home, ungated keys, no real secrets --
 
@@ -105,8 +111,10 @@ fs.writeFileSync(path.join(configHome, 'varlock', 'secure-enclave', '.setup-show
 
 const { createKeyPair } = await import('../../varlock/src/lib/local-encrypt/crypto');
 
-runBinary(['generate-key', '--key-id', 'varlock-default', '--no-auth']);
-runBinary(['generate-key', '--key-id', 'prod', '--no-auth']);
+const keyFlags = gated ? [] : ['--no-auth'];
+runBinary(['generate-key', '--key-id', 'varlock-default', ...keyFlags]);
+runBinary(['generate-key', '--key-id', 'prod', ...keyFlags]);
+if (gated) console.log('gated keys: the panel will carry a real Touch ID scan');
 
 const identityKeyPair = await createKeyPair();
 const wrapFor = (keyId: string) => runBinary([
@@ -136,7 +144,13 @@ const daemon = spawn(
   binary,
   ['daemon', '--socket-path', socketPath, '--pid-path', `${socketPath}.pid`],
   {
-    env: { ...env, _VARLOCK_FORCE_UNLOCK_PROMPT: '1' },
+    env: {
+      ...env,
+      // A gated key prompts on its own; forcing it is only for the ungated ones.
+      ...(gated ? {} : { _VARLOCK_FORCE_UNLOCK_PROMPT: '1' }),
+      // The setup step is its own question, and this demo is about the panel.
+      _VARLOCK_BIOMETRIC_SETUP: '0',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   },
 );

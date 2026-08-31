@@ -221,12 +221,44 @@ click. Choosing "Enter Password" inside the sheet moves the panel onto the
 password path and waits for that click too.
 
 The panel is a window the daemon draws itself, not an `NSAlert`: the layout is the
-message, and an alert can hold text and buttons and nothing else. It never embeds
-`LAAuthenticationView`. That view is supposed to render the Touch ID prompt inline
-and in practice has come up blank while macOS presented its own alert separately
-(see "Which prompt actually appears" below), which left a panel showing an empty
-square. The fingerprint glyph in the approve button is ours, and it breathes
-exactly while a presence check is genuinely armed.
+message, and an alert can hold text and buttons and nothing else. **The scan
+happens inside it.** `LAAuthenticationView`, bound to the context this approval
+will run under, sits on its own line above the buttons; touching the sensor is the
+approval and no system alert appears over the top of it.
+
+That view was written off once. An earlier arc concluded it rendered blank on
+macOS 26 and shipped a drawn glyph plus the system's alert instead. Two
+experiments settled it properly, and both are in `scripts/`:
+
+- `sign-probe.ts` signs the same binary several ways (ad-hoc, Developer ID with
+  the hardened runtime, and with entitlements) and runs the machine-checkable
+  probes against each. The view rendered in every variant, so the signature was
+  never the problem. It also established that entitlements the system will not
+  grant without a provisioning profile make the build unlaunchable (SIGKILL with
+  no output), and that `LARight` custody stays `-34018` whatever we sign with.
+- `render-bisect.ts` then walked from the probe (which rendered) to the panel
+  (which did not), flipping one axis at a time and **measuring pixels** rather
+  than asking anyone: `WindowPixels` photographs the view's own area and counts
+  distinct greys, so a blank square and a drawn fingerprint are different numbers.
+
+The axis that flipped it was how the panel is presented from the IPC thread:
+
+| panel presented via | distinct greys |
+| --- | --- |
+| `DispatchQueue.main.sync` | 1 (blank) |
+| `RunLoop.main.perform` | 51 (drawn) |
+
+The daemon answers IPC on a background queue, and the panel used to be drawn from
+inside a main-QUEUE work item that stays in flight for as long as the modal is up.
+LocalAuthentication needs the main queue to render into the view it was bound to,
+and a blocked main queue starves it. Worse than blank: a bound view suppresses the
+system alert, so nothing anywhere asks for a finger. That is the same starvation
+that once stopped the check from arming, which is why `MainLoop` exists; the
+presentation itself was the last place still doing it the old way.
+
+The fallback is still there for machines that cannot embed (no biometrics
+enrolled, or the sensor locked out) and for `_VARLOCK_EMBEDDED_PROMPT=0`, and it
+is the only path that raises a system dialog.
 
 The panel shows, top to bottom:
 
@@ -280,8 +312,10 @@ The panel shows, top to bottom:
   never be one the grant table would quietly clip. Selecting a segment changes
   its colour and nothing else: a heavier selected label was a wider one, and the
   control used to shift by a few points every time the user changed their mind.
-- the **actions**: Deny, red with a stop mark, and a wide approve button carrying
-  the glyph. On a machine with no usable sensor the approve button is the password
+- the **scan**: the system's own Touch ID view, on its own line above the
+  buttons. Touching the sensor approves; the button is there for people who would
+  rather click.
+- the **actions**: Deny, red with a stop mark, and a wide approve button. On a machine with no usable sensor the approve button is the password
   path itself and there is no link offering it separately; where there is a
   sensor, "Use password..." moves this same approval onto the device-password
   check.

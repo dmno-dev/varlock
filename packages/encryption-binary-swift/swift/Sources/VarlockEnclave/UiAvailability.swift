@@ -32,13 +32,16 @@ enum UiAvailability {
     /// Turns the panel's inline Touch ID prompt off, sending it back to the system
     /// dialog raised by the panel's own button.
     ///
-    /// The inline prompt is the shipped default: `probe-embedded-unlock` confirmed
-    /// on real hardware that a context authenticated through it still opens the
-    /// custody key with no second prompt. This exists because the inline view is
-    /// the one piece whose behaviour varies with how the process was launched (it
-    /// silently failed to arm once in a development build), and an escape hatch
-    /// that needs no rebuild is worth having if it ever misbehaves again. Turning
-    /// it off costs a gesture; it never weakens the check.
+    /// The inline prompt is the shipped default, and now literally so: the panel
+    /// hosts `LAAuthenticationView` and the scan happens in our own window, with
+    /// no system alert over the top. `scripts/sign-probe.ts` established that it
+    /// renders under every signature we can produce, which is what settled an
+    /// earlier arc that had concluded the opposite.
+    ///
+    /// The hatch stays because the inline view is the one piece whose behaviour
+    /// depends on how the process was launched, and an escape that needs no
+    /// rebuild is worth having. Setting it to `0` costs a gesture and a system
+    /// dialog; it never weakens the check.
     static let embeddedPromptEnvVar = "_VARLOCK_EMBEDDED_PROMPT"
 
     static var embeddedPromptEnabled: Bool {

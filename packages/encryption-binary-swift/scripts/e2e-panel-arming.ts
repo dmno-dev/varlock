@@ -151,7 +151,7 @@ async function armingRun(
   slug: string,
   extraEnv: Record<string, string>,
   expectArming: boolean,
-  opts: { skipSetupMarker?: boolean; lockFirst?: boolean } = {},
+  opts: { skipSetupMarker?: boolean; lockFirst?: boolean; settleMs?: number } = {},
 ) {
   console.log(`\n${label}`);
   // Short, because a unix socket path has a hard length limit and the scratch
@@ -208,6 +208,14 @@ async function armingRun(
     while (Date.now() < deadline && !stderr.includes('evaluatePolicy-invoked')) {
       await new Promise((resolve) => {
         setTimeout(resolve, 100);
+      });
+    }
+
+    // The watch for a system alert samples for a couple of seconds after the
+    // scan is armed, so a run that asserts on it has to stay for the answer.
+    if (opts.settleMs) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, opts.settleMs);
       });
     }
 
@@ -308,7 +316,7 @@ try {
 
   // The shipped default: the check is armed once the panel has been readable
   // for a beat, so the scan is the approval and the approval is legible.
-  const armed = await armingRun('embedded prompt (default)', 'embedded', {}, true);
+  const armed = await armingRun('embedded prompt (default)', 'embedded', {}, true, { settleMs: 3_500 });
   check(
     'setup is not repeated once it has been recorded',
     !armed.includes('setup-presence-begin'),
@@ -319,6 +327,41 @@ try {
     /panel-readable[\s\S]*arming-after-delay[\s\S]*evaluatePolicy-invoked/.test(armed),
     armed.slice(-800),
   );
+
+  // The scan happens INSIDE the panel now. The system drawing its own alert over
+  // the top is the exact failure this path exists to avoid, and whether an
+  // authentication-agent window shows up while we are armed is the one part of
+  // that a machine can check.
+  check(
+    'the embedded scan view was attached and sized before arming',
+    /panel-readable .*embeddedAttached=true/.test(armed)
+      && /panel-readable .*embeddedFrame=\d+x\d+/.test(armed)
+      && !/panel-readable .*embeddedFrame=0x0/.test(armed),
+    armed.match(/panel-readable[^\n]*/)?.[0] ?? armed.slice(-300),
+  );
+  const agentScans = [...armed.matchAll(/auth-agent-scan .*windows=(\S*)/g)].map((match) => match[1]);
+  check('the armed panel was watched for a system alert', agentScans.length > 0, { agentScans });
+  check(
+    'no system authentication alert appeared during the embedded scan',
+    agentScans.every((windows) => windows === ''),
+    { agentScans },
+  );
+
+  // The one that would have caught the original bug. A bound view suppresses the
+  // system alert, so a view that renders nothing leaves NOTHING anywhere asking
+  // for a finger: a panel that looks fine and cannot be answered. Counting the
+  // pixels in the view's own area is the only honest check, and it is the reason
+  // `WindowPixels` exists.
+  const greys = [...armed.matchAll(/scan-pixels .*distinctGreys=(\d+)/g)].map((match) => Number(match[1]));
+  const permitted = /scan-pixels .*screenCapturePermitted=true/.test(armed);
+  check('the scan area was photographed', greys.length > 0 && permitted, { greys, permitted });
+  if (permitted) {
+    check(
+      'the inline Touch ID view actually drew something',
+      greys.some((count) => count >= 8),
+      { greys, hint: 'a blank view means nothing is listening for a finger, and no alert appears either' },
+    );
+  }
   check(
     'the presence attempt is bound to the context that gets evaluated',
     /presence-attempt .*contextInstance=(\w+)/.test(armed)

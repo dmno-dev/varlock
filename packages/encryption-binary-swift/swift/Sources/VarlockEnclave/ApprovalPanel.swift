@@ -1,5 +1,6 @@
 import AppKit
 import LocalAuthentication
+import LocalAuthenticationEmbeddedUI
 import IdentitySessions
 import SessionScoping
 
@@ -16,13 +17,40 @@ import SessionScoping
 /// hop that matters emphasised. An alert can hold text and buttons, and none of
 /// that would fit inside one.
 ///
-/// We draw our own Touch ID glyph and never embed `LAAuthenticationView`. That
-/// view is supposed to render the prompt inline; in the field it has come up
-/// blank while the system presented its own alert separately, which left the
-/// panel showing an empty square and no sign that anything wanted a fingerprint.
-/// The glyph in the approve button breathes exactly while a check is genuinely
-/// armed, and the context that scan authenticated is handed straight to the
-/// enclave, so one scan still covers the whole unlock.
+/// The scan happens inside this window. `LAAuthenticationView`, bound to the
+/// context this approval will run under, sits on its own above the buttons;
+/// touching the sensor while the panel is up is the approval, and no system
+/// alert appears over the top of it.
+///
+/// It has to stand on its own. Inside the approve button it drew nothing, which
+/// is the same blankness that got the view written off in the first place: every
+/// place it has ever rendered (the probe window, and here) has had it as a plain
+/// sibling view, unclipped and owning its own area, rather than nested in a
+/// control that does its own drawing.
+///
+/// That view was believed not to work. An earlier arc concluded it rendered
+/// blank on macOS 26 and shipped a drawn glyph plus the system's alert instead.
+/// The cause was never the view, the signature, the bundle, the window class, or
+/// the modal session: `scripts/render-bisect.ts` measured all of them by
+/// photographing the pixels, and the one axis that flipped rendering was HOW THE
+/// PANEL IS PRESENTED FROM THE IPC THREAD.
+///
+///   panel presented inside `DispatchQueue.main.sync`   1 distinct grey (blank)
+///   same panel presented via `RunLoop.main.perform`   51 distinct greys (drawn)
+///
+/// The daemon answers IPC on a background queue, so the panel used to be drawn
+/// from inside a main-QUEUE work item that stays in flight for as long as the
+/// modal is up. LocalAuthentication needs the main queue to render into the view
+/// it was bound to, and a blocked main queue starves it: the view stays empty
+/// forever, and because a bound view suppresses the system alert, nothing
+/// anywhere asks for a finger. That is the same starvation that once stopped the
+/// check from arming at all, which is why `MainLoop` exists; the presentation
+/// itself was the last place still doing it the old way.
+///
+/// So: present through the run loop, never through the main queue.
+///
+/// The fallback is still there for the machines that cannot embed (no biometrics
+/// enrolled, or the sensor locked out), and for `_VARLOCK_EMBEDDED_PROMPT=0`.
 ///
 /// This file is view only. What the panel says, which scopes it may offer, and
 /// what a given answer means are decided in `IdentitySessions`
@@ -73,6 +101,8 @@ final class ApprovalPanel: NSObject {
     private var hintLabel: NSTextField?
     private var statusLabel: NSTextField?
     private var contentColumn: NSStackView?
+    /// Apple's scan surface, when this panel is on the embedded path.
+    private var embeddedScanView: NSView?
 
     private var scopes: [SessionGrantScope] = []
     private var duration: DurationPreset = .default
@@ -119,10 +149,17 @@ final class ApprovalPanel: NSObject {
         if Thread.isMainThread {
             work()
         } else {
-            // The IPC handler is on a background queue, so the panel is drawn from
-            // inside a main-queue work item. Everything the panel schedules has to
-            // survive that; see `MainLoop`.
-            DispatchQueue.main.sync { work() }
+            // Handed to the main thread's RUN LOOP, never wrapped in
+            // `DispatchQueue.main.sync`. That distinction is the whole reason the
+            // inline Touch ID view works at all; see the note at the top of this
+            // file. The IPC thread still waits here for the answer, which is what
+            // keeps the socket call synchronous.
+            let done = DispatchSemaphore(value: 0)
+            MainLoop.perform {
+                work()
+                done.signal()
+            }
+            done.wait()
         }
         PanelDebug.note("present-returned", ["approved": outcome?.decision.approved ?? false])
         return outcome
@@ -268,10 +305,26 @@ final class ApprovalPanel: NSObject {
             return
         }
 
+        // The conditions the inline view is supposed to need, asserted at the
+        // moment they matter rather than assumed. `sign-probe.ts` checks the same
+        // list; a panel that quietly fails one of these would look exactly like
+        // the bug this feature spent an arc chasing.
+        let scanView = embeddedScanView
         PanelDebug.note("panel-readable", [
             "isKeyWindow": window.isKeyWindow,
             "isVisible": window.isVisible,
             "waitedForFront": readable,
+            "embeddedView": scanView != nil,
+            "embeddedFrame": scanView.map { "\(Int($0.frame.width))x\(Int($0.frame.height))" } ?? "-",
+            // Both frames, because a view with a fine size of its own can still
+            // be somewhere useless in the window, and that difference is exactly
+            // what nesting it in a button turned out to be.
+            "embeddedFrameInWindow": scanView.map {
+                let inWindow = $0.convert($0.bounds, to: nil)
+                return "\(Int(inWindow.origin.x)),\(Int(inWindow.origin.y)) \(Int(inWindow.width))x\(Int(inWindow.height))"
+            } ?? "-",
+            "embeddedAttached": scanView?.window != nil,
+            "embeddedVisible": scanView.map { !$0.isHidden && $0.alphaValue == 1 } ?? false,
         ])
         _ = MainLoop.after(Self.armingDelaySeconds) { [weak self] in
             guard let self, self.modalRunning, !self.hasAutoArmed else { return }
@@ -361,6 +414,7 @@ final class ApprovalPanel: NSObject {
                 : "Waiting for your password.")
             confirmButton?.isEnabled = flow.presenceMode != .embedded
             beginScan()
+            watchForSystemAlert()
         case .showControls:
             confirmButton?.isEnabled = true
             setStatus(failureHint())
@@ -383,10 +437,37 @@ final class ApprovalPanel: NSObject {
         }
     }
 
+    /// Watch for the system drawing its own alert while the embedded view is
+    /// armed, which is the failure this path exists to avoid.
+    ///
+    /// Only under panel debugging: it costs a window-list scan per sample, and
+    /// its only reader is the end-to-end check that asserts the alert stays away.
+    private func watchForSystemAlert() {
+        guard PanelDebug.isEnabled, flow.presenceMode == .embedded else { return }
+        for delay in [0.4, 1.2, 2.5] {
+            _ = MainLoop.after(delay) { [weak self] in
+                guard let self, self.modalRunning else { return }
+                PanelDebug.note("auth-agent-scan", [
+                    "afterSeconds": delay,
+                    "windows": EmbeddedUnlockProbe.authAgentWindowOwners().joined(separator: ","),
+                ])
+                // And whether anything was actually drawn where the scan is
+                // supposed to be. A blank inline view with no system alert is the
+                // worst of the three outcomes: nothing anywhere is listening for
+                // a finger, and it looks like a working panel.
+                guard let scanView = self.embeddedScanView else { return }
+                PanelDebug.note("scan-pixels", WindowPixels.sample(scanView).asDictionary)
+            }
+        }
+    }
+
     /// Whether an approval is going to be animated, which is the only reason to
     /// hold the panel open a moment longer.
     private var glyphShowsSuccessAnimation: Bool {
-        guard confirmButton?.glyphView != nil else { return false }
+        // The system's own view animates its success too, and closing on the same
+        // frame as the scan would cut that off just as our drawn glyph's pop was
+        // being cut off before.
+        guard confirmButton?.glyphView != nil || embeddedScanView != nil else { return false }
         return PanelGlyph.effect(
             for: .approved,
             reduceMotion: TouchIDGlyphView.reduceMotion
@@ -526,6 +607,10 @@ final class ApprovalPanel: NSObject {
 
         confirmButton?.title = "Approve with password"
         confirmButton?.glyphView?.isHidden = true
+        // The scan surface goes with the scan: leaving Apple's sensor view on a
+        // button that now asks for a password would be inviting a finger that
+        // nothing is listening for.
+        embeddedScanView?.isHidden = true
         passwordLink?.isHidden = true
         hintLabel?.stringValue = ""
         relayout()
@@ -718,6 +803,11 @@ final class ApprovalPanel: NSObject {
         column.setCustomSpacing(10, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(status)
 
+        if let scanRow = embeddedScanRow(mode: mode) {
+            column.setCustomSpacing(12, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(scanRow)
+        }
+
         column.setCustomSpacing(14, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(actionRow(content: content, mode: mode))
         column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
@@ -811,7 +901,7 @@ final class ApprovalPanel: NSObject {
         let confirm = PanelButton(
             title: confirmTitle(content: content, mode: mode),
             style: .primary,
-            glyph: mode == .embedded ? .touchID : (mode == .systemDialog ? .lock : .none),
+            glyph: primaryGlyph(mode: mode),
             target: self,
             action: #selector(confirmPressed(_:))
         )
@@ -821,6 +911,59 @@ final class ApprovalPanel: NSObject {
         // quiet no, not two equal buttons.
         confirm.setContentHuggingPriority(.init(1), for: .horizontal)
         return fullWidth(row)
+    }
+
+    /// What sits on the left of the approve button.
+    ///
+    /// On the embedded path it is the system's own scan surface rather than a
+    /// picture of one: the thing that reads the finger, in the place the design
+    /// always had a fingerprint. A preview has no run loop and no sensor, so it
+    /// gets the drawn glyph as a stand-in for where the live view goes.
+    private func primaryGlyph(mode: ApprovalPresenceMode) -> PanelButton.PanelButtonGlyph {
+        switch mode {
+        // The fingerprint on this path is the system's own view, standing above
+        // the buttons (or its stand-in, in a preview). A second one drawn on the
+        // button would be two sensors on a machine with one.
+        case .embedded: return .none
+        case .systemDialog: return .lock
+        case .none: return .none
+        }
+    }
+
+    /// The system's scan surface, on its own line above the actions.
+    ///
+    /// Bound to the context this approval will run under and attached before the
+    /// policy is evaluated: that pairing is the whole mechanism, and it is what
+    /// keeps the prompt in this window instead of in an alert over the top of it.
+    ///
+    /// A preview has no context and no sensor, so it gets our drawn glyph in the
+    /// same spot, which is a picture of where the live one goes.
+    private func embeddedScanRow(mode: ApprovalPresenceMode) -> NSView? {
+        guard mode == .embedded else { return nil }
+        let side: CGFloat = 48
+        let holder = NSView()
+        holder.translatesAutoresizingMaskIntoConstraints = false
+
+        let scanView: NSView
+        if let context = attempt?.context {
+            scanView = LAAuthenticationView(context: context, controlSize: .large)
+            embeddedScanView = scanView
+        } else {
+            let placeholder = TouchIDGlyphView()
+            placeholder.apply(.still)
+            scanView = placeholder
+        }
+        scanView.translatesAutoresizingMaskIntoConstraints = false
+        holder.addSubview(scanView)
+        NSLayoutConstraint.activate([
+            scanView.widthAnchor.constraint(equalToConstant: side),
+            scanView.heightAnchor.constraint(equalToConstant: side),
+            scanView.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+            scanView.topAnchor.constraint(equalTo: holder.topAnchor),
+            scanView.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+            holder.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth),
+        ])
+        return holder
     }
 
     private func confirmTitle(content: PanelContent, mode: ApprovalPresenceMode) -> String {
