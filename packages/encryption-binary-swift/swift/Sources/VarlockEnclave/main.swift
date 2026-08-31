@@ -92,7 +92,10 @@ func panelRequesterForPid(_ pid: pid_t?) -> PanelRequester {
     let described = describeRequester(forPid: pid)
     return PanelRequester(
         summary: described.summaryLine,
-        details: described.detailLines.map { .derived($0) }
+        details: described.detailLines.map { .derived($0) },
+        // Best effort and bounded: a chain that could not be read costs the
+        // panel its detail, never its appearance.
+        chain: ExecutionChainBuilder().build(forPid: pid)
     )
 }
 

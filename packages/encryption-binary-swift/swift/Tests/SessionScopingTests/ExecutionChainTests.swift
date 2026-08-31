@@ -1,0 +1,221 @@
+import XCTest
+@testable import SessionScoping
+
+/// What the panel shows about who is asking, against synthetic process trees.
+///
+/// The point of the chain is that one process name is not an answer. These
+/// assert the parts a person actually reads: which hop is emphasised, what a
+/// script running under an interpreter is called, what the daemon will and will
+/// not claim about a signature, and that a tree it cannot read degrades to a
+/// smaller answer rather than to no panel.
+final class ExecutionChainTests: XCTestCase {
+    /// A posture answer per pid, for the pids a test cares about.
+    private struct FakePosture: PostureProbe {
+        var facts: [pid_t: PeerPostureFacts] = [:]
+        func posture(forPid pid: pid_t) -> PeerPostureFacts {
+            return facts[pid] ?? .unreadable
+        }
+    }
+
+    private static let signed = PeerPostureFacts(
+        isTraced: false,
+        hasHardenedRuntime: true,
+        signatureValid: true,
+        isReadable: true
+    )
+
+    private func builder(
+        _ procs: [FakeProc],
+        ttyNames: [dev_t: String] = [:],
+        posture: FakePosture = FakePosture()
+    ) -> ExecutionChainBuilder {
+        return ExecutionChainBuilder(
+            provider: FakeProcessProvider(procs, ttyNames: ttyNames),
+            posture: posture
+        )
+    }
+
+    /// iTerm2 -> zsh -> varlock: the plain terminal case.
+    private var terminalTree: [FakeProc] {
+        return [
+            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
+        ]
+    }
+
+    func testTheChainReadsFromTheLauncherDownToTheCaller() {
+        let chain = builder(terminalTree, ttyNames: [16: "ttys004"]).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops.map { $0.name }, ["iTerm2", "zsh", "varlock"])
+        XCTAssertTrue(chain.hops[0].isLauncher)
+        XCTAssertEqual(chain.hops[0].bundlePath, "/Applications/iTerm.app")
+        // The terminal goes on the row a person recognises, which is the app.
+        XCTAssertEqual(chain.hops[0].terminalName, "ttys004")
+        XCTAssertNil(chain.hops[1].terminalName)
+    }
+
+    func testAPlainShellIsTheActorWhenNothingElseIs() {
+        let chain = builder(terminalTree).build(forPid: 300)
+        // varlock is always in the chain, being the process that connected, and
+        // is never the answer to "who is asking".
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "zsh")
+        XCTAssertTrue(chain.hops.last { $0.name == "varlock" }?.isMinor ?? false)
+    }
+
+    func testAScriptIsTheActorRatherThanTheInterpreterRunningIt() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                tty: 16,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bun", "run", "scripts/agent.ts"]
+            ),
+            FakeProc(pid: 400, ppid: 300, tty: 16, path: "/opt/homebrew/bin/varlock"),
+        ], posture: FakePosture(facts: [300: Self.signed])).build(forPid: 400)
+
+        let actor = chain.hops.first { $0.isImportant }
+        XCTAssertEqual(actor?.name, "agent.ts")
+        XCTAssertEqual(actor?.via, "via bun")
+        // The interpreter's own signature is real and says nothing about the
+        // script it was handed, so the panel refuses to launder one into the other.
+        XCTAssertEqual(actor?.posture, .interpretedScript)
+        XCTAssertEqual(
+            chain.postureNote,
+            "bun is running a script: the actor is agent.ts, not the signed interpreter"
+        )
+    }
+
+    func testAnInterpreterWithNoScriptStaysItself() {
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, path: "/usr/local/bin/node", args: ["node", "--version"]),
+        ]).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops.map { $0.name }, ["zsh", "node"])
+        XCTAssertNil(chain.hops[1].via)
+    }
+
+    func testVarlockRunningAsAScriptIsStillNotTheActor() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/usr/local/bin/node",
+                args: ["node", "/project/node_modules/.bin/varlock", "run"]
+            ),
+        ]).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "zsh")
+    }
+
+    func testSignatureIsReportedOnlyWhenItWasActuallyRead() {
+        let chain = builder(
+            terminalTree,
+            posture: FakePosture(facts: [
+                200: Self.signed,
+                300: PeerPostureFacts(
+                    isTraced: false,
+                    hasHardenedRuntime: false,
+                    signatureValid: true,
+                    isReadable: true
+                ),
+            ])
+        ).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops[1].posture, .signedHardened)
+        // Signed but not hardened is not the same claim, and an unreadable
+        // process is no claim at all.
+        XCTAssertEqual(chain.hops[2].posture, .unhardened)
+        XCTAssertEqual(chain.hops[0].posture, .unknown)
+    }
+
+    func testAShortChainShowsEverythingAndALongOneFoldsTheBoringHops() {
+        let short = builder(terminalTree).build(forPid: 300)
+        XCTAssertFalse(short.collapsesWhenResting)
+        XCTAssertEqual(short.restingHops.count, 3)
+
+        let long = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, path: "/Users/dev/.bun/bin/bun", args: ["bun", "agent.ts"]),
+            FakeProc(pid: 400, ppid: 300, path: "/opt/homebrew/bin/varlock"),
+        ]).build(forPid: 400)
+
+        XCTAssertTrue(long.collapsesWhenResting)
+        // The launcher and the actor always stay; the plumbing folds away.
+        XCTAssertEqual(long.restingHops.map { $0.name }, ["iTerm2", "agent.ts"])
+        XCTAssertEqual(long.expanderLabel, "2 more steps (zsh, varlock)")
+    }
+
+    func testAnAgentSessionIsNamedByItsProductAndWhenItStarted() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(
+                pid: 150,
+                ppid: 100,
+                startTime: 1_700_000_000,
+                path: "/Users/dev/.local/bin/claude",
+                args: ["claude"]
+            ),
+            FakeProc(pid: 200, ppid: 150, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, path: "/opt/homebrew/bin/varlock"),
+        ]).build(forPid: 300)
+
+        XCTAssertEqual(chain.agentSession?.productName, "Claude Code")
+        XCTAssertEqual(chain.agentSession?.pid, 150)
+        XCTAssertEqual(chain.agentSession?.startTime, 1_700_000_000)
+    }
+
+    func testAnAgentSessionIsFoundThroughTheEnvironmentItExported() {
+        // The agent itself is out of reach (too far up, or not on the path we
+        // walked), but what it exported into the shell is still there.
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, startTime: 1_700_000_500, path: "/bin/zsh", env: ["CLAUDECODE": "1"]),
+            FakeProc(pid: 300, ppid: 200, path: "/opt/homebrew/bin/varlock", env: ["CLAUDECODE": "1"]),
+        ]).build(forPid: 300)
+
+        XCTAssertEqual(chain.agentSession?.productName, "Claude Code")
+        // The topmost process carrying the marker is the one nearest the agent,
+        // so its start time is the closest thing to the session's.
+        XCTAssertEqual(chain.agentSession?.pid, 200)
+    }
+
+    func testAnEmptyMarkerIsNotASession() {
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh", env: ["CLAUDECODE": "0"]),
+            FakeProc(pid: 300, ppid: 200, path: "/opt/homebrew/bin/varlock", env: ["CLAUDECODE": ""]),
+        ]).build(forPid: 300)
+
+        XCTAssertNil(chain.agentSession)
+    }
+
+    func testAProcessTheDaemonCannotReadDegradesToAnEmptyChain() {
+        let chain = builder([]).build(forPid: 999)
+        XCTAssertTrue(chain.isEmpty)
+        XCTAssertNil(chain.postureNote)
+        XCTAssertNil(chain.expanderLabel)
+    }
+
+    func testAWalkThatRunsOutOfTimeStopsWhereItGot() {
+        // A clock that jumps past the deadline on its first check: the chain
+        // comes back short rather than the panel coming back late.
+        var ticks = 0
+        let slow = ExecutionChainBuilder(
+            provider: FakeProcessProvider(terminalTree, ttyNames: [:]),
+            posture: FakePosture(),
+            clock: {
+                ticks += 1
+                return Date(timeIntervalSince1970: ticks == 1 ? 0 : 10)
+            }
+        )
+        let chain = slow.build(forPid: 300)
+        XCTAssertEqual(chain.hops.map { $0.name }, ["varlock"])
+        XCTAssertNil(chain.agentSession)
+    }
+}
