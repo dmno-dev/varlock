@@ -65,6 +65,7 @@ impl UnlockPolicy {
 #[derive(Debug)]
 pub enum SessionError {
     NoSessionIdentity,
+    NoKeysRequested,
     PresenceFailed(String),
     SessionKeyMissing,
     NotUtf8,
@@ -81,6 +82,7 @@ impl SessionError {
     pub fn code(&self) -> Option<&'static str> {
         match self {
             SessionError::NoSessionIdentity => Some("NO_SESSION_IDENTITY"),
+            SessionError::NoKeysRequested => Some("NO_KEYS_REQUESTED"),
             SessionError::PresenceFailed(_) => Some("BIOMETRIC_FAILED"),
             SessionError::SessionKeyMissing => Some("SESSION_KEY_MISSING"),
             SessionError::NotUtf8 => Some("NOT_UTF8"),
@@ -98,6 +100,10 @@ impl std::fmt::Display for SessionError {
             SessionError::NoSessionIdentity => write!(
                 f,
                 "Cannot scope an unlock session for this process; no session identity could be determined"
+            ),
+            SessionError::NoKeysRequested => write!(
+                f,
+                "No key ids were named to unlock; send keyIds (or keyId) in the payload"
             ),
             SessionError::PresenceFailed(message) => {
                 write!(f, "User verification failed: {message}")
@@ -250,6 +256,11 @@ impl IdentitySessionManager {
     /// Open (or extend) a session: one presence check, however many keys.
     pub fn unlock(&self, request: UnlockRequest<'_>) -> Result<UnlockOutcome, SessionError> {
         let session_id = non_empty(request.session_id).ok_or(SessionError::NoSessionIdentity)?;
+        // A caller that named no key has asked for nothing. Picking a key for it
+        // would hand it a grant it never requested, so say so instead.
+        if request.key_ids.is_empty() {
+            return Err(SessionError::NoKeysRequested);
+        }
         let identity = self.paths.read_identity(&request.identity_id)?;
 
         // What this unlock asked for, else the machine config, else the default.

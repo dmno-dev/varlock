@@ -255,6 +255,40 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(display.projectPath?.count, UnlockDisplayInfo.maxLength)
     }
 
+    // MARK: - Which keys were asked for
+
+    func testBothKeyFormsAreAccepted() {
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyIds": ["prod", "dev"]]), ["dev", "prod"])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyId": "dev"]), ["dev"])
+        XCTAssertEqual(
+            UnlockRequestKeys.from(payload: ["keyIds": ["prod"], "keyId": "dev"]),
+            ["dev", "prod"]
+        )
+    }
+
+    func testKeysAreDedupedAndOrderedSoOneUnlockCoversTheSameSet() {
+        XCTAssertEqual(
+            UnlockRequestKeys.from(payload: ["keyIds": ["prod", "dev", "prod"], "keyId": "dev"]),
+            ["dev", "prod"]
+        )
+    }
+
+    func testNamingNoKeyResolvesToNothingRatherThanADefault() {
+        // The daemon turns an empty list into NO_KEYS_REQUESTED. What must never
+        // happen is a key the caller did not name appearing here.
+        XCTAssertEqual(UnlockRequestKeys.from(payload: nil), [])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: [:]), [])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyIds": []]), [])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["scope": "session"]), [])
+    }
+
+    func testBlankAndNonStringKeyIdsAreDropped() {
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyIds": ["", "   ", "\n"]]), [])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyId": ""]), [])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyIds": [42, true, "dev"]]), ["dev"])
+        XCTAssertEqual(UnlockRequestKeys.from(payload: ["keyIds": "not-an-array"]), [])
+    }
+
     func testMissingDisplayIsEmpty() {
         XCTAssertTrue(UnlockDisplayInfo.from(payload: nil).isEmpty)
         XCTAssertTrue(UnlockDisplayInfo.from(payload: ["keyIds": ["dev"]]).isEmpty)

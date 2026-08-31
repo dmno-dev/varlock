@@ -112,6 +112,31 @@ public struct PanelDecision: Equatable {
     }
 }
 
+/// Reads the key ids out of an `unlock-session` payload.
+///
+/// Deliberately has no default. A caller that names no key has asked for
+/// nothing, and quietly unlocking some other key on its behalf would hand it a
+/// grant it never requested. The caller is told instead.
+public enum UnlockRequestKeys {
+    /// Both forms are accepted: `keyIds` for the normal batch, and `keyId` for a
+    /// one-off caller. Blank entries are dropped, and the result is deduped and
+    /// sorted so one unlock covers the same set however the caller ordered it.
+    public static func from(payload: [String: Any]?) -> [String] {
+        guard let payload else { return [] }
+        var requested = (payload["keyIds"] as? [Any]) ?? []
+        if let single = payload["keyId"] { requested.append(single) }
+
+        var seen = Set<String>()
+        var keyIds: [String] = []
+        for value in requested {
+            guard let keyId = value as? String else { continue }
+            guard !keyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            if seen.insert(keyId).inserted { keyIds.append(keyId) }
+        }
+        return keyIds.sorted()
+    }
+}
+
 /// Client-supplied decoration for an unlock panel.
 ///
 /// None of this is trusted. It only ever adds a line to the panel; it can never

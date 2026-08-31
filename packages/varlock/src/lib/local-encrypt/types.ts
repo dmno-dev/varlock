@@ -88,6 +88,9 @@ export interface SessionGrantRef {
  * `sessionId` is not sent. The daemon resolves the session from the connecting
  * process itself, so a caller cannot name its way into someone else's session.
  * One unlock covers every key it names, for a single user-presence check.
+ *
+ * There is no default key. A request that names none is refused with
+ * `NO_KEYS_REQUESTED`, rather than opening some key the caller never asked for.
  */
 export interface UnlockSessionRequest {
   keyIds: Array<string>;
@@ -289,6 +292,7 @@ export type IdentitySessionErrorCode = (
   | 'SESSION_GRANT_EXPIRED' // the grant or its session cap ran out
   | 'SESSION_KEY_MISSING' // daemon no longer holds the key (restarted, or locked)
   | 'NO_SESSION_IDENTITY' // the caller's session could not be identified
+  | 'NO_KEYS_REQUESTED' // the unlock named no key, so there was nothing to open
   | 'APPROVAL_DENIED' // the user was shown the panel and said no
   | 'NO_UI' // no screen to ask on (SSH, headless); tell the user in the terminal
   | 'BIOMETRIC_FAILED'

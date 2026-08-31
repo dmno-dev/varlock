@@ -416,44 +416,50 @@ fn handle_unlock_session(
     peer: &PeerContext,
     identity: &Arc<IdentitySessionManager>,
 ) -> Value {
-    let payload = message.get("payload");
+    // A malformed message is refused rather than guessed at, the same way
+    // decrypt-v2 refuses one. Guessing here would mean unlocking a key the
+    // caller never named.
+    let Some(payload) = message.get("payload") else {
+        return json!({"error": "Missing payload"});
+    };
+
     let identity_id = payload
-        .and_then(|p| p.get("identityId"))
+        .get("identityId")
         .and_then(|v| v.as_str())
         .unwrap_or(DEFAULT_IDENTITY_ID)
         .to_string();
 
-    let scope = SessionGrantScope::from_wire_value(
-        payload.and_then(|p| p.get("scope")).and_then(|v| v.as_str()),
-    )
-    .unwrap_or(SessionGrantScope::Session);
+    let scope = SessionGrantScope::from_wire_value(payload.get("scope").and_then(|v| v.as_str()))
+        .unwrap_or(SessionGrantScope::Session);
 
     // Accept one key or several: one unlock, one check, however many keys.
+    // Deliberately no default: naming no key is refused, not guessed at.
     let mut key_ids: Vec<String> = payload
-        .and_then(|p| p.get("keyIds"))
+        .get("keyIds")
         .and_then(|v| v.as_array())
         .map(|values| {
             values
                 .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .filter_map(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_string())
                 .collect()
         })
         .unwrap_or_default();
-    if let Some(single) = payload.and_then(|p| p.get("keyId")).and_then(|v| v.as_str()) {
-        key_ids.push(single.to_string());
-    }
-    if key_ids.is_empty() {
-        key_ids.push(DEFAULT_KEY_ID.to_string());
+    if let Some(single) = payload.get("keyId").and_then(|v| v.as_str()) {
+        if !single.trim().is_empty() {
+            key_ids.push(single.to_string());
+        }
     }
     key_ids.sort();
     key_ids.dedup();
 
     let duration_ms = payload
-        .and_then(|p| p.get("durationMs"))
+        .get("durationMs")
         .and_then(|v| v.as_i64())
         .map(|ms| ms.clamp(0, MAX_GRANT_MS));
 
-    let lock_on_override = payload.and_then(|p| p.get("lockOn")).and_then(|v| v.as_str());
+    let lock_on_override = payload.get("lockOn").and_then(|v| v.as_str());
 
     // A caller may name the session it believes it is in, but that never
     // overrides the identity resolved from the peer process itself.
@@ -643,6 +649,36 @@ mod tests {
         let message = json!({"action": "unlock-session", "payload": {"scope": "session"}});
         let response = handle_unlock_session(&message, &peer(None), &manager());
         assert_eq!(response["errorCode"], json!("NO_SESSION_IDENTITY"));
+    }
+
+    #[test]
+    fn unlock_refuses_a_message_with_no_payload() {
+        let message = json!({"action": "unlock-session"});
+        let response = handle_unlock_session(&message, &peer(Some("tty:1:2")), &manager());
+        assert_eq!(response["error"], json!("Missing payload"));
+        assert!(response.get("result").is_none());
+    }
+
+    #[test]
+    fn unlock_refuses_when_no_key_is_named() {
+        // No key id means the caller asked for nothing. It must not be handed a
+        // grant for some default key it never mentioned.
+        for payload in [
+            json!({"scope": "session"}),
+            json!({"scope": "session", "keyIds": []}),
+            json!({"scope": "session", "keyIds": ["", "   "]}),
+            json!({"scope": "session", "keyId": ""}),
+            json!({"scope": "session", "keyIds": [42, true]}),
+        ] {
+            let message = json!({"action": "unlock-session", "payload": payload});
+            let response = handle_unlock_session(&message, &peer(Some("tty:1:2")), &manager());
+            assert_eq!(
+                response["errorCode"],
+                json!("NO_KEYS_REQUESTED"),
+                "payload {message} should have been refused"
+            );
+            assert!(response.get("result").is_none());
+        }
     }
 
     #[test]

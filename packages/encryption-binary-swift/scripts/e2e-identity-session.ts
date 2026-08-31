@@ -151,6 +151,16 @@ async function expectError(label: string, fn: () => Promise<unknown>, expectedCo
   }
 }
 
+/** For the shape errors that carry a message but no stable code. */
+async function expectErrorMessage(label: string, fn: () => Promise<unknown>, expectedMessage: string) {
+  try {
+    const result = await fn();
+    check(label, false, { unexpectedSuccess: result });
+  } catch (err: any) {
+    check(label, err.message === expectedMessage, { expected: expectedMessage, message: err.message });
+  }
+}
+
 // -- setup --
 
 console.log(`config home: ${configHome}`);
@@ -429,6 +439,22 @@ try {
   const all = await client.send('invalidate-session');
   check('drops remaining grants', all.invalidated === 1, all);
 
+  // A caller that names no key has asked for nothing. Unlocking some default key
+  // on its behalf would hand it a grant it never requested, so this is refused
+  // the same way decrypt-v2 refuses a malformed message.
+  console.log('\nmalformed unlock-session');
+  await expectErrorMessage('refuses a message with no payload', () => client.send('unlock-session'), 'Missing payload');
+  await expectError('refuses when no key is named', () => client.send('unlock-session', {
+    scope: 'session',
+  }), 'NO_KEYS_REQUESTED');
+  await expectError('refuses an empty key list', () => client.send('unlock-session', {
+    keyIds: [], scope: 'session',
+  }), 'NO_KEYS_REQUESTED');
+  await expectError('refuses blank key ids', () => client.send('unlock-session', {
+    keyIds: ['', '   '], scope: 'session',
+  }), 'NO_KEYS_REQUESTED');
+  check('a malformed unlock grants nothing', (await client.send('list-sessions')).sessions.length === 0);
+
   // -- approval paths, on a daemon that has no screen to ask on --
 
   console.log('\nheadless daemon (nothing can be approved)');
@@ -461,6 +487,11 @@ try {
   await expectError('needs at least one usable scope', () => headlessClient!.send('request-approval', {
     title: 'Use the deploy token?', allowedScopes: ['forever'],
   }), 'APPROVAL_NO_SCOPES');
+  await expectErrorMessage(
+    'refuses a message with no payload',
+    () => headlessClient!.send('request-approval'),
+    'Missing payload',
+  );
   check('approval never touches the grant table', (await headlessClient.send('list-sessions')).sessions.length === 0);
 
   // -- sessions die with the daemon --

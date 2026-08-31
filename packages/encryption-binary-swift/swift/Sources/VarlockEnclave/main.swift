@@ -450,18 +450,21 @@ case "daemon":
         // MARK: Identity session actions
 
         case "unlock-session":
-            let payload = message["payload"] as? [String: Any]
-            let identityId = (payload?["identityId"] as? String) ?? IdentityStore.defaultIdentityId
-            let scope = SessionGrantScope(wireValue: payload?["scope"] as? String) ?? .session
+            // A malformed message is refused rather than guessed at, the same way
+            // decrypt-v2 refuses one. Guessing here would mean unlocking a key the
+            // caller never named and dropping its display metadata in silence.
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            let identityId = (payload["identityId"] as? String) ?? IdentityStore.defaultIdentityId
+            let scope = SessionGrantScope(wireValue: payload["scope"] as? String) ?? .session
 
             // Accept one key or several: one unlock, one scan, however many keys.
-            var requestedKeyIds = (payload?["keyIds"] as? [String]) ?? []
-            if let single = payload?["keyId"] as? String { requestedKeyIds.append(single) }
-            if requestedKeyIds.isEmpty { requestedKeyIds = [defaultKeyId] }
+            let requestedKeyIds = UnlockRequestKeys.from(payload: payload)
 
             // A caller may name the session it believes it is in, but it never
             // overrides the identity we resolved from the peer process itself.
-            let durationMs = (payload?["durationMs"] as? NSNumber)?.int64Value
+            let durationMs = (payload["durationMs"] as? NSNumber)?.int64Value
 
             // Optional decoration from the client (item counts, project name). It
             // only ever changes the wording on the panel.
@@ -473,11 +476,11 @@ case "daemon":
             do {
                 let outcome = try identitySessions.unlock(
                     sessionId: sessionId,
-                    keyIds: Array(Set(requestedKeyIds)).sorted(),
+                    keyIds: requestedKeyIds,
                     identityId: identityId,
                     scope: scope,
                     durationMs: durationMs,
-                    lockOnOverride: payload?["lockOn"] as? String,
+                    lockOnOverride: payload["lockOn"] as? String,
                     requestContext: requestContext
                 )
                 statusBarMenu?.refresh()
@@ -497,8 +500,11 @@ case "daemon":
             // Generic and stateless: put a question on the trusted display and
             // report the answer. Nothing is unlocked and nothing is recorded here,
             // so the caller (the proxy) keeps its own record of what it may do.
+            guard let approvalPayload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
             do {
-                let request = try ApprovalRequest.from(payload: message["payload"] as? [String: Any])
+                let request = try ApprovalRequest.from(payload: approvalPayload)
                 let content = request.panelContent(requesterLines: requesterLines(forPid: peerPid))
                 guard let decision = ApprovalPanel.present(content: content) else {
                     return identityErrorResponse(IdentitySessionManager.IdentitySessionError.noUi)

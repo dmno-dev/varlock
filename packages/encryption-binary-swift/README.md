@@ -61,6 +61,12 @@ Grants are keyed by (session x key), where the session comes from `SessionScopin
 Scopes are `once`, `session`, and `duration`, and everything is capped at 12h from the
 session's first unlock.
 
+A malformed message is refused rather than guessed at. `unlock-session` answers
+`Missing payload` when there is no payload, and `NO_KEYS_REQUESTED` when it names no
+key: there is no default key, because opening one the caller never asked for would
+hand it a grant it did not request. Both `keyIds` and the singular `keyId` are
+accepted, and blank entries are dropped before that check.
+
 Every deadline is recorded twice: once in wall-clock time, which is what `expiresAt`
 reports and what a person reads, and once on `CLOCK_MONOTONIC_RAW`, which no clock
 change can move. Whichever runs out first ends the grant, so setting the system clock

@@ -70,6 +70,7 @@ final class IdentitySessionManager {
 
     enum IdentitySessionError: LocalizedError {
         case noSessionIdentity
+        case noKeysRequested
         case biometricFailed(String)
         case sessionKeyMissing
         case notUtf8
@@ -80,6 +81,8 @@ final class IdentitySessionManager {
             switch self {
             case .noSessionIdentity:
                 return "Cannot scope an unlock session for this process; no session identity could be determined"
+            case .noKeysRequested:
+                return "No key ids were named to unlock; send keyIds (or keyId) in the payload"
             case .biometricFailed(let msg):
                 return "Biometric authentication failed: \(msg)"
             case .sessionKeyMissing:
@@ -96,6 +99,7 @@ final class IdentitySessionManager {
         var code: String {
             switch self {
             case .noSessionIdentity: return "NO_SESSION_IDENTITY"
+            case .noKeysRequested: return "NO_KEYS_REQUESTED"
             case .biometricFailed: return "BIOMETRIC_FAILED"
             case .sessionKeyMissing: return "SESSION_KEY_MISSING"
             case .notUtf8: return "NOT_UTF8"
@@ -164,6 +168,11 @@ final class IdentitySessionManager {
     ) throws -> UnlockOutcome {
         guard let sessionId, !sessionId.isEmpty else {
             throw IdentitySessionError.noSessionIdentity
+        }
+        // A caller that named no key has asked for nothing. Picking a key for it
+        // would hand it a grant it never requested, so say so instead.
+        guard !keyIds.isEmpty else {
+            throw IdentitySessionError.noKeysRequested
         }
         let identity = try IdentityStore.read(identityId: identityId)
 
