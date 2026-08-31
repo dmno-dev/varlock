@@ -1014,6 +1014,59 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     await upstream.close();
   });
 
+  test('response scrubbing covers sensitive values by role-independence, and spares non-sensitive ones', async () => {
+    // an endpoint that echoes back a mix: the encoded credential, the raw
+    // secret, a secret bound for another route, and an ordinary username
+    const upstream = await startUpstream((req, res) => {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({
+        echoedAuth: String(req.headers.authorization ?? ''),
+        rawSecret: 'real-password',
+        unrelatedSecret: 'other-route-secret',
+        who: 'svc-user',
+      }));
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [
+        { key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' },
+        // an ordinary, explicitly non-sensitive username
+        {
+          key: 'API_USER', placeholder: 'vlk_ph_api_user', realValue: 'svc-user', isSensitive: false,
+        },
+        // a secret this request never touches
+        { key: 'OTHER_SECRET', placeholder: 'vlk_ph_other', realValue: 'other-route-secret' },
+      ],
+      rules: [
+        {
+          domain: [UPSTREAM_HOST],
+          itemKeys: [],
+          transform: { scheme: 'http-basic', username: { itemRef: 'API_USER' }, password: { itemRef: 'API_PASSWORD' } },
+        },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    // the encoded credential (only the scheme can produce this form)
+    expect(response).not.toContain(Buffer.from('svc-user:real-password').toString('base64'));
+    // the raw secret, and a secret belonging to a different route
+    expect(response).not.toContain('real-password');
+    expect(response).not.toContain('other-route-secret');
+    // ...but an ordinary value is left alone rather than corrupted
+    expect(response).toContain('svc-user');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('http-basic: a reflected Authorization header is scrubbed from the response', async () => {
     // an endpoint that echoes the request's Authorization back would otherwise
     // hand the child a base64 token it can decode into the real password

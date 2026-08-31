@@ -168,7 +168,7 @@ describe('http-basic signer', () => {
     expectBasic(result, '', 'real-password');
   });
 
-  test('declares the reversible token and raw credentials for response scrubbing', async () => {
+  test('declares only the encoded token: raw values are the runtime\'s job', async () => {
     const result = await sign(
       { scheme: 'http-basic', username: ref('U'), password: ref('P') } as any,
       { ...baseInput, credentials: { username: 'user', password: 'pass' } } as any,
@@ -176,8 +176,8 @@ describe('http-basic signer', () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.scrubFromResponse).toContain(Buffer.from('user:pass').toString('base64'));
-    expect(result.scrubFromResponse).toContain('pass');
+    // the derived form the runtime cannot compute for itself
+    expect(result.scrubFromResponse).toEqual([Buffer.from('user:pass').toString('base64')]);
   });
 
   test('fails closed on a userid containing ":"', async () => {

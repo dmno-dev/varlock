@@ -1558,6 +1558,7 @@ export class EnvGraph {
         key,
         placeholder,
         realValue: item.resolvedValue,
+        isSensitive: item.isSensitive,
         ...(isGenericFallback ? { placeholderIsGenericFallback: true } : {}),
       });
     }

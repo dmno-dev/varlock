@@ -161,11 +161,11 @@ const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
     return { ok: false, error: 'the Basic auth username contains ":", which is not allowed (it separates username from password)' };
   }
   const token = Buffer.from(`${userid}:${password}`, 'utf8').toString('base64');
-  // The Basic token is reversible, so an endpoint that reflects `Authorization`
-  // would hand the child a decodable credential. Declare it (and the raw
-  // credentials) so the runtime scrubs them from responses.
-  const scrubFromResponse = [token, ...Object.values(input.credentials).filter(Boolean)];
-  return { ok: true, setHeaders: { authorization: `Basic ${token}` }, scrubFromResponse };
+  // The token is a reversible encoding of the credentials, so an endpoint that
+  // reflects `Authorization` would hand the child something it can decode. The
+  // raw values are scrubbed by the runtime already (they are sensitive); this
+  // encoded form is the part only this scheme can produce.
+  return { ok: true, setHeaders: { authorization: `Basic ${token}` }, scrubFromResponse: [token] };
 };
 
 const BUILT_IN_SIGNERS: Record<string, ProxyTransformSigner> = {

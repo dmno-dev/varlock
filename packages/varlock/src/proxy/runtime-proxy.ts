@@ -1342,9 +1342,11 @@ export async function startLocalProxyRuntime({
       ? replacePlaceholdersWithReal(t.requestTarget, hostItems)
       : t.requestTarget;
 
-    // Items whose values must be scrubbed from the response: everything
-    // substituted into the request, plus anything a signer declares below.
-    const responseScrubItems: Array<ProxyManagedItem> = [...hostItems];
+    // Response scrubbing covers EVERY sensitive value the proxy holds, not just
+    // the ones substituted into this request: a consumed signing credential, or
+    // a secret bound for another route, is just as damaging reflected back. A
+    // signer may add derived forms the runtime cannot compute (see below).
+    const responseScrubItems: Array<ProxyManagedItem> = managedItems.filter((item) => item.isSensitive !== false);
 
     const upstreamHeaders = transformHeaders(
       req.headers,
@@ -1443,9 +1445,9 @@ export async function startLocalProxyRuntime({
       for (const [name, value] of Object.entries(signResult.setHeaders)) {
         upstreamHeaders[name.toLowerCase()] = value;
       }
-      // Values the signer put on the wire in reversible form must not come back
-      // to the child. Consumed credentials are not in `hostItems` (they are
-      // never substituted), so response scrubbing would not otherwise know them.
+      // A signer's own reversible output (http-basic's base64 token): the raw
+      // credentials are already covered above, but their encoded form is a
+      // value only the scheme can produce.
       for (const value of signResult.scrubFromResponse ?? []) {
         if (!value) continue;
         responseScrubItems.push({

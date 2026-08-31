@@ -618,6 +618,14 @@ export type ProxyManagedItem = {
   key: string;
   placeholder: string;
   realValue: string;
+  /**
+   * Whether the item is sensitive. Response scrubbing covers every sensitive
+   * value the proxy knows, so a secret reflected by an upstream never reaches
+   * the child. Omitted is treated as sensitive (fail safe); an explicitly
+   * non-sensitive value (a service-account name used as a Basic userid) is left
+   * alone, since redacting ordinary data would corrupt legitimate responses.
+   */
+  isSensitive?: boolean;
   /** True when the placeholder is the generic format-agnostic fallback (may fail SDK key-format checks). */
   placeholderIsGenericFallback?: boolean;
 };
