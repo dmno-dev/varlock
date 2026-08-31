@@ -102,6 +102,31 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertNil(chain.hops.first { $0.name == "zsh" }?.advisory)
     }
 
+    func testTheCallersOwnCommandLineIsReadFromTheKernel() {
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh", args: ["-zsh"]),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/opt/homebrew/bin/varlock",
+                args: ["/opt/homebrew/bin/varlock", "run", "--", "next", "dev"]
+            ),
+        ]).build(forPid: 300)
+
+        // Named by what was typed, not by where the binary happened to live, and
+        // only on the process that actually connected.
+        XCTAssertEqual(chain.hops.last?.invocation, "varlock run -- next dev")
+        XCTAssertNil(chain.hops.first?.invocation)
+    }
+
+    func testALongCommandLineKeepsTheSubcommandAndTheFirstArguments() {
+        let long = ExecutionChainBuilder.invocation(from: ["varlock", "run"] + (0..<40).map { "--flag-\($0)" })
+        XCTAssertTrue(long?.hasPrefix("varlock run --flag-0") ?? false)
+        XCTAssertEqual(long?.count, ExecutionChainBuilder.maxInvocationLength)
+        XCTAssertTrue(long?.hasSuffix("\u{2026}") ?? false)
+        XCTAssertNil(ExecutionChainBuilder.invocation(from: []))
+    }
+
     func testOnlyACheckedSignatureGetsAWord() {
         XCTAssertEqual(HopPosture.signedHardened.inlineLabel, "signed")
         // Nothing to say about a hop we could not vouch for. Silence is honest;

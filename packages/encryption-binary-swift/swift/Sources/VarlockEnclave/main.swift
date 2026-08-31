@@ -308,7 +308,11 @@ case "panel-preview":
     case "none": previewMode = .none
     default: previewMode = .embedded
     }
-    guard let png = ApprovalPanel.previewPng(content: previewContent, mode: previewMode) else {
+    guard let png = ApprovalPanel.previewPng(
+        content: previewContent,
+        mode: previewMode,
+        expandChain: (previewPayload["expandChain"] as? NSNumber)?.boolValue ?? false
+    ) else {
         jsonError("Could not render the panel")
     }
     do {

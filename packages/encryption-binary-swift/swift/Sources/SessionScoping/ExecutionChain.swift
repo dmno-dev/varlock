@@ -52,6 +52,12 @@ public struct ExecutionHop: Equatable {
     public let bundlePath: String?
     /// Controlling terminal, on the hop that has one.
     public let terminalName: String?
+    /// How this process was invoked, as the kernel has it: "varlock load".
+    ///
+    /// Set on the process that actually connected, and read from its argv rather
+    /// than from anything it sent, which is what makes it worth showing next to
+    /// the value names the client reported for itself.
+    public let invocation: String?
     public let posture: HopPosture
     /// The app the user launched. Drawn small, at the top, with its icon.
     public let isLauncher: Bool
@@ -73,6 +79,7 @@ public struct ExecutionHop: Equatable {
         path: String? = nil,
         bundlePath: String? = nil,
         terminalName: String? = nil,
+        invocation: String? = nil,
         posture: HopPosture = .unknown,
         isLauncher: Bool = false,
         isImportant: Bool = false,
@@ -85,6 +92,7 @@ public struct ExecutionHop: Equatable {
         self.path = path
         self.bundlePath = bundlePath
         self.terminalName = terminalName
+        self.invocation = invocation
         self.posture = posture
         self.isLauncher = isLauncher
         self.isImportant = isImportant

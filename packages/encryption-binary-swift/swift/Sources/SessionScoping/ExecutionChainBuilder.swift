@@ -128,6 +128,11 @@ public struct ExecutionChainBuilder {
                 // The terminal belongs on the row a person recognises: the app
                 // they launched, or failing that whatever started the chain.
                 terminalName: index == 0 ? terminal : nil,
+                // Only the process that connected: what varlock itself was asked
+                // to do is the useful half, and every hop's argv would be a wall.
+                invocation: walkedProcess.snapshot.pid == pid
+                    ? Self.invocation(from: walkedProcess.arguments)
+                    : nil,
                 posture: hopPosture(walkedProcess),
                 isLauncher: isLauncher,
                 isImportant: index == importantIndex,
@@ -168,6 +173,25 @@ public struct ExecutionChainBuilder {
         }
         return candidates.last?.offset ?? ordered.count - 1
     }
+
+    /// The command line, short enough to draw.
+    ///
+    /// The program is named by its own file name rather than by the path it was
+    /// found at, because "varlock load" is what a person typed and
+    /// "/opt/homebrew/bin/varlock load" is where it happened to live. Long
+    /// argument lists are cut at the end, so the subcommand and the first
+    /// arguments (the part that says what is happening) always survive.
+    public static func invocation(from arguments: [String]) -> String? {
+        guard let program = arguments.first else { return nil }
+        let name = (program as NSString).lastPathComponent
+        guard !name.isEmpty else { return nil }
+        let line = ([name] + arguments.dropFirst()).joined(separator: " ")
+        guard line.count > maxInvocationLength else { return line }
+        return String(line.prefix(maxInvocationLength - 1)) + "\u{2026}"
+    }
+
+    /// Enough for a subcommand and its first arguments, and no more.
+    public static let maxInvocationLength = 56
 
     /// What to call the app at the top of the chain.
     ///

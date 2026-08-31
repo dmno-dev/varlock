@@ -117,11 +117,15 @@ final class ApprovalPanel: NSObject {
     /// This renders the very same view tree the modal would put on screen, so a
     /// layout can be checked by looking at the picture. Nothing is unlocked and
     /// no presence check is started.
-    static func previewPng(content: PanelContent, mode: ApprovalPresenceMode) -> Data? {
+    static func previewPng(
+        content: PanelContent,
+        mode: ApprovalPresenceMode,
+        expandChain: Bool = false
+    ) -> Data? {
         let panel = ApprovalPanel()
         panel.scopes = content.scopes
         panel.flow = ApprovalFlow(content: content, presenceMode: mode)
-        let window = panel.buildWindow(content: content, mode: mode)
+        let window = panel.buildWindow(content: content, mode: mode, expandChain: expandChain)
         guard let view = window.contentView else { return nil }
         // Icons fill themselves in from the run loop, which a command that never
         // runs one would never give them. Pump it briefly so the picture shows
@@ -507,7 +511,11 @@ final class ApprovalPanel: NSObject {
 
     // MARK: - Building the view
 
-    private func buildWindow(content: PanelContent, mode: ApprovalPresenceMode) -> ApprovalPanelWindow {
+    private func buildWindow(
+        content: PanelContent,
+        mode: ApprovalPresenceMode,
+        expandChain: Bool = false
+    ) -> ApprovalPanelWindow {
         let column = PanelStyle.column(spacing: 0)
         column.translatesAutoresizingMaskIntoConstraints = false
         contentColumn = column
@@ -543,7 +551,8 @@ final class ApprovalPanel: NSObject {
 
         let chain = PanelChainView(
             chain: content.requester.chain ?? .empty,
-            fallbackSummary: content.requester.summary
+            fallbackSummary: content.requester.summary,
+            startExpanded: expandChain
         ) { [weak self] in self?.relayout() }
         chain.translatesAutoresizingMaskIntoConstraints = false
         column.setCustomSpacing(14, after: column.arrangedSubviews.last!)

@@ -21,12 +21,24 @@ final class PanelChainView: NSView {
     private var expanded = false
     private var foldedRows: [NSView] = []
     private var pathLabels: [NSTextField] = []
+    /// The expander's label and what it says, so the preview can open the chain.
+    private var expander: (field: NSTextField, label: String)?
+    /// Lines that only appear once the chain is opened.
+    private var invocationRows: [NSView] = []
     /// Marks that grow a word when the chain is opened.
     private var postureLabels: [(label: NSTextField, posture: HopPosture)] = []
 
-    init(chain: ExecutionChain, fallbackSummary: String, onLayoutChanged: @escaping () -> Void) {
+    /// `startExpanded` is for the preview command, which has nobody to click the
+    /// expander and still has to be able to show what the opened chain looks like.
+    init(
+        chain: ExecutionChain,
+        fallbackSummary: String,
+        startExpanded: Bool = false,
+        onLayoutChanged: @escaping () -> Void
+    ) {
         self.onLayoutChanged = onLayoutChanged
         super.init(frame: .zero)
+        defer { if startExpanded { openEverything() } }
 
         let card = PanelStyle.card(background: PanelStyle.chainBackground, border: PanelStyle.chainBorder)
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -71,6 +83,16 @@ final class PanelChainView: NSView {
             // The warning about a hop goes under that hop. A legend at the
             // bottom of the chain is a warning the reader has to match back up
             // to a row, which is a warning that gets skipped.
+            // How varlock itself was invoked, from the kernel rather than from
+            // anything the client said. Evidence, so it keeps company with the
+            // paths and appears when the chain is opened.
+            if let invocation = hop.invocation {
+                let line = invocationRow(invocation, insideSession: hop.isInsideSession)
+                column.addArrangedSubview(line)
+                invocationRows.append(line)
+                line.isHidden = true
+            }
+
             guard let advisory = hop.advisory else { continue }
             let sub = advisoryRow(
                 advisory,
@@ -96,6 +118,19 @@ final class PanelChainView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// Open the chain without a click, for the preview.
+    private func openEverything() {
+        guard let (field, label) = expander else {
+            // Nothing folds away, but the evidence lines still have to appear.
+            expanded = true
+            for path in pathLabels { path.isHidden = false }
+            for row in invocationRows { row.isHidden = false }
+            applyPostureWords()
+            return
+        }
+        toggleExpanded(field: field, label: label)
+    }
 
     /// Everything under the rail lines up with the hop text, not with the dots.
     private func indented(_ view: NSView) -> NSView {
@@ -161,6 +196,29 @@ final class PanelChainView: NSView {
             container.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
         ])
         return container
+    }
+
+    /// The command line under the hop that ran it.
+    private func invocationRow(_ text: String, insideSession: Bool) -> NSView {
+        let rail = ChainRailView(
+            isFirst: false,
+            isLast: true,
+            emphasis: .none,
+            railAbove: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail,
+            railBelow: insideSession ? PanelStyle.sessionRail : PanelStyle.chainRail
+        )
+        let label = PanelStyle.label("$ " + text, size: 10, color: PanelStyle.inkTertiary, mono: true)
+        label.lineBreakMode = .byTruncatingTail
+        label.translatesAutoresizingMaskIntoConstraints = false
+        rail.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 42),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: rail.trailingAnchor),
+            label.topAnchor.constraint(equalTo: rail.topAnchor),
+            label.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -3),
+            rail.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
+        ])
+        return rail
     }
 
     /// The amber line under a hop, saying the one thing about it worth knowing.
@@ -237,11 +295,11 @@ final class PanelChainView: NSView {
         heading.addArrangedSubview(sessionRootTag())
         heading.addArrangedSubview(PanelStyle.spacer())
         if let started = startedLabel(session.startTime) {
-            heading.addArrangedSubview(PanelStyle.label(
-                "started \(started)",
-                size: 9.5,
-                color: PanelStyle.inkQuiet
-            ))
+            let time = PanelStyle.label("started \(started)", size: 9.5, color: PanelStyle.inkQuiet)
+            // When the chain is opened the path joins this row, and the time is
+            // the half worth keeping: it is what tells two sessions apart.
+            time.setContentCompressionResistancePriority(.required, for: .horizontal)
+            heading.addArrangedSubview(time)
         }
         if let path = hop.path { heading.addArrangedSubview(pathLabel(path)) }
         column.addArrangedSubview(heading)
@@ -317,6 +375,7 @@ final class PanelChainView: NSView {
 
     private func expanderView(label: String, insideSession: Bool) -> NSView {
         let field = PanelStyle.label(collapsedLabel(label), size: 10.5, color: PanelStyle.inkQuiet)
+        expander = (field, label)
         let rail = ChainRailView(
             isFirst: false,
             isLast: false,
@@ -345,12 +404,20 @@ final class PanelChainView: NSView {
         expanded.toggle()
         for row in foldedRows { row.isHidden = !expanded }
         for path in pathLabels { path.isHidden = !expanded }
+        for row in invocationRows { row.isHidden = !expanded }
         for (label, posture) in postureLabels {
             let word = posture.inlineLabel.map { " \($0)" } ?? ""
             label.stringValue = "\u{25CF}" + (expanded ? word : "")
         }
         field.stringValue = expanded ? "\u{2303} fewer steps" : collapsedLabel(label)
         onLayoutChanged()
+    }
+
+    private func applyPostureWords() {
+        for (label, posture) in postureLabels {
+            let word = posture.inlineLabel.map { " \($0)" } ?? ""
+            label.stringValue = "\u{25CF}" + (expanded ? word : "")
+        }
     }
 
     /// "2:14 PM": the thing a person can check against their own screen.
@@ -436,7 +503,10 @@ final class ChainRailView: NSView {
         let side: CGFloat
         let color: NSColor
         switch emphasis {
-        case .actor: (side, color) = (9, PanelStyle.accent)
+        // Bright and neutral, never accent: a coloured marker next to a green
+        // "signed" dot reads as a verdict on the process, and this one is about
+        // structure. Colour on this rail means one thing at a time.
+        case .actor: (side, color) = (9, PanelStyle.ink)
         case .session: (side, color) = (9, PanelStyle.sessionDot)
         case .quiet: (side, color) = (7, PanelStyle.chainDot)
         case .none: return

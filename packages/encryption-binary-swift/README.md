@@ -220,13 +220,20 @@ The panel shows, top to bottom:
   the peer. The hop that decides what runs is emphasised (a script rather than the
   interpreter running it), the app that was launched sits at the top with its icon
   and the controlling terminal, and shells and varlock itself are drawn small and
-  fold into "N more steps" on a long chain. Opening that shows each hop's path and
-  the word for its code-signing posture: a green dot and "signed" for signed with
-  the hardened runtime, an amber triangle where an interpreter is running a
-  script, and nothing at all where the daemon could not read an answer. What a
-  mark means is said under the hop it belongs to ("a script run by bun: approval
-  trusts this file, not the signed interpreter"), never in a legend at the bottom
-  that a reader would have to match back up to a row.
+  fold into "N more steps" on a long chain. Opening that shows each hop's path,
+  the word for its code-signing posture, and the command line varlock itself was
+  invoked with, read from the kernel's own copy of its argv rather than from
+  anything the client sent. What a mark means is said under the hop it belongs to
+  ("a script run by bun: approval trusts this file, not the signed interpreter"),
+  never in a legend at the bottom that a reader would have to match back up to a
+  row.
+
+  Colour on the chain means exactly one thing at a time. Green is a signature we
+  checked, amber is a script whose source is mutable, purple is a coding-agent
+  session, and the emphasised actor is marked in bright neutral rather than in an
+  accent colour: a coloured marker sitting next to a green dot reads as a verdict
+  on the process, and that marker is about structure. Red is not used here at
+  all, so it stays available for posture that is actually bad.
 - a **coding-agent session**, when there is one, as a hop in that chain at the
   place it really sits in the ancestry: a tinted row tagged "session root",
   carrying the product, the session's own title, and when it started. The rail
@@ -360,8 +367,9 @@ anything. Nothing is unlocked and no key is touched:
 ```
 
 The payload is an `unlock-session` payload (`keyIds`, `display`, `lockOn`) plus
-three fields only the preview understands: `mode` (`embedded`, `systemDialog`, or
-`none`), `strictKeyIds`, and `coveredKeyIds` for the delta state.
+four fields only the preview understands: `mode` (`embedded`, `systemDialog`, or
+`none`), `strictKeyIds`, `coveredKeyIds` for the delta state, and `expandChain`
+to draw the chain opened, since a picture has nobody to click its expander.
 
 The panel is also what `varlock load` shows against a gated key, which is the
 better final check: it exercises the same path a user actually meets.
