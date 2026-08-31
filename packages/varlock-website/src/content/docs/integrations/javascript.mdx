@@ -73,6 +73,7 @@ When the process was launched by [`varlock run`](/reference/cli/load-and-run/#ru
 Reuse only happens when a fresh resolution would produce the same result:
 
 - the blob was resolved in the same directory the app would resolve in (a root-level `varlock run` in a monorepo does not stop per-package resolution)
+- it was produced by the same varlock version that is consuming it (a global CLI and a local package dependency at different versions re-resolve rather than trusting each other's format)
 - it resolved without errors
 - the `.env` files it was resolved from are unchanged on disk (editing an env file and restarting the app inside the same `varlock run` re-resolves and picks up the edit)
 - no env override recorded in the blob has changed since (`varlock run -- sh -c 'FOO=x node app.js'` re-resolves, so the new `FOO` wins)

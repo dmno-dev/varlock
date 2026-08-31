@@ -7,6 +7,7 @@ import os from 'node:os';
 import { evaluateInjectedEnvReuse, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from '../../runtime/crypto';
 import { hashEnvSourceContents } from '../env-source-fingerprint';
+import { VARLOCK_VERSION } from '../varlock-version';
 
 let tempDir: string;
 
@@ -24,6 +25,7 @@ afterEach(() => {
 
 function makeBlob(overrides?: Record<string, any>) {
   return JSON.stringify({
+    varlockVersion: VARLOCK_VERSION,
     basePath: tempDir,
     sources: [],
     settings: {},
@@ -87,6 +89,22 @@ describe('evaluateInjectedEnvReuse', () => {
         cwd: tempDir,
       });
       expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('errors') });
+    });
+
+    test('does not reuse a blob produced by a different varlock version', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob({ varlockVersion: '0.0.1' }) },
+        cwd: tempDir,
+      });
+      expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('produced by varlock 0.0.1') });
+    });
+
+    test('does not reuse a blob from a producer that did not stamp a version', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob({ varlockVersion: undefined }) },
+        cwd: tempDir,
+      });
+      expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('(unversioned)') });
     });
 
     test('does not reuse a blob with no basePath', () => {
@@ -259,6 +277,14 @@ describe('evaluateInjectedEnvReuse', () => {
         fs.writeFileSync(path.join(tempDir, '.env'), 'FOO=edited-val\n');
         const decision = evaluateInjectedEnvReuse({
           env: { __VARLOCK_ENV: makeBlob({ sources: [source] }), [USE_INJECTED_ENV_VAR]: '1' },
+          cwd: tempDir,
+        });
+        expect(decision.reuse).toBe(true);
+      });
+
+      test('forced mode ignores producer version skew (nothing to re-resolve from)', () => {
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ varlockVersion: '0.0.1' }), [USE_INJECTED_ENV_VAR]: '1' },
           cwd: tempDir,
         });
         expect(decision.reuse).toBe(true);
