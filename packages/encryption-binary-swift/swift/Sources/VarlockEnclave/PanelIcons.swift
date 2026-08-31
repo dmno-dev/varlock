@@ -200,7 +200,10 @@ enum PanelIcons {
     /// A development build is a bare executable with no bundle around it, so
     /// without the fallback every icon would be missing in exactly the situation
     /// where the panel is being looked at on purpose: the demo.
-    private static func bundledResource(named name: String, extension ext: String) -> NSImage? {
+    ///
+    /// Shared with the menu bar, which has the same problem and used to solve it
+    /// by not using our artwork at all.
+    static func bundledResource(named name: String, extension ext: String) -> NSImage? {
         if let url = Bundle.main.url(forResource: name, withExtension: ext),
            let image = NSImage(contentsOf: url) {
             return image

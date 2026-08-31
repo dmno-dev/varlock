@@ -80,23 +80,34 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
         button.imagePosition = button.title.isEmpty ? .imageOnly : .imageLeading
     }
 
-    /// SF Symbols first, then the bundled template PDFs, then a character. The
-    /// symbols are the plain locks rather than anything coloured or badged: this
-    /// sits in a menu bar full of other people's icons.
+    /// Our own mark first, then a plain lock symbol as the fallback.
+    ///
+    /// The varlock menu bar art has been in the repo the whole time and was never
+    /// reached: the symbol branch came first and a system symbol is always
+    /// available, so the daemon has been sitting in the menu bar as a generic
+    /// padlock indistinguishable from anything else that draws one. The artwork
+    /// is a template image, so it still follows the menu bar's own light and dark
+    /// treatment rather than fighting it.
+    ///
+    /// Resolved through `PanelIcons`, which also finds resources in the source
+    /// tree, so a development build shows the real icon instead of quietly
+    /// falling back.
     private static func icon(unlocked: Bool) -> NSImage? {
-        let symbolName = unlocked ? "lock.open.fill" : "lock.fill"
-        if let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: menuTitle) {
-            symbol.isTemplate = true
-            return symbol
-        }
         let resourceName = unlocked ? "varlock-menu-unlocked" : "varlock-menu-locked"
-        if let iconURL = Bundle.main.url(forResource: resourceName, withExtension: "pdf"),
-           let image = NSImage(contentsOf: iconURL) {
+        if let image = PanelIcons.bundledResource(named: resourceName, extension: "pdf") {
             image.isTemplate = true
             image.size = NSSize(width: 18, height: 18)
             return image
         }
-        return nil
+        // Worth saying out loud: a missing asset is why this used to be a generic
+        // padlock, and silence is how it stayed one.
+        PanelDebug.note("menu-icon-fallback", ["missing": resourceName])
+        let symbolName = unlocked ? "lock.open.fill" : "lock.fill"
+        guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: menuTitle) else {
+            return nil
+        }
+        symbol.isTemplate = true
+        return symbol
     }
 
     // MARK: - Menu

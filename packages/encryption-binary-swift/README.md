@@ -193,15 +193,17 @@ A gated key raises a panel before anything else happens. The daemon draws it,
 because the daemon is the process that verified the peer and holds the keys, so it
 is the only party that can say truthfully who is asking.
 
-The panel arms the presence check a beat after it opens, so **the scan is the
-approval**: the common case costs one gesture, with no separate confirm click.
+The panel arms the presence check as soon as it is on screen and frontmost, so
+**the scan is the approval**: the common case costs one gesture, with no separate
+confirm click. The sensor is live about a fifth of a second after the panel
+lands, which the arming check asserts.
 
-The beat matters. macOS raises its own biometric sheet the instant a policy is
-evaluated, and that sheet covers whatever is behind it. Arming on the same frame
-the panel opened meant the system sheet appeared over a panel nobody had had a
-chance to read, and a finger already on the sensor approved something unseen. So
-the panel waits until it is on screen and frontmost, holds for
-`ApprovalPanel.armingDelaySeconds`, and only then evaluates.
+That wait used to be most of a second, for a reason that no longer applies:
+arming summoned the system's own sheet, which covered the panel, so the delay was
+the only thing standing between a user and approving something they never got to
+read. The scan happens inside the panel now, so there is nothing to occlude and
+nothing to wait for beyond the window finishing its appearance
+(`ApprovalPanel.armingDelaySeconds`).
 
 **Setting Touch ID up is not approving anything.** The first time varlock uses
 the sensor on a machine, and again after the enrolled fingerprints change, macOS
@@ -312,10 +314,16 @@ The panel shows, top to bottom:
   never be one the grant table would quietly clip. Selecting a segment changes
   its colour and nothing else: a heavier selected label was a wider one, and the
   control used to shift by a few points every time the user changed their mind.
-- the **scan**: the system's own Touch ID view, on its own line above the
-  buttons. Touching the sensor approves; the button is there for people who would
-  rather click.
-- the **actions**: Deny, red with a stop mark, and a wide approve button. On a machine with no usable sensor the approve button is the password
+- the **actions**: Deny, red with a stop mark, and the approve control beside it.
+  On a machine that can scan, that control IS the sensor: the system's own Touch
+  ID view sits in it with "Approve with Touch ID" beside it, touching the sensor
+  approves, and clicking anywhere else in the control approves too. It is drawn
+  as a blue outline rather than the mock's solid blue fill, and that is not a
+  taste decision: `render-bisect.ts` measured every arrangement, and any paint of
+  ours behind the sensor blanks it (a layer fill and a `draw(_:)` fill both go to
+  4 distinct greys), while an outline never crosses the sensor's own rectangle
+  and leaves it drawing at 51. Machines with no usable sensor get the plain blue
+  button, which is also what the panel switches to for the password path. On a machine with no usable sensor the approve button is the password
   path itself and there is no link offering it separately; where there is a
   sensor, "Use password..." moves this same approval onto the device-password
   check.

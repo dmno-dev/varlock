@@ -328,6 +328,20 @@ try {
     armed.slice(-800),
   );
 
+  // The sensor has to be live essentially when the panel lands. The wait used to
+  // be most of a second, for a reason that no longer exists (arming summoned a
+  // system sheet that covered the panel, so the delay was the only thing keeping
+  // a user from approving something unread). Now the panel IS the scan surface,
+  // and a late fingerprint is just a fingerprint nobody can use yet.
+  const stampFor = (event: string) => Number(armed.match(new RegExp(`\\[(\\d+)ms\\] ${event}`))?.[1] ?? -1);
+  const shownAt = stampFor('panel-shown');
+  const armedAt = stampFor('evaluatePolicy-invoked');
+  check(
+    'the scan is armed within a moment of the panel appearing',
+    shownAt >= 0 && armedAt > shownAt && armedAt - shownAt < 1_000,
+    { shownAt, armedAt, gapMs: armedAt - shownAt },
+  );
+
   // The scan happens INSIDE the panel now. The system drawing its own alert over
   // the top is the exact failure this path exists to avoid, and whether an
   // authentication-agent window shows up while we are armed is the one part of

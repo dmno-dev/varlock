@@ -70,12 +70,14 @@ final class ApprovalPanel: NSObject {
     /// How long the panel must have been on screen and in front before the scan
     /// is armed.
     ///
-    /// macOS puts its own sheet up the instant a policy is evaluated, and that
-    /// sheet covers us. Arming on the same frame as the panel opened meant the
-    /// system sheet appeared over a panel nobody had a chance to read, and a
-    /// finger already on the sensor approved something unseen. A beat is enough
-    /// to see what is being asked; the scan still approves without a click.
-    static let armingDelaySeconds: TimeInterval = 0.8
+    /// This used to be most of a second, for a good reason that has since gone
+    /// away: arming summoned the system's own sheet, which covered the panel, so
+    /// the delay was the only thing standing between a user and approving
+    /// something they never got to read. The scan happens inside the panel now.
+    /// There is nothing to occlude, so the wait buys nothing and costs the user a
+    /// sensor that lights up late. What is left is one frame's grace for the
+    /// window to finish coming up.
+    static let armingDelaySeconds: TimeInterval = 0.12
 
     /// How long to keep waiting for the panel to actually be frontmost before
     /// arming anyway. Something else stealing focus must not cost the user their
@@ -101,8 +103,12 @@ final class ApprovalPanel: NSObject {
     private var hintLabel: NSTextField?
     private var statusLabel: NSTextField?
     private var contentColumn: NSStackView?
-    /// Apple's scan surface, when this panel is on the embedded path.
+    /// Apple's scan surface, when this panel is on the embedded path. Owned by
+    /// the primary control; kept here so the panel can photograph it.
     private var embeddedScanView: NSView?
+    /// The primary control on a machine that can scan: the button that is also
+    /// the sensor.
+    private var scanButton: PanelScanButton?
 
     private var scopes: [SessionGrantScope] = []
     private var duration: DurationPreset = .default
@@ -301,7 +307,8 @@ final class ApprovalPanel: NSObject {
 
         let readable = window.isVisible && window.isKeyWindow && NSApp.isActive
         guard readable || Date() >= deadline else {
-            _ = MainLoop.after(0.1) { [weak self] in self?.armWhenReadable(deadline: deadline) }
+            // Polled tightly: every tick here is a tick the sensor is not live.
+            _ = MainLoop.after(0.02) { [weak self] in self?.armWhenReadable(deadline: deadline) }
             return
         }
 
@@ -544,7 +551,7 @@ final class ApprovalPanel: NSObject {
     /// only thing that will ask again.
     private func failureHint() -> String {
         guard flow.failedScans > 0 else { return "" }
-        let button = confirmButton?.title ?? "Approve"
+        let button = scanButton?.isHidden == false ? "Approve with Touch ID" : (confirmButton?.title ?? "Approve")
         switch lastFailure {
         case .cancelled:
             return "Touch ID canceled. Click \(button) to scan again, or Deny to refuse."
@@ -605,12 +612,13 @@ final class ApprovalPanel: NSObject {
         flow = ApprovalFlow(defaultScope: scope, presenceMode: .systemDialog)
         flow.select(scope: scope, durationMs: durationMs)
 
+        // The scan control goes with the scan: leaving Apple's sensor on screen
+        // while a password is being asked for would invite a finger that nothing
+        // is listening for. The plain button was built for this moment.
+        scanButton?.isHidden = true
+        confirmButton?.isHidden = false
         confirmButton?.title = "Approve with password"
         confirmButton?.glyphView?.isHidden = true
-        // The scan surface goes with the scan: leaving Apple's sensor view on a
-        // button that now asks for a password would be inviting a finger that
-        // nothing is listening for.
-        embeddedScanView?.isHidden = true
         passwordLink?.isHidden = true
         hintLabel?.stringValue = ""
         relayout()
@@ -803,11 +811,6 @@ final class ApprovalPanel: NSObject {
         column.setCustomSpacing(10, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(status)
 
-        if let scanRow = embeddedScanRow(mode: mode) {
-            column.setCustomSpacing(12, after: column.arrangedSubviews.last!)
-            column.addArrangedSubview(scanRow)
-        }
-
         column.setCustomSpacing(14, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(actionRow(content: content, mode: mode))
         column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
@@ -898,14 +901,36 @@ final class ApprovalPanel: NSObject {
         deny.setContentHuggingPriority(.required, for: .horizontal)
         row.addArrangedSubview(deny)
 
+        // On a machine that can scan, the primary IS the sensor: one control that
+        // reads as the button and answers to a finger. The plain button is built
+        // alongside it and kept hidden, because the password fallback needs
+        // something to become, and rebuilding the row mid-approval would move the
+        // panel under the pointer.
+        if mode == .embedded {
+            let scanButton = PanelScanButton(
+                title: confirmTitle(content: content, mode: mode),
+                context: attempt?.context
+            ) { [weak self] in
+                guard let self else { return }
+                self.confirmPressed(self)
+            }
+            self.scanButton = scanButton
+            // Only the real thing is worth photographing: a stand-in glyph would
+            // sail through the check that exists to catch a blank sensor.
+            if attempt != nil { embeddedScanView = scanButton.scanView }
+            scanButton.setContentHuggingPriority(.init(1), for: .horizontal)
+            row.addArrangedSubview(scanButton)
+        }
+
         let confirm = PanelButton(
-            title: confirmTitle(content: content, mode: mode),
+            title: mode == .embedded ? "Approve with password" : confirmTitle(content: content, mode: mode),
             style: .primary,
-            glyph: primaryGlyph(mode: mode),
+            glyph: mode == .embedded ? .lock : primaryGlyph(mode: mode),
             target: self,
             action: #selector(confirmPressed(_:))
         )
         confirmButton = confirm
+        confirm.isHidden = scanButton != nil
         row.addArrangedSubview(confirm)
         // The approve action is the wide one: the panel has an obvious yes and a
         // quiet no, not two equal buttons.
@@ -928,42 +953,6 @@ final class ApprovalPanel: NSObject {
         case .systemDialog: return .lock
         case .none: return .none
         }
-    }
-
-    /// The system's scan surface, on its own line above the actions.
-    ///
-    /// Bound to the context this approval will run under and attached before the
-    /// policy is evaluated: that pairing is the whole mechanism, and it is what
-    /// keeps the prompt in this window instead of in an alert over the top of it.
-    ///
-    /// A preview has no context and no sensor, so it gets our drawn glyph in the
-    /// same spot, which is a picture of where the live one goes.
-    private func embeddedScanRow(mode: ApprovalPresenceMode) -> NSView? {
-        guard mode == .embedded else { return nil }
-        let side: CGFloat = 48
-        let holder = NSView()
-        holder.translatesAutoresizingMaskIntoConstraints = false
-
-        let scanView: NSView
-        if let context = attempt?.context {
-            scanView = LAAuthenticationView(context: context, controlSize: .large)
-            embeddedScanView = scanView
-        } else {
-            let placeholder = TouchIDGlyphView()
-            placeholder.apply(.still)
-            scanView = placeholder
-        }
-        scanView.translatesAutoresizingMaskIntoConstraints = false
-        holder.addSubview(scanView)
-        NSLayoutConstraint.activate([
-            scanView.widthAnchor.constraint(equalToConstant: side),
-            scanView.heightAnchor.constraint(equalToConstant: side),
-            scanView.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
-            scanView.topAnchor.constraint(equalTo: holder.topAnchor),
-            scanView.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
-            holder.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth),
-        ])
-        return holder
     }
 
     private func confirmTitle(content: PanelContent, mode: ApprovalPresenceMode) -> String {
