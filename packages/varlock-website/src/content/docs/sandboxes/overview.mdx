@@ -33,11 +33,11 @@ Cloud sandbox providers run the agent in a remote VM, so the proxy is reached ov
 
 ## Local tools
 
-These run on your own machine. Most reach the proxy over loopback via the [shared setup](/guides/proxy/sandboxing/#shared-setup). Docker Sandboxes is the exception: a local microVM with its own egress gateway, so its agent reaches the proxy over the tunnel (like the cloud shapes above), and its guide differs accordingly.
+These run on your own machine. Most reach the proxy over loopback via the [shared setup](/guides/proxy/sandboxing/#shared-setup). Docker Sandboxes and Minimal are the exceptions: local microVMs with their own network path to the host, so their agents reach the proxy over the tunnel (like the cloud shapes above), and their guides differ accordingly.
 
 <CardGrid>
   <LinkCard title="Docker Sandboxes" href="/sandboxes/docker-sandboxes/" description="Local microVMs (sbx); agent reaches a host or remote broker through the gateway. macOS, Windows, Linux" />
-  <LinkCard title="Minimal" href="/sandboxes/minimal/" description="Task / microVM or process sandbox. macOS, Linux" />
+  <LinkCard title="Minimal" href="/sandboxes/minimal/" description="Local microVM sessions (min); broker on your Mac or in a hub session. macOS, Linux" />
   <LinkCard title="smolvm" href="/sandboxes/smolvm/" description="libkrun microVM; guest loopback reaches the host proxy. macOS, Linux, Windows" />
   <LinkCard title="Fence" href="/sandboxes/fence/" description="Seatbelt / bubblewrap + domain allowlist. macOS, Linux" />
   <LinkCard title="yolobox" href="/sandboxes/yolobox/" description="Container, home dir stays on the host. macOS, Linux" />
