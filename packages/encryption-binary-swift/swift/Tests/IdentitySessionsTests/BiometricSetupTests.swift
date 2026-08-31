@@ -38,6 +38,6 @@ final class BiometricSetupTests: XCTestCase {
         // Not approval wording: nothing is being unlocked yet, and a prompt that
         // says "unlock" while nothing is unlocked teaches people to scan without
         // reading.
-        XCTAssertEqual(BiometricSetupPolicy.setupReason, "varlock is setting up Touch ID approvals")
+        XCTAssertEqual(BiometricSetupPolicy.setupReason, "set up Touch ID approvals")
     }
 }

@@ -23,7 +23,7 @@ public enum BiometricSetupPolicy {
     /// prompt that says "unlock" while nothing is being unlocked teaches people
     /// to scan without reading. Password managers use the same "setting up"
     /// phrasing for this moment, which is a pattern users already recognise.
-    public static let setupReason = "varlock is setting up Touch ID approvals"
+    public static let setupReason = "set up Touch ID approvals"
 
     /// Whether this unlock has to do the setup step first.
     ///
