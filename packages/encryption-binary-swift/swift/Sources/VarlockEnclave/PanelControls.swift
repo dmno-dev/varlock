@@ -274,6 +274,7 @@ final class PanelSegmentButton: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 6
+        field.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         field.stringValue = title
         field.alignment = .center
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -300,9 +301,13 @@ final class PanelSegmentButton: NSView {
         applyTitle()
     }
 
+    /// Selection is colour, never weight.
+    ///
+    /// A bolder label is a wider label, so bolding the selected segment moved the
+    /// control (and everything under it) by a few points every time the user
+    /// changed their mind. Nothing about a toggle should reflow a panel.
     private func applyTitle() {
         field.stringValue = titleText
-        field.font = NSFont.systemFont(ofSize: 12, weight: selected ? .semibold : .regular)
         field.textColor = selected ? .white : PanelStyle.ink
     }
 

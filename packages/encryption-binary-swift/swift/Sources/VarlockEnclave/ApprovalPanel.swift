@@ -425,9 +425,16 @@ final class ApprovalPanel: NSObject {
 
     private func scopeChanged(_ index: Int) {
         syncSelectionIntoFlow()
+        // The duration segment's label changes with what was picked, so the
+        // control can want a different width. Re-fit rather than clip.
+        relayout()
     }
 
-    /// Reopening the duration segment offers the windows again.
+    /// Offer the windows. Called when the duration segment is chosen and again
+    /// whenever it is clicked, so changing your mind costs one click.
+    ///
+    /// A menu that cannot be drawn must not leave the control dead: the fallback
+    /// steps to the next window, which keeps every option reachable by clicking.
     private func showDurationMenu(from view: NSView) {
         let menu = NSMenu()
         for preset in DurationPreset.allCases {
@@ -437,22 +444,34 @@ final class ApprovalPanel: NSObject {
                 keyEquivalent: ""
             )
             item.target = self
-            item.representedObject = preset.milliseconds
+            item.representedObject = NSNumber(value: preset.milliseconds)
             item.state = preset == duration ? .on : .off
             menu.addItem(item)
         }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.height + 4), in: view)
+        let shown = menu.popUp(
+            positioning: menu.items.first { ($0.representedObject as? NSNumber)?.int64Value == duration.milliseconds },
+            at: NSPoint(x: 0, y: view.bounds.height + 4),
+            in: view
+        )
+        if !shown { apply(duration: duration.next) }
     }
 
     @objc private func durationChosen(_ sender: NSMenuItem) {
-        guard let ms = sender.representedObject as? Int64,
-              let preset = DurationPreset(rawValue: ms),
-              let index = scopes.firstIndex(of: .duration) else { return }
+        guard let ms = (sender.representedObject as? NSNumber)?.int64Value,
+              let preset = DurationPreset(rawValue: ms) else { return }
+        apply(duration: preset)
+    }
+
+    /// Take a chosen window: say it on the segment, and put it in the answer.
+    private func apply(duration preset: DurationPreset) {
         duration = preset
-        scopeControl?.setTitle("For \(preset.label) \u{25BE}", at: index)
-        scopeControl?.select(index: index, notify: false)
+        if let index = scopes.firstIndex(of: .duration) {
+            scopeControl?.setTitle(scopeLabel(.duration, chosen: true), at: index)
+            scopeControl?.select(index: index, notify: false)
+        }
         syncSelectionIntoFlow()
         relayout()
+        PanelDebug.note("duration-chosen", ["ms": Int(preset.milliseconds), "label": preset.label])
     }
 
     /// Copy the controls' current state into the flow, so what a scan approves is

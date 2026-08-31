@@ -237,8 +237,11 @@ The panel shows, top to bottom:
   checked against its start time so a recycled pid cannot put somebody else's
   session on the panel. No uuid is ever shown: where the agent has no name but
   its own session id, the row goes without a title.
-- **for how long**: this session (the default), once, or a set time (1, 4, or 8
-  hours). Everything is still capped at 12h.
+- **for how long**: this session (the default), once, or a set time (1, 4, 8, or
+  12 hours). The longest window on offer is the 12h cap itself, so a choice can
+  never be one the grant table would quietly clip. Selecting a segment changes
+  its colour and nothing else: a heavier selected label was a wider one, and the
+  control used to shift by a few points every time the user changed their mind.
 - the **actions**: Deny, red with a stop mark, and a wide approve button carrying
   the glyph. On a machine with no usable sensor the approve button is the password
   path itself and there is no link offering it separately; where there is a
@@ -398,9 +401,14 @@ What to check by hand:
   distinguishable from idle
 - **scanning approves the unlock** with no second gesture, whether the prompt is
   inside the panel or in a separate system alert
-- the resting line names the process and the terminal you are actually typing in,
-  and "Details" opens the full chain and any project the client sent
-- "This session" is preselected, and "For a set time" enables the duration menu
+- the chain names the process and the terminal you are actually typing in, and
+  the expander opens the folded hops with their paths and signatures
+- "This session" is preselected; clicking "For a set time" opens the duration
+  menu, and clicking that segment again reopens it. The label follows the choice
+  ("For 4 hours"), and `list-sessions` reports a `duration` grant with the window
+  that was picked
+- **nothing moves when you toggle scopes**: the three segments keep the same
+  size whichever one is selected
 - **the scan approves the selected scope**: pick "Once" first, then scan, and
   `list-sessions` reports a `once` grant rather than a session one
 - cancelling the scan leaves the panel up with its controls live and a "Try again"

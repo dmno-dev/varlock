@@ -91,17 +91,29 @@ public struct UnlockPlan: Equatable {
 }
 
 /// Preset windows offered behind the "for a set time" choice.
+///
+/// The longest is the session cap itself, so the choice never offers a window
+/// the grant table would quietly clip.
 public enum DurationPreset: Int64, CaseIterable {
     case oneHour = 3_600_000
     case fourHours = 14_400_000
     case eightHours = 28_800_000
+    case twelveHours = 43_200_000
 
     public var label: String {
         switch self {
         case .oneHour: return "1 hour"
         case .fourHours: return "4 hours"
         case .eightHours: return "8 hours"
+        case .twelveHours: return "12 hours"
         }
+    }
+
+    /// The next window in the list, wrapping. Used where a menu cannot be drawn.
+    public var next: DurationPreset {
+        let all = DurationPreset.allCases
+        let index = all.firstIndex(of: self) ?? 0
+        return all[(index + 1) % all.count]
     }
 
     public var milliseconds: Int64 { rawValue }

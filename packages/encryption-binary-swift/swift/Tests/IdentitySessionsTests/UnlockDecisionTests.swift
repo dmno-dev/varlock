@@ -171,10 +171,25 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(UnlockPlanner.effectiveDurationMs(chosen: .duration, chosenDurationMs: hour, policy: .standard), hour)
     }
 
-    func testDurationPresetsStayUnderTheHardCap() {
+    func testDurationPresetsNeverOfferMoreThanTheHardCap() {
         for preset in DurationPreset.allCases {
-            XCTAssertLessThan(preset.milliseconds, SessionGrantTable.maxGrantMs)
+            XCTAssertLessThanOrEqual(preset.milliseconds, SessionGrantTable.maxGrantMs)
         }
+        // The longest window on offer is the cap itself: a choice the grant table
+        // would silently clip is a choice that lied to the user.
+        XCTAssertEqual(DurationPreset.allCases.last?.milliseconds, SessionGrantTable.maxGrantMs)
+    }
+
+    func testTheWindowsCycleSoThePickerIsNeverDead() {
+        // The panel steps through these when a menu cannot be drawn, so every
+        // window has to stay reachable by clicking.
+        var seen: [DurationPreset] = [.default]
+        var current = DurationPreset.default
+        for _ in 0..<DurationPreset.allCases.count {
+            current = current.next
+            if !seen.contains(current) { seen.append(current) }
+        }
+        XCTAssertEqual(Set(seen), Set(DurationPreset.allCases))
     }
 
     // MARK: - Panel content
