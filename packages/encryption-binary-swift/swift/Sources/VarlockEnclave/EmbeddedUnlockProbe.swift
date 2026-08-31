@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CoreGraphics
 import LocalAuthentication
 import LocalAuthenticationEmbeddedUI
 
@@ -169,8 +170,12 @@ enum EmbeddedUnlockProbe {
                 "verdict": scan.armed ? "inconclusive" : "embedded-never-armed",
                 "reason": scan.error ?? "authentication did not complete",
                 "phases": phases,
+                "presentation": observedPresentation(scan),
+                "inlineViewDrewSomething": scan.inlineDrew,
+                "authAgentWindowsSeen": scan.agentWindows,
+                "bundleIdentifier": Bundle.main.bundleIdentifier ?? "<none>",
                 "interpretation": scan.armed
-                    ? "the prompt was armed but nobody completed it"
+                    ? "the evaluation was running but nobody completed it"
                     : "the inline prompt never became usable; see the lifecycle log for where it stopped",
             ])
         }
@@ -210,18 +215,30 @@ enum EmbeddedUnlockProbe {
         }
         context.invalidate()
 
+        // Deliberately says nothing about WHERE the prompt appeared. An earlier
+        // verdict of "embedded-single-scan" was read as proof of inline rendering
+        // when all it ever established was the handoff, and the two came apart in
+        // the field: the scan really did carry over, and it really did happen in a
+        // separate system alert.
+        let presentation = observedPresentation(scan)
         return finish(log: log, [
-            "verdict": handoffPassed ? "embedded-single-scan" : "embedded-handoff-lost",
+            "verdict": handoffPassed ? "embedded-handoff-ok" : "embedded-handoff-lost",
             "scansRequested": 1,
             "policy": "deviceOwnerAuthenticationWithBiometrics",
             "authenticationMs": scan.durationMs,
             "phases": phases,
+            "presentation": presentation,
+            "inlineViewDrewSomething": scan.inlineDrew,
+            "authAgentWindowsSeen": scan.agentWindows,
+            "bundleIdentifier": Bundle.main.bundleIdentifier ?? "<none>",
             "interpretation": handoffPassed
-                ? "one scan inside our own window covered every enclave operation that followed"
+                ? "one scan covered every enclave operation that followed, wherever the prompt was drawn"
                 : "the context authenticated by the embedded view did not carry to the enclave; "
                     + "the panel would have to fall back to the system dialog",
-            "confirmVisually": "no separate system authentication dialog should have appeared; "
-                + "the Touch ID prompt should have been inside the probe window",
+            "confirmVisually": presentation == "inline"
+                ? "the Touch ID prompt should have been inside the probe window, with no separate dialog"
+                : "a separate system authentication dialog is expected to have appeared; "
+                    + "the probe window should read as an information card",
         ])
     }
 
@@ -231,6 +248,61 @@ enum EmbeddedUnlockProbe {
         return output
     }
 
+    // MARK: - Telling inline apart from the standard alert
+
+    /// On-screen windows owned by one of the system's authentication agents.
+    ///
+    /// This is the only programmatic signal found for "the standard alert
+    /// presented instead of the inline view". The alert is drawn by a separate
+    /// process, so it never appears in `NSApp.windows`; what it does do is put a
+    /// window on screen under an owner name we can recognise. Window *names* need
+    /// screen-recording consent, but owner names do not, which is all this reads.
+    ///
+    /// Absence is weak evidence (the list of agent names is not guaranteed
+    /// complete, and the alert may not have opened yet), so this is reported as
+    /// an observation rather than treated as proof either way.
+    static func authAgentWindowOwners() -> [String] {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let infos = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        let ourPid = ProcessInfo.processInfo.processIdentifier
+        var owners = Set<String>()
+        for info in infos {
+            if let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid == ourPid { continue }
+            guard let owner = info[kCGWindowOwnerName as String] as? String else { continue }
+            let lowered = owner.lowercased()
+            if lowered.contains("auth") || lowered.contains("securityagent") || lowered.contains("biome") {
+                owners.insert(owner)
+            }
+        }
+        return owners.sorted()
+    }
+
+    /// What the run observed about where the prompt was drawn.
+    ///
+    /// `inline` needs positive evidence that the view rendered. `system-alert`
+    /// needs an authentication agent window on screen while the view stayed empty.
+    /// Anything else is `unknown`, and says so rather than guessing, because
+    /// guessing here is exactly what produced a verdict that turned out to be
+    /// false when somebody finally watched the screen.
+    private static func observedPresentation(_ scan: ScanResult) -> String {
+        if scan.inlineDrew { return "inline" }
+        if !scan.agentWindows.isEmpty { return "system-alert" }
+        return "unknown"
+    }
+
+    /// Whether the inline view ever drew anything of its own.
+    ///
+    /// An armed inline prompt has to render its glyph out of some layer or
+    /// subview. A view that stays completely empty for the whole evaluation never
+    /// engaged, whatever the authentication itself returned.
+    static func inlineViewDrewSomething(_ view: NSView) -> Bool {
+        return !view.subviews.isEmpty
+            || view.layer?.contents != nil
+            || !(view.layer?.sublayers ?? []).isEmpty
+    }
+
     // MARK: - The window
 
     private struct ScanResult {
@@ -238,6 +310,11 @@ enum EmbeddedUnlockProbe {
         /// Whether the inline prompt ever looked usable: a view with real area,
         /// in a visible key window, with the evaluation running.
         let armed: Bool
+        /// Whether the inline view ever drew anything of its own. False means the
+        /// authentication happened somewhere else, whatever its result.
+        let inlineDrew: Bool
+        /// Authentication-agent windows seen on screen while evaluating.
+        let agentWindows: [String]
         let durationMs: Int
         let error: String?
     }
@@ -337,12 +414,17 @@ enum EmbeddedUnlockProbe {
         ])
 
         var result = ScanResult(
-            authenticated: false, armed: false, durationMs: 0,
+            authenticated: false, armed: false, inlineDrew: false, agentWindows: [],
+            durationMs: 0,
             error: "the probe window closed before anything happened"
         )
         let start = Date()
         var finished = false
         var evaluateInvoked = false
+        // Sampled throughout, because the answer is "did this EVER happen", not
+        // whatever happened to be true at the final instant.
+        var inlineEverDrew = false
+        var agentWindowsSeen = Set<String>()
 
         let finish: (ScanResult) -> Void = { outcome in
             guard !finished else { return }
@@ -385,9 +467,13 @@ enum EmbeddedUnlockProbe {
                         "errorDomain": nsError?.domain ?? "<none>",
                         "errorCode": nsError?.code ?? 0,
                     ])
+                    inlineEverDrew = inlineEverDrew || inlineViewDrewSomething(authView)
+                    agentWindowsSeen.formUnion(authAgentWindowOwners())
                     finish(ScanResult(
                         authenticated: success,
                         armed: true,
+                        inlineDrew: inlineEverDrew,
+                        agentWindows: agentWindowsSeen.sorted(),
                         durationMs: Int(Date().timeIntervalSince(start) * 1000),
                         error: success ? nil : "authentication did not complete: "
                             + (nsError?.localizedDescription ?? "unknown")
@@ -400,6 +486,8 @@ enum EmbeddedUnlockProbe {
         var heartbeats = 0
         let heartbeat = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
             heartbeats += 1
+            inlineEverDrew = inlineEverDrew || inlineViewDrewSomething(authView)
+            agentWindowsSeen.formUnion(authAgentWindowOwners())
             log.note("heartbeat", [
                 "n": heartbeats,
                 "authViewFrameWidth": authView.frame.width,
@@ -415,6 +503,10 @@ enum EmbeddedUnlockProbe {
                 "authViewSubviews": authView.subviews.count,
                 "authViewHasLayerContents": authView.layer?.contents != nil,
                 "authViewSublayers": authView.layer?.sublayers?.count ?? 0,
+                // The standard alert is drawn by another process, so a window
+                // belonging to one of the system's authentication agents appearing
+                // while we are evaluating means the inline view was bypassed.
+                "authAgentWindows": authAgentWindowOwners().joined(separator: ","),
             ])
         }
         RunLoop.main.add(heartbeat, forMode: .common)
@@ -430,6 +522,8 @@ enum EmbeddedUnlockProbe {
                 // "Armed" means the prompt was genuinely presentable. Saying so
                 // honestly is what tells a stalled run from an unanswered one.
                 armed: evaluateInvoked && hadArea,
+                inlineDrew: inlineEverDrew,
+                agentWindows: agentWindowsSeen.sorted(),
                 durationMs: Int(Date().timeIntervalSince(start) * 1000),
                 error: "nobody answered the embedded prompt within \(Int(timeoutSeconds))s"
                     + (hadArea ? "" : "; the inline view had no drawable area, so there was nothing to touch")

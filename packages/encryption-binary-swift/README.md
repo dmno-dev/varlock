@@ -193,10 +193,15 @@ A gated key raises a panel before anything else happens. The daemon draws it,
 because the daemon is the process that verified the peer and holds the keys, so it
 is the only party that can say truthfully who is asking.
 
-It is one window. The Touch ID prompt is an `LAAuthenticationView` embedded in the
-panel and bound to the very `LAContext` the unlock will run under, armed as the
-panel opens, so **scanning inside the panel is the approval** and no separate
-system dialog appears. The common case costs one gesture.
+The panel arms the presence check the moment it opens, so **the scan is the
+approval**: the common case costs one gesture, with no separate confirm click.
+
+Where the Touch ID prompt is *drawn* is up to macOS. The panel binds an
+`LAAuthenticationView` to the context, which is supposed to render the prompt
+inline, but in practice macOS has presented its own standard alert instead while
+that view stayed blank. See "Which prompt actually appears" below. The panel draws
+its own Touch ID affordance underneath the system's view, so it reads correctly
+either way and never shows an empty square.
 
 The panel shows, at rest:
 
@@ -294,10 +299,15 @@ Then write an identity wrapped to that key and run the daemon against it. The
 quickest route is to copy the setup block from `scripts/e2e-identity-session.ts`
 and drop the `--no-auth` flag: with a gated key, `unlock-session` shows the panel.
 
+The panel is what `varlock load` shows against a gated key, so that is the better
+check: it exercises the same path a user actually meets.
+
 What to check by hand:
 
-- **the panel contains the Touch ID prompt**, and scanning it approves the unlock.
-  There is no separate system popup at any point.
+- **there is a Touch ID glyph in the panel** (ours, the system's, or the system's
+  drawn over ours) and never an empty square
+- **scanning approves the unlock** with no second gesture, whether the prompt is
+  inside the panel or in a separate system alert
 - the resting line names the process and the terminal you are actually typing in,
   and "Details" opens the full chain and any project the client sent
 - "This session" is preselected, and "For a set time" enables the duration menu
@@ -393,10 +403,13 @@ embedded view still opens the custody key with no further UI, which is what the
 panel depends on. `"embedded-handoff-lost"` means it does not, and the panel would
 have to go back to raising the system dialog.
 
-Verified `embedded-single-scan` on macOS 26.1 (Apple silicon, Touch ID), from an
-unsigned `swift build` binary with no app bundle: one scan in the probe's own
-window, then two custody unwraps under `interactionNotAllowed` with no second
-prompt.
+Verified `embedded-handoff-ok` on macOS 26.1 (Apple silicon, Touch ID), both from
+an unsigned `swift build` binary with no bundle identifier and from the signed
+`.app` bundle: one scan, then two custody unwraps under `interactionNotAllowed`
+with no second prompt.
+
+That verdict is only about the handoff. It says nothing about where the prompt was
+drawn, which is a separate question the probe cannot answer; see below.
 
 `--verbose` streams a timestamped lifecycle log to stderr, and the same log is in
 the JSON either way. `--timeout <seconds>` shortens the wait. The log is the thing
@@ -411,19 +424,56 @@ The one thing a program cannot check is that no separate dialog appeared. That i
 what the person running it confirms: the Touch ID prompt should be inside the probe
 window, with nothing else popping up.
 
-### If the inline prompt does not arm
+### Which prompt actually appears
 
-It failed to arm once during development: the window drew its labels, no
-fingerprint glyph appeared, the sensor did nothing, and no system dialog appeared
-either. The cause was ordering. `evaluatePolicy` was being called before
-`NSApplication.run()`, so the evaluation started with no run loop pumping and the
-inline UI never attached to the view. Both the probe and the panel now evaluate
-from inside the running loop, and both pin the view to a real size rather than
-letting a stack view collapse something that reports no intrinsic size.
+`LAAuthenticationView` is documented to render the prompt inline, in the view it is
+bound to, rather than raising the standard alert. On this machine it does not. What
+was observed by eye on macOS 26.1, from a `swift build` binary and again in the real
+`varlock load` panel, is that the bound view stays **blank** and macOS presents its
+own redesigned biometric alert as a separate window, where the scan happens.
 
-If it ever regresses, `_VARLOCK_EMBEDDED_PROMPT=0` on the daemon sends the panel
-back to the system dialog raised by its own button. That costs a gesture and never
-weakens the check.
+Two earlier failures are fixed and were real, but neither was the cause of that:
+
+- `evaluatePolicy` was being called before `NSApplication.run()`, so the evaluation
+  started with no run loop pumping. Both the probe and the panel now evaluate from
+  inside the running loop.
+- the view reports no intrinsic size on either axis (`-1`), so a stack view is free
+  to collapse it to nothing. Both now pin it to a real size.
+
+**There is no reliable way to detect which presentation happened.** Two signals were
+tried and both are unsound. Checking whether the bound view drew anything of its own
+gives a false positive: it builds internal layers and subviews whether or not it
+presents, so it reports "inline" during a run the user watched present a separate
+alert. Scanning on-screen windows for an authentication agent gives a false negative:
+no such window was listed during that same run. The probe logs both as raw
+observations and labels the derived `presentation` field accordingly, but the honest
+answer is that only a person looking at the screen can tell.
+
+Because of that, the panel does not depend on the answer. It draws its own Touch ID
+glyph, with the system's view layered on top: if the system renders inline, its
+animation covers ours; if it stays blank, ours shows through. The panel reads as a
+self-contained prompt in the first case and as the details card accompanying the
+system alert in the second.
+
+`_VARLOCK_EMBEDDED_PROMPT=0` on the daemon skips the inline view entirely and goes
+back to the system dialog raised by the panel's own button. No blank area, one extra
+gesture, and the check is never weakened.
+
+#### Bundle identity is not the explanation
+
+The obvious suspect was process identity, since a bare `swift build` binary has no
+bundle identifier and some system UI behaves differently for one. It does not hold
+up:
+
+- the probe was run from the signed `.app` bundle (`dev.varlock.enclave.dev`,
+  Developer ID, hardened runtime) and behaved the same as the bare binary
+- every macOS distribution shape already ships that bundle. The npm helper
+  publishes `/VarlockEnclave.app`, the standalone CLI archives copy the same bundle
+  in, and the resolver looks for `VarlockEnclave.app`. So `varlock load` already
+  runs bundled, and the blank affordance was seen there too
+
+There is therefore no packaging change to chase: production is bundled today, and
+being bundled does not appear to change the presentation.
 
 ### End-to-end check (no human needed)
 

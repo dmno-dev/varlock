@@ -5,12 +5,21 @@ import IdentitySessions
 
 /// The panel the daemon draws when someone has to say yes.
 ///
-/// One window. The details of who is asking, the scope controls, and the Touch ID
-/// prompt itself all live here together: the prompt is an `LAAuthenticationView`
-/// bound to the very context the unlock will run under, so scanning inside this
-/// window IS the approval and no separate system dialog appears. The panel stays
-/// interactive while the prompt is armed, which is why the answer takes whatever
-/// scope is selected at the moment the finger lands.
+/// The panel is the card that says who is asking, what they get, and for how long,
+/// and it arms the presence check the moment it opens. The scan IS the approval:
+/// there is no separate confirm gesture in the common case.
+///
+/// Where the prompt is drawn is up to the system, and is not something the panel
+/// can rely on. It binds an `LAAuthenticationView` to the context, which is
+/// supposed to render the prompt inline, but macOS has been observed presenting
+/// its own standard alert instead while that view stayed blank, and there is no
+/// reliable signal for which will happen (see `EmbeddedUnlockProbe`). So the panel
+/// draws its own affordance underneath and reads correctly either way: as a
+/// self-contained prompt when the inline view renders, and as the details card
+/// beside the system's alert when it does not.
+///
+/// The panel stays interactive while the check is armed, which is why the answer
+/// takes whatever scope is selected at the moment the finger lands.
 ///
 /// This file is view only. What the panel says, which scopes it may offer, and what
 /// a given answer means are decided in `IdentitySessions` (`UnlockDecision.swift`,
@@ -420,27 +429,63 @@ final class ApprovalPanel: NSObject {
         return container
     }
 
-    /// The inline Touch ID affordance, plus the words it deliberately does not
-    /// carry: `LAAuthenticationView` is icon-only by design, and Apple asks that
-    /// the reason be obvious from the surrounding UI. That is the panel's job.
+    /// The scan affordance.
+    ///
+    /// We draw our own glyph, always. `LAAuthenticationView` is supposed to render
+    /// the prompt inline, but in the field it has come up blank while the system
+    /// presented its standard alert separately instead, and there is no reliable
+    /// way to detect which of the two is about to happen (see the note in
+    /// `EmbeddedUnlockProbe`). A panel that assumed inline rendering showed an
+    /// empty square and no indication that anything wanted a fingerprint.
+    ///
+    /// So the system's view is layered directly on top of ours: if it does render,
+    /// it covers ours and the user gets Apple's own animation; if it stays blank,
+    /// ours shows through and the panel still says what it wants. Either way there
+    /// is never an empty area, and the wording avoids claiming where the prompt
+    /// will appear.
     private func embeddedScanRow(context: LAContext) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
 
+        let glyphSide: CGFloat = 30
+        let holder = NSView()
+        holder.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            holder.widthAnchor.constraint(equalToConstant: glyphSide),
+            holder.heightAnchor.constraint(equalToConstant: glyphSide),
+        ])
+
+        let ownGlyph = NSImageView()
+        ownGlyph.translatesAutoresizingMaskIntoConstraints = false
+        ownGlyph.image = NSImage(systemSymbolName: "touchid", accessibilityDescription: "Touch ID")
+        ownGlyph.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: glyphSide - 4,
+            weight: .regular
+        )
+        ownGlyph.contentTintColor = .controlAccentColor
+        ownGlyph.imageScaling = .scaleProportionallyUpOrDown
+        holder.addSubview(ownGlyph)
+
         let authView = LAAuthenticationView(context: context, controlSize: .regular)
         authView.translatesAutoresizingMaskIntoConstraints = false
-        // The view reports no intrinsic size (it answers -1 on both axes), so a
-        // stack view is free to collapse it, and a collapsed view draws no glyph
-        // and catches no touch. Pin it to the size it says it wants to be, with a
-        // floor so it can never end up invisible.
-        let fitting = authView.fittingSize
+        holder.addSubview(authView)
+
         NSLayoutConstraint.activate([
-            authView.widthAnchor.constraint(equalToConstant: max(fitting.width, 32)),
-            authView.heightAnchor.constraint(equalToConstant: max(fitting.height, 32)),
+            ownGlyph.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
+            ownGlyph.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
+            ownGlyph.topAnchor.constraint(equalTo: holder.topAnchor),
+            ownGlyph.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+            // Same box, drawn after, so a rendering system view wins and a blank
+            // one leaves ours visible underneath.
+            authView.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
+            authView.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
+            authView.topAnchor.constraint(equalTo: holder.topAnchor),
+            authView.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
         ])
-        row.addArrangedSubview(authView)
+
+        row.addArrangedSubview(holder)
         row.addArrangedSubview(label("Touch ID to approve", size: NSFont.systemFontSize, color: .labelColor))
 
         // Only shown once a scan has failed, so the resting panel is just the
