@@ -35,7 +35,13 @@ type VarlockBatchEntry = {
   resolve: (value: string) => void;
   reject: (reason: unknown) => void;
 } & (
-  | { kind: 'decrypt'; ciphertext: string }
+  | {
+    kind: 'decrypt';
+    ciphertext: string;
+    /** the env var this value belongs to, and the file that set it, for the panel */
+    itemKey?: string;
+    sourceFilePath?: string;
+  }
   | { kind: 'prompt'; execute: () => Promise<string> }
 );
 
@@ -55,10 +61,20 @@ function enqueueBatchEntry(entry: VarlockBatchEntry) {
   }
 }
 
-function enqueueDecrypt(ciphertext: string, keyId: string): Promise<string> {
+function enqueueDecrypt(
+  ciphertext: string,
+  keyId: string,
+  origin: { itemKey?: string; sourceFilePath?: string } = {},
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     enqueueBatchEntry({
-      kind: 'decrypt', ciphertext, keyId, resolve, reject,
+      kind: 'decrypt',
+      ciphertext,
+      keyId,
+      itemKey: origin.itemKey,
+      sourceFilePath: origin.sourceFilePath,
+      resolve,
+      reject,
     });
   });
 }
@@ -99,7 +115,14 @@ async function openIdentityEntries(
   if (identityEntries.length === 0) return opened;
 
   const plaintexts = await localEncrypt.decryptIdentityPayloads(
-    identityEntries.map((entry) => ({ ciphertext: entry.ciphertext, keyId: entry.keyId })),
+    identityEntries.map((entry) => ({
+      ciphertext: entry.ciphertext,
+      keyId: entry.keyId,
+      // What the panel lists behind each key's row. Display only: the daemon
+      // never checks it and the crypto never sees it.
+      valueName: entry.itemKey,
+      sourceFile: entry.sourceFilePath,
+    })),
     // decoration for the unlock panel. The daemon works out who is asking from
     // the connection itself and treats all of this as secondary.
     { display: { projectName: path.basename(process.cwd()), projectPath: process.cwd() } },
@@ -165,9 +188,24 @@ async function executeBatch() {
   }
 }
 
+/**
+ * The file an env value came from, named the way a person would name it.
+ *
+ * `.env.local` rather than a home-directory-deep absolute path: the panel row
+ * is about recognising your own project, and the full path is neither
+ * recognisable nor small enough to draw.
+ */
+function displayFilePath(fullPath: string | undefined): string | undefined {
+  if (!fullPath) return undefined;
+  const relative = path.relative(process.cwd(), fullPath);
+  return relative && !relative.startsWith('..') ? relative : fullPath;
+}
+
 type VarlockResolverState = {
   mode: 'decrypt';
   payload: string;
+  itemKey?: string;
+  sourceFilePath?: string;
 } | {
   mode: 'prompt';
   itemKey: string;
@@ -252,7 +290,16 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     if (typeof payload !== 'string') {
       throw new SchemaError('varlock() expects a string argument');
     }
-    return { mode: 'decrypt', payload };
+    // Same runtime-only fields the prompt branch reads, kept so the unlock panel
+    // can say which values in which files this batch is about.
+    const parent = (this as any).parent;
+    const dataSource = this.dataSource as any;
+    return {
+      mode: 'decrypt',
+      payload,
+      itemKey: parent?.key,
+      sourceFilePath: displayFilePath(dataSource?.fullPath as string | undefined),
+    };
   },
   async resolve(state: VarlockResolverState) {
     const keyId = localEncrypt.DEFAULT_KEY_ID;
@@ -272,7 +319,10 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
 
       const ciphertext = reference.payload;
       try {
-        return await enqueueDecrypt(ciphertext, keyId);
+        return await enqueueDecrypt(ciphertext, keyId, {
+          itemKey: state.itemKey,
+          sourceFilePath: state.sourceFilePath,
+        });
       } catch (err) {
         // Re-throw ResolutionErrors (e.g. batch cancellation) as-is
         if (err instanceof ResolutionError) throw err;

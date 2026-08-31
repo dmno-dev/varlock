@@ -263,6 +263,61 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(display.projectPath?.count, UnlockDisplayInfo.maxLength)
     }
 
+    func testPerKeyValueMetadataIsRead() {
+        let display = UnlockDisplayInfo.from(payload: ["display": [
+            "keys": [
+                "dev": [
+                    "valueCount": 3,
+                    "files": [
+                        ["path": ".env", "valueNames": ["DATABASE_URL", "STRIPE_KEY"]],
+                        ["path": ".env.local", "valueNames": ["NGROK_TOKEN"]],
+                    ],
+                ],
+                "prod": [
+                    "valueCount": 1,
+                    "vaultLabel": "acme-team vault",
+                    "vaultColor": "#B48CE8",
+                ],
+            ],
+        ]])
+
+        XCTAssertEqual(display.keys["dev"]?.valueCount, 3)
+        XCTAssertEqual(display.keys["dev"]?.files.map { $0.path }, [".env", ".env.local"])
+        XCTAssertEqual(display.keys["dev"]?.files.first?.valueNames, ["DATABASE_URL", "STRIPE_KEY"])
+        XCTAssertEqual(display.keys["prod"]?.vaultLabel, "acme-team vault")
+        XCTAssertEqual(display.keys["prod"]?.vaultColor, "#b48ce8")
+        XCTAssertEqual(display.valueCount(forKey: "dev"), 3)
+    }
+
+    func testValueMetadataIsCappedAndSanitised() {
+        let manyNames = (0..<200).map { "VALUE_\($0)" }
+        let display = UnlockDisplayInfo.from(payload: ["display": [
+            "keys": [
+                "dev": [
+                    "valueCount": 0,
+                    "files": (0..<20).map { ["path": ".env.\($0)", "valueNames": manyNames] },
+                    // not a colour: dropped rather than drawn
+                    "vaultColor": "red; drop table",
+                ],
+            ],
+        ]])
+
+        let key = display.keys["dev"]
+        XCTAssertNil(key?.valueCount, "a count of zero says nothing, so it is not shown")
+        XCTAssertNil(key?.vaultColor)
+        XCTAssertLessThanOrEqual(key?.files.count ?? 0, UnlockKeyDisplay.maxFiles)
+        XCTAssertEqual(
+            key?.files.reduce(0) { $0 + $1.valueNames.count },
+            UnlockKeyDisplay.maxValueNames
+        )
+    }
+
+    func testValueMetadataFallsBackToTheItemCountsForm() {
+        let display = UnlockDisplayInfo.from(payload: ["display": ["itemCounts": ["dev": 12]]])
+        XCTAssertEqual(display.valueCount(forKey: "dev"), 12)
+        XCTAssertNil(display.valueCount(forKey: "prod"))
+    }
+
     // MARK: - Which keys were asked for
 
     func testBothKeyFormsAreAccepted() {

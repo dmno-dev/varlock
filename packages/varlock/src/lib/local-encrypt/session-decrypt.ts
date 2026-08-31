@@ -14,7 +14,9 @@
  */
 
 import { DaemonError, type DaemonClient } from './daemon-client';
-import type { SessionGrantInfo, UnlockDisplayInfo } from './types';
+import type {
+  SessionGrantInfo, UnlockDisplayInfo, UnlockKeyDisplay, UnlockValueFile,
+} from './types';
 
 /** Thrown when the user was shown the unlock panel and said no */
 export class UnlockDeclinedError extends Error {
@@ -44,6 +46,15 @@ export class UnlockNoUiError extends Error {
 export interface IdentityPayloadRequest {
   ciphertext: string;
   keyId: string;
+  /**
+   * The env var this payload belongs to, and the file that defined it.
+   *
+   * Both are for the panel only. They travel as display metadata, are never
+   * bound into the crypto, and a wrong or missing one changes nothing but the
+   * wording of a row the user can expand.
+   */
+  valueName?: string;
+  sourceFile?: string;
 }
 
 /**
@@ -141,6 +152,59 @@ async function decryptGroup(
 }
 
 /**
+ * Describe what this batch is asking each key to open.
+ *
+ * The panel says who is asking on its own authority, but it cannot know what
+ * the values are called: that lives in the env graph in this process. So the
+ * value names and the files that defined them are sent as display metadata, and
+ * the panel draws them as client-reported. Nothing here is bound into the
+ * crypto, and the daemon does not check any of it, on purpose: display metadata
+ * that a decrypt depended on would turn a cosmetic mismatch into a failed
+ * unlock.
+ *
+ * A caller's own `keys` entries (a vault label and colour, once vaults exist)
+ * are kept, since only the caller knows those.
+ */
+function buildDisplayInfo(
+  payloads: Array<IdentityPayloadRequest>,
+  groups: Map<string, Array<number>>,
+  supplied: UnlockDisplayInfo | undefined,
+): UnlockDisplayInfo {
+  const keys: Record<string, UnlockKeyDisplay> = {};
+
+  for (const [keyId, indexes] of groups) {
+    // Grouped by file, in the order the files first appear, so the panel reads
+    // the way the env files were loaded rather than in some hash order.
+    const byFile = new Map<string, UnlockValueFile>();
+    for (const index of indexes) {
+      const { valueName, sourceFile } = payloads[index];
+      if (!valueName) continue;
+      // Values whose file is unknown still get listed, under no heading.
+      const groupKey = sourceFile ?? '';
+      let file = byFile.get(groupKey);
+      if (!file) {
+        file = { path: sourceFile, valueNames: [] };
+        byFile.set(groupKey, file);
+      }
+      file.valueNames.push(valueName);
+    }
+
+    keys[keyId] = {
+      ...supplied?.keys?.[keyId],
+      valueCount: indexes.length,
+      ...(byFile.size > 0 ? { files: [...byFile.values()] } : {}),
+    };
+  }
+
+  return {
+    ...supplied,
+    // how much each key is being asked to cover, so the panel can say so
+    itemCounts: Object.fromEntries([...groups].map(([keyId, indexes]) => [keyId, indexes.length])),
+    keys,
+  };
+}
+
+/**
  * Open every payload, in payload order, using as few unlocks as possible.
  *
  * Keys already covered by a grant this process opened are left out of the unlock
@@ -162,11 +226,7 @@ export async function decryptIdentityPayloadsViaDaemon(
   }
 
   const keyIds = [...groups.keys()];
-  const display: UnlockDisplayInfo = {
-    ...opts?.display,
-    // how much each key is being asked to cover, so the panel can say so
-    itemCounts: Object.fromEntries([...groups].map(([keyId, indexes]) => [keyId, indexes.length])),
-  };
+  const display = buildDisplayInfo(payloads, groups, opts?.display);
 
   const needUnlock = keyIds.filter((keyId) => !grantLooksLive(keyId));
   if (needUnlock.length > 0) await unlock(client, needUnlock, display);

@@ -159,6 +159,95 @@ public enum UnlockRequestKeys {
     }
 }
 
+/// Value names the client says one file defined.
+///
+/// Client-reported, and shown as such. The daemon has no way to know what an
+/// env value is called, so this is the only source there is; it is drawn behind
+/// a disclosure and labelled, rather than presented as something the daemon
+/// verified.
+public struct UnlockValueFile: Equatable {
+    /// The file that defined these values. nil when the client did not say.
+    public let path: String?
+    public let valueNames: [String]
+
+    public init(path: String?, valueNames: [String]) {
+        self.path = path
+        self.valueNames = valueNames
+    }
+}
+
+/// What the client says one key is being asked to open.
+///
+/// Display only, and deliberately not bound into anything: none of it reaches
+/// the crypto, and the daemon never checks it against what it holds. It exists
+/// so the panel can answer "what do they get" beyond a bare key id.
+public struct UnlockKeyDisplay: Equatable {
+    public let valueCount: Int?
+    public let files: [UnlockValueFile]
+    /// The vault this key belongs to, once vaults exist. nil means the local one.
+    public let vaultLabel: String?
+    /// The vault's identity colour as `#rrggbb`, or nil for the default tint.
+    public let vaultColor: String?
+
+    public init(
+        valueCount: Int? = nil,
+        files: [UnlockValueFile] = [],
+        vaultLabel: String? = nil,
+        vaultColor: String? = nil
+    ) {
+        self.valueCount = valueCount
+        self.files = files
+        self.vaultLabel = vaultLabel
+        self.vaultColor = vaultColor
+    }
+
+    /// Caps on how much a client can put in one key's row. A caller with more
+    /// than this is trimmed rather than refused: the panel has to stay a panel.
+    public static let maxFiles = 8
+    public static let maxValueNames = 60
+    static let maxValueNameLength = 64
+    static let maxPathLength = 60
+    static let maxVaultLabelLength = 32
+
+    static func from(_ raw: Any?) -> UnlockKeyDisplay? {
+        guard let raw = raw as? [String: Any] else { return nil }
+
+        var files: [UnlockValueFile] = []
+        var namesLeft = maxValueNames
+        for entry in (raw["files"] as? [Any] ?? []).prefix(maxFiles) {
+            guard let entry = entry as? [String: Any] else { continue }
+            let names = (entry["valueNames"] as? [Any] ?? [])
+                .compactMap { UnlockDisplayInfo.trimmedNonEmpty($0, limit: maxValueNameLength) }
+                .prefix(namesLeft)
+            guard !names.isEmpty else { continue }
+            namesLeft -= names.count
+            files.append(UnlockValueFile(
+                path: UnlockDisplayInfo.trimmedNonEmpty(entry["path"], limit: maxPathLength),
+                valueNames: Array(names)
+            ))
+            if namesLeft <= 0 { break }
+        }
+
+        let count = (raw["valueCount"] as? NSNumber)?.intValue
+        return UnlockKeyDisplay(
+            valueCount: (count ?? 0) > 0 ? count : nil,
+            files: files,
+            vaultLabel: UnlockDisplayInfo.trimmedNonEmpty(raw["vaultLabel"], limit: maxVaultLabelLength),
+            vaultColor: hexColor(raw["vaultColor"])
+        )
+    }
+
+    /// Only `#rrggbb` is accepted, so a colour cannot smuggle anything else onto
+    /// the panel.
+    static func hexColor(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        guard text.count == 7, text.hasPrefix("#") else { return nil }
+        let digits = text.dropFirst()
+        guard digits.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return "#" + digits.lowercased()
+    }
+}
+
 /// Client-supplied decoration for an unlock panel.
 ///
 /// None of this is trusted. It only ever adds a line to the panel; it can never
@@ -169,15 +258,28 @@ public struct UnlockDisplayInfo: Equatable {
     public let projectPath: String?
     /// key id -> how many encrypted items the client says that key covers
     public let itemCounts: [String: Int]
+    /// key id -> what the client says that key covers, in detail
+    public let keys: [String: UnlockKeyDisplay]
 
-    public init(projectName: String? = nil, projectPath: String? = nil, itemCounts: [String: Int] = [:]) {
+    public init(
+        projectName: String? = nil,
+        projectPath: String? = nil,
+        itemCounts: [String: Int] = [:],
+        keys: [String: UnlockKeyDisplay] = [:]
+    ) {
         self.projectName = projectName
         self.projectPath = projectPath
         self.itemCounts = itemCounts
+        self.keys = keys
     }
 
     public var isEmpty: Bool {
-        return projectName == nil && projectPath == nil && itemCounts.isEmpty
+        return projectName == nil && projectPath == nil && itemCounts.isEmpty && keys.isEmpty
+    }
+
+    /// How many values a key covers, from either form the client sent.
+    public func valueCount(forKey keyId: String) -> Int? {
+        return keys[keyId]?.valueCount ?? itemCounts[keyId]
     }
 
     /// Read the optional `display` object from an `unlock-session` payload.
@@ -191,10 +293,18 @@ public struct UnlockDisplayInfo: Equatable {
                 counts[keyId] = count
             }
         }
+        var keys: [String: UnlockKeyDisplay] = [:]
+        if let raw = display["keys"] as? [String: Any] {
+            for (keyId, value) in raw {
+                guard let parsed = UnlockKeyDisplay.from(value) else { continue }
+                keys[keyId] = parsed
+            }
+        }
         return UnlockDisplayInfo(
             projectName: trimmedNonEmpty(display["projectName"]),
             projectPath: trimmedNonEmpty(display["projectPath"]),
-            itemCounts: counts
+            itemCounts: counts,
+            keys: keys
         )
     }
 
@@ -202,13 +312,13 @@ public struct UnlockDisplayInfo: Equatable {
     /// derived lines off the panel.
     static let maxLength = 120
 
-    static func trimmedNonEmpty(_ value: Any?) -> String? {
+    static func trimmedNonEmpty(_ value: Any?, limit: Int = maxLength) -> String? {
         guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
             return nil
         }
         // Collapse newlines so a multi-line value cannot fake extra panel lines.
         let flattened = text.components(separatedBy: .newlines).joined(separator: " ")
-        return String(flattened.prefix(maxLength))
+        return String(flattened.prefix(limit))
     }
 }
 

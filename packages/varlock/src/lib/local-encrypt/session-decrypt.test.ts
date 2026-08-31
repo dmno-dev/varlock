@@ -105,6 +105,77 @@ describe.skipIf(process.platform === 'win32')('v2 decryption through the daemon'
     expect(harness.callsOf('decrypt-v2')).toHaveLength(2);
   });
 
+  it('tells the panel which values, in which files, each key is being asked for', async () => {
+    const dbUrl = v2Payload('db');
+    const stripe = v2Payload('stripe');
+    const localOnly = v2Payload('local');
+    const prodKey = v2Payload('prod');
+    harness.setConfig({
+      plaintexts: {
+        [dbUrl]: 'a', [stripe]: 'b', [localOnly]: 'c', [prodKey]: 'd',
+      },
+    });
+
+    const localEncrypt = await loadLocalEncrypt();
+    await localEncrypt.decryptIdentityPayloads([
+      {
+        ciphertext: dbUrl, keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env',
+      },
+      {
+        ciphertext: stripe, keyId: 'varlock-default', valueName: 'STRIPE_KEY', sourceFile: '.env',
+      },
+      {
+        ciphertext: localOnly, keyId: 'varlock-default', valueName: 'NGROK_TOKEN', sourceFile: '.env.local',
+      },
+      {
+        ciphertext: prodKey, keyId: 'other-key', valueName: 'PROD_TOKEN', sourceFile: '.env.prod',
+      },
+    ], { display: { projectName: 'acme-api' } });
+
+    const display = harness.callsOf('unlock-session')[0].payload.display as any;
+    expect(display.projectName).toBe('acme-api');
+    expect(display.keys['varlock-default'].valueCount).toBe(3);
+    // grouped by the file that defined them, in the order the files first appear
+    expect(display.keys['varlock-default'].files).toEqual([
+      { path: '.env', valueNames: ['DATABASE_URL', 'STRIPE_KEY'] },
+      { path: '.env.local', valueNames: ['NGROK_TOKEN'] },
+    ]);
+    expect(display.keys['other-key']).toEqual({
+      valueCount: 1,
+      files: [{ path: '.env.prod', valueNames: ['PROD_TOKEN'] }],
+    });
+  });
+
+  it('still reports counts when the caller knows no value names', async () => {
+    const payload = v2Payload('nameless');
+    harness.setConfig({ plaintexts: { [payload]: 'x' } });
+
+    const localEncrypt = await loadLocalEncrypt();
+    await localEncrypt.decryptIdentityPayloads([{ ciphertext: payload, keyId: 'varlock-default' }]);
+
+    const display = harness.callsOf('unlock-session')[0].payload.display as any;
+    expect(display.keys['varlock-default']).toEqual({ valueCount: 1 });
+  });
+
+  it('keeps the vault decoration the caller supplied for a key', async () => {
+    const payload = v2Payload('vaulted');
+    harness.setConfig({ plaintexts: { [payload]: 'x' } });
+
+    const localEncrypt = await loadLocalEncrypt();
+    await localEncrypt.decryptIdentityPayloads(
+      [{ ciphertext: payload, keyId: 'varlock-default', valueName: 'PROD_TOKEN' }],
+      { display: { keys: { 'varlock-default': { vaultLabel: 'acme-team vault', vaultColor: '#b48ce8' } } } },
+    );
+
+    const display = harness.callsOf('unlock-session')[0].payload.display as any;
+    expect(display.keys['varlock-default']).toEqual({
+      vaultLabel: 'acme-team vault',
+      vaultColor: '#b48ce8',
+      valueCount: 1,
+      files: [{ valueNames: ['PROD_TOKEN'] }],
+    });
+  });
+
   it('re-unlocks once when the grant dies between the unlock and the decrypt', async () => {
     const payload = v2Payload('racy');
     harness.setConfig({

@@ -122,6 +122,35 @@ export interface UnlockDisplayInfo {
   itemCounts?: Record<string, number>;
   projectName?: string;
   projectPath?: string;
+  /** what each key is being asked to open, keyed by key id */
+  keys?: Record<string, UnlockKeyDisplay>;
+}
+
+/**
+ * What one key covers, as the client sees it.
+ *
+ * Display only, and deliberately so: none of this is bound into the crypto, and
+ * the daemon never checks it against anything it holds. It exists to answer
+ * "what do they get" on the panel, which the daemon cannot answer on its own
+ * because the value names live in the caller's env graph. The panel says so on
+ * the row it draws them in.
+ */
+export interface UnlockKeyDisplay {
+  /** how many encrypted values this key covers */
+  valueCount?: number;
+  /** the values this key covers, grouped by the file that defined them */
+  files?: Array<UnlockValueFile>;
+  /** the vault this key belongs to, once there are vaults to belong to */
+  vaultLabel?: string;
+  /** the vault's identity colour, as `#rrggbb` */
+  vaultColor?: string;
+}
+
+/** Value names from one env file */
+export interface UnlockValueFile {
+  /** file that defined these values; omitted when the caller does not know */
+  path?: string;
+  valueNames: Array<string>;
 }
 
 /**
