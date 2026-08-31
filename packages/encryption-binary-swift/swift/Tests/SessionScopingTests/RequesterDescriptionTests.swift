@@ -26,6 +26,35 @@ final class RequesterDescriptionTests: XCTestCase {
         XCTAssertEqual(description.panelLines, ["Requested by node ← claude ← zsh", "Terminal ttys004"])
     }
 
+    func testTheRestingLineNamesTheNearestProcessAndTheTerminal() {
+        let description = describe([
+            FakeProc(pid: 100, ppid: 200, tty: 16, path: "/usr/local/bin/node"),
+            FakeProc(pid: 200, ppid: 300, tty: 16, path: "/opt/homebrew/bin/claude"),
+            FakeProc(pid: 300, ppid: 1, tty: 16, path: "/bin/zsh"),
+        ], ttyNames: [16: "ttys004"], pid: 100)
+
+        // The panel shows this one line at rest, so it has to answer "is this me?"
+        // without making anyone read an ancestry chain.
+        XCTAssertEqual(description.summaryLine, "Requested by node in ttys004")
+        // The chain is still there, one disclosure click away.
+        XCTAssertEqual(description.detailLines, ["Process: node ← claude ← zsh", "Terminal ttys004"])
+    }
+
+    func testTheRestingLineStillWorksWithNoTerminal() {
+        let description = describe([
+            FakeProc(pid: 100, ppid: 200, path: "/usr/local/bin/node"),
+            FakeProc(pid: 200, ppid: 1, path: "/Applications/Cursor.app/Contents/MacOS/Cursor"),
+        ], pid: 100)
+
+        XCTAssertEqual(description.summaryLine, "Requested by node")
+        XCTAssertEqual(description.detailLines.last, "No terminal (background process)")
+    }
+
+    func testTheRestingLineSaysSomethingEvenWithNothingToReadOff() {
+        let description = describe([], pid: 999)
+        XCTAssertEqual(description.summaryLine, "Requested by unknown process")
+    }
+
     func testNoTerminalSaysSoRatherThanGuessing() {
         let description = describe([
             FakeProc(pid: 100, ppid: 200, path: "/usr/local/bin/node"),

@@ -29,6 +29,28 @@ public enum PanelContextLine: Equatable {
     }
 }
 
+/// Who is asking, split into what the panel shows at rest and what it keeps behind
+/// the disclosure.
+///
+/// The panel has to be readable in the second before a finger lands on the sensor,
+/// so the resting state is one line naming the process and where it is running. The
+/// full ancestry and the client's own decoration are still there for anyone who
+/// wants them, one click away, because the detail is the evidence: it just should
+/// not be what a routine unlock makes you read.
+public struct PanelRequester: Equatable {
+    /// The single line shown at rest. Derived from the peer process.
+    public let summary: String
+    /// Everything else, shown when the disclosure is opened.
+    public let details: [PanelContextLine]
+
+    public init(summary: String, details: [PanelContextLine] = []) {
+        self.summary = summary
+        self.details = details
+    }
+
+    public var hasDetails: Bool { !details.isEmpty }
+}
+
 /// A named group of things the approval covers (key ids, and whatever a generic
 /// approval wants to list).
 public struct PanelItemGroup: Equatable {
@@ -57,8 +79,8 @@ public struct PanelItem: Equatable {
 public struct PanelContent: Equatable {
     public let title: String
     public let subtitle: String?
-    /// Trust-bearing lines first, client-supplied decoration after.
-    public let contextLines: [PanelContextLine]
+    /// Who is asking: one line at rest, the rest behind the disclosure.
+    public let requester: PanelRequester
     public let itemGroups: [PanelItemGroup]
     public let scopes: [SessionGrantScope]
     public let defaultScope: SessionGrantScope
@@ -68,7 +90,7 @@ public struct PanelContent: Equatable {
     public init(
         title: String,
         subtitle: String? = nil,
-        contextLines: [PanelContextLine] = [],
+        requester: PanelRequester = PanelRequester(summary: ""),
         itemGroups: [PanelItemGroup] = [],
         scopes: [SessionGrantScope],
         defaultScope: SessionGrantScope,
@@ -77,7 +99,7 @@ public struct PanelContent: Equatable {
     ) {
         self.title = title
         self.subtitle = subtitle
-        self.contextLines = contextLines
+        self.requester = requester
         self.itemGroups = itemGroups
         self.scopes = scopes
         self.defaultScope = defaultScope
@@ -198,12 +220,12 @@ public enum UnlockPanelContent {
     ///   - display: client-supplied decoration.
     public static func build(
         plan: UnlockPlan,
-        requesterLines: [String],
+        requester: PanelRequester,
         display: UnlockDisplayInfo = UnlockDisplayInfo()
     ) -> PanelContent {
-        var context: [PanelContextLine] = requesterLines.map { .derived($0) }
+        var details = requester.details
         if let project = projectLine(display) {
-            context.append(.clientSupplied(project))
+            details.append(.clientSupplied(project))
         }
 
         var groups: [PanelItemGroup] = []
@@ -222,7 +244,7 @@ public enum UnlockPanelContent {
         return PanelContent(
             title: title(for: plan),
             subtitle: subtitle(for: plan),
-            contextLines: context,
+            requester: PanelRequester(summary: requester.summary, details: details),
             itemGroups: groups,
             scopes: plan.offeredScopes,
             defaultScope: plan.defaultScope,

@@ -1,65 +1,129 @@
 import AppKit
+import LocalAuthentication
+import LocalAuthenticationEmbeddedUI
 import IdentitySessions
 
 /// The panel the daemon draws when someone has to say yes.
 ///
-/// This file is view only. What the panel says, which scopes it may offer, and
-/// what a given answer means are all decided in `IdentitySessions` (see
-/// `UnlockDecision.swift` and `PanelContent.swift`), so the rules can be tested
-/// without a window server. Everything here does is turn a `PanelContent` into
-/// pixels and turn the click back into a `PanelDecision`.
+/// One window. The details of who is asking, the scope controls, and the Touch ID
+/// prompt itself all live here together: the prompt is an `LAAuthenticationView`
+/// bound to the very context the unlock will run under, so scanning inside this
+/// window IS the approval and no separate system dialog appears. The panel stays
+/// interactive while the prompt is armed, which is why the answer takes whatever
+/// scope is selected at the moment the finger lands.
+///
+/// This file is view only. What the panel says, which scopes it may offer, and what
+/// a given answer means are decided in `IdentitySessions` (`UnlockDecision.swift`,
+/// `PanelContent.swift`, `ApprovalFlow.swift`), so the rules stay testable without a
+/// window server.
 ///
 /// It is drawn by the daemon on purpose. The daemon is the process that holds the
 /// keys and the one that verified the peer, so it is the only party in a position
 /// to say truthfully who is asking. A panel drawn by the caller would be a panel
 /// the caller can lie on.
 final class ApprovalPanel: NSObject {
-    /// How long the panel waits for an answer before treating it as a cancel.
+    /// How long the whole interaction may take before it counts as a refusal.
     /// Below the client's 5 minute interactive timeout, so the caller gets a real
     /// answer rather than a dead socket.
     static let timeoutSeconds: TimeInterval = 120
 
+    /// Ends the modal when the flow produced an answer, rather than when AppKit's
+    /// own button handling did.
+    private static let flowFinishedResponse = NSApplication.ModalResponse(rawValue: 9001)
+
     private static let contentWidth: CGFloat = 420
+
+    /// What the panel answered, and the presence check that answered it.
+    struct Outcome {
+        let decision: PanelDecision
+        /// Present only when a presence check approved this. Handing this exact
+        /// context to the enclave is what keeps one scan covering the whole unlock.
+        let proof: IdentitySessionManager.PresenceProof?
+    }
 
     private var scopeControl: NSSegmentedControl?
     private var durationPopUp: NSPopUpButton?
+    private var confirmButton: NSButton?
+    private var retryButton: NSButton?
+    private var statusLabel: NSTextField?
+    private var detailsStack: NSStackView?
+    private var disclosureButton: NSButton?
+    private var accessoryContainer: NSView?
+    private weak var alert: NSAlert?
+
     private var scopes: [SessionGrantScope] = []
     private var timedOut = false
+    private var flow: ApprovalFlow!
+    private var attempt: IdentitySessionManager.PresenceAttempt?
+    private var presenceReason = ""
+    private var proof: IdentitySessionManager.PresenceProof?
+    /// Guards against a presence callback arriving after the modal has ended.
+    private var modalRunning = false
 
     /// Show a panel and wait for the answer.
     ///
     /// Returns nil when the panel could not be drawn at all, which the caller
-    /// reports as `NO_UI`. A cancel comes back as a decision with `approved`
+    /// reports as `NO_UI`. A refusal comes back as a decision with `approved`
     /// false, so callers can tell "the user said no" from "nobody could be asked".
-    static func present(content: PanelContent) -> PanelDecision? {
+    ///
+    /// With an `attempt`, the panel carries a presence check: embedded (armed as
+    /// the panel opens, the scan is the answer) or the system dialog fallback
+    /// (raised by the confirm button). Without one it is a plain button panel.
+    static func present(
+        content: PanelContent,
+        presenceReason: String = "",
+        attempt: IdentitySessionManager.PresenceAttempt? = nil
+    ) -> Outcome? {
         guard UiAvailability.canShowUi() else { return nil }
 
-        var decision: PanelDecision?
+        var outcome: Outcome?
         let work = {
             let panel = ApprovalPanel()
-            decision = panel.run(content: content)
+            outcome = panel.run(content: content, presenceReason: presenceReason, attempt: attempt)
         }
         if Thread.isMainThread {
             work()
         } else {
             DispatchQueue.main.sync { work() }
         }
-        return decision
+        return outcome
     }
 
-    // MARK: - Rendering
+    // MARK: - Running
 
-    private func run(content: PanelContent) -> PanelDecision {
+    private func run(
+        content: PanelContent,
+        presenceReason: String,
+        attempt: IdentitySessionManager.PresenceAttempt?
+    ) -> Outcome {
         SecureInputDialog.ensureEditMenu()
         scopes = content.scopes
+        self.attempt = attempt
+        self.presenceReason = presenceReason
+        let mode = attempt?.mode ?? .none
+        flow = ApprovalFlow(content: content, presenceMode: mode)
 
         let alert = NSAlert()
+        self.alert = alert
         alert.messageText = content.title
         alert.informativeText = content.subtitle ?? ""
         alert.alertStyle = .informational
-        alert.addButton(withTitle: content.confirmButtonTitle)
+
+        // With the prompt embedded, scanning is the action and Cancel is the only
+        // button worth showing. The other two modes keep the confirm button, which
+        // is what raises the system dialog (or answers outright when there is no
+        // presence check at all).
+        if mode != .embedded {
+            alert.addButton(withTitle: content.confirmButtonTitle)
+        }
         alert.addButton(withTitle: content.cancelButtonTitle)
-        alert.accessoryView = buildAccessoryView(content: content)
+        alert.accessoryView = buildAccessoryView(content: content, mode: mode)
+
+        if mode != .embedded {
+            confirmButton = alert.buttons.first
+            confirmButton?.target = self
+            confirmButton?.action = #selector(confirmPressed(_:))
+        }
 
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Varlock"
         alert.window.title = appName
@@ -73,53 +137,176 @@ final class ApprovalPanel: NSObject {
         // An unanswered panel must not pin a client socket open forever.
         timedOut = false
         let deadline = DispatchWorkItem { [weak self] in
-            guard let self, !self.timedOut else { return }
+            guard let self, !self.timedOut, self.modalRunning else { return }
             self.timedOut = true
             NSApp.abortModal()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.timeoutSeconds, execute: deadline)
 
-        let response = alert.runModal()
+        // Arm the prompt once the modal loop is running, so it has a live window.
+        modalRunning = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.perform(effect: self.flow.start())
+        }
+
+        _ = alert.runModal()
+        modalRunning = false
         deadline.cancel()
 
-        guard !timedOut, response == .alertFirstButtonReturn else {
-            return PanelDecision.denied(defaultScope: content.defaultScope)
+        // The flow is the authority on what was answered, not the button code:
+        // Cancel is the first button in embedded mode and the second otherwise.
+        if timedOut {
+            _ = flow.apply(.timedOut)
+        } else if case .finished = flow.state {
+            // already answered, through the flow
+        } else {
+            _ = flow.apply(.cancelPressed)
         }
-        let scope = selectedScope(fallback: content.defaultScope)
-        return PanelDecision(
-            approved: true,
-            scope: scope,
-            durationMs: scope == .duration ? selectedDurationMs() : nil
-        )
+
+        guard case .finished(let decision) = flow.state, decision.approved else {
+            invalidateProof()
+            return Outcome(decision: PanelDecision.denied(defaultScope: content.defaultScope), proof: nil)
+        }
+        return Outcome(decision: decision, proof: proof)
     }
 
-    private func buildAccessoryView(content: PanelContent) -> NSView {
+    /// A context nobody is going to use must not be left alive.
+    private func invalidateProof() {
+        proof?.context.invalidate()
+        proof = nil
+    }
+
+    // MARK: - Flow
+
+    private func perform(effect: ApprovalFlowEffect) {
+        switch effect {
+        case .beginScan:
+            retryButton?.isHidden = true
+            setStatus(flow.presenceMode == .embedded
+                ? "Touch the sensor to approve."
+                : "Waiting for your password.")
+            confirmButton?.isEnabled = false
+            beginScan()
+        case .showControls:
+            confirmButton?.isEnabled = true
+            if flow.presenceMode == .embedded { retryButton?.isHidden = false }
+            setStatus(failureHint())
+        case .finish(let decision):
+            NSApp.stopModal(withCode: decision.approved
+                ? Self.flowFinishedResponse
+                : .alertSecondButtonReturn)
+        }
+    }
+
+    private func beginScan() {
+        guard let attempt else { return }
+        attempt.evaluate(reason: presenceReason) { [weak self] result in
+            guard let self, self.modalRunning else {
+                if case .success(let proof) = result { proof.context.invalidate() }
+                return
+            }
+            switch result {
+            case .success(let proof):
+                self.proof = proof
+                // Read the controls now, not when the panel opened: nothing was
+                // modal over them, so what is selected at this instant is what the
+                // user meant to approve.
+                self.syncSelectionIntoFlow()
+                self.perform(effect: self.flow.apply(.scanSucceeded))
+            case .failure:
+                // Not a refusal. Leave the panel up with a way to try again.
+                self.perform(effect: self.flow.apply(.scanFailed))
+            }
+        }
+    }
+
+    private func failureHint() -> String {
+        guard flow.failedScans > 0 else { return "" }
+        if flow.presenceMode == .embedded {
+            return flow.failedScans > 1
+                ? "Still not verified. Adjust how long to allow if you want, then try again, or Cancel to refuse."
+                : "Not verified. Try again, or Cancel to refuse."
+        }
+        return "Not verified. Press \(confirmButton?.title ?? "the button") to try again, or Cancel to refuse."
+    }
+
+    private func setStatus(_ text: String) {
+        statusLabel?.stringValue = text
+        statusLabel?.isHidden = text.isEmpty
+        relayout()
+    }
+
+    // MARK: - Controls
+
+    @objc private func confirmPressed(_ sender: Any) {
+        syncSelectionIntoFlow()
+        perform(effect: flow.apply(.confirmPressed))
+    }
+
+    @objc private func retryPressed(_ sender: Any) {
+        syncSelectionIntoFlow()
+        perform(effect: flow.apply(.confirmPressed))
+    }
+
+    @objc private func scopeChanged(_ sender: NSSegmentedControl) {
+        durationPopUp?.isEnabled = selectedScope(fallback: .once) == .duration
+        syncSelectionIntoFlow()
+    }
+
+    @objc private func durationChanged(_ sender: NSPopUpButton) {
+        syncSelectionIntoFlow()
+    }
+
+    @objc private func disclosureToggled(_ sender: NSButton) {
+        detailsStack?.isHidden = sender.state != .on
+        relayout()
+    }
+
+    /// Copy the controls' current state into the flow, so what a scan approves is
+    /// what the panel is showing.
+    private func syncSelectionIntoFlow() {
+        let scope = selectedScope(fallback: flow.scope)
+        flow.select(scope: scope, durationMs: scope == .duration ? selectedDurationMs() : nil)
+    }
+
+    private func selectedScope(fallback: SessionGrantScope) -> SessionGrantScope {
+        guard let index = scopeControl?.selectedSegment, index >= 0, index < scopes.count else {
+            return fallback
+        }
+        return scopes[index]
+    }
+
+    private func selectedDurationMs() -> Int64 {
+        guard let index = durationPopUp?.indexOfSelectedItem,
+              index >= 0, index < DurationPreset.allCases.count else {
+            return DurationPreset.default.milliseconds
+        }
+        return DurationPreset.allCases[index].milliseconds
+    }
+
+    /// Re-fit the accessory view after something appeared or disappeared. NSAlert
+    /// sizes an accessory view once, by its frame, so a disclosure that changes
+    /// height has to ask for the window to be laid out again.
+    private func relayout() {
+        guard let accessoryContainer, let alert else { return }
+        accessoryContainer.layoutSubtreeIfNeeded()
+        accessoryContainer.frame = NSRect(origin: .zero, size: accessoryContainer.fittingSize)
+        alert.layout()
+    }
+
+    // MARK: - Building the view
+
+    private func buildAccessoryView(content: PanelContent, mode: ApprovalPresenceMode) -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        // Who is asking. Derived lines come first and are drawn as normal body
-        // text; client-supplied decoration is dimmed so the two never read alike.
-        let derived = content.contextLines.filter { $0.isDerived }
-        let clientSupplied = content.contextLines.filter { !$0.isDerived }
-        if !derived.isEmpty || !clientSupplied.isEmpty {
-            let box = NSStackView()
-            box.orientation = .vertical
-            box.alignment = .leading
-            box.spacing = 2
-            for line in derived {
-                box.addArrangedSubview(label(line.text, size: NSFont.systemFontSize, color: .labelColor))
-            }
-            for line in clientSupplied {
-                box.addArrangedSubview(label(
-                    line.text,
-                    size: NSFont.smallSystemFontSize,
-                    color: .secondaryLabelColor
-                ))
-            }
-            stack.addArrangedSubview(box)
+        // Who is asking: one derived line at rest.
+        if !content.requester.summary.isEmpty {
+            stack.addArrangedSubview(label(content.requester.summary, size: NSFont.systemFontSize, color: .labelColor))
         }
 
         // What the approval covers.
@@ -155,6 +342,8 @@ final class ApprovalPanel: NSObject {
                 popUp.addItems(withTitles: DurationPreset.allCases.map { $0.label })
                 popUp.selectItem(at: DurationPreset.allCases.firstIndex(of: .default) ?? 0)
                 popUp.isEnabled = content.defaultScope == .duration
+                popUp.target = self
+                popUp.action = #selector(durationChanged(_:))
                 durationPopUp = popUp
                 stack.addArrangedSubview(popUp)
             }
@@ -164,6 +353,54 @@ final class ApprovalPanel: NSObject {
                 size: NSFont.smallSystemFontSize,
                 color: .secondaryLabelColor
             ))
+        }
+
+        // The scan affordance, bound to the context this unlock will run under.
+        if mode == .embedded, let context = attempt?.context {
+            stack.addArrangedSubview(embeddedScanRow(context: context))
+        }
+
+        // Says what happened when a check did not complete. Hidden until there is
+        // something to say, so the common one-gesture case stays quiet.
+        let status = label("", size: NSFont.smallSystemFontSize, color: .secondaryLabelColor)
+        status.lineBreakMode = .byWordWrapping
+        status.isHidden = true
+        statusLabel = status
+        stack.addArrangedSubview(status)
+
+        // The evidence, one click away rather than in the way.
+        if content.requester.hasDetails {
+            let disclosure = NSButton()
+            disclosure.bezelStyle = .disclosure
+            disclosure.setButtonType(.onOff)
+            disclosure.title = ""
+            disclosure.state = .off
+            disclosure.target = self
+            disclosure.action = #selector(disclosureToggled(_:))
+            disclosureButton = disclosure
+
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 4
+            row.addArrangedSubview(disclosure)
+            row.addArrangedSubview(label("Details", size: NSFont.smallSystemFontSize, color: .secondaryLabelColor))
+            stack.addArrangedSubview(row)
+
+            let details = NSStackView()
+            details.orientation = .vertical
+            details.alignment = .leading
+            details.spacing = 2
+            for line in content.requester.details {
+                details.addArrangedSubview(label(
+                    line.text,
+                    size: NSFont.smallSystemFontSize,
+                    color: line.isDerived ? .labelColor : .secondaryLabelColor
+                ))
+            }
+            details.isHidden = true
+            detailsStack = details
+            stack.addArrangedSubview(details)
         }
 
         let container = NSView()
@@ -179,7 +416,34 @@ final class ApprovalPanel: NSObject {
         // NSAlert positions an accessory view by its frame, so hand it a concrete
         // size once auto layout has worked one out.
         container.frame = NSRect(origin: .zero, size: container.fittingSize)
+        accessoryContainer = container
         return container
+    }
+
+    /// The inline Touch ID affordance, plus the words it deliberately does not
+    /// carry: `LAAuthenticationView` is icon-only by design, and Apple asks that
+    /// the reason be obvious from the surrounding UI. That is the panel's job.
+    private func embeddedScanRow(context: LAContext) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+
+        let authView = LAAuthenticationView(context: context)
+        authView.translatesAutoresizingMaskIntoConstraints = false
+        row.addArrangedSubview(authView)
+        row.addArrangedSubview(label("Touch ID to approve", size: NSFont.systemFontSize, color: .labelColor))
+
+        // Only shown once a scan has failed, so the resting panel is just the
+        // prompt and Cancel.
+        let retry = NSButton(title: "Try again", target: self, action: #selector(retryPressed(_:)))
+        retry.bezelStyle = .rounded
+        retry.controlSize = .small
+        retry.isHidden = true
+        retryButton = retry
+        row.addArrangedSubview(retry)
+
+        return row
     }
 
     private func itemRow(_ item: PanelItem) -> NSView {
@@ -205,26 +469,5 @@ final class ApprovalPanel: NSObject {
         field.lineBreakMode = .byTruncatingMiddle
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
-    }
-
-    // MARK: - Controls
-
-    @objc private func scopeChanged(_ sender: NSSegmentedControl) {
-        durationPopUp?.isEnabled = selectedScope(fallback: .once) == .duration
-    }
-
-    private func selectedScope(fallback: SessionGrantScope) -> SessionGrantScope {
-        guard let index = scopeControl?.selectedSegment, index >= 0, index < scopes.count else {
-            return fallback
-        }
-        return scopes[index]
-    }
-
-    private func selectedDurationMs() -> Int64 {
-        guard let index = durationPopUp?.indexOfSelectedItem,
-              index >= 0, index < DurationPreset.allCases.count else {
-            return DurationPreset.default.milliseconds
-        }
-        return DurationPreset.allCases[index].milliseconds
     }
 }

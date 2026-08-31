@@ -83,9 +83,16 @@ final class ApprovalRequestTests: XCTestCase {
             "title": "Use the deploy token?",
             "contextLines": ["POST https://api.example.com/deploy"],
         ])
-        let content = request.panelContent(requesterLines: ["Requested by node", "Terminal ttys002"])
-        XCTAssertEqual(content.contextLines.prefix(2).map { $0.isDerived }, [true, true])
-        XCTAssertEqual(content.contextLines.last, .clientSupplied("POST https://api.example.com/deploy"))
+        let content = request.panelContent(requester: PanelRequester(
+            summary: "Requested by node in ttys002",
+            details: [.derived("Process: node"), .derived("Terminal ttys002")]
+        ))
+        XCTAssertEqual(content.requester.summary, "Requested by node in ttys002")
+        XCTAssertEqual(content.requester.details.prefix(2).map { $0.isDerived }, [true, true])
+        XCTAssertEqual(
+            content.requester.details.last,
+            PanelContextLine.clientSupplied("POST https://api.example.com/deploy")
+        )
         XCTAssertEqual(content.title, "Use the deploy token?")
     }
 

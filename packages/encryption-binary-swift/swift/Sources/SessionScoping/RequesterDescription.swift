@@ -34,6 +34,25 @@ public struct RequesterDescription: Equatable {
         return ["Requested by \(chainSummary)", sessionSummary]
     }
 
+    /// The one line the panel shows at rest.
+    ///
+    /// The nearest process is the one that actually connected, and the terminal is
+    /// how a person recognises their own window, so those two answer "is this me?"
+    /// without making anyone read an ancestry chain. The chain is still one click
+    /// away in `detailLines`.
+    public var summaryLine: String {
+        let nearest = processChain.first ?? "unknown process"
+        guard let terminalName else { return "Requested by \(nearest)" }
+        return "Requested by \(nearest) in \(terminalName)"
+    }
+
+    /// The full picture, shown when the panel's disclosure is opened.
+    public var detailLines: [String] {
+        var lines = ["Process: \(chainSummary)"]
+        lines.append(sessionSummary)
+        return lines
+    }
+
     /// The same facts on one line, for the authorization log:
     /// "node ← claude ← zsh (ttys004)".
     public var auditSummary: String {

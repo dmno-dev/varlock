@@ -191,26 +191,47 @@ today with `strict`.
 
 A gated key raises a panel before anything else happens. The daemon draws it,
 because the daemon is the process that verified the peer and holds the keys, so it
-is the only party that can say truthfully who is asking. It shows:
+is the only party that can say truthfully who is asking.
 
-- **who is asking**, derived from the connecting process: the process chain
-  (`node ← claude ← zsh`) and the terminal it is attached to. These lines are read
-  off the peer, so a caller cannot dress itself up as something else.
+It is one window. The Touch ID prompt is an `LAAuthenticationView` embedded in the
+panel and bound to the very `LAContext` the unlock will run under, armed as the
+panel opens, so **scanning inside the panel is the approval** and no separate
+system dialog appears. The common case costs one gesture.
+
+The panel shows, at rest:
+
+- **who is asking**, in one derived line: the process that connected and the
+  terminal it is running in (`Requested by node in ttys004`). Read off the peer, so
+  a caller cannot dress itself up as something else.
 - **what would be unlocked**: the key ids, with a value count per key when the
   client sent one.
 - **for how long**: this session (the default), once, or a set time (1, 4, or 8
   hours). Everything is still capped at 12h.
-- optional **client-supplied context** (project name and path), drawn dimmed and
-  below the derived lines. It is decoration: it changes the wording, never the
-  decision.
+- the **scan affordance** itself.
 
-Only after the user approves does the daemon drive `LAContext.evaluatePolicy`, so
-the system's Touch ID sheet appears once, after the panel, with a reason line that
-repeats what the panel said.
+Behind a "Details" disclosure sit the full process chain (`node ← claude ← zsh`),
+the terminal line, and any **client-supplied context** (project name and path). The
+client's lines are drawn dimmed and always below the derived ones. They are
+decoration: they change the wording, never the decision.
+
+Nothing is modal over the panel while the prompt is armed, so the scope controls
+stay live and **the scan approves whatever is selected at the moment the finger
+lands**. Pick "Once", then scan, and you get Once.
+
+A scan that does not complete is not a refusal. The panel stays exactly as it was,
+with a line saying what happened and a "Try again" button that arms the prompt
+again. Nothing re-arms on its own, so a failing sensor cannot become a loop, and a
+refusal is always something the user pressed.
 
 A second unlock in the same session asks only about what is new ("Also unlock
 prod?"), and asks nothing at all when every key requested is already covered by a
 live grant.
+
+When biometrics are unavailable, not enrolled, or locked out after too many
+failures, there is nothing to embed. The panel falls back to its confirm button
+raising the standard system dialog under `deviceOwnerAuthentication`, which still
+accepts the device password. An ungated key keeps the plain button flow, and shows
+no panel at all unless a prompt was forced.
 
 Two answers other than yes:
 
@@ -269,16 +290,23 @@ export XDG_CONFIG_HOME=$(mktemp -d)
 
 Then write an identity wrapped to that key and run the daemon against it. The
 quickest route is to copy the setup block from `scripts/e2e-identity-session.ts`
-and drop the `--no-auth` flag: with a gated key, `unlock-session` shows the panel,
-and approving it raises exactly one Touch ID sheet.
+and drop the `--no-auth` flag: with a gated key, `unlock-session` shows the panel.
 
 What to check by hand:
 
-- the process chain names the terminal you are actually typing in
+- **the panel contains the Touch ID prompt**, and scanning it approves the unlock.
+  There is no separate system popup at any point.
+- the resting line names the process and the terminal you are actually typing in,
+  and "Details" opens the full chain and any project the client sent
 - "This session" is preselected, and "For a set time" enables the duration menu
+- **the scan approves the selected scope**: pick "Once" first, then scan, and
+  `list-sessions` reports a `once` grant rather than a session one
+- cancelling the scan leaves the panel up with its controls live and a "Try again"
+  button, and is NOT reported as a denial
 - Cancel comes back as `APPROVAL_DENIED`, and nothing is listed by `list-sessions`
 - approving, then asking for the same key again, shows no second panel
 - asking for a second key shows the "also unlock" wording and lists only that key
+- a key made with `--auth-every-time` offers `once` alone and asks again next batch
 
 To check the refusing path without a screen, run the daemon with
 `_VARLOCK_UI_MODE=headless`. Adding `_VARLOCK_FORCE_UNLOCK_PROMPT=1` makes even an
@@ -340,6 +368,32 @@ To create a throwaway key rather than probing a real one:
 ./swift/.build/debug/VarlockEnclave probe-session-unlock --key-id varlock-probe-session
 ./swift/.build/debug/VarlockEnclave delete-key --key-id varlock-probe-session
 ```
+
+### Checking the embedded prompt handoff
+
+`probe-session-unlock` settles that question for `evaluatePolicy` and its floating
+system dialog. The panel arms an `LAAuthenticationView` instead, so the scan happens
+inside our own window, and the same handoff has to hold for a context authenticated
+that way. It is the assumption the one-gesture design rests on: if it did not hold,
+an unlock would cost a scan in the panel and then a second prompt from the enclave,
+which is worse than what it replaced. So it gets its own probe:
+
+```bash
+swift build --package-path swift
+./swift/.build/debug/VarlockEnclave generate-key --key-id varlock-probe-embedded
+./swift/.build/debug/VarlockEnclave probe-embedded-unlock --key-id varlock-probe-embedded
+./swift/.build/debug/VarlockEnclave delete-key --key-id varlock-probe-embedded
+```
+
+It opens a small window with the inline prompt in it and asks for exactly one scan.
+`"verdict": "embedded-single-scan"` means a context authenticated through the
+embedded view still opens the custody key with no further UI, which is what the
+panel depends on. `"embedded-handoff-lost"` means it does not, and the panel would
+have to go back to raising the system dialog.
+
+The half a program cannot check is that no separate dialog appeared. That is what
+the person running it confirms: the Touch ID prompt should be inside the probe
+window, with nothing else popping up.
 
 ### End-to-end check (no human needed)
 

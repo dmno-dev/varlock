@@ -52,17 +52,19 @@ final class IdentitySessionManager {
 
     /// What the daemon knows about who is asking, gathered before any panel.
     ///
-    /// `requesterLines` are derived by the daemon from the peer process itself and
-    /// are the trust-bearing part. `display` is decoration the client sent: it
-    /// changes the wording, never the decision.
+    /// `requester` is derived by the daemon from the peer process itself and is
+    /// the trust-bearing part. `display` is decoration the client sent: it changes
+    /// the wording, never the decision.
     struct UnlockRequestContext {
-        var requesterLines: [String] = []
+        var requester: PanelRequester = PanelRequester(summary: "")
         var display: UnlockDisplayInfo = UnlockDisplayInfo()
     }
 
     /// The answer to an approval panel, or the reason there wasn't one.
     enum UnlockPromptOutcome {
-        case approved(PanelDecision)
+        /// Approved, with the presence check that approved it. The proof is what
+        /// keeps a single scan covering the enclave work that follows.
+        case approved(PanelDecision, PresenceProof?)
         case denied
         /// No window server, so nobody could be asked.
         case noUi
@@ -126,7 +128,10 @@ final class IdentitySessionManager {
 
     /// Shows the approval panel. Injected so the manager never imports the view,
     /// and so a caller with no display can be told `NO_UI` instead of guessing.
-    var promptHandler: ((PanelContent) -> UnlockPromptOutcome)?
+    ///
+    /// The panel is handed the presence attempt so it can bind the embedded prompt
+    /// to that context, and hands back the authenticated context it produced.
+    var promptHandler: ((PanelContent, String, PresenceAttempt?) -> UnlockPromptOutcome)?
 
     /// How often a given key must be re-approved. Injected for the same reason:
     /// the policy lives on disk next to the key, which is not this type's job.
@@ -150,13 +155,13 @@ final class IdentitySessionManager {
     /// Open (or extend) a session: one approval, one user-presence check, however
     /// many keys.
     ///
-    /// The order matters. The panel comes first, because it is the part that says
-    /// who is asking and what they get; the system's biometric sheet can only say
-    /// "varlock wants something". Only after the user has approved do we drive
-    /// `LAContext.evaluatePolicy` and hand that authenticated context to the
-    /// enclave operation, so the custody unwrap does not raise a second sheet.
-    /// `probe-session-unlock` proves that handoff on a real machine; see the
-    /// package README.
+    /// The approval and the scan are the same gesture. The panel arms an embedded
+    /// Touch ID prompt bound to the context this unlock will run under, so the
+    /// window that says who is asking is also the window the finger lands on, and
+    /// no separate system dialog appears. The context that scan authenticated is
+    /// then handed straight to the enclave operation, which is what keeps one scan
+    /// covering the whole unlock. `probe-embedded-unlock` proves that handoff on a
+    /// real machine; see the package README.
     func unlock(
         sessionId: String?,
         keyIds: [String],
@@ -206,6 +211,7 @@ final class IdentitySessionManager {
         var chosenScope = scope
         var chosenDurationMs = durationMs
         var prompted = false
+        var presenceProof: PresenceProof?
 
         if mustAsk {
             let plan = planUnlock(
@@ -235,19 +241,33 @@ final class IdentitySessionManager {
 
             let content = UnlockPanelContent.build(
                 plan: plan,
-                requesterLines: requestContext.requesterLines,
+                requester: requestContext.requester,
                 display: requestContext.display
             )
-            switch promptHandler?(content) ?? .noUi {
+            // The prompt's own reason line says the same thing the panel says, so
+            // a user who reads only one of them is not told two different stories.
+            let reason = Self.unlockReason(
+                identityId: identityId,
+                keyIds: plan.promptKeys.map { $0.keyId },
+                requesterSummary: requestContext.requester.summary
+            )
+            // No presence check to make when the key is ungated: the panel is only
+            // up because a prompt was forced, so it keeps its plain button.
+            let attempt = needsPresence ? beginPresence() : nil
+
+            switch promptHandler?(content, reason, attempt) ?? .noUi {
             case .noUi:
                 silentContext?.invalidate()
+                attempt?.context.invalidate()
                 throw IdentitySessionError.noUi
             case .denied:
                 silentContext?.invalidate()
+                attempt?.context.invalidate()
                 throw IdentitySessionError.approvalDenied
-            case .approved(let decision):
+            case .approved(let decision, let proof):
                 chosenScope = decision.scope
                 chosenDurationMs = decision.durationMs
+                presenceProof = proof
             }
 
             prompted = true
@@ -260,13 +280,20 @@ final class IdentitySessionManager {
         if let silentContext {
             context = silentContext
             policy = .none
+        } else if let presenceProof {
+            // The scan the user already gave. Reusing that exact context is the
+            // single-scan promise: a fresh one here would raise a second prompt.
+            context = presenceProof.context
+            policy = presenceProof.policy
         } else {
-            // The system sheet repeats what the panel just said, so the two cannot
-            // disagree about which keys this scan is paying for.
+            // Nothing has asked yet. Only reachable when a gated key got past the
+            // panel with no presence check attached, which the flow does not do
+            // today; keeping the blocking path means that can never silently
+            // become an unlock nobody authenticated.
             (context, policy) = try authenticate(reason: Self.unlockReason(
                 identityId: identityId,
                 keyIds: keysToOpen,
-                requesterSummary: requestContext.requesterLines.first
+                requesterSummary: requestContext.requester.summary
             ))
         }
         defer { context.invalidate() }
@@ -324,7 +351,7 @@ final class IdentitySessionManager {
                     keyIds: keysToOpen.sorted(),
                     identityId: identityId,
                     scope: chosenScope.rawValue,
-                    requester: requestContext.requesterLines.first
+                    requester: requestContext.requester.summary
                 ))
             } catch {
                 for keyId in keysToOpen {
@@ -575,6 +602,98 @@ final class IdentitySessionManager {
     func verifyUserPresence(reason: String) throws {
         let (context, _) = try authenticate(reason: reason)
         context.invalidate()
+    }
+
+    /// A satisfied user-presence check, and the context it was satisfied under.
+    ///
+    /// The context is the valuable half. It is already authenticated, so handing it
+    /// to the enclave operation is what keeps one scan covering the whole unlock
+    /// rather than raising a second sheet.
+    struct PresenceProof {
+        let context: LAContext
+        let policy: UnlockPolicy
+    }
+
+    /// A presence check the panel can build its UI around before running it.
+    ///
+    /// The context has to exist before the panel is drawn, because the embedded
+    /// prompt is bound to it: `LAAuthenticationView(context:)` is what makes
+    /// `evaluatePolicy` render inside our own window instead of raising the
+    /// standard system dialog. So this hands the panel the context first and lets
+    /// it start the evaluation when it is ready.
+    ///
+    /// The same instance serves a retry: the view stays bound to this context, so
+    /// re-evaluating it keeps the prompt where the user is already looking.
+    final class PresenceAttempt {
+        let context: LAContext
+        let mode: ApprovalPresenceMode
+        private let policy: LAPolicy
+        private let resolvedPolicy: UnlockPolicy
+
+        init(context: LAContext, mode: ApprovalPresenceMode, policy: LAPolicy, resolvedPolicy: UnlockPolicy) {
+            self.context = context
+            self.mode = mode
+            self.policy = policy
+            self.resolvedPolicy = resolvedPolicy
+        }
+
+        /// Run the check. `completion` lands on the main queue.
+        ///
+        /// No timeout here on purpose: the prompt has the system's own, and the
+        /// panel bounds the whole interaction, so a second one would only give the
+        /// two a way to disagree.
+        func evaluate(reason: String, completion: @escaping (Result<PresenceProof, Error>) -> Void) {
+            context.evaluatePolicy(policy, localizedReason: reason) { [context, resolvedPolicy] success, error in
+                DispatchQueue.main.async {
+                    guard success else {
+                        // Deliberately not invalidated: the panel may offer another
+                        // go, and the embedded view is bound to this context.
+                        completion(.failure(IdentitySessionError.biometricFailed(
+                            error?.localizedDescription ?? "Authentication failed"
+                        )))
+                        return
+                    }
+                    // From here on the context must not raise UI of its own, so a
+                    // handed-off context that still wanted a prompt fails loudly
+                    // instead of showing a second dialog.
+                    context.interactionNotAllowed = true
+                    completion(.success(PresenceProof(context: context, policy: resolvedPolicy)))
+                }
+            }
+        }
+    }
+
+    /// Pick how this machine can ask for user presence right now.
+    ///
+    /// Biometrics get the embedded prompt, which is the whole point: one window,
+    /// one gesture. Anything else (no sensor, no enrolment, biometrics locked out
+    /// after too many failures) falls back to the standard system dialog driven by
+    /// the panel's button, which still accepts the device password. Returns nil
+    /// when there is no way to ask at all.
+    func beginPresence() -> PresenceAttempt? {
+        let context = LAContext()
+
+        var biometricError: NSError?
+        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &biometricError) {
+            return PresenceAttempt(
+                context: context,
+                mode: .embedded,
+                policy: .deviceOwnerAuthenticationWithBiometrics,
+                resolvedPolicy: .biometrics
+            )
+        }
+
+        var fallbackError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &fallbackError) else {
+            context.invalidate()
+            return nil
+        }
+        return PresenceAttempt(
+            context: context,
+            mode: .systemDialog,
+            policy: .deviceOwnerAuthentication,
+            resolvedPolicy: .deviceOwner
+        )
     }
 
     /// One user-presence check, then hand the authenticated context to the enclave.

@@ -43,6 +43,9 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("Security"),
                 .linkedFramework("LocalAuthentication"),
+                // The inline Touch ID affordance the approval panel embeds, so the
+                // scan happens in our own window instead of a separate system sheet.
+                .linkedFramework("LocalAuthenticationEmbeddedUI"),
                 .linkedFramework("AppKit"),
             ]
         ),

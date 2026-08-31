@@ -100,15 +100,15 @@ public struct ApprovalRequest: Equatable {
         )
     }
 
-    /// Panel content for this request. The derived lines are passed in by the
-    /// daemon, which is the only side that can work them out.
-    public func panelContent(requesterLines: [String]) -> PanelContent {
-        var context: [PanelContextLine] = requesterLines.map { .derived($0) }
-        context.append(contentsOf: clientContextLines.map { .clientSupplied($0) })
+    /// Panel content for this request. The requester is worked out by the daemon,
+    /// which is the only side that can do it truthfully.
+    public func panelContent(requester: PanelRequester) -> PanelContent {
+        var details = requester.details
+        details.append(contentsOf: clientContextLines.map { .clientSupplied($0) })
         return PanelContent(
             title: title,
             subtitle: descriptionLines.isEmpty ? nil : descriptionLines.joined(separator: "\n"),
-            contextLines: context,
+            requester: PanelRequester(summary: requester.summary, details: details),
             itemGroups: [],
             scopes: allowedScopes,
             defaultScope: defaultScope,

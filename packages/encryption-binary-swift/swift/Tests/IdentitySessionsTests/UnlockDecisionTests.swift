@@ -187,11 +187,16 @@ final class UnlockDecisionTests: XCTestCase {
         )
         let content = UnlockPanelContent.build(
             plan: plan,
-            requesterLines: ["Requested by node ← claude", "Terminal ttys004"]
+            requester: PanelRequester(
+                summary: "Requested by node in ttys004",
+                details: [.derived("Process: node ← claude"), .derived("Terminal ttys004")]
+            )
         )
         XCTAssertEqual(content.title, "Unlock encryption key varlock-default")
         XCTAssertEqual(content.confirmButtonTitle, "Unlock")
-        XCTAssertEqual(content.contextLines.filter { $0.isDerived }.count, 2)
+        // One line at rest, the chain behind the disclosure.
+        XCTAssertEqual(content.requester.summary, "Requested by node in ttys004")
+        XCTAssertEqual(content.requester.details.count, 2)
         XCTAssertEqual(content.itemGroups.first?.items.first?.detail, "12 values")
     }
 
@@ -201,7 +206,7 @@ final class UnlockDecisionTests: XCTestCase {
             requestedScope: .session,
             existing: ["dev": live(.session, expiresIn: 4 * hour)]
         )
-        let content = UnlockPanelContent.build(plan: plan, requesterLines: [])
+        let content = UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: ""))
         XCTAssertEqual(content.title, "Also unlock prod?")
         XCTAssertEqual(content.subtitle, "This session already has 1 other key unlocked.")
         XCTAssertEqual(content.itemGroups.flatMap { $0.items }.map { $0.label }, ["prod"])
@@ -213,7 +218,7 @@ final class UnlockDecisionTests: XCTestCase {
             requestedScope: .session,
             existing: [:]
         )
-        let content = UnlockPanelContent.build(plan: plan, requesterLines: [])
+        let content = UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: ""))
         XCTAssertEqual(content.itemGroups.count, 2)
         XCTAssertNil(content.itemGroups[0].heading)
         XCTAssertEqual(content.itemGroups[0].items.map { $0.label }, ["dev"])
@@ -225,12 +230,15 @@ final class UnlockDecisionTests: XCTestCase {
         let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
         let content = UnlockPanelContent.build(
             plan: plan,
-            requesterLines: ["Requested by node"],
+            requester: PanelRequester(summary: "Requested by node", details: [.derived("Process: node")]),
             display: UnlockDisplayInfo(projectName: "my-app", projectPath: "~/code/my-app")
         )
-        // The derived line comes first, and the client's line is not derived.
-        XCTAssertTrue(content.contextLines[0].isDerived)
-        XCTAssertEqual(content.contextLines.last, .clientSupplied("Project: my-app (~/code/my-app)"))
+        // The derived line comes first among the details, and the client's line is
+        // not derived. Neither the summary nor the derived detail can be displaced
+        // by what the client sent.
+        XCTAssertEqual(content.requester.summary, "Requested by node")
+        XCTAssertTrue(content.requester.details[0].isDerived)
+        XCTAssertEqual(content.requester.details.last, PanelContextLine.clientSupplied("Project: my-app (~/code/my-app)"))
     }
 
     // MARK: - Client-supplied decoration

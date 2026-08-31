@@ -200,6 +200,12 @@ case "probe-session-unlock":
     let probeKeyId = getArg("--key-id") ?? defaultKeyId
     jsonSuccess(SessionUnlockProbe.run(keyId: probeKeyId))
 
+// MARK: - probe-embedded-unlock (manual, needs a real Mac + enrolled biometrics)
+
+case "probe-embedded-unlock":
+    let embeddedProbeKeyId = getArg("--key-id") ?? defaultKeyId
+    jsonSuccess(EmbeddedUnlockProbe.run(keyId: embeddedProbeKeyId))
+
 // MARK: - status
 
 case "status":
@@ -258,17 +264,30 @@ case "daemon":
     // The panel is drawn by this process on purpose: the daemon is the one that
     // verified the peer and holds the keys, so it is the only party that can say
     // truthfully who is asking.
-    identitySessions.promptHandler = { content in
-        guard let decision = ApprovalPanel.present(content: content) else { return .noUi }
-        return decision.approved ? .approved(decision) : .denied
+    identitySessions.promptHandler = { content, reason, attempt in
+        guard let outcome = ApprovalPanel.present(
+            content: content,
+            presenceReason: reason,
+            attempt: attempt
+        ) else { return .noUi }
+        return outcome.decision.approved
+            ? .approved(outcome.decision, outcome.proof)
+            : .denied
     }
     identitySessions.keyPolicy = { keyId in KeyAuthPolicyStore.policy(for: keyId) }
 
-    /// Lines describing the connecting process, read off the peer rather than
-    /// taken from the message. These are the trust-bearing lines on the panel.
-    func requesterLines(forPid pid: pid_t?) -> [String] {
-        guard let pid else { return ["Requested by an unidentified process"] }
-        return describeRequester(forPid: pid).panelLines
+    /// Who is asking, read off the peer rather than taken from the message. The
+    /// summary is what the panel shows at rest; the chain sits behind its
+    /// disclosure. Both are derived here, so neither can be dressed up by a caller.
+    func panelRequester(forPid pid: pid_t?) -> PanelRequester {
+        guard let pid else {
+            return PanelRequester(summary: "Requested by an unidentified process")
+        }
+        let described = describeRequester(forPid: pid)
+        return PanelRequester(
+            summary: described.summaryLine,
+            details: described.detailLines.map { .derived($0) }
+        )
     }
 
     /// One line naming the peer, for the authorization log. Same derivation as
@@ -469,7 +488,7 @@ case "daemon":
             // Optional decoration from the client (item counts, project name). It
             // only ever changes the wording on the panel.
             let requestContext = IdentitySessionManager.UnlockRequestContext(
-                requesterLines: requesterLines(forPid: peerPid),
+                requester: panelRequester(forPid: peerPid),
                 display: UnlockDisplayInfo.from(payload: payload)
             )
 
@@ -505,14 +524,29 @@ case "daemon":
             }
             do {
                 let request = try ApprovalRequest.from(payload: approvalPayload)
-                let content = request.panelContent(requesterLines: requesterLines(forPid: peerPid))
-                guard let decision = ApprovalPanel.present(content: content) else {
+                let content = request.panelContent(requester: panelRequester(forPid: peerPid))
+                // A request that wants a biometric gets the same embedded prompt as
+                // an unlock: the scan is the approval. Without one, the panel keeps
+                // its plain button.
+                let attempt = request.requireBiometric ? identitySessions.beginPresence() : nil
+                guard let outcome = ApprovalPanel.present(
+                    content: content,
+                    presenceReason: request.title,
+                    attempt: attempt
+                ) else {
+                    attempt?.context.invalidate()
                     return identityErrorResponse(IdentitySessionManager.IdentitySessionError.noUi)
                 }
-                if decision.approved && request.requireBiometric {
-                    try identitySessions.verifyUserPresence(reason: request.title.lowercased())
+                // Nothing here holds a key, so the proof has done its job by
+                // existing and is dropped rather than handed on.
+                outcome.proof?.context.invalidate()
+                if outcome.decision.approved && request.requireBiometric && outcome.proof == nil {
+                    // The panel approved without a presence check, which can only
+                    // happen if none could be started. Do not report an approval
+                    // the caller asked to have verified.
+                    try identitySessions.verifyUserPresence(reason: request.title)
                 }
-                return ["result": ApprovalOutcome(decision: decision).toDictionary()]
+                return ["result": ApprovalOutcome(decision: outcome.decision).toDictionary()]
             } catch {
                 return identityErrorResponse(error)
             }
@@ -795,6 +829,8 @@ case "help", "--help", "-h":
       daemon --socket-path <path> [--pid-path <path>]   Start IPC daemon
       probe-session-unlock [--key-id <id>]   Check that one biometric scan covers a
                                              whole unlock on this machine
+      probe-embedded-unlock [--key-id <id>]  Same check for the panel's embedded
+                                             Touch ID prompt
 
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)
