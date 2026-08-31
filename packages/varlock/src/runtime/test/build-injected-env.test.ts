@@ -9,7 +9,7 @@
   Semantics: absent runtime values are fine (blob-only deployments), matching values are
   fine, but a CONFLICTING runtime value is a misconfiguration (it would be silently
   ignored) and fails the boot loudly, pointing at `varlock run`. The escape hatch
-  `_VARLOCK_ALLOW_BAKED_ENV_CONFLICTS=1` downgrades the failure to a logged warning and
+  `_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1` downgrades the failure to a logged warning and
   boots on the baked values, without deleting runtime-provided vars from process.env.
 */
 import {
@@ -46,7 +46,7 @@ function cleanup() {
   delete (globalThis as any).__varlockEnvInjectedAtBuild;
   delete process.env.__VARLOCK_ENV;
   delete process.env.__VARLOCK_ENV_INJECTED_AT_BUILD;
-  delete process.env._VARLOCK_ALLOW_BAKED_ENV_CONFLICTS;
+  delete process.env._VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS;
   for (const key of TEST_KEYS) delete process.env[key];
 }
 
@@ -108,7 +108,7 @@ describe('build-injected env blob (__varlockEnvInjectedAtBuild)', () => {
   });
 
   it('escape hatch boots on baked values, warns, and leaves runtime values in process.env', async () => {
-    process.env._VARLOCK_ALLOW_BAKED_ENV_CONFLICTS = '1';
+    process.env._VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS = '1';
     process.env.BIE_UNSET = 'redis://redis:6379';
     process.env.BIE_SET = 'runtime-value';
     process.env.__VARLOCK_ENV = makeEnvBlob({

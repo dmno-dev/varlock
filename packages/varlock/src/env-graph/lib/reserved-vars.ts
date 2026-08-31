@@ -54,7 +54,7 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Controls whether `varlock/auto-load` reuses an already-injected `__VARLOCK_ENV` blob instead of re-resolving via the CLI. `1`/`true` always trusts the blob (e.g. handing a blob into a sandbox with no .env files); `0`/`false` always re-resolves. Unset, auto-load reuses the blob only when it was resolved in the same directory.',
   },
   {
-    name: '_VARLOCK_ALLOW_BAKED_ENV_CONFLICTS',
+    name: '_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS',
     description: 'When a server boots from a build-time baked env snapshot (e.g. a standalone build in a container without the varlock CLI), runtime env values conflicting with the snapshot fail the boot loudly. Set to `1`/`true` to downgrade the failure to a warning and boot on the baked values instead.',
   },
   {

@@ -64,7 +64,7 @@ Values are matched case-insensitively; any other value is ignored (same as unset
 
 See [Reusing an injected env blob](/integrations/javascript/#reusing-an-injected-env-blob).
 
-### `_VARLOCK_ALLOW_BAKED_ENV_CONFLICTS`
+### `_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS`
 
 When a server boots from a build-time baked env snapshot (e.g. a standalone build running in a container without the varlock CLI), runtime env values that conflict with the snapshot fail the boot loudly, since they cannot be validated or applied. Set to `1` / `true` to downgrade the failure to a logged warning and boot on the baked values; the conflicting runtime vars are ignored by `ENV` but left untouched in `process.env`. Prefer booting through [`varlock run`](/reference/cli/load-and-run/#run) instead, which re-resolves against the runtime environment. See the [Docker guide](/integrations/docker/).
 
@@ -94,4 +94,4 @@ Set to `build` by build-time integrations (e.g. the Vite plugin during `vite bui
 
 ### `__VARLOCK_ENV_INJECTED_AT_BUILD`
 
-A marker set when the runtime booted from a build-time baked env snapshot rather than a fresh resolution, so child/worker processes inheriting the [`__VARLOCK_ENV`](#__varlock_env) blob apply the same semantics (conflicting runtime env values fail the boot, see [`_VARLOCK_ALLOW_BAKED_ENV_CONFLICTS`](#_varlock_allow_baked_env_conflicts)).
+A marker set when the runtime booted from a build-time baked env snapshot rather than a fresh resolution, so child/worker processes inheriting the [`__VARLOCK_ENV`](#__varlock_env) blob apply the same semantics (conflicting runtime env values fail the boot, see [`_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS`](#_varlock_allow_baked_env_conflicts)).

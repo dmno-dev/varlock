@@ -582,9 +582,9 @@ export function initVarlockEnv(opts?: {
         'These runtime values cannot be validated or applied from a baked snapshot, so they would be silently ignored.',
         'Fix: boot via `varlock run` (or make the varlock CLI available) so env is re-resolved and validated at boot.',
         'Already booting via `varlock run`? Then its injected __VARLOCK_ENV blob did not reach this process: make sure nothing in between strips env vars (wrapper scripts, process managers) and that you are not using `--inject vars`.',
-        'To boot anyway using the baked values, set _VARLOCK_ALLOW_BAKED_ENV_CONFLICTS=1 (the runtime values for these keys will be ignored by ENV).',
+        'To boot anyway using the baked values, set _VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1 (the runtime values for these keys will be ignored by ENV).',
       ].join('\n');
-      if (['1', 'true'].includes(process.env._VARLOCK_ALLOW_BAKED_ENV_CONFLICTS || '')) {
+      if (['1', 'true'].includes(process.env._VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS || '')) {
         // eslint-disable-next-line no-console
         console.error(conflictMessage.replace('❌', '⚠️'));
       } else {
@@ -640,7 +640,7 @@ export function initVarlockEnv(opts?: {
         // EXCEPT for build-baked blobs: no resolution happened in this process, so the
         // echo reasoning cannot hold and a present value is genuine runtime env. Deleting
         // it would destroy runtime-provided config (conflicts either threw above or were
-        // explicitly allowed via _VARLOCK_ALLOW_BAKED_ENV_CONFLICTS), so leave it alone.
+        // explicitly allowed via _VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS), so leave it alone.
         if (!envInjectedAtBuild) delete process.env[itemKey];
       } else {
         envState.injectedProcessEnvKeys?.push(itemKey);
