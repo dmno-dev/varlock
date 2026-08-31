@@ -954,6 +954,83 @@ describe('type generation', () => {
       expect(dec!.schemaErrors.map((e) => e.message).join('\n')).toContain('must be a static boolean');
     });
 
+    test('@injectUndefinedAsEmpty drops optionality from the string-form env types (TS)', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const relPath = '.tmp-inject-empty.d.ts';
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false @defaultRequired=false
+          # @injectUndefinedAsEmpty
+          # @generateTsTypes(path=${relPath})
+          # ---
+          OPTIONAL_ITEM=
+        `,
+      });
+      try {
+        await g.runCodeGeneratorsIfNeeded();
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        // unset items are injected into process.env as empty strings, so its keys are always
+        // present: a dedicated mapped type strips optionality and adds '' to the union of any
+        // key that could be unset (so optional enums/booleans keep their literal unions plus '')
+        expect(src).toContain('[Property in keyof EnvSchemaAsStrings]-?:');
+        // structural optionality check — `undefined extends ...` would be true for every
+        // type in consumers with strictNullChecks disabled, leaking '' into required unions
+        expect(src).toContain("| ({} extends Pick<CoercedEnvSchema, Property> ? '' : never)");
+        expect(src).toMatch(/interface ProcessEnv extends _ProcessEnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+        // import.meta.env is NOT covered by the injection guarantee (frameworks only expose
+        // prefixed keys through it), so it keeps the optional string-form type
+        expect(src).toMatch(/interface ImportMetaEnv extends _EnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+        expect(src).toContain('[Property in keyof CoercedEnvSchema]:');
+        // ...and the coerced schema (ENV proxy typing) keeps the key optional, since
+        // ENV.OPTIONAL_ITEM still returns the real resolved value (undefined)
+        expect(src).toMatch(/OPTIONAL_ITEM\?:/);
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
+    });
+
+    test('without @injectUndefinedAsEmpty the string-form env types keep optionality (TS)', async () => {
+      const currentDir = path.dirname(expect.getState().testPath!);
+      const relPath = '.tmp-no-inject-empty.d.ts';
+      const outputPath = path.join(currentDir, relPath);
+
+      const g = await loadGraph({
+        envFile: outdent`
+          # @defaultSensitive=false @defaultRequired=false
+          # @generateTsTypes(path=${relPath})
+          # ---
+          OPTIONAL_ITEM=
+        `,
+      });
+      try {
+        await g.runCodeGeneratorsIfNeeded();
+        const fs = await import('node:fs');
+        const src = await fs.promises.readFile(outputPath, 'utf-8');
+        expect(src).toContain('[Property in keyof CoercedEnvSchema]:');
+        expect(src).not.toContain('ProcessEnvSchemaAsStrings');
+        expect(src).not.toContain("? '' : never");
+        expect(src).toMatch(/interface ProcessEnv extends _EnvSchemaAsStrings_[0-9a-f]+ \{\}/);
+      } finally {
+        await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
+      }
+    });
+
+    test('@injectUndefinedAsEmpty rejects dynamic values (codegen must stay deterministic)', async () => {
+      const g = await loadGraph({
+        envFile: outdent`
+          # @injectUndefinedAsEmpty=forEnv(prod)
+          # ---
+          ITEM=val
+        `,
+      });
+      const dec = g.getRootDec('injectUndefinedAsEmpty');
+      expect(dec).toBeDefined();
+      expect(dec!.schemaErrors.map((e) => e.message).join('\n')).toContain('must be a static boolean');
+    });
+
     test('explicit processEnv= overrides the @disableProcessEnvInjection default', async () => {
       const currentDir = path.dirname(expect.getState().testPath!);
       const relPath = '.tmp-disable-injection-override.d.ts';

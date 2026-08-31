@@ -1,13 +1,10 @@
 
-import { define } from 'gunshi';
 
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import * as localEncrypt from '../../lib/local-encrypt';
+import { commandSpec } from './lock.command-spec';
 
-export const commandSpec = define({
-  name: 'lock',
-  description: 'Lock the encryption daemon, requiring biometric for next decrypt',
-});
+export { commandSpec };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {
   const backend = localEncrypt.getBackendInfo();

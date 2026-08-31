@@ -9,6 +9,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - `packages/varlock-website` — docs site (Astro); docs content lives in `src/content/docs/`
 - `packages/vscode-plugin` — VSCode extension for @env-spec language support
 - `packages/integrations/*` — framework integrations (nextjs, vite, astro, ...)
+- `packages/native-helpers/*` — per-platform npm publishing shells for the native helper binaries (published as `@varlock/native-helper-*`, versioned in lockstep with `varlock`); the binaries themselves are built from `packages/encryption-binary-swift` (darwin) and `packages/encryption-binary-rust` (linux/win32)
 - `packages/utils`, `packages/plugins` — shared internals
 - `packages/varlock-docs-mcp` — docs MCP server for external varlock users; do **not** use it to look things up while working on this repo — read the docs source directly
 
@@ -18,6 +19,12 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Workspace deps use `workspace:*` protocol
 - Use catalog for any potentially common dependencies
 - CI workflows use `bun run` to execute scripts and `bunx` for one-off commands
+
+## Building
+
+- `bun run build` at the repo root builds all packages via Turborepo, in dependency order
+- To build a single package, go through turbo so its workspace deps build first: `bunx turbo run build` from the package directory, or `bunx turbo run build --filter=<pkg>` from the root
+- Do **not** build a package with `bun run --filter <pkg> build`: bun's filter does not build the package's workspace dependencies, and some builds require their dist output to exist (e.g. varlock's d.ts bundling inlines the emitted declarations from `packages/utils`, so it fails if that package was never built)
 
 ## Scripts
 
@@ -50,6 +57,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - Non-interactive changeset creation (for CI/AI): `bumpy add --packages "pkg:minor" --message "description" --name "changeset-name"`
 - Bump files are only required when publishable packages have changed (based on `changedFilePatterns` in `.bumpy/_config.json`). Changes to CI workflows, root config files, scripts, docs, etc. do **not** require a bump file — bumpy's pre-push hook will not block in that case.
 - Write changeset descriptions for end users, and keep them short
+- One bump file per package per PR is usually enough. Before adding a new one, check whether the branch already has a bump file for that package and extend its description instead. In particular, when the PR introduces a brand-new (never-published) package, keep a single entry describing the whole feature: its first changelog entry should read as one coherent release, not a series of additions and fixes to something that never shipped
 
 ## Branches & pull requests
 

@@ -7,9 +7,11 @@ import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import ansis from 'ansis';
-import semverValid from 'semver/functions/valid';
-import semverValidRange from 'semver/ranges/valid';
-import semverSatisfies from 'semver/functions/satisfies';
+import {
+  isValid as semverIsValid,
+  normalizeRange as semverNormalizeRange,
+  satisfies as semverSatisfies,
+} from 'verkit';
 import { isCancel } from '@clack/prompts';
 import _ from '@env-spec/utils/my-dash';
 import { pathExists } from '@env-spec/utils/fs-utils';
@@ -28,6 +30,7 @@ import {
   CoercionError, LoadingError, ResolutionError, SchemaError, ValidationError, VarlockError,
 } from './errors';
 import { getErrorLocation } from './error-location';
+import { getWindowsPathHint } from './path-hints';
 import type { ProxyTransformSchemeDef } from '../../proxy/types';
 import { createResolver, type ResolverDef } from './resolver';
 import type {
@@ -652,7 +655,7 @@ async function downloadPlugin(url: string) {
  * @returns the local cache directory the plugin was extracted into
  */
 export async function downloadPluginToCache(moduleName: string, versionDescriptor: string): Promise<string> {
-  if (!semverValid(versionDescriptor)) {
+  if (!semverIsValid(versionDescriptor)) {
     throw new Error(`"${versionDescriptor}" is not a fixed version — use an exact version like 1.2.3`);
   }
 
@@ -698,6 +701,11 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             // in this case, the bad path is the user's fault
             throw new SchemaError(`Bad @plugin path: ${pluginSourceDescriptor}`);
           }
+        // a windows-native path would otherwise be read as a `C:` protocol or an npm module name
+        } else if (getWindowsPathHint(pluginSourceDescriptor)) {
+          throw new SchemaError(
+            `Bad @plugin path "${pluginSourceDescriptor}" - ${getWindowsPathHint(pluginSourceDescriptor)}`,
+          );
         } else if (pluginSourceDescriptor.includes(':')) {
           const protocol = pluginSourceDescriptor.split(':')[0];
           // protocols that we will likely support in future
@@ -719,7 +727,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
             versionDescriptor = pluginSourceDescriptor.slice(atLocation + 1);
           }
 
-          const semverRange = semverValidRange(versionDescriptor);
+          const semverRange = versionDescriptor === undefined ? null : semverNormalizeRange(versionDescriptor);
           if (versionDescriptor && !semverRange) {
             throw new SchemaError(`Bad @plugin version descriptor: ${versionDescriptor}`);
           } else if (semverRange === '*') {
@@ -774,7 +782,7 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               } else {
                 throw new SchemaError(`Plugin "${moduleName}" unable to resolve - set a fixed version (e.g., \`@plugin(${moduleName}@1.2.3)\`)`);
               }
-            } else if (!semverValid(versionDescriptor)) {
+            } else if (!semverIsValid(versionDescriptor)) {
               throw new SchemaError(`Plugin "${moduleName}" must use a fixed version when not installing via package.json (e.g., \`@plugin(${moduleName}@1.2.3)\`)`, {
                 location: getErrorLocation(dataSource, pluginDecorator),
               });

@@ -1,25 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { define } from 'gunshi';
 
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import { commandSpec } from './generate-key.command-spec';
 
-export const commandSpec = define({
-  name: 'generate-key',
-  description: 'Generate an encryption key for encrypting the env blob in deployments',
-  args: {
-    plain: {
-      type: 'boolean',
-      description: 'Print only the key (for piping into other commands)',
-    },
-  },
-  examples: `
-Generates a random 256-bit hex key for \`_VARLOCK_ENV_KEY\`.
-
-Examples:
-  varlock generate-key              # Human-readable output
-  varlock generate-key --plain      # Key only, for piping
-  `.trim(),
-});
+export { commandSpec };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const key = randomBytes(32).toString('hex');

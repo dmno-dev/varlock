@@ -1,0 +1,21 @@
+{
+  "name": "@varlock/native-helper-darwin",
+  "version": "1.17.1",
+  "description": "varlock native helper binary for macOS (Secure Enclave local encryption). Installed automatically as an optional dependency of varlock.",
+  "author": "dmno-dev",
+  "license": "MIT",
+  "homepage": "https://varlock.dev",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/native-helpers/darwin"
+  },
+  "os": ["darwin"],
+  "files": ["/VarlockEnclave.app"],
+  "preferUnplugged": true,
+  "scripts": {
+    "prepack": "bun run ../prepack.ts darwin",
+    "postpack": "bun run ../postpack.ts darwin"
+  }
+}

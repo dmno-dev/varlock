@@ -319,14 +319,28 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
   },
   {
     name: 'url',
-    summary: 'URL with optional HTTPS prepending, allowed-domain checks, trailing-slash enforcement, and regex matching.',
+    summary: 'URL with optional HTTPS prepending, protocol and domain checks, trailing-slash enforcement, and regex matching.',
     documentation: 'Example: `@type=url(prependHttps=true)`.',
     insertText: 'url',
     optionSnippets: [
       { name: 'prependHttps', insertText: `prependHttps=${booleanChoiceSnippet()}`, documentation: 'Automatically add `https://` when missing.' },
+      { name: 'allowedProtocols', insertText: 'allowedProtocols=[${1:http}, ${2:https}]', documentation: 'Restrict the URL to an allowed protocol list.' },
       { name: 'allowedDomains', insertText: 'allowedDomains=${1:"example.com"}', documentation: 'Restrict the URL host to an allowed domain list.' },
       { name: 'noTrailingSlash', insertText: `noTrailingSlash=${booleanChoiceSnippet()}`, documentation: 'Disallow a trailing slash on the URL path.' },
       { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the full URL must match.' },
+    ],
+  },
+  {
+    name: 'domain',
+    summary: 'Bare domain name (hostname) with no protocol, port, or path.',
+    documentation: 'Example: `@type=domain` or `@type=domain(allowWildcard=true)`.',
+    insertText: 'domain',
+    optionSnippets: [
+      { name: 'allowWildcard', insertText: `allowWildcard=${booleanChoiceSnippet()}`, documentation: 'Allow a leading wildcard label, e.g. `*.example.com`.' },
+      { name: 'allowSingleLabel', insertText: `allowSingleLabel=${booleanChoiceSnippet()}`, documentation: 'Allow single-label hostnames like `localhost`.' },
+      { name: 'allowIp', insertText: `allowIp=${booleanChoiceSnippet()}`, documentation: 'Also accept an IPv4 address (useful for HOST-style vars like `DB_HOST`).' },
+      { name: 'normalize', insertText: `normalize=${booleanChoiceSnippet()}`, documentation: 'Lowercase the domain before validation.' },
+      { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the domain must match.' },
     ],
   },
   {

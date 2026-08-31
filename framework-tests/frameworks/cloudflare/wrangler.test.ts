@@ -64,7 +64,15 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
       },
       {
         description: 'sensitive value is redacted in console output',
-        shouldContain: ['secret-log-test::'],
+        shouldContain: [
+          'secret-log-test::',
+          // error object logged directly - redacted, not passed through raw
+          'error-log-test::',
+          // error nested in a plain object - message survives (not hollowed to `{}`)
+          'wrapped-error-test::',
+          // circular object - printed and redacted rather than bypassing redaction
+          'circular-log-test::',
+        ],
         shouldNotContain: ['super-secret-value'],
       },
     ],
@@ -209,7 +217,9 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
           shouldContain: ['public_var::public-test-value'],
         },
       },
-      // second request — write the same .env.schema content (simulates macOS spurious watch events)
+      // second request — rewrite .env.schema with content that resolves to the same env
+      // (simulates macOS spurious watch events, and cosmetic saves like a changed
+      // trailing newline, which move the source content fingerprint but nothing else)
       // use fileEditDelay so we wait without expecting a restart
       {
         path: '/',

@@ -14,7 +14,10 @@ import {
   captureUsageContextFromEnvGraph,
   captureTelemetryGraphLoadFailure,
   getTelemetryUsageContext,
-  getTelemetryUsageContextPayload,
+  getIntegrationPayload,
+  buildSchemaEventPayload,
+  takePendingSchemaEventPayload,
+  setSchemaEventSupersededHandler,
   resetTelemetryUsageContextForTests,
 } from '../telemetry-usage-context';
 import { EnvGraph, DotEnvFileDataSource } from '../../../env-graph';
@@ -246,15 +249,17 @@ describe('captureUsageContextFromEnvGraph', () => {
     expect(ctx.error_code).toBeNull();
 
     // flat, breakdownable list of official plugin names
-    expect(getTelemetryUsageContextPayload().official_plugins).toEqual(['@varlock/test-plugin']);
+    expect(buildSchemaEventPayload().official_plugins).toEqual(['@varlock/test-plugin']);
   });
 
   it('includes integration env in telemetry payload when valid', () => {
     process.env.__VARLOCK_INTEGRATION = '@varlock/astro-integration@1.0.4';
 
-    const payload = getTelemetryUsageContextPayload();
-    expect(payload.integration_name).toBe('@varlock/astro-integration');
-    expect(payload.integration_version).toBe('1.0.4');
+    const integration = getIntegrationPayload();
+    expect(integration.integration_name).toBe('@varlock/astro-integration');
+    expect(integration.integration_version).toBe('1.0.4');
+
+    const payload = buildSchemaEventPayload();
     expect(payload.plugins).toEqual([]);
     expect(payload.official_plugins).toEqual([]);
     expect(payload.features).toBeNull();
@@ -279,20 +284,88 @@ describe('captureUsageContextFromEnvGraph', () => {
     await graph.finishLoad();
 
     captureUsageContextFromEnvGraph(graph);
-    expect(getTelemetryUsageContextPayload().error_code).toBeNull();
+    expect(buildSchemaEventPayload().error_code).toBeNull();
 
     graph.sortedDataSources[0]._errors.push(new SchemaError('bad schema'));
-    const payload = getTelemetryUsageContextPayload();
+    const payload = buildSchemaEventPayload();
     expect(payload.graph_loaded).toBe(true);
     expect(payload.error_code).toBe('schema_error');
   });
 
   it('records load failures before a graph is returned', () => {
     captureTelemetryGraphLoadFailure(new ParseError('bad syntax'));
-    const payload = getTelemetryUsageContextPayload();
+    const payload = buildSchemaEventPayload();
     expect(payload.graph_loaded).toBe(false);
     expect(payload.error_code).toBe('parse_error');
     expect(payload.features).toBeNull();
+  });
+});
+
+describe('takePendingSchemaEventPayload', () => {
+  beforeEach(() => {
+    resetTelemetryUsageContextForTests();
+  });
+  afterEach(() => {
+    resetTelemetryUsageContextForTests();
+  });
+
+  it('owes nothing when no graph load was attempted', () => {
+    // commands that never touch a graph (`proxy status`, `keychain list`) emit no schema event
+    expect(takePendingSchemaEventPayload()).toBeNull();
+  });
+
+  it('yields a payload once per graph load, then nothing', () => {
+    captureTelemetryGraphLoadFailure(new ParseError('bad syntax'));
+
+    const payload = takePendingSchemaEventPayload();
+    expect(payload).not.toBeNull();
+    expect(payload!.error_code).toBe('parse_error');
+
+    // a second take must not re-send the same event (exit hook after a reload flush)
+    expect(takePendingSchemaEventPayload()).toBeNull();
+  });
+
+  it('owes a fresh payload after a reload replaces the graph', async () => {
+    const testDir = path.join(
+      path.dirname(expect.getState().testPath!),
+      '../../../env-graph/test',
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(testDir);
+
+    const graph = new EnvGraph();
+    await graph.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # ---
+        FOO=bar
+      `,
+    }));
+    await graph.finishLoad();
+
+    captureUsageContextFromEnvGraph(graph);
+    expect(takePendingSchemaEventPayload()).not.toBeNull();
+    expect(takePendingSchemaEventPayload()).toBeNull();
+
+    // `proxy start` hot-swapping its policy re-loads the graph in the same process
+    captureUsageContextFromEnvGraph(graph);
+    expect(takePendingSchemaEventPayload()).not.toBeNull();
+  });
+
+  it('notifies the supersede handler only when an unsent event would be overwritten', () => {
+    const onSuperseded = vi.fn();
+    setSchemaEventSupersededHandler(onSuperseded);
+
+    // nothing pending yet, so the first load supersedes nothing
+    captureTelemetryGraphLoadFailure(new ParseError('bad syntax'));
+    expect(onSuperseded).not.toHaveBeenCalled();
+
+    // a reload while the first event is still unsent must flush it first
+    captureTelemetryGraphLoadFailure(new ParseError('still bad'));
+    expect(onSuperseded).toHaveBeenCalledTimes(1);
+
+    // once taken, a later load has nothing to flush
+    takePendingSchemaEventPayload();
+    captureTelemetryGraphLoadFailure(new ParseError('bad again'));
+    expect(onSuperseded).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -349,7 +422,7 @@ describe('integration env sanitization in payload', () => {
   it('ignores invalid integration env values in telemetry payload', () => {
     process.env.__VARLOCK_INTEGRATION = 'not-a-valid-integration@secret-data';
 
-    const payload = getTelemetryUsageContextPayload();
+    const payload = getIntegrationPayload();
     expect(payload.integration_name).toBeNull();
     expect(payload.integration_version).toBeNull();
   });

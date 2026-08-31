@@ -6,7 +6,7 @@ import {
   mkdirSync,
 } from 'node:fs';
 import { asyncExitHook } from 'exit-hook';
-import { createDebug } from '../../lib/debug';
+import { createDebug, isDebugEnabled } from '../../lib/debug';
 import { name as ciName, isCI } from 'ci-info';
 import isDocker from 'is-docker';
 import isWSL from 'is-wsl';
@@ -16,11 +16,13 @@ import packageJson from '../../../package.json';
 
 import { CONFIG } from '../../config';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
-import { getTelemetryUsageContextPayload } from './telemetry-usage-context';
+import {
+  getIntegrationPayload,
+  takePendingSchemaEventPayload,
+  setSchemaEventSupersededHandler,
+} from './telemetry-usage-context';
 import { detectJsPackageManager } from './js-package-manager-utils';
 import type { JsPackageManager } from '../../lib/workspace-utils';
-
-export { captureUsageContextFromEnvGraph } from './telemetry-usage-context';
 
 
 const debug = createDebug('varlock:telemetry');
@@ -505,23 +507,34 @@ function getTelemetryMeta() {
 
 
 const isOptedOut = checkIsOptedOut();
+const telemetryDebugEnabled = isDebugEnabled('varlock:telemetry');
 
-let lastTelemetryReq: Promise<any> | undefined;
+/**
+ * Random per-process id, on every event this run emits. Not persisted and not linkable
+ * across runs: it exists so `cli_command_executed` and `cli_schema_loaded` from the same
+ * invocation can be joined, since they are now sent at different points in the run.
+ */
+const invocationId = crypto.randomUUID();
+
+const pendingTelemetryReqs = new Set<Promise<any>>();
 
 async function posthogCapture(event: string, properties?: Record<string, any>) {
-  // Telemetry must never break the CLI. trackCommand() is awaited in a `finally`,
-  // and the payload (incl. project/git/plugin data) is built even when opted out,
-  // so any failure here is swallowed rather than surfaced to the caller.
+  // Telemetry must never break the CLI, so any failure here is swallowed rather than
+  // surfaced to the caller.
   try {
+    // skip building the payload entirely when opted out - unless debug logging is on,
+    // in which case we still build and log it (useful for inspecting what would be sent)
+    if (isOptedOut && !telemetryDebugEnabled) return;
+
     const telemetryMeta = getTelemetryMeta();
-    const usageContext = getTelemetryUsageContextPayload();
     const payload = {
       api_key: CONFIG.POSTHOG_API_KEY,
       event,
       properties: {
         $process_person_profile: false,
+        invocation_id: invocationId,
         ...telemetryMeta,
-        ...usageContext,
+        ...getIntegrationPayload(),
         ...properties,
       },
       distinct_id: isOptedOut ? '---' : getAnonymousId(),
@@ -531,14 +544,8 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
 
     if (isOptedOut) return;
 
-    // add exit hook, so we can give the request a little time to finish
-    const removeExitHook = asyncExitHook(async () => {
-      // will still exit if the timeout is met, but will finish early if the request completes
-      await lastTelemetryReq;
-    }, { wait: 500 });
-
     // Make the fetch call
-    lastTelemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
+    const telemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
       method: 'POST',
       body: JSON.stringify(payload),
       headers: {
@@ -554,8 +561,9 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
         debug('telemetry error:', error);
       })
       .finally(() => {
-        removeExitHook();
+        pendingTelemetryReqs.delete(telemetryReq);
       });
+    pendingTelemetryReqs.add(telemetryReq);
   } catch (err) {
     debug('telemetry capture error:', err);
   }
@@ -563,6 +571,13 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
 
 
 
+/**
+ * Records that a command was invoked. Fired at the start of the run by the command
+ * telemetry plugin, so the count is not tied to the command ever finishing - long-running
+ * commands (`varlock run -- next dev`, `varlock proxy run -- claude`) are counted at
+ * launch rather than only if their child exits cleanly. Schema/plugin usage rides on
+ * `cli_schema_loaded` instead, which is sent later when that data is final.
+ */
 export async function trackCommand(command: string, properties?: Record<string, any>) {
   await posthogCapture('cli_command_executed', {
     command,
@@ -570,9 +585,44 @@ export async function trackCommand(command: string, properties?: Record<string, 
   });
 }
 
+/**
+ * Sends the schema usage event if this run owes one. Called from the exit hook, and when a
+ * reload supersedes the graph the pending event describes.
+ */
+export async function flushSchemaLoadedEvent() {
+  // same early bail as posthogCapture: when opted out we do no work at all, and building
+  // this payload would walk the graph's plugins and config items
+  if (isOptedOut && !telemetryDebugEnabled) return;
+  const payload = takePendingSchemaEventPayload();
+  if (!payload) return;
+  await posthogCapture('cli_schema_loaded', payload);
+}
+
 export async function trackInstall(source: 'brew' | 'curl') {
   await posthogCapture('cli_install', {
     source,
+  });
+}
+
+// Register the exit hook at module load rather than per capture: exit-hook snapshots its
+// callbacks when the exit starts, so a hook registered later (during a capture that fires
+// as the process is already going down) is never awaited and the request gets killed.
+// This hook also *originates* the schema event, so there is no race between a late capture
+// and the snapshot - by the time we await, everything we intend to send is already in
+// `pendingTelemetryReqs`.
+// (also registered when opted out but debugging, so `DEBUG=varlock:telemetry` shows the
+// schema event it would have sent rather than silently omitting it)
+if (!isOptedOut || telemetryDebugEnabled) {
+  asyncExitHook(async () => {
+    await flushSchemaLoadedEvent();
+    // will still exit if the timeout is met, but will finish early if the requests complete
+    await Promise.allSettled([...pendingTelemetryReqs]);
+  }, { wait: 500 });
+
+  // send a pending schema event before a reload overwrites the state it describes.
+  // synchronous on purpose: the payload must be taken before the new graph replaces it
+  setSchemaEventSupersededHandler(() => {
+    flushSchemaLoadedEvent().catch(() => undefined);
   });
 }
 

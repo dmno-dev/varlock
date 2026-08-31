@@ -48,6 +48,7 @@ Values may be static, or set using [functions](/reference/functions/), which can
 - Multiline values can be wrapped in <code>```</code>, `"""`. Also supported is `"` and `'` but not recommended.
 - Unquoted values will be parsed as a number/boolean/undefined where possible (`ITEM=foo` -> `"foo"`, while `ITEM=true` -> `true`), however data-types may further coerce values
 - No value (undefined) and empty string ("") are distinct
+  - this holds through injection too: an item that resolves to undefined is left out of `process.env` entirely (so `process.env.MY_VAR ?? 'fallback'` works), while an explicit `""` is injected as an empty string. See [`@injectUndefinedAsEmpty`](/reference/root-decorators/#injectundefinedasempty) if you want dotenv-style empty-string injection instead.
 
 ```env-spec title=".env.schema"
 NO_VALUE= # will resolve to undefined

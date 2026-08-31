@@ -1,36 +1,15 @@
 import { join } from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { define } from 'gunshi';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { gracefulExit } from 'exit-hook';
 import { fmt } from '../helpers/pretty-format';
 import { CliExitError } from '../helpers/exit-error';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
+import { commandSpec } from './telemetry.command-spec';
 
 
-export const commandSpec = define({
-  name: 'telemetry',
-  description: 'Enable/disable anonymous usage analytics',
-  args: {
-    mode: {
-      type: 'positional',
-      description: '"enable" or "disable"',
-    },
-  },
-  examples: `
-Opts in/out of anonymous usage analytics. This command creates/updates a configuration
-file at $XDG_CONFIG_HOME/varlock/config.json (or ~/.config/varlock/config.json) saving
-your preference.
-
-Examples:
-  varlock telemetry disable    # Opt out of telemetry
-  varlock telemetry enable     # Opt in to telemetry
-
-💡 Tip: You can also temporarily opt out by setting VARLOCK_TELEMETRY_DISABLED=1 or DO_NOT_TRACK=1
-For more information, visit https://varlock.dev/guides/telemetry/
-  `.trim(),
-});
+export { commandSpec };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   // TODO: remove this when gunshi supports types/validation for positional args

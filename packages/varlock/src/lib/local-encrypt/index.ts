@@ -12,7 +12,7 @@
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { resolveNativeBinary } from './binary-resolver';
+import { resolveNativeBinary, getInstalledPlatformPackageName } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
 import { isWSL } from './wsl-detect';
@@ -444,8 +444,14 @@ function warnIfFileFallback(backend: BackendInfo) {
   if (warnedFileFallback || !backend.isFileFallback) return;
   if (process.env._VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK) return;
   warnedFileFallback = true;
+  // Name the optional dependency only for package-manager installs. Standalone
+  // and development layouts deliver the helper through other paths.
+  const expectedPkg = getInstalledPlatformPackageName();
+  const expectedNote = expectedPkg
+    ? ` (native helper normally arrives via the "${expectedPkg}" optional dependency; installs with --no-optional / --omit=optional skip it)`
+    : '';
   process.stderr.write(
-    '[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)\n',
+    `[varlock] Warning: native encryption binary not found, falling back to file-based encryption (not hardware-backed)${expectedNote}\n`,
   );
 }
 

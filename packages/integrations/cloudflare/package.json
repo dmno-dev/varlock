@@ -1,31 +1,35 @@
 {
   "name": "@varlock/cloudflare-integration",
   "description": "Cloudflare Workers integration for varlock - deploy secrets via wrangler and auto-configure Vite",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/integrations/cloudflare"
   },
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
     },
     "./sveltekit": {
-      "types": "./dist/sveltekit.d.ts",
-      "default": "./dist/sveltekit.js"
+      "types": "./dist/sveltekit.d.mts",
+      "import": "./dist/sveltekit.mjs",
+      "default": "./dist/sveltekit.mjs"
     },
     "./init": {
-      "types": "./dist/init.d.ts",
-      "default": "./dist/init.js"
+      "types": "./dist/init.d.mts",
+      "import": "./dist/init.mjs",
+      "default": "./dist/init.mjs"
     },
     "./ssr-entry-code": {
-      "types": "./dist/shared-ssr-entry-code.d.ts",
-      "default": "./dist/shared-ssr-entry-code.js"
+      "types": "./dist/shared-ssr-entry-code.d.mts",
+      "import": "./dist/shared-ssr-entry-code.mjs",
+      "default": "./dist/shared-ssr-entry-code.mjs"
     }
   },
   "bin": {
@@ -36,8 +40,8 @@
     "/dist"
   ],
   "scripts": {
-    "dev": "tsup --watch",
-    "build": "tsup",
+    "dev": "tsdown --watch",
+    "build": "tsdown",
     "test": "vitest",
     "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
@@ -59,7 +63,7 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "varlock": "workspace:^1.14.0",
+    "varlock": "workspace:^1.17.1",
     "vite": ">=5",
     "wrangler": ">=3",
     "@cloudflare/vite-plugin": ">=1"
@@ -79,8 +83,8 @@
     "@types/node": "catalog:",
     "@varlock/vite-integration": "workspace:^",
     "dotenv": "^16.6.1",
-    "tsup": "catalog:",
-    "varlock": "workspace:^1.14.0",
+    "tsdown": "catalog:",
+    "varlock": "workspace:^1.17.1",
     "vite": "^7.1.0",
     "vitest": "catalog:"
   }

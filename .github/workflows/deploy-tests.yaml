@@ -64,7 +64,7 @@ jobs:
         # via deploy/.env.schema and injects them into the test process
         run: |
           cd framework-tests && bun install
-          node ../packages/varlock/dist/cli/cli-executable.js run --path ./deploy -- bun run test -- --reporter=verbose deploy/
+          node ../packages/varlock/dist/cli/cli-executable.mjs run --path ./deploy -- bun run test -- --reporter=verbose deploy/
         timeout-minutes: 25
         env:
           OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}

@@ -15,7 +15,7 @@ import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
 import {
-  BUILT_IN_TRANSFORM_SCHEME_SPECS, PROXY_APPROVAL_EACH_VALUES,
+  BUILT_IN_TRANSFORM_SCHEME_SPECS, PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS,
   parseProxySubstitutionTarget, validateProxyTransformConfig,
 } from '../../proxy/types';
 
@@ -382,11 +382,20 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
-const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules', 'transform'] as const;
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'rules', 'transform'] as const;
 /** Per-entry options inside the `rules=[{...}]` array form. Each entry is a
  * policy refinement for the parent's `domain`, so it cannot re-set `domain` or
  * `keys` (injection is controlled by the parent rule). */
-const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'] as const;
+const VALID_PROXY_RULE_ENTRY_OPTIONS = ['path', 'method', 'block', 'approval', 'substituteIn'] as const;
+
+/** Reject an option that used to exist with its migration, before the generic
+ * unknown-option sweep turns it into a bare "unknown option" error. */
+function assertNoRemovedProxyOptions(keys: Array<string>): void {
+  for (const key of keys) {
+    const removed = REMOVED_PROXY_RULE_OPTIONS[key];
+    if (removed) throw new SchemaError(removed);
+  }
+}
 /** Inner options of the `approval={...}` object form. */
 const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
@@ -431,15 +440,6 @@ function assertProxySubstituteInArg(resolver: Resolver | undefined): void {
     return;
   }
   if (resolver.isStatic) check(resolver.staticValue);
-}
-
-/** A static `maxOccurrences` must be an integer >= 1. */
-function assertProxyMaxOccurrencesArg(resolver: Resolver | undefined): void {
-  if (!resolver?.isStatic) return;
-  const val = resolver.staticValue;
-  if (typeof val !== 'number' || !Number.isInteger(val) || val < 1) {
-    throw new SchemaError(`@proxy: maxOccurrences must be an integer >= 1, not ${JSON.stringify(val)}`);
-  }
 }
 
 /**
@@ -525,6 +525,7 @@ function assertProxyRulesArg(resolver: Resolver | undefined): void {
       throw new SchemaError('@proxy: each rules entry must be an object, e.g. {path="/v1/**", block=true}');
     }
     const inner = entry.objArgs ?? {};
+    assertNoRemovedProxyOptions(Object.keys(inner));
     for (const key of Object.keys(inner)) {
       if (!VALID_PROXY_RULE_ENTRY_OPTIONS.includes(key as typeof VALID_PROXY_RULE_ENTRY_OPTIONS[number])) {
         throw new SchemaError(
@@ -538,7 +539,6 @@ function assertProxyRulesArg(resolver: Resolver | undefined): void {
     assertProxyBooleanArg(inner.block, 'block');
     assertProxyApprovalArg(inner.approval);
     assertProxySubstituteInArg(inner.substituteIn);
-    assertProxyMaxOccurrencesArg(inner.maxOccurrences);
   }
 }
 
@@ -549,6 +549,7 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
 
   // Reject unknown options so a typo (e.g. `aproval=true`, `blok=true`) fails loudly
   // instead of silently producing a permissive rule.
+  assertNoRemovedProxyOptions(Object.keys(argsVal.objArgs));
   for (const key of Object.keys(argsVal.objArgs)) {
     if (!VALID_PROXY_OPTIONS.includes(key as typeof VALID_PROXY_OPTIONS[number])) {
       throw new SchemaError(
@@ -564,7 +565,6 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   assertProxyBooleanArg(argsVal.objArgs?.block, 'block');
   assertProxyApprovalArg(argsVal.objArgs?.approval);
   assertProxySubstituteInArg(argsVal.objArgs?.substituteIn);
-  assertProxyMaxOccurrencesArg(argsVal.objArgs?.maxOccurrences);
   assertProxyRulesArg(argsVal.objArgs?.rules);
   assertProxyTransformArg(argsVal.objArgs?.transform);
 
@@ -665,6 +665,19 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     process: (decVal) => {
       if (!decVal.isStatic || !_.isBoolean(decVal.staticValue)) {
         throw new Error('@disableProcessEnvInjection must be a static boolean — env-dependent values would make generated code differ per environment');
+      }
+    },
+  },
+  {
+    // opt-in dotenv-style compatibility: items that resolve to undefined get injected into
+    // process.env (and shell exports) as empty strings instead of being left unset.
+    // static-only: code generation reads this flag (it controls whether process.env keys are
+    // typed as optional), so an env-dependent value would make generated output differ per
+    // active environment
+    name: 'injectUndefinedAsEmpty',
+    process: (decVal) => {
+      if (!decVal.isStatic || !_.isBoolean(decVal.staticValue)) {
+        throw new Error('@injectUndefinedAsEmpty must be a static boolean: env-dependent values would make generated code differ per environment');
       }
     },
   },

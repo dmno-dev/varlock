@@ -1,5 +1,4 @@
 import ansis from 'ansis';
-import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
@@ -13,6 +12,7 @@ import { CliExitError } from '../helpers/exit-error';
 import { StaticValueResolver } from '../../env-graph/lib/resolver';
 import type { ConfigItem } from '../../env-graph/lib/config-item';
 import _ from '@env-spec/utils/my-dash';
+import { commandSpec } from './explain.command-spec';
 
 /** Human-readable explanation of how an item's sensitivity was determined */
 function describeSensitiveSource(item: ConfigItem): string {
@@ -34,36 +34,7 @@ function describeInternalSource(item: ConfigItem): string {
     : `set by the \`${item.dataType?.name}\` data type`;
 }
 
-export const commandSpec = define({
-  name: 'explain',
-  description: 'Show detailed information about how a config item is resolved',
-  args: {
-    key: {
-      type: 'positional',
-      required: false,
-      description: 'Config item to explain',
-    },
-    env: {
-      type: 'string',
-      description: 'Set the environment (e.g., production, development, etc)',
-    },
-    path: {
-      type: 'string',
-      short: 'p',
-      multiple: true,
-      description: 'Path to a specific .env file or directory to use as the entry point (can be specified multiple times)',
-    },
-  },
-  examples: `
-Shows detailed information about all definitions, sources, and overrides
-that feed into a single config item. Useful for debugging why a value
-is not what you expect.
-
-Examples:
-  varlock explain DATABASE_URL          # Explain how DATABASE_URL is resolved
-  varlock explain --env production API_KEY  # Explain in production context
-`.trim(),
-});
+export { commandSpec };
 
 function describeResolver(resolver: any, indent = ''): string {
   if (resolver instanceof StaticValueResolver) {

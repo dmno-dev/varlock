@@ -382,6 +382,7 @@ const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
     allowedDomains?: Array<string>
+    allowedProtocols?: Array<string>
     /** Disallow a trailing slash on the URL path. */
     noTrailingSlash?: boolean
     /** A regular expression or string pattern that the full URL must match. */
@@ -393,7 +394,7 @@ const UrlDataType = createEnvGraphDataType(
     generatePlaceholder: (seed) => `https://${seed}.invalid/`,
     coerce(rawVal) {
       const val = coerceToString(rawVal);
-      if (settings?.prependHttps && !val.startsWith('https://')) return `https://${val}`;
+      if (settings?.prependHttps && !/^[a-z][a-z\d+.-]*:/i.test(val)) return `https://${val}`;
       return val;
     },
     validate(val) {
@@ -404,6 +405,22 @@ const UrlDataType = createEnvGraphDataType(
         throw new ValidationError('Invalid URL');
       }
       const errors = [] as Array<ValidationError>;
+      if (settings?.allowedProtocols) {
+        if (
+          !Array.isArray(settings.allowedProtocols)
+          || settings.allowedProtocols.some((allowedProtocol) => !_.isString(allowedProtocol))
+        ) {
+          errors.push(new ValidationError('allowedProtocols must be an array of strings'));
+        } else {
+          const protocol = url.protocol.replace(/:$/, '').toLowerCase();
+          const allowedProtocols = settings.allowedProtocols.map((allowedProtocol) => (
+            allowedProtocol.replace(/:$/, '').toLowerCase()
+          ));
+          if (!allowedProtocols.includes(protocol)) {
+            errors.push(new ValidationError(`Protocol (${protocol}) is not in allowed list: ${settings.allowedProtocols.join(',')}`));
+          }
+        }
+      }
       if (
         settings?.allowedDomains && !settings.allowedDomains.includes(url.host.toLowerCase())
       ) {
@@ -424,6 +441,105 @@ const UrlDataType = createEnvGraphDataType(
         }
       }
       return errors.length ? errors : true;
+    },
+  }),
+);
+
+
+const IP_V4_ADDRESS_REGEX = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
+
+// hostname label per RFC 1123 - alphanumeric + hyphens, no leading/trailing hyphen, max 63 chars
+const DOMAIN_LABEL_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+/**
+ * Bare domain name (hostname) - e.g. `example.com`, `api.internal.example.com`.
+ * No protocol, path, port, or query string. Useful for things like cookie domains,
+ * CORS config, or building URLs from parts.
+ */
+const DomainDataType = createEnvGraphDataType(
+  (settings?: {
+    /** allow a leading wildcard label, e.g. `*.example.com` (default false) */
+    allowWildcard?: boolean;
+    /** allow single-label hostnames like `localhost` or internal service names (default false) */
+    allowSingleLabel?: boolean;
+    /** also accept an IPv4 address - useful for HOST-style vars like DB_HOST (default false) */
+    allowIp?: boolean;
+    /** convert to lowercase */
+    normalize?: boolean;
+    /** A regular expression or string pattern that the domain must match. */
+    matches?: RegExp | string;
+  }) => ({
+    name: 'domain',
+    icon: 'mdi:web',
+    typeDescription: 'bare domain name (hostname) with no protocol, port, or path',
+    // A valid, unique domain at the reserved `.invalid` TLD (RFC 2606).
+    generatePlaceholder: (seed) => `${seed}.invalid`,
+    coerce(rawVal) {
+      let val = coerceToString(rawVal).trim();
+      if (settings?.normalize) val = val.toLowerCase();
+      return val;
+    },
+    validate(val) {
+      // friendlier errors for the most likely mistakes (pasting a full URL)
+      if (val.includes('://')) {
+        throw new ValidationError('Domain must not include a protocol', { tip: 'use @type=url for full URLs' });
+      }
+      if (val.includes('/')) {
+        throw new ValidationError('Domain must not include a path', { tip: 'use @type=url for full URLs' });
+      }
+      if (val.includes(':')) {
+        throw new ValidationError('Domain must not include a port');
+      }
+      if (val.includes('@')) {
+        throw new ValidationError('Domain must not include credentials or an @ sign');
+      }
+
+      // a valid IPv4 address skips the domain structure checks (matches still applies below)
+      if (!(settings?.allowIp && IP_V4_ADDRESS_REGEX.test(val))) {
+        let domain = val;
+        if (domain.startsWith('*.')) {
+          if (!settings?.allowWildcard) {
+            throw new ValidationError('Wildcard domains are not allowed', { tip: 'set allowWildcard=true to allow them' });
+          }
+          domain = domain.slice(2);
+        }
+
+        // the 253-char total limit (RFC 1035) counts the wildcard label too, so check `val`
+        if (domain.length === 0 || val.length > 253) {
+          throw new ValidationError('Value must be a valid domain name');
+        }
+
+        const labels = domain.split('.');
+        if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
+          throw new ValidationError('Value must be a valid domain name');
+        }
+        // an all-numeric final label means this is really an IP address (or a malformed one)
+        if (/^\d+$/.test(labels[labels.length - 1])) {
+          if (settings?.allowIp) {
+            throw new ValidationError('Value must be a valid domain name or IPv4 address');
+          }
+          throw new ValidationError('Value must be a domain name, not an IP address', { tip: 'use @type=ip for IP addresses, or set allowIp=true to allow both' });
+        }
+        if (labels.length < 2 && !settings?.allowSingleLabel) {
+          throw new ValidationError(
+            'Domain must include at least two labels (e.g. "example.com")',
+            { tip: 'set allowSingleLabel=true to allow hostnames like "localhost"' },
+          );
+        }
+      }
+
+      if (settings?.matches) {
+        let regex: RegExp;
+        if (_.isString(settings.matches)) {
+          regex = parseRegexLikeString(settings.matches) ?? new RegExp(settings.matches);
+        } else {
+          regex = settings.matches;
+        }
+        if (!regex.test(val)) {
+          throw new ValidationError(`Domain must match regex "${settings.matches}"`);
+        }
+      }
+      return true;
     },
   }),
 );
@@ -506,7 +622,6 @@ const EmailDataType = createEnvGraphDataType(
   }),
 );
 
-const IP_V4_ADDRESS_REGEX = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}$/;
 const IP_V6_ADDRESS_REGEX = /^(?:(?:[a-fA-F\d]{1,4}:){7}(?:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){6}(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){5}(?::(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,2}|:)|(?:[a-fA-F\d]{1,4}:){4}(?:(?::[a-fA-F\d]{1,4}){0,1}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,3}|:)|(?:[a-fA-F\d]{1,4}:){3}(?:(?::[a-fA-F\d]{1,4}){0,2}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,4}|:)|(?:[a-fA-F\d]{1,4}:){2}(?:(?::[a-fA-F\d]{1,4}){0,3}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,5}|:)|(?:[a-fA-F\d]{1,4}:){1}(?:(?::[a-fA-F\d]{1,4}){0,4}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,6}|:)|(?::(?:(?::[a-fA-F\d]{1,4}){0,5}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,7}|:)))(?:%[0-9a-zA-Z]{1,})?$/;
 const IpAddressDataType = createEnvGraphDataType(
   (settings?: {
@@ -984,6 +1099,7 @@ export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   EnumDataType,
   EmailDataType,
   UrlDataType,
+  DomainDataType,
   IpAddressDataType,
   PortDataType,
   SemverDataType,

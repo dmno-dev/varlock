@@ -1,0 +1,22 @@
+{
+  "name": "@varlock/native-helper-linux-arm64",
+  "version": "1.17.1",
+  "description": "varlock native helper binary for Linux arm64 (TPM2/polkit local encryption). Installed automatically as an optional dependency of varlock.",
+  "author": "dmno-dev",
+  "license": "MIT",
+  "homepage": "https://varlock.dev",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/native-helpers/linux-arm64"
+  },
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "files": ["/varlock-local-encrypt"],
+  "preferUnplugged": true,
+  "scripts": {
+    "prepack": "bun run ../prepack.ts linux-arm64",
+    "postpack": "bun run ../postpack.ts linux-arm64"
+  }
+}

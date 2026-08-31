@@ -1,34 +1,14 @@
-import { define } from 'gunshi';
 import ansis from 'ansis';
-import semverValid from 'semver/functions/valid';
+import { isValid as semverIsValid } from 'verkit';
 
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { isBundledSEA } from '../helpers/install-detection';
 import { fmt } from '../helpers/pretty-format';
 import { downloadPluginToCache } from '../../env-graph/lib/plugins';
+import { commandSpec } from './install-plugin.command-spec';
 
-export const commandSpec = define({
-  name: 'install-plugin',
-  description: 'Download and cache a plugin from npm for use with the standalone binary',
-  args: {
-    plugin: {
-      type: 'positional',
-      description: 'Plugin to install, in the format name@version (e.g. my-plugin@1.2.3)',
-    },
-  },
-  examples: `
-Pre-downloads a plugin into the local varlock plugin cache so it is available without
-needing an interactive confirmation prompt. This is useful in CI environments or any
-other non-interactive workflow where the standalone binary is used.
-
-The plugin must be specified with an exact version number.
-
-Examples:
-  varlock install-plugin my-plugin@1.2.3
-  varlock install-plugin @my-scope/my-plugin@2.0.0
-`.trim(),
-});
+export { commandSpec };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   if (!isBundledSEA()) {
@@ -64,7 +44,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     });
   }
 
-  if (!semverValid(versionDescriptor)) {
+  if (!semverIsValid(versionDescriptor)) {
     throw new CliExitError(`"${versionDescriptor}" is not an exact version`, {
       suggestion: `Use a fixed version number (e.g. 1.2.3), not a range. Example: \`varlock install-plugin ${moduleName}@1.2.3\``,
     });

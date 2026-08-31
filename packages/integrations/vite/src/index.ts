@@ -113,8 +113,18 @@ let activeIntegrationTelemetry = {
   version: __VARLOCK_INTEGRATION_VERSION__,
 };
 
+/**
+ * Directory the current config was loaded from. Tracked so callers can ask for
+ * a specific root and only pay for a reload when it actually differs — the
+ * module-level load below uses `process.cwd()`, which is not the project root
+ * when a framework CLI is pointed elsewhere (e.g. `nuxt build --cwd ./app`).
+ */
+let loadedConfigDir: string | undefined;
+
 function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
+  const prevItemCount = Object.keys(varlockLoadedEnv?.config || {}).length;
+  loadedConfigDir = path.resolve(cwd ?? process.cwd());
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
@@ -158,6 +168,27 @@ function reloadConfig(cwd?: string) {
     return;
   }
 
+  // Reloading from a different directory can silently wipe a working config if
+  // that directory has no schema — `varlock load` succeeds there and returns an
+  // empty graph, which then disables every static replacement. Surface it
+  // instead of letting the build produce a broken bundle.
+  if (cwd && prevItemCount > 0 && Object.keys(varlockLoadedEnv?.config || {}).length === 0) {
+    console.warn(
+      `\x1b[33m[varlock] ⚠️  no env items found when loading from ${cwd}\x1b[0m\n`
+      + 'This directory has no `.env.schema`, so `ENV.*` references will not be replaced at build time.\n'
+      + "If your framework points vite's `root` at a source subdirectory, the integration should pass "
+      + '`rootDir` to `varlockVitePlugin()`.',
+    );
+  }
+
+  // If a runtime auto-load already populated the global (e.g. `varlock/auto-load`
+  // imported in nuxt.config), refresh it with the newly resolved graph -
+  // initVarlockEnv prefers it over the process.env blob, so a stale copy would
+  // pin the old values through every re-init.
+  if ((globalThis as any).__varlockLoadedEnv) {
+    (globalThis as any).__varlockLoadedEnv = varlockLoadedEnv;
+  }
+
   // initialize varlock and patch globals as necessary
   initVarlockEnv();
   // these will be no-ops if these are disabled by settings
@@ -190,6 +221,241 @@ export interface VarlockVitePluginOptions {
    * as redundant — the loader already hydrates env from Cloudflare bindings.
    */
   isCloudflareTarget?: boolean,
+  /**
+   * directory varlock should load `.env` files from. Defaults to vite's `root`.
+   * Set by integrations whose framework points vite's `root` at a source
+   * subdirectory rather than the project root — e.g. Nuxt 4, where `root` is
+   * the `app/` srcDir but the env files live one level up.
+   */
+  rootDir?: string,
+}
+
+/** options for {@link buildVarlockSsrInitCode} */
+/**
+ * The currently loaded env graph, for integrations that need to inspect the
+ * config outside vite's hooks (e.g. the Nuxt module checks for public+dynamic
+ * items to decide whether to inject the public-env endpoint). Reloads the
+ * config first if `rootDir` differs from the directory the module-level load
+ * used.
+ */
+export function getVarlockLoadedEnv(rootDir?: string): SerializedEnvGraph | undefined {
+  if (rootDir && path.resolve(rootDir) !== loadedConfigDir) {
+    reloadConfig(rootDir);
+  }
+  return varlockLoadedEnv;
+}
+
+/**
+ * Force a fresh env resolution and refresh the shared runtime store (ENV proxy
+ * values, process.env injection, the auto-load global). Used by the Nuxt module
+ * on dev restarts: it runs before the new nuxt instance evaluates nuxt.config,
+ * so config-time `ENV` reads see fresh values even though the config's cached
+ * `varlock/auto-load` import does not re-run.
+ */
+export function refreshVarlockEnv(rootDir?: string) {
+  reloadConfig(rootDir ?? loadedConfigDir);
+}
+
+/**
+ * Absolute paths of the env files the current config was loaded from, for
+ * integrations that manage their own file watching (e.g. the Nuxt module
+ * pushes these into `nuxt.options.watch` so a schema edit restarts the dev
+ * server). Reloads the config first if `rootDir` differs from the directory
+ * the module-level load used. Non-regular files (FIFOs, e.g. 1Password
+ * Environments) are excluded since watching them is meaningless.
+ */
+export function getVarlockEnvSourcePaths(rootDir?: string): Array<string> {
+  getVarlockLoadedEnv(rootDir);
+  const paths: Array<string> = [];
+  if (!varlockLoadedEnv?.basePath) return paths;
+  for (const source of varlockLoadedEnv.sources) {
+    if (!source.enabled || !source.path) continue;
+    const absPath = path.resolve(varlockLoadedEnv.basePath, source.path);
+    if (isExistingNonRegularFile(absPath)) continue;
+    paths.push(absPath);
+  }
+  return paths;
+}
+
+export interface VarlockSsrInitCodeOptions {
+  ssrInjectMode?: VarlockVitePluginOptions['ssrInjectMode'],
+  ssrEntryCode?: VarlockVitePluginOptions['ssrEntryCode'],
+  ssrEdgeRuntime?: VarlockVitePluginOptions['ssrEdgeRuntime'],
+  isCloudflareTarget?: VarlockVitePluginOptions['isCloudflareTarget'],
+  /** vite environment name — only used to detect Cloudflare's prerender worker */
+  environmentName?: string,
+  /** overrides the dev/build detection, for callers that run outside vite's `config` hook */
+  isDev?: boolean,
+  /**
+   * directory to load `.env` files from. Callers that run before vite's
+   * `config` hook must pass this — until that hook runs, the config is
+   * whatever the module-level load found in `process.cwd()`, which is not the
+   * project root when a framework CLI is pointed elsewhere (`nuxt build --cwd`).
+   */
+  rootDir?: string,
+  /**
+   * emit side-effect-only imports in a form that cannot be tree-shaken. Set by
+   * integrations targeting a bundler that treats external modules as
+   * side-effect free — Nitro's rollup pass drops a bare `import 'x'` of an
+   * external, which would silently disable `ssrInjectMode: 'auto-load'`.
+   */
+  preserveSideEffectImports?: boolean,
+}
+
+/**
+ * Builds the varlock init module source — the code that initializes `ENV` and
+ * patches the global console/response objects before any user code runs.
+ *
+ * Exported so integrations can inject the same init sequence into build
+ * pipelines that vite does not own. `@varlock/nuxt-integration` uses it for the Nitro
+ * server bundle, which rollup builds separately from vite's SSR output.
+ */
+export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): string {
+  // `resolved-env` serializes the loaded config straight into the artifact, so
+  // a config loaded from the wrong directory bakes an empty env into the build.
+  if (opts.rootDir && path.resolve(opts.rootDir) !== loadedConfigDir) {
+    reloadConfig(opts.rootDir);
+  }
+
+  let ssrInjectMode = opts.ssrInjectMode ?? 'init-only';
+  const isCloudflareTarget = opts.isCloudflareTarget ?? false;
+  const isDev = opts.isDev ?? isDevCommand;
+
+  // Cloudflare's build-time prerender worker (@astrojs/cloudflare v14 runs
+  // prerendering inside workerd via @cloudflare/vite-plugin's experimental
+  // `prerenderWorker`, a vite environment named "prerender") executes during
+  // the build with no bindings attached, so the runtime bindings loader can
+  // never find env there and `process.env.__VARLOCK_ENV` doesn't exist inside
+  // workerd. Bake the resolved env directly instead by routing this env
+  // through the same `resolved-env` path used below (so it shares the init +
+  // patch sequence and any future additions to it) — this artifact only
+  // generates static HTML at build time and is not deployed, and generated
+  // HTML is still leak-scanned by the framework integrations. The three
+  // guards keyed off `isCfPrerenderEnv` opt it out of the CF-specific
+  // behaviors that don't apply to the throwaway prerender worker: the
+  // "redundant on CF" rejection, env encryption (the worker can't read
+  // `_VARLOCK_ENV_KEY`, and the artifact is discarded), and the CF bindings
+  // loader (whose top-level `await import('cloudflare:workers')` + absent
+  // bindings are exactly what break the build here).
+  const isCfPrerenderEnv = isCloudflareTarget && opts.environmentName === 'prerender' && !isDev;
+  if (isCfPrerenderEnv) ssrInjectMode = 'resolved-env';
+
+  const isEdgeRuntime = opts.ssrEdgeRuntime ?? false;
+  const lines: Array<string> = [
+    '// Virtual module generated by @varlock/vite-integration',
+    '// Runs before any user code to ensure ENV is available at module top-level',
+    'globalThis.__varlockThrowOnMissingKeys = true;',
+    `globalThis.__varlockPublicDynamicKeys = ${JSON.stringify(publicDynamicKeys)};`,
+  ];
+
+  const encryptionRequired = varlockLoadedEnv?.settings?.encryptInjectedEnv;
+  // Force plaintext for the prerender worker — it can't read _VARLOCK_ENV_KEY
+  // (no bindings) and is discarded after the build, so an encrypted blob would
+  // only fail to decrypt.
+  let encryptionKey: string | undefined = isCfPrerenderEnv ? undefined : process.env._VARLOCK_ENV_KEY;
+
+  if (ssrInjectMode === 'auto-load') {
+    if (opts.preserveSideEffectImports) {
+      // binding the namespace to a global makes the import observably used, so
+      // a bundler treating externals as side-effect free can't drop it
+      lines.push(
+        "import * as __varlockAutoLoad from 'varlock/auto-load';",
+        'globalThis.__varlockAutoLoadModule = __varlockAutoLoad;',
+      );
+    } else {
+      lines.push("import 'varlock/auto-load';");
+    }
+  } else {
+    if (ssrInjectMode === 'resolved-env') {
+      // Only reject this for production builds. In dev, some adapters (e.g.
+      // Astro's @astrojs/cloudflare) run SSR inside workerd via a plugin-owned
+      // miniflare instance with no binding-injection hook for varlock to use,
+      // so resolved-env is the only way to get real values into the worker —
+      // it's the composed integration's own default there, not shipped in a
+      // deploy artifact.
+      if (isCloudflareTarget && !isDev && !isCfPrerenderEnv) {
+        throw new Error(
+          "[varlock] ssrInjectMode: 'resolved-env' is redundant on Cloudflare Workers and ships resolved "
+          + '(possibly sensitive) values into the worker bundle unnecessarily. Cloudflare deploys get their '
+          + 'env injected at runtime from bindings via `varlock-wrangler` — remove the `ssrInjectMode` override '
+          + "(or set it to 'init-only') and let the Cloudflare integration handle it.\n"
+          + 'See https://varlock.dev/integrations/cloudflare/ for details.',
+        );
+      }
+      // Vercel has no native runtime-binding mechanism like Cloudflare's, so
+      // `resolved-env` is the correct approach there — but plaintext means
+      // secrets sit as JSON in the build artifact. Nudge (don't block) users
+      // who haven't opted into `@encryptInjectedEnv`.
+      if (process.env.VERCEL === '1' && !encryptionRequired && !isDev) {
+        if (!vercelUnencryptedWarningLogged) {
+          vercelUnencryptedWarningLogged = true;
+          console.warn(
+            "\x1b[33m[varlock] ⚠️ ssrInjectMode: 'resolved-env' on Vercel ships your resolved env as plaintext JSON "
+            + 'in the build artifact. Consider enabling `@encryptInjectedEnv` — '
+            + 'see https://varlock.dev/guides/encrypted-deployments/\x1b[0m',
+          );
+        }
+      }
+      if (encryptionRequired && !encryptionKey && !isCfPrerenderEnv) {
+        if (isDev) {
+          // auto-generate a temporary key for local dev
+          encryptionKey = generateEncryptionKeyHex();
+          process.env._VARLOCK_ENV_KEY = encryptionKey;
+        } else {
+          throw new Error(
+            '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
+            + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
+            + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
+          );
+        }
+      }
+      const serialized = JSON.stringify(varlockLoadedEnv);
+      if (encryptionKey) {
+        const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
+        lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
+      } else {
+        lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+      }
+    }
+
+    // inject custom entry code from integrations (e.g., CF bindings loader) —
+    // but not in the prerender worker, where the runtime bindings loader can't
+    // work and its top-level await breaks the build (env is baked in above).
+    if (opts.ssrEntryCode?.length && !isCfPrerenderEnv) {
+      lines.push(...opts.ssrEntryCode);
+    }
+
+    // decrypt the encrypted env blob before initVarlockEnv runs
+    lines.push(
+      "import { initVarlockEnv } from 'varlock/env';",
+      "import { patchGlobalConsole } from 'varlock/patch-console';",
+      "import { patchGlobalResponse } from 'varlock/patch-response';",
+    );
+    // always include decryption support — the blob may be encrypted at build time
+    // (via _VARLOCK_ENV_KEY) or at deploy time (e.g., Cloudflare varlock-wrangler)
+    lines.push(
+      "import { decryptEnvBlobSync } from 'varlock/encrypt-env';",
+      'if (globalThis.__varlockEncryptedEnv) {',
+      '  const __key = typeof process !== \'undefined\' && process.env._VARLOCK_ENV_KEY;',
+      "  if (!__key) throw new Error('[varlock] encrypted env blob present but _VARLOCK_ENV_KEY is not set');",
+      '  globalThis.__varlockLoadedEnv = JSON.parse(decryptEnvBlobSync(globalThis.__varlockEncryptedEnv, __key));',
+      '  delete globalThis.__varlockEncryptedEnv;',
+      '}',
+    );
+    if (!isEdgeRuntime) {
+      lines.push("import { patchGlobalServerResponse } from 'varlock/patch-server-response';");
+    }
+    lines.push(
+      'initVarlockEnv();',
+      'patchGlobalConsole();',
+    );
+    if (!isEdgeRuntime) {
+      lines.push('patchGlobalServerResponse();');
+    }
+    lines.push('patchGlobalResponse();');
+  }
+
+  return lines.join('\n');
 }
 
 // Return type is `any` instead of `Plugin` to avoid symlink type conflicts.
@@ -206,7 +472,9 @@ export function varlockVitePlugin(
     const prevName = activeIntegrationTelemetry.name;
     activeIntegrationTelemetry = vitePluginOptions.integrationTelemetry;
     if (prevName !== activeIntegrationTelemetry.name) {
-      reloadConfig();
+      // reload from wherever the config currently comes from — falling back to
+      // cwd here would drop a root an integration already corrected
+      reloadConfig(vitePluginOptions.rootDir ?? loadedConfigDir);
     }
   }
 
@@ -218,138 +486,17 @@ export function varlockVitePlugin(
   let resolvedSsrEntryCode = vitePluginOptions?.ssrEntryCode;
   let resolvedIsCloudflareTarget = vitePluginOptions?.isCloudflareTarget ?? false;
 
-  // Build the virtual init module content once. This module is imported
-  // by SSR entry points and evaluates before any user code because it
-  // has no transitive dependencies on user modules.
+  // Build the virtual init module content. This module is imported by SSR
+  // entry points and evaluates before any user code because it has no
+  // transitive dependencies on user modules.
   function buildInitModuleCode(environmentName?: string) {
-    let ssrInjectMode = vitePluginOptions?.ssrInjectMode ?? 'init-only';
-
-    // Cloudflare's build-time prerender worker (@astrojs/cloudflare v14 runs
-    // prerendering inside workerd via @cloudflare/vite-plugin's experimental
-    // `prerenderWorker`, a vite environment named "prerender") executes during
-    // the build with no bindings attached, so the runtime bindings loader can
-    // never find env there and `process.env.__VARLOCK_ENV` doesn't exist inside
-    // workerd. Bake the resolved env directly instead by routing this env
-    // through the same `resolved-env` path used below (so it shares the init +
-    // patch sequence and any future additions to it) — this artifact only
-    // generates static HTML at build time and is not deployed, and generated
-    // HTML is still leak-scanned by the framework integrations. The three
-    // guards keyed off `isCfPrerenderEnv` opt it out of the CF-specific
-    // behaviors that don't apply to the throwaway prerender worker: the
-    // "redundant on CF" rejection, env encryption (the worker can't read
-    // `_VARLOCK_ENV_KEY`, and the artifact is discarded), and the CF bindings
-    // loader (whose top-level `await import('cloudflare:workers')` + absent
-    // bindings are exactly what break the build here).
-    const isCfPrerenderEnv = resolvedIsCloudflareTarget && environmentName === 'prerender' && !isDevCommand;
-    if (isCfPrerenderEnv) ssrInjectMode = 'resolved-env';
-
-    const isEdgeRuntime = resolvedSsrEdgeRuntime;
-    const lines: Array<string> = [
-      '// Virtual module generated by @varlock/vite-integration',
-      '// Runs before any user code to ensure ENV is available at module top-level',
-      'globalThis.__varlockThrowOnMissingKeys = true;',
-      `globalThis.__varlockPublicDynamicKeys = ${JSON.stringify(publicDynamicKeys)};`,
-    ];
-
-    const encryptionRequired = varlockLoadedEnv?.settings?.encryptInjectedEnv;
-    // Force plaintext for the prerender worker — it can't read _VARLOCK_ENV_KEY
-    // (no bindings) and is discarded after the build, so an encrypted blob would
-    // only fail to decrypt.
-    let encryptionKey: string | undefined = isCfPrerenderEnv ? undefined : process.env._VARLOCK_ENV_KEY;
-
-    if (ssrInjectMode === 'auto-load') {
-      lines.push("import 'varlock/auto-load';");
-    } else {
-      if (ssrInjectMode === 'resolved-env') {
-        // Only reject this for production builds. In dev, some adapters (e.g.
-        // Astro's @astrojs/cloudflare) run SSR inside workerd via a plugin-owned
-        // miniflare instance with no binding-injection hook for varlock to use,
-        // so resolved-env is the only way to get real values into the worker —
-        // it's the composed integration's own default there, not shipped in a
-        // deploy artifact.
-        if (resolvedIsCloudflareTarget && !isDevCommand && !isCfPrerenderEnv) {
-          throw new Error(
-            "[varlock] ssrInjectMode: 'resolved-env' is redundant on Cloudflare Workers and ships resolved "
-            + '(possibly sensitive) values into the worker bundle unnecessarily. Cloudflare deploys get their '
-            + 'env injected at runtime from bindings via `varlock-wrangler` — remove the `ssrInjectMode` override '
-            + "(or set it to 'init-only') and let the Cloudflare integration handle it.\n"
-            + 'See https://varlock.dev/integrations/cloudflare/ for details.',
-          );
-        }
-        // Vercel has no native runtime-binding mechanism like Cloudflare's, so
-        // `resolved-env` is the correct approach there — but plaintext means
-        // secrets sit as JSON in the build artifact. Nudge (don't block) users
-        // who haven't opted into `@encryptInjectedEnv`.
-        if (process.env.VERCEL === '1' && !encryptionRequired && !isDevCommand) {
-          if (!vercelUnencryptedWarningLogged) {
-            vercelUnencryptedWarningLogged = true;
-            console.warn(
-              "\x1b[33m[varlock] ⚠️ ssrInjectMode: 'resolved-env' on Vercel ships your resolved env as plaintext JSON "
-              + 'in the build artifact. Consider enabling `@encryptInjectedEnv` — '
-              + 'see https://varlock.dev/guides/encrypted-deployments/\x1b[0m',
-            );
-          }
-        }
-        if (encryptionRequired && !encryptionKey && !isCfPrerenderEnv) {
-          if (isDevCommand) {
-            // auto-generate a temporary key for local dev
-            encryptionKey = generateEncryptionKeyHex();
-            process.env._VARLOCK_ENV_KEY = encryptionKey;
-          } else {
-            throw new Error(
-              '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
-              + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
-              + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
-            );
-          }
-        }
-        const serialized = JSON.stringify(varlockLoadedEnv);
-        if (encryptionKey) {
-          const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
-          lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
-        } else {
-          lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
-        }
-      }
-
-      // inject custom entry code from integrations (e.g., CF bindings loader) —
-      // but not in the prerender worker, where the runtime bindings loader can't
-      // work and its top-level await breaks the build (env is baked in above).
-      if (resolvedSsrEntryCode?.length && !isCfPrerenderEnv) {
-        lines.push(...resolvedSsrEntryCode);
-      }
-
-      // decrypt the encrypted env blob before initVarlockEnv runs
-      lines.push(
-        "import { initVarlockEnv } from 'varlock/env';",
-        "import { patchGlobalConsole } from 'varlock/patch-console';",
-        "import { patchGlobalResponse } from 'varlock/patch-response';",
-      );
-      // always include decryption support — the blob may be encrypted at build time
-      // (via _VARLOCK_ENV_KEY) or at deploy time (e.g., Cloudflare varlock-wrangler)
-      lines.push(
-        "import { decryptEnvBlobSync } from 'varlock/encrypt-env';",
-        'if (globalThis.__varlockEncryptedEnv) {',
-        '  const __key = typeof process !== \'undefined\' && process.env._VARLOCK_ENV_KEY;',
-        "  if (!__key) throw new Error('[varlock] encrypted env blob present but _VARLOCK_ENV_KEY is not set');",
-        '  globalThis.__varlockLoadedEnv = JSON.parse(decryptEnvBlobSync(globalThis.__varlockEncryptedEnv, __key));',
-        '  delete globalThis.__varlockEncryptedEnv;',
-        '}',
-      );
-      if (!isEdgeRuntime) {
-        lines.push("import { patchGlobalServerResponse } from 'varlock/patch-server-response';");
-      }
-      lines.push(
-        'initVarlockEnv();',
-        'patchGlobalConsole();',
-      );
-      if (!isEdgeRuntime) {
-        lines.push('patchGlobalServerResponse();');
-      }
-      lines.push('patchGlobalResponse();');
-    }
-
-    return lines.join('\n');
+    return buildVarlockSsrInitCode({
+      ssrInjectMode: vitePluginOptions?.ssrInjectMode,
+      ssrEntryCode: resolvedSsrEntryCode,
+      ssrEdgeRuntime: resolvedSsrEdgeRuntime,
+      isCloudflareTarget: resolvedIsCloudflareTarget,
+      environmentName,
+    });
   }
 
   // Auto-detect SvelteKit deploying to Cloudflare Workers and wire up the edge
@@ -451,39 +598,37 @@ See https://varlock.dev/integrations/vite/ for more details.
       // points to the child package directory rather than the monorepo root
       // where process.cwd() points. We need to reload varlock from the
       // correct directory so it can find .env.schema and .env files.
-      const projectRoot = config.root ? path.resolve(config.root) : undefined;
-      const rootDiffersFromCwd = !!(projectRoot && path.relative(projectRoot, process.cwd()) !== '');
+      // An integration can override this via `rootDir` when its framework
+      // points vite's `root` at a source subdirectory instead of the project
+      // root (e.g. Nuxt 4, whose `root` is the `app/` srcDir).
+      const rootDirSource = vitePluginOptions?.rootDir ?? config.root;
+      const projectRoot = rootDirSource ? path.resolve(rootDirSource) : undefined;
+      // Compare against where the config was actually loaded from, not cwd —
+      // an integration may already have reloaded from `projectRoot` before this
+      // hook ran (see `buildVarlockSsrInitCode`), and cwd is not the project
+      // root when a framework CLI is pointed elsewhere (`nuxt build --cwd`).
+      const rootDiffersFromLoaded = !!(projectRoot && projectRoot !== loadedConfigDir);
 
-      if (rootDiffersFromCwd) {
+      if (rootDiffersFromLoaded) {
         // Reload with the correct project root. This handles monorepo
         // Vitest workspace setups where each child project has its own
         // env files — the module-level load used cwd which may be wrong.
         reloadConfig(projectRoot);
       } else if (!configHookCalled) {
-        // First config hook call — module-level reloadConfig() already
-        // loaded from the correct directory, no need to reload.
+        // First config hook call — the config was already loaded from the
+        // correct directory, no need to reload.
         configHookCalled = true;
       } else if (isDevCommand) {
         // Dev mode restart (triggered by configFileDependencies change).
         // The module stays cached so the module-level reloadConfig()
-        // doesn't re-run — we need to reload here.
-        reloadConfig();
+        // doesn't re-run — we need to reload here, from the same directory
+        // the current config came from rather than cwd.
+        reloadConfig(projectRoot ?? loadedConfigDir);
       }
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 
-      // esbuild strips the node: prefix from imports, so varlock's built dist
-      // uses bare 'crypto' which Vite SSR doesn't auto-externalize.
-      // Skip when CF Vite plugin is present — it rejects ssr.external since
-      // Workers handle node builtins via nodejs_compat.
       const hasCfPlugin = config.plugins?.flat().some((p: any) => p?.name?.includes('cloudflare'));
-      if (!hasCfPlugin) {
-        config.ssr ||= {};
-        config.ssr.external ||= [];
-        if (Array.isArray(config.ssr.external) && !config.ssr.external.includes('crypto')) {
-          config.ssr.external.push('crypto');
-        }
-      }
 
       if (!configIsValid) {
         if (isDevCommand) {

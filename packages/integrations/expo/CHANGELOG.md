@@ -4,6 +4,12 @@
 
 
 
+
+## 1.2.1
+<sub>2026-08-25</sub>
+
+- [#1021](https://github.com/dmno-dev/varlock/pull/1021)  *(patch)* - Build with tsdown instead of tsup; published files now use explicit .mjs/.cjs extensions.
+
 ## 1.2.0
 <sub>2026-07-28</sub>
 

@@ -1,10 +1,15 @@
 # build output
 dist/
+# wrangler local state (wrangler dev)
+.wrangler/
 # generated types
 .astro/
-# generated agent-skills discovery tree (see scripts/gen-agent-skills.ts)
+# generated .well-known discovery files (see scripts/gen-well-known.ts)
 public/.well-known/agent-skills/index.json
 public/.well-known/agent-skills/varlock/
+public/.well-known/mcp.json
+public/.well-known/mcp/server-cards.json
+public/.well-known/ai-catalog.json
 
 # dependencies
 node_modules/

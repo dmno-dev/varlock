@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ansis from 'ansis';
-import { define } from 'gunshi';
 import { isCancel } from '@clack/prompts';
 import {
   parseEnvSpecDotEnvFile,
@@ -17,8 +16,10 @@ import { getDaemonClient } from '../../lib/local-encrypt';
 import { DaemonError } from '../../lib/local-encrypt/daemon-client';
 import { CliExitError } from '../helpers/exit-error';
 import { password } from '../helpers/prompts';
-import { trackCommand } from '../helpers/telemetry';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
+import {
+  commandSpec, listCommandSpec, fixAccessCommandSpec, setCommandSpec, importCommandSpec,
+} from './keychain.command-spec';
 
 type KeychainRef = {
   key?: string;
@@ -434,218 +435,88 @@ function resolveProject(project?: string): string {
 
 // --- `varlock keychain list` ------------------------------------------------
 
-const listCommand = define({
-  name: 'list',
-  description: 'List matching macOS Keychain items (metadata only)',
-  args: {
-    query: {
-      type: 'positional',
-      required: false,
-      description: 'Filter items by service name',
-    },
-    keychain: {
-      type: 'string',
-      description: 'Keychain name to search, such as Login or System',
-    },
-  },
-  run: async (ctx) => {
-    assertMacOS();
-    await trackCommand('keychain list', { command: 'keychain list' });
-    await listKeychainItems(ctx.values.query, ctx.values.keychain);
-  },
-});
+export const listCommandFn: TypedGunshiCommandFn<typeof listCommandSpec> = async (ctx) => {
+  assertMacOS();
+  await listKeychainItems(ctx.values.query, ctx.values.keychain);
+};
 
 // --- `varlock keychain fix-access` ------------------------------------------
 
-const fixAccessCommand = define({
-  name: 'fix-access',
-  description: "Grant Varlock's helper access to existing keychain() items",
-  args: {
-    service: {
-      type: 'string',
-      default: 'varlock',
-      description: 'Keychain service name (default: varlock)',
-    },
-    account: {
-      type: 'string',
-      description: 'Keychain account name',
-    },
-    keychain: {
-      type: 'string',
-      description: 'Keychain name to search, such as Login or System',
-    },
-    path: {
-      type: 'string',
-      description: 'Env file to fix access for every explicit keychain() ref',
-    },
-  },
-  run: async (ctx) => {
-    assertMacOS();
-    await trackCommand('keychain fix-access', { command: 'keychain fix-access' });
+export const fixAccessCommandFn: TypedGunshiCommandFn<typeof fixAccessCommandSpec> = async (ctx) => {
+  assertMacOS();
 
-    if (ctx.values.path) {
-      const refs = extractKeychainRefsFromFile(path.resolve(ctx.values.path));
-      if (refs.length === 0) {
-        console.log(ansis.gray('No explicit keychain() refs found.'));
-        return;
-      }
-      await fixAccessForRefs(refs);
+  if (ctx.values.path) {
+    const refs = extractKeychainRefsFromFile(path.resolve(ctx.values.path));
+    if (refs.length === 0) {
+      console.log(ansis.gray('No explicit keychain() refs found.'));
       return;
     }
+    await fixAccessForRefs(refs);
+    return;
+  }
 
-    if (!ctx.values.account) {
-      throw new CliExitError('Missing --account for keychain fix-access', {
-        suggestion: 'Use --account "project:profile:KEY" or --path .env.profile',
-      });
-    }
+  if (!ctx.values.account) {
+    throw new CliExitError('Missing --account for keychain fix-access', {
+      suggestion: 'Use --account "project:profile:KEY" or --path .env.profile',
+    });
+  }
 
-    await fixAccessForRefs([
-      {
-        service: ctx.values.service,
-        account: ctx.values.account,
-        keychain: ctx.values.keychain,
-      },
-    ]);
-  },
-});
+  await fixAccessForRefs([
+    {
+      service: ctx.values.service,
+      account: ctx.values.account,
+      keychain: ctx.values.keychain,
+    },
+  ]);
+};
 
 // --- `varlock keychain set` -------------------------------------------------
 
-const setCommand = define({
-  name: 'set',
-  description: 'Store a secret in macOS Keychain and optionally write a keychain() ref',
-  args: {
-    key: {
-      type: 'positional',
-      required: false,
-      description: 'Env var key to store (used to generate the account name and ref)',
-    },
-    service: {
-      type: 'string',
-      default: 'varlock',
-      description: 'Keychain service name (default: varlock)',
-    },
-    account: {
-      type: 'string',
-      description: 'Keychain account name (defaults to <project>:<profile>:<KEY>)',
-    },
-    profile: {
-      type: 'string',
-      default: 'local',
-      description: 'Profile name used in generated account names',
-    },
-    project: {
-      type: 'string',
-      description: 'Project slug used in generated account names (default: current directory name)',
-    },
-    'write-to': {
-      type: 'string',
-      description: 'Env file to write the keychain() ref to',
-    },
-    force: {
-      type: 'boolean',
-      description: 'Overwrite existing Keychain item and env ref',
-    },
-  },
-  run: async (ctx) => {
-    assertMacOS();
-    await trackCommand('keychain set', { command: 'keychain set' });
+export const setCommandFn: TypedGunshiCommandFn<typeof setCommandSpec> = async (ctx) => {
+  assertMacOS();
 
-    const { key, service, account } = ctx.values;
-    const targetAccount = account
-      ?? (key ? getGeneratedAccount(resolveProject(ctx.values.project), ctx.values.profile, key) : undefined);
-    if (!targetAccount) {
-      throw new CliExitError('Missing env var key or --account for keychain set', {
-        suggestion: 'Use `varlock keychain set API_KEY --profile local` or `varlock keychain set --account name`.',
-      });
-    }
-
-    await setKeychainSecret({
-      key,
-      service,
-      account: targetAccount,
-      write: ctx.values['write-to'],
-      force: Boolean(ctx.values.force),
+  const { key, service, account } = ctx.values;
+  const targetAccount = account
+    ?? (key ? getGeneratedAccount(resolveProject(ctx.values.project), ctx.values.profile, key) : undefined);
+  if (!targetAccount) {
+    throw new CliExitError('Missing env var key or --account for keychain set', {
+      suggestion: 'Use `varlock keychain set API_KEY --profile local` or `varlock keychain set --account name`.',
     });
-  },
-});
+  }
+
+  await setKeychainSecret({
+    key,
+    service,
+    account: targetAccount,
+    write: ctx.values['write-to'],
+    force: Boolean(ctx.values.force),
+  });
+};
 
 // --- `varlock keychain import` ----------------------------------------------
 
-const importCommand = define({
-  name: 'import',
-  description: 'Migrate sensitive plaintext values from an env file into macOS Keychain',
-  args: {
-    file: {
-      type: 'positional',
-      required: false,
-      description: 'Plaintext env file to import secrets from',
-    },
-    'write-to': {
-      type: 'string',
-      description: 'Write refs to a different env file instead of editing the source in place',
-    },
-    service: {
-      type: 'string',
-      default: 'varlock',
-      description: 'Keychain service name (default: varlock)',
-    },
-    profile: {
-      type: 'string',
-      default: 'local',
-      description: 'Profile name used in generated account names',
-    },
-    project: {
-      type: 'string',
-      description: 'Project slug used in generated account names (default: current directory name)',
-    },
-    force: {
-      type: 'boolean',
-      description: 'Overwrite existing Keychain items (and refs in a --write-to target)',
-    },
-  },
-  run: async (ctx) => {
-    assertMacOS();
-    await trackCommand('keychain import', { command: 'keychain import' });
+export const importCommandFn: TypedGunshiCommandFn<typeof importCommandSpec> = async (ctx) => {
+  assertMacOS();
 
-    if (!ctx.values.file) {
-      throw new CliExitError('Missing env file to import from', {
-        suggestion: 'Use `varlock keychain import .env` (edits the file in place) or add `--write-to .env.profile`.',
-      });
-    }
-
-    await importPlaintextEnv({
-      from: ctx.values.file,
-      write: ctx.values['write-to'],
-      service: ctx.values.service,
-      profile: ctx.values.profile,
-      project: resolveProject(ctx.values.project),
-      force: Boolean(ctx.values.force),
+  if (!ctx.values.file) {
+    throw new CliExitError('Missing env file to import from', {
+      suggestion: 'Use `varlock keychain import .env` (edits the file in place) or add `--write-to .env.profile`.',
     });
-  },
-});
+  }
+
+  await importPlaintextEnv({
+    from: ctx.values.file,
+    write: ctx.values['write-to'],
+    service: ctx.values.service,
+    profile: ctx.values.profile,
+    project: resolveProject(ctx.values.project),
+    force: Boolean(ctx.values.force),
+  });
+};
 
 // --- `varlock keychain` (parent) --------------------------------------------
 
-export const commandSpec = define({
-  name: 'keychain',
-  description: 'Manage macOS Keychain items used by keychain()',
-  subCommands: {
-    list: listCommand,
-    'fix-access': fixAccessCommand,
-    set: setCommand,
-    import: importCommand,
-  },
-  examples: `
-Examples:
-  varlock keychain list
-  varlock keychain fix-access --account "my-project:jb:API_KEY"
-  varlock keychain fix-access --path .env.jb
-  varlock keychain import .env --profile jb            # migrate .env in place
-  varlock keychain import .env --profile jb --write-to .env.jb
-  varlock keychain set API_KEY --profile jb --write-to .env.jb
-`.trim(),
-});
+export { commandSpec };
 
 /** Default `varlock keychain` with no subcommand: list matching items. */
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async () => {

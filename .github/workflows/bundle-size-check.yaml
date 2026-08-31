@@ -24,7 +24,7 @@ on:
     paths:
       - 'packages/varlock/src/**'
       - 'packages/varlock/package.json'
-      - 'packages/varlock/tsup.config.ts'
+      - 'packages/varlock/tsdown.config.ts'
       - 'packages/varlock/tsconfig*.json'
       - 'scripts/report-bundle-size.ts'
       - '.github/workflows/bundle-size-check.yaml'

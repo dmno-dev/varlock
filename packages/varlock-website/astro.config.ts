@@ -9,6 +9,7 @@ import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
 import remarkCustomHeaderId from 'remark-custom-header-id';
+import { outdent } from 'outdent';
 
 import varlockAstroIntegration from '@varlock/astro-integration';
 import { ENV } from 'varlock/env';
@@ -130,10 +131,92 @@ export default defineConfig({
         Sidebar: '@/components/TabbedSidebar.astro',
       },
       customCss: ['@/styles/global.css'],
-      plugins: [starlightLlmsTxt()],
+      plugins: [
+        starlightLlmsTxt({
+          projectName: 'Varlock',
+          description:
+            'Varlock is an open source CLI and library for AI-safe .env files. A .env.schema declares and validates '
+            + 'environment variables, secrets are encrypted locally or loaded from external providers, and redaction plus a '
+            + 'credential proxy keep secret values away from logs, terminals, and AI agents.',
+          details: outdent`
+            When to use varlock:
+
+            - Managing .env files across development, CI, and production environments
+            - Declaring env vars in a .env.schema with decorators like @type, @required, and @sensitive
+            - Validating configuration at startup so misconfiguration fails early with clear errors
+            - Encrypting local overrides in .env.local so nothing sensitive sits in plaintext
+            - Loading secrets from 1Password, AWS, Azure, GCP, HashiCorp Vault, Infisical, Doppler, Bitwarden, and other providers via plugins
+            - Redacting secret values from logs and console output at runtime
+            - Giving AI coding agents full context on config (names, types, docs) without exposing secret values
+            - Running agents and MCP servers behind the varlock proxy so they only ever see placeholder credentials
+            - Scanning a repo for leaked secrets with \`varlock scan\`
+
+            Install:
+
+            \`\`\`bash
+            npx varlock init                 # add to a JS/TS project
+            npm install varlock              # or add the dependency directly
+            brew install dmno-dev/tap/varlock  # standalone binary via Homebrew
+            curl -sSfL https://varlock.dev/install.sh | sh -s   # standalone binary via script
+            \`\`\`
+
+            Common CLI commands: \`varlock init\`, \`varlock load\`, \`varlock run -- <cmd>\`, \`varlock encrypt\`, \`varlock scan\`, \`varlock proxy\`.
+
+            Every page on varlock.dev can be fetched as markdown by sending an \`Accept: text/markdown\` header. The docs are also searchable over MCP at https://docs.mcp.varlock.dev/mcp (streamable HTTP) and https://docs.mcp.varlock.dev/sse.
+          `,
+          optionalLinks: [
+            { label: 'GitHub repository', url: 'https://github.com/dmno-dev/varlock', description: 'source code, issues, and discussions' },
+            { label: 'npm package', url: 'https://www.npmjs.com/package/varlock' },
+            { label: 'Changelog', url: 'https://github.com/dmno-dev/varlock/blob/main/packages/varlock/CHANGELOG.md' },
+            { label: 'Docs MCP server card', url: 'https://varlock.dev/.well-known/mcp/server-card.json', description: 'MCP transports for searching these docs' },
+            { label: 'Agent skills index', url: 'https://varlock.dev/.well-known/agent-skills/index.json', description: 'SKILL.md files for coding agents' },
+            { label: 'Varlock skill (SKILL.md)', url: 'https://varlock.dev/.well-known/agent-skills/varlock/SKILL.md' },
+            { label: 'AI catalog (ARD)', url: 'https://varlock.dev/.well-known/ai-catalog.json' },
+            { label: 'Blog', url: 'https://varlock.dev/blog/' },
+            { label: 'Discord', url: 'https://chat.dmno.dev' },
+          ],
+          customSets: [
+            {
+              label: 'Getting started and CLI reference',
+              description: 'installation, core concepts, env-spec syntax, decorators, and every CLI command',
+              paths: ['getting-started/**', 'reference/**', 'env-spec/**'],
+            },
+            {
+              label: 'AI tools, MCP and proxy',
+              description: 'using varlock with coding agents, MCP servers, and the credential proxy',
+              paths: ['guides/ai-tools{,/**}', 'guides/mcp{,/**}', 'guides/proxy{,/**}'],
+            },
+            {
+              label: 'Framework and language integrations',
+              description: 'Next.js, Vite, Astro, Bun, Python, Go, Rust, Java, PHP, Docker, CI, and more',
+              paths: ['integrations/**'],
+            },
+            {
+              label: 'Secret provider plugins',
+              description: '1Password, AWS, Azure, GCP, Vault, Infisical, Doppler, Bitwarden, Kubernetes, and other providers',
+              paths: ['plugins/**'],
+            },
+            {
+              label: 'Sandboxes',
+              description: 'sandboxing recipes for running agents with the proxy',
+              paths: ['sandboxes/**'],
+            },
+          ],
+          promote: ['getting-started/**', 'reference/cli/**'],
+          exclude: ['sandboxes/**'],
+        }),
+      ],
       head: [
         // add sitemap to head for discoverability
         { tag: 'link', attrs: { rel: 'sitemap', href: '/sitemap-index.xml' } },
+        // agent discovery hints
+        { tag: 'link', attrs: { rel: 'ai-catalog', href: '/.well-known/ai-catalog.json', type: 'application/json' } },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'alternate', href: '/llms.txt', type: 'text/markdown', title: 'llms.txt',
+          },
+        },
         // Open Graph and Twitter Card defaults (page-specific values override via head)
         { tag: 'meta', attrs: { property: 'og:type', content: 'website' } },
         { tag: 'meta', attrs: { property: 'og:site_name', content: 'Varlock' } },
@@ -169,9 +252,16 @@ export default defineConfig({
         },
       ],
       transform(content) {
-        const contentSignalLine = 'Content-Signal: ai-train=no, search=yes, ai-input=no';
-        if (content.includes(contentSignalLine)) return content;
-        return `${content.trimEnd()}\n${contentSignalLine}\n`;
+        const extraLines = [
+          'Content-Signal: ai-train=no, search=yes, ai-input=no',
+          // Agentic Resource Discovery manifest
+          'Agentmap: https://varlock.dev/.well-known/ai-catalog.json',
+        ];
+        let out = content.trimEnd();
+        for (const line of extraLines) {
+          if (!out.includes(line)) out += `\n${line}`;
+        }
+        return `${out}\n`;
       },
     }),
     partytown({

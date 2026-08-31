@@ -132,12 +132,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
       <div class="features-grid">
         <div class="text-only-card">
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/6.gif"
               />
               AI-Safe Config
-            </h3>
+            </h2>
             <p>
               Your <code>.env.schema</code> is readable by AI agents — they get full
               context on your config without ever seeing secret values. Prevent leaks
@@ -147,12 +147,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         </div>
         <div class="text-only-card">
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/5.gif"
               />
               Leak Scanning
-            </h3>
+            </h2>
             <p>
               Proactively scan your codebase for leaked secrets with <code
                 >varlock scan</code
@@ -162,12 +162,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         </div>
         <div>
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/8.gif"
               />
               Runtime Protection
-            </h3>
+            </h2>
             <p>
               Redact sensitive values from logs and console output. Detect leaks
               in bundled client code and outgoing server responses at runtime.
@@ -181,12 +181,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         </div>
         <div>
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/2.gif"
               />
               Validation
-            </h3>
+            </h2>
             <p>
               Powerful validation capabilities, without custom logic.
               Misconfiguration errors are surfaced much earlier in your
@@ -201,12 +201,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         </div>
         <div>
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/7.gif"
               />
               Type-safety
-            </h3>
+            </h2>
             <p>
               Automatically generate types according to your schema - the single
               source of truth - instead of writing them by hand.
@@ -220,12 +220,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         </div>
         <div>
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/4.gif"
               />
               Environments
-            </h3>
+            </h2>
             <p>
               Combine defaults, environment-specific .env files, local
               git-ignored overrides, and process env vars. Compose values
@@ -240,12 +240,12 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         </div>
         <div>
           <div>
-            <h3>
+            <h2>
               <img
                 src="https://varlock-pixel-art.dmno.workers.dev/potions/1.gif"
               />
               Secure secrets
-            </h3>
+            </h2>
             <p>
               Load secrets from 6 provider plugins — 1Password, Infisical, AWS
               Secrets Manager, Azure Key Vault, Google Secret Manager, and
@@ -279,6 +279,8 @@ ANTHROPIC_API_KEY=varlock(local:ABC123...)
         code=`
 # Install as a dependency in a js project
 npx varlock init
+# OR add it to an existing project
+npm install varlock
 
 # OR install as standalone binary via homebrew
 brew install dmno-dev/tap/varlock
@@ -759,5 +761,10 @@ STRIPE_SECRET_KEY=yourPreferredPlugin()
   h2 {
     border: none !important;
     gap: 0.3em !important;
+  }
+
+  .features-grid h2 {
+    font-size: 22px;
+    color: var(--color-text-full-shade);
   }
 </style>

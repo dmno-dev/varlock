@@ -33,7 +33,7 @@ import { isVarlockReservedKey } from './reserved-vars';
 import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import {
-  PROXY_APPROVAL_EACH_VALUES,
+  PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS,
   PROXY_TRANSFORM_COMMON_OPTION_SPECS,
   parseProxySubstitutionTarget,
   proxyTransformConsumedOptionName,
@@ -45,6 +45,7 @@ import {
 } from '../../proxy/types';
 import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
 import { parseDuration } from '../../lib/duration';
+import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
 
 /**
  * Credential options written as `$ITEM`, mapped to the referenced item name.
@@ -78,12 +79,21 @@ export type SerializedEnvGraph = {
     label: string;
     enabled: boolean;
     path?: string;
+    /**
+     * Fingerprint of the file contents this resolution actually parsed (see
+     * `hashEnvSourceContents`). The automatic injected-env reuse path re-hashes the file on
+     * disk and re-resolves on mismatch, so a blob captured before an env file edit is never
+     * served after it. Only present for file-based sources.
+     */
+    contentHash?: string;
   }>,
   settings: {
     redactLogs?: boolean;
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
+    /** true = items that resolve to undefined are injected as empty strings (dotenv compat) instead of left unset */
+    injectUndefinedAsEmpty?: boolean;
     proxyEgress?: ProxyEgressMode;
     /** `@proxyConfig={reload=...}` posture; the proxy resolves `auto` at launch. */
     proxyReload?: 'off' | 'manual' | 'auto';
@@ -702,6 +712,7 @@ export class EnvGraph {
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
+    await this.getRootDec('injectUndefinedAsEmpty')?.resolve();
     await this.getRootDec('proxyConfig')?.resolve();
     await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
   }
@@ -953,6 +964,10 @@ export class EnvGraph {
         label: source.label,
         enabled: !source.disabled,
         path: source instanceof FileBasedDataSource ? path.relative(this.basePath ?? '', source.fullPath) : undefined,
+        // fingerprint what was actually parsed (not a re-read from disk, which could
+        // already have changed) so injected-env reuse can detect later file edits
+        ...(source instanceof FileBasedDataSource && source.rawContents !== undefined)
+          ? { contentHash: hashEnvSourceContents(source.rawContents) } : {},
       });
     }
     for (const itemKey of this.sortedConfigKeys) {
@@ -1011,6 +1026,7 @@ export class EnvGraph {
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+    serializedGraph.settings.injectUndefinedAsEmpty = this.injectUndefinedAsEmpty;
     const proxyConfig = this.getRootDec('proxyConfig')?.resolvedValue;
     serializedGraph.settings.proxyEgress = proxyConfig?.egress === 'strict' ? 'strict' : 'permissive';
     // Store the raw reload posture (off/manual/auto); the proxy command resolves `auto`
@@ -1062,6 +1078,16 @@ export class EnvGraph {
    */
   get isProcessEnvInjectionDisabled(): boolean {
     return this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
+  }
+
+  /**
+   * True when `@injectUndefinedAsEmpty` is set — items that resolve to undefined are injected
+   * into process.env (and shell exports) as empty strings, matching dotenv-style loaders.
+   * When false (the default), unset items are left out of process.env entirely, so
+   * `process.env.SOME_VAR === undefined` and `?? 'fallback'` behave as expected.
+   */
+  get injectUndefinedAsEmpty(): boolean {
+    return this.getRootDec('injectUndefinedAsEmpty')?.resolvedValue ?? false;
   }
 
   /**
@@ -1216,8 +1242,10 @@ export class EnvGraph {
     // doesn't fire for header/root @proxy decorators), so a typo like `blok=true`
     // fails loudly instead of silently producing a permissive rule. Entries that
     // reach the recursive call have already been filtered to the per-entry set.
-    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'maxOccurrences', 'rules', 'transform'];
+    const validOptions = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'rules', 'transform'];
     for (const key of Object.keys(obj ?? {})) {
+      const removed = REMOVED_PROXY_RULE_OPTIONS[key];
+      if (removed) throw new SchemaError(removed);
       if (!validOptions.includes(key)) {
         throw new SchemaError(`@proxy: unknown option "${key}". Valid options: ${validOptions.join(', ')}`);
       }
@@ -1267,13 +1295,6 @@ export class EnvGraph {
         if (!parsed.ok) throw new SchemaError(`@proxy: ${parsed.error}`);
       }
     }
-    if (obj?.maxOccurrences !== undefined) {
-      const val = obj.maxOccurrences;
-      if (!_.isNumber(val) || !Number.isInteger(val) || val < 1) {
-        throw new SchemaError(`@proxy: maxOccurrences must resolve to an integer >= 1, got ${JSON.stringify(val)}`);
-      }
-    }
-
     // `transform={...}` resolves to a signing-config object; its full validation
     // is scheme-registry-aware and runs in `buildProxyTransform` (instance
     // context), so only the shape is checked here.
@@ -1291,8 +1312,10 @@ export class EnvGraph {
           throw new SchemaError(`@proxy: each rules entry must be an object, got ${JSON.stringify(entry)}`);
         }
         for (const key of Object.keys(entry)) {
-          if (!['path', 'method', 'block', 'approval', 'substituteIn', 'maxOccurrences'].includes(key)) {
-            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval, substituteIn, maxOccurrences (domain and keys are set on the parent @proxy)`);
+          const removed = REMOVED_PROXY_RULE_OPTIONS[key];
+          if (removed) throw new SchemaError(removed);
+          if (!['path', 'method', 'block', 'approval', 'substituteIn'].includes(key)) {
+            throw new SchemaError(`@proxy: unknown option "${key}" in a rules entry. Valid entry options: path, method, block, approval, substituteIn (domain and keys are set on the parent @proxy)`);
           }
         }
         // reuse the per-option type checks for the entry (path/method/block/approval)
@@ -1472,7 +1495,6 @@ export class EnvGraph {
       ...(method.length ? { method } : {}),
       ...(_.isBoolean(obj?.block) ? { block: obj.block } : {}),
       ...(substituteIn.length ? { substituteIn } : {}),
-      ...(_.isNumber(obj?.maxOccurrences) ? { maxOccurrences: obj.maxOccurrences } : {}),
       ...(transform ? { transform } : {}),
       ...EnvGraph.buildProxyApprovalFields(obj),
     };

@@ -1,31 +1,38 @@
 {
   "name": "@env-spec/parser",
-  "version": "0.5.0",
+  "version": "0.5.1",
+  "type": "module",
   "description": "Parser for @env-spec enabled dotenv files",
   "homepage": "https://varlock.dev",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/env-spec-parser"
   },
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
+  "types": "dist/index.d.cts",
   "files": ["dist"],
   "exports": {
     ".": {
       "ts-src": "./src/index.ts",
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "scripts": {
     "dev": "bun run --parallel dev:grammar dev:ts",
     "dev:grammar": "bun run build:grammar:watch",
-    "dev:ts": "tsup --watch",
+    "dev:ts": "tsdown --watch",
     "build:grammar": "peggy -c peggy.config.cjs",
     "build:grammar:watch": "peggy -c peggy.config.cjs -w",
-    "build:lib": "tsup",
+    "build:lib": "tsdown",
     "build": "bun run build:grammar && bun run build:lib",
     "test": "bun run --parallel build:grammar:watch _test:watch",
     "_test:watch": "vitest",
@@ -52,7 +59,7 @@
     "ansis": "catalog:",
     "outdent": "catalog:",
     "peggy": "^5.0.6",
-    "tsup": "catalog:",
+    "tsdown": "catalog:",
     "vitest": "catalog:"
   }
 }

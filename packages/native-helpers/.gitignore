@@ -1,0 +1,6 @@
+# binaries are copied in from packages/varlock/native-bins by prepack.ts at pack time
+*/VarlockEnclave.app
+*/varlock-local-encrypt
+*/varlock-local-encrypt.exe
+*.tgz
+*/*.tgz

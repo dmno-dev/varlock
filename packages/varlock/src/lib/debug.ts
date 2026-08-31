@@ -85,6 +85,11 @@ const isEnabled = (namespace: string): boolean => {
   return enabled;
 };
 
+/** check whether debug output is enabled for a namespace (via the DEBUG env var) */
+export function isDebugEnabled(namespace: string): boolean {
+  return isEnabled(namespace);
+}
+
 export function createDebug(namespace: string): DebugFn {
   const enabled = isEnabled(namespace);
 

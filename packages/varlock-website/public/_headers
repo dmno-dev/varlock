@@ -7,9 +7,32 @@
   Link: </guides/mcp>; rel="service-doc"
   Link: </.well-known/mcp/server-card.json>; rel="describedby"
   Link: </.well-known/agent-skills/index.json>; rel="describedby"
+  Link: </.well-known/ai-catalog.json>; rel="ai-catalog"
+  Link: </llms.txt>; rel="alternate"; type="text/markdown"
+
+/llms.txt
+  Link: </.well-known/ai-catalog.json>; rel="ai-catalog"
 
 /.well-known/api-catalog
   Content-Type: application/linkset+json; charset=utf-8
+  Access-Control-Allow-Origin: *
+
+/.well-known/mcp.json
+  Content-Type: application/json; charset=utf-8
+  Access-Control-Allow-Origin: *
+
+/.well-known/mcp/*
+  Content-Type: application/json; charset=utf-8
+  Access-Control-Allow-Origin: *
+
+/.well-known/ai-catalog.json
+  Content-Type: application/json; charset=utf-8
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600
+
+/.well-known/agent-skills/index.json
+  Access-Control-Allow-Origin: *
 
 /.well-known/agent-skills/*/SKILL.md
   Content-Type: text/markdown; charset=utf-8
+  Access-Control-Allow-Origin: *

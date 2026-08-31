@@ -61,11 +61,32 @@ function loadSerializedGraph() {
     json: stdout,
     graph: JSON.parse(stdout) as {
       basePath?: string,
-      sources: Array<{ label: string, enabled: boolean, path?: string }>,
+      sources: Array<{ label: string, enabled: boolean, path?: string, contentHash?: string }>,
       settings?: { encryptInjectedEnv?: boolean },
       config: Record<string, { value: unknown, isSensitive: boolean, isDynamic?: boolean }>,
     },
   };
+}
+
+type SerializedGraph = ReturnType<typeof loadSerializedGraph>['graph'];
+
+/**
+ * Comparison key used to decide whether a reload actually changed the env.
+ *
+ * `sources[].contentHash` fingerprints the raw bytes of each env file so injected-env
+ * reuse can spot edits. It also moves on cosmetic saves (a reordered comment, a trailing
+ * newline) that leave every resolved value identical, so it must not count as a change
+ * here, or every save would restart wrangler.
+ */
+function envComparisonKey(graph: SerializedGraph): string {
+  return JSON.stringify({
+    ...graph,
+    sources: (graph.sources ?? []).map((source) => {
+      const withoutHash: Partial<typeof source> = { ...source };
+      delete withoutHash.contentHash;
+      return withoutHash;
+    }),
+  });
 }
 
 function tmpPath(prefix: string) {
@@ -568,7 +589,7 @@ async function handleDev(args: Array<string>) {
   // watch env source files for changes and restart wrangler with fresh data
   const DEBOUNCE_MS = 300;
   let restartTimeout: ReturnType<typeof setTimeout> | undefined;
-  let cachedGraphJson = loaded.json;
+  let cachedEnvKey = envComparisonKey(loaded.graph);
   const changedFiles = new Set<string>();
   function scheduleRestart(changedFilePath?: string) {
     if (changedFilePath) changedFiles.add(changedFilePath);
@@ -580,7 +601,8 @@ async function handleDev(args: Array<string>) {
       changedFiles.clear();
       try {
         const freshLoaded = loadSerializedGraph();
-        if (freshLoaded.json === cachedGraphJson) {
+        const freshEnvKey = envComparisonKey(freshLoaded.graph);
+        if (freshEnvKey === cachedEnvKey) {
           const changedMsg = changedFileList.length
             ? `change detected in ${changedFileList.length} env source file${changedFileList.length === 1 ? '' : 's'}`
             : 'change detected in env source files';
@@ -588,7 +610,7 @@ async function handleDev(args: Array<string>) {
           restartTimeout = undefined;
           return;
         }
-        cachedGraphJson = freshLoaded.json;
+        cachedEnvKey = freshEnvKey;
         loaded = freshLoaded;
         configIsValid = true;
         cachedContent = formatEnvFileContent(freshLoaded);
@@ -610,7 +632,7 @@ async function handleDev(args: Array<string>) {
             try {
               const parsed = JSON.parse(err.stdout);
               loaded = { json: err.stdout, graph: parsed };
-              cachedGraphJson = err.stdout;
+              cachedEnvKey = envComparisonKey(parsed);
               cachedContent = `${formatEnvLine('__VARLOCK_ENV', err.stdout)}\n`;
               await handle.update(cachedContent);
               console.error('\n[varlock-wrangler] \u26a0\ufe0f config is invalid \u2014 fix the error(s) above and save to reload\n');

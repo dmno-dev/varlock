@@ -60,6 +60,10 @@ Finally, you can remove `dotenv` from your dependencies:
 
 <InstallJsDepsWidget packages="dotenv" remove />
 
+:::note[Unset items are not injected as empty strings]
+With varlock, a schema item with no value set (`MY_VAR=`) resolves to undefined and is left out of `process.env` entirely, so `process.env.MY_VAR ?? 'fallback'` works as expected. Some dotenv-style setups instead end up with empty strings for unset vars. If your code relies on that, set [`@injectUndefinedAsEmpty`](/reference/root-decorators/#injectundefinedasempty) in your `.env.schema`.
+:::
+
 ## Using overrides
 
 If `dotenv` is being used under the hood of one of your dependencies, you can use `overrides` to swap in `varlock` instead.

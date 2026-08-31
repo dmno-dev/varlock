@@ -5,6 +5,9 @@ import {
   LoadingError, ParseError, VarlockError,
 } from '../../env-graph/lib/errors';
 import { CliExitError } from './exit-error';
+import { InvalidEnvError } from './invalid-env-error';
+
+export { InvalidEnvError };
 
 function showErrorLocationDetails(err: VarlockError) {
   if (!err.location) return;
@@ -130,14 +133,6 @@ export function showPluginWarnings(envGraph: EnvGraph) {
   }
 }
 
-export class InvalidEnvError extends Error {
-  constructor() {
-    super('Resolved config/env did not pass validation');
-  }
-  getFormattedOutput() {
-    return `\n💥 ${ansis.red(this.message)} 💥\n`;
-  }
-}
 
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   showAll?: boolean;

@@ -1,6 +1,5 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { define } from 'gunshi';
 import ansis from 'ansis';
 import { gracefulExit } from 'exit-hook';
 import _ from '@env-spec/utils/my-dash';
@@ -14,6 +13,7 @@ import { fmt, logLines } from '../helpers/pretty-format';
 import { detectJsPackageManager } from '../helpers/js-package-manager-utils';
 import { isBundledSEA } from '../helpers/install-detection';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
+import { commandSpec } from './scan.command-spec';
 
 // Directories to always skip when walking the file tree
 const SKIP_DIRS = new Set([
@@ -68,51 +68,7 @@ const BINARY_EXTENSIONS = new Set([
   '.o',
 ]);
 
-export const commandSpec = define({
-  name: 'scan',
-  description: 'Scan files for sensitive config values that should not be in plaintext',
-  args: {
-    targets: {
-      type: 'positional',
-      required: false,
-      multiple: true,
-      description: 'Files, directories, or globs to scan (defaults to the current directory)',
-    },
-    staged: {
-      type: 'boolean',
-      description: 'Only scan staged git files',
-    },
-    'include-ignored': {
-      type: 'boolean',
-      description: 'Include git-ignored files in the scan',
-    },
-    'install-hook': {
-      type: 'boolean',
-      description: 'Set up varlock scan as a git pre-commit hook',
-    },
-    path: {
-      type: 'string',
-      short: 'p',
-      multiple: true,
-      description: 'Path to a specific .env file (e.g. .env.prod) or directory ending with "/" to use as the schema entry point (can be specified multiple times)',
-    },
-  },
-  examples: `
-Loads your varlock config, resolves all sensitive values, then scans files to
-ensure none of those sensitive values appear in plaintext.
-
-Examples:
-  varlock scan                    # Scan non-git-ignored files in current directory
-  varlock scan --staged           # Only scan staged git files
-  varlock scan --include-ignored  # Scan all files, including git-ignored ones
-  varlock scan --path .env.prod   # Use a specific .env file as the schema entry point
-  varlock scan -p ./envs -p ./overrides  # Use multiple schema entry points
-  varlock scan --install-hook     # Set up as a git pre-commit hook
-  varlock scan ./dist             # Scan a specific directory (e.g. a build output folder)
-  varlock scan ./dist ./public    # Scan multiple directories
-  varlock scan './dist/**/*.js'   # Scan files matching a glob pattern
-  `.trim(),
-});
+export { commandSpec };
 
 export interface ScanFinding {
   filePath: string;

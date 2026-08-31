@@ -6,6 +6,7 @@
 import Head from '@astrojs/starlight/components/Head.astro';
 import { Font } from 'astro:assets';
 import animLogo from '../assets/logos/varlock-logo-anim.gif';
+import { jsonLdScriptContent } from '../lib/json-ld';
 
 /** pathname without trailing slash (except root) → hash id → destination URL */
 const HASH_REDIRECTS: Record<string, Record<string, string>> = {
@@ -126,7 +127,10 @@ const HASH_REDIRECTS: Record<string, Record<string, string>> = {
 
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const hashRedirects = HASH_REDIRECTS[pathname] ?? null;
+
+const jsonLd = jsonLdScriptContent();
 ---
+<script type="application/ld+json" set:html={jsonLd} />
 
 {
   hashRedirects && (

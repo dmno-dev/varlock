@@ -161,6 +161,45 @@ describe('CLI Commands', () => {
       expect(result.exitCode).not.toBe(0);
       expect(result.output).toContain('Missing required argument');
     });
+
+    test('varlock printenv --template renders placeholders with resolved values', () => {
+      const result = runVarlock(
+        ['printenv', '--template', '{"Authorization": "Bearer {{SECRET_TOKEN}}", "X-Env": "{{NODE_ENV}}"}', '--escape', 'json'],
+        { cwd: 'smoke-test-basic' },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        Authorization: 'Bearer super-secret-token-12345',
+        'X-Env': 'test',
+      });
+    });
+
+    test('varlock printenv rejects --escape without --template', () => {
+      const result = runVarlock(
+        ['printenv', 'PUBLIC_VAR', '--escape', 'json'],
+        { cwd: 'smoke-test-basic' },
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('only valid with --template');
+    });
+
+    test('varlock printenv --template with unknown variable returns error', () => {
+      const result = runVarlock(
+        ['printenv', '--template', 'x={{DOES_NOT_EXIST}}'],
+        { cwd: 'smoke-test-basic' },
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('DOES_NOT_EXIST');
+    });
+
+    test('varlock printenv rejects a variable name combined with --template', () => {
+      const result = runVarlock(
+        ['printenv', 'PUBLIC_VAR', '--template', '{{PUBLIC_VAR}}'],
+        { cwd: 'smoke-test-basic' },
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('not both');
+    });
   });
 
   describe('generate-key command', () => {

@@ -28,12 +28,12 @@ jobs:
             const MAINTAINERS = 'theoephraim philmillman'.split(' ');
             const pr = context.payload.pull_request;
             const isRelease = pr.head.ref === 'bumpy/version-packages';
-            const isRenovate = pr.user.login === 'renovate[bot]';
+            const isBot = ['renovate[bot]', 'pullfrog[bot]'].includes(pr.user.login);
             const isCopilot = pr.user.login === 'Copilot';
             const isMaintainer = MAINTAINERS.includes(pr.user.login);
             let label = 'community';
             if (isRelease) label = 'release';
-            else if (isRenovate) label = 'bot';
+            else if (isBot) label = 'bot';
             else if (isMaintainer || isCopilot) label = 'maintainer';
             await github.rest.issues.addLabels({
               owner: context.repo.owner,

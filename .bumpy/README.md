@@ -6,7 +6,7 @@ Bumpy is a modern versioning tool for JavaScript/TypeScript projects (monorepos 
 
 ## How it works
 
-1. When you make a change that should trigger a release, create a bump file (typically one per PR)
+1. When you make a change that should trigger a release, create a bump file (typically one per PR; if the branch already has a bump file for the same package, extend its description rather than adding another)
 2. Bump files accumulate on your main branch until you're ready to release
 3. At release time, bumpy merges all pending bumps into a release plan, updates versions and changelogs, and publishes packages
 

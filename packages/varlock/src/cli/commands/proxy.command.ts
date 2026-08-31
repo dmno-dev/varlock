@@ -8,7 +8,6 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 
 import ansis from 'ansis';
-import { define } from 'gunshi';
 import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
@@ -18,6 +17,7 @@ import {
   createProxyAuditLog,
   readProxyAuditLines,
   type ProxyActivity,
+  type ProxyAuditSkippedPlaceholder,
   type ProxyAuditEntry,
   type ProxyAuditLog,
 } from '../../proxy/audit';
@@ -84,11 +84,12 @@ import { fetchTunnelBootstrap, startTunnelClientListener } from '../../proxy/tun
 import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
+import { commandSpec } from './proxy.command-spec';
 import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
-import { REDACT_STDOUT_ARG, resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
+import { resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import {
@@ -637,7 +638,12 @@ function formatProxyRequestLog(a: ProxyActivity): string {
     ? `  ${ansis.dim('inject:')} ${ansis.yellow(a.injectedKeys.join(', '))}`
     : '';
   const signed = a.signedWith ? `  ${ansis.dim('sign:')} ${ansis.yellow(a.signedWith)}` : '';
-  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${signed}`;
+  // A placeholder left inert in an untargeted surface (usually benign, e.g. an
+  // agent quoting its own placeholder), surfaced so probing stays visible.
+  const skipped = a.skippedPlaceholders?.length
+    ? `  ${ansis.dim('skipped:')} ${ansis.yellow(a.skippedPlaceholders.map((c) => `${c.key} (${c.locations.join(', ')})`).join(', '))}`
+    : '';
+  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${signed}${skipped}`;
 }
 
 /** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
@@ -1408,7 +1414,7 @@ function resolveProxyBindOptions(ctx: any): {
   return out;
 }
 
-async function runAction(ctx: any) {
+export async function runAction(ctx: any) {
   const commandToRunAsArgs = getRunCommandArgs();
   const rawCommand = commandToRunAsArgs[0]!;
   const commandArgsOnly = commandToRunAsArgs.slice(1);
@@ -1653,7 +1659,7 @@ async function awaitProxiedChild(
   return exitCode;
 }
 
-async function startAction(ctx: any) {
+export async function startAction(ctx: any) {
   const policy = await prepareProxyPolicy(ctx.values.path);
   // Reload posture, resolved at launch (see resolveReloadMode). `manual` runs the
   // reload servicer so a human can `proxy reload` from another shell in the folder; a reload
@@ -1812,7 +1818,7 @@ async function startAction(ctx: any) {
  * over it, the placeholder env), so reading it should be an explicit act and
  * never something that lands in output people paste or screenshot.
  */
-async function tokenAction(ctx: any) {
+export async function tokenAction(ctx: any) {
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -1831,7 +1837,7 @@ async function tokenAction(ctx: any) {
   console.log(session.dataPlaneToken);
 }
 
-async function envAction(ctx: any) {
+export async function envAction(ctx: any) {
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -1948,7 +1954,7 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   return gracefulExit(exitCode);
 }
 
-async function statusAction(ctx: any) {
+export async function statusAction(ctx: any) {
   const watch = ctx.values.watch ?? false;
   const asJson = (ctx.values.format ?? '').toLowerCase() === 'json';
   const printSnapshot = async () => {
@@ -2009,7 +2015,7 @@ async function statusAction(ctx: any) {
   process.off('SIGTERM', stopWatching);
 }
 
-async function reloadAction(ctx: any) {
+export async function reloadAction(ctx: any) {
   const session = await resolveProxySessionForCommand({
     explicitSession: ctx.values.session,
     env: process.env,
@@ -2186,7 +2192,7 @@ async function stopOneSession(session: ProxySessionRecord): Promise<void> {
   );
 }
 
-async function stopAction(ctx: any) {
+export async function stopAction(ctx: any) {
   await cleanupStaleProxySessions();
 
   // Refuse an ambiguous target rather than silently honoring the destructive `--all`.
@@ -2224,7 +2230,7 @@ async function stopAction(ctx: any) {
   await stopOneSession(session);
 }
 
-async function pruneAction(ctx: any) {
+export async function pruneAction(ctx: any) {
   await cleanupStaleProxySessions();
 
   // Prune one specific session by id (any state, once it isn't running).
@@ -2266,7 +2272,11 @@ async function pruneAction(ctx: any) {
   console.log(`Pruned ${removed.length} ended proxy session${removed.length === 1 ? '' : 's'}.`);
 }
 
-function formatAuditEntry(entry: ProxyAuditEntry): string {
+function formatAuditEntry(entry: ProxyAuditEntry | ProxyAuditSkippedPlaceholder): string {
+  if (entry.type === 'skipped-placeholder') {
+    const rule = entry.ruleId ? ` rule="${entry.ruleId}"` : '';
+    return `${entry.ts} ${'skipped'.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path} key=${entry.key} in=${entry.locations.join(',')}${rule}`;
+  }
   const injected = entry.injected && entry.injectedKeys?.length
     ? ` injected=${entry.injectedKeys.join(',')}`
     : '';
@@ -2275,7 +2285,7 @@ function formatAuditEntry(entry: ProxyAuditEntry): string {
   return `${entry.ts} ${entry.decision.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path}${injected}${signed}${rule}`;
 }
 
-async function auditAction(ctx: any) {
+export async function auditAction(ctx: any) {
   const format = (ctx.values.format ?? 'text').toLowerCase();
   if (format !== 'text' && format !== 'json') {
     throw new CliExitError('Invalid --format for `proxy audit`. Use "text" or "json".');
@@ -2304,7 +2314,9 @@ async function auditAction(ctx: any) {
     return;
   }
 
-  const entries = lines.filter((line): line is ProxyAuditEntry => line.type === 'request');
+  const entries = lines.filter(
+    (line): line is ProxyAuditEntry | ProxyAuditSkippedPlaceholder => line.type === 'request' || line.type === 'skipped-placeholder',
+  );
   if (!entries.length) {
     console.log('No audit entries for this session.');
     return;
@@ -2334,7 +2346,7 @@ function describeProxyRuleGate(rule: ProxyRule): string {
  * after the fail-closed validation, and for seeing what an agent would and
  * wouldn't be able to reach.
  */
-async function rulesAction(ctx: any) {
+export async function rulesAction(ctx: any) {
   const envGraph = await loadVarlockEnvGraph({
     entryFilePaths: ctx.values.path,
     // This command inspects the schema; don't subject it to the nested guard.
@@ -2409,299 +2421,7 @@ async function rulesAction(ctx: any) {
   }
 }
 
-// Flags shared by several subcommands. Kept as small fragments spread into each
-// subcommand's args so every verb declares only the flags it actually reads;
-// native gunshi subcommands then give per-verb help + shell completion, which a
-// single flat arg bag can't.
-const sessionArg = {
-  session: {
-    type: 'string',
-    short: 's',
-    description: 'Proxy session ID/alias',
-  },
-} as const;
-
-const pathArg = {
-  path: {
-    type: 'string',
-    short: 'p',
-    multiple: true,
-    description: 'Path to a specific .env file or directory to use as the entry point (repeatable)',
-  },
-} as const;
-
-const allowReloadArg = {
-  'allow-reload': {
-    type: 'boolean',
-    negatable: true,
-    description: 'Force the reload posture: `--allow-reload` = `manual` (human-applied from a trusted terminal; '
-      + 'reloads requested from inside the agent are refused), `--no-allow-reload` = `off`. Otherwise '
-      + '`@proxyConfig={reload=...}` applies, defaulting to `auto` (manual for an interactive `proxy start`, off '
-      + 'for headless or one-shot `proxy run`).',
-  },
-} as const;
-
-// Fix the proxy's loopback port / CA-cert location so a caller can wire tools to a
-// known endpoint before it boots. Only meaningful when STARTING a proxy (proxy start,
-// or proxy run that isn't attaching), so only those verbs declare them.
-const bindArgs = {
-  port: {
-    type: 'string',
-    description: 'Fixed loopback port for the proxy (else an ephemeral one), so you can point tools at a known '
-      + 'HTTP(S)_PROXY before it starts. Fails to start if the port is in use.',
-  },
-  'cert-dir': {
-    type: 'string',
-    description: 'Directory to write the CA cert into (`ca-cert.pem` + `combined-ca.pem`), so tools can trust a '
-      + 'known CA path before the proxy starts (else a fresh temp dir).',
-  },
-  'persist-ca': {
-    type: 'boolean',
-    description: 'Keep the CA in `--cert-dir` (including `ca-key.pem`, mode 0600) and reuse it on the next start, '
-      + 'so a restart does not invalidate clients that already trust it. For long-lived brokers; the private key '
-      + 'normally never touches disk, so only use this where the proxy runs alone.',
-  },
-  expose: {
-    type: 'custom',
-    // Bare `--expose` → bind 0.0.0.0; `--expose=<addr>` → a specific interface.
-    parse: (value: string) => (value === '' || value == null ? '0.0.0.0' : value),
-    description: 'Make this proxy reachable from another machine, so a client elsewhere can run through it '
-      + '(`proxy run --url`). Binds off-loopback (bare `--expose` = 0.0.0.0; `--expose=<addr>` picks an interface) '
-      + 'and serves the built-in WebSocket tunnel for clients behind HTTP-only ingress. Mints a per-session '
-      + 'data-plane token clients must present (pin it with VARLOCK_PROXY_TOKEN, or read it back with `proxy '
-      + 'token`). The control endpoint stays loopback-only.',
-  },
-} as const;
-
-// The remote analog of `--session`: which proxy to target when it runs elsewhere.
-const remoteArgs = {
-  url: {
-    type: 'string',
-    description: 'Run through a proxy running elsewhere (a broker started with `--expose`): its tunnel URL '
-      + '(wss://... or ws://...). Reached over the built-in WebSocket tunnel. Requires --token.',
-  },
-  token: {
-    type: 'string',
-    description: 'Data-plane token for `--url` (or set VARLOCK_PROXY_TOKEN). The broker prints it on start.',
-  },
-} as const;
-
-const runCommand = define({
-  name: 'run',
-  description: 'Run a command through the proxy: attach to this directory\'s session, start one, or `--url` a remote broker',
-  args: {
-    ...sessionArg,
-    ...pathArg,
-    ...allowReloadArg,
-    ...bindArgs,
-    ...remoteArgs,
-    new: {
-      type: 'boolean',
-      description: 'Start a fresh proxy instead of attaching to a running one for this directory',
-    },
-    sandbox: {
-      type: 'custom',
-      // Bare `--sandbox` → built-in; `--sandbox=docker|podman` → container backend.
-      parse: (value: string) => (value === '' || value == null ? 'builtin' : value),
-      description: 'Run the child in a sandbox whose only egress is the proxy. Bare `--sandbox` uses the '
-        + 'built-in minimal OS jail (macOS `sandbox-exec`); `--sandbox=docker` (or `=podman`) runs the child in '
-        + 'a container on an internal network, with a dumb forwarder bridging to the host proxy (secrets stay on '
-        + 'the host). Opt-in.',
-    },
-    'sandbox-image': {
-      type: 'string',
-      description: 'For `--sandbox=docker|podman`: the container image the child runs in (must contain your '
-        + 'command, e.g. a devcontainer image with `claude` installed).',
-    },
-    inject: {
-      type: 'string',
-      short: 'i',
-      description: 'Control what gets injected into the child env: "all" (default), "vars", or "blob"',
-    },
-    ...REDACT_STDOUT_ARG,
-  },
-  examples: `
-  varlock proxy run -- claude                   # attach to a running proxy for this dir, else start one
-  varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
-  varlock proxy run --new -- claude             # force a fresh, separate proxy
-  varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
-  varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
-  `.trim(),
-  run: (ctx: any) => runAction(ctx),
-});
-
-const startCommand = define({
-  name: 'start',
-  description: 'Start a proxy daemon with a live request log that `proxy run` can attach to',
-  args: {
-    ...pathArg,
-    ...allowReloadArg,
-    ...bindArgs,
-  },
-  run: (ctx: any) => startAction(ctx),
-});
-
-const rulesCommand = define({
-  name: 'rules',
-  description: 'Summarize the effective @proxy config for this schema (no proxy started)',
-  args: {
-    ...pathArg,
-  },
-  run: (ctx: any) => rulesAction(ctx),
-});
-
-const envCommand = define({
-  name: 'env',
-  description: 'Print a running session\'s proxy env (shell exports or json)',
-  args: {
-    ...sessionArg,
-    format: {
-      type: 'string',
-      short: 'f',
-      description: 'Output format: shell (default) or json',
-    },
-    full: {
-      type: 'boolean',
-      description: 'Emit the full env a proxied agent runs with (real values for non-secrets, placeholders for '
-        + 'secrets), not just the wiring. Use this to build the env for a remote sandbox; combine with '
-        + '--proxy-url / --cert-dir to repoint it.',
-    },
-    'proxy-url': {
-      type: 'string',
-      description: 'Repoint the proxy-URL vars for a guest that reaches the proxy elsewhere '
-        + '(e.g. http://127.0.0.1:8888 for a tunnel). Implies --full. Default: this session\'s own address.',
-    },
-    'cert-dir': {
-      type: 'string',
-      description: 'Repoint the CA-path vars at the dir a guest reads the bundle from. Implies --full. '
-        + 'Default: this session\'s own cert dir.',
-    },
-  },
-  run: (ctx: any) => envAction(ctx),
-});
-
-const statusCommand = define({
-  name: 'status',
-  description: 'Show proxy session status',
-  args: {
-    ...sessionArg,
-    all: {
-      type: 'boolean',
-      description: 'Include ended sessions',
-    },
-    format: {
-      type: 'string',
-      short: 'f',
-      description: 'Output json instead of the table',
-    },
-    watch: {
-      type: 'boolean',
-      description: 'Continuously refresh the status output',
-    },
-    interval: {
-      type: 'string',
-      description: 'Polling interval in milliseconds for `--watch` (default: 1000)',
-    },
-  },
-  run: (ctx: any) => statusAction(ctx),
-});
-
-const auditCommand = define({
-  name: 'audit',
-  description: 'Show a proxy session\'s audit log',
-  args: {
-    ...sessionArg,
-    format: {
-      type: 'string',
-      short: 'f',
-      description: 'Output format: text (default) or json',
-    },
-  },
-  run: (ctx: any) => auditAction(ctx),
-});
-
-const reloadCommand = define({
-  name: 'reload',
-  description: 'Re-resolve the schema and hot-swap a running session\'s policy',
-  args: {
-    ...sessionArg,
-    ...pathArg,
-  },
-  run: (ctx: any) => reloadAction(ctx),
-});
-
-const stopCommand = define({
-  name: 'stop',
-  description: 'Stop one or all proxy sessions',
-  args: {
-    ...sessionArg,
-    all: {
-      type: 'boolean',
-      description: 'Stop all sessions',
-    },
-  },
-  run: (ctx: any) => stopAction(ctx),
-});
-
-const pruneCommand = define({
-  name: 'prune',
-  description: 'Delete ended session records (and their audit logs)',
-  args: {
-    ...sessionArg,
-    yes: {
-      type: 'boolean',
-      short: 'y',
-      description: 'Skip the confirmation prompt',
-    },
-  },
-  run: (ctx: any) => pruneAction(ctx),
-});
-
-const tokenCommand = define({
-  name: 'token',
-  description: 'Print a session\'s data-plane token (for `proxy run --url`)',
-  args: { ...sessionArg },
-  run: (ctx: any) => tokenAction(ctx),
-});
-
-export const commandSpec = define({
-  name: 'proxy',
-  description: 'Manage proxy sessions for placeholder-based agent workflows',
-  subCommands: {
-    run: runCommand,
-    start: startCommand,
-    rules: rulesCommand,
-    env: envCommand,
-    token: tokenCommand,
-    status: statusCommand,
-    audit: auditCommand,
-    reload: reloadCommand,
-    stop: stopCommand,
-    prune: pruneCommand,
-  },
-  examples: `
-Proxy command surface:
-  varlock proxy run -- claude                   # attaches to a running proxy for this dir, else starts one
-  varlock proxy run --session abc12 -- claude   # attach to a specific session (approvals prompt in its terminal)
-  varlock proxy run --new -- claude             # force a fresh, separate proxy
-  varlock proxy run --sandbox -- claude         # run the child in a minimal OS sandbox (macOS)
-  varlock proxy run --sandbox=docker --sandbox-image my-agent -- claude   # run the child in a container
-  varlock proxy start
-  varlock proxy rules                           # summarize the effective @proxy config (no proxy started)
-  varlock proxy env --session abc12             # this session's wiring env (source locally)
-  varlock proxy env --full --proxy-url http://127.0.0.1:8888 --cert-dir /home/user/certs --format json   # full env for a remote sandbox
-  varlock proxy start --expose                  # broker: reachable off-loopback, serving the WS tunnel
-  varlock proxy token                           # read the broker's data-plane token
-  varlock proxy run --url wss://8000-abc.e2b.app -- claude   # guest: run through a remote broker (token via VARLOCK_PROXY_TOKEN)
-  varlock proxy status
-  varlock proxy audit --session abc12
-  varlock proxy reload --session abc12
-  varlock proxy stop --session abc12
-  varlock proxy stop --all
-  varlock proxy prune                           # delete ALL ended session records (+ audit logs)
-  varlock proxy prune --session abc12           # delete one session's record
-  `.trim(),
-});
+export { commandSpec };
 
 // The real verbs are handled by `subCommands`. This parent runs only for a bare
 // `varlock proxy` or an unrecognized verb, so it just points at the surface.

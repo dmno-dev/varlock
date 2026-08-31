@@ -3,6 +3,7 @@ import {
 } from 'vitest';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import outdent from 'outdent';
@@ -60,7 +61,6 @@ const API_DIR = 'packages/api';
 function apiFlatten(opts?: { outDir?: string, includeLocal?: boolean, vendorPlugins?: boolean }) {
   return flattenEnvFiles({
     packageDir: path.join(workspaceDir, API_DIR),
-    workspaceRootPath: workspaceDir,
     ...opts,
   });
 }
@@ -503,7 +503,7 @@ describe('flattenEnvFiles', () => {
     expect(result.warnings.some((w) => w.includes('.env.gone') && w.includes('does not exist'))).toBe(true);
   });
 
-  test('imports pointing outside the workspace root are left untouched with a warning', async () => {
+  test('imports from outside the repo are flattened like any other', async () => {
     await writeTree({ '.env.outside': 'OUTSIDE=1\n' }, baseDir);
     await writeTree({
       [`${API_DIR}/.env.schema`]: outdent`
@@ -514,8 +514,122 @@ describe('flattenEnvFiles', () => {
     });
     const result = await apiFlatten();
     const schemaOut = await readOut(result.outDir, '.env.schema');
-    expect(schemaOut).toContain('@import(../../../.env.outside)');
-    expect(result.warnings.some((w) => w.includes('outside the workspace root'))).toBe(true);
+    expect(schemaOut).toContain('@import(./.env-imports/.env.outside)');
+    expect(await readOut(result.outDir, '.env-imports/.env.outside')).toBe('OUTSIDE=1\n');
+    expect(result.warnings).toEqual([]);
+    expect(await loadValues(result.outDir)).toEqual({ API_ITEM: 'api-value', OUTSIDE: 1 });
+  });
+
+  // `.git` is a directory normally, but a file in a worktree or submodule
+  test.each([
+    ['directory', async (gitPath: string) => fs.mkdir(gitPath)],
+    ['file (worktree)', async (gitPath: string) => fs.writeFile(gitPath, 'gitdir: /elsewhere\n')],
+  ])('warns about files copied from outside the git repo (.git as %s)', async (_label, writeGitMarker) => {
+    await writeGitMarker(path.join(workspaceDir, '.git'));
+    await writeTree({ '.env.outside': 'OUTSIDE=1\n' }, baseDir);
+    await writeTree({
+      '.env.shared': 'INNER=1\n',
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @import(../../../.env.outside)
+        # @import(../../.env.shared)
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    const result = await apiFlatten();
+
+    // only the out-of-repo file is flagged, and it is copied all the same
+    const outsideRepoWarnings = result.warnings.filter((w) => w.includes('outside the git repo'));
+    expect(outsideRepoWarnings).toHaveLength(1);
+    expect(outsideRepoWarnings[0]).toContain(path.join(baseDir, '.env.outside'));
+    expect(await readOut(result.outDir, '.env-imports/.env.outside')).toBe('OUTSIDE=1\n');
+    expect(await readOut(result.outDir, '.env-imports/repo/.env.shared')).toBe('INNER=1\n');
+  });
+
+  test('warns about gitignored files copied into the output, but not tracked ones', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: workspaceDir });
+    await writeTree({
+      // the common setup: ignore everything env-shaped, then force-add the ones that belong in git
+      '.gitignore': '.env*\n',
+      '.env.secret': 'SECRET=from-secret\n',
+      '.env.shared': 'SHARED=from-shared\n',
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @import(../../.env.secret)
+        # @import(../../.env.shared)
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    execFileSync('git', ['add', '-f', '.env.shared', `${API_DIR}/.env.schema`], { cwd: workspaceDir });
+    const result = await apiFlatten();
+
+    // only the gitignored one is flagged, and it is copied all the same
+    const gitIgnoredWarnings = result.warnings.filter((w) => w.includes('is gitignored'));
+    expect(gitIgnoredWarnings).toHaveLength(1);
+    expect(gitIgnoredWarnings[0]).toContain('.env.secret');
+    expect(await readOut(result.outDir, '.env-imports/.env.secret')).toBe('SECRET=from-secret\n');
+    expect(await readOut(result.outDir, '.env-imports/.env.shared')).toBe('SHARED=from-shared\n');
+  });
+
+  test('warns about windows-native import paths instead of silently skipping them', async () => {
+    await writeTree({
+      [`${API_DIR}/.env.schema`]: [
+        String.raw`# @import(..\..\.env.shared)`,
+        String.raw`# @import(C:\proj\.env.abs)`,
+        '# ---',
+        'API_ITEM=api-value',
+      ].join('\n'),
+    });
+    const result = await apiFlatten();
+
+    // the separator case can just be respelled, the drive-letter one cannot
+    expect(result.warnings).toHaveLength(2);
+    expect(result.warnings[0]).toContain('forward slashes');
+    expect(result.warnings[1]).toContain('absolute windows paths are not supported');
+    // both are left exactly as written
+    expect(await readOut(result.outDir, '.env.schema')).toContain(String.raw`@import(..\..\.env.shared)`);
+  });
+
+  // varlock only treats `/`-rooted paths as absolute imports, so a windows `C:\...` path built
+  // by path.join here would not be recognized by flatten or by the loader
+  test.skipIf(process.platform === 'win32')('absolute import paths are flattened', async () => {
+    await writeTree({ 'elsewhere/.env.abs': 'ABS=1\n' }, baseDir);
+    await writeTree({
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @import(${path.join(baseDir, 'elsewhere', '.env.abs')})
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    const result = await apiFlatten();
+    const schemaOut = await readOut(result.outDir, '.env.schema');
+    expect(schemaOut).toContain('@import(./.env-imports/elsewhere/.env.abs)');
+    expect(await readOut(result.outDir, '.env-imports/elsewhere/.env.abs')).toBe('ABS=1\n');
+    expect(result.warnings).toEqual([]);
+  });
+
+  test('the mirror base widens to cover every imported path, keeping them distinct', async () => {
+    // same file name at two different levels - they must not collide in the output
+    await writeTree({ '.env.shared': 'OUTER=outer\n' }, baseDir);
+    await writeTree({
+      '.env.shared': 'INNER=inner\n',
+      [`${API_DIR}/.env.schema`]: outdent`
+        # @import(../../../.env.shared)
+        # @import(../../.env.shared)
+        # ---
+        API_ITEM=api-value
+      `,
+    });
+    const result = await apiFlatten();
+    const schemaOut = await readOut(result.outDir, '.env.schema');
+    // base is the dir holding both, so the repo-level one keeps its `repo/` segment
+    expect(schemaOut).toContain('@import(./.env-imports/.env.shared)');
+    expect(schemaOut).toContain('@import(./.env-imports/repo/.env.shared)');
+    expect(await readOut(result.outDir, '.env-imports/.env.shared')).toBe('OUTER=outer\n');
+    expect(await readOut(result.outDir, '.env-imports/repo/.env.shared')).toBe('INNER=inner\n');
+    expect(await loadValues(result.outDir)).toEqual({
+      API_ITEM: 'api-value', OUTER: 'outer', INNER: 'inner',
+    });
   });
 
   test('errors when no env files are found', async () => {

@@ -5,7 +5,7 @@ import {
 } from 'varlock/env';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 
-import { type SerializedEnvGraph } from 'varlock';
+import type { SerializedEnvGraph } from 'varlock';
 import { encryptEnvBlobSync } from 'varlock/encrypt-env';
 import type { NextConfig } from 'next';
 
@@ -108,7 +108,9 @@ export function createWebpackConfigFn(
         exclude: /node_modules/,
         use: [
           {
-            loader: require.resolve('./loader'),
+            // explicit .cjs: this resolves against the built sibling in dist/, and node's
+            // cjs resolver only probes .js/.json/.node for an extensionless specifier
+            loader: require.resolve('./loader.cjs'),
             options: { bundler: 'webpack' },
           },
         ],
@@ -123,7 +125,7 @@ export function createWebpackConfigFn(
         exclude: /node_modules/,
         use: [
           {
-            loader: require.resolve('./loader'),
+            loader: require.resolve('./loader.cjs'),
             options: { bundler: 'webpack', isEdge: true },
           },
         ],

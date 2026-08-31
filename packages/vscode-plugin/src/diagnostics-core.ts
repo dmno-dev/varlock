@@ -11,15 +11,15 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
 ] as const;
 
 /** Extract a regex pattern string from a plain pattern, `regex("pattern")` wrapper, or `/pattern/flags` literal. */
-function extractRegexPattern(value: unknown): string | undefined {
+function extractRegexPattern(value: unknown): { pattern: string, flags: string } | undefined {
   if (typeof value !== 'string') return undefined;
   // regex literal syntax: /pattern/flags
   const regexLiteral = value.match(/^\/(.*)\/([gimsuy]*)$/s);
-  if (regexLiteral) return regexLiteral[1].replaceAll('\\/', '/');
+  if (regexLiteral) return { pattern: regexLiteral[1].replaceAll('\\/', '/'), flags: regexLiteral[2] };
   // legacy regex() wrapper: regex("pattern")
   const wrapped = value.match(/^regex\("(.*)"\)$/s);
-  if (wrapped) return wrapped[1];
-  return value;
+  if (wrapped) return { pattern: wrapped[1], flags: '' };
+  return { pattern: value, flags: '' };
 }
 
 export type TypeInfo = {
@@ -100,13 +100,13 @@ export function splitCommaSeparatedArgs(input: string) {
       continue;
     }
 
-    if (char === '(') {
+    if (char === '(' || char === '[') {
       depth += 1;
       current += char;
       continue;
     }
 
-    if (char === ')') {
+    if (char === ')' || char === ']') {
       depth = Math.max(depth - 1, 0);
       current += char;
       continue;
@@ -131,6 +131,22 @@ export function splitEnumArgs(input: string) {
   return splitCommaSeparatedArgs(input)
     .map((value) => unquote(value).trim())
     .filter(Boolean);
+}
+
+function parseListOption(value: string | boolean | undefined) {
+  if (typeof value !== 'string') return [];
+  const trimmedValue = value.trim();
+  if (trimmedValue.startsWith('[') && trimmedValue.endsWith(']')) {
+    return splitEnumArgs(trimmedValue.slice(1, -1));
+  }
+  return splitEnumArgs(trimmedValue);
+}
+
+function parseArrayOption(value: string | boolean | undefined) {
+  if (typeof value !== 'string') return undefined;
+  const trimmedValue = value.trim();
+  if (!trimmedValue.startsWith('[') || !trimmedValue.endsWith(']')) return undefined;
+  return splitEnumArgs(trimmedValue.slice(1, -1));
 }
 
 export function parseBooleanOption(value: string | boolean | undefined) {
@@ -299,11 +315,11 @@ function validateStringValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string') {
-    const pattern = extractRegexPattern(options.matches);
-    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const extracted = extractRegexPattern(options.matches);
+    if (!extracted?.pattern || extracted.pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
 
     try {
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(extracted.pattern, extracted.flags);
       if (!regex.test(value)) return `Value must match \`${options.matches}\`.`;
     } catch {
       return undefined;
@@ -345,21 +361,25 @@ function validateNumberValue(value: string, options: TypeInfo['options']) {
 
 function validateUrlValue(value: string, options: TypeInfo['options']) {
   const prependHttps = parseBooleanOption(options.prependHttps);
-  const hasProtocol = /^https?:\/\//i.test(value);
-
-  if (prependHttps && hasProtocol) {
-    return 'URL should omit the protocol when prependHttps=true.';
-  }
+  const hasProtocol = /^[a-z][a-z\d+.-]*:/i.test(value);
 
   if (!prependHttps && !hasProtocol) {
     return 'URL must include a protocol unless prependHttps=true.';
   }
 
   try {
-    const url = new URL(prependHttps ? `https://${value}` : value);
-    const allowedDomains = typeof options.allowedDomains === 'string'
-      ? splitEnumArgs(options.allowedDomains)
-      : [];
+    const url = new URL(prependHttps && !hasProtocol ? `https://${value}` : value);
+    const allowedDomains = parseListOption(options.allowedDomains);
+    const allowedProtocols = parseArrayOption(options.allowedProtocols);
+
+    if (options.allowedProtocols !== undefined) {
+      if (!allowedProtocols) return '`allowedProtocols` must be an array of strings.';
+      const normalizedProtocols = allowedProtocols
+        .map((protocol) => protocol.replace(/:$/, '').toLowerCase());
+      if (!normalizedProtocols.includes(url.protocol.replace(/:$/, '').toLowerCase())) {
+        return `URL protocol must be one of: ${normalizedProtocols.join(', ')}.`;
+      }
+    }
 
     if (allowedDomains.length > 0 && !allowedDomains.includes(url.host.toLowerCase())) {
       return `URL host must be one of: ${allowedDomains.join(', ')}.`;
@@ -373,11 +393,62 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
   }
 
   if (typeof options.matches === 'string' && options.matches.length > 0) {
-    const pattern = extractRegexPattern(options.matches);
-    if (!pattern || pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    const extracted = extractRegexPattern(options.matches);
+    if (!extracted?.pattern || extracted.pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
     try {
-      const regex = new RegExp(pattern);
+      const regex = new RegExp(extracted.pattern, extracted.flags);
       if (!regex.test(value)) return `URL must match \`${options.matches}\`.`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
+}
+
+const DOMAIN_LABEL_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+function validateDomainValue(rawValue: string, options: TypeInfo['options']) {
+  // mirror runtime coercion, which lowercases before validation when normalize=true
+  const value = parseBooleanOption(options.normalize) ? rawValue.toLowerCase() : rawValue;
+  if (value.includes('://') || value.includes('/')) {
+    return 'Domain must not include a protocol or path (use @type=url for full URLs).';
+  }
+  if (value.includes(':')) return 'Domain must not include a port.';
+  if (value.includes('@')) return 'Domain must not include an @ sign.';
+
+  // a valid IPv4 address skips the domain structure checks (matches still applies below)
+  if (!(parseBooleanOption(options.allowIp) && isIP(value) === 4)) {
+    let domain = value;
+    if (domain.startsWith('*.')) {
+      if (!parseBooleanOption(options.allowWildcard)) {
+        return 'Wildcard domains are not allowed unless allowWildcard=true.';
+      }
+      domain = domain.slice(2);
+    }
+
+    // the 253-char total limit (RFC 1035) counts the wildcard label too, so check `value`
+    if (domain.length === 0 || value.length > 253) return 'Value must be a valid domain name.';
+    const labels = domain.split('.');
+    if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
+      return 'Value must be a valid domain name.';
+    }
+    if (/^\d+$/.test(labels[labels.length - 1])) {
+      return parseBooleanOption(options.allowIp)
+        ? 'Value must be a valid domain name or IPv4 address.'
+        : 'Value must be a domain name, not an IP address.';
+    }
+    if (labels.length < 2 && !parseBooleanOption(options.allowSingleLabel)) {
+      return 'Domain must include at least two labels unless allowSingleLabel=true.';
+    }
+  }
+
+  if (typeof options.matches === 'string' && options.matches.length > 0) {
+    const extracted = extractRegexPattern(options.matches);
+    if (!extracted?.pattern || extracted.pattern.length > MAX_MATCHES_PATTERN_LENGTH) return undefined;
+    try {
+      const regex = new RegExp(extracted.pattern, extracted.flags);
+      if (!regex.test(value)) return `Domain must match \`${options.matches}\`.`;
     } catch {
       return undefined;
     }
@@ -402,6 +473,8 @@ export function validateStaticValue(typeInfo: TypeInfo, value: string) {
         : 'Value must be a valid email address.';
     case 'url':
       return validateUrlValue(value, typeInfo.options);
+    case 'domain':
+      return validateDomainValue(value, typeInfo.options);
     case 'ip': {
       const version = Number(typeInfo.options.version);
       const detectedVersion = isIP(value);
