@@ -78,23 +78,31 @@ final class SessionManager {
     ///
     /// Processes with no identifiable session always require fresh authentication.
     func getAuthenticatedContext(sessionId: String?, peerPid: pid_t? = nil) throws -> LAContext {
-        return try queue.sync {
-            // Check for cached context from a previous auth in this session
-            if let key = sessionId, let context = contexts[key] {
-                resetDaemonTimer()
-                return context
-            }
+        // Check for cached context from a previous auth in this session
+        if let cached = queue.sync(execute: { sessionId.flatMap { contexts[$0] } }) {
+            queue.sync { resetDaemonTimer() }
+            return cached
+        }
 
-            // Need fresh auth (first time for this session, or always for
-            // unidentifiable callers). Through the panel where one is wired up,
-            // so the user is asked rather than merely prompted.
-            if let authorize {
-                let approved = try authorize("decrypt your secrets", peerPid)
+        // Need fresh auth (first time for this session, or always for
+        // unidentifiable callers). Through the panel where one is wired up, so
+        // the user is asked rather than merely prompted.
+        //
+        // Deliberately NOT inside `queue.sync`: the panel is a modal loop on the
+        // main thread, and a lock arriving while it is up calls
+        // `invalidateAllSessions`, which wants this queue. Holding it here would
+        // mean the lock waiting on the panel and the panel waiting on the main
+        // thread the lock is blocking.
+        if let authorize {
+            let approved = try authorize("decrypt your secrets", peerPid)
+            queue.sync {
                 if let key = sessionId { contexts[key] = approved }
                 resetDaemonTimer()
-                return approved
             }
+            return approved
+        }
 
+        return try queue.sync {
             let context = LAContext()
             context.touchIDAuthenticationAllowableReuseDuration = SessionManager.sessionTimeout
 
