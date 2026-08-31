@@ -123,7 +123,7 @@ export const REMOVED_PROXY_RULE_OPTIONS: Record<string, string> = {
     + '(e.g. substituteIn=["header:authorization", "body:signature"]) instead of raising a count.',
 };
 
-// ~ Request transforms (signing) ~
+// ~ Request transforms ~
 
 export const PROXY_TRANSFORM_ENCODINGS = ['base64', 'hex'] as const;
 export type ProxyTransformEncoding = (typeof PROXY_TRANSFORM_ENCODINGS)[number];
@@ -144,8 +144,8 @@ export const PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS = ['timestamp', 'method', 'pa
 /**
  * How one option of a transform scheme is typed and validated. `itemRole`
  * marks options whose value is the NAME of another env item:
- *  - `consumed`: the item's real value is used by the signer and never appears
- *    on the wire (the signing secret). Managed (placeholder in the child env),
+ *  - `consumed`: the item's real value is used by the scheme and never appears
+ *    on the wire (an HMAC signing key). Managed (placeholder in the child env),
  *    excluded from substitution, and its placeholder appearing in a request it
  *    is not injectable into fails closed.
  *  - `wire`: the item travels in the request (an API key id, a session token).
@@ -192,9 +192,9 @@ export function proxyTransformItemRefNames(optionSpec: ProxyTransformOptionSpec,
 /**
  * A transform scheme's declaration: its option specs plus an optional
  * cross-field validation hook (run at resolve time, after per-option checks).
- * The common options (`scheme` itself, and `secretKey` = the consumed signing
- * secret, defaulting to the decorated item on attached rules) are implied and
- * not repeated per scheme.
+ * The common options (`scheme` itself, and `secretKey` = the consumed
+ * credential, defaulting to the decorated item on attached rules) are implied
+ * and not repeated per scheme.
  */
 export type ProxyTransformSchemeSpec = {
   options: Record<string, ProxyTransformOptionSpec>;
@@ -209,17 +209,17 @@ export type ProxyTransformSchemeSpec = {
 };
 
 /**
- * A full scheme registration: spec plus the signer. `sign` receives the final
- * outbound request (post-substitution, post-identity-verification) and the
- * resolved real values for the scheme's item-role options, and returns headers
- * to set (and optionally remove) before the request is forwarded.
+ * A full scheme registration: spec plus the transform itself. `apply` receives
+ * the final outbound request (post-substitution, post-identity-verification) and
+ * the resolved real values for the scheme's item-role options, and returns
+ * headers to set (and optionally remove) before the request is forwarded.
  */
 export type ProxyTransformSchemeDef = ProxyTransformSchemeSpec & {
-  sign: ProxyTransformSigner;
+  apply: ProxyTransformFn;
 };
 
-/** The final outbound request, as seen by a transform signer. */
-export type ProxyTransformSignInput = {
+/** The final outbound request, as seen by a transform. */
+export type ProxyTransformInput = {
   method: string;
   /** Hostname the request is addressed to (the rule host). */
   host: string;
@@ -239,14 +239,14 @@ export type ProxyTransformSignInput = {
   credentials: Record<string, string>;
 };
 
-export type ProxyTransformSignResult = | {
+export type ProxyTransformResult = | {
   ok: true;
   /** Headers to write onto the outbound request (names lowercased by the runtime). */
   setHeaders: Record<string, string>;
-  /** Headers to remove first (e.g. placeholder-signed originals being replaced). */
+  /** Headers to remove first (e.g. the placeholder-bearing originals being replaced). */
   removeHeaders?: Array<string>;
   /**
-   * Values this signer put on the wire that must never come back to the child,
+   * Values this transform put on the wire that must never come back to the child,
    * for schemes whose output is REVERSIBLE (http-basic's base64 credential
    * token). The runtime scrubs them from the response and treats them as a
    * leak if they appear. A digest-style signature needs nothing here: it cannot
@@ -260,22 +260,22 @@ export type ProxyTransformSignResult = | {
   status?: number;
 };
 
-export type ProxyTransformSigner = (
+export type ProxyTransformFn = (
   transform: ProxyRuleTransform,
-  input: ProxyTransformSignInput,
+  input: ProxyTransformInput,
   nowMs: number,
-) => ProxyTransformSignResult | Promise<ProxyTransformSignResult>;
+) => ProxyTransformResult | Promise<ProxyTransformResult>;
 
 /**
  * A request transform on a `@proxy` rule as it appears in rule data: the
- * scheme name, the consumed signing-secret item, and the scheme's own options
+ * scheme name, the consumed credential item, and the scheme's own options
  * (shapes declared by the scheme's `ProxyTransformSchemeSpec`; values already
  * validated and normalized at rule build).
  */
 export type ProxyRuleTransform = {
   scheme: string;
   /**
-   * Reference to the item whose real value the signer consumes, for schemes
+   * Reference to the item whose real value the transform consumes, for schemes
    * using the common single-secret shape (hmac, aws-sigv4). Never substituted.
    * Schemes with their own credential positions (http-basic) carry those.
    */
@@ -372,7 +372,7 @@ export type ProxyRuleHttpBasicTransform = {
 const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
   options: {
     // The two credential positions, symmetric: each references the item holding
-    // that side's value, resolved at signing time. A fixed value (a service
+    // that side's value, resolved when the transform runs. A fixed value (a service
     // account name, GitHub's `x-oauth-basic`) lives in an item like any other
     // config.
     username: { type: 'string', itemRole: 'consumed' },
@@ -397,8 +397,8 @@ const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
 };
 
 /**
- * Scheme SPECS built into core (validation without signers, so schema-side
- * code has no crypto imports). The matching signers live in
+ * Scheme SPECS built into core (validation without the transform fns, so
+ * schema-side code has no crypto imports). The matching transforms live in
  * `request-transform.ts` (`BUILT_IN_TRANSFORM_SCHEMES`); plugins register
  * additional schemes at graph load via `registerProxyTransformScheme`.
  */
@@ -413,7 +413,7 @@ const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 /**
  * Header names a transform may never write to: request framing, hop-by-hop,
- * and the same forward/log sinks the substitution surface denylists. A signing
+ * and the same forward/log sinks the substitution surface denylists. A transform
  * config naming one of these would let the proxy itself corrupt framing
  * (`content-length`) or rewrite the verified identity (`host`), so it is a
  * schema error, with no explicit-name override (unlike `substituteIn`, there
@@ -481,7 +481,7 @@ export function validateProxyTransformConfig(
     if (val === undefined) continue;
     if (optionSpec.itemRole !== undefined) {
       // Credentials are always named by reference: the value lives in an item,
-      // which is what makes it managed, leak-guarded, and resolved at signing
+      // which is what makes it managed, leak-guarded, and resolved when the transform
       // time. A fixed value (or one needing a prefix) is composed in the item.
       if (!isProxyTransformItemRef(val)) {
         return `transform.${key} must reference a config item, e.g. ${key}=$SOME_ITEM`;
@@ -532,7 +532,7 @@ export function validateProxyTransformConfig(
     if (schemeName === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
 
     // Two roles naming the same item would resolve one item into both a
-    // consumed and a wire-visible position, sending the signing secret
+    // consumed and a wire-visible position, sending the consumed credential
     // upstream. Reject regardless of scheme.
     const itemsByOption = new Map<string, Array<string>>();
     for (const [key, optionSpec] of Object.entries(optionSpecs)) {
@@ -543,7 +543,7 @@ export function validateProxyTransformConfig(
       for (const [keyB, itemsB] of itemsByOption) {
         const shared = keyA < keyB ? itemsA.find((name) => itemsB.includes(name)) : undefined;
         if (shared) {
-          return `transform.${keyA} and transform.${keyB} both reference "${shared}"; each credential role needs its own item (one of these is sent upstream, the other is consumed by the signer)`;
+          return `transform.${keyA} and transform.${keyB} both reference "${shared}"; each credential role needs its own item (one of these is sent upstream, the other is consumed by the transform)`;
         }
       }
     }
@@ -609,11 +609,11 @@ export type ProxyRule = {
    */
   substituteIn?: Array<string>;
   /**
-   * Request transform (signing): the proxy computes the credential for the
+   * Request transform: the proxy computes the credential for the
    * final outbound request and writes it into headers before forwarding.
    * Applies to every request this rule matches. `substituteIn` does not govern
    * it: the computed value is not a placeholder swap, and the credential is
-   * consumed by the signer rather than substituted into the request.
+   * consumed by the transform rather than substituted into the request.
    */
   transform?: ProxyRuleTransform;
 };

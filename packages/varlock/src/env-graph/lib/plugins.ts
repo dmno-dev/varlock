@@ -280,9 +280,9 @@ export class VarlockPlugin {
 
   readonly proxyTransformSchemes?: Array<{ scheme: string } & ProxyTransformSchemeDef> = [];
   /**
-   * Register a credential-proxy request-signing scheme, usable in schemas as
+   * Register a credential-proxy request-transform scheme, usable in schemas as
    * `@proxy(..., transform={scheme="<name>", ...})`. The def's option specs
-   * drive validation and placeholder management; `sign` runs in the proxy
+   * drive validation and placeholder management; `apply` runs in the proxy
    * process per matching request, receiving the final outbound request and the
    * resolved real values of the scheme's item-role options.
    */

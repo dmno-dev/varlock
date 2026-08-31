@@ -106,7 +106,7 @@ type PreparedProxyPolicy = {
   schemaFingerprint: string;
   proxyManagedItems: Array<ProxyManagedItem>;
   proxyRules: Array<ProxyRule>;
-  /** Registered signing schemes (built-ins + plugin-provided), for the runtime. */
+  /** Registered transform schemes (built-ins + plugin-provided), for the runtime. */
   transformSchemes: Record<string, ProxyTransformSchemeDef>;
   egressMode: 'permissive' | 'strict';
   /**
@@ -637,13 +637,13 @@ function formatProxyRequestLog(a: ProxyActivity): string {
   const inject = a.injectedKeys?.length
     ? `  ${ansis.dim('inject:')} ${ansis.yellow(a.injectedKeys.join(', '))}`
     : '';
-  const signed = a.signedWith ? `  ${ansis.dim('sign:')} ${ansis.yellow(a.signedWith)}` : '';
+  const transformed = a.transformedWith ? `  ${ansis.dim('transform:')} ${ansis.yellow(a.transformedWith)}` : '';
   // A placeholder left inert in an untargeted surface (usually benign, e.g. an
   // agent quoting its own placeholder), surfaced so probing stays visible.
   const skipped = a.skippedPlaceholders?.length
     ? `  ${ansis.dim('skipped:')} ${ansis.yellow(a.skippedPlaceholders.map((c) => `${c.key} (${c.locations.join(', ')})`).join(', '))}`
     : '';
-  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${signed}${skipped}`;
+  return `${arrow} ${formatProxyTarget(a.method, a.host, a.path)}${decision}${inject}${transformed}${skipped}`;
 }
 
 /** A one-line live log of a forwarded response: `← POST host/path  200  scrubbed: KEY`. */
@@ -2280,9 +2280,9 @@ function formatAuditEntry(entry: ProxyAuditEntry | ProxyAuditSkippedPlaceholder)
   const injected = entry.injected && entry.injectedKeys?.length
     ? ` injected=${entry.injectedKeys.join(',')}`
     : '';
-  const signed = entry.signedWith ? ` signed=${entry.signedWith}` : '';
+  const transformed = entry.transformedWith ? ` transform=${entry.transformedWith}` : '';
   const rule = entry.ruleId ? ` rule="${entry.ruleId}"` : '';
-  return `${entry.ts} ${entry.decision.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path}${injected}${signed}${rule}`;
+  return `${entry.ts} ${entry.decision.padEnd(16)} ${entry.method.padEnd(7)} ${entry.host}${entry.path}${injected}${transformed}${rule}`;
 }
 
 export async function auditAction(ctx: any) {
@@ -2360,7 +2360,7 @@ export async function rulesAction(ctx: any) {
   const rules = await envGraph.getProxyRules();
   const managedItems = await envGraph.getProxyManagedItems();
   const managedKeys = new Set(managedItems.map((item) => item.key));
-  // Consumed signing secrets never travel; a key is only labeled as one if no
+  // Consumed transform credentials never travel; a key is only labeled as one if no
   // rule also substitutes it somewhere (dual-use keys stay labeled proxied).
   const consumedTransformKeys = new Set(rules.flatMap(
     (rule) => (rule.transform ? envGraph.getTransformRoleKeys(rule.transform, 'consumed') : []),
@@ -2386,8 +2386,8 @@ export async function rulesAction(ctx: any) {
       if (rule.itemKeys.length && !rule.block) parts.push(`→ inject ${ansis.yellow(rule.itemKeys.join(', '))}`);
       if (rule.transform && !rule.block) {
         const consumedKeys = envGraph.getTransformRoleKeys(rule.transform, 'consumed');
-        const secretNote = consumedKeys.length ? ` ${ansis.dim(`(secret: ${consumedKeys.join(', ')})`)}` : '';
-        parts.push(`→ sign ${ansis.yellow(rule.transform.scheme)}${secretNote}`);
+        const secretNote = consumedKeys.length ? ` ${ansis.dim(`(credential: ${consumedKeys.join(', ')})`)}` : '';
+        parts.push(`→ transform ${ansis.yellow(rule.transform.scheme)}${secretNote}`);
       }
       console.log(`  • ${parts.filter(Boolean).join('  ')}`);
     }
@@ -2400,7 +2400,7 @@ export async function rulesAction(ctx: any) {
     const item = envGraph.configSchema[key];
     if (!item) continue;
     if (consumedTransformKeys.has(key) && !substitutableKeys.has(key)) {
-      secrets.push({ key, label: `${ansis.green('signing credential')}: placeholder; the proxy applies the real value when it signs, never the child` });
+      secrets.push({ key, label: `${ansis.green('transform credential')}: placeholder; the proxy applies the real value on matching requests, never the child` });
     } else if (managedKeys.has(key)) {
       secrets.push({ key, label: `${ansis.green('proxied')}: placeholder; real value injected on matching hosts` });
     } else if (omittedSet.has(key)) {

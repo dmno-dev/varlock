@@ -391,7 +391,7 @@ describe('request signing (transform=) over MITM', () => {
     const upstreamRequestText = JSON.stringify(upstreamHeaders) + upstreamBody;
     expect(upstreamRequestText).not.toContain('shhh-signing-secret');
     expect(upstreamRequestText).not.toContain('vlk_ph_signing_secret');
-    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ signedWith: 'hmac-sha256' });
+    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ transformedWith: 'hmac-sha256' });
     expect(JSON.stringify(activities)).not.toContain('shhh-signing-secret');
 
     tlsSocket.destroy();
@@ -492,7 +492,7 @@ describe('request signing (transform=) over MITM', () => {
       setTimeout(resolve, 500);
     });
 
-    // Identity verification succeeded (upstream is live) but the signer had no
+    // Identity verification succeeded (upstream is live) but the transform had no
     // secret to sign with - the request must never reach the upstream.
     expect(upstreamHit).toBe(false);
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-transform', blocked: true });
@@ -512,7 +512,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
       tokenId: { required: true, type: 'string', itemRole: 'wire' },
       signatureHeader: { required: true, type: 'headerName' },
     },
-    sign: (transform: any, input: any) => ({
+    apply: (transform: any, input: any) => ({
       ok: true as const,
       setHeaders: {
         [transform.signatureHeader]: `test-signed:${input.credentials.secretKey}:${input.credentials.tokenId}:${input.body.length}`,
@@ -562,7 +562,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     );
     expect(response.split('\r\n')[0]).toContain('200');
 
-    // The signer saw the resolved REAL credential values (per item roles) and
+    // The transform saw the resolved REAL credential values (per item roles) and
     // its header edits were applied: signature set, x-test-strip removed.
     expect(upstreamHeaders['x-test-sig']).toBe(`test-signed:shhh-signing-secret:tok-real-value:${payload.length}`);
     expect(upstreamHeaders['x-test-strip']).toBeUndefined();
@@ -570,9 +570,9 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     expect(upstreamHeaders['x-token']).toBe('tok-real-value');
     expect(upstreamBody).toBe(payload);
 
-    // Exactly ONE audit entry for the request, recorded AFTER signing succeeded.
+    // Exactly ONE audit entry for the request, recorded AFTER the transform succeeded.
     expect(activities).toHaveLength(1);
-    expect(activities[0]).toMatchObject({ decision: 'allow', blocked: false, signedWith: 'test-sign' });
+    expect(activities[0]).toMatchObject({ decision: 'allow', blocked: false, transformedWith: 'test-sign' });
 
     tlsSocket.destroy();
     await runtime.stop();

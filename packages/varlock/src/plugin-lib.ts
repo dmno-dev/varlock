@@ -8,8 +8,8 @@ export type {
 } from './env-graph/lib/type-generation';
 export type { PluginCacheAccessor } from './lib/cache/plugin-cache-accessor';
 export type {
-  ProxyTransformSchemeDef, ProxyTransformOptionSpec, ProxyTransformSigner,
-  ProxyTransformSignInput, ProxyTransformSignResult, ProxyRuleTransform,
+  ProxyTransformSchemeDef, ProxyTransformOptionSpec, ProxyTransformFn,
+  ProxyTransformInput, ProxyTransformResult, ProxyRuleTransform,
 } from './proxy/types';
 export { parseTtl } from './lib/cache/ttl-parser';
 export { resolveCacheTtl } from './lib/cache/resolve-cache-ttl';

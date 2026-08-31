@@ -3,13 +3,13 @@ import crypto from 'node:crypto';
 import {
   BUILT_IN_TRANSFORM_SCHEME_SPECS,
   type ProxyRuleHmacTransform, type ProxyTransformSchemeDef,
-  type ProxyTransformSigner, type ProxyTransformTimestampFormat,
+  type ProxyTransformFn, type ProxyTransformTimestampFormat,
 } from './types';
 
 /**
- * Request signing (the `transform=` option on a `@proxy` rule).
+ * The built-in request transforms (the `transform=` option on a `@proxy` rule).
  *
- * A signer turns the final outbound request - after placeholder substitution,
+ * A transform turns the final outbound request - after placeholder substitution,
  * so it covers exactly the bytes the upstream receives - plus the real
  * credentials into request headers. The hmac schemes send only a derived
  * signature, so the secret never leaves the proxy; http-basic sends the
@@ -22,7 +22,7 @@ import {
  */
 
 /** Fields of the outbound request a `stringToSign` template can reference. */
-export type TransformRequestFields = {
+export type HmacSignRequestFields = {
   method: string;
   host: string;
   /** URL path only, no query string. Post-substitution. */
@@ -33,7 +33,7 @@ export type TransformRequestFields = {
   body: string;
 };
 
-export type TransformResult = | { ok: true; signature: string; timestamp: string }
+export type HmacSignResult = | { ok: true; signature: string; timestamp: string }
   | { ok: false; error: string };
 
 export function computeTransformTimestamp(format: ProxyTransformTimestampFormat | undefined, nowMs: number): string {
@@ -52,7 +52,7 @@ export function computeTransformTimestamp(format: ProxyTransformTimestampFormat 
 }
 
 /** Expand a `stringToSign` template. Unknown `{field}`s are rejected at schema load. */
-export function buildStringToSign(template: string, fields: TransformRequestFields & { timestamp: string }): string {
+export function buildStringToSign(template: string, fields: HmacSignRequestFields & { timestamp: string }): string {
   const pathWithQuery = fields.query ? `${fields.path}?${fields.query}` : fields.path;
   const values: Record<string, string> = {
     timestamp: fields.timestamp,
@@ -102,12 +102,12 @@ const HMAC_ALGO_BY_SCHEME: Record<ProxyRuleHmacTransform['scheme'], string> = {
 export function computeHmacTransform(
   transform: ProxyRuleHmacTransform,
   secretValue: string,
-  fields: TransformRequestFields,
+  fields: HmacSignRequestFields,
   nowMs: number,
-): TransformResult {
+): HmacSignResult {
   const key = decodeTransformKey(secretValue, transform.keyEncoding);
   if (key === undefined) {
-    return { ok: false, error: `the signing secret is not valid ${transform.keyEncoding} (per transform.keyEncoding)` };
+    return { ok: false, error: `the HMAC key is not valid ${transform.keyEncoding} (per transform.keyEncoding)` };
   }
   const timestamp = computeTransformTimestamp(transform.timestampFormat, nowMs);
   const stringToSign = buildStringToSign(transform.stringToSign, { ...fields, timestamp });
@@ -119,12 +119,11 @@ export function computeHmacTransform(
 }
 
 /**
- * The hmac schemes' signer, adapted to the generic `ProxyTransformSigner`
- * interface. HMAC string-to-sign templates are inherently text, so `{body}`
+ * The hmac schemes, adapted to the generic `ProxyTransformFn` interface. HMAC string-to-sign templates are inherently text, so `{body}`
  * covers the body as utf8 text (venue HMAC APIs sign JSON/form bodies; the
  * outbound bytes themselves are preserved separately by the runtime).
  */
-const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
+const signHmacTransform: ProxyTransformFn = (transform, input, nowMs) => {
   const hmacTransform = transform as unknown as ProxyRuleHmacTransform;
   const result = computeHmacTransform(hmacTransform, input.credentials.secretKey, {
     method: input.method,
@@ -145,13 +144,13 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
 };
 
 /**
- * The HTTP Basic signer: writes `Authorization: Basic base64(user:password)`
+ * The HTTP Basic transform: writes `Authorization: Basic base64(user:password)`
  * with the REAL values, overwriting whatever the child sent (its own header
  * encodes a placeholder, which base64 hides from substitution entirely).
  * Either side may be the credential, so this covers a secret password, a
  * token-as-userid (`curl -u "token:"`), and both-sides-secret alike.
  */
-const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
+const applyHttpBasicTransform: ProxyTransformFn = (transform, input) => {
   // Both sides are item references, resolved by the runtime into credentials
   // under the same option names. An unset side is empty.
   const userid = input.credentials.username ?? '';
@@ -168,17 +167,17 @@ const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   return { ok: true, setHeaders: { authorization: `Basic ${token}` }, scrubFromResponse: [token] };
 };
 
-const BUILT_IN_SIGNERS: Record<string, ProxyTransformSigner> = {
+const BUILT_IN_TRANSFORM_FNS: Record<string, ProxyTransformFn> = {
   'hmac-sha256': signHmacTransform,
   'hmac-sha512': signHmacTransform,
-  'http-basic': signHttpBasicTransform,
+  'http-basic': applyHttpBasicTransform,
 };
 
 /**
- * The full built-in scheme registrations (spec + signer). Seeded into every
+ * The full built-in scheme registrations (spec + transform fn). Seeded into every
  * `EnvGraph` and used as the runtime default; plugins extend the set.
  */
 export const BUILT_IN_TRANSFORM_SCHEMES: Record<string, ProxyTransformSchemeDef> = Object.fromEntries(
   Object.entries(BUILT_IN_TRANSFORM_SCHEME_SPECS)
-    .map(([name, spec]) => [name, { ...spec, sign: BUILT_IN_SIGNERS[name] }]),
+    .map(([name, spec]) => [name, { ...spec, apply: BUILT_IN_TRANSFORM_FNS[name] }]),
 );

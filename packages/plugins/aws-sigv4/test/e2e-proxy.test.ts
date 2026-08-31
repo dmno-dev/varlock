@@ -101,7 +101,7 @@ const SIGV4_SCHEME_DEF = {
     allowedRegions: { type: 'stringList' },
     allowedServices: { type: 'stringList' },
   },
-  sign: signAwsSigv4Transform,
+  apply: signAwsSigv4Transform,
 } as any;
 
 describe('aws-sigv4 re-signing through the real proxy MITM pipeline', () => {
@@ -189,7 +189,7 @@ describe('aws-sigv4 re-signing through the real proxy MITM pipeline', () => {
 
     // The real secret never travels; audit records the scheme only.
     expect(JSON.stringify(upstreamHeaders) + upstreamBody).not.toContain('wJalrXUtnFEMI/K7MDENG+bPxRfiCYREALKEY');
-    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ signedWith: 'aws-sigv4' });
+    expect(activities.find((a) => a.decision === 'allow')).toMatchObject({ transformedWith: 'aws-sigv4' });
 
     tlsSocket.destroy();
     await runtime.stop();

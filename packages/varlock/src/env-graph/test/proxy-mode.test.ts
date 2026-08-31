@@ -558,7 +558,7 @@ describe('proxy decorators', () => {
     const rules = await graph.getProxyRules();
     expect(rules).toMatchObject([
       {
-        // neither is substitutable: both are consumed by the signer
+        // neither is substitutable: both are consumed by the transform
         itemKeys: [],
         transform: { scheme: 'http-basic', username: { itemRef: 'TWILIO_SID' }, password: { itemRef: 'TWILIO_AUTH_TOKEN' } },
       },

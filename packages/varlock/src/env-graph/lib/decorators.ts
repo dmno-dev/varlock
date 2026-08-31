@@ -481,7 +481,7 @@ function assertProxyApprovalArg(resolver: Resolver | undefined): void {
 }
 
 /**
- * `transform` is an options object describing a request-signing scheme
+ * `transform` is an options object describing a request-transform scheme
  * (`transform={scheme="hmac-sha256", stringToSign=..., signatureHeader=...}`).
  * Statically validates the literal entries via the shared config validator
  * (partial mode - dynamic entries re-check at resolve time). Placement-specific

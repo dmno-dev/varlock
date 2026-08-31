@@ -345,9 +345,9 @@ export class EnvGraph {
   }
 
   /**
-   * Registered proxy transform (request signing) schemes: built-ins seeded at
+   * Registered proxy request-transform schemes: built-ins seeded at
    * construction, plugins add more via `registerProxyTransformScheme`. Each
-   * entry carries the option specs (validation, item roles) and the signer.
+   * entry carries the option specs (validation, item roles) and the transform fn.
    */
   proxyTransformSchemes: Record<string, ProxyTransformSchemeDef> = {};
   registerProxyTransformScheme(name: string, def: ProxyTransformSchemeDef) {
@@ -1295,7 +1295,7 @@ export class EnvGraph {
         if (!parsed.ok) throw new SchemaError(`@proxy: ${parsed.error}`);
       }
     }
-    // `transform={...}` resolves to a signing-config object; its full validation
+    // `transform={...}` resolves to a transform-config object; its full validation
     // is scheme-registry-aware and runs in `buildProxyTransform` (instance
     // context), so only the shape is checked here.
     if (obj?.transform !== undefined && !_.isPlainObject(obj.transform)) {
@@ -1477,7 +1477,7 @@ export class EnvGraph {
     const transform = _.isPlainObject(obj?.transform)
       ? this.buildProxyTransform(obj.transform, attachedItemKey, itemRefs)
       : undefined;
-    // Consumed-role items (the signing secret) never substitute, so they must
+    // Consumed-role items (the consumed credential) never substitute, so they must
     // not participate in the rule's substitution scope even when the rule is
     // attached to one. Wire-role items (key ids, session tokens) travel in the
     // request, so they join the rule's items like `keys=` entries. Roles come
@@ -1557,9 +1557,9 @@ export class EnvGraph {
 
   async getProxyManagedItems(): Promise<Array<ProxyManagedItem>> {
     const rules = await this.getProxyRules();
-    // Transform role items are managed too: consumed-role items (the signing
-    // secret) get a placeholder in the child env (and their real value withheld)
-    // even though they are consumed by the signer rather than substituted.
+    // Transform role items are managed too: consumed-role items (the consumed
+    // credential) get a placeholder in the child env (and their real value withheld)
+    // even though they are consumed by the transform rather than substituted.
     // (Wire-role items are already in `itemKeys`.)
     const managedKeys = _.uniq(rules.flatMap((r) => [
       ...r.itemKeys,

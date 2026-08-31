@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import { HttpRequest } from '@smithy/protocol-http';
 import { SignatureV4 } from '@smithy/signature-v4';
-import type { ProxyTransformSignInput, ProxyTransformSignResult, ProxyTransformSigner } from 'varlock/plugin-lib';
+import type { ProxyTransformInput, ProxyTransformResult, ProxyTransformFn } from 'varlock/plugin-lib';
 
 /**
  * AWS SigV4 re-signing (`transform={scheme="aws-sigv4"}` on a `@proxy` rule).
@@ -116,15 +116,15 @@ export function parseSigv4InboundScope(authorizationHeader: string | undefined, 
 }
 
 /**
- * Re-sign one request: the scheme's `ProxyTransformSigner`. Returns the
+ * Re-sign one request: the scheme's `ProxyTransformFn`. Returns the
  * replacement signature headers (and the inbound placeholder-signed headers to
  * remove) for the runtime to apply before forwarding.
  */
-export const signAwsSigv4Transform: ProxyTransformSigner = async (
+export const signAwsSigv4Transform: ProxyTransformFn = async (
   transform,
-  input: ProxyTransformSignInput,
+  input: ProxyTransformInput,
   nowMs: number,
-): Promise<ProxyTransformSignResult> => {
+): Promise<ProxyTransformResult> => {
   const options = transform as unknown as AwsSigv4TransformOptions;
 
   const parsed = parseSigv4InboundScope(input.headers.authorization, input.query);

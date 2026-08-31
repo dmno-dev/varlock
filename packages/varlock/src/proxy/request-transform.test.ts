@@ -123,8 +123,8 @@ describe('computeHmacTransform', () => {
   });
 });
 
-describe('http-basic signer', () => {
-  const sign = BUILT_IN_TRANSFORM_SCHEMES['http-basic'].sign;
+describe('http-basic transform', () => {
+  const apply = BUILT_IN_TRANSFORM_SCHEMES['http-basic'].apply;
   const baseInput = {
     method: 'GET',
     host: 'api.example.com',
@@ -142,7 +142,7 @@ describe('http-basic signer', () => {
   };
 
   test('composes both sides from the resolved credentials, overwriting the child header', async () => {
-    const result = await sign(
+    const result = await apply(
       { scheme: 'http-basic', username: ref('REGISTRY_USER'), password: ref('REGISTRY_PASSWORD') } as any,
       { ...baseInput, credentials: { username: 'svc-user', password: 'real-password' } } as any,
       NOW_MS,
@@ -151,7 +151,7 @@ describe('http-basic signer', () => {
   });
 
   test('an unset side is empty (token as userid, curl -u "token:")', async () => {
-    const result = await sign(
+    const result = await apply(
       { scheme: 'http-basic', username: ref('API_TOKEN') } as any,
       { ...baseInput, credentials: { username: 'the-token' } } as any,
       NOW_MS,
@@ -160,7 +160,7 @@ describe('http-basic signer', () => {
   });
 
   test('an unset userid is empty (password-only)', async () => {
-    const result = await sign(
+    const result = await apply(
       { scheme: 'http-basic', password: ref('API_PASSWORD') } as any,
       { ...baseInput, credentials: { password: 'real-password' } } as any,
       NOW_MS,
@@ -169,7 +169,7 @@ describe('http-basic signer', () => {
   });
 
   test('declares only the encoded token: raw values are the runtime\'s job', async () => {
-    const result = await sign(
+    const result = await apply(
       { scheme: 'http-basic', username: ref('U'), password: ref('P') } as any,
       { ...baseInput, credentials: { username: 'user', password: 'pass' } } as any,
       NOW_MS,
@@ -181,7 +181,7 @@ describe('http-basic signer', () => {
   });
 
   test('fails closed on a userid containing ":"', async () => {
-    const result = await sign(
+    const result = await apply(
       { scheme: 'http-basic', username: ref('API_TOKEN') } as any,
       { ...baseInput, credentials: { username: 'evil:token' } } as any,
       NOW_MS,

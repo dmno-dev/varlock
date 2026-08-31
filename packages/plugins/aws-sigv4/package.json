@@ -7,7 +7,7 @@
   "bugs": "https://github.com/dmno-dev/varlock/issues",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dmno-dev/varlock.git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
     "directory": "packages/plugins/aws-sigv4"
   },
   "exports": {
@@ -45,8 +45,8 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
-    "@smithy/protocol-http": "catalog:",
-    "@smithy/signature-v4": "catalog:",
+    "@smithy/protocol-http": "^5.6.0",
+    "@smithy/signature-v4": "^5.7.0",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
     "varlock": "workspace:^",

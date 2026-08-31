@@ -21,5 +21,5 @@ plugin.registerProxyTransformScheme({
     allowedRegions: { type: 'stringList' },
     allowedServices: { type: 'stringList' },
   },
-  sign: signAwsSigv4Transform,
+  apply: signAwsSigv4Transform,
 });

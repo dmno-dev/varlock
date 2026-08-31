@@ -67,4 +67,4 @@ The same limitations apply as for AWS itself. In particular, current AWS SDKs de
 - The payload hash covers the exact outbound body bytes, byte-for-byte (binary uploads included). If the client signed with the `UNSIGNED-PAYLOAD` sentinel, the proxy preserves it. `aws-chunked` streaming payloads (`STREAMING-*` sentinels, used by newer SDKs' flexible checksums) cannot be re-signed and are blocked with a pointer at the SDK setting to disable them (`requestChecksumCalculation: "WHEN_REQUIRED"`).
 - Signing uses the official AWS SDK v3 signer, including the S3-specific path-encoding rules.
 
-See [Request signing](/guides/proxy/rules/#request-signing) for how transforms work in general.
+See [Request transforms](/guides/proxy/rules/#request-transforms) for how transforms work in general.
