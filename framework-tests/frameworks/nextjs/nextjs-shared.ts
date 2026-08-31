@@ -104,6 +104,39 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
       });
     });
 
+    // next.config.ts (supported since Next 15) loads through Next's own TS
+    // transpile + require-hook path, which is a different code path than
+    // next.config.mjs. That hook re-transpiles required .mjs files to CJS but
+    // Node still evaluates them as ESM, so the plugin's CJS output must never
+    // require() varlock's ESM-only entry points ("exports is not defined in ES
+    // module scope" regression).
+    nextEnv.describeDevScenario('dev: next.config.ts config loading', {
+      skip: nextVersion < 15,
+      command: `next dev ${getBuildToolFlag(nextVersion, 'turbopack')} --port ${13800 + nextVersion}`,
+      readyPattern: /Ready in|Starting\.\.\./,
+      readyTimeout: 40_000,
+      templateFiles: {
+        'app/page.tsx': 'pages/basic-page.tsx',
+        'next.config.ts': 'configs/next.config.ts',
+      },
+      deleteFiles: ['next.config.mjs'],
+      requests: [
+        {
+          label: 'page load serves env values',
+          path: '/',
+          bodyAssertions: {
+            shouldContain: ['Varlock Framework Test - Next.js', 'env-specific-var--dev'],
+          },
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'config loads without error',
+          shouldNotContain: ['Failed to load next.config.ts', 'exports is not defined'],
+        },
+      ],
+    });
+
     BUNDLERS.forEach((webpackOrTurbo) => {
       const buildToolFlag = getBuildToolFlag(nextVersion, webpackOrTurbo);
 

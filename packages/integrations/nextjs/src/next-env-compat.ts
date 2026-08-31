@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { createHash } from 'crypto';
-import { type SerializedEnvGraph } from 'varlock';
+import type { SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';

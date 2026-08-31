@@ -10,7 +10,7 @@ import {
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 
-import { type SerializedEnvGraph } from 'varlock';
+import type { SerializedEnvGraph } from 'varlock';
 import { createWebpackConfigFn } from './webpack-plugin';
 import { injectVarlockInitIntoTurbopackRuntime, isInjectedTurbopackRuntime } from './turbopack-runtime-inject';
 

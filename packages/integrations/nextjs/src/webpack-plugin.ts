@@ -5,7 +5,7 @@ import {
 } from 'varlock/env';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 
-import { type SerializedEnvGraph } from 'varlock';
+import type { SerializedEnvGraph } from 'varlock';
 import { encryptEnvBlobSync } from 'varlock/encrypt-env';
 import type { NextConfig } from 'next';
 
