@@ -610,7 +610,7 @@ describe('proxy decorators', () => {
       BASELINE=1
     `);
     const loadErrors = (literalSecret.rootDataSource?.schemaErrors ?? []).map((err) => err.message);
-    expect(loadErrors.some((msg) => /transform\.secretKey must be a reference to a config item/.test(msg))).toBe(true);
+    expect(loadErrors.some((msg) => /transform\.secretKey must reference a config item/.test(msg))).toBe(true);
 
     // plugin schemes are unknown to the load-time pass, so the same rule is
     // enforced when rules are built
@@ -620,7 +620,7 @@ describe('proxy decorators', () => {
       # @proxy(domain="api.a.com", transform={scheme="test-sign", tokenId="tok-literal", signatureHeader="X-Sig"})
       SIGNING_SECRET=shhh
     `);
-    await expect(pluginLiteral.getProxyRules()).rejects.toThrow(/transform\.tokenId must be a reference to a config item/);
+    await expect(pluginLiteral.getProxyRules()).rejects.toThrow(/transform\.tokenId must reference a config item/);
 
     // a reference to a nonexistent item is an ordinary unresolved reference
     const missingItem = await loadGraph(outdent`
@@ -634,9 +634,8 @@ describe('proxy decorators', () => {
     expect(await missingItem.getProxyRules()).toEqual([]);
   });
 
-  test('transform: literal options may interpolate config, but not a sensitive value', async () => {
-    // non-sensitive config interpolates fine (items are sensitive by default,
-    // so this is opt-in via @sensitive=false)
+  test('transform: credential options may interpolate, composing at sign time', async () => {
+    // non-sensitive config interpolates into a literal side
     const interpolatedUsername = await loadGraph(outdent`
       # ---
       # @proxy(domain="api.a.com", transform={scheme="http-basic", username="acct-\${ACCOUNT_ID}"})
@@ -645,10 +644,18 @@ describe('proxy decorators', () => {
       # @sensitive=false
       ACCOUNT_ID=acct123
     `);
-    expect(await interpolatedUsername.getProxyRules()).toMatchObject([{ transform: { username: 'acct-acct123', password: { itemRef: 'API_PASSWORD' } } }]);
+    expect(await interpolatedUsername.getProxyRules()).toMatchObject([
+      {
+        transform: {
+          // kept as parts, resolved by the proxy when it signs
+          username: { parts: ['acct-', { itemRef: 'ACCOUNT_ID' }] },
+          password: { itemRef: 'API_PASSWORD' },
+        },
+      },
+    ]);
 
-    // interpolating a SECRET would put its value in the rule, bypassing the
-    // reference mechanism entirely
+    // interpolating a SECRET works the same way: the value is composed at
+    // signing time, so it never lands in the rule
     const interpolatedSecret = await loadGraph(outdent`
       # ---
       # @proxy(domain="api.b.com", transform={
@@ -660,9 +667,13 @@ describe('proxy decorators', () => {
       # @sensitive
       LEAKY_SECRET=s3cr3t-value
     `);
-    await expect(interpolatedSecret.getProxyRules()).rejects.toThrow(
-      /transform\.password interpolates "LEAKY_SECRET"/,
-    );
+    const rules = await interpolatedSecret.getProxyRules();
+    expect(rules).toMatchObject([{ transform: { username: { itemRef: 'USER_NAME' }, password: { parts: ['pre-', { itemRef: 'LEAKY_SECRET' }] } } }]);
+    expect(JSON.stringify(rules)).not.toContain('s3cr3t-value');
+
+    // every referenced item is managed, so the child only sees placeholders
+    const managed = await interpolatedSecret.getProxyManagedItems();
+    expect(managed.map((item) => item.key).sort()).toEqual(['LEAKY_SECRET', 'USER_NAME']);
   });
 
   test('transform: two roles cannot reference the same item, and two options cannot write the same header', async () => {

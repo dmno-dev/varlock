@@ -37,7 +37,7 @@ import {
   PROXY_TRANSFORM_COMMON_OPTION_SPECS,
   parseProxySubstitutionTarget,
   proxyTransformConsumedOptionName,
-  proxyTransformItemRefName,
+  proxyTransformItemRefNames,
   validateProxyTransformConfig,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule, type ProxyRuleTransform,
   type ProxyTransformItemRef,
@@ -47,12 +47,13 @@ import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
 import { parseDuration } from '../../lib/duration';
 
 /**
- * Item references found in `transform={...}` options: `direct` maps an option
- * written as a bare `$ITEM` to that item name; `nested` maps an option whose
- * value merely interpolates references (e.g. `"acct-${ID}"`) to the names it
- * mentions.
+ * Credential options that reference items, as ordered literal/reference parts
+ * read from the UNRESOLVED decorator args. A bare `$ITEM` is a single-part
+ * entry; `"acct-${TENANT}"` keeps its literal and reference pieces so the
+ * referenced values are composed at signing time instead of resolving into
+ * rule data.
  */
-type TransformItemRefs = { direct: Record<string, string>; nested: Record<string, Array<string>> };
+type TransformItemRefs = Record<string, Array<string | { itemRef: string }>>;
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -1340,36 +1341,42 @@ export class EnvGraph {
    * value never reaches rule data. Options the scheme does not mark as
    * credentials keep resolving normally (a `$REF` there is an ordinary value).
    */
-  private static extractTransformItemRefs(dec: any): {
-    direct: Record<string, string>;
-    nested: Record<string, Array<string>>;
-  } {
+  private static extractTransformItemRefs(dec: any): TransformItemRefs {
     const optionResolvers = dec?.decValueResolver?.objArgs?.transform?.objArgs ?? {};
-    const direct: Record<string, string> = {};
-    const nested: Record<string, Array<string>> = {};
-    const collectRefNames = (resolver: any, out: Set<string>) => {
-      if (!resolver) return;
+    const values: TransformItemRefs = {};
+    /**
+     * Flatten a resolver into ordered literal/reference parts. `undefined`
+     * means the expression is something we cannot represent (a function call
+     * other than concat), so the option resolves normally.
+     */
+    const toParts = (resolver: any): Array<string | { itemRef: string }> | undefined => {
+      if (!resolver) return undefined;
       if (resolver.fnName === 'ref') {
         const refArg = resolver.arrArgs?.[0];
-        if (refArg?.isStatic && typeof refArg.staticValue === 'string') out.add(refArg.staticValue);
-        return;
+        if (refArg?.isStatic && typeof refArg.staticValue === 'string') return [{ itemRef: refArg.staticValue }];
+        return undefined;
       }
-      for (const child of resolver.arrArgs ?? []) collectRefNames(child, out);
-      for (const child of Object.values(resolver.objArgs ?? {})) collectRefNames(child, out);
+      if (resolver.isStatic) {
+        return typeof resolver.staticValue === 'string' ? [resolver.staticValue] : undefined;
+      }
+      // `"acct-${TENANT}"` parses to concat(static, ref, ...)
+      if (resolver.fnName === 'concat') {
+        const parts: Array<string | { itemRef: string }> = [];
+        for (const child of resolver.arrArgs ?? []) {
+          const childParts = toParts(child);
+          if (!childParts) return undefined;
+          parts.push(...childParts);
+        }
+        return parts;
+      }
+      return undefined;
     };
     for (const [option, resolver] of Object.entries<any>(optionResolvers)) {
-      if (resolver?.fnName === 'ref') {
-        const refArg = resolver.arrArgs?.[0];
-        if (refArg?.isStatic && typeof refArg.staticValue === 'string') direct[option] = refArg.staticValue;
-        continue;
-      }
-      // an interpolated/computed value (e.g. `username="acct-${ACCOUNT_ID}"`),
-      // which resolves normally - but must not carry a secret's value
-      const refNames = new Set<string>();
-      collectRefNames(resolver, refNames);
-      if (refNames.size) nested[option] = [...refNames];
+      const parts = toParts(resolver);
+      // only options that actually reference an item need special handling
+      if (parts?.some((part) => typeof part !== 'string')) values[option] = parts;
     }
-    return { direct, nested };
+    return values;
   }
 
   /**
@@ -1392,22 +1399,11 @@ export class EnvGraph {
     // value). Every other option keeps whatever it resolved to, so a `$REF` on
     // an ordinary option still works normally.
     const config: Record<string, unknown> = { ...obj };
-    for (const [option, itemName] of Object.entries(itemRefs.direct)) {
+    for (const [option, parts] of Object.entries(itemRefs)) {
       if (optionSpecs[option]?.itemRole === undefined) continue;
-      config[option] = { itemRef: itemName };
-    }
-    // An interpolated credential (`password="pre-\${SECRET}"`) resolves to a
-    // string holding the real value, which would put a secret straight into
-    // rule data. Interpolating non-sensitive config is fine.
-    for (const [option, refNames] of Object.entries(itemRefs.nested)) {
-      if (optionSpecs[option]?.itemRole === undefined) continue;
-      const sensitiveRef = refNames.find((name) => this.configSchema[name]?.isSensitive);
-      if (sensitiveRef) {
-        throw new SchemaError(
-          `@proxy: transform.${option} interpolates "${sensitiveRef}", which varlock treats as sensitive, so its value would be embedded in the rule. `
-            + `If it is the credential, pass it by reference (${option}=$${sensitiveRef}); if it is not a secret, mark it @sensitive=false`,
-        );
-      }
+      // a lone reference keeps the simple `{ itemRef }` shape; anything
+      // interpolated keeps its parts for sign-time composition
+      config[option] = parts.length === 1 && typeof parts[0] !== 'string' ? parts[0] : { parts };
     }
 
     // Place an attached rule's decorated item BEFORE validating, so validation
@@ -1446,12 +1442,12 @@ export class EnvGraph {
     // NAME only: names come from the unresolved args, so no value is available
     // here to leak into the message.
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-      const itemName = proxyTransformItemRefName(optionSpec, builtTransform[option]);
-      if (itemName === undefined) continue;
-      if (!this.configSchema[itemName]) {
-        throw new SchemaError(
-          `@proxy: transform.${option} references config item "${itemName}", which does not exist in this schema`,
-        );
+      for (const itemName of proxyTransformItemRefNames(optionSpec, builtTransform[option])) {
+        if (!this.configSchema[itemName]) {
+          throw new SchemaError(
+            `@proxy: transform.${option} references config item "${itemName}", which does not exist in this schema`,
+          );
+        }
       }
     }
     return builtTransform as ProxyRuleTransform;
@@ -1468,8 +1464,7 @@ export class EnvGraph {
     const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
       if (optionSpec.itemRole !== role) continue;
-      const itemName = proxyTransformItemRefName(optionSpec, transform[option]);
-      if (itemName !== undefined) keys.push(itemName);
+      keys.push(...proxyTransformItemRefNames(optionSpec, transform[option]));
     }
     return keys;
   }
@@ -1480,7 +1475,7 @@ export class EnvGraph {
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
-    itemRefs: TransformItemRefs = { direct: {}, nested: {} },
+    itemRefs: TransformItemRefs = {},
   ): ProxyRule {
     const method = EnvGraph.normalizeStringList(obj?.method);
     // Kept as raw target strings (validated above); parsed into structured targets
@@ -1526,7 +1521,7 @@ export class EnvGraph {
     domain: Array<string>,
     itemKeys: Array<string>,
     attachedItemKey?: string,
-    itemRefs: TransformItemRefs = { direct: {}, nested: {} },
+    itemRefs: TransformItemRefs = {},
   ): Array<ProxyRule> {
     const out: Array<ProxyRule> = [this.buildProxyRuleFromObj(obj, domain, itemKeys, attachedItemKey, itemRefs)];
     if (Array.isArray(obj?.rules)) {

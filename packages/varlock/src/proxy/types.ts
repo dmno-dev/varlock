@@ -174,14 +174,56 @@ export type ProxyTransformOptionSpec = {
  */
 export type ProxyTransformItemRef = { itemRef: string };
 
+/**
+ * An interpolated credential (`username="acct-${TENANT}"`): literal text and
+ * item references in order, composed by the proxy at signing time. Keeping the
+ * parts (rather than the resolved string) is what stops a referenced value from
+ * landing in rule data.
+ */
+export type ProxyTransformTemplate = { parts: Array<string | ProxyTransformItemRef> };
+
 export function isProxyTransformItemRef(value: unknown): value is ProxyTransformItemRef {
   return typeof value === 'object' && value !== null && typeof (value as any).itemRef === 'string';
 }
 
-/** The referenced item name, or undefined when the option holds a literal. */
+export function isProxyTransformTemplate(value: unknown): value is ProxyTransformTemplate {
+  return typeof value === 'object' && value !== null && Array.isArray((value as any).parts);
+}
+
+/** Every item name a credential option references (none for a plain literal). */
+export function proxyTransformItemRefNames(optionSpec: ProxyTransformOptionSpec, value: unknown): Array<string> {
+  if (optionSpec.itemRole === undefined) return [];
+  if (isProxyTransformItemRef(value)) return [value.itemRef];
+  if (isProxyTransformTemplate(value)) {
+    return value.parts.flatMap((part) => (isProxyTransformItemRef(part) ? [part.itemRef] : []));
+  }
+  return [];
+}
+
+/**
+ * The single referenced item name, for the common one-reference case. Returns
+ * undefined for a literal or a multi-reference template.
+ */
 export function proxyTransformItemRefName(optionSpec: ProxyTransformOptionSpec, value: unknown): string | undefined {
-  if (optionSpec.itemRole === undefined) return undefined;
-  return isProxyTransformItemRef(value) ? value.itemRef : undefined;
+  const names = proxyTransformItemRefNames(optionSpec, value);
+  return names.length === 1 ? names[0] : undefined;
+}
+
+/**
+ * Compose a credential option's final string from its parts, given the resolved
+ * value for each referenced item. A plain literal passes through.
+ */
+export function composeProxyTransformValue(
+  value: unknown,
+  resolveItem: (itemName: string) => string | undefined,
+): string {
+  if (isProxyTransformItemRef(value)) return resolveItem(value.itemRef) ?? '';
+  if (isProxyTransformTemplate(value)) {
+    return value.parts
+      .map((part) => (isProxyTransformItemRef(part) ? resolveItem(part.itemRef) ?? '' : part))
+      .join('');
+  }
+  return typeof value === 'string' ? value : '';
 }
 
 /**
@@ -274,7 +316,7 @@ export type ProxyRuleTransform = {
    * using the common single-secret shape (hmac, aws-sigv4). Never substituted.
    * Schemes with their own credential positions (http-basic) carry those.
    */
-  secretKey?: ProxyTransformItemRef;
+  secretKey?: ProxyTransformItemRef | ProxyTransformTemplate;
 } & Record<string, unknown>;
 
 /**
@@ -284,13 +326,13 @@ export type ProxyRuleTransform = {
 export type ProxyRuleHmacTransform = {
   scheme: 'hmac-sha256' | 'hmac-sha512';
   /** Reference to the item whose value is the HMAC key. Consumed, never substituted. */
-  secretKey: ProxyTransformItemRef;
+  secretKey: ProxyTransformItemRef | ProxyTransformTemplate;
   /** Template over `PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS`, e.g. `{timestamp}{method}{path}{body}`. */
   stringToSign: string;
   /** Header the computed signature is written to. */
   signatureHeader: string;
   /** Optional companion item reference (an API key id) written to `keyHeader`. Wire-visible, substituted normally too. */
-  keyId?: ProxyTransformItemRef;
+  keyId?: ProxyTransformItemRef | ProxyTransformTemplate;
   keyHeader?: string;
   /** Header the signing timestamp is written to (most HMAC schemes require it). */
   timestampHeader?: string;
@@ -362,9 +404,9 @@ export type ProxyRuleHttpBasicTransform = {
    * The userid: a literal, or a reference to a consumed credential the proxy
    * resolves at sign time. Omitted = empty userid.
    */
-  username?: string | ProxyTransformItemRef;
+  username?: string | ProxyTransformItemRef | ProxyTransformTemplate;
   /** The password, same forms as `username`. Omitted = empty password. */
-  password?: string | ProxyTransformItemRef;
+  password?: string | ProxyTransformItemRef | ProxyTransformTemplate;
 };
 
 const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
@@ -387,7 +429,7 @@ const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
     return config;
   },
   validate: (config) => {
-    const isRef = isProxyTransformItemRef;
+    const isRef = (val: unknown) => isProxyTransformItemRef(val) || isProxyTransformTemplate(val);
     if (!isRef(config.username) && !isRef(config.password)) {
       return 'transform needs a credential: reference the item holding the secret with username=$SOME_ITEM or password=$SOME_ITEM. On an attached rule the decorated item fills whichever side you leave unset (the userid when you set neither)';
     }
@@ -483,13 +525,13 @@ export function validateProxyTransformConfig(
     const val = obj[key];
     if (val === undefined) continue;
     if (optionSpec.itemRole !== undefined) {
-      const isRef = isProxyTransformItemRef(val);
+      const referencesItems = proxyTransformItemRefNames(optionSpec, val).length > 0;
       // A literal is only ordinary config where the scheme allows one; an empty
       // literal is meaningful there (an explicitly empty Basic userid).
-      if (!isRef && !optionSpec.literalAllowed) {
-        return `transform.${key} must be a reference to a config item, e.g. ${key}=$SOME_ITEM (a literal value here would be a credential embedded in the schema)`;
+      if (!referencesItems && !optionSpec.literalAllowed) {
+        return `transform.${key} must reference a config item, e.g. ${key}=$SOME_ITEM (a literal value here would be a credential embedded in the schema)`;
       }
-      if (!isRef && typeof val !== 'string') return `transform.${key} must be a string or a $SOME_ITEM reference`;
+      if (!referencesItems && typeof val !== 'string') return `transform.${key} must be a string or a $SOME_ITEM reference`;
       continue;
     }
     switch (optionSpec.type) {
@@ -538,15 +580,16 @@ export function validateProxyTransformConfig(
     // Two roles naming the same item would resolve one item into both a
     // consumed and a wire-visible position, sending the signing secret
     // upstream. Reject regardless of scheme.
-    const itemByOption = new Map<string, string>();
+    const itemsByOption = new Map<string, Array<string>>();
     for (const [key, optionSpec] of Object.entries(optionSpecs)) {
-      const itemName = proxyTransformItemRefName(optionSpec, obj[key]);
-      if (itemName !== undefined) itemByOption.set(key, itemName);
+      const names = proxyTransformItemRefNames(optionSpec, obj[key]);
+      if (names.length) itemsByOption.set(key, names);
     }
-    for (const [keyA, itemA] of itemByOption) {
-      for (const [keyB, itemB] of itemByOption) {
-        if (keyA < keyB && itemA === itemB) {
-          return `transform.${keyA} and transform.${keyB} both reference "${itemA}"; each credential role needs its own item (one of these is sent upstream, the other is consumed by the signer)`;
+    for (const [keyA, itemsA] of itemsByOption) {
+      for (const [keyB, itemsB] of itemsByOption) {
+        const shared = keyA < keyB ? itemsA.find((name) => itemsB.includes(name)) : undefined;
+        if (shared) {
+          return `transform.${keyA} and transform.${keyB} both reference "${shared}"; each credential role needs its own item (one of these is sent upstream, the other is consumed by the signer)`;
         }
       }
     }

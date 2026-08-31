@@ -185,6 +185,15 @@ describe('http-basic signer', () => {
     expectBasic(result, '', 'real-password');
   });
 
+  test('an interpolated side arrives pre-composed in credentials', async () => {
+    const result = await sign(
+      { scheme: 'http-basic', username: { parts: ['acct-', { itemRef: 'TENANT' }] }, password: { itemRef: 'API_PASSWORD' } } as any,
+      { ...baseInput, credentials: { username: 'acct-tenant42', password: 'real-password' } } as any,
+      NOW_MS,
+    );
+    expectBasic(result, 'acct-tenant42', 'real-password');
+  });
+
   test('fails closed on a userid containing ":"', async () => {
     const result = await sign(
       { scheme: 'http-basic', username: { itemRef: 'API_TOKEN' } } as any,

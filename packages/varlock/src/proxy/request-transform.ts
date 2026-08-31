@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import {
-  BUILT_IN_TRANSFORM_SCHEME_SPECS, isProxyTransformItemRef,
+  BUILT_IN_TRANSFORM_SCHEME_SPECS,
   type ProxyRuleHmacTransform, type ProxyRuleHttpBasicTransform, type ProxyTransformSchemeDef,
   type ProxyTransformSigner, type ProxyTransformTimestampFormat,
 } from './types';
@@ -153,10 +153,11 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
  */
 const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
   const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
-  // Each side is a literal, or an item reference whose real value the runtime
-  // resolved into credentials under the same option name.
+  // A side that references items is composed by the runtime into credentials
+  // under the same option name (a lone reference and an interpolated template
+  // alike); anything else is a plain literal.
   const resolveSide = (configured: unknown, option: 'username' | 'password') => {
-    if (isProxyTransformItemRef(configured)) return input.credentials[option] ?? '';
+    if (input.credentials[option] !== undefined) return input.credentials[option];
     return typeof configured === 'string' ? configured : '';
   };
   const userid = resolveSide(basicTransform.username, 'username');
