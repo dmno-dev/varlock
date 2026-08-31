@@ -493,26 +493,51 @@ describe('proxy decorators', () => {
     // username given: the item is the password
     const withUsername = await loadGraph(outdent`
       # ---
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", username=$REGISTRY_USER})
+      REGISTRY_PASSWORD=real-password
+
+      # @sensitive=false
+      REGISTRY_USER=ci-bot
+    `);
+    expect(await withUsername.getProxyRules()).toMatchObject([
+      {
+        transform: {
+          scheme: 'http-basic',
+          username: { itemRef: 'REGISTRY_USER' },
+          password: { itemRef: 'REGISTRY_PASSWORD' },
+        },
+      },
+    ]);
+
+    // password given: the item is the userid (GitHub's TOKEN:x-oauth-basic)
+    const withPassword = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.github.com", transform={scheme="http-basic", password=$GH_BASIC_PASSWORD})
+      GH_TOKEN=the-token
+
+      # @sensitive=false
+      GH_BASIC_PASSWORD=x-oauth-basic
+    `);
+    expect(await withPassword.getProxyRules()).toMatchObject([
+      {
+        transform: {
+          scheme: 'http-basic',
+          username: { itemRef: 'GH_TOKEN' },
+          password: { itemRef: 'GH_BASIC_PASSWORD' },
+        },
+      },
+    ]);
+  });
+
+  test('http-basic: a credential option must be a reference, not a literal', async () => {
+    const literalUsername = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
       # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
       REGISTRY_PASSWORD=real-password
     `);
-    expect(await withUsername.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: 'ci-bot', password: { itemRef: 'REGISTRY_PASSWORD' } } }]);
-
-    // password given (a literal): the item is the userid (GitHub style)
-    const withPassword = await loadGraph(outdent`
-      # ---
-      # @proxy(domain="api.github.com", transform={scheme="http-basic", password="x-oauth-basic"})
-      GH_TOKEN=the-token
-    `);
-    expect(await withPassword.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: { itemRef: 'GH_TOKEN' }, password: 'x-oauth-basic' } }]);
-
-    // an explicitly empty userid pushes the item to the password side
-    const emptyUsername = await loadGraph(outdent`
-      # ---
-      # @proxy(domain="api.legacy.com", transform={scheme="http-basic", username=""})
-      LEGACY_PASSWORD=real-password
-    `);
-    expect(await emptyUsername.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: '', password: { itemRef: 'LEGACY_PASSWORD' } } }]);
+    const errors = literalUsername.configSchema.REGISTRY_PASSWORD.decoratorSchemaErrors.map((err) => err.message);
+    expect(errors.some((msg) => /transform\.username must reference a config item/.test(msg))).toBe(true);
   });
 
   test('http-basic: both sides can be references, and both become consumed credentials', async () => {
@@ -583,7 +608,7 @@ describe('proxy decorators', () => {
 
   test('http-basic: a detached rule needs at least one credential reference', async () => {
     const noCredential = await loadGraph(outdent`
-      # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic"})
       # ---
       BASELINE=1
     `);
@@ -634,46 +659,36 @@ describe('proxy decorators', () => {
     expect(await missingItem.getProxyRules()).toEqual([]);
   });
 
-  test('transform: credential options may interpolate, composing at sign time', async () => {
-    // non-sensitive config interpolates into a literal side
-    const interpolatedUsername = await loadGraph(outdent`
+  test('transform: a composed credential is composed in the item, then referenced', async () => {
+    // credential options take a reference, so anything computed (a prefix, an
+    // interpolation) belongs in the item; the value never enters rule data
+    const graph = await loadGraph(outdent`
       # ---
-      # @proxy(domain="api.a.com", transform={scheme="http-basic", username="acct-\${ACCOUNT_ID}"})
-      API_PASSWORD=real-password
-
-      # @sensitive=false
-      ACCOUNT_ID=acct123
-    `);
-    expect(await interpolatedUsername.getProxyRules()).toMatchObject([
-      {
-        transform: {
-          // kept as parts, resolved by the proxy when it signs
-          username: { parts: ['acct-', { itemRef: 'ACCOUNT_ID' }] },
-          password: { itemRef: 'API_PASSWORD' },
-        },
-      },
-    ]);
-
-    // interpolating a SECRET works the same way: the value is composed at
-    // signing time, so it never lands in the rule
-    const interpolatedSecret = await loadGraph(outdent`
-      # ---
-      # @proxy(domain="api.b.com", transform={
-      #   scheme="http-basic", username=$USER_NAME, password="pre-\${LEAKY_SECRET}",
-      # })
+      # @proxy(domain="api.b.com", transform={scheme="http-basic", username=$USER_NAME, password=$PREFIXED_SECRET})
       BASELINE=1
 
+      # @sensitive=false
       USER_NAME=bob
       # @sensitive
-      LEAKY_SECRET=s3cr3t-value
+      RAW_SECRET=s3cr3t-value
+      # @sensitive
+      PREFIXED_SECRET=pre-\${RAW_SECRET}
     `);
-    const rules = await interpolatedSecret.getProxyRules();
-    expect(rules).toMatchObject([{ transform: { username: { itemRef: 'USER_NAME' }, password: { parts: ['pre-', { itemRef: 'LEAKY_SECRET' }] } } }]);
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([{ transform: { username: { itemRef: 'USER_NAME' }, password: { itemRef: 'PREFIXED_SECRET' } } }]);
     expect(JSON.stringify(rules)).not.toContain('s3cr3t-value');
+    expect(graph.configSchema.PREFIXED_SECRET.resolvedValue).toBe('pre-s3cr3t-value');
 
-    // every referenced item is managed, so the child only sees placeholders
-    const managed = await interpolatedSecret.getProxyManagedItems();
-    expect(managed.map((item) => item.key).sort()).toEqual(['LEAKY_SECRET', 'USER_NAME']);
+    // an inline interpolation on a credential option is rejected instead
+    const inline = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.b.com", transform={scheme="http-basic", password="pre-\${RAW_SECRET}"})
+      BASELINE=1
+
+      RAW_SECRET=s3cr3t-value
+    `);
+    await expect(inline.getProxyRules()).rejects.toThrow(/transform\.password must reference a config item/);
   });
 
   test('transform: two roles cannot reference the same item, and two options cannot write the same header', async () => {

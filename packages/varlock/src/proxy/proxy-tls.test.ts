@@ -979,13 +979,16 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
       res.end('{}');
     });
     const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' }],
+      managedItems: [
+        { key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' },
+        { key: 'API_USER', placeholder: 'vlk_ph_api_user', realValue: 'svc-user' },
+      ],
       // note: no transformSchemes override - exercises the built-in default registry
       rules: [
         {
           domain: [UPSTREAM_HOST],
           itemKeys: [],
-          transform: { scheme: 'http-basic', username: 'svc-user', password: { itemRef: 'API_PASSWORD' } },
+          transform: { scheme: 'http-basic', username: { itemRef: 'API_USER' }, password: { itemRef: 'API_PASSWORD' } },
         },
       ],
       egressMode: 'permissive',
@@ -1020,12 +1023,15 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
       res.end(JSON.stringify({ echoed: String(req.headers.authorization ?? '') }));
     });
     const runtime = await startLocalProxyRuntime({
-      managedItems: [{ key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' }],
+      managedItems: [
+        { key: 'API_PASSWORD', placeholder: 'vlk_ph_api_password', realValue: 'real-password' },
+        { key: 'API_USER', placeholder: 'vlk_ph_api_user', realValue: 'svc-user' },
+      ],
       rules: [
         {
           domain: [UPSTREAM_HOST],
           itemKeys: [],
-          transform: { scheme: 'http-basic', username: 'svc-user', password: { itemRef: 'API_PASSWORD' } },
+          transform: { scheme: 'http-basic', username: { itemRef: 'API_USER' }, password: { itemRef: 'API_PASSWORD' } },
         },
       ],
       egressMode: 'permissive',

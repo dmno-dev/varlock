@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import {
   BUILT_IN_TRANSFORM_SCHEME_SPECS,
-  type ProxyRuleHmacTransform, type ProxyRuleHttpBasicTransform, type ProxyTransformSchemeDef,
+  type ProxyRuleHmacTransform, type ProxyTransformSchemeDef,
   type ProxyTransformSigner, type ProxyTransformTimestampFormat,
 } from './types';
 
@@ -152,16 +152,10 @@ const signHmacTransform: ProxyTransformSigner = (transform, input, nowMs) => {
  * token-as-userid (`curl -u "token:"`), and both-sides-secret alike.
  */
 const signHttpBasicTransform: ProxyTransformSigner = (transform, input) => {
-  const basicTransform = transform as unknown as ProxyRuleHttpBasicTransform;
-  // A side that references items is composed by the runtime into credentials
-  // under the same option name (a lone reference and an interpolated template
-  // alike); anything else is a plain literal.
-  const resolveSide = (configured: unknown, option: 'username' | 'password') => {
-    if (input.credentials[option] !== undefined) return input.credentials[option];
-    return typeof configured === 'string' ? configured : '';
-  };
-  const userid = resolveSide(basicTransform.username, 'username');
-  const password = resolveSide(basicTransform.password, 'password');
+  // Both sides are item references, resolved by the runtime into credentials
+  // under the same option names. An unset side is empty.
+  const userid = input.credentials.username ?? '';
+  const password = input.credentials.password ?? '';
   // RFC 7617: a colon in the userid would shift the user/password split.
   if (userid.includes(':')) {
     return { ok: false, error: 'the Basic auth username contains ":", which is not allowed (it separates username from password)' };

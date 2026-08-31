@@ -133,6 +133,7 @@ describe('http-basic signer', () => {
     body: Buffer.alloc(0),
     headers: { authorization: 'Basic Z2FyYmFnZTpwbGFjZWhvbGRlcg==' },
   };
+  const ref = (itemRef: string) => ({ itemRef });
   const expectBasic = (result: any, userid: string, password: string) => {
     expect(result).toMatchObject({
       ok: true,
@@ -140,67 +141,53 @@ describe('http-basic signer', () => {
     });
   };
 
-  test('literal username + referenced password, overwriting the child header', async () => {
+  test('composes both sides from the resolved credentials, overwriting the child header', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: 'svc-user', password: { itemRef: 'API_PASSWORD' } } as any,
-      { ...baseInput, credentials: { password: 'real-password' } } as any,
+      { scheme: 'http-basic', username: ref('REGISTRY_USER'), password: ref('REGISTRY_PASSWORD') } as any,
+      { ...baseInput, credentials: { username: 'svc-user', password: 'real-password' } } as any,
       NOW_MS,
     );
     expectBasic(result, 'svc-user', 'real-password');
   });
 
-  test('referenced token as the userid with an empty password (curl -u "token:")', async () => {
+  test('an unset side is empty (token as userid, curl -u "token:")', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: { itemRef: 'API_TOKEN' } } as any,
+      { scheme: 'http-basic', username: ref('API_TOKEN') } as any,
       { ...baseInput, credentials: { username: 'the-token' } } as any,
       NOW_MS,
     );
     expectBasic(result, 'the-token', '');
   });
 
-  test('referenced token as the userid with a literal password (GitHub style)', async () => {
+  test('an unset userid is empty (password-only)', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: { itemRef: 'GH_TOKEN' }, password: 'x-oauth-basic' } as any,
-      { ...baseInput, credentials: { username: 'the-token' } } as any,
-      NOW_MS,
-    );
-    expectBasic(result, 'the-token', 'x-oauth-basic');
-  });
-
-  test('both sides referenced (Twilio style)', async () => {
-    const result = await sign(
-      { scheme: 'http-basic', username: { itemRef: 'TWILIO_SID' }, password: { itemRef: 'TWILIO_AUTH_TOKEN' } } as any,
-      { ...baseInput, credentials: { username: 'the-sid', password: 'the-token' } } as any,
-      NOW_MS,
-    );
-    expectBasic(result, 'the-sid', 'the-token');
-  });
-
-  test('an unset side is empty (referenced password with no username)', async () => {
-    const result = await sign(
-      { scheme: 'http-basic', password: { itemRef: 'API_PASSWORD' } } as any,
+      { scheme: 'http-basic', password: ref('API_PASSWORD') } as any,
       { ...baseInput, credentials: { password: 'real-password' } } as any,
       NOW_MS,
     );
     expectBasic(result, '', 'real-password');
   });
 
-  test('an interpolated side arrives pre-composed in credentials', async () => {
+  test('declares the reversible token and raw credentials for response scrubbing', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: { parts: ['acct-', { itemRef: 'TENANT' }] }, password: { itemRef: 'API_PASSWORD' } } as any,
-      { ...baseInput, credentials: { username: 'acct-tenant42', password: 'real-password' } } as any,
+      { scheme: 'http-basic', username: ref('U'), password: ref('P') } as any,
+      { ...baseInput, credentials: { username: 'user', password: 'pass' } } as any,
       NOW_MS,
     );
-    expectBasic(result, 'acct-tenant42', 'real-password');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.scrubFromResponse).toContain(Buffer.from('user:pass').toString('base64'));
+    expect(result.scrubFromResponse).toContain('pass');
   });
 
   test('fails closed on a userid containing ":"', async () => {
     const result = await sign(
-      { scheme: 'http-basic', username: { itemRef: 'API_TOKEN' } } as any,
+      { scheme: 'http-basic', username: ref('API_TOKEN') } as any,
       { ...baseInput, credentials: { username: 'evil:token' } } as any,
       NOW_MS,
     );
     expect(result.ok).toBe(false);
   });
 });
+
 

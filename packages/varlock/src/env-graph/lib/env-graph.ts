@@ -47,13 +47,11 @@ import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
 import { parseDuration } from '../../lib/duration';
 
 /**
- * Credential options that reference items, as ordered literal/reference parts
- * read from the UNRESOLVED decorator args. A bare `$ITEM` is a single-part
- * entry; `"acct-${TENANT}"` keeps its literal and reference pieces so the
- * referenced values are composed at signing time instead of resolving into
- * rule data.
+ * Credential options written as `$ITEM`, mapped to the referenced item name.
+ * Read from the UNRESOLVED decorator args, so the referenced value is never
+ * taken from resolution.
  */
-type TransformItemRefs = Record<string, Array<string | { itemRef: string }>>;
+type TransformItemRefs = Record<string, string>;
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -1343,40 +1341,13 @@ export class EnvGraph {
    */
   private static extractTransformItemRefs(dec: any): TransformItemRefs {
     const optionResolvers = dec?.decValueResolver?.objArgs?.transform?.objArgs ?? {};
-    const values: TransformItemRefs = {};
-    /**
-     * Flatten a resolver into ordered literal/reference parts. `undefined`
-     * means the expression is something we cannot represent (a function call
-     * other than concat), so the option resolves normally.
-     */
-    const toParts = (resolver: any): Array<string | { itemRef: string }> | undefined => {
-      if (!resolver) return undefined;
-      if (resolver.fnName === 'ref') {
-        const refArg = resolver.arrArgs?.[0];
-        if (refArg?.isStatic && typeof refArg.staticValue === 'string') return [{ itemRef: refArg.staticValue }];
-        return undefined;
-      }
-      if (resolver.isStatic) {
-        return typeof resolver.staticValue === 'string' ? [resolver.staticValue] : undefined;
-      }
-      // `"acct-${TENANT}"` parses to concat(static, ref, ...)
-      if (resolver.fnName === 'concat') {
-        const parts: Array<string | { itemRef: string }> = [];
-        for (const child of resolver.arrArgs ?? []) {
-          const childParts = toParts(child);
-          if (!childParts) return undefined;
-          parts.push(...childParts);
-        }
-        return parts;
-      }
-      return undefined;
-    };
+    const refs: TransformItemRefs = {};
     for (const [option, resolver] of Object.entries<any>(optionResolvers)) {
-      const parts = toParts(resolver);
-      // only options that actually reference an item need special handling
-      if (parts?.some((part) => typeof part !== 'string')) values[option] = parts;
+      if (resolver?.fnName !== 'ref') continue;
+      const refArg = resolver.arrArgs?.[0];
+      if (refArg?.isStatic && typeof refArg.staticValue === 'string') refs[option] = refArg.staticValue;
     }
-    return values;
+    return refs;
   }
 
   /**
@@ -1399,11 +1370,9 @@ export class EnvGraph {
     // value). Every other option keeps whatever it resolved to, so a `$REF` on
     // an ordinary option still works normally.
     const config: Record<string, unknown> = { ...obj };
-    for (const [option, parts] of Object.entries(itemRefs)) {
+    for (const [option, itemName] of Object.entries(itemRefs)) {
       if (optionSpecs[option]?.itemRole === undefined) continue;
-      // a lone reference keeps the simple `{ itemRef }` shape; anything
-      // interpolated keeps its parts for sign-time composition
-      config[option] = parts.length === 1 && typeof parts[0] !== 'string' ? parts[0] : { parts };
+      config[option] = { itemRef: itemName };
     }
 
     // Place an attached rule's decorated item BEFORE validating, so validation

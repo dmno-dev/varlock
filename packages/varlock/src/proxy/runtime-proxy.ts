@@ -30,8 +30,7 @@ import {
 import { attachTunnelServer, type TunnelBootstrap } from './tunnel';
 import {
   PROXY_TRANSFORM_COMMON_OPTION_SPECS,
-  composeProxyTransformValue,
-  isNeverAutoSubstituteHeader, proxySubstitutionTargetKey, proxyTransformItemRefNames,
+  isNeverAutoSubstituteHeader, proxySubstitutionTargetKey, proxyTransformItemRefName,
   type ProxyApprovalEach, type ProxyEgressMode, type ProxyManagedItem, type ProxyRule,
   type ProxyRuleTransform, type ProxySubstitutionLocation, type ProxySubstitutionTarget,
   type ProxyTransformSchemeDef, type ProxyTransformSignResult,
@@ -531,7 +530,8 @@ export function collectConsumedTransformKeys(
     const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
     for (const [option, optionSpec] of Object.entries(optionSpecs)) {
       if (optionSpec.itemRole !== 'consumed') continue;
-      for (const itemName of proxyTransformItemRefNames(optionSpec, rule.transform[option])) keys.add(itemName);
+      const itemName = proxyTransformItemRefName(optionSpec, rule.transform[option]);
+      if (itemName !== undefined) keys.add(itemName);
     }
   }
   return keys;
@@ -1401,24 +1401,15 @@ export async function startLocalProxyRuntime({
       // the option specs so a scheme's credential surface is declared once.
       const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...schemeDef.options };
       const credentials: Record<string, string> = {};
-      const missingCredentials: Array<string> = [];
-      const resolveCredentialItem = (itemName: string) => {
-        const managedItem = managedItems.find((item) => item.key === itemName);
-        if (!managedItem) missingCredentials.push(itemName);
-        return managedItem?.realValue;
-      };
       for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-        const itemKeys = proxyTransformItemRefNames(optionSpec, activeTransform[option]);
-        if (!itemKeys.length) continue;
-        // Compose the option's value from its parts (a lone reference is the
-        // one-part case), so an interpolated credential never had to resolve
-        // into rule data.
-        credentials[option] = composeProxyTransformValue(activeTransform[option], resolveCredentialItem);
-      }
-      const [missingCredential] = missingCredentials;
-      if (missingCredential) {
-        blockTransform(502, `cannot sign this request - the transform credential ${missingCredential} has no resolved value.`);
-        return;
+        const itemKey = proxyTransformItemRefName(optionSpec, activeTransform[option]);
+        if (itemKey === undefined) continue;
+        const managedItem = managedItems.find((item) => item.key === itemKey);
+        if (!managedItem) {
+          blockTransform(502, `cannot sign this request - the transform credential ${itemKey} has no resolved value.`);
+          return;
+        }
+        credentials[option] = managedItem.realValue;
       }
 
       const rewrittenQueryStart = rewrittenPath.indexOf('?');

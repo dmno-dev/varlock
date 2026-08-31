@@ -156,12 +156,6 @@ export type ProxyTransformOptionSpec = {
   /** For `type: 'enum'`. */
   enumValues?: ReadonlyArray<string>;
   itemRole?: 'consumed' | 'wire';
-  /**
-   * For itemRole options only: also accept a plain literal value (e.g. a
-   * static username) alongside the `$ITEM` reference form. Without this flag,
-   * itemRole options REQUIRE the reference form.
-   */
-  literalAllowed?: boolean;
 };
 
 /**
@@ -174,57 +168,22 @@ export type ProxyTransformOptionSpec = {
  */
 export type ProxyTransformItemRef = { itemRef: string };
 
-/**
- * An interpolated credential (`username="acct-${TENANT}"`): literal text and
- * item references in order, composed by the proxy at signing time. Keeping the
- * parts (rather than the resolved string) is what stops a referenced value from
- * landing in rule data.
- */
-export type ProxyTransformTemplate = { parts: Array<string | ProxyTransformItemRef> };
-
 export function isProxyTransformItemRef(value: unknown): value is ProxyTransformItemRef {
   return typeof value === 'object' && value !== null && typeof (value as any).itemRef === 'string';
 }
 
-export function isProxyTransformTemplate(value: unknown): value is ProxyTransformTemplate {
-  return typeof value === 'object' && value !== null && Array.isArray((value as any).parts);
-}
-
-/** Every item name a credential option references (none for a plain literal). */
-export function proxyTransformItemRefNames(optionSpec: ProxyTransformOptionSpec, value: unknown): Array<string> {
-  if (optionSpec.itemRole === undefined) return [];
-  if (isProxyTransformItemRef(value)) return [value.itemRef];
-  if (isProxyTransformTemplate(value)) {
-    return value.parts.flatMap((part) => (isProxyTransformItemRef(part) ? [part.itemRef] : []));
-  }
-  return [];
-}
-
-/**
- * The single referenced item name, for the common one-reference case. Returns
- * undefined for a literal or a multi-reference template.
- */
+/** The item a credential option references. */
 export function proxyTransformItemRefName(optionSpec: ProxyTransformOptionSpec, value: unknown): string | undefined {
-  const names = proxyTransformItemRefNames(optionSpec, value);
-  return names.length === 1 ? names[0] : undefined;
+  if (optionSpec.itemRole === undefined) return undefined;
+  return isProxyTransformItemRef(value) ? value.itemRef : undefined;
 }
 
-/**
- * Compose a credential option's final string from its parts, given the resolved
- * value for each referenced item. A plain literal passes through.
- */
-export function composeProxyTransformValue(
-  value: unknown,
-  resolveItem: (itemName: string) => string | undefined,
-): string {
-  if (isProxyTransformItemRef(value)) return resolveItem(value.itemRef) ?? '';
-  if (isProxyTransformTemplate(value)) {
-    return value.parts
-      .map((part) => (isProxyTransformItemRef(part) ? resolveItem(part.itemRef) ?? '' : part))
-      .join('');
-  }
-  return typeof value === 'string' ? value : '';
+/** Same, for call sites that iterate. */
+export function proxyTransformItemRefNames(optionSpec: ProxyTransformOptionSpec, value: unknown): Array<string> {
+  const name = proxyTransformItemRefName(optionSpec, value);
+  return name === undefined ? [] : [name];
 }
+
 
 /**
  * A transform scheme's declaration: its option specs plus an optional
@@ -316,7 +275,7 @@ export type ProxyRuleTransform = {
    * using the common single-secret shape (hmac, aws-sigv4). Never substituted.
    * Schemes with their own credential positions (http-basic) carry those.
    */
-  secretKey?: ProxyTransformItemRef | ProxyTransformTemplate;
+  secretKey?: ProxyTransformItemRef;
 } & Record<string, unknown>;
 
 /**
@@ -326,13 +285,13 @@ export type ProxyRuleTransform = {
 export type ProxyRuleHmacTransform = {
   scheme: 'hmac-sha256' | 'hmac-sha512';
   /** Reference to the item whose value is the HMAC key. Consumed, never substituted. */
-  secretKey: ProxyTransformItemRef | ProxyTransformTemplate;
+  secretKey: ProxyTransformItemRef;
   /** Template over `PROXY_TRANSFORM_STRING_TO_SIGN_FIELDS`, e.g. `{timestamp}{method}{path}{body}`. */
   stringToSign: string;
   /** Header the computed signature is written to. */
   signatureHeader: string;
   /** Optional companion item reference (an API key id) written to `keyHeader`. Wire-visible, substituted normally too. */
-  keyId?: ProxyTransformItemRef | ProxyTransformTemplate;
+  keyId?: ProxyTransformItemRef;
   keyHeader?: string;
   /** Header the signing timestamp is written to (most HMAC schemes require it). */
   timestampHeader?: string;
@@ -400,23 +359,20 @@ const HMAC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
  */
 export type ProxyRuleHttpBasicTransform = {
   scheme: 'http-basic';
-  /**
-   * The userid: a literal, or a reference to a consumed credential the proxy
-   * resolves at sign time. Omitted = empty userid.
-   */
-  username?: string | ProxyTransformItemRef | ProxyTransformTemplate;
-  /** The password, same forms as `username`. Omitted = empty password. */
-  password?: string | ProxyTransformItemRef | ProxyTransformTemplate;
+  /** Reference to the item holding the userid. Omitted = empty userid. */
+  username?: ProxyTransformItemRef;
+  /** Reference to the item holding the password. Omitted = empty password. */
+  password?: ProxyTransformItemRef;
 };
 
 const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
   options: {
-    // The two credential positions, symmetric: each takes a literal (ordinary
-    // config, e.g. a service-account name or a fixed `x-oauth-basic` password)
-    // or a `$ITEM` reference, which is a consumed credential the proxy resolves
-    // at sign time.
-    username: { type: 'string', itemRole: 'consumed', literalAllowed: true },
-    password: { type: 'string', itemRole: 'consumed', literalAllowed: true },
+    // The two credential positions, symmetric: each references the item holding
+    // that side's value, resolved at signing time. A fixed value (a service
+    // account name, GitHub's `x-oauth-basic`) lives in an item like any other
+    // config.
+    username: { type: 'string', itemRole: 'consumed' },
+    password: { type: 'string', itemRole: 'consumed' },
   },
   // The decorated item fills whichever side was left unset. With neither given
   // it is the userid: a single-credential Basic API almost always sends the
@@ -429,13 +385,8 @@ const HTTP_BASIC_SCHEME_SPEC: ProxyTransformSchemeSpec = {
     return config;
   },
   validate: (config) => {
-    const isRef = (val: unknown) => isProxyTransformItemRef(val) || isProxyTransformTemplate(val);
-    if (!isRef(config.username) && !isRef(config.password)) {
-      return 'transform needs a credential: reference the item holding the secret with username=$SOME_ITEM or password=$SOME_ITEM. On an attached rule the decorated item fills whichever side you leave unset (the userid when you set neither)';
-    }
-    // RFC 7617: the userid may not contain a colon (it delimits user:password).
-    if (typeof config.username === 'string' && config.username.includes(':')) {
-      return 'transform.username cannot contain ":" (it separates the username from the password in Basic auth)';
+    if (config.username === undefined && config.password === undefined) {
+      return 'transform needs a credential: reference the item holding it with username=$SOME_ITEM or password=$SOME_ITEM. On an attached rule the decorated item fills whichever side you leave unset (the userid when you set neither)';
     }
     return undefined;
   },
@@ -525,13 +476,12 @@ export function validateProxyTransformConfig(
     const val = obj[key];
     if (val === undefined) continue;
     if (optionSpec.itemRole !== undefined) {
-      const referencesItems = proxyTransformItemRefNames(optionSpec, val).length > 0;
-      // A literal is only ordinary config where the scheme allows one; an empty
-      // literal is meaningful there (an explicitly empty Basic userid).
-      if (!referencesItems && !optionSpec.literalAllowed) {
-        return `transform.${key} must reference a config item, e.g. ${key}=$SOME_ITEM (a literal value here would be a credential embedded in the schema)`;
+      // Credentials are always named by reference: the value lives in an item,
+      // which is what makes it managed, leak-guarded, and resolved at signing
+      // time. A fixed value (or one needing a prefix) is composed in the item.
+      if (!isProxyTransformItemRef(val)) {
+        return `transform.${key} must reference a config item, e.g. ${key}=$SOME_ITEM`;
       }
-      if (!referencesItems && typeof val !== 'string') return `transform.${key} must be a string or a $SOME_ITEM reference`;
       continue;
     }
     switch (optionSpec.type) {
