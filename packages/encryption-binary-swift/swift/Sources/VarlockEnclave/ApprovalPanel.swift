@@ -50,6 +50,7 @@ final class ApprovalPanel: NSObject {
         let proof: IdentitySessionManager.PresenceProof?
     }
 
+    private var glyphView: TouchIDGlyphView?
     private var scopeControl: NSSegmentedControl?
     private var durationPopUp: NSPopUpButton?
     private var confirmButton: NSButton?
@@ -256,6 +257,7 @@ final class ApprovalPanel: NSObject {
             "state": String(describing: flow.state),
             "scope": flow.scope.rawValue,
         ])
+        updateGlyph()
         switch effect {
         case .beginScan:
             retryButton?.isHidden = true
@@ -271,10 +273,44 @@ final class ApprovalPanel: NSObject {
             // A check that just ended may have had a system alert over us.
             if flow.failedScans > 0 { bringToFront() }
         case .finish(let decision):
-            NSApp.stopModal(withCode: decision.approved
+            let code: NSApplication.ModalResponse = decision.approved
                 ? Self.flowFinishedResponse
-                : .alertSecondButtonReturn)
+                : .alertSecondButtonReturn
+            // Let an approval land before the window goes. Closing on the same
+            // frame as the scan reads as the panel vanishing rather than as the
+            // unlock completing, and the glyph has just turned green to say so.
+            if decision.approved, glyphShowsSuccessAnimation {
+                MainLoop.after(TouchIDGlyphView.successHoldSeconds) {
+                    NSApp.stopModal(withCode: code)
+                }
+            } else {
+                NSApp.stopModal(withCode: code)
+            }
         }
+    }
+
+    /// Whether an approval is going to be animated, which is the only reason to
+    /// hold the panel open a moment longer.
+    private var glyphShowsSuccessAnimation: Bool {
+        guard glyphView != nil else { return false }
+        return PanelGlyph.effect(
+            for: .approved,
+            reduceMotion: TouchIDGlyphView.reduceMotion
+        ).isAnimated
+    }
+
+    /// Push the flow's current glyph state to the view.
+    private func updateGlyph() {
+        guard let glyphView else { return }
+        let effect = PanelGlyph.effect(
+            for: flow.glyphState,
+            reduceMotion: TouchIDGlyphView.reduceMotion
+        )
+        PanelDebug.note("glyph", [
+            "glyphState": String(describing: flow.glyphState),
+            "effect": String(describing: effect),
+        ])
+        glyphView.apply(effect)
     }
 
     private func beginScan() {
@@ -543,15 +579,9 @@ final class ApprovalPanel: NSObject {
             holder.heightAnchor.constraint(equalToConstant: glyphSide),
         ])
 
-        let ownGlyph = NSImageView()
+        let ownGlyph = TouchIDGlyphView()
         ownGlyph.translatesAutoresizingMaskIntoConstraints = false
-        ownGlyph.image = NSImage(systemSymbolName: "touchid", accessibilityDescription: "Touch ID")
-        ownGlyph.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: glyphSide - 4,
-            weight: .regular
-        )
-        ownGlyph.contentTintColor = .controlAccentColor
-        ownGlyph.imageScaling = .scaleProportionallyUpOrDown
+        glyphView = ownGlyph
         holder.addSubview(ownGlyph)
 
         let authView = LAAuthenticationView(context: context, controlSize: .regular)

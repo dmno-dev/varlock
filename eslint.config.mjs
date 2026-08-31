@@ -43,6 +43,9 @@ export default tseslint.config(
       '**/dist-test',
       '**/node_modules',
       '**/.turbo',
+      // SwiftPM build output. Generated JSON, and anyone who builds the Swift
+      // package would otherwise get a red lint they did not cause.
+      'packages/encryption-binary-swift/swift/.build',
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
       'packages/varlock-website/.astro',

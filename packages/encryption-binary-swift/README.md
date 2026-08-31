@@ -324,6 +324,17 @@ What to check by hand:
 
 - **there is a Touch ID glyph in the panel** (ours, the system's, or the system's
   drawn over ours) and never an empty square
+- **the glyph breathes while the sensor is armed**, and sits still and dim
+  whenever it is not. A pulsing glyph is a promise that a finger will be read, so
+  it must never be doing that in the button-driven modes, or after a failed scan
+  before Try again is pressed
+- **a failed scan shakes the glyph**, then leaves it still next to Try again
+- **an approval turns the glyph green with a small pop** and holds a moment before
+  the panel closes, so the unlock reads as finished rather than as the window
+  vanishing
+- with Reduce Motion on (System Settings, Accessibility, Display) **nothing moves**:
+  the same four states are carried by colour and strength alone, and armed is still
+  distinguishable from idle
 - **scanning approves the unlock** with no second gesture, whether the prompt is
   inside the panel or in a separate system alert
 - the resting line names the process and the terminal you are actually typing in,
