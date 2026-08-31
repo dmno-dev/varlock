@@ -30,7 +30,12 @@ import LocalAuthenticationEmbeddedUI
 enum LARightProbe {
     private static let rightIdentifier = "dev.varlock.probe.laright"
 
-    static func run(verbose: Bool, timeoutSeconds: TimeInterval) -> [String: Any] {
+    /// - Parameter custodyOnly: skip the half that needs a person. Custody is the
+    ///   machine-checkable question (can an `LARight` key hold our wrap, or does
+    ///   the keychain refuse it for want of an entitlement), which is exactly
+    ///   what a signing experiment wants to compare across variants without a
+    ///   finger in the loop.
+    static func run(verbose: Bool, timeoutSeconds: TimeInterval, custodyOnly: Bool = false) -> [String: Any] {
         let log = EmbeddedUnlockProbe.Log(verbose: verbose)
         log.note("probe-start", [
             "bundleIdentifier": Bundle.main.bundleIdentifier ?? "<none>",
@@ -46,6 +51,15 @@ enum LARightProbe {
 
         // -- question 2 first, since it needs nobody and can rule the idea out --
         let custody = probeCustodyCapability(log: log)
+
+        if custodyOnly {
+            return finish(log: log, [
+                "verdict": custody["canExchangeKeys"] as? Bool == true
+                    ? "custody-available"
+                    : "custody-refused",
+                "custody": custody,
+            ])
+        }
 
         // -- question 1: drive a right and let a person watch where it draws --
         let presentation = probePresentation(log: log, timeoutSeconds: timeoutSeconds)

@@ -239,7 +239,8 @@ case "probe-session-unlock":
 case "probe-laright":
     jsonSuccess(LARightProbe.run(
         verbose: args.contains("--verbose"),
-        timeoutSeconds: TimeInterval(getArg("--timeout").flatMap { Double($0) } ?? 60)
+        timeoutSeconds: TimeInterval(getArg("--timeout").flatMap { Double($0) } ?? 60),
+        custodyOnly: args.contains("--custody-only")
     ))
 
 case "probe-embedded-unlock":
@@ -988,7 +989,7 @@ case "help", "--help", "-h":
                                              whole unlock on this machine
       probe-embedded-unlock [--key-id <id>]  Same check for the panel's embedded
                                              Touch ID prompt
-      probe-laright                          Spike: does LARight draw its prompt
+      probe-laright [--custody-only]         Spike: does LARight draw its prompt
                                              inline, and can its key hold our wrap
       panel-preview --out <file.png> [--payload <file.json>]
                                       Draw the approval panel to a PNG, without

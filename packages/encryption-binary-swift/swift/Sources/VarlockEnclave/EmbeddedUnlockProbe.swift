@@ -3,6 +3,7 @@ import AppKit
 import CoreGraphics
 import LocalAuthentication
 import LocalAuthenticationEmbeddedUI
+import SessionScoping
 
 /// Proves, on real hardware, that the panel's inline Touch ID prompt actually
 /// arms, and that a context authenticated through it can still open the custody
@@ -129,7 +130,17 @@ enum EmbeddedUnlockProbe {
         }
 
         // Phase B: authenticate through the embedded view.
+        //
+        // Made here and used once: a reused or invalidated context is one of the
+        // stock explanations for a blank inline view, so the probe rules it out
+        // by construction rather than by inspection.
+        var checklist = Checklist()
         let context = LAContext()
+        checklist.freshContext = true
+        let selfFacts = PeerPostureReader().selfFacts()
+        checklist.signatureValid = selfFacts.signatureValid
+        checklist.hardenedRuntime = selfFacts.hasHardenedRuntime
+        checklist.screenScanPermitted = CGPreflightScreenCaptureAccess()
         log.note("context-created", [
             "instance": String(UInt(bitPattern: ObjectIdentifier(context).hashValue), radix: 16),
             // A leaked `interactionNotAllowed` would suppress the UI while the
@@ -148,9 +159,12 @@ enum EmbeddedUnlockProbe {
             // Populated by canEvaluatePolicy. 0 = none, 1 = Touch ID, 2 = Face ID.
             "biometryType": context.biometryType.rawValue,
         ])
+        checklist.canEvaluate = canBiometrics
+        checklist.canEvaluateError = biometricError?.localizedDescription ?? "<none>"
         guard canBiometrics else {
             return finish(log: log, [
                 "verdict": "inconclusive",
+                "checklist": checklist.asDictionary,
                 "reason": "biometrics are not available here, and the embedded view only drives biometrics: "
                     + (biometricError?.localizedDescription ?? "unknown"),
                 "hint": "the panel falls back to the system dialog in exactly this case",
@@ -162,12 +176,14 @@ enum EmbeddedUnlockProbe {
             context: context,
             keyId: keyId,
             log: log,
-            timeoutSeconds: timeoutSeconds
+            timeoutSeconds: timeoutSeconds,
+            checklist: checklist
         )
         guard scan.authenticated else {
             context.invalidate()
             return finish(log: log, [
                 "verdict": scan.armed ? "inconclusive" : "embedded-never-armed",
+                "checklist": scan.checklist.asDictionary,
                 "reason": scan.error ?? "authentication did not complete",
                 "phases": phases,
                 "presentation": observedPresentation(scan),
@@ -223,6 +239,7 @@ enum EmbeddedUnlockProbe {
         let presentation = observedPresentation(scan)
         return finish(log: log, [
             "verdict": handoffPassed ? "embedded-handoff-ok" : "embedded-handoff-lost",
+            "checklist": scan.checklist.asDictionary,
             "scansRequested": 1,
             "policy": "deviceOwnerAuthenticationWithBiometrics",
             "authenticationMs": scan.durationMs,
@@ -305,6 +322,74 @@ enum EmbeddedUnlockProbe {
 
     // MARK: - The window
 
+    /// Every condition the inline view is supposed to need, answered rather than
+    /// assumed.
+    ///
+    /// The advice for "LAAuthenticationView renders blank" is a list of things to
+    /// check, and a list that is merely believed is worth nothing. Each of these
+    /// is asserted at the moment it matters and reported per run, so the only
+    /// unexplained difference between a working and a non-working run is the one
+    /// variable left: the signature.
+    struct Checklist {
+        /// The embedded-UI framework is linked and its class is really there.
+        var embeddedUiLinked = false
+        /// The view had real area, full opacity, was not hidden, and was in a
+        /// visible key window BEFORE the evaluation started.
+        var viewReadyBeforeEvaluate = false
+        var viewFrame = "0x0"
+        var viewAlpha: Double = 0
+        var viewHidden = true
+        var windowVisibleAndKey = false
+        /// The context was made for this attempt, not reused from an earlier one.
+        var freshContext = false
+        /// The context evaluated is the same instance the view was built around.
+        var sameContextAsView = false
+        var canEvaluate = false
+        var canEvaluateError = "<none>"
+        /// The LAError code when the evaluation failed. 0 when it did not.
+        var evaluateErrorCode = 0
+        var evaluateErrorDomain = "<none>"
+        /// What the kernel says about this build's own hardening, which is the
+        /// variable the signing experiment moves.
+        var signatureValid = false
+        var hardenedRuntime = false
+        /// Whether this process may see other applications' windows at all.
+        ///
+        /// Without screen-recording permission the scan for the system's own
+        /// authentication alert can only ever come back empty, which is not the
+        /// same as the alert not being there. Saying so turns a misleading "none"
+        /// into an honest "cannot tell".
+        var screenScanPermitted = false
+        /// Which activation policy the probe ran under.
+        ///
+        /// The daemon is an `.accessory` app (no Dock icon) and the probe has
+        /// always been `.regular`. If the inline view behaves differently between
+        /// them, that difference belongs to the policy and not to the signature,
+        /// which is worth knowing before blaming a certificate.
+        var activationPolicy = "regular"
+
+        var asDictionary: [String: Any] {
+            return [
+                "embeddedUiLinked": embeddedUiLinked,
+                "viewReadyBeforeEvaluate": viewReadyBeforeEvaluate,
+                "viewFrame": viewFrame,
+                "viewAlpha": viewAlpha,
+                "viewHidden": viewHidden,
+                "windowVisibleAndKey": windowVisibleAndKey,
+                "freshContext": freshContext,
+                "sameContextAsView": sameContextAsView,
+                "canEvaluate": canEvaluate,
+                "canEvaluateError": canEvaluateError,
+                "evaluateErrorCode": evaluateErrorCode,
+                "evaluateErrorDomain": evaluateErrorDomain,
+                "signatureValid": signatureValid,
+                "hardenedRuntime": hardenedRuntime,
+                "screenScanPermitted": screenScanPermitted,
+                "activationPolicy": activationPolicy,
+            ]
+        }
+    }
+
     private struct ScanResult {
         let authenticated: Bool
         /// Whether the inline prompt ever looked usable: a view with real area,
@@ -317,6 +402,36 @@ enum EmbeddedUnlockProbe {
         let agentWindows: [String]
         let durationMs: Int
         let error: String?
+        var checklist = Checklist()
+    }
+
+    /// Give the window a moment to actually become key before doing anything
+    /// that depends on it being key.
+    ///
+    /// `makeKeyAndOrderFront` is a request, not a fact: the window server gets to
+    /// it when it gets to it, and a run started from a terminal can be a beat
+    /// behind. Polling briefly is the difference between testing the signature
+    /// and testing who had focus.
+    private static func waitForKeyWindow(
+        window: NSWindow,
+        app: NSApplication,
+        log: Log,
+        attemptsLeft: Int = 20,
+        then work: @escaping () -> Void
+    ) {
+        if window.isKeyWindow || attemptsLeft <= 0 {
+            log.note("window-key-wait-finished", [
+                "isKeyWindow": window.isKeyWindow,
+                "attemptsLeft": attemptsLeft,
+            ])
+            work()
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        app.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            waitForKeyWindow(window: window, app: app, log: log, attemptsLeft: attemptsLeft - 1, then: work)
+        }
     }
 
     /// Put an `LAAuthenticationView` on screen, bound to `context`, and evaluate.
@@ -330,19 +445,47 @@ enum EmbeddedUnlockProbe {
         context: LAContext,
         keyId: String,
         log: Log,
-        timeoutSeconds: TimeInterval
+        timeoutSeconds: TimeInterval,
+        checklist: Checklist
     ) -> ScanResult {
+        var checklist = checklist
         let app = NSApplication.shared
-        app.setActivationPolicy(.regular)
-        log.note("activation-policy-set", ["policy": "regular"])
+        // Overridable so the probe can be run the way the daemon actually runs:
+        // an accessory app with no Dock icon.
+        let wantsAccessory = ProcessInfo.processInfo.environment["_VARLOCK_PROBE_ACTIVATION"] == "accessory"
+        app.setActivationPolicy(wantsAccessory ? .accessory : .regular)
+        checklist.activationPolicy = wantsAccessory ? "accessory" : "regular"
+        log.note("activation-policy-set", ["policy": checklist.activationPolicy])
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 230),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "Varlock embedded unlock probe"
+        // The window can be built the probe's way or the panel's way, so a
+        // bisection can move one axis at a time between an environment where the
+        // inline view renders and one where it does not.
+        let wantsPanelWindow = ProcessInfo.processInfo.environment["_VARLOCK_PROBE_WINDOW"] == "panel"
+        let window: NSWindow = wantsPanelWindow
+            ? ApprovalPanelWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 230),
+                styleMask: [.titled, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            : NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 230),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+        if wantsPanelWindow {
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.level = .floating
+            window.appearance = NSAppearance(named: .darkAqua)
+            log.note("window-class", ["class": "ApprovalPanelWindow", "level": "floating"])
+        }
+        // A run that a person is watching has to say which run it is. Several of
+        // these windows look identical, and an experiment whose variants cannot
+        // be told apart is not an experiment.
+        let variantLabel = ProcessInfo.processInfo.environment["_VARLOCK_PROBE_LABEL"]
+        window.title = variantLabel.map { "Varlock probe: \($0)" } ?? "Varlock embedded unlock probe"
         window.level = .floating
         window.center()
 
@@ -351,6 +494,13 @@ enum EmbeddedUnlockProbe {
         stack.alignment = .centerX
         stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
+
+        if let variantLabel {
+            let banner = NSTextField(labelWithString: variantLabel.uppercased())
+            banner.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .bold)
+            banner.textColor = .systemPink
+            stack.addArrangedSubview(banner)
+        }
 
         let heading = NSTextField(labelWithString: "Unlock varlock encryption key \(keyId)")
         heading.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
@@ -365,7 +515,8 @@ enum EmbeddedUnlockProbe {
         explainer.textColor = .secondaryLabelColor
         stack.addArrangedSubview(explainer)
 
-        let authView = LAAuthenticationView(context: context, controlSize: .large)
+        let boundContext = context
+        let authView = LAAuthenticationView(context: boundContext, controlSize: .large)
         log.note("auth-view-created", [
             "boundToContext": String(UInt(bitPattern: ObjectIdentifier(authView.context).hashValue), radix: 16),
             "sameInstanceAsEvaluated": authView.context === context,
@@ -403,6 +554,9 @@ enum EmbeddedUnlockProbe {
             "isHidden": authView.isHidden,
             "hasWindow": authView.window != nil,
         ])
+        // The class has to exist at runtime, not just compile: a build that
+        // linked the framework and a build that did not look identical in source.
+        checklist.embeddedUiLinked = NSClassFromString("LAAuthenticationView") != nil
 
         window.makeKeyAndOrderFront(nil)
         app.activate(ignoringOtherApps: true)
@@ -416,7 +570,8 @@ enum EmbeddedUnlockProbe {
         var result = ScanResult(
             authenticated: false, armed: false, inlineDrew: false, agentWindows: [],
             durationMs: 0,
-            error: "the probe window closed before anything happened"
+            error: "the probe window closed before anything happened",
+            checklist: checklist
         )
         let start = Date()
         var finished = false
@@ -431,7 +586,11 @@ enum EmbeddedUnlockProbe {
             finished = true
             result = outcome
             window.orderOut(nil)
-            NSApp.stop(nil)
+            if ProcessInfo.processInfo.environment["_VARLOCK_PROBE_MODAL"] == "1" {
+                NSApp.stopModal()
+            } else {
+                NSApp.stop(nil)
+            }
             // stop(_:) only takes effect once the loop processes another event.
             NSApp.postEvent(
                 NSEvent.otherEvent(
@@ -443,8 +602,10 @@ enum EmbeddedUnlockProbe {
         }
 
         // Evaluate from inside the running loop, once the window is genuinely on
-        // screen. Doing it before `run()` was the other ordering suspect.
-        DispatchQueue.main.async {
+        // screen AND key. Doing it before `run()` was the other ordering suspect,
+        // and evaluating into a window that had not become key yet would leave
+        // the checklist answering a question nobody asked.
+        waitForKeyWindow(window: window, app: app, log: log) {
             log.note("evaluatePolicy-invoked", [
                 "policy": "deviceOwnerAuthenticationWithBiometrics",
                 "onContext": String(UInt(bitPattern: ObjectIdentifier(context).hashValue), radix: 16),
@@ -454,6 +615,27 @@ enum EmbeddedUnlockProbe {
                 "windowIsKey": window.isKeyWindow,
                 "appIsActive": app.isActive,
             ])
+            // Everything the view is supposed to need, checked at the last
+            // moment before the evaluation rather than taken on trust.
+            authView.layoutSubtreeIfNeeded()
+            checklist.viewFrame = "\(Int(authView.frame.width))x\(Int(authView.frame.height))"
+            checklist.viewAlpha = Double(authView.alphaValue)
+            checklist.viewHidden = authView.isHidden
+            checklist.windowVisibleAndKey = window.isVisible && window.isKeyWindow
+            checklist.viewReadyBeforeEvaluate = authView.frame.width >= 44
+                && authView.frame.height >= 44
+                && authView.alphaValue == 1
+                && !authView.isHidden
+                && authView.window != nil
+                && checklist.windowVisibleAndKey
+            checklist.sameContextAsView = boundContext === context
+            log.note("checklist-before-evaluate", checklist.asDictionary)
+            // Measured again shortly after the evaluation starts, since the view
+            // draws in response to it rather than before.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                log.note("scan-pixels", WindowPixels.sample(authView).asDictionary)
+            }
+
             evaluateInvoked = true
             context.evaluatePolicy(
                 .deviceOwnerAuthenticationWithBiometrics,
@@ -467,6 +649,8 @@ enum EmbeddedUnlockProbe {
                         "errorDomain": nsError?.domain ?? "<none>",
                         "errorCode": nsError?.code ?? 0,
                     ])
+                    checklist.evaluateErrorCode = nsError?.code ?? 0
+                    checklist.evaluateErrorDomain = nsError?.domain ?? "<none>"
                     inlineEverDrew = inlineEverDrew || inlineViewDrewSomething(authView)
                     agentWindowsSeen.formUnion(authAgentWindowOwners())
                     finish(ScanResult(
@@ -476,7 +660,8 @@ enum EmbeddedUnlockProbe {
                         agentWindows: agentWindowsSeen.sorted(),
                         durationMs: Int(Date().timeIntervalSince(start) * 1000),
                         error: success ? nil : "authentication did not complete: "
-                            + (nsError?.localizedDescription ?? "unknown")
+                            + (nsError?.localizedDescription ?? "unknown"),
+                        checklist: checklist
                     ))
                 }
             }
@@ -526,11 +711,21 @@ enum EmbeddedUnlockProbe {
                 agentWindows: agentWindowsSeen.sorted(),
                 durationMs: Int(Date().timeIntervalSince(start) * 1000),
                 error: "nobody answered the embedded prompt within \(Int(timeoutSeconds))s"
-                    + (hadArea ? "" : "; the inline view had no drawable area, so there was nothing to touch")
+                    + (hadArea ? "" : "; the inline view had no drawable area, so there was nothing to touch"),
+                checklist: checklist
             ))
         }
 
-        app.run()
+        // The panel runs its window in a nested modal session; the probe has
+        // always used the plain run loop. Which of those the inline view can
+        // live with is exactly the sort of thing this probe exists to find out.
+        if ProcessInfo.processInfo.environment["_VARLOCK_PROBE_MODAL"] == "1" {
+            log.note("run-mode", ["mode": "runModal"])
+            _ = app.runModal(for: window)
+        } else {
+            log.note("run-mode", ["mode": "run"])
+            app.run()
+        }
         heartbeat.invalidate()
         log.note("run-loop-exited")
         return result
