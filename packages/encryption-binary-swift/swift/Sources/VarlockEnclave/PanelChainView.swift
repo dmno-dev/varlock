@@ -215,23 +215,38 @@ final class PanelChainView: NSView {
     }
 
     /// The session root: which agent, which session, and when it started.
+    ///
+    /// Two lines, because the title is the part a person recognises and a title
+    /// squeezed onto the end of a row is a title that gets truncated. The row is
+    /// allowed to be taller than the others; it is the one row on the panel most
+    /// likely to change the answer.
     private func sessionRow(_ hop: ExecutionHop) -> NSStackView {
-        let row = PanelStyle.row(spacing: 8)
-        guard let session = hop.agentSession else { return row }
+        let column = PanelStyle.column(spacing: 2)
+        guard let session = hop.agentSession else { return column }
 
-        row.addArrangedSubview(icon(for: hop))
+        let heading = PanelStyle.row(spacing: 8)
+        heading.addArrangedSubview(icon(for: hop))
         let name = PanelStyle.label(
             session.productName,
             size: 12.5,
             color: PanelStyle.sessionInk,
             weight: .semibold
         )
-        // Which agent it is, and that this row is the session root, are the two
-        // things this row exists to say. A long session title gives way to them
-        // rather than the other way round.
         name.setContentCompressionResistancePriority(.required, for: .horizontal)
-        row.addArrangedSubview(name)
-        row.addArrangedSubview(sessionRootTag())
+        heading.addArrangedSubview(name)
+        heading.addArrangedSubview(sessionRootTag())
+        heading.addArrangedSubview(PanelStyle.spacer())
+        if let started = startedLabel(session.startTime) {
+            heading.addArrangedSubview(PanelStyle.label(
+                "started \(started)",
+                size: 9.5,
+                color: PanelStyle.inkQuiet
+            ))
+        }
+        if let path = hop.path { heading.addArrangedSubview(pathLabel(path)) }
+        column.addArrangedSubview(heading)
+        heading.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+
         if let title = session.title {
             let titleLabel = PanelStyle.label(
                 "\u{201C}\(title)\u{201D}",
@@ -242,18 +257,14 @@ final class PanelChainView: NSView {
                 NSFont.systemFont(ofSize: 11.5),
                 toHaveTrait: .italicFontMask
             )
-            row.addArrangedSubview(titleLabel)
+            // Wraps rather than truncates: this is the line that tells one
+            // session apart from another.
+            titleLabel.lineBreakMode = .byWordWrapping
+            titleLabel.maximumNumberOfLines = 3
+            titleLabel.preferredMaxLayoutWidth = PanelStyle.contentWidth - 72
+            column.addArrangedSubview(titleLabel)
         }
-        row.addArrangedSubview(PanelStyle.spacer())
-        if let started = startedLabel(session.startTime) {
-            row.addArrangedSubview(PanelStyle.label(
-                "started \(started)",
-                size: 9.5,
-                color: PanelStyle.inkQuiet
-            ))
-        }
-        if let path = hop.path { pathLabels.append(pathLabel(path)) }
-        return row
+        return column
     }
 
     /// The chip that says out loud what the tint means.
