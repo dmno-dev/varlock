@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   dirname, join, resolve, relative,
@@ -8,6 +8,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PKG_DIR = join(__dirname, '..');
 const ENTRY = join(PKG_DIR, 'dist/cli/cli-executable.mjs');
+const ENTRY_SRC = join(PKG_DIR, 'src/cli/cli-executable.ts');
 
 /**
  * The CLI entry must only ever parse command *specs* at startup - every command
@@ -24,7 +25,11 @@ const ENTRY = join(PKG_DIR, 'dist/cli/cli-executable.mjs');
  * entry would reintroduce exactly that, so the assertion has to be made against
  * the artifact.
  *
- * `test:ci` dependsOn `build` in turbo.json, so dist is present and current here.
+ * `test:ci` dependsOn `build` in turbo.json, so dist is present and current when
+ * this runs through turbo. Invoking vitest directly (including
+ * `bun run --filter varlock test:ci`, which does not go through turbo) skips that
+ * build, so the staleness guard below covers the case where dist predates the
+ * source this compares it against.
  */
 
 /** Static (non-dynamic) relative imports of a built chunk. */
@@ -86,6 +91,28 @@ describe('CLI startup bundle boundaries', () => {
   if (!existsSync(ENTRY)) {
     it('requires a build', () => {
       throw new Error(`${relative(PKG_DIR, ENTRY)} not found - run \`bun run build\` first`);
+    });
+    return;
+  }
+
+  // The last check reads the registration list out of the entry's *source* and
+  // looks for a matching chunk in the *built* entry, so a dist older than that
+  // source is being compared against a build that predates it. A command added
+  // since the last build then looks like one that was never made lazy, which
+  // sends you hunting a bug that is not there. Say what actually happened.
+  //
+  // Only this one source file is checked, since it is the only one the
+  // comparison reads: editing anything else in src does not invalidate it, and
+  // making every edit turn this red would just be noise. Running through turbo
+  // cannot trip it, because `test:ci` dependsOn `build` and a restored cache
+  // writes its outputs fresh. Running vitest directly against a stale dist can.
+  if (statSync(ENTRY).mtimeMs < statSync(ENTRY_SRC).mtimeMs) {
+    it('requires a current build', () => {
+      throw new Error([
+        `${relative(PKG_DIR, ENTRY)} is older than ${relative(PKG_DIR, ENTRY_SRC)},`,
+        'so this would check the command list against a stale bundle.',
+        'Run `bun run build` (or `bun run test:ci` from the repo root, which builds first).',
+      ].join('\n'));
     });
     return;
   }
