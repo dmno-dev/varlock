@@ -817,6 +817,56 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     await upstream.close();
   });
 
+  test('a short secret bound to another route does not corrupt an unrelated response', async () => {
+    // Scrubbing is substring replacement with no token boundary, so a short
+    // sensitive value configured for a DIFFERENT domain must not rewrite
+    // ordinary text in this one's response. (Only ruled hosts are MITM'd at all,
+    // so this is the reachable case: two domains that both have rules.) A long
+    // cross-route value is still scrubbed: a chance collision is implausible
+    // there, so a match is a real reflection rather than coincidence.
+    const upstream = await startUpstream((req, res) => {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.setHeader('x-status', 'ok');
+      res.end(JSON.stringify({
+        status: 'ok', note: 'not ok yet', region: 'us-ok-1', leaked: 'us-ok-1-long-enough-secret',
+      }));
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [
+        { key: 'SHORT_PIN', placeholder: 'vlk_ph_short_pin', realValue: 'ok' },
+        { key: 'LONG_SECRET', placeholder: 'vlk_ph_long', realValue: 'us-ok-1-long-enough-secret' },
+      ],
+      rules: [
+        // this host has a rule (so it is MITM'd) but injects nothing here
+        { domain: [UPSTREAM_HOST], itemKeys: [] },
+        // ...while both secrets belong to a domain this request never talks to
+        { domain: ['other.example.com'], itemKeys: ['SHORT_PIN', 'LONG_SECRET'] },
+      ],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    // every ordinary "ok" survives untouched, in the body and in a header
+    expect(response).toContain('"status":"ok"');
+    expect(response).toContain('"note":"not ok yet"');
+    expect(response).toContain('"region":"us-ok-1"');
+    expect(response).toContain('x-status: ok');
+    // ...while the long cross-route secret the upstream reflected IS scrubbed
+    expect(response).not.toContain('us-ok-1-long-enough-secret');
+    expect(response).toContain('vlk_ph_long');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('http-basic: a reflected Authorization header is scrubbed from the response', async () => {
     // an endpoint that echoes the request's Authorization back would otherwise
     // hand the child a base64 token it can decode into the real password

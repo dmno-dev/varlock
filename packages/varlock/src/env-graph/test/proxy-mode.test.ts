@@ -709,6 +709,25 @@ describe('proxy decorators', () => {
     `);
     await expect(roleCollision.getProxyRules()).rejects.toThrow(/both reference "API_SECRET"/);
 
+    // ...but two options in the SAME role may share an item: http-basic consumes
+    // both sides, so one item for both just sends `base64(v:v)` and exposes
+    // nothing the transform was not already given.
+    const sameRoleReuse = await loadGraph(outdent`
+      # @proxy(domain="api.a.com", transform={
+      #   scheme="http-basic", username=$API_SECRET, password=$API_SECRET,
+      # })
+      # ---
+      # @sensitive
+      API_SECRET=shhh
+    `);
+    const reuseRules = await sameRoleReuse.getProxyRules();
+    expect(reuseRules).toHaveLength(1);
+    expect(reuseRules[0].transform).toMatchObject({
+      scheme: 'http-basic',
+      username: { itemRef: 'API_SECRET' },
+      password: { itemRef: 'API_SECRET' },
+    });
+
     // a second write to the signature's header would silently overwrite it
     const headerCollision = await loadGraph(outdent`
       # ---

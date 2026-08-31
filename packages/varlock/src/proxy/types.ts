@@ -531,19 +531,24 @@ export function validateProxyTransformConfig(
   if (!opts?.partial) {
     if (schemeName === undefined) return 'transform.scheme is required (e.g. scheme="hmac-sha256")';
 
-    // Two roles naming the same item would resolve one item into both a
-    // consumed and a wire-visible position, sending the consumed credential
-    // upstream. Reject regardless of scheme.
-    const itemsByOption = new Map<string, Array<string>>();
+    // One item named by BOTH a consumed and a wire-visible option would be
+    // withheld from the wire in one role and sent upstream in the other, which
+    // leaks the consumed credential. Only the cross-role case is an exposure:
+    // reusing one item across two same-role options is merely redundant
+    // (http-basic's username and password are both consumed, so pointing them
+    // at one item just sends `base64(v:v)` and reveals nothing new).
+    const itemsByOption = new Map<string, { role: 'consumed' | 'wire'; items: Array<string> }>();
     for (const [key, optionSpec] of Object.entries(optionSpecs)) {
       const names = proxyTransformItemRefNames(optionSpec, obj[key]);
-      if (names.length) itemsByOption.set(key, names);
+      if (names.length && optionSpec.itemRole) itemsByOption.set(key, { role: optionSpec.itemRole, items: names });
     }
-    for (const [keyA, itemsA] of itemsByOption) {
-      for (const [keyB, itemsB] of itemsByOption) {
-        const shared = keyA < keyB ? itemsA.find((name) => itemsB.includes(name)) : undefined;
+    for (const [keyA, a] of itemsByOption) {
+      for (const [keyB, b] of itemsByOption) {
+        if (keyA >= keyB || a.role === b.role) continue;
+        const shared = a.items.find((name) => b.items.includes(name));
         if (shared) {
-          return `transform.${keyA} and transform.${keyB} both reference "${shared}"; each credential role needs its own item (one of these is sent upstream, the other is consumed by the transform)`;
+          const [consumedKey, wireKey] = a.role === 'consumed' ? [keyA, keyB] : [keyB, keyA];
+          return `transform.${keyA} and transform.${keyB} both reference "${shared}", but transform.${consumedKey} is consumed by the transform while transform.${wireKey} is sent upstream; using one item for both would put the consumed credential on the wire`;
         }
       }
     }

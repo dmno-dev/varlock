@@ -39,6 +39,17 @@ import {
 const LOCALHOST = '127.0.0.1';
 
 /**
+ * Length floor for scrubbing a sensitive value from a response on a route it
+ * cannot reach. Scrubbing is substring replacement with no token boundary, so a
+ * short value would corrupt unrelated content; below this length a chance
+ * collision in ordinary text is far likelier than a genuine reflection of a
+ * credential the upstream was never given. Values that CAN reach the upstream
+ * bypass this entirely, so a legitimately short secret is still protected on the
+ * routes where it actually travels.
+ */
+const MIN_CROSS_ROUTE_SCRUB_LENGTH = 8;
+
+/**
  * Stand-in written over a reflected transform credential in a response.
  *
  * Deliberately NOT a `vlk_placeholder_*` string. Response scrubbing normally
@@ -696,6 +707,23 @@ export function canonicalTransformKey(transform: ProxyRuleTransform): string {
   return JSON.stringify(entries);
 }
 
+/** Item keys one transform names in a given role, read from its scheme's option specs. */
+export function transformItemKeys(
+  transform: ProxyRuleTransform,
+  transformSchemes: Record<string, ProxyTransformSchemeDef>,
+  role: 'consumed' | 'wire',
+): Array<string> {
+  const spec = transformSchemes[transform.scheme];
+  const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
+  const keys: Array<string> = [];
+  for (const [option, optionSpec] of Object.entries(optionSpecs)) {
+    if (optionSpec.itemRole !== role) continue;
+    const itemName = proxyTransformItemRefName(optionSpec, transform[option]);
+    if (itemName !== undefined) keys.push(itemName);
+  }
+  return keys;
+}
+
 /**
  * Item keys consumed by transform schemes (credentials and any other
  * consumed-role options), read from the scheme option specs.
@@ -707,13 +735,7 @@ export function collectConsumedTransformKeys(
   const keys = new Set<string>();
   for (const rule of rules) {
     if (!rule.transform) continue;
-    const spec = transformSchemes[rule.transform.scheme];
-    const optionSpecs = { ...PROXY_TRANSFORM_COMMON_OPTION_SPECS, ...spec?.options };
-    for (const [option, optionSpec] of Object.entries(optionSpecs)) {
-      if (optionSpec.itemRole !== 'consumed') continue;
-      const itemName = proxyTransformItemRefName(optionSpec, rule.transform[option]);
-      if (itemName !== undefined) keys.add(itemName);
-    }
+    for (const key of transformItemKeys(rule.transform, transformSchemes, 'consumed')) keys.add(key);
   }
   return keys;
 }
@@ -1557,7 +1579,26 @@ export async function startLocalProxyRuntime({
     // the ones substituted into this request: a consumed transform credential, or
     // a secret bound for another route, is just as damaging reflected back. A
     // scheme may add derived forms the runtime cannot compute (see below).
-    const responseScrubItems: Array<ProxyManagedItem> = managedItems.filter((item) => item.isSensitive !== false);
+    //
+    // That wide net has a cost, though, because scrubbing is plain substring
+    // replacement: a SHORT sensitive value configured for another route ("ok",
+    // "true") would rewrite ordinary text in this route's response, and in
+    // permissive mode that means corrupting passthrough traffic it can never
+    // legitimately appear in. So values that can actually reach this upstream are
+    // always scrubbed, whatever their length, and everything else must clear a
+    // length floor to be worth the false-positive risk.
+    const reachesThisUpstream = new Set([
+      ...hostItems.map((item) => item.key),
+      ...(activeTransform ? [
+        ...transformItemKeys(activeTransform, transformSchemes, 'consumed'),
+        ...transformItemKeys(activeTransform, transformSchemes, 'wire'),
+      ] : []),
+    ]);
+    const responseScrubItems: Array<ProxyManagedItem> = managedItems.filter((item) => {
+      if (item.isSensitive === false) return false;
+      if (reachesThisUpstream.has(item.key)) return true;
+      return item.realValue.length >= MIN_CROSS_ROUTE_SCRUB_LENGTH;
+    });
 
     const upstreamHeaders = transformHeaders(
       req.headers,
