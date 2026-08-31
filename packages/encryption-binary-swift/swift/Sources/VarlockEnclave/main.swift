@@ -90,12 +90,20 @@ func panelRequesterForPid(_ pid: pid_t?) -> PanelRequester {
         return PanelRequester(summary: "Requested by an unidentified process")
     }
     let described = describeRequester(forPid: pid)
+    // Best effort and bounded: a chain that could not be read costs the panel
+    // its detail, never its appearance. The timing is recorded because that is
+    // the failure worth catching, and it is invisible from the outside.
+    let startedAt = Date()
+    let chain = ExecutionChainBuilder().build(forPid: pid)
+    PanelDebug.note("requester-chain", [
+        "hops": chain.hops.count,
+        "agent": chain.agentSession?.productName ?? "",
+        "ms": Int(Date().timeIntervalSince(startedAt) * 1000),
+    ])
     return PanelRequester(
         summary: described.summaryLine,
         details: described.detailLines.map { .derived($0) },
-        // Best effort and bounded: a chain that could not be read costs the
-        // panel its detail, never its appearance.
-        chain: ExecutionChainBuilder().build(forPid: pid)
+        chain: chain
     )
 }
 
@@ -916,6 +924,9 @@ case "help", "--help", "-h":
                                              Touch ID prompt
       probe-laright                          Spike: does LARight draw its prompt
                                              inline, and can its key hold our wrap
+      panel-preview --out <file.png> [--payload <file.json>]
+                                      Draw the approval panel to a PNG, without
+                                      showing it or unlocking anything
 
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)

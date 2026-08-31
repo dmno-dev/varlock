@@ -196,28 +196,49 @@ is the only party that can say truthfully who is asking.
 The panel arms the presence check the moment it opens, so **the scan is the
 approval**: the common case costs one gesture, with no separate confirm click.
 
-Where the Touch ID prompt is *drawn* is up to macOS. The panel binds an
-`LAAuthenticationView` to the context, which is supposed to render the prompt
-inline, but in practice macOS has presented its own standard alert instead while
-that view stayed blank. See "Which prompt actually appears" below. The panel draws
-its own Touch ID affordance underneath the system's view, so it reads correctly
-either way and never shows an empty square.
+The panel is a window the daemon draws itself, not an `NSAlert`: the layout is the
+message, and an alert can hold text and buttons and nothing else. It never embeds
+`LAAuthenticationView`. That view is supposed to render the Touch ID prompt inline
+and in practice has come up blank while macOS presented its own alert separately
+(see "Which prompt actually appears" below), which left a panel showing an empty
+square. The fingerprint glyph in the approve button is ours, and it breathes
+exactly while a presence check is genuinely armed.
 
-The panel shows, at rest:
+The panel shows, top to bottom:
 
-- **who is asking**, in one derived line: the process that connected and the
-  terminal it is running in (`Requested by node in ttys004`). Read off the peer, so
-  a caller cannot dress itself up as something else.
-- **what would be unlocked**: the key ids, with a value count per key when the
-  client sent one.
+- a **top bar**: the varlock mark, and one standing fact about approvals (what
+  ends a session and its 12h cap, or that unlocks are recorded).
+- a **heading**: which keys, and which project asked. `varlock-default` is called
+  `local encryption` here; its id is an implementation detail nobody should have
+  to read off a panel.
+- the **key box**: one row per key, with the vault it belongs to and how many
+  values it covers. A row opens to the value names, grouped by the file that
+  defined them, under a line saying they were reported by the client. They were:
+  the daemon has no way to know what an env value is called, and does not lend its
+  credibility to a string a caller sent. None of it is bound into the crypto.
+- the **execution chain**: the line of processes leading to the caller, read off
+  the peer. The hop that decides what runs is emphasised (a script rather than the
+  interpreter running it), the app that was launched sits at the top with its icon
+  and the controlling terminal, and shells and varlock itself are drawn small and
+  fold into "N more steps" on a long chain. Opening that shows each hop's path and
+  code-signing posture: a green dot for signed with the hardened runtime, an amber
+  triangle where an interpreter is running a script, and nothing at all where the
+  daemon could not read an answer. A request from a coding-agent session gets a
+  badge naming the product and when the session started.
 - **for how long**: this session (the default), once, or a set time (1, 4, or 8
   hours). Everything is still capped at 12h.
-- the **scan affordance** itself.
+- the **actions**: a quiet Deny, and a wide approve button carrying the glyph. On a
+  machine with no usable sensor the approve button is the password path itself and
+  there is no link offering it separately; where there is a sensor, "Use
+  password..." moves this same approval onto the device-password check.
 
-Behind a "Details" disclosure sit the full process chain (`node ← claude ← zsh`),
-the terminal line, and any **client-supplied context** (project name and path). The
-client's lines are drawn dimmed and always below the derived ones. They are
-decoration: they change the wording, never the decision.
+Reading the chain is best effort and bounded by a deadline
+(`ExecutionChainBuilder`): a process that exits mid-walk, a signature that cannot
+be checked, or a slow machine costs the panel a detail, never its appearance.
+
+Client-supplied context (project name and path, value names, vault labels) only
+ever changes the wording. It can never change which keys are unlocked, which
+scopes are offered, or whether a prompt happens at all.
 
 Nothing is modal over the panel while the prompt is armed, so the scope controls
 stay live and **the scan approves whatever is selected at the moment the finger
@@ -251,8 +272,8 @@ Two answers other than yes:
 
 A key created with `--auth-every-time` never receives a lasting grant. The panel
 offers `once` alone for it, and every later batch of decrypts asks again. In a
-mixed batch it is listed under its own "asks every time" heading, and it takes a
-`once` grant no matter which scope the rest of the batch was approved for.
+mixed batch its row is marked "asks every time", and it takes a `once` grant no
+matter which scope the rest of the batch was approved for.
 
 The policy is recorded next to the key, in `<key store>/<keyId>.policy.json`, which
 `generate-key` now always writes. It carries two separate things: `authMode`, which
@@ -285,22 +306,38 @@ an unattended run cannot hang.
 
 ### Seeing the panel
 
-The panel needs a person, so it is a manual check:
+`scripts/demo-panel.ts` puts the real panel on screen, one state at a time,
+against a scratch config home and ungated keys. No fingerprint is needed: the
+keys have no gate and the prompt is forced, so approving will not scan. The point
+is the layout and the copy.
 
 ```bash
 swift build --package-path swift
-
-# a throwaway gated key and identity live under a scratch config home
-export XDG_CONFIG_HOME=$(mktemp -d)
-./swift/.build/debug/VarlockEnclave generate-key --key-id varlock-panel-demo
+bun run scripts/demo-panel.ts               # every state in turn
+bun run scripts/demo-panel.ts --only agent  # just one
 ```
 
-Then write an identity wrapped to that key and run the daemon against it. The
-quickest route is to copy the setup block from `scripts/e2e-identity-session.ts`
-and drop the `--no-auth` flag: with a gated key, `unlock-session` shows the panel.
+The states are `single` (one key, value names behind its row), `two` (a second
+key in a team vault), `agent` (the same request sent by a script run by bun,
+inside something that looks like an agent session, which is what the execution
+chain is there to show), and `delta` (a second key while the session already
+holds one). The agent state re-runs the demo as a child process on purpose: the
+chain is read off whoever connects, so a faked one would prove nothing.
 
-The panel is what `varlock load` shows against a gated key, so that is the better
-check: it exercises the same path a user actually meets.
+For a still picture of a state, including ones that need hardware you do not
+have, `panel-preview` renders the same view tree to a PNG without asking anyone
+anything. Nothing is unlocked and no key is touched:
+
+```bash
+./swift/.build/debug/VarlockEnclave panel-preview --payload state.json --out /tmp/panel.png
+```
+
+The payload is an `unlock-session` payload (`keyIds`, `display`, `lockOn`) plus
+three fields only the preview understands: `mode` (`embedded`, `systemDialog`, or
+`none`), `strictKeyIds`, and `coveredKeyIds` for the delta state.
+
+The panel is also what `varlock load` shows against a gated key, which is the
+better final check: it exercises the same path a user actually meets.
 
 `scripts/e2e-panel-arming.ts` covers the part a person cannot see, which is that the
 presence check is actually armed. Run it first; if it fails, the panel is inert and

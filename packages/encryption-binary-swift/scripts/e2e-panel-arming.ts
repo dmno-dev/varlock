@@ -157,6 +157,27 @@ async function armingRun(
 
     check('the panel was shown', stderr.includes('panel-shown'), stderr.slice(-400));
 
+    // The panel now reads the peer's ancestry before it draws. That inspection
+    // touches other processes, so it is exactly the kind of work that could
+    // quietly grow into a delay nobody notices until an unlock feels slow. It
+    // has to happen, it has to finish, and it has to be over before the panel
+    // appears rather than racing it.
+    const chainNote = stderr.match(/requester-chain .*hops=(\d+).*ms=(\d+)/)
+      ?? stderr.match(/requester-chain .*ms=(\d+).*hops=(\d+)/);
+    check('the process chain behind the caller was read', Boolean(chainNote), stderr.slice(-400));
+    if (chainNote) {
+      const [hops, ms] = stderr.includes('hops=') && stderr.indexOf('hops=') < stderr.indexOf('ms=')
+        ? [Number(chainNote[1]), Number(chainNote[2])]
+        : [Number(chainNote[2]), Number(chainNote[1])];
+      check('the chain names at least the caller', hops >= 1, { hops });
+      check('reading it did not hold up the panel', ms < 1_000, { ms });
+      check(
+        'it was read before the panel was drawn, not while it was up',
+        stderr.indexOf('requester-chain') < stderr.indexOf('panel-shown'),
+        stderr.slice(-400),
+      );
+    }
+
     // Assert on the ORDER of the flow's effects rather than on what has or has
     // not happened by a deadline. Someone sitting at this machine can press the
     // panel's button while the script runs, and a timing-based check would call
