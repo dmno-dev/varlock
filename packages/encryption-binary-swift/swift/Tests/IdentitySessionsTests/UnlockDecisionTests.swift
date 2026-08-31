@@ -192,12 +192,82 @@ final class UnlockDecisionTests: XCTestCase {
                 details: [.derived("Process: node ← claude"), .derived("Terminal ttys004")]
             )
         )
-        XCTAssertEqual(content.title, "Unlock encryption key varlock-default")
+        // The default key's id is an implementation detail; the panel says what
+        // it is instead, and draws the name as an identifier.
+        XCTAssertEqual(content.title, "Unlock local encryption")
+        XCTAssertEqual(content.titleSegments, [.plain("Unlock "), .code("local encryption")])
         XCTAssertEqual(content.confirmButtonTitle, "Unlock")
         // One line at rest, the chain behind the disclosure.
         XCTAssertEqual(content.requester.summary, "Requested by node in ttys004")
         XCTAssertEqual(content.requester.details.count, 2)
-        XCTAssertEqual(content.itemGroups.first?.items.first?.detail, "12 values")
+        XCTAssertEqual(content.keyRows.first?.keyId, "varlock-default")
+        XCTAssertEqual(content.keyRows.first?.valueCountLabel, "12 values")
+    }
+
+    func testTwoKeysAreBothNamedInTheHeading() {
+        let plan = UnlockPlanner.plan(
+            requested: [key("dev"), key("prod")],
+            requestedScope: .session,
+            existing: [:]
+        )
+        let content = UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: ""))
+        XCTAssertEqual(content.title, "Unlock dev and prod")
+        XCTAssertEqual(content.keyRows.map { $0.displayName }, ["dev", "prod"])
+    }
+
+    func testTheProjectIsTheHerosSecondLine() {
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            display: UnlockDisplayInfo(projectName: "acme-api")
+        )
+        XCTAssertEqual(content.subtitle, "for acme-api")
+    }
+
+    func testTheVaultTagNamesTheVaultAndNeverRepeatsTheRow() {
+        let plan = UnlockPlanner.plan(
+            requested: [key("varlock-default"), key("prod")],
+            requestedScope: .session,
+            existing: [:]
+        )
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            display: UnlockDisplayInfo(keys: [
+                "prod": UnlockKeyDisplay(vaultLabel: "acme-team vault", vaultColor: "#b48ce8"),
+            ])
+        )
+        let rows = Dictionary(uniqueKeysWithValues: content.keyRows.map { ($0.keyId, $0) })
+        // The default key is already called "local encryption", so tagging it
+        // with the same words would only be the row saying itself twice.
+        XCTAssertNil(rows["varlock-default"]?.vaultLabel)
+        XCTAssertEqual(rows["prod"]?.vaultLabel, "acme-team vault")
+        XCTAssertEqual(rows["prod"]?.vaultColor, "#b48ce8")
+    }
+
+    func testTheTopBarFactFollowsWhatTheApprovalCanActuallyDo() {
+        let sessionPlan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        XCTAssertEqual(
+            UnlockPanelContent.build(
+                plan: sessionPlan,
+                requester: PanelRequester(summary: ""),
+                lockOn: .screenLock
+            ).factLine,
+            "Sessions end on screen lock \u{00B7} 12h max"
+        )
+
+        // A batch that can only ever be approved once has no session to talk
+        // about, so the fact worth stating is the other one.
+        let strictPlan = UnlockPlanner.plan(
+            requested: [key("prod", .everyTime)],
+            requestedScope: .session,
+            existing: [:]
+        )
+        XCTAssertEqual(
+            UnlockPanelContent.build(plan: strictPlan, requester: PanelRequester(summary: "")).factLine,
+            "Recorded to the audit log"
+        )
     }
 
     func testDeltaPanelAsksOnlyAboutTheNewKey() {
@@ -207,23 +277,39 @@ final class UnlockDecisionTests: XCTestCase {
             existing: ["dev": live(.session, expiresIn: 4 * hour)]
         )
         let content = UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: ""))
-        XCTAssertEqual(content.title, "Also unlock prod?")
-        XCTAssertEqual(content.subtitle, "This session already has 1 other key unlocked.")
-        XCTAssertEqual(content.itemGroups.flatMap { $0.items }.map { $0.label }, ["prod"])
+        XCTAssertEqual(content.title, "Also unlock prod")
+        XCTAssertEqual(content.notes, ["This session already has 1 other key unlocked."])
+        XCTAssertEqual(content.keyRows.map { $0.keyId }, ["prod"])
     }
 
-    func testStrictKeysGetTheirOwnGroupOnThePanel() {
+    func testAStrictKeyIsMarkedOnItsOwnRow() {
         let plan = UnlockPlanner.plan(
             requested: [key("dev"), key("prod", .everyTime)],
             requestedScope: .session,
             existing: [:]
         )
         let content = UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: ""))
-        XCTAssertEqual(content.itemGroups.count, 2)
-        XCTAssertNil(content.itemGroups[0].heading)
-        XCTAssertEqual(content.itemGroups[0].items.map { $0.label }, ["dev"])
-        XCTAssertEqual(content.itemGroups[1].heading, "Asks every time, whatever you pick below")
-        XCTAssertEqual(content.itemGroups[1].items.map { $0.label }, ["prod"])
+        XCTAssertEqual(content.keyRows.map { $0.keyId }, ["dev", "prod"])
+        XCTAssertNil(content.keyRows[0].note)
+        XCTAssertEqual(content.keyRows[1].note, "asks every time")
+    }
+
+    func testValueNamesRideAlongOnTheirKeysRow() {
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            display: UnlockDisplayInfo(keys: [
+                "dev": UnlockKeyDisplay(
+                    valueCount: 2,
+                    files: [UnlockValueFile(path: ".env", valueNames: ["DATABASE_URL", "STRIPE_KEY"])]
+                ),
+            ])
+        )
+        let row = content.keyRows[0]
+        XCTAssertEqual(row.valueCountLabel, "2 values")
+        XCTAssertTrue(row.isExpandable)
+        XCTAssertEqual(row.files.first?.valueNames, ["DATABASE_URL", "STRIPE_KEY"])
     }
 
     func testClientSuppliedLinesAreMarkedAsSuch() {

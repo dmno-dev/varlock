@@ -28,6 +28,9 @@ final class TouchIDGlyphView: NSView {
 
     private let imageView = NSImageView()
     private var currentEffect: PanelGlyphEffect = .still
+    /// The colour the glyph rests and breathes in. Overridden when the glyph
+    /// sits on a coloured button, where the system's pink would be unreadable.
+    private var baseTint: NSColor = TouchIDGlyphView.restingColor
 
     private enum AnimationKey {
         static let pulse = "varlock.glyph.pulse"
@@ -50,7 +53,7 @@ final class TouchIDGlyphView: NSView {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.image = NSImage(systemSymbolName: "touchid", accessibilityDescription: "Touch ID")
         imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.contentTintColor = Self.restingColor
+        imageView.contentTintColor = baseTint
         imageView.wantsLayer = true
         addSubview(imageView)
         NSLayoutConstraint.activate([
@@ -73,6 +76,12 @@ final class TouchIDGlyphView: NSView {
         }
     }
 
+    /// Draw in a different colour, for a glyph on a coloured background.
+    func setBaseTint(_ color: NSColor) {
+        baseTint = color
+        imageView.contentTintColor = color
+    }
+
     func apply(_ effect: PanelGlyphEffect) {
         guard effect != currentEffect || effect == .shakeThenStill else { return }
         currentEffect = effect
@@ -83,19 +92,19 @@ final class TouchIDGlyphView: NSView {
         case .still:
             // Dim: nothing is listening. Without motion this is the only thing
             // separating "idle" from "armed", so the two must not look alike.
-            imageView.contentTintColor = Self.restingColor
+            imageView.contentTintColor = baseTint
             layer.opacity = Self.restingOpacity
         case .armedStill:
             // Reduce motion: say "listening" with full strength rather than
             // movement.
-            imageView.contentTintColor = Self.restingColor
+            imageView.contentTintColor = baseTint
             layer.opacity = 1
         case .pulse:
-            imageView.contentTintColor = Self.restingColor
+            imageView.contentTintColor = baseTint
             layer.opacity = 1
             startPulse(on: layer)
         case .shakeThenStill:
-            imageView.contentTintColor = Self.restingColor
+            imageView.contentTintColor = baseTint
             layer.opacity = 1
             shake(layer)
         case .failedStill:

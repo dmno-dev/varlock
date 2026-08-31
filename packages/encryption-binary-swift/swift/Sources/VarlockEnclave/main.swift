@@ -80,6 +80,29 @@ let noAuth = args.contains("--no-auth") // CI mode: skip biometric requirement
 /// now answer APPROVAL_DENIED or NO_UI, and request-approval exists.
 let daemonProtocolVersion = 3
 
+/// Who is asking, read off the peer rather than taken from the message.
+///
+/// The summary is the flattened line the audit log and the biometric prompt use;
+/// the panel draws the chain. Both are derived here, so neither can be dressed
+/// up by a caller.
+func panelRequesterForPid(_ pid: pid_t?) -> PanelRequester {
+    guard let pid else {
+        return PanelRequester(summary: "Requested by an unidentified process")
+    }
+    let described = describeRequester(forPid: pid)
+    return PanelRequester(
+        summary: described.summaryLine,
+        details: described.detailLines.map { .derived($0) }
+    )
+}
+
+/// One line naming the peer, for the authorization log. Same derivation as the
+/// panel's, flattened.
+func requesterSummaryForPid(_ pid: pid_t?) -> String? {
+    guard let pid else { return nil }
+    return describeRequester(forPid: pid).auditSummary
+}
+
 switch command {
 
 // MARK: - generate-key
@@ -217,6 +240,73 @@ case "probe-embedded-unlock":
         timeoutSeconds: embeddedProbeTimeout
     ))
 
+// MARK: - panel-preview (design tool, draws the panel without asking anything)
+
+case "panel-preview":
+    // The panel's correctness is visual, and the real one is modal, floating,
+    // and impossible to look at on a headless session. This draws the same view
+    // tree to a PNG. Nothing is unlocked, no key is touched, and no presence
+    // check runs; the plan is built from the file so every state the panel has
+    // (delta, strict keys, no biometrics) can be inspected on demand.
+    guard let outPath = getArg("--out") else {
+        jsonError("panel-preview needs --out <file.png>")
+    }
+    let previewPayload: [String: Any]
+    if let payloadPath = getArg("--payload") {
+        guard let data = FileManager.default.contents(atPath: payloadPath),
+              let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            jsonError("Could not read a JSON payload from \(payloadPath)")
+        }
+        previewPayload = parsed
+    } else {
+        previewPayload = ["keyIds": [defaultKeyId]]
+    }
+
+    let previewApp = NSApplication.shared
+    previewApp.setActivationPolicy(.accessory)
+
+    let previewKeyIds = UnlockRequestKeys.from(payload: previewPayload)
+    let previewDisplay = UnlockDisplayInfo.from(payload: previewPayload)
+    let strictKeyIds = Set((previewPayload["strictKeyIds"] as? [String]) ?? [])
+    let coveredKeyIds = Set((previewPayload["coveredKeyIds"] as? [String]) ?? [])
+    let previewPlan = UnlockPlanner.plan(
+        requested: previewKeyIds.map {
+            RequestedKey(
+                keyId: $0,
+                policy: strictKeyIds.contains($0) ? .everyTime : .standard,
+                itemCount: previewDisplay.valueCount(forKey: $0)
+            )
+        },
+        requestedScope: .session,
+        existing: Dictionary(uniqueKeysWithValues: coveredKeyIds.map {
+            ($0, ExistingGrantSnapshot(scope: .session, remainingMs: 4 * 60 * 60 * 1000))
+        })
+    )
+    let previewRequester = panelRequesterForPid(
+        (previewPayload["pid"] as? NSNumber)?.int32Value ?? getppid()
+    )
+    let previewContent = UnlockPanelContent.build(
+        plan: previewPlan,
+        requester: previewRequester,
+        display: previewDisplay,
+        lockOn: SessionLockPolicy(wireValue: previewPayload["lockOn"] as? String) ?? .builtInDefault
+    )
+    let previewMode: ApprovalPresenceMode
+    switch previewPayload["mode"] as? String {
+    case "systemDialog": previewMode = .systemDialog
+    case "none": previewMode = .none
+    default: previewMode = .embedded
+    }
+    guard let png = ApprovalPanel.previewPng(content: previewContent, mode: previewMode) else {
+        jsonError("Could not render the panel")
+    }
+    do {
+        try png.write(to: URL(fileURLWithPath: outPath))
+    } catch {
+        jsonError("Could not write \(outPath): \(error.localizedDescription)")
+    }
+    jsonSuccess(["path": outPath, "title": previewContent.title])
+
 // MARK: - status
 
 case "status":
@@ -286,27 +376,6 @@ case "daemon":
             : .denied
     }
     identitySessions.keyPolicy = { keyId in KeyAuthPolicyStore.policy(for: keyId) }
-
-    /// Who is asking, read off the peer rather than taken from the message. The
-    /// summary is what the panel shows at rest; the chain sits behind its
-    /// disclosure. Both are derived here, so neither can be dressed up by a caller.
-    func panelRequester(forPid pid: pid_t?) -> PanelRequester {
-        guard let pid else {
-            return PanelRequester(summary: "Requested by an unidentified process")
-        }
-        let described = describeRequester(forPid: pid)
-        return PanelRequester(
-            summary: described.summaryLine,
-            details: described.detailLines.map { .derived($0) }
-        )
-    }
-
-    /// One line naming the peer, for the authorization log. Same derivation as
-    /// the panel's lines, flattened.
-    func requesterSummary(forPid pid: pid_t?) -> String? {
-        guard let pid else { return nil }
-        return describeRequester(forPid: pid).auditSummary
-    }
 
     // Never idle-quit while the daemon is holding an identity key for someone.
     // Session state is memory-only, so quitting would silently cost them their
@@ -499,7 +568,7 @@ case "daemon":
             // Optional decoration from the client (item counts, project name). It
             // only ever changes the wording on the panel.
             let requestContext = IdentitySessionManager.UnlockRequestContext(
-                requester: panelRequester(forPid: peerPid),
+                requester: panelRequesterForPid(peerPid),
                 display: UnlockDisplayInfo.from(payload: payload)
             )
 
@@ -535,7 +604,7 @@ case "daemon":
             }
             do {
                 let request = try ApprovalRequest.from(payload: approvalPayload)
-                let content = request.panelContent(requester: panelRequester(forPid: peerPid))
+                let content = request.panelContent(requester: panelRequesterForPid(peerPid))
                 // A request that wants a biometric gets the same embedded prompt as
                 // an unlock: the scan is the approval. Without one, the panel keeps
                 // its plain button.
@@ -587,7 +656,7 @@ case "daemon":
                     keyId: keyId,
                     identityId: identityId,
                     payloads: payloadDatas,
-                    requester: requesterSummary(forPid: peerPid)
+                    requester: requesterSummaryForPid(peerPid)
                 )
                 statusBarMenu?.refresh()
                 return ["result": [
@@ -614,7 +683,7 @@ case "daemon":
             let invalidated = identitySessions.invalidate(
                 sessionId: targetSessionId,
                 keyId: targetKeyId,
-                requester: requesterSummary(forPid: peerPid)
+                requester: requesterSummaryForPid(peerPid)
             )
             statusBarMenu?.refresh()
             return ["result": ["invalidated": invalidated]]

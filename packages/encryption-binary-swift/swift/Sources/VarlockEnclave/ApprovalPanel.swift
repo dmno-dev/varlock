@@ -1,46 +1,47 @@
 import AppKit
 import LocalAuthentication
-import LocalAuthenticationEmbeddedUI
 import IdentitySessions
+import SessionScoping
 
 /// The panel the daemon draws when someone has to say yes.
 ///
-/// The panel is the card that says who is asking, what they get, and for how long,
-/// and it arms the presence check the moment it opens. The scan IS the approval:
-/// there is no separate confirm gesture in the common case.
+/// It answers three questions in the order a person asks them: what is being
+/// unlocked, who is asking, and for how long. Then it offers one gesture. The
+/// scan IS the approval: the presence check is armed as the panel opens, so on a
+/// machine with Touch ID there is nothing to click in the common case.
 ///
-/// Where the prompt is drawn is up to the system, and is not something the panel
-/// can rely on. It binds an `LAAuthenticationView` to the context, which is
-/// supposed to render the prompt inline, but macOS has been observed presenting
-/// its own standard alert instead while that view stayed blank, and there is no
-/// reliable signal for which will happen (see `EmbeddedUnlockProbe`). So the panel
-/// draws its own affordance underneath and reads correctly either way: as a
-/// self-contained prompt when the inline view renders, and as the details card
-/// beside the system's alert when it does not.
+/// It is a window we draw ourselves rather than an `NSAlert`, because the layout
+/// is the message: a key box that opens to say what the caller gets, and a
+/// vertical chain that shows the line of processes leading to them with the one
+/// hop that matters emphasised. An alert can hold text and buttons, and none of
+/// that would fit inside one.
 ///
-/// The panel stays interactive while the check is armed, which is why the answer
-/// takes whatever scope is selected at the moment the finger lands.
+/// We draw our own Touch ID glyph and never embed `LAAuthenticationView`. That
+/// view is supposed to render the prompt inline; in the field it has come up
+/// blank while the system presented its own alert separately, which left the
+/// panel showing an empty square and no sign that anything wanted a fingerprint.
+/// The glyph in the approve button breathes exactly while a check is genuinely
+/// armed, and the context that scan authenticated is handed straight to the
+/// enclave, so one scan still covers the whole unlock.
 ///
-/// This file is view only. What the panel says, which scopes it may offer, and what
-/// a given answer means are decided in `IdentitySessions` (`UnlockDecision.swift`,
-/// `PanelContent.swift`, `ApprovalFlow.swift`), so the rules stay testable without a
-/// window server.
+/// This file is view only. What the panel says, which scopes it may offer, and
+/// what a given answer means are decided in `IdentitySessions`
+/// (`UnlockDecision.swift`, `PanelContent.swift`, `ApprovalFlow.swift`), so the
+/// rules stay testable without a window server.
 ///
-/// It is drawn by the daemon on purpose. The daemon is the process that holds the
-/// keys and the one that verified the peer, so it is the only party in a position
-/// to say truthfully who is asking. A panel drawn by the caller would be a panel
-/// the caller can lie on.
+/// It is drawn by the daemon on purpose. The daemon is the process that holds
+/// the keys and the one that verified the peer, so it is the only party in a
+/// position to say truthfully who is asking. A panel drawn by the caller would
+/// be a panel the caller can lie on.
 final class ApprovalPanel: NSObject {
     /// How long the whole interaction may take before it counts as a refusal.
     /// Below the client's 5 minute interactive timeout, so the caller gets a real
     /// answer rather than a dead socket.
     static let timeoutSeconds: TimeInterval = 120
 
-    /// Ends the modal when the flow produced an answer, rather than when AppKit's
-    /// own button handling did.
+    /// Ends the modal when the flow produced an answer, rather than when a
+    /// button's own handling did.
     private static let flowFinishedResponse = NSApplication.ModalResponse(rawValue: 9001)
-
-    private static let contentWidth: CGFloat = 420
 
     /// What the panel answered, and the presence check that answered it.
     struct Outcome {
@@ -50,21 +51,22 @@ final class ApprovalPanel: NSObject {
         let proof: IdentitySessionManager.PresenceProof?
     }
 
-    private var glyphView: TouchIDGlyphView?
-    private var scopeControl: NSSegmentedControl?
-    private var durationPopUp: NSPopUpButton?
-    private var confirmButton: NSButton?
-    private var retryButton: NSButton?
+    private var window: ApprovalPanelWindow?
+    private var scopeControl: PanelSegmentedControl?
+    private var confirmButton: PanelButton?
+    private var passwordLink: PanelButton?
+    private var hintLabel: NSTextField?
     private var statusLabel: NSTextField?
-    private var detailsStack: NSStackView?
-    private var disclosureButton: NSButton?
-    private var accessoryContainer: NSView?
-    private weak var alert: NSAlert?
+    private var contentColumn: NSStackView?
 
     private var scopes: [SessionGrantScope] = []
+    private var duration: DurationPreset = .default
     private var timedOut = false
     private var flow: ApprovalFlow!
     private var attempt: IdentitySessionManager.PresenceAttempt?
+    /// Bumped whenever the presence attempt is replaced, so a callback from an
+    /// attempt we walked away from cannot rewrite the panel's state.
+    private var attemptGeneration = 0
     private var presenceReason = ""
     private var proof: IdentitySessionManager.PresenceProof?
     /// Guards against a presence callback arriving after the modal has ended.
@@ -78,7 +80,7 @@ final class ApprovalPanel: NSObject {
     ///
     /// With an `attempt`, the panel carries a presence check: embedded (armed as
     /// the panel opens, the scan is the answer) or the system dialog fallback
-    /// (raised by the confirm button). Without one it is a plain button panel.
+    /// (raised by the approve button). Without one it is a plain button panel.
     static func present(
         content: PanelContent,
         presenceReason: String = "",
@@ -107,6 +109,26 @@ final class ApprovalPanel: NSObject {
         return outcome
     }
 
+    /// Draw the panel to a PNG without showing it or asking anyone anything.
+    ///
+    /// The panel is the one part of this daemon whose correctness is visual, and
+    /// a screen it takes over is an awkward thing to inspect: it floats, it is
+    /// modal, and on a headless or remote session it cannot be looked at at all.
+    /// This renders the very same view tree the modal would put on screen, so a
+    /// layout can be checked by looking at the picture. Nothing is unlocked and
+    /// no presence check is started.
+    static func previewPng(content: PanelContent, mode: ApprovalPresenceMode) -> Data? {
+        let panel = ApprovalPanel()
+        panel.scopes = content.scopes
+        panel.flow = ApprovalFlow(content: content, presenceMode: mode)
+        let window = panel.buildWindow(content: content, mode: mode)
+        guard let view = window.contentView else { return nil }
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep.representation(using: .png, properties: [:])
+    }
+
     // MARK: - Running
 
     private func run(
@@ -128,41 +150,18 @@ final class ApprovalPanel: NSObject {
             ])
         }
 
-        let alert = NSAlert()
-        self.alert = alert
-        alert.messageText = content.title
-        alert.informativeText = content.subtitle ?? ""
-        alert.alertStyle = .informational
-
-        // With the prompt embedded, scanning is the action and Cancel is the only
-        // button worth showing. The other two modes keep the confirm button, which
-        // is what raises the system dialog (or answers outright when there is no
-        // presence check at all).
-        if mode != .embedded {
-            alert.addButton(withTitle: content.confirmButtonTitle)
-        }
-        alert.addButton(withTitle: content.cancelButtonTitle)
-        alert.accessoryView = buildAccessoryView(content: content, mode: mode)
-
-        if mode != .embedded {
-            confirmButton = alert.buttons.first
-            confirmButton?.target = self
-            confirmButton?.action = #selector(confirmPressed(_:))
-        }
-
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Varlock"
-        alert.window.title = appName
+        let window = buildWindow(content: content, mode: mode)
+        self.window = window
 
         // Float above whatever the user was looking at, and take focus, so an
         // approval never ends up hidden behind an editor window.
-        alert.window.level = .floating
+        window.level = .floating
+        positionOnScreen(window)
         NSApp.activate(ignoringOtherApps: true)
-        alert.layout()
         PanelDebug.note("panel-shown", [
-            "isVisible": alert.window.isVisible,
-            "isKeyWindow": alert.window.isKeyWindow,
+            "isVisible": window.isVisible,
             "appIsActive": NSApp.isActive,
-            "occlusion": alert.window.occlusionState.contains(.visible) ? "visible" : "occluded",
+            "mode": String(describing: mode),
         ])
 
         // Everything below is scheduled through `MainLoop`, never
@@ -193,23 +192,24 @@ final class ApprovalPanel: NSObject {
         }
 
         let heartbeat = PanelDebug.isEnabled ? MainLoop.every(2) { [weak self] in
-            guard let self else { return }
+            guard let self, let window = self.window else { return }
             PanelDebug.note("heartbeat", [
                 "state": String(describing: self.flow.state),
-                "isKeyWindow": alert.window.isKeyWindow,
-                "isVisible": alert.window.isVisible,
+                "isKeyWindow": window.isKeyWindow,
+                "isVisible": window.isVisible,
                 "appIsActive": NSApp.isActive,
                 "authAgentWindows": EmbeddedUnlockProbe.authAgentWindowOwners().joined(separator: ","),
             ])
         } : nil
 
-        _ = alert.runModal()
+        _ = NSApp.runModal(for: window)
         modalRunning = false
         deadline.cancel()
         heartbeat?.cancel()
+        window.orderOut(nil)
+        self.window = nil
 
-        // The flow is the authority on what was answered, not the button code:
-        // Cancel is the first button in embedded mode and the second otherwise.
+        // The flow is the authority on what was answered, not the button code.
         if timedOut {
             _ = flow.apply(.timedOut)
         } else if case .finished = flow.state {
@@ -225,6 +225,18 @@ final class ApprovalPanel: NSObject {
         return Outcome(decision: decision, proof: proof)
     }
 
+    /// Put the panel where a person is already looking: centred, a little above
+    /// the middle, so it does not land under the cursor or off a small screen.
+    private func positionOnScreen(_ window: NSWindow) {
+        guard let screen = NSScreen.main else { return }
+        let frame = window.frame
+        let visible = screen.visibleFrame
+        window.setFrameOrigin(NSPoint(
+            x: visible.midX - frame.width / 2,
+            y: visible.midY - frame.height / 2 + visible.height * 0.12
+        ))
+    }
+
     /// Take the front, so the panel is what the user sees.
     ///
     /// Called once the modal is running, and again whenever a presence check ends
@@ -232,7 +244,7 @@ final class ApprovalPanel: NSObject {
     /// when it goes away the panel underneath has to come back rather than sit
     /// behind whatever was in front before.
     private func bringToFront() {
-        guard let window = alert?.window else { return }
+        guard let window else { return }
         window.level = .floating
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -260,27 +272,25 @@ final class ApprovalPanel: NSObject {
         updateGlyph()
         switch effect {
         case .beginScan:
-            retryButton?.isHidden = true
             setStatus(flow.presenceMode == .embedded
                 ? "Touch the sensor to approve."
                 : "Waiting for your password.")
-            confirmButton?.isEnabled = false
+            confirmButton?.isEnabled = flow.presenceMode != .embedded
             beginScan()
         case .showControls:
             confirmButton?.isEnabled = true
-            if flow.presenceMode == .embedded { retryButton?.isHidden = false }
             setStatus(failureHint())
             // A check that just ended may have had a system alert over us.
             if flow.failedScans > 0 { bringToFront() }
         case .finish(let decision):
             let code: NSApplication.ModalResponse = decision.approved
                 ? Self.flowFinishedResponse
-                : .alertSecondButtonReturn
+                : .cancel
             // Let an approval land before the window goes. Closing on the same
             // frame as the scan reads as the panel vanishing rather than as the
             // unlock completing, and the glyph has just turned green to say so.
             if decision.approved, glyphShowsSuccessAnimation {
-                MainLoop.after(TouchIDGlyphView.successHoldSeconds) {
+                _ = MainLoop.after(TouchIDGlyphView.successHoldSeconds) {
                     NSApp.stopModal(withCode: code)
                 }
             } else {
@@ -292,7 +302,7 @@ final class ApprovalPanel: NSObject {
     /// Whether an approval is going to be animated, which is the only reason to
     /// hold the panel open a moment longer.
     private var glyphShowsSuccessAnimation: Bool {
-        guard glyphView != nil else { return false }
+        guard confirmButton?.glyphView != nil else { return false }
         return PanelGlyph.effect(
             for: .approved,
             reduceMotion: TouchIDGlyphView.reduceMotion
@@ -301,7 +311,7 @@ final class ApprovalPanel: NSObject {
 
     /// Push the flow's current glyph state to the view.
     private func updateGlyph() {
-        guard let glyphView else { return }
+        guard let glyphView = confirmButton?.glyphView else { return }
         let effect = PanelGlyph.effect(
             for: flow.glyphState,
             reduceMotion: TouchIDGlyphView.reduceMotion
@@ -323,6 +333,7 @@ final class ApprovalPanel: NSObject {
             "contextInstance": String(UInt(bitPattern: ObjectIdentifier(attempt.context).hashValue), radix: 16),
             "reason": presenceReason,
         ])
+        let generation = attemptGeneration
         attempt.evaluate(reason: presenceReason) { [weak self] result in
             switch result {
             case .success:
@@ -333,7 +344,7 @@ final class ApprovalPanel: NSObject {
                     "error": error.localizedDescription,
                 ])
             }
-            guard let self, self.modalRunning else {
+            guard let self, self.modalRunning, generation == self.attemptGeneration else {
                 if case .success(let proof) = result { proof.context.invalidate() }
                 return
             }
@@ -356,10 +367,10 @@ final class ApprovalPanel: NSObject {
         guard flow.failedScans > 0 else { return "" }
         if flow.presenceMode == .embedded {
             return flow.failedScans > 1
-                ? "Still not verified. Adjust how long to allow if you want, then try again, or Cancel to refuse."
-                : "Not verified. Try again, or Cancel to refuse."
+                ? "Still not verified. Adjust how long to allow if you want, then try again, or Deny to refuse."
+                : "Not verified. Try again, or Deny to refuse."
         }
-        return "Not verified. Press \(confirmButton?.title ?? "the button") to try again, or Cancel to refuse."
+        return "Not verified. Press \(confirmButton?.title ?? "the button") to try again, or Deny to refuse."
     }
 
     private func setStatus(_ text: String) {
@@ -375,22 +386,68 @@ final class ApprovalPanel: NSObject {
         perform(effect: flow.apply(.confirmPressed))
     }
 
-    @objc private func retryPressed(_ sender: Any) {
-        syncSelectionIntoFlow()
+    @objc private func denyPressed(_ sender: Any) {
+        perform(effect: flow.apply(.cancelPressed))
+    }
+
+    /// The way out for a finger the sensor will not read.
+    ///
+    /// Not a second panel and not a second question: the same approval, checked
+    /// the other way. The biometric attempt is dropped first so the machine is
+    /// never listening on two contexts at once, and the callback from the one we
+    /// walked away from is ignored by generation.
+    @objc private func usePasswordPressed(_ sender: Any) {
+        guard let fallback = attempt?.passwordFallback() else {
+            setStatus("This Mac has no password check available.")
+            return
+        }
+        PanelDebug.note("switch-to-password")
+        attemptGeneration += 1
+        attempt?.context.invalidate()
+        attempt = fallback
+
+        let scope = flow.scope
+        let durationMs = flow.durationMs
+        flow = ApprovalFlow(defaultScope: scope, presenceMode: .systemDialog)
+        flow.select(scope: scope, durationMs: durationMs)
+
+        confirmButton?.title = "Approve with password"
+        confirmButton?.glyphView?.isHidden = true
+        passwordLink?.isHidden = true
+        hintLabel?.stringValue = ""
+        relayout()
         perform(effect: flow.apply(.confirmPressed))
     }
 
-    @objc private func scopeChanged(_ sender: NSSegmentedControl) {
-        durationPopUp?.isEnabled = selectedScope(fallback: .once) == .duration
+    private func scopeChanged(_ index: Int) {
         syncSelectionIntoFlow()
     }
 
-    @objc private func durationChanged(_ sender: NSPopUpButton) {
-        syncSelectionIntoFlow()
+    /// Reopening the duration segment offers the windows again.
+    private func showDurationMenu(from view: NSView) {
+        let menu = NSMenu()
+        for preset in DurationPreset.allCases {
+            let item = NSMenuItem(
+                title: "For \(preset.label)",
+                action: #selector(durationChosen(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = preset.milliseconds
+            item.state = preset == duration ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.height + 4), in: view)
     }
 
-    @objc private func disclosureToggled(_ sender: NSButton) {
-        detailsStack?.isHidden = sender.state != .on
+    @objc private func durationChosen(_ sender: NSMenuItem) {
+        guard let ms = sender.representedObject as? Int64,
+              let preset = DurationPreset(rawValue: ms),
+              let index = scopes.firstIndex(of: .duration) else { return }
+        duration = preset
+        scopeControl?.setTitle("For \(preset.label) \u{25BE}", at: index)
+        scopeControl?.select(index: index, notify: false)
+        syncSelectionIntoFlow()
         relayout()
     }
 
@@ -398,246 +455,339 @@ final class ApprovalPanel: NSObject {
     /// what the panel is showing.
     private func syncSelectionIntoFlow() {
         let scope = selectedScope(fallback: flow.scope)
-        flow.select(scope: scope, durationMs: scope == .duration ? selectedDurationMs() : nil)
+        flow.select(scope: scope, durationMs: scope == .duration ? duration.milliseconds : nil)
     }
 
     private func selectedScope(fallback: SessionGrantScope) -> SessionGrantScope {
-        guard let index = scopeControl?.selectedSegment, index >= 0, index < scopes.count else {
+        guard let index = scopeControl?.selectedIndex, index >= 0, index < scopes.count else {
             return fallback
         }
         return scopes[index]
     }
 
-    private func selectedDurationMs() -> Int64 {
-        guard let index = durationPopUp?.indexOfSelectedItem,
-              index >= 0, index < DurationPreset.allCases.count else {
-            return DurationPreset.default.milliseconds
-        }
-        return DurationPreset.allCases[index].milliseconds
-    }
-
-    /// Re-fit the accessory view after something appeared or disappeared. NSAlert
-    /// sizes an accessory view once, by its frame, so a disclosure that changes
-    /// height has to ask for the window to be laid out again.
+    /// Re-fit the window after something opened or closed. The panel grows and
+    /// shrinks with its disclosures rather than scrolling, so the window has to
+    /// follow its content.
     private func relayout() {
-        guard let accessoryContainer, let alert else { return }
-        accessoryContainer.layoutSubtreeIfNeeded()
-        accessoryContainer.frame = NSRect(origin: .zero, size: accessoryContainer.fittingSize)
-        alert.layout()
+        guard let window, let contentColumn else { return }
+        contentColumn.layoutSubtreeIfNeeded()
+        let height = contentColumn.fittingSize.height + PanelStyle.contentInset * 2
+        let width = PanelStyle.contentWidth + PanelStyle.contentInset * 2
+        var frame = window.frame
+        let topEdge = frame.maxY
+        frame.size = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: width, height: height)).size
+        // Grow downward from where the panel already is, so an expanding row does
+        // not move the buttons out from under the pointer.
+        frame.origin.y = topEdge - frame.height
+        window.setFrame(frame, display: true, animate: false)
     }
 
     // MARK: - Building the view
 
-    private func buildAccessoryView(content: PanelContent, mode: ApprovalPresenceMode) -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
+    private func buildWindow(content: PanelContent, mode: ApprovalPresenceMode) -> ApprovalPanelWindow {
+        let column = PanelStyle.column(spacing: 0)
+        column.translatesAutoresizingMaskIntoConstraints = false
+        contentColumn = column
 
-        // Who is asking: one derived line at rest.
-        if !content.requester.summary.isEmpty {
-            stack.addArrangedSubview(label(content.requester.summary, size: NSFont.systemFontSize, color: .labelColor))
+        column.addArrangedSubview(topBar(content))
+        column.setCustomSpacing(14, after: column.arrangedSubviews.last!)
+
+        let hero = PanelStyle.heading(content.titleSegments, size: 17)
+        column.addArrangedSubview(centred(hero))
+        if let subtitle = content.subtitle {
+            let sub = PanelStyle.label(subtitle, size: 12, color: PanelStyle.inkSecondary)
+            sub.alignment = .center
+            column.setCustomSpacing(3, after: hero.superview ?? hero)
+            column.addArrangedSubview(centred(sub))
         }
 
-        // What the approval covers.
-        for group in content.itemGroups {
-            let box = NSStackView()
-            box.orientation = .vertical
-            box.alignment = .leading
-            box.spacing = 2
-            if let heading = group.heading {
-                box.addArrangedSubview(label(heading, size: NSFont.smallSystemFontSize, color: .secondaryLabelColor))
-            }
-            for item in group.items {
-                box.addArrangedSubview(itemRow(item))
-            }
-            stack.addArrangedSubview(box)
+        if !content.keyRows.isEmpty {
+            let box = PanelKeyBoxView(rows: content.keyRows) { [weak self] in self?.relayout() }
+            box.translatesAutoresizingMaskIntoConstraints = false
+            column.setCustomSpacing(13, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(box)
+            box.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth).isActive = true
         }
 
-        // Scope choice.
+        for note in content.notes {
+            let label = PanelStyle.label(note, size: 11, color: PanelStyle.inkTertiary)
+            label.lineBreakMode = .byWordWrapping
+            label.maximumNumberOfLines = 3
+            label.preferredMaxLayoutWidth = PanelStyle.contentWidth
+            column.setCustomSpacing(8, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(label)
+        }
+
+        let chain = PanelChainView(
+            chain: content.requester.chain ?? .empty,
+            fallbackSummary: content.requester.summary
+        ) { [weak self] in self?.relayout() }
+        chain.translatesAutoresizingMaskIntoConstraints = false
+        column.setCustomSpacing(14, after: column.arrangedSubviews.last!)
+        column.addArrangedSubview(chain)
+        chain.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth).isActive = true
+
         if content.scopes.count > 1 {
-            stack.addArrangedSubview(label("Allow for", size: NSFont.smallSystemFontSize, color: .secondaryLabelColor))
-            let segmented = NSSegmentedControl(
-                labels: content.scopes.map { PanelContent.scopeLabel($0) },
-                trackingMode: .selectOne,
-                target: self,
-                action: #selector(scopeChanged(_:))
+            let control = PanelSegmentedControl(
+                labels: content.scopes.map { scopeLabel($0, chosen: $0 == content.defaultScope) },
+                selectedIndex: content.scopes.firstIndex(of: content.defaultScope) ?? 0,
+                onChange: { [weak self] index in
+                    self?.scopeChanged(index)
+                    guard let self, index < self.scopes.count, self.scopes[index] == .duration else { return }
+                    // Choosing "for a set time" is only half an answer, so the
+                    // windows are offered straight away.
+                    if let view = self.scopeControl?.view(at: index) { self.showDurationMenu(from: view) }
+                },
+                onReselect: { [weak self] index, view in
+                    guard let self, index < self.scopes.count, self.scopes[index] == .duration else { return }
+                    self.showDurationMenu(from: view)
+                }
             )
-            segmented.selectedSegment = content.scopes.firstIndex(of: content.defaultScope) ?? 0
-            scopeControl = segmented
-            stack.addArrangedSubview(segmented)
-
-            if content.scopes.contains(.duration) {
-                let popUp = NSPopUpButton(frame: .zero, pullsDown: false)
-                popUp.addItems(withTitles: DurationPreset.allCases.map { $0.label })
-                popUp.selectItem(at: DurationPreset.allCases.firstIndex(of: .default) ?? 0)
-                popUp.isEnabled = content.defaultScope == .duration
-                popUp.target = self
-                popUp.action = #selector(durationChanged(_:))
-                durationPopUp = popUp
-                stack.addArrangedSubview(popUp)
-            }
+            scopeControl = control
+            column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(control))
         } else if let only = content.scopes.first {
-            stack.addArrangedSubview(label(
+            let label = PanelStyle.label(
                 "Allowed for: \(PanelContent.scopeLabel(only).lowercased())",
-                size: NSFont.smallSystemFontSize,
-                color: .secondaryLabelColor
-            ))
-        }
-
-        // The scan affordance, bound to the context this unlock will run under.
-        if mode == .embedded, let context = attempt?.context {
-            stack.addArrangedSubview(embeddedScanRow(context: context))
+                size: 11.5,
+                color: PanelStyle.inkTertiary
+            )
+            label.alignment = .center
+            column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(label))
         }
 
         // Says what happened when a check did not complete. Hidden until there is
         // something to say, so the common one-gesture case stays quiet.
-        let status = label("", size: NSFont.smallSystemFontSize, color: .secondaryLabelColor)
+        let status = PanelStyle.label("", size: 11, color: PanelStyle.inkSecondary)
         status.lineBreakMode = .byWordWrapping
+        status.maximumNumberOfLines = 3
+        status.preferredMaxLayoutWidth = PanelStyle.contentWidth
         status.isHidden = true
         statusLabel = status
-        stack.addArrangedSubview(status)
+        column.setCustomSpacing(10, after: column.arrangedSubviews.last!)
+        column.addArrangedSubview(status)
 
-        // The evidence, one click away rather than in the way.
-        if content.requester.hasDetails {
-            let disclosure = NSButton()
-            disclosure.bezelStyle = .disclosure
-            disclosure.setButtonType(.onOff)
-            disclosure.title = ""
-            disclosure.state = .off
-            disclosure.target = self
-            disclosure.action = #selector(disclosureToggled(_:))
-            disclosureButton = disclosure
+        column.setCustomSpacing(14, after: column.arrangedSubviews.last!)
+        column.addArrangedSubview(actionRow(content: content, mode: mode))
+        column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
+        column.addArrangedSubview(underActions(mode: mode))
 
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = 4
-            row.addArrangedSubview(disclosure)
-            row.addArrangedSubview(label("Details", size: NSFont.smallSystemFontSize, color: .secondaryLabelColor))
-            stack.addArrangedSubview(row)
+        let contentView = NSView()
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = PanelStyle.panelBackground.cgColor
+        contentView.addSubview(column)
+        NSLayoutConstraint.activate([
+            column.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: PanelStyle.contentInset),
+            column.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -PanelStyle.contentInset),
+            column.topAnchor.constraint(equalTo: contentView.topAnchor, constant: PanelStyle.contentInset),
+            column.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -PanelStyle.contentInset),
+            column.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth),
+        ])
+        contentView.layoutSubtreeIfNeeded()
 
-            let details = NSStackView()
-            details.orientation = .vertical
-            details.alignment = .leading
-            details.spacing = 2
-            for line in content.requester.details {
-                details.addArrangedSubview(label(
-                    line.text,
-                    size: NSFont.smallSystemFontSize,
-                    color: line.isDerived ? .labelColor : .secondaryLabelColor
-                ))
-            }
-            details.isHidden = true
-            detailsStack = details
-            stack.addArrangedSubview(details)
+        let window = ApprovalPanelWindow(
+            contentRect: NSRect(
+                x: 0,
+                y: 0,
+                width: PanelStyle.contentWidth + PanelStyle.contentInset * 2,
+                height: contentView.fittingSize.height
+            ),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.backgroundColor = PanelStyle.panelBackground
+        // Committed dark chrome: the panel looks the same whatever the user's
+        // theme, so it is recognisable as varlock asking rather than as whatever
+        // window happened to be in front.
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = contentView
+        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Varlock"
+        window.onCancel = { [weak self] in self?.denyPressed(self as Any) }
+        window.onConfirm = { [weak self] in
+            guard let self, self.confirmButton?.isEnabled == true else { return }
+            self.confirmPressed(self)
         }
-
-        let container = NSView()
-        container.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: container.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            container.widthAnchor.constraint(equalToConstant: Self.contentWidth),
-        ])
-        container.layoutSubtreeIfNeeded()
-        // NSAlert positions an accessory view by its frame, so hand it a concrete
-        // size once auto layout has worked one out.
-        container.frame = NSRect(origin: .zero, size: container.fittingSize)
-        accessoryContainer = container
-        return container
+        return window
     }
 
-    /// The scan affordance.
-    ///
-    /// We draw our own glyph, always. `LAAuthenticationView` is supposed to render
-    /// the prompt inline, but in the field it has come up blank while the system
-    /// presented its standard alert separately instead, and there is no reliable
-    /// way to detect which of the two is about to happen (see the note in
-    /// `EmbeddedUnlockProbe`). A panel that assumed inline rendering showed an
-    /// empty square and no indication that anything wanted a fingerprint.
-    ///
-    /// So the system's view is layered directly on top of ours: if it does render,
-    /// it covers ours and the user gets Apple's own animation; if it stays blank,
-    /// ours shows through and the panel still says what it wants. Either way there
-    /// is never an empty area, and the wording avoids claiming where the prompt
-    /// will appear.
-    private func embeddedScanRow(context: LAContext) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-
-        let glyphSide: CGFloat = 30
-        let holder = NSView()
-        holder.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            holder.widthAnchor.constraint(equalToConstant: glyphSide),
-            holder.heightAnchor.constraint(equalToConstant: glyphSide),
-        ])
-
-        let ownGlyph = TouchIDGlyphView()
-        ownGlyph.translatesAutoresizingMaskIntoConstraints = false
-        glyphView = ownGlyph
-        holder.addSubview(ownGlyph)
-
-        let authView = LAAuthenticationView(context: context, controlSize: .regular)
-        authView.translatesAutoresizingMaskIntoConstraints = false
-        holder.addSubview(authView)
-
-        NSLayoutConstraint.activate([
-            ownGlyph.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
-            ownGlyph.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
-            ownGlyph.topAnchor.constraint(equalTo: holder.topAnchor),
-            ownGlyph.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
-            // Same box, drawn after, so a rendering system view wins and a blank
-            // one leaves ours visible underneath.
-            authView.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
-            authView.trailingAnchor.constraint(equalTo: holder.trailingAnchor),
-            authView.topAnchor.constraint(equalTo: holder.topAnchor),
-            authView.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
-        ])
-
-        row.addArrangedSubview(holder)
-        row.addArrangedSubview(label("Touch ID to approve", size: NSFont.systemFontSize, color: .labelColor))
-
-        // Only shown once a scan has failed, so the resting panel is just the
-        // prompt and Cancel.
-        let retry = NSButton(title: "Try again", target: self, action: #selector(retryPressed(_:)))
-        retry.bezelStyle = .rounded
-        retry.controlSize = .small
-        retry.isHidden = true
-        retryButton = retry
-        row.addArrangedSubview(retry)
-
-        return row
-    }
-
-    private func itemRow(_ item: PanelItem) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .firstBaseline
-        row.spacing = 8
-
-        let name = label(item.label, size: NSFont.systemFontSize, color: .labelColor)
-        name.font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-        row.addArrangedSubview(name)
-
-        if let detail = item.detail {
-            row.addArrangedSubview(label(detail, size: NSFont.smallSystemFontSize, color: .secondaryLabelColor))
+    private func topBar(_ content: PanelContent) -> NSView {
+        let row = PanelStyle.row(spacing: 7)
+        row.addArrangedSubview(logoMark())
+        row.addArrangedSubview(PanelStyle.label(
+            "varlock",
+            size: 12,
+            color: PanelStyle.wordmark,
+            weight: .semibold
+        ))
+        row.addArrangedSubview(PanelStyle.spacer())
+        if let fact = content.factLine {
+            row.addArrangedSubview(PanelStyle.label(fact, size: 11, color: PanelStyle.inkQuiet))
         }
-        return row
+        return fullWidth(row)
     }
 
-    private func label(_ text: String, size: CGFloat, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: size)
-        field.textColor = color
-        field.lineBreakMode = .byTruncatingMiddle
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return field
+    /// The lock mark. Says who is asking before a single word is read, which is
+    /// the one job the top bar has.
+    private func logoMark() -> NSView {
+        let box = NSView()
+        box.wantsLayer = true
+        box.layer?.backgroundColor = PanelStyle.color(0x33_33_3B).cgColor
+        box.layer?.borderColor = PanelStyle.color(0x45_45_4E).cgColor
+        box.layer?.borderWidth = 1
+        box.layer?.cornerRadius = 5
+        box.translatesAutoresizingMaskIntoConstraints = false
+
+        let image = NSImageView()
+        image.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "varlock")
+        image.contentTintColor = PanelStyle.accent
+        image.imageScaling = .scaleProportionallyUpOrDown
+        image.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(image)
+
+        NSLayoutConstraint.activate([
+            box.widthAnchor.constraint(equalToConstant: 20),
+            box.heightAnchor.constraint(equalToConstant: 20),
+            image.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+            image.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            image.widthAnchor.constraint(equalToConstant: 10),
+            image.heightAnchor.constraint(equalToConstant: 12),
+        ])
+        return box
+    }
+
+    private func actionRow(content: PanelContent, mode: ApprovalPresenceMode) -> NSView {
+        let row = PanelStyle.row(spacing: 10)
+        let deny = PanelButton(
+            title: content.cancelButtonTitle,
+            style: .ghost,
+            target: self,
+            action: #selector(denyPressed(_:))
+        )
+        deny.setContentHuggingPriority(.required, for: .horizontal)
+        row.addArrangedSubview(deny)
+
+        let confirm = PanelButton(
+            title: confirmTitle(content: content, mode: mode),
+            style: .primary,
+            glyph: mode == .embedded ? .touchID : (mode == .systemDialog ? .lock : .none),
+            target: self,
+            action: #selector(confirmPressed(_:))
+        )
+        confirmButton = confirm
+        row.addArrangedSubview(confirm)
+        // The approve action is the wide one: the panel has an obvious yes and a
+        // quiet no, not two equal buttons.
+        confirm.setContentHuggingPriority(.init(1), for: .horizontal)
+        return fullWidth(row)
+    }
+
+    private func confirmTitle(content: PanelContent, mode: ApprovalPresenceMode) -> String {
+        switch mode {
+        case .embedded: return "Approve with Touch ID"
+        case .systemDialog: return "Approve with password"
+        case .none: return content.confirmButtonTitle
+        }
+    }
+
+    private func underActions(mode: ApprovalPresenceMode) -> NSView {
+        let row = PanelStyle.row(spacing: 8)
+        let hint: String
+        switch mode {
+        case .embedded: hint = "Scanning approves without clicking"
+        case .systemDialog: hint = "No Touch ID available on this Mac"
+        case .none: hint = ""
+        }
+        let hintLabel = PanelStyle.label(hint, size: 11, color: PanelStyle.inkQuiet)
+        self.hintLabel = hintLabel
+        row.addArrangedSubview(hintLabel)
+        row.addArrangedSubview(PanelStyle.spacer())
+
+        // Offered only where there is something to fall back FROM. On a machine
+        // with no sensor the password path is already the primary action, and a
+        // link to it would be the same button twice.
+        if mode == .embedded {
+            let link = PanelButton(
+                title: "Use password\u{2026}",
+                style: .link,
+                target: self,
+                action: #selector(usePasswordPressed(_:))
+            )
+            passwordLink = link
+            row.addArrangedSubview(link)
+        }
+        return fullWidth(row)
+    }
+
+    /// "For a set time" until a window has actually been picked, and the window
+    /// itself afterwards: the segment says what was chosen, not what could be.
+    private func scopeLabel(_ scope: SessionGrantScope, chosen: Bool) -> String {
+        guard scope == .duration, chosen else { return PanelContent.scopeLabel(scope) }
+        return "For \(duration.label) \u{25BE}"
+    }
+
+    /// Wrap a view so it fills the panel's width inside the vertical stack.
+    private func fullWidth(_ view: NSView) -> NSView {
+        let box = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            view.topAnchor.constraint(equalTo: box.topAnchor),
+            view.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            box.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth),
+        ])
+        return box
+    }
+
+    private func centred(_ view: NSView) -> NSView {
+        let box = NSView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: box.leadingAnchor),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: box.trailingAnchor),
+            view.topAnchor.constraint(equalTo: box.topAnchor),
+            view.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            box.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth),
+        ])
+        return box
+    }
+}
+
+/// The panel's window.
+///
+/// A borderless-looking panel that can still take key events, so Escape refuses
+/// and Return approves without either being a button the design has to find room
+/// for.
+final class ApprovalPanelWindow: NSPanel {
+    var onCancel: (() -> Void)?
+    var onConfirm: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53: // escape
+            onCancel?()
+        case 36, 76: // return, enter
+            onConfirm?()
+        default:
+            super.keyDown(with: event)
+        }
     }
 }

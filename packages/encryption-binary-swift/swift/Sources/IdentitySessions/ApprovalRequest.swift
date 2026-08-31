@@ -106,10 +106,14 @@ public struct ApprovalRequest: Equatable {
         var details = requester.details
         details.append(contentsOf: clientContextLines.map { .clientSupplied($0) })
         return PanelContent(
-            title: title,
+            titleSegments: [.plain(title)],
             subtitle: descriptionLines.isEmpty ? nil : descriptionLines.joined(separator: "\n"),
-            requester: PanelRequester(summary: requester.summary, details: details),
-            itemGroups: [],
+            requester: PanelRequester(
+                summary: requester.summary,
+                details: details,
+                chain: requester.chain
+            ),
+            keyRows: [],
             scopes: allowedScopes,
             defaultScope: defaultScope,
             confirmButtonTitle: confirmButtonTitle

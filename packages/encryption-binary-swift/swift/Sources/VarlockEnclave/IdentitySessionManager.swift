@@ -637,6 +637,28 @@ final class IdentitySessionManager {
             self.resolvedPolicy = resolvedPolicy
         }
 
+        /// The same approval, checked the other way.
+        ///
+        /// A sensor that will not read a particular finger is common, and the way
+        /// out has to stay inside the one approval: this is a second attempt on
+        /// the device-password policy, for the panel to run instead. Returns nil
+        /// when this machine cannot check a password either, and the caller keeps
+        /// what it had.
+        func passwordFallback() -> PresenceAttempt? {
+            let context = LAContext()
+            var error: NSError?
+            guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+                context.invalidate()
+                return nil
+            }
+            return PresenceAttempt(
+                context: context,
+                mode: .systemDialog,
+                policy: .deviceOwnerAuthentication,
+                resolvedPolicy: .deviceOwner
+            )
+        }
+
         /// Run the check. `completion` lands on the main queue.
         ///
         /// No timeout here on purpose: the prompt has the system's own, and the

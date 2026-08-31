@@ -1,4 +1,5 @@
 import Foundation
+import SessionScoping
 
 /// What the approval panel says, as data.
 ///
@@ -42,69 +43,133 @@ public struct PanelRequester: Equatable {
     public let summary: String
     /// Everything else, shown when the disclosure is opened.
     public let details: [PanelContextLine]
+    /// The processes that lead to the caller, when the daemon could read them.
+    /// This is what the panel draws; `summary` is the flattened form the audit
+    /// log and the biometric prompt's reason line use.
+    public let chain: ExecutionChain?
 
-    public init(summary: String, details: [PanelContextLine] = []) {
+    public init(summary: String, details: [PanelContextLine] = [], chain: ExecutionChain? = nil) {
         self.summary = summary
         self.details = details
+        self.chain = chain
     }
 
     public var hasDetails: Bool { !details.isEmpty }
 }
 
-/// A named group of things the approval covers (key ids, and whatever a generic
-/// approval wants to list).
-public struct PanelItemGroup: Equatable {
-    /// nil for the main group, set for the "asks every time" group
-    public let heading: String?
-    public let items: [PanelItem]
+/// A run of panel text, and whether it names something the machine reads.
+///
+/// Key names are drawn in a monospaced face, which is the panel's way of saying
+/// "this is an identifier, exactly as written". Deciding that here rather than in
+/// the view keeps the copy and its emphasis in one testable place.
+public enum PanelTextSegment: Equatable {
+    case plain(String)
+    case code(String)
 
-    public init(heading: String?, items: [PanelItem]) {
-        self.heading = heading
-        self.items = items
+    public var text: String {
+        switch self {
+        case .plain(let text), .code(let text): return text
+        }
     }
 }
 
-public struct PanelItem: Equatable {
-    public let label: String
-    /// e.g. "12 items". Client-supplied, so it is drawn as secondary detail.
-    public let detail: String?
+/// One row of the panel's key box: a key, the vault it lives in, and what the
+/// client says it opens.
+public struct PanelKeyRow: Equatable {
+    /// The real key id. Never drawn when a friendlier name exists, but it is what
+    /// the grant and the audit record are keyed by.
+    public let keyId: String
+    /// What the row calls this key.
+    public let displayName: String
+    /// The vault tag's label, or nil when a tag would only repeat the name.
+    public let vaultLabel: String?
+    /// The vault's `#rrggbb` identity colour, or nil for the default tint.
+    public let vaultColor: String?
+    /// How many values the client says this key covers.
+    public let valueCount: Int?
+    /// Those values, grouped by the file that defined them. Client-reported, and
+    /// the row says so when it is opened.
+    public let files: [UnlockValueFile]
+    /// Anything that changes what approving this row means, e.g. a strict key.
+    public let note: String?
 
-    public init(label: String, detail: String? = nil) {
-        self.label = label
-        self.detail = detail
+    public init(
+        keyId: String,
+        displayName: String,
+        vaultLabel: String? = nil,
+        vaultColor: String? = nil,
+        valueCount: Int? = nil,
+        files: [UnlockValueFile] = [],
+        note: String? = nil
+    ) {
+        self.keyId = keyId
+        self.displayName = displayName
+        self.vaultLabel = vaultLabel
+        self.vaultColor = vaultColor
+        self.valueCount = valueCount
+        self.files = files
+        self.note = note
+    }
+
+    /// "12 values", or nil when the client said nothing about how many.
+    public var valueCountLabel: String? {
+        guard let valueCount, valueCount > 0 else { return nil }
+        return valueCount == 1 ? "1 value" : "\(valueCount) values"
+    }
+
+    /// Whether there is anything to see when the row is opened.
+    public var isExpandable: Bool {
+        return files.contains { !$0.valueNames.isEmpty }
     }
 }
 
 /// Everything the panel needs to draw itself and to report a decision.
 public struct PanelContent: Equatable {
-    public let title: String
+    /// The heading, in runs, so key names can be drawn as identifiers.
+    public let titleSegments: [PanelTextSegment]
     public let subtitle: String?
-    /// Who is asking: one line at rest, the rest behind the disclosure.
+    /// Who is asking: one line at rest, the chain and the rest behind disclosures.
     public let requester: PanelRequester
-    public let itemGroups: [PanelItemGroup]
+    /// The key box: one row per key this approval covers.
+    public let keyRows: [PanelKeyRow]
+    /// Small print under the key box: what makes this approval unusual, if
+    /// anything (an add-on to a live session, keys that ask every time).
+    public let notes: [String]
+    /// The quiet fact in the top bar. A standing truth about approvals, not
+    /// something about this one request.
+    public let factLine: String?
     public let scopes: [SessionGrantScope]
     public let defaultScope: SessionGrantScope
     public let confirmButtonTitle: String
     public let cancelButtonTitle: String
 
     public init(
-        title: String,
+        titleSegments: [PanelTextSegment],
         subtitle: String? = nil,
         requester: PanelRequester = PanelRequester(summary: ""),
-        itemGroups: [PanelItemGroup] = [],
+        keyRows: [PanelKeyRow] = [],
+        notes: [String] = [],
+        factLine: String? = nil,
         scopes: [SessionGrantScope],
         defaultScope: SessionGrantScope,
         confirmButtonTitle: String,
-        cancelButtonTitle: String = "Cancel"
+        cancelButtonTitle: String = "Deny"
     ) {
-        self.title = title
+        self.titleSegments = titleSegments
         self.subtitle = subtitle
         self.requester = requester
-        self.itemGroups = itemGroups
+        self.keyRows = keyRows
+        self.notes = notes
+        self.factLine = factLine
         self.scopes = scopes
         self.defaultScope = defaultScope
         self.confirmButtonTitle = confirmButtonTitle
         self.cancelButtonTitle = cancelButtonTitle
+    }
+
+    /// Plain-text form, for a window title, a log line, or a test.
+    public var title: String {
+        return titleSegments.map { $0.text }.joined()
     }
 
     /// Human label for a scope button. Plain words, no jargon.
@@ -115,6 +180,10 @@ public struct PanelContent: Equatable {
         case .duration: return "For a set time"
         }
     }
+
+    /// Where the values listed under a key row came from. Said out loud on the
+    /// panel, because the daemon did not derive them and cannot vouch for them.
+    public static let valueSourceFootnote = "Value names and files reported by the client"
 }
 
 /// What the user chose.
@@ -324,76 +393,118 @@ public struct UnlockDisplayInfo: Equatable {
 
 /// Builds the unlock panel's content from a plan.
 public enum UnlockPanelContent {
+    /// The key every varlock install has, whose id is an implementation detail
+    /// nobody should have to read off a panel.
+    public static let defaultKeyId = "varlock-default"
+    /// What that key is called out loud.
+    public static let defaultKeyDisplayName = "local encryption"
+
     /// - Parameters:
     ///   - plan: what still needs asking.
-    ///   - requesterLines: lines the daemon derived from the peer process.
+    ///   - requester: who is asking, as the daemon read it off the peer process.
     ///   - display: client-supplied decoration.
+    ///   - lockOn: the lock policy this unlock would run under, for the top bar.
     public static func build(
         plan: UnlockPlan,
         requester: PanelRequester,
-        display: UnlockDisplayInfo = UnlockDisplayInfo()
+        display: UnlockDisplayInfo = UnlockDisplayInfo(),
+        lockOn: SessionLockPolicy = .builtInDefault
     ) -> PanelContent {
         var details = requester.details
         if let project = projectLine(display) {
             details.append(.clientSupplied(project))
         }
 
-        var groups: [PanelItemGroup] = []
-        let standard = plan.standardPromptKeys
-        if !standard.isEmpty {
-            groups.append(PanelItemGroup(heading: nil, items: standard.map { item(for: $0, display: display) }))
-        }
-        let strict = plan.strictPromptKeys
-        if !strict.isEmpty {
-            groups.append(PanelItemGroup(
-                heading: strict.count == plan.promptKeys.count ? "Asks every time" : "Asks every time, whatever you pick below",
-                items: strict.map { item(for: $0, display: display) }
-            ))
-        }
-
         return PanelContent(
-            title: title(for: plan),
-            subtitle: subtitle(for: plan),
-            requester: PanelRequester(summary: requester.summary, details: details),
-            itemGroups: groups,
+            titleSegments: titleSegments(for: plan),
+            subtitle: projectSubtitle(display),
+            requester: PanelRequester(
+                summary: requester.summary,
+                details: details,
+                chain: requester.chain
+            ),
+            keyRows: plan.promptKeys.map { row(for: $0, display: display) },
+            notes: notes(for: plan),
+            factLine: factLine(plan: plan, lockOn: lockOn),
             scopes: plan.offeredScopes,
             defaultScope: plan.defaultScope,
             confirmButtonTitle: "Unlock"
         )
     }
 
-    static func item(for key: RequestedKey, display: UnlockDisplayInfo) -> PanelItem {
-        let count = key.itemCount ?? display.itemCounts[key.keyId]
-        guard let count, count > 0 else { return PanelItem(label: key.keyId) }
-        return PanelItem(label: key.keyId, detail: count == 1 ? "1 value" : "\(count) values")
+    /// What one key's row says.
+    ///
+    /// The vault tag names the vault a key lives in. Without vaults there is only
+    /// the local one, and a tag repeating the row's own name would be noise, so
+    /// it is left off in that case.
+    static func row(for key: RequestedKey, display: UnlockDisplayInfo) -> PanelKeyRow {
+        let supplied = display.keys[key.keyId]
+        let name = displayName(forKeyId: key.keyId)
+        let vaultLabel = supplied?.vaultLabel ?? defaultKeyDisplayName
+        return PanelKeyRow(
+            keyId: key.keyId,
+            displayName: name,
+            vaultLabel: vaultLabel == name ? nil : vaultLabel,
+            vaultColor: supplied?.vaultColor,
+            valueCount: key.itemCount ?? display.valueCount(forKey: key.keyId),
+            files: supplied?.files ?? [],
+            note: key.policy == .everyTime ? "asks every time" : nil
+        )
     }
 
-    static func title(for plan: UnlockPlan) -> String {
-        let names = plan.promptKeys.map { $0.keyId }
-        if plan.isDelta {
-            if names.count == 1 {
-                return "Also unlock \(names[0])?"
-            }
-            return "Also unlock \(names.count) more keys?"
-        }
-        if names.count == 1 {
-            return "Unlock encryption key \(names[0])"
-        }
-        return "Unlock \(names.count) encryption keys"
+    /// What a key is called on the panel.
+    public static func displayName(forKeyId keyId: String) -> String {
+        return keyId == defaultKeyId ? defaultKeyDisplayName : keyId
     }
 
-    static func subtitle(for plan: UnlockPlan) -> String? {
-        var parts: [String] = []
+    static func titleSegments(for plan: UnlockPlan) -> [PanelTextSegment] {
+        let names = plan.promptKeys.map { displayName(forKeyId: $0.keyId) }
+        let lead = plan.isDelta ? "Also unlock " : "Unlock "
+        switch names.count {
+        case 1:
+            return [.plain(lead), .code(names[0])]
+        case 2:
+            return [.plain(lead), .code(names[0]), .plain(" and "), .code(names[1])]
+        default:
+            return [.plain("\(lead)\(names.count) encryption keys")]
+        }
+    }
+
+    /// The hero's second line: which project is asking, as the client named it.
+    static func projectSubtitle(_ display: UnlockDisplayInfo) -> String? {
+        if let name = display.projectName { return "for \(name)" }
+        guard let path = display.projectPath else { return nil }
+        let leaf = (path as NSString).lastPathComponent
+        return "for \(leaf.isEmpty ? path : leaf)"
+    }
+
+    static func notes(for plan: UnlockPlan) -> [String] {
+        var notes: [String] = []
         if plan.isDelta {
             let already = plan.coveredKeys.count
-            parts.append(already == 1
+            notes.append(already == 1
                 ? "This session already has 1 other key unlocked."
                 : "This session already has \(already) other keys unlocked.")
         }
         if plan.isStrictOnly {
-            parts.append("These keys are set to ask every time, so this unlock covers one read.")
+            notes.append("These keys are set to ask every time, so this unlock covers one read.")
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
+        return notes
+    }
+
+    /// The standing fact in the top bar.
+    ///
+    /// Two things are always true of an unlock: it is recorded, and a session has
+    /// a limit. Whichever one the panel is not already implying is the one worth
+    /// saying, so an approval that cannot open a session talks about the record
+    /// instead of about session limits it will never reach.
+    static func factLine(plan: UnlockPlan, lockOn: SessionLockPolicy) -> String {
+        guard plan.offeredScopes.contains(.session) else { return "Recorded to the audit log" }
+        switch lockOn {
+        case .screenLock: return "Sessions end on screen lock \u{00B7} 12h max"
+        case .sleep: return "Sessions end on sleep \u{00B7} 12h max"
+        case .never: return "Sessions last 12h at most"
+        }
     }
 
     static func projectLine(_ display: UnlockDisplayInfo) -> String? {
