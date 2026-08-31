@@ -85,6 +85,59 @@ varlock load --filter="#billing"
 
 When emitting machine-readable output, add `--summary-stderr` (or `--summary-file`) to get a human-readable, redacted summary on **stderr** while keeping clean JSON on **stdout**. This is handy for agents and CI.
 
+#### Reading errors from `json-full`
+
+`--format json-full` writes its JSON to stdout **even when loading fails**, and still exits non-zero. So a tool can parse stdout regardless of exit code and read the `errors` key, which is absent entirely when everything resolved:
+
+```jsonc
+{
+  "errors": {
+    // not tied to one item: parse failures, no env files found, etc.
+    "root": [
+      { "code": "no_env_files", "message": "No .env files found in /app", "severity": "error", "tip": "Run `varlock init` ..." }
+    ],
+    // keyed by item; an array, since one item can fail several ways at once
+    "configItems": {
+      "API_KEY": [
+        { "code": "empty_required_value", "message": "Value is required but is currently empty", "severity": "error" }
+      ]
+    }
+  },
+  // same structure, but never a reason the load failed. Absent when there are none.
+  "warnings": {
+    "configItems": {
+      "OTHER_KEY": [
+        { "code": "schema_error", "message": "Unexpected text \"...\" after @public - use another # for trailing comments", "severity": "warning" }
+      ]
+    }
+  }
+}
+```
+
+Branch on `code`, which is stable. Treat `message` as prose that can change between releases.
+
+Warnings live under a separate top-level `warnings` key with the identical structure, so **the presence of `errors` always means the load failed** and `if (data.errors)` stays a valid check. Warnings never block a load. An item that has both (a stray-text warning next to a required-value error, say) appears under both keys, carrying only its relevant entries in each.
+
+Current codes:
+
+| Code | Meaning |
+| --- | --- |
+| `no_env_files` | No `.env*` files found at all |
+| `no_config_items` | Files loaded, but they define no items |
+| `parse_error` | A file could not be parsed |
+| `schema_error` | Invalid decorator, unknown resolver function, and similar schema problems |
+| `loading_failed` | A source could not be read |
+| `resolution_failed` | A resolver threw (plugin error, failed `exec()`, ...) |
+| `decrypt_failed` | A [`varlock("local:...")`](/guides/local-encryption/) value could not be decrypted |
+| `coercion_failed` | Value present but not coercible to the declared `@type` |
+| `validation_failed` | Value failed a validation rule |
+| `empty_required_value` | `@required` item resolved to empty |
+| `config_load_failed` | Unexpected error while loading config |
+
+A `.env.schema` is not required: a project made only of `.env` files loads fine. What does fail is having no env files at all (`no_env_files`) or files that define nothing (`no_config_items`).
+
+Treat this list as open-ended. More specific codes get added over time (a decrypt failure may narrow to a reason reported by the native encryption helper, for example), so match the codes you handle and fall back to generic handling for anything you do not recognize rather than assuming the set is closed.
+
 :::caution
 Setting `@currentEnv` in your `.env.schema` will override the `--env` flag.
 :::
