@@ -2,7 +2,7 @@ import ansis, { type AnsiColors, type AnsiStyles } from 'ansis';
 import _ from '@env-spec/utils/my-dash';
 
 import type { ConfigItem, VarlockError } from '../env-graph';
-import { redactString } from '../runtime/lib/redaction';
+import { redactSensitiveDisplayValue } from './sensitive-value';
 
 type ColorMod = AnsiStyles | AnsiColors;
 type ColorMods = ColorMod | Array<ColorMod>;
@@ -135,8 +135,8 @@ export function getItemSummary(item: ConfigItem) {
   ]));
 
   let valAsStr = formattedValue(item.resolvedValue, false);
-  if (isSensitive && item.resolvedValue && _.isString(item.resolvedValue)) {
-    valAsStr = redactString(item.resolvedValue)!;
+  if (isSensitive) {
+    valAsStr = redactSensitiveDisplayValue(item.resolvedValue) ?? valAsStr;
   }
 
   // build inline indicators to append after the value
@@ -154,7 +154,11 @@ export function getItemSummary(item: ConfigItem) {
     valAsStr,
     item.isCoerced && (
       ansis.gray.italic('< coerced from ')
-      + (isSensitive ? formattedValue(item.resolvedRawValue) : formattedValue(item.resolvedRawValue, false))
+      // the raw value is the same secret pre-coercion (a composite type's joined form,
+      // a trimmed string), so it must be masked too - not just the coerced value above
+      + (isSensitive
+        ? (redactSensitiveDisplayValue(item.resolvedRawValue) ?? formattedValue(item.resolvedRawValue))
+        : formattedValue(item.resolvedRawValue, false))
     ),
     indicators.length > 0 && ansis.gray(' ') + indicators.join(' '),
   ]));

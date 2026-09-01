@@ -242,7 +242,7 @@ describe('required decorators', () => {
     test('`forEnv()` resolves concat() and mixed args', envFilesTest({
       files: {
         '.env.schema': outdent`
-          # @currentEnv=$APP_ENV @defaultRequired=false
+          # @currentEnv=$APP_ENV @defaultRequired=false @defaultSensitive=false
           # ---
           APP_ENV=dev
           PREFIX=d
@@ -369,6 +369,8 @@ describe('required decorators', () => {
     test('dynamic @required works', envFilesTest({
       files: {
         '.env.schema': outdent`
+          # @defaultSensitive=false
+          # ---
           REQ_IF_FOO= # @required=eq($OTHER, foo)
           REQ_IF_BAR= # @required=eq($OTHER, bar)
           OTHER=foo

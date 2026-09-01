@@ -107,14 +107,21 @@ export function pluginTest(spec: PluginTestSpec) {
         const item = g.configSchema[key];
         expect(item, `Expected item "${key}" to exist in schema`).toBeDefined();
 
+        // warnings are advisory by design (e.g. the short-sensitive-value rule), and the
+        // source-level check above already ignores them. Both branches have to agree: a
+        // fixture must not be failed by an advisory warning, and an advisory warning must
+        // not be able to satisfy an expected error - a resolver that wrongly returns a
+        // short value would otherwise pass `expectValues: { KEY: Error }` unnoticed.
+        const realErrors = item.errors.filter((e) => !e.isWarning);
+
         if (typeof expected === 'function' && (expected === Error || expected.prototype instanceof Error)) {
-          expect(item.errors.length, `Expected errors on "${key}"`).toBeGreaterThan(0);
+          expect(realErrors.length, `Expected errors on "${key}"`).toBeGreaterThan(0);
           if (expected !== Error) {
-            expect(item.errors[0]).toBeInstanceOf(expected);
+            expect(realErrors[0]).toBeInstanceOf(expected);
           }
         } else {
-          if (item.errors.length > 0) {
-            expect.fail(`Unexpected errors on "${key}": ${item.errors.map((e: Error) => e.message).join(', ')}`);
+          if (realErrors.length > 0) {
+            expect.fail(`Unexpected errors on "${key}": ${realErrors.map((e: Error) => e.message).join(', ')}`);
           }
           expect(item.resolvedValue, `Value of "${key}"`).toEqual(expected);
         }

@@ -21,8 +21,8 @@ describe('scoped resolution via --filter', () => {
   it('scopes to matched keys plus transitive deps for a key filter', async () => {
     const g = await loadGraph(outdent`
       STRIPE_KEY=concat("sk-", ref(STRIPE_SUFFIX))
-      STRIPE_SUFFIX=abc
-      OTHER_VAR=hello
+      STRIPE_SUFFIX=abc123def456
+      OTHER_VAR=a-value-long-enough
     `);
     await resolveScoped(g, 'STRIPE_KEY');
     expect(g.configSchema.STRIPE_KEY.isResolved).toBe(true);
@@ -33,7 +33,7 @@ describe('scoped resolution via --filter', () => {
   it('scopes to matched keys for a #tag filter', async () => {
     const g = await loadGraph(outdent`
       # @tag(frontend)
-      FRONTEND_VAR=hello
+      FRONTEND_VAR=a-value-long-enough
       BACKEND_VAR=world
     `);
     await resolveScoped(g, '#frontend');
@@ -51,7 +51,7 @@ describe('scoped resolution skips validating filtered-out items', () => {
   it('a required-but-empty item outside the filter does not block resolution', async () => {
     const g = await loadGraph(outdent`
       # @tag(frontend)
-      FRONTEND_VAR=hello
+      FRONTEND_VAR=a-value-long-enough
 
       # @required
       BACKEND_SECRET=

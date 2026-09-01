@@ -70,6 +70,8 @@ Default behavior for all items can be set using the [`@defaultSensitive` root de
 
 Sensitivity may also be implied by the item's [data type](/reference/data-types). For example, plugin "secret-zero" credential types (like a [1Password `opServiceAccountToken`](/plugins/1password/)) are sensitive by default, so you don't need to add `@sensitive` explicitly (use `@public` or `@sensitive=false` to override). An explicit `@sensitive` on the item always wins.
 
+Redaction replaces a sensitive value wherever it appears, and it can't tell a leaked secret from ordinary text that happens to match. Varlock therefore checks that a value marked sensitive can actually be protected that way, and reports the ones that can't be: very short values, booleans and numbers, the [`@currentEnv`](/reference/root-decorators/#currentenv) item, and secrets embedded in a non-sensitive value. See [values varlock can't protect](/guides/secrets/#values-varlock-cant-protect) for what each case means and how to resolve it.
+
 📖 See the [secrets management guide](/guides/secrets/) for best practices on handling sensitive values, and how to use plugins to fetch them from secret management platforms.
 
 ```env-spec
@@ -83,6 +85,7 @@ SERVICE_X_CLIENT_ID=
 
 - `enabled` (`boolean`, default `true`): whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (e.g. `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
 - `preventLeaks` (`boolean`, default `true`): when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs.
+- `allowShortValue` (`boolean`, default `false`): when `true`, silences the [short-value warning](/guides/secrets/#values-varlock-cant-protect) for secrets that are legitimately short and can't be lengthened (a one-time code, a PIN). Redaction is unchanged; this only records that the collision risk was read and accepted. It does not apply to values under 3 characters: those are an error when you wrote `@sensitive` yourself and a warning when `@defaultSensitive` swept them in, and the option suppresses neither.
 
 ```env-spec
 # @sensitive={preventLeaks=false}
