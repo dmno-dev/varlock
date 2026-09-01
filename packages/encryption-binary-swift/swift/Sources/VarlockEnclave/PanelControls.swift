@@ -203,26 +203,28 @@ final class PanelButton: NSControl, PanelClickTarget {
     }
 }
 
-/// The approve action, with the sensor in it.
+/// The approve action, which is the sensor and its label.
 ///
-/// It reads as the panel's primary button and it is also the scan surface: the
-/// system's own `LAAuthenticationView` sits in the glyph slot, and touching the
-/// sensor approves without anyone clicking anything.
+/// It sits where the primary action goes, beside Deny, and it is also the scan
+/// surface: the system's own `LAAuthenticationView` is the fingerprint, and
+/// touching the sensor approves without anyone clicking anything. Clicking the
+/// label asks again, for a scan that did not take.
 ///
-/// Outlined rather than filled, and that is not a taste decision.
+/// Nothing is drawn behind it, and that is not a taste decision.
 /// `render-bisect.ts` measured the pixels for each arrangement:
 ///
 ///   sensor alone in a plain holder                  51 greys, drawn
 ///   sensor and label in a plain holder              51 greys, drawn
-///   this control, outline only, beside Deny         51 greys, drawn
-///   the same control with a layer-backed fill        4 greys, blank
-///   the same control with the fill drawn in code     4 greys, blank
+///   the same pair inside an outlined box            51 greys, drawn
+///   the same box with a layer-backed fill            4 greys, blank
+///   the same box with the fill drawn in code         4 greys, blank
 ///
 /// So the rule is: no paint of ours may cover the sensor's own rectangle. A fill
-/// behind it blanks it, whether the fill is a layer or a `draw(_:)` call, while
-/// an outline (which never crosses that rectangle) leaves it alone. The mock's
-/// solid blue bar is therefore not available; a blue outline in the same shape,
-/// with the same label, is as close as the platform allows.
+/// behind it blanks it, whether the fill is a layer or a `draw(_:)` call. The
+/// mock's solid blue bar is therefore not available at all, and the outline that
+/// stood in for it was a box around a fingerprint that read as neither. What is
+/// left is the honest version: the live sensor at its own size with the words
+/// beside it, and the panel's ground showing through.
 ///
 /// Deliberately an `NSView` and not an `NSControl`: inside an `NSButton` the auth
 /// view drew nothing either, for the same reason.
@@ -231,21 +233,24 @@ final class PanelScanButton: NSView, PanelClickTarget {
     private(set) var scanView: NSView!
 
     private let onClick: () -> Void
-    private var pressed = false
+    private let label: NSTextField
+
+    /// The sensor's own drawn size. `LAAuthenticationView` renders at a size per
+    /// control size (mini 16, small 32, regular 64, large 128), so the small one
+    /// is asked for rather than a large one squeezed: a scaled-down fingerprint
+    /// is a blurry fingerprint.
+    static let sensorSide: CGFloat = 32
 
     /// `context` is nil only in a preview, which has no sensor to bind to and
     /// gets our drawn glyph in the same slot: a picture of where the live one goes.
     init(title: String, context: LAContext?, onClick: @escaping () -> Void) {
         self.onClick = onClick
+        label = PanelStyle.label(title, size: 13, color: PanelStyle.ink, weight: .semibold)
         super.init(frame: .zero)
 
-        // The fill is drawn by a sibling BEHIND the content, not by this view, so
-        // nothing in the auth view's ancestry is a layer-backed rounded box. That
-        // arrangement is under test: the view drew nothing when its parent owned
-        // a background layer.
         let authView: NSView
         if let context {
-            authView = LAAuthenticationView(context: context, controlSize: .large)
+            authView = LAAuthenticationView(context: context, controlSize: .small)
         } else {
             let placeholder = TouchIDGlyphView()
             placeholder.apply(.still)
@@ -254,66 +259,53 @@ final class PanelScanButton: NSView, PanelClickTarget {
         authView.translatesAutoresizingMaskIntoConstraints = false
         scanView = authView
 
-        let label = PanelStyle.label(
-            title,
-            size: 13,
-            color: PanelStyle.ink,
-            weight: .semibold
-        )
         label.translatesAutoresizingMaskIntoConstraints = false
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         // Both placed directly, with no stack view between the auth view and this
-        // one. Under test: whether being an arranged subview is what stops it
-        // drawing, since every arrangement that has ever rendered had it as a
-        // plain subview with constraints of its own.
+        // one: every arrangement that has ever rendered had it as a plain subview
+        // with constraints of its own.
         addSubview(authView)
         addSubview(label)
 
+        // A layout guide rather than a container view, so the pair can be centred
+        // as a unit without anything existing behind the sensor.
+        let pair = NSLayoutGuide()
+        addLayoutGuide(pair)
+
         NSLayoutConstraint.activate([
-            authView.widthAnchor.constraint(equalToConstant: 48),
-            authView.heightAnchor.constraint(equalToConstant: 48),
+            authView.widthAnchor.constraint(equalToConstant: Self.sensorSide),
+            authView.heightAnchor.constraint(equalToConstant: Self.sensorSide),
             authView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            authView.trailingAnchor.constraint(equalTo: label.leadingAnchor, constant: -10),
+            authView.trailingAnchor.constraint(equalTo: label.leadingAnchor, constant: -9),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            // The pair sits centred as a unit, the way a button's content does.
-            authView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -14),
-            authView.centerXAnchor.constraint(
-                equalTo: centerXAnchor,
-                constant: -24 - 5
-            ).withPriority(.defaultHigh),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
+            pair.leadingAnchor.constraint(equalTo: authView.leadingAnchor),
+            pair.trailingAnchor.constraint(equalTo: label.trailingAnchor),
+            pair.centerXAnchor.constraint(equalTo: centerXAnchor).withPriority(.defaultHigh),
+            authView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            // Tall enough that the sensor is never clipped, and no taller: this
+            // row sits next to a 34pt Deny button.
+            heightAnchor.constraint(greaterThanOrEqualToConstant: Self.sensorSide + 6),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    /// The fill, drawn rather than layered.
+    /// Pressed state lives in the label's ink.
     ///
-    /// Same shape, no backing layer of its own: under test as the way to keep the
-    /// button's look without the sensor going blank inside it.
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let inset = bounds.insetBy(dx: 1, dy: 1)
-        let path = NSBezierPath(roundedRect: inset, xRadius: 8, yRadius: 8)
-        path.lineWidth = pressed ? 2.5 : 1.5
-        (pressed ? PanelStyle.primaryButtonPressed : PanelStyle.primaryButton).setStroke()
-        path.stroke()
-    }
-
-    private func applyBackground() {
-        needsDisplay = true
+    /// Everything else a button does to say "pressed" is paint, and paint is the
+    /// one thing that must not happen around this view.
+    private func setPressed(_ pressed: Bool) {
+        label.textColor = pressed ? PanelStyle.inkSecondary : PanelStyle.ink
     }
 
     override func mouseDown(with event: NSEvent) {
-        pressed = true
-        applyBackground()
+        setPressed(true)
     }
 
     override func mouseUp(with event: NSEvent) {
-        pressed = false
-        applyBackground()
+        setPressed(false)
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick()
     }
