@@ -612,20 +612,21 @@ export class ConfigItem {
    * Kinds of item that can never be meaningfully sensitive, rejected at schema time
    * rather than left to the value-length warning.
    *
-   * Only fires on an _explicit_ `@sensitive` - `@defaultSensitive=true` (the default)
-   * sweeps in every item in the file, and erroring on something the author never wrote
-   * would be hostile. The implicit cases still surface via the short-value check.
+   * Type-based rules apply however the item became sensitive: an item swept in by
+   * `@defaultSensitive=true` is registered for redaction exactly like an explicitly
+   * marked one, so a boolean or number does the same damage either way. Builtins are
+   * exempt - they are varlock's own metadata, never a secret.
    */
-  private checkExplicitSensitiveIsPlausible() {
-    if (!this._sensitiveExplicitlySet || !this._isSensitive) return;
+  private checkSensitiveIsPlausible() {
+    if (!this._isSensitive || this.isBuiltin) return;
 
     // a boolean only ever redacts as "true"/"false", which appear in essentially every
     // log line and JSON body - the redaction does far more damage than the value is worth
     if (this.dataType?.coercedType === 'boolean') {
       this._schemaErrors.push(new SchemaError(
-        '@sensitive cannot be used on a boolean value',
+        'a boolean value cannot be sensitive',
         {
-          tip: 'Redacting a boolean rewrites every "true"/"false" in logs and proxied responses.\nIf this really is a secret, give it a string type (`@type=string`) or quote the value.\nOtherwise mark it `@sensitive=false`.',
+          tip: 'Redacting a boolean rewrites every "true"/"false" in logs and proxied response bodies.\nMark it `@sensitive=false` (or `@public`) - which is also what an item swept in by `@defaultSensitive` needs.\nIf it really is a secret, make it a string instead: `@type=string`, or quote the value.',
         },
       ));
     }
@@ -635,16 +636,19 @@ export class ConfigItem {
     // rounded. Digits also collide with ordinary content far more readily than a token does.
     if (this.dataType?.coercedType === 'number' || this.dataType?.coercedType === 'int') {
       this._schemaErrors.push(new SchemaError(
-        '@sensitive cannot be used on a number value',
+        'a number value cannot be sensitive',
         {
-          tip: 'A numeric secret loses leading zeros and precision past 2^53, and digits collide with ordinary content.\nQuote the value (`PIN="007123"`) or give it a string type (`@type=string`) to keep it exact.\nIf it is not a secret, mark it `@sensitive=false`.',
+          tip: 'Make it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).\nA number drops leading zeros and rounds anything past 2^53, so a numeric secret is corrupted before redaction is even involved.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).',
         },
       ));
     }
 
     // the env flag drives @import(enabled=...) / forEnv() and is echoed by nearly every
-    // tool in the stack - it is a mode name ("dev", "production"), never a secret
-    if (this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
+    // tool in the stack - it is a mode name ("dev", "production"), never a secret.
+    // Explicit-only: `@defaultSensitive=true` makes the env flag sensitive in most
+    // schemas today, and failing those loads is a bigger break than it is worth.
+    if (this._sensitiveExplicitlySet
+      && this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
       this._schemaErrors.push(new SchemaError(
         '@sensitive cannot be used on the @currentEnv item',
         {
@@ -658,7 +662,7 @@ export class ConfigItem {
     // Resolve the normal sensitivity signals first (so @sensitive/@public schema
     // validation still runs), then force sensitivity for @proxy-managed items below.
     await this.resolveSensitiveSource();
-    this.checkExplicitSensitiveIsPlausible();
+    this.checkSensitiveIsPlausible();
 
     // @proxy-managed items are always sensitive: the proxied child only ever sees a
     // placeholder while the real value is injected at the wire, so force sensitivity

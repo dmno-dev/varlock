@@ -239,6 +239,7 @@ describe('cache() resolver', () => {
       const source = new DotEnvFileDataSource('.env.schema', {
         overrideContents: outdent`
           # @defaultRequired=false
+          # @defaultSensitive=false
           # @cache=if($USE_MEM, "memory", "disabled")
           # ---
           USE_MEM=true

@@ -546,7 +546,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.ARR.errors[0].message).toContain('only 1 character long');
   });
 
-  test('@sensitive on a boolean is an error', async () => {
+  test('a sensitive boolean is an error', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
@@ -557,15 +557,20 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # @sensitive
       INFERRED=false
 
-      # implicit sensitivity is not an error - the author never called it a secret
+      # sensitive only via @defaultSensitive, but it is registered for redaction the
+      # same way, so it fails the same way
       IMPLICIT=true
+
+      # @sensitive=false
+      NOT_SENSITIVE=true
     `);
-    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on a boolean value']);
+    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a boolean value cannot be sensitive']);
     expect(g.configSchema.INFERRED.validationState).toBe('error');
-    expect(g.configSchema.IMPLICIT.validationState).not.toBe('error');
+    expect(g.configSchema.IMPLICIT.validationState).toBe('error');
+    expect(g.configSchema.NOT_SENSITIVE.validationState).toBe('valid');
   });
 
-  test('@sensitive on a number is an error', async () => {
+  test('a sensitive number is an error, pointing at a string instead', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
@@ -580,7 +585,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # @sensitive
       QUOTED="00987654321987"
     `);
-    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on a number value']);
+    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a number value cannot be sensitive']);
     expect(g.configSchema.INFERRED.validationState).toBe('error');
     expect(g.configSchema.QUOTED.validationState).toBe('valid');
   });
