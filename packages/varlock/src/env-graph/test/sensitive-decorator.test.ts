@@ -718,6 +718,21 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
   // a short sensitive value inside a public one is more collision than leak, but that
   // collision is confirmed rather than hypothetical - redaction really will rewrite the
   // public value - so it warns even though `allowShortValue` silenced the generic warning
+  // redaction only registers string leaves, so a sensitive number is not in the map and
+  // cannot collide with anything - it carries its own diagnostic instead
+  test('a sensitive number inside a public value is not reported as a collision', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      SERVICE_PORT=3000
+
+      # @public
+      SERVICE_URL=https://api.example.com:3000/v1
+    `);
+    expect(g.configSchema.SERVICE_URL.validationState).toBe('valid');
+    expect(g.configSchema.SERVICE_PORT.errors.map((e) => e.message)).toEqual(['sensitive, but a number is never redacted']);
+  });
+
   test('a short sensitive value inside a public one is flagged too', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false

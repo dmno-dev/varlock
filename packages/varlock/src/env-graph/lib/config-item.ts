@@ -1,5 +1,5 @@
 import {
-  MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, hasNonStringLeaf, shortestSensitiveValueLength,
+  MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, collectLeaves,
 } from '../../lib/sensitive-value';
 import _ from '@env-spec/utils/my-dash';
 import {
@@ -613,77 +613,61 @@ export class ConfigItem {
   /**
    * Kinds of item that can never be meaningfully sensitive.
    *
-   * These apply however the item became sensitive: an item swept in by
-   * `@defaultSensitive=true` is registered for redaction exactly like an explicitly
-   * marked one, so the value does the same damage either way. Builtins are exempt -
-   * they are varlock's own metadata, never a secret.
+   * An explicit `@sensitive` errors, `@defaultSensitive` warns. The default is what a
+   * hand-written schema inherits, so it sweeps in every port, flag and env name in the
+   * file, and failing those is a bigger break than the problem warrants.
+   *
+   * Nothing here demotes the item. Sensitivity is what `@dynamic` defaults to, so making
+   * one of these public would also make it `@static` and eligible to be inlined into a
+   * build - a silent runtime behavior change, which belongs in a breaking release.
    */
   private checkSensitiveIsPlausible() {
     if (!this._isSensitive || this.isBuiltin) return;
-    // any branch below says something more specific than the generic length rules, which
-    // are then skipped rather than stacking a second message onto the same item
-    const flag = (err: SchemaError) => {
+    // a specific message here replaces the generic length rules rather than stacking on top
+    const flag = (explicit: SchemaError, implicit: SchemaError) => {
       this._sensitiveIsImplausible = true;
-      this._schemaErrors.push(err);
+      this._schemaErrors.push(this._sensitiveExplicitlySet ? explicit : implicit);
     };
 
-    // A boolean holds one bit, so there is no secret in it to protect, while redacting it
-    // would rewrite every "true"/"false" in logs and proxied response bodies.
-    //
-    // Demoting it to non-sensitive is the eventual answer, but sensitivity is what
-    // `@dynamic` defaults to, so demoting would also flip the item to `@static` and make
-    // it eligible to be inlined into a build - a silent runtime behavior change that
-    // nothing in the output would announce. So for now the item stays sensitive either
-    // way and only the reporting differs; the demotion belongs in a breaking release.
     if (this.dataType?.coercedType === 'boolean') {
-      flag(this._sensitiveExplicitlySet
-        ? new SchemaError('a boolean value cannot be sensitive', {
+      flag(
+        new SchemaError('a boolean value cannot be sensitive', {
           tip: 'A boolean carries no secret, and redacting it would rewrite every "true"/"false" in logs and proxied response bodies.\nMark it `@sensitive=false` (or `@public`).\nIf this really is a secret, make it a string instead: `@type=string`, or quote the value.',
-        })
-        : new SchemaError('sensitive, but a boolean carries no secret to protect', {
+        }),
+        new SchemaError('sensitive, but a boolean carries no secret to protect', {
           isWarning: true,
           tip: 'Redacting it would rewrite every "true"/"false" in logs and proxied responses.\nMark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.',
-        }));
+        }),
+      );
       return;
     }
 
-    // A number is a bad container for a secret: redaction only ever matches strings, so the
-    // value is never actually masked, and the number itself has already dropped leading
-    // zeros (an `007123` OTP resolves to 7123) and rounded anything past 2^53.
-    //
-    // How loudly to say so depends on who asked. An explicit `@sensitive` is a claim that
-    // this is a secret, and that claim is not being honored - that has to fail. But
-    // `@defaultSensitive=true` is also the default for a hand-written schema, where it
-    // sweeps in every port and timeout in the file; failing those is a bad trade for a
-    // case that is usually not a secret at all. Those warn and stay sensitive, which is no
-    // worse than before (still `@dynamic`, so still never inlined into a build) and now
-    // says out loud that redaction does not cover it.
+    // beyond never being redacted, a number has already dropped leading zeros (an `007123`
+    // OTP resolves to 7123) and rounded anything past 2^53
     if (this.dataType?.coercedType === 'number' || this.dataType?.coercedType === 'int') {
-      flag(this._sensitiveExplicitlySet
-        ? new SchemaError('a number value cannot be sensitive', {
+      flag(
+        new SchemaError('a number value cannot be sensitive', {
           tip: 'Redaction only replaces strings, so a number is never actually masked.\nMake it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).',
-        })
-        : new SchemaError('sensitive, but a number is never redacted', {
+        }),
+        new SchemaError('sensitive, but a number is never redacted', {
           isWarning: true,
           tip: 'Redaction only replaces strings, so this value appears as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.\nIf it is, make it a string: add `@type=string`, or quote the value.',
-        }));
+        }),
+      );
     }
 
-    // the env flag drives @import(enabled=...) / forEnv() and is echoed by nearly every
-    // tool in the stack - it is a mode name ("dev", "production"), never a secret. Same
-    // explicit/implicit split as the type rules: `@defaultSensitive=true` makes the env
-    // flag sensitive in most schemas today, and failing those loads is a bigger break
-    // than it is worth, but staying silent about it is not right either - the env name
-    // really is being redacted everywhere it appears.
-    if (this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
-      flag(this._sensitiveExplicitlySet
-        ? new SchemaError('@sensitive cannot be used on the @currentEnv item', {
+    // the env flag drives @import(enabled=...) / forEnv() and is echoed by most tools in
+    // the stack - it is a mode name ("dev", "production"), never a secret
+    if (this.envGraph.sortedDataSources.some((source) => source._envFlagKey === this.key)) {
+      flag(
+        new SchemaError('@sensitive cannot be used on the @currentEnv item', {
           tip: 'The current env name is not a secret, and redacting it rewrites the env name everywhere it appears.\nMark it `@sensitive=false` (or `@public`).',
-        })
-        : new SchemaError('sensitive, but the @currentEnv item is not a secret', {
+        }),
+        new SchemaError('sensitive, but the @currentEnv item is not a secret', {
           isWarning: true,
           tip: 'Redacting it rewrites the env name everywhere it appears in logs and proxied responses.\nMark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.',
-        }));
+        }),
+      );
     }
   }
 
@@ -1134,73 +1118,58 @@ export class ConfigItem {
       }
       this.isValidated = true;
 
-      // A sensitive value short enough to also occur as ordinary text gets rewritten
-      // everywhere redaction runs (console output, proxied response bodies), because
-      // substring replacement cannot tell a leaked secret from prose that matches it.
-      // Composite values are measured per element, since that is how redaction registers
-      // them - a long array with a one-character element is still a one-character match.
-      // A composite hides unredactable leaves from the scalar type rules above: an
-      // `@type=array(number)` item has a composite coercedType while every element is a
-      // number, and redaction registers only string leaves - so those elements reach logs
-      // and proxied responses unchanged. Same explicit/implicit split as a bare number.
-      const compositeHasUnredactableLeaf = this.isSensitive
+      // Redaction can only protect what it can match: a string, long enough not to
+      // collide with ordinary text. What follows reports where that does not hold.
+      const addError = (err: ValidationError) => {
+        this.validationErrors = [...(this.validationErrors ?? []), err];
+      };
+      const { redactable, unredactable } = collectLeaves(this.resolvedValue);
+
+      // a composite hides unredactable leaves from the scalar type rules in
+      // checkSensitiveIsPlausible - `@type=array(number)` is a composite type whose
+      // elements are all numbers, and only string leaves are ever registered
+      const compositeIsUnredactable = this.isSensitive
         && isCompositeCoercedType(this.dataType?.coercedType)
-        && hasNonStringLeaf(this.resolvedValue);
-      if (compositeHasUnredactableLeaf) {
-        this.validationErrors = [
-          ...(this.validationErrors ?? []),
-          this._sensitiveExplicitlySet
-            ? new ValidationError('sensitive value has elements that are not strings, which are never redacted', {
-              tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nUse a string element type (e.g. `@type=array(string)`) to keep them protected.',
-            })
-            : new ValidationError('sensitive, but elements that are not strings are never redacted', {
-              severity: 'warning',
-              tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).\nIf it is, use a string element type (e.g. `@type=array(string)`).',
-            }),
-        ];
+        && unredactable.length > 0;
+      if (compositeIsUnredactable) {
+        addError(this._sensitiveExplicitlySet
+          ? new ValidationError('sensitive value has elements that are not strings, which are never redacted', {
+            tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nUse a string element type (e.g. `@type=array(string)`) to keep them protected.',
+          })
+          : new ValidationError('sensitive, but elements that are not strings are never redacted', {
+            severity: 'warning',
+            tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).\nIf it is, use a string element type (e.g. `@type=array(string)`).',
+          }));
       }
 
-      const shortestLength = (
-        this.isSensitive
-        // an item already rejected for a different reason (including "this can never be
-        // sensitive" above) does not need length advice piled on top
-        && !this._schemaErrors.some((e) => !e.isWarning)
-        // these rules are about a redacted value colliding with ordinary text, which says
-        // nothing about a value redaction never matches in the first place - and in every
-        // such case something more specific has already been reported
+      // skipped when something more specific was already said about this item, or when a
+      // real error means it is broken anyway
+      const lengthRulesApply = this.isSensitive
+        && !compositeIsUnredactable
         && !this._sensitiveIsImplausible
-        && !compositeHasUnredactableLeaf
-      ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
-      // note this one is not opt-out-able - see MIN_SENSITIVE_VALUE_LENGTH
-      if (shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH) {
-        // hard error regardless of how the item became sensitive: whether it was marked
-        // explicitly or swept in by `@defaultSensitive=true`, a value this short is
-        // registered for redaction either way, and there is no output in which that is
-        // harmless. `@sensitive=false` or `allowShortValue=true` are the ways out.
-        this.validationErrors = [
-          ...(this.validationErrors ?? []),
-          new ValidationError(
-            `Sensitive value is only ${shortestLength} character${shortestLength === 1 ? '' : 's'} long - too short to redact safely`,
-            {
-              tip: 'Redaction replaces the value wherever it appears, so a value this short would rewrite ordinary text throughout logs and proxied response bodies.\nMark it `@sensitive=false` if it is not really a secret. `allowShortValue` does not apply here - there is no output in which this redaction is harmless.',
-            },
-          ),
-        ];
+        && !this._schemaErrors.some((e) => !e.isWarning);
+      const shortest = lengthRulesApply && redactable.length
+        ? Math.min(...redactable.map((str) => str.length))
+        : undefined;
+
+      if (shortest !== undefined && shortest < MIN_SENSITIVE_VALUE_LENGTH) {
+        addError(new ValidationError(
+          `Sensitive value is only ${shortest} character${shortest === 1 ? '' : 's'} long - too short to redact safely`,
+          {
+            tip: 'Redaction replaces the value wherever it appears, so a value this short would rewrite ordinary text throughout logs and proxied response bodies.\nMark it `@sensitive=false` if it is not really a secret. `allowShortValue` does not apply at this length.',
+          },
+        ));
       } else if (
-        shortestLength !== undefined && shortestLength < SHORT_SENSITIVE_VALUE_LENGTH
+        shortest !== undefined && shortest < SHORT_SENSITIVE_VALUE_LENGTH
         && !this.allowShortValue
       ) {
-        // advisory, not a failure - plenty of real secrets are short by nature
-        this.validationErrors = [
-          ...(this.validationErrors ?? []),
-          new ValidationError(
-            'Value is very short! Is it actually sensitive?',
-            {
-              severity: 'warning',
-              tip: 'Can cause issues with redaction and proxy response scrubbing if the value appears elsewhere.\nMark as `@sensitive=false`, or add `@sensitive={allowShortValue=true}` to hide this warning.',
-            },
-          ),
-        ];
+        addError(new ValidationError(
+          'Value is very short! Is it actually sensitive?',
+          {
+            severity: 'warning',
+            tip: 'Can cause issues with redaction and proxy response scrubbing if the value appears elsewhere.\nMark as `@sensitive=false`, or add `@sensitive={allowShortValue=true}` to hide this warning.',
+          },
+        ));
       }
     } catch (err) {
       if (_.isArray(err)) {

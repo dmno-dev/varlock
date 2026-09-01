@@ -39,7 +39,7 @@ import {
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
-import { MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, sensitiveValueStrings } from '../../lib/sensitive-value';
+import { MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, collectLeaves } from '../../lib/sensitive-value';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -778,37 +778,32 @@ export class EnvGraph {
   }
 
   /**
-   * A sensitive value that also appears inside a non-sensitive one is not actually
-   * secret: the public item carries it into logs, generated types, and client bundles,
-   * where none of the protections for the sensitive item apply. It also breaks redaction
-   * in the other direction, since masking the secret rewrites part of the public value
-   * everywhere that one legitimately appears.
+   * A sensitive value that also appears inside a non-sensitive one, reported on the
+   * public item since marking it sensitive is usually the fix.
    *
-   * Reported on the *public* item, since marking it sensitive (or removing the embedded
-   * secret) is the fix.
+   * Two problems, and the length of the match picks which advice to give. A long value is
+   * a real secret being carried into logs, generated types and client bundles, where none
+   * of the sensitive item's protections apply. A short one is more likely a collision
+   * than a leak, but that collision is what makes redaction rewrite the public value
+   * everywhere it legitimately appears - and unlike the generic short-value warning, it
+   * is confirmed rather than hypothetical, so it is worth saying even where
+   * `allowShortValue` silenced that.
    *
-   * A warning for now, promoted to an error in a breaking release. This is the only rule
-   * here that depends on how two resolved values relate, so whether it fires depends on
-   * what a given machine's .env happens to contain - as a hard failure it could pass
-   * locally and fail in CI.
+   * A warning for now, an error in a breaking release: this is the only rule that depends
+   * on how two resolved values relate, so as a hard failure it could pass locally and
+   * fail in CI.
    *
-   * The length of the matched value still picks the advice, because it is really catching
-   * two things. A long value inside a public one is a real secret being exposed. A short
-   * one is more likely a collision than a leak (a sensitive `prod` inside a public
-   * `https://prod.example.com`), but that collision is precisely what makes redaction
-   * rewrite the public value everywhere it appears - and unlike the generic short-value
-   * warning, this one is confirmed rather than hypothetical, so it is worth saying even
-   * where `allowShortValue` silenced that.
-   *
-   * Values below MIN_SENSITIVE_VALUE_LENGTH are skipped: they already fail on their own,
-   * and matching them against everything would bury that error under coincidental hits.
+   * Only leaves redaction actually registers are matched, so an inherited-sensitive
+   * `PORT=3000` inside a public URL is not a collision - a number is never in the map,
+   * and already carries its own diagnostic. Values below MIN_SENSITIVE_VALUE_LENGTH are
+   * skipped too, since they already fail on their own.
    */
   private checkForSensitiveValuesInsideNonSensitiveOnes() {
     const sensitiveStrings: Array<{ key: string, str: string }> = [];
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       if (!item.isSensitive) continue;
-      for (const str of sensitiveValueStrings(item.resolvedValue)) {
+      for (const str of collectLeaves(item.resolvedValue).redactable) {
         if (str.length >= MIN_SENSITIVE_VALUE_LENGTH) sensitiveStrings.push({ key: itemKey, str });
       }
     }
@@ -817,10 +812,12 @@ export class EnvGraph {
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       if (item.isSensitive) continue;
-      const publicStrings = sensitiveValueStrings(item.resolvedValue);
+      // every leaf on this side, since a secret can be embedded in the text of any of them
+      const { redactable, unredactable } = collectLeaves(item.resolvedValue);
+      const publicStrings = [...redactable, ...unredactable];
       if (!publicStrings.length) continue;
       const matches = sensitiveStrings.filter(
-        ({ key, str }) => key !== itemKey && publicStrings.some((p) => p.includes(str)),
+        ({ key, str }) => key !== itemKey && publicStrings.some((pub) => pub.includes(str)),
       );
       for (const sensitiveKey of _.uniq(matches.map(({ key }) => key))) {
         // a long match is a secret genuinely carried into public output; a short one is a

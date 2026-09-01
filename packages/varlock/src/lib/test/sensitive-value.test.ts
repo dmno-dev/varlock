@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../env-graph';
 import { getItemSummary } from '../formatting';
-import { redactSensitiveDisplayValue, sensitiveValueStrings, shortestSensitiveValueLength } from '../sensitive-value';
+import { collectLeaves, redactSensitiveDisplayValue } from '../sensitive-value';
 
 describe('redactSensitiveDisplayValue', () => {
   // redactString only handles strings, so callers that guarded on isString
@@ -19,21 +19,23 @@ describe('redactSensitiveDisplayValue', () => {
   });
 });
 
-describe('shortestSensitiveValueLength', () => {
-  test('measures the value as text, whatever its type', () => {
-    expect(shortestSensitiveValueLength('acmeco')).toBe(6);
-    expect(shortestSensitiveValueLength(987654)).toBe(6);
-    expect(shortestSensitiveValueLength('sk-live-9f2b71c4a8de')).toBe(20);
-    expect(shortestSensitiveValueLength('')).toBeUndefined();
-    expect(shortestSensitiveValueLength(undefined)).toBeUndefined();
+describe('collectLeaves', () => {
+  test('splits leaves by whether redaction can match them', () => {
+    expect(collectLeaves('acmeco')).toEqual({ redactable: ['acmeco'], unredactable: [] });
+    // redaction only ever replaces strings, so a number is never in the map
+    expect(collectLeaves(987654)).toEqual({ redactable: [], unredactable: ['987654'] });
+    expect(collectLeaves('')).toEqual({ redactable: [], unredactable: [] });
+    expect(collectLeaves(undefined)).toEqual({ redactable: [], unredactable: [] });
   });
 
-  // redaction registers each element of a composite separately, so a long joined form
-  // says nothing about whether one of its elements will collide with ordinary text
-  test('measures composite values per element, not as a joined string', () => {
-    expect(sensitiveValueStrings(['averylongsecretvalue', 'x'])).toEqual(['averylongsecretvalue', 'x']);
-    expect(shortestSensitiveValueLength(['averylongsecretvalue', 'x'])).toBe(1);
-    expect(shortestSensitiveValueLength({ a: 'averylongsecretvalue', b: 'xy' })).toBe(2);
+  // each element of a composite registers on its own, so a long joined form says nothing
+  // about whether one of its elements will collide with ordinary text
+  test('walks composites per element', () => {
+    expect(collectLeaves(['averylongsecretvalue', 'x']).redactable).toEqual(['averylongsecretvalue', 'x']);
+    expect(collectLeaves({ a: 'averylongsecretvalue', b: 2 })).toEqual({
+      redactable: ['averylongsecretvalue'],
+      unredactable: ['2'],
+    });
   });
 });
 
