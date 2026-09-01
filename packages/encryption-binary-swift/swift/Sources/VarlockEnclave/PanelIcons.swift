@@ -121,23 +121,42 @@ enum PanelIcons {
         return symbol("doc", tint: PanelStyle.inkTertiary)
     }
 
-    /// The same artwork, sized to fit the square box without being distorted.
+    /// The artwork centred on a square canvas, scaled to fit and never squashed.
     ///
-    /// Setting `size` to a square would squash a page-shaped document icon; this
-    /// scales the longer edge to the box and lets the shorter one stay short, and
-    /// `PanelIconView` centres what comes back.
+    /// Every icon this returns is the same square, whatever shape it arrived as.
+    /// That matters because the shapes genuinely differ: an app icon is square, a
+    /// document icon is page shaped, and an SF Symbol is usually wider than it is
+    /// tall. Returning their natural rectangles left glyph rows visibly smaller
+    /// than the app rows beside them, so the canvas is the constant and the
+    /// artwork is what varies inside it.
     private static func fitted(_ image: NSImage, box: CGFloat = side) -> NSImage {
-        // On a copy: NSWorkspace hands back images it also holds, and resizing
-        // one of those resizes it for everybody who asked.
-        let sized = (image.copy() as? NSImage) ?? image
-        let natural = sized.size
+        let natural = image.size
         guard natural.width > 0, natural.height > 0 else {
-            sized.size = NSSize(width: box, height: box)
-            return sized
+            // Nothing to scale by: hand back an empty square so the row still
+            // lines up with its neighbours.
+            return NSImage(size: NSSize(width: box, height: box))
         }
         let scale = box / max(natural.width, natural.height)
-        sized.size = NSSize(width: natural.width * scale, height: natural.height * scale)
-        return sized
+        let drawn = NSSize(width: natural.width * scale, height: natural.height * scale)
+        let canvas = NSImage(size: NSSize(width: box, height: box))
+        canvas.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        // Drawn from the source rather than mutated in place: NSWorkspace hands
+        // back images it also holds, and resizing one of those resizes it for
+        // everybody who asked.
+        image.draw(
+            in: NSRect(
+                x: (box - drawn.width) / 2,
+                y: (box - drawn.height) / 2,
+                width: drawn.width,
+                height: drawn.height
+            ),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+        canvas.unlockFocus()
+        return canvas
     }
 
     /// The agent's own app icon when it is installed, and its initial otherwise.
@@ -225,7 +244,9 @@ enum PanelIcons {
         let configured = image.withSymbolConfiguration(
             NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
         ) ?? image
-        let tinted = tintedCopy(configured, tint: tint)
+        // Squared like everything else: symbols are typically wider than they are
+        // tall, and a bare one sat visibly short next to the app icons above it.
+        let tinted = fitted(tintedCopy(configured, tint: tint))
         cache["symbol:\(name)"] = tinted
         return tinted
     }
