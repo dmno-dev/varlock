@@ -66,6 +66,37 @@ export interface ApprovalProvider {
   requestApproval(req: ApprovalRequest): Promise<ApprovalDecision>;
 }
 
+/** Metadata shown to the operator while a remote approval is pending. */
+export type ApprovalPendingNotification = {
+  approvalUrl: string;
+  method: string;
+  host: string;
+  path: string;
+  expiresAt: number;
+  ruleId?: string;
+  injectedKeys?: Array<string>;
+};
+
+/** In-process fan-out from an approval provider to local and remote operators. */
+export function createApprovalNotificationHub() {
+  const listeners = new Set<(notification: ApprovalPendingNotification) => void>();
+  return {
+    publish(notification: ApprovalPendingNotification) {
+      for (const listener of listeners) {
+        try {
+          listener(notification);
+        } catch {
+          listeners.delete(listener);
+        }
+      }
+    },
+    subscribe(listener: (notification: ApprovalPendingNotification) => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
 export function hashBody(body: Buffer | string): string {
   return createHash('sha256').update(body).digest('hex');
 }

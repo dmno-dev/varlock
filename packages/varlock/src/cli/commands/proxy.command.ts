@@ -22,10 +22,17 @@ import {
   type ProxyAuditLog,
 } from '../../proxy/audit';
 import {
+  createApprovalNotificationHub,
   createAutoDenyApprovalProvider,
   createTtyApprovalProvider,
+  type ApprovalPendingNotification,
   type ApprovalProvider,
 } from '../../proxy/approval';
+import {
+  createBearerHttpApprovalAuth,
+  createEd25519DecisionVerifier,
+  createHttpApprovalProvider,
+} from '../../proxy/approval-http';
 import {
   createApprovalGrantStore,
   createGrantingApprovalProvider,
@@ -80,7 +87,11 @@ import { select } from '../helpers/prompts';
 import { wrapCommandWithSandbox } from '../../proxy/sandbox-seatbelt';
 import { runContainerSandbox } from '../../proxy/sandbox-docker';
 import { buildGuestEnvWiring, caDirFromSessionEnv, guestLoopbackWiring } from '../../proxy/guest-wiring';
-import { fetchTunnelBootstrap, startTunnelClientListener } from '../../proxy/tunnel';
+import {
+  fetchTunnelBootstrap,
+  startTunnelClientListener,
+  subscribeTunnelApprovalNotifications,
+} from '../../proxy/tunnel';
 import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
@@ -428,6 +439,13 @@ function spawnProxiedChild(opts: {
     baseEnv: process.env,
   });
 
+  // Broker control-plane configuration must never enter the proxied child, even
+  // when the broker itself was configured through env vars.
+  delete fullInjectedEnv.VARLOCK_APPROVAL_TOKEN;
+  delete fullInjectedEnv.VARLOCK_APPROVAL_PUBLIC_KEY;
+  delete fullInjectedEnv.VARLOCK_APPROVAL_URL;
+  delete fullInjectedEnv.VARLOCK_PROXY_TOKEN;
+
   // Per-stream TTY auto-detect (interactive terminal -> raw inherit so tools like `claude`
   // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
   const { redactStdout, redactStderr } = resolveStdoutRedaction({
@@ -652,11 +670,87 @@ function formatProxyResponseLog(info: ProxyResponseInfo): string {
   return `${arrow} ${formatProxyTarget(info.method, info.host, info.path)}  ${colorProxyStatus(info.statusCode)}${scrub}${streamed}`;
 }
 
+function formatApprovalNotification(notification: ApprovalPendingNotification): string {
+  const inj = notification.injectedKeys?.length
+    ? ` ${ansis.dim('injecting')} ${ansis.yellow(notification.injectedKeys.join(', '))}`
+    : '';
+  return [
+    '',
+    `🔐 ${ansis.bold('varlock proxy: remote approval required')}`,
+    `   ${formatProxyTarget(notification.method, notification.host, notification.path)}${inj}`,
+    `   ${notification.approvalUrl}`,
+  ].join('\n');
+}
+
+type ApprovalProviderFactory = (
+  onPending: (notification: ApprovalPendingNotification) => void,
+) => ApprovalProvider;
+
+function resolveHttpApprovalUrl(ctx: any): string | undefined {
+  const value = ctx.values['approval-url'] ?? process.env.VARLOCK_APPROVAL_URL;
+  return value ? String(value) : undefined;
+}
+
+function parseApprovalPublicKey(value: string): readonly [string, string] {
+  const separator = value.indexOf('=');
+  const keyId = separator === -1 ? '' : value.slice(0, separator);
+  const encoded = separator === -1 ? '' : value.slice(separator + 1);
+  if (!/^[A-Za-z\d._-]{1,128}$/u.test(keyId) || !encoded) {
+    throw new CliExitError(
+      '`VARLOCK_APPROVAL_PUBLIC_KEY` must use the form `<key-id>=<base64-SPKI>`.',
+      { suggestion: 'Use the key ID configured by the approval service and its Ed25519 public key in SPKI DER form.' },
+    );
+  }
+  return [keyId, encoded];
+}
+
+function createConfiguredApprovalProvider(
+  ctx: any,
+  fallback: () => ApprovalProvider,
+): { factory: ApprovalProviderFactory; isHttp: boolean } {
+  const url = resolveHttpApprovalUrl(ctx);
+  if (!url) return { factory: () => fallback(), isHttp: false };
+  const token = process.env.VARLOCK_APPROVAL_TOKEN;
+  if (!token || token.length < 32) {
+    throw new CliExitError(
+      '`VARLOCK_APPROVAL_TOKEN` must contain at least 32 characters when HTTP approval is enabled.',
+      { suggestion: 'Configure the same random token on the Varlock broker and approval service.' },
+    );
+  }
+  const publicKeyValue = ctx.values['approval-public-key'] ?? process.env.VARLOCK_APPROVAL_PUBLIC_KEY;
+  if (!publicKeyValue) {
+    throw new CliExitError(
+      '`VARLOCK_APPROVAL_PUBLIC_KEY` is required when HTTP approval is enabled.',
+      { suggestion: 'Configure `<key-id>=<base64-SPKI>` using the approval service\'s Ed25519 public key.' },
+    );
+  }
+  const [keyId, encodedPublicKey] = parseApprovalPublicKey(String(publicKeyValue));
+  let decisionVerifier;
+  try {
+    decisionVerifier = createEd25519DecisionVerifier(new Map([[keyId, encodedPublicKey]]));
+  } catch (error) {
+    throw new CliExitError('Could not load `VARLOCK_APPROVAL_PUBLIC_KEY`.', {
+      details: error instanceof Error ? error.message : String(error),
+      suggestion: 'Provide an Ed25519 public key encoded as base64 SPKI DER.',
+    });
+  }
+  const auth = createBearerHttpApprovalAuth(token);
+  return {
+    isHttp: true,
+    factory: (onPending) => createHttpApprovalProvider({
+      url,
+      auth,
+      decisionVerifier,
+      onPending,
+    }),
+  };
+}
+
 async function createRuntimeAndSession(opts: {
   policy: PreparedProxyPolicy;
   entryPaths?: Array<string>;
   command?: Array<string>;
-  approvalProvider: ApprovalProvider;
+  createApprovalProvider: ApprovalProviderFactory;
   /** Persist session/duration approval scopes as standing grants (interactive sessions only). */
   enableApprovalGrants?: boolean;
   /** Mark the session as a hot-reloadable daemon (so `proxy reload` can reload it). */
@@ -693,13 +787,18 @@ async function createRuntimeAndSession(opts: {
   const dataPlaneToken = bindIsLoopback ? undefined : (process.env.VARLOCK_PROXY_TOKEN || randomUUID());
   let lastEndpointAuthWarnAt = 0;
   const statsWriter = createSessionStatsWriter(identity.uuid, EMPTY_PROXY_SESSION_STATS);
+  const approvalNotifications = createApprovalNotificationHub();
+  const baseApprovalProvider = opts.createApprovalProvider((notification) => {
+    emitProxyLog(formatApprovalNotification(notification));
+    approvalNotifications.publish(notification);
+  });
   // When grants are enabled, a session/duration approval is remembered so future
   // matching requests auto-approve without re-prompting (the seam the phone
   // approver reuses). Keyed to this session's uuid; torn down on stop.
   const grantStore = opts.enableApprovalGrants ? createApprovalGrantStore(identity.uuid) : undefined;
   const approvalProvider = grantStore
-    ? createGrantingApprovalProvider({ inner: opts.approvalProvider, store: grantStore })
-    : opts.approvalProvider;
+    ? createGrantingApprovalProvider({ inner: baseApprovalProvider, store: grantStore })
+    : baseApprovalProvider;
   const now = new Date().toISOString();
   // Append-only audit log (Invariant #7): one entry per request decision, no
   // secret values. Persists after the session record is deleted on cleanup.
@@ -721,6 +820,7 @@ async function createRuntimeAndSession(opts: {
     ...(opts.listenHost !== undefined ? { listenHost: opts.listenHost } : {}),
     ...(dataPlaneToken !== undefined ? { dataPlaneToken } : {}),
     approvalProvider,
+    subscribeApprovalNotifications: approvalNotifications.subscribe,
     onActivity: (activity) => {
       statsWriter.onActivity(activity);
       auditLog.record(activity);
@@ -1457,6 +1557,13 @@ export async function runAction(ctx: any) {
       { suggestion: 'Pass `--new` to start a separate proxy, or set them on the `proxy start` daemon you are attaching to.' },
     );
   }
+  if (attachSession && (ctx.values['approval-url'] !== undefined
+    || ctx.values['approval-public-key'] !== undefined)) {
+    throw new CliExitError(
+      '`--approval-url` and `--approval-public-key` only apply to the process that owns the proxy, but this run is attaching to an existing session.',
+      { suggestion: 'Set it on the `proxy start` daemon, or pass `--new` to start a separate proxy.' },
+    );
+  }
 
   let session: ProxySessionRecord;
   let payload: SessionEnvPayload;
@@ -1498,14 +1605,15 @@ export async function runAction(ctx: any) {
       hasTty: isHumanAttended(),
     });
     const allowReload = reloadMode === 'manual';
+    const approval = createConfiguredApprovalProvider(ctx, createAutoDenyApprovalProvider);
     const created = await createRuntimeAndSession({
       policy,
       entryPaths: ctx.values.path,
       command: commandToRunAsArgs,
-      // The child owns this terminal's stdio, so we can't safely prompt here —
-      // require-approval requests fail closed. Use `proxy start` (or attach to one)
-      // for interactive approval.
-      approvalProvider: createAutoDenyApprovalProvider(),
+      // A remote provider does not compete with the child for stdin. Without one,
+      // a self-owned run still fails closed because it cannot use the TTY prompt.
+      createApprovalProvider: approval.factory,
+      enableApprovalGrants: approval.isHttp,
       reloadable: allowReload,
       ...bindOptions,
     });
@@ -1666,17 +1774,17 @@ export async function startAction(ctx: any) {
   });
   const allowReload = reloadMode === 'manual';
   const bindOptions = resolveProxyBindOptions(ctx);
+  const approval = createConfiguredApprovalProvider(
+    ctx,
+    () => guardApprovalPromptForLogging(createTtyApprovalProvider()),
+  );
   const {
     runtime, session, statsWriter, auditLog,
   } = await createRuntimeAndSession({
     policy,
     entryPaths: ctx.values.path,
     ...bindOptions,
-    // The proxy owns this terminal (the agent runs elsewhere and routes through
-    // it), so require-approval requests can prompt here — and session/duration
-    // approvals can be remembered as standing grants. Wrapped so the live request
-    // log defers while the prompt is reading input (shared TTY).
-    approvalProvider: guardApprovalPromptForLogging(createTtyApprovalProvider()),
+    createApprovalProvider: approval.factory,
     enableApprovalGrants: true,
     reloadable: allowReload,
     // The daemon owns this terminal, so tail a live per-request/response log here.
@@ -1900,8 +2008,9 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   }
   // Local-proxy flags don't apply when the proxy runs elsewhere.
   if (ctx.values.sandbox !== undefined || ctx.values.port !== undefined || ctx.values['cert-dir'] !== undefined
-    || ctx.values.expose !== undefined || ctx.values['persist-ca']) {
-    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, `--persist-ca`, and `--expose` describe a local proxy and cannot be combined with `--url`.');
+    || ctx.values.expose !== undefined || ctx.values['persist-ca'] || ctx.values['approval-url'] !== undefined
+    || ctx.values['approval-public-key'] !== undefined) {
+    throw new CliExitError('`--sandbox`, `--port`, `--cert-dir`, `--persist-ca`, `--expose`, `--approval-url`, and `--approval-public-key` describe a local proxy and cannot be combined with `--url`.');
   }
 
   // 1. Fetch the bootstrap (encoded child-view payload + CA certs) over the WS.
@@ -1923,6 +2032,22 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   const listener = await startTunnelClientListener({ url, token });
   const guestProxyUrl = `http://127.0.0.1:${listener.port}`;
 
+  // Keep an authenticated event channel open before starting the child so an
+  // approval URL cannot be missed if its first request is immediate.
+  const approvalEvents = await subscribeTunnelApprovalNotifications({
+    url,
+    token,
+    onNotification: (notification) => console.error(formatApprovalNotification(notification)),
+    onError: (error) => console.error(ansis.yellow(`Approval event channel: ${error.message}`)),
+  }).catch((error) => {
+    listener.close();
+    rmSync(certDir, { recursive: true, force: true });
+    throw new CliExitError('Could not subscribe to broker approval events.', {
+      details: (error as Error).message,
+      suggestion: 'Check that the broker and client run compatible Varlock versions.',
+    });
+  });
+
   // 4. Spawn the command through the same path a local run uses: the wiring is the
   //    loopback proxy + the guest cert dir; redaction seeds from the payload graph.
   const { injectVars, injectBlob } = resolveInjectMode(ctx.values.inject);
@@ -1939,6 +2064,7 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   const exitCode = await awaitProxiedChild(commandProcess, {
     commandToRunStr: cmd.commandToRunStr,
     cleanup: async () => {
+      approvalEvents.close();
       try {
         listener.close();
       } catch { /* already closed */ }
