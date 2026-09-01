@@ -39,9 +39,19 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
       + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
     );
   }
+  // The baked env is a build-time fallback. Flag the payload as build-resolved so
+  // `initVarlockEnv` skips its stale-echo cleanup and never deletes runtime-provided
+  // vars. The flag lives INSIDE the payload so it travels with the blob (child
+  // processes, encryption round-trips) and can never outlive it.
   let envPayload = rawEnv;
+  try {
+    envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
+  } catch {
+    // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
+    // without provenance, so the boot behaves like a plain injected blob
+  }
   if (encryptionKey) {
-    envPayload = encryptEnvBlobSync(rawEnv, encryptionKey);
+    envPayload = encryptEnvBlobSync(envPayload, encryptionKey);
   }
 
   // Find turbopack runtime files ([turbopack]_runtime.js) and edge-wrapper files.
