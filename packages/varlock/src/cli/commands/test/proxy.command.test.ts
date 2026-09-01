@@ -3,6 +3,7 @@ import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../../env-graph';
 import {
   buildProxiedChildEnv, computeProxyChildView, isCwdWithin, resolveReloadMode, createReloadKeypressHandler,
+  findShortSensitiveProxyItems,
 } from '../proxy.command.js';
 
 async function loadGraph(envFile: string) {
@@ -367,5 +368,29 @@ describe('buildProxiedChildEnv', () => {
     });
     expect(env.API_KEY).toBe('vlk_placeholder_API_KEY_abc');
     expect(env.__VARLOCK_ENV).toBeUndefined();
+  });
+});
+
+describe('findShortSensitiveProxyItems', () => {
+  // A value short enough to double as ordinary content gets rewritten wherever
+  // it appears in a response, not just where the credential was echoed back.
+  test('flags short sensitive values, and only those', () => {
+    const flagged = findShortSensitiveProxyItems([
+      // an org slug used as an account id: appears all over its own API's responses
+      { key: 'ACME_ACCOUNT', placeholder: 'vlk_ph_acct', realValue: 'acmeco' },
+      // a dev-grade password, equally likely to occur as prose
+      { key: 'DEV_PASSWORD', placeholder: 'vlk_ph_dev', realValue: 'postgres' },
+      // a real credential: long enough that a collision is implausible
+      { key: 'API_KEY', placeholder: 'vlk_ph_api', realValue: 'sk-live-9f2b71c4a8de' },
+      // short, but explicitly not a secret, so it is never scrubbed anyway
+      {
+        key: 'ACCOUNT_NAME', placeholder: 'vlk_ph_name', realValue: 'acme', isSensitive: false,
+      },
+    ]);
+    expect(flagged).toEqual(['ACME_ACCOUNT', 'DEV_PASSWORD']);
+  });
+
+  test('says nothing when every proxied secret is long enough', () => {
+    expect(findShortSensitiveProxyItems([{ key: 'API_KEY', placeholder: 'vlk_ph_api', realValue: 'sk-live-9f2b71c4a8de' }])).toEqual([]);
   });
 });

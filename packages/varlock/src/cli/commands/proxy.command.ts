@@ -85,7 +85,10 @@ import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
 import { commandSpec } from './proxy.command-spec';
-import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../../proxy/types';
+import {
+  SHORT_SENSITIVE_VALUE_LENGTH,
+  type ProxyManagedItem, type ProxyRule, type ProxyTransformSchemeDef,
+} from '../../proxy/types';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
@@ -272,6 +275,23 @@ function getRunCommandArgs(): Array<string> {
   return rest;
 }
 
+
+/**
+ * Proxied secrets short enough to also occur as ordinary text in a response.
+ *
+ * Response scrubbing is substring replacement with no token boundary, so a value
+ * like an org slug or a short account id gets rewritten wherever it appears, not
+ * just where the upstream echoed the credential back. That corrupts legitimate
+ * content, and a string that common is not meaningfully protected by redacting
+ * it anyway. Surfaced as a start-up warning so it reads as a config problem
+ * rather than as a mangled payload to reverse-engineer later.
+ */
+export function findShortSensitiveProxyItems(items: Array<ProxyManagedItem>): Array<string> {
+  return items
+    .filter((item) => item.isSensitive !== false && item.realValue.length < SHORT_SENSITIVE_VALUE_LENGTH)
+    .map((item) => item.key);
+}
+
 /**
  * Load + resolve + validate the schema in the proxy owner's own (trusted)
  * context, throwing on any schema/config error. This is what makes the owner
@@ -314,6 +334,18 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     console.error(
       '   A generic placeholder may fail an SDK\'s key-format validation (e.g. an `sk-…` prefix check) '
         + 'at client construction. Add an explicit `@placeholder` or a data type with a known format.',
+    );
+  }
+
+  const shortSensitiveKeys = findShortSensitiveProxyItems(proxyManagedItems);
+  if (shortSensitiveKeys.length) {
+    console.error(
+      `⚠️  Short proxied secrets: ${shortSensitiveKeys.join(', ')}`,
+    );
+    console.error(
+      '   Real values are scrubbed out of responses from the routes they are sent to. A value short '
+        + 'enough to also appear as ordinary content (an org slug, an account id) gets rewritten wherever '
+        + 'it occurs, which can corrupt a response. Mark it `@sensitive=false` if it is not really a secret.',
     );
   }
 
@@ -1599,6 +1631,8 @@ export async function runAction(ctx: any) {
   });
   return gracefulExit(exitCode);
 }
+
+
 
 /**
  * Shared tail for running a proxied child: forward signals, await exit, run

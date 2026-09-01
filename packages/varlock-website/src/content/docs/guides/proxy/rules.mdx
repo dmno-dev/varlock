@@ -189,7 +189,7 @@ TWILIO_AUTH_TOKEN=yourPreferredPlugin()
 
 Both sides are references, never inline values, including fixed ones: GitHub's `TOKEN:x-oauth-basic` pairing is an item holding `x-oauth-basic` referenced as the `password`. That keeps one rule for every case (either side secret, both secret, or one fixed), makes each side environment-overridable, and means a username holding sensitive data gets the same protections as the password. Every referenced item is a consumed credential: managed, so the child only ever sees a placeholder, never substituted, and leak-guarded. A rule needs at least one side, so a detached rule naming neither is a schema error.
 
-Because Basic auth carries the credentials in the request (base64-encoded, not hashed), the proxy also treats the encoded `Authorization` value as a secret in responses: an endpoint that reflects the header cannot hand the child something it could decode. Response scrubbing covers every sensitive value the proxy holds, not just the ones a given rule sends, and this scheme adds the encoded form on top, since only the scheme can produce it.
+Because Basic auth carries the credentials in the request (base64-encoded, not hashed), the proxy also treats the encoded `Authorization` value as a secret in responses: an endpoint that reflects the header cannot hand the child something it could decode. Response scrubbing covers the sensitive values a rule sends to that upstream, and this scheme adds the encoded form on top, since only the scheme can produce it.
 
 Anything computed, like a fixed prefix, is composed in the item rather than in the rule:
 
