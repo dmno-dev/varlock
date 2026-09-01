@@ -66,7 +66,7 @@ See [Reusing an injected env blob](/integrations/javascript/#reusing-an-injected
 
 ### `_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS`
 
-When a server boots from a build-time baked env snapshot (e.g. a standalone build running in a container without the varlock CLI), runtime env values that conflict with the snapshot fail the boot loudly, since they cannot be validated or applied. Set to `1` / `true` to downgrade the failure to a logged warning and boot on the baked values; the conflicting runtime vars are ignored by `ENV` but left untouched in `process.env`. Prefer booting through [`varlock run`](/reference/cli/load-and-run/#run) instead, which re-resolves against the runtime environment. See the [Docker guide](/integrations/docker/).
+When a server boots from a build-time baked env snapshot (e.g. a standalone build running in a container without the varlock CLI), runtime env values that conflict with the snapshot fail the boot loudly, since they cannot be validated or applied. Set to `1` / `true` to downgrade the failure to a logged warning and boot on the baked values; the conflicting runtime vars are ignored by `ENV` but left untouched in `process.env`. Prefer booting through [`varlock run`](/reference/cli/load-and-run/#run) instead, which re-resolves against the runtime environment. See the [Docker guide](/integrations/docker/). Builds that bake env by explicit choice (e.g. vite `ssrInjectMode: 'resolved-env'`) log a loud warning on conflicts but boot on the baked values, so they do not need this escape hatch.
 
 {/*
   Intentionally NOT documented for end users; internal/testing only.

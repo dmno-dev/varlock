@@ -417,11 +417,17 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
       // by implicit baking, which fails the boot. Living inside the payload, the
       // provenance survives encryption and never outlives the payload.
       const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: 'explicit' });
+      // a blob already present in the runtime env (fresh boot-time resolution via
+      // `varlock run`) wins over the baked payload, matching the Next.js preludes -
+      // otherwise the conflict warning's `varlock run` remedy could never work.
+      // Note statically-inlined (non-sensitive, non-dynamic) values are replaced at
+      // build time regardless; the fresh blob governs runtime-resolved reads.
+      const skipIfAmbientBlob = "if (typeof process === 'undefined' || !process.env.__VARLOCK_ENV) ";
       if (encryptionKey) {
         const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
-        lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
+        lines.push(`${skipIfAmbientBlob}globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
       } else {
-        lines.push(`globalThis.__varlockLoadedEnv = ${serialized};`);
+        lines.push(`${skipIfAmbientBlob}globalThis.__varlockLoadedEnv = ${serialized};`);
       }
     }
 

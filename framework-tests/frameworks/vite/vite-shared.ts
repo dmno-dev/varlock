@@ -406,6 +406,29 @@ export function defineViteTests(
         expect(output).toContain('env-proxy-unset::undefined');
         expect(output).toContain('process-env-unset::"runtime-provided-value"');
       }, 180_000);
+
+      test('a fresh runtime blob (varlock run) wins over the baked payload', async () => {
+        // `varlock run` injects a fresh __VARLOCK_ENV blob; the baked payload must
+        // defer to it, so the conflict warning's `varlock run` remedy actually works.
+        // Statically-inlined values are replaced at build time regardless - the fresh
+        // blob governs runtime-resolved reads (process.env injection here).
+        const freshBlob = JSON.stringify({
+          sources: [],
+          settings: {},
+          config: {
+            UNSET_VAR: { value: 'from-fresh-blob', isSensitive: false },
+            PUBLIC_VAR: { value: 'public-test-value', isSensitive: false },
+          },
+        });
+        const { output, status } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection', {
+          __VARLOCK_ENV: freshBlob,
+        });
+        expect(status).toBe(0);
+        expect(output).toContain('ssr-undefined-check-done');
+        // no baked-snapshot conflict warning - the fresh blob is authoritative
+        expect(output).not.toContain('Runtime environment conflicts');
+        expect(output).toContain('process-env-unset::"from-fresh-blob"');
+      }, 180_000);
     });
 
     // ---- Dev server ----
