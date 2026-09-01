@@ -21,8 +21,8 @@ describe('scoped resolution via --filter', () => {
   it('scopes to matched keys plus transitive deps for a key filter', async () => {
     const g = await loadGraph(outdent`
       STRIPE_KEY=concat("sk-", ref(STRIPE_SUFFIX))
-      STRIPE_SUFFIX=abc
-      OTHER_VAR=hello
+      STRIPE_SUFFIX=abc123def456
+      OTHER_VAR=a-value-long-enough
     `);
     await resolveScoped(g, 'STRIPE_KEY');
     expect(g.configSchema.STRIPE_KEY.isResolved).toBe(true);

@@ -44,12 +44,12 @@ describe('getItemSummary redaction', () => {
       overrideContents: outdent`
         # @defaultRequired=false
         # ---
-        # a bare numeric value infers as a number - it must still be masked
-        # @sensitive
-        NUMERIC_SECRET=987654
+        # sensitive by default rather than by decorator, since an explicit @sensitive on a
+        # number is rejected - but it is still sensitive, so it must still be masked
+        NUMERIC_SECRET=98765432109876
 
         # @sensitive
-        STRING_SECRET="987654"
+        STRING_SECRET="98765432109876"
 
         # @sensitive=false
         PUBLIC_PORT=8080
@@ -58,8 +58,9 @@ describe('getItemSummary redaction', () => {
     await g.finishLoad();
     await g.resolveEnvValues();
 
-    expect(getItemSummary(g.configSchema.NUMERIC_SECRET)).not.toContain('987654');
-    expect(getItemSummary(g.configSchema.STRING_SECRET)).not.toContain('987654');
+    expect(g.configSchema.NUMERIC_SECRET.isSensitive).toBe(true);
+    expect(getItemSummary(g.configSchema.NUMERIC_SECRET)).not.toContain('98765432109876');
+    expect(getItemSummary(g.configSchema.STRING_SECRET)).not.toContain('98765432109876');
     // a non-sensitive value is still shown in full
     expect(getItemSummary(g.configSchema.PUBLIC_PORT)).toContain('8080');
   });

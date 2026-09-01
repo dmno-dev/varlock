@@ -48,6 +48,9 @@ function functionValueTests(
         const testDataSource = new DotEnvFileDataSource('.env.schema', {
           overrideContents: outdent`
             # @defaultRequired=false
+            # these fixtures exercise resolver mechanics, not secrets - and their throwaway
+            # values are short enough to trip the short-sensitive-value check
+            # @defaultSensitive=false
             # ---
             ${input}
           `,

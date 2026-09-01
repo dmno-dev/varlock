@@ -15,6 +15,9 @@ async function loadAndResolve(envFileContent: string) {
   const testDataSource = new DotEnvFileDataSource('.env.schema', {
     overrideContents: outdent`
       # @defaultRequired=false
+      # these fixtures exercise coercion/validation, not secrets - and their throwaway
+      # values are short enough to trip the short-sensitive-value check
+      # @defaultSensitive=false
       # ---
       ${envFileContent}
     `,

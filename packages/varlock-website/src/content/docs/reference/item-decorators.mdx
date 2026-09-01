@@ -75,10 +75,11 @@ Redaction replaces a sensitive value wherever it appears, and it can't tell a le
 - Under 12 characters: a warning. The value is short enough to collide with normal content, so redacting it will also rewrite legitimate text in logs and proxied responses. Set `@sensitive=false` when it isn't really a secret, like an org slug or an account name. Some secrets are short by nature (a one-time code, a PIN) and can't be lengthened; acknowledge the collision risk with `@sensitive={allowShortValue=true}` to silence the warning without changing how the value is redacted.
 - Under 4 characters: an error, since there is no output in which redacting a value that short is harmless. `@sensitive={allowShortValue=true}` still opts in.
 - A boolean value: an error. Redacting it rewrites every `true`/`false` in logs and proxied response bodies, and a boolean is never a secret worth that cost.
+- A number value: an error. A numeric secret is already damaged before redaction gets a say, since leading zeros are dropped (an `007123` one-time code resolves to `7123`) and anything past 2^53 is silently rounded. Quote it (`PIN="007123"`) or give it a string type to keep it exact.
 - The [`@currentEnv`](/reference/root-decorators/#currentenv) item: an error. The current env name drives conditional imports and `forEnv()`, and is echoed by most tools in the stack.
 - A value that appears inside a non-sensitive item's value: an error on the non-sensitive item. It carries the secret into logs, generated types, and client bundles, where none of the sensitive item's protections apply. Mark that item `@sensitive` too, or build it from a reference so the secret part stays separate.
 
-Composite values (arrays, objects) are measured per element, since each element is registered for redaction on its own. The first three errors only apply to an explicit per-item `@sensitive`; `@defaultSensitive=true` sweeps in every item in the file, so items that are sensitive only by default get the warning instead.
+Composite values (arrays, objects) are measured per element, since each element is registered for redaction on its own. The boolean, number, and `@currentEnv` errors apply only to an explicit per-item `@sensitive`, since `@defaultSensitive=true` sweeps in every item in the file; the length rules apply however the item became sensitive, because redaction registers it either way.
 
 📖 See the [secrets management guide](/guides/secrets/) for best practices on handling sensitive values, and how to use plugins to fetch them from secret management platforms.
 

@@ -630,6 +630,18 @@ export class ConfigItem {
       ));
     }
 
+    // a secret held as a number is already damaged before redaction gets a say: leading
+    // zeros are gone (an `007123` OTP resolves to 7123) and anything past 2^53 is silently
+    // rounded. Digits also collide with ordinary content far more readily than a token does.
+    if (this.dataType?.coercedType === 'number' || this.dataType?.coercedType === 'int') {
+      this._schemaErrors.push(new SchemaError(
+        '@sensitive cannot be used on a number value',
+        {
+          tip: 'A numeric secret loses leading zeros and precision past 2^53, and digits collide with ordinary content.\nQuote the value (`PIN="007123"`) or give it a string type (`@type=string`) to keep it exact.\nIf it is not a secret, mark it `@sensitive=false`.',
+        },
+      ));
+    }
+
     // the env flag drives @import(enabled=...) / forEnv() and is echoed by nearly every
     // tool in the stack - it is a mode name ("dev", "production"), never a secret
     if (this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
@@ -1100,14 +1112,11 @@ export class ConfigItem {
         // sensitive" above) does not need length advice piled on top
         && !this._schemaErrors.some((e) => !e.isWarning)
       ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
-      if (
-        shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH
-        // only hold an _explicit_ `@sensitive` to this. `@defaultSensitive=true` (the
-        // default) sweeps in every item in the file, and failing the load over a short
-        // value the author never called sensitive would be hostile - those still warn.
-        && this._sensitiveExplicitlySet
-      ) {
-        // hard error: there is no output in which redacting a value this short is harmless
+      if (shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH) {
+        // hard error regardless of how the item became sensitive: whether it was marked
+        // explicitly or swept in by `@defaultSensitive=true`, a value this short is
+        // registered for redaction either way, and there is no output in which that is
+        // harmless. `@sensitive=false` or `allowShortValue=true` are the ways out.
         this.validationErrors = [
           ...(this.validationErrors ?? []),
           new ValidationError(

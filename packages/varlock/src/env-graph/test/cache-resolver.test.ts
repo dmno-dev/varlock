@@ -259,6 +259,7 @@ describe('cache() resolver', () => {
         const source = new DotEnvFileDataSource('.env.schema', {
           overrideContents: outdent`
             # @defaultRequired=false
+            # @defaultSensitive=false
             # @cache=if(eq($TARGET, "local"), "memory", "disabled")
             # ---
             TARGET=${targetVal}

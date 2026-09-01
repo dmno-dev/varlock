@@ -482,8 +482,9 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
         SLUG=acmeco
 
         # a one-time code is short by nature, so the warning has no remedy
+        # (quoted so it stays a string - a numeric secret is rejected outright)
         # @sensitive={allowShortValue=true}
-        OTP=123456
+        OTP="123456"
 
         # @sensitive
         REAL_SECRET=sk-live-9f2b71c4a8de
@@ -519,14 +520,18 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # @sensitive={allowShortValue=true}
       TINY_OK=abc
 
-      # only an *explicit* @sensitive is held to this - @defaultSensitive sweeps in
-      # every item in the file, so implicit sensitivity only ever warns
+      # sensitive only via @defaultSensitive, but it is registered for redaction all the
+      # same - so how it became sensitive makes no difference here
       IMPLICIT_TINY=abc
+
+      # @sensitive=false
+      NOT_SENSITIVE=abc
     `);
     expect(g.configSchema.TINY.validationState).toBe('error');
     expect(g.configSchema.TINY.errors.map((e) => e.message)).toEqual([expect.stringContaining('only 3 characters long')]);
     expect(g.configSchema.TINY_OK.validationState).toBe('valid');
-    expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('warn');
+    expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('error');
+    expect(g.configSchema.NOT_SENSITIVE.validationState).toBe('valid');
   });
 
   test('composite values are measured per element, like redaction registers them', async () => {
@@ -558,6 +563,26 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on a boolean value']);
     expect(g.configSchema.INFERRED.validationState).toBe('error');
     expect(g.configSchema.IMPLICIT.validationState).not.toBe('error');
+  });
+
+  test('@sensitive on a number is an error', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @sensitive @type=number
+      DECLARED=987654321
+
+      # the type is inferred here, and the value is damaged the same way
+      # @sensitive
+      INFERRED=987654321
+
+      # quoting keeps it a string, which is the fix the error points to
+      # @sensitive
+      QUOTED="00987654321987"
+    `);
+    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on a number value']);
+    expect(g.configSchema.INFERRED.validationState).toBe('error');
+    expect(g.configSchema.QUOTED.validationState).toBe('valid');
   });
 
   test('@sensitive on the @currentEnv item is an error', async () => {

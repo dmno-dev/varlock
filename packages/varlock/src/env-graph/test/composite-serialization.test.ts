@@ -15,6 +15,9 @@ async function loadAndResolve(envFileContent: string) {
   const testDataSource = new DotEnvFileDataSource('.env.schema', {
     overrideContents: outdent`
       # @defaultRequired=false
+      # these fixtures are about serialization shape - items opt into sensitivity
+      # explicitly where a test needs it, with values long enough to be redactable
+      # @defaultSensitive=false
       # ---
       ${envFileContent}
     `,

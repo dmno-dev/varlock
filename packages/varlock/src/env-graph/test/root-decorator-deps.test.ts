@@ -8,6 +8,9 @@ import { envFilesTest } from './helpers/generic-test';
  * whole transitive dependency closure has to be resolved first - otherwise the referenced
  * item never resolves and the failure surfaces as a confusing `Referenced item "X" is not
  * valid` on an unrelated arg. See issue #940.
+ *
+ * (`@defaultSensitive=false` where these fixtures use short flag-ish values - they are
+ * about dependency ordering, not secrets.)
  */
 describe('root decorator arg dependencies', () => {
   test('resolves direct deps of a root decorator value', envFilesTest({
@@ -22,6 +25,7 @@ describe('root decorator arg dependencies', () => {
   test('resolves transitive deps of a root decorator value', envFilesTest({
     envFile: outdent`
       # @redactLogs=$SHOULD_REDACT
+      # @defaultSensitive=false
       # ---
       SHOULD_REDACT=ifs(eq($DEPLOY_ENV, "dev"), "false", "true")
       DEPLOY_ENV=dev
@@ -35,6 +39,7 @@ describe('root decorator arg dependencies', () => {
   test('resolves multi-level transitive deps of a root decorator value', envFilesTest({
     envFile: outdent`
       # @redactLogs=$SHOULD_REDACT
+      # @defaultSensitive=false
       # ---
       SHOULD_REDACT=concat($REDACT_PREFIX, "alse")
       REDACT_PREFIX=ifs(eq($DEPLOY_ENV, "dev"), "f", "t")
@@ -49,6 +54,7 @@ describe('root decorator arg dependencies', () => {
     envFile: outdent`
       # @plugin(./plugins/test-plugin-with-init/)
       # @initTestPlugin(value=$PROFILE)
+      # @defaultSensitive=false
       # ---
       PROFILE=ifs(eq($DEPLOY_ENV, "dev"), "profile-dev", "profile-prod")
       DEPLOY_ENV=dev
