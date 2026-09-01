@@ -85,11 +85,16 @@ public struct PanelKeyRow: Equatable {
     public let vaultLabel: String?
     /// The vault's `#rrggbb` identity colour, or nil for the default tint.
     public let vaultColor: String?
-    /// How many values the client says this key covers.
+    /// How many values the client says this key covers, across every source.
     public let valueCount: Int?
-    /// Those values, grouped by the file that defined them. Client-reported, and
-    /// the row says so when it is opened.
-    public let files: [UnlockValueFile]
+    /// Where those values live: env files, the value cache, whatever else comes
+    /// later. Client-reported, and the row says so when it is opened.
+    ///
+    /// One list, not one list plus special cases. Everything a key protects is
+    /// opened by the same grant, so everything a key protects is a peer here,
+    /// and grouping by key is what carries that: when a key belongs to a vault,
+    /// its sources come with it.
+    public let sources: [UnlockValueSource]
     /// Anything that changes what approving this row means, e.g. a strict key.
     public let note: String?
 
@@ -99,7 +104,7 @@ public struct PanelKeyRow: Equatable {
         vaultLabel: String? = nil,
         vaultColor: String? = nil,
         valueCount: Int? = nil,
-        files: [UnlockValueFile] = [],
+        sources: [UnlockValueSource] = [],
         note: String? = nil
     ) {
         self.keyId = keyId
@@ -107,7 +112,7 @@ public struct PanelKeyRow: Equatable {
         self.vaultLabel = vaultLabel
         self.vaultColor = vaultColor
         self.valueCount = valueCount
-        self.files = files
+        self.sources = sources
         self.note = note
     }
 
@@ -124,14 +129,43 @@ public struct PanelKeyRow: Equatable {
     }
 
     /// "12 values", or nil when the client said nothing about how many.
+    ///
+    /// The client's own count wins where it sent one, because it knows what the
+    /// key covers and a batch only knows what it is decrypting right now. Where
+    /// it sent none, the sources are added up rather than left blank.
     public var valueCountLabel: String? {
-        guard let valueCount, valueCount > 0 else { return nil }
-        return valueCount == 1 ? "1 value" : "\(valueCount) values"
+        let total = valueCount ?? sources.reduce(0) { $0 + $1.itemCount }
+        guard total > 0 else { return nil }
+        return UnlockValueSource.valuesLabel(total)
+    }
+
+    /// What the row's trailing slot says.
+    ///
+    /// A row whose client said nothing about what it covers says exactly that.
+    /// The alternative is a blank slot, which reads as "nothing much" on a panel
+    /// whose whole job is to say what is being handed over, and a panel that
+    /// looks authoritative while knowing nothing is worse than one that admits
+    /// it.
+    public var contentsLabel: String {
+        return valueCountLabel ?? "contents not reported"
+    }
+
+    /// Whether the client said anything at all about what this key covers.
+    public var reportsContents: Bool {
+        return valueCountLabel != nil || !sources.isEmpty
     }
 
     /// Whether there is anything to see when the row is opened.
     public var isExpandable: Bool {
-        return files.contains { !$0.valueNames.isEmpty }
+        return sources.contains { $0.isDrawable }
+    }
+
+    /// Where the open row's detail came from, said out loud because the daemon
+    /// derived none of it.
+    public var sourceFootnote: String {
+        return sources.contains { $0.kind != .file }
+            ? "Sources and contents reported by the client"
+            : PanelContent.valueSourceFootnote
     }
 }
 
@@ -268,20 +302,101 @@ public enum UnlockRequestKeys {
     }
 }
 
-/// Value names the client says one file defined.
+/// One place the values behind a key come from.
+///
+/// An env file and varlock's value cache are the same kind of thing here, and
+/// that is the point: one key means one grant, so everything that key opens
+/// belongs in one list under it rather than in a list plus an exception. A new
+/// kind of source is a new `Kind` and a label, and the panel draws it without
+/// knowing what it is.
 ///
 /// Client-reported, and shown as such. The daemon has no way to know what an
-/// env value is called, so this is the only source there is; it is drawn behind
-/// a disclosure and labelled, rather than presented as something the daemon
-/// verified.
-public struct UnlockValueFile: Equatable {
-    /// The file that defined these values. nil when the client did not say.
-    public let path: String?
-    public let valueNames: [String]
+/// env value is called or what filled a cache, so this is the only account
+/// there is; it is drawn behind a disclosure and labelled, rather than
+/// presented as something the daemon verified.
+public struct UnlockValueSource: Equatable {
+    public enum Kind: String, Equatable {
+        /// An env file, whose entries are the values it defined.
+        case file
+        /// Varlock's value cache, whose entries are what filled it.
+        case cache
 
-    public init(path: String?, valueNames: [String]) {
+        /// What the panel calls a source of this kind when it has no path.
+        var fallbackLabel: String {
+            switch self {
+            case .file: return "values"
+            case .cache: return "value cache"
+            }
+        }
+    }
+
+    public let kind: Kind
+    /// The file that defined these values. nil for anything that is not a file,
+    /// and for a file the client did not name.
+    public let path: String?
+    /// What is inside: value names for a file, the providers that filled the
+    /// cache for a cache.
+    public let entries: [Entry]
+    /// How many values this source contributes, when the entries summarise
+    /// rather than enumerate. nil means the entries are the whole list.
+    public let reportedItemCount: Int?
+
+    public init(
+        kind: Kind = .file,
+        path: String? = nil,
+        entries: [Entry] = [],
+        reportedItemCount: Int? = nil
+    ) {
+        self.kind = kind
         self.path = path
-        self.valueNames = valueNames
+        self.entries = entries
+        self.reportedItemCount = reportedItemCount
+    }
+
+    /// One thing inside a source: an env value, or a provider that filled the
+    /// cache and how much of it that provider accounts for.
+    public struct Entry: Equatable {
+        public let name: String
+        /// How many values this entry stands for. nil when it stands for one
+        /// and needs no number after it.
+        public let count: Int?
+
+        public init(name: String, count: Int? = nil) {
+            self.name = name
+            self.count = count
+        }
+
+        /// The chip's text: a bare name, or a name with what it accounts for.
+        public var label: String {
+            guard let count, count > 1 else { return name }
+            return "\(name) \u{00B7} \(count)"
+        }
+    }
+
+    /// How many values this source contributes.
+    public var itemCount: Int {
+        if let reportedItemCount { return reportedItemCount }
+        return entries.reduce(0) { $0 + ($1.count ?? 1) }
+    }
+
+    /// The line above the chips. nil for a file the client did not name, whose
+    /// values are listed under no heading rather than under a made-up one.
+    public var heading: String? {
+        let name = path ?? (kind == .file ? nil : kind.fallbackLabel)
+        guard let name else { return nil }
+        guard itemCount > 0 else { return name }
+        return "\(name) \u{00B7} \(UnlockValueSource.valuesLabel(itemCount))"
+    }
+
+    /// Whether this source puts anything on the panel at all.
+    public var isDrawable: Bool {
+        return !entries.isEmpty || heading != nil
+    }
+
+    /// "1 value" / "12 values", in one place so every line that counts values
+    /// counts them the same way.
+    public static func valuesLabel(_ count: Int) -> String {
+        return count == 1 ? "1 value" : "\(count) values"
     }
 }
 
@@ -292,7 +407,7 @@ public struct UnlockValueFile: Equatable {
 /// so the panel can answer "what do they get" beyond a bare key id.
 public struct UnlockKeyDisplay: Equatable {
     public let valueCount: Int?
-    public let files: [UnlockValueFile]
+    public let sources: [UnlockValueSource]
     /// The vault this key belongs to, once vaults exist. nil means the local one.
     public let vaultLabel: String?
     /// The vault's identity colour as `#rrggbb`, or nil for the default tint.
@@ -300,50 +415,68 @@ public struct UnlockKeyDisplay: Equatable {
 
     public init(
         valueCount: Int? = nil,
-        files: [UnlockValueFile] = [],
+        sources: [UnlockValueSource] = [],
         vaultLabel: String? = nil,
         vaultColor: String? = nil
     ) {
         self.valueCount = valueCount
-        self.files = files
+        self.sources = sources
         self.vaultLabel = vaultLabel
         self.vaultColor = vaultColor
     }
 
     /// Caps on how much a client can put in one key's row. A caller with more
     /// than this is trimmed rather than refused: the panel has to stay a panel.
-    public static let maxFiles = 8
-    public static let maxValueNames = 60
-    static let maxValueNameLength = 64
+    public static let maxSources = 8
+    public static let maxEntries = 60
+    static let maxEntryNameLength = 64
     static let maxPathLength = 60
     static let maxVaultLabelLength = 32
 
     static func from(_ raw: Any?) -> UnlockKeyDisplay? {
         guard let raw = raw as? [String: Any] else { return nil }
 
-        var files: [UnlockValueFile] = []
-        var namesLeft = maxValueNames
-        for entry in (raw["files"] as? [Any] ?? []).prefix(maxFiles) {
-            guard let entry = entry as? [String: Any] else { continue }
-            let names = (entry["valueNames"] as? [Any] ?? [])
-                .compactMap { UnlockDisplayInfo.trimmedNonEmpty($0, limit: maxValueNameLength) }
-                .prefix(namesLeft)
-            guard !names.isEmpty else { continue }
-            namesLeft -= names.count
-            files.append(UnlockValueFile(
-                path: UnlockDisplayInfo.trimmedNonEmpty(entry["path"], limit: maxPathLength),
-                valueNames: Array(names)
-            ))
-            if namesLeft <= 0 { break }
+        var sources: [UnlockValueSource] = []
+        var entriesLeft = maxEntries
+        for raw in (raw["sources"] as? [Any] ?? []).prefix(maxSources) {
+            guard let raw = raw as? [String: Any] else { continue }
+            // An unrecognised kind is drawn as a file rather than dropped: a
+            // source the panel cannot name is still a source it must not hide.
+            let kind = UnlockValueSource.Kind(rawValue: (raw["kind"] as? String) ?? "") ?? .file
+            let entries = (raw["entries"] as? [Any] ?? [])
+                .compactMap { Self.entry($0) }
+                .prefix(entriesLeft)
+            let reported = (raw["itemCount"] as? NSNumber)?.intValue
+            let source = UnlockValueSource(
+                kind: kind,
+                path: UnlockDisplayInfo.trimmedNonEmpty(raw["path"], limit: maxPathLength),
+                entries: Array(entries),
+                reportedItemCount: (reported ?? 0) > 0 ? reported : nil
+            )
+            guard source.isDrawable else { continue }
+            entriesLeft -= entries.count
+            sources.append(source)
+            if entriesLeft <= 0 { break }
         }
 
         let count = (raw["valueCount"] as? NSNumber)?.intValue
         return UnlockKeyDisplay(
             valueCount: (count ?? 0) > 0 ? count : nil,
-            files: files,
+            sources: sources,
             vaultLabel: UnlockDisplayInfo.trimmedNonEmpty(raw["vaultLabel"], limit: maxVaultLabelLength),
             vaultColor: hexColor(raw["vaultColor"])
         )
+    }
+
+    /// One entry inside a source. A blank name is dropped; a count that is not a
+    /// positive number is simply absent, which draws as a bare name.
+    static func entry(_ raw: Any?) -> UnlockValueSource.Entry? {
+        guard let raw = raw as? [String: Any] else { return nil }
+        guard let name = UnlockDisplayInfo.trimmedNonEmpty(raw["name"], limit: maxEntryNameLength) else {
+            return nil
+        }
+        let count = (raw["count"] as? NSNumber)?.intValue
+        return UnlockValueSource.Entry(name: name, count: (count ?? 0) > 0 ? count : nil)
     }
 
     /// Only `#rrggbb` is accepted, so a colour cannot smuggle anything else onto
@@ -530,7 +663,7 @@ public enum UnlockPanelContent {
             vaultLabel: vaultLabel == name ? nil : vaultLabel,
             vaultColor: supplied?.vaultColor,
             valueCount: key.itemCount ?? display.valueCount(forKey: key.keyId),
-            files: supplied?.files ?? [],
+            sources: supplied?.sources ?? [],
             note: key.policy == .everyTime ? "asks every time" : nil
         )
     }

@@ -5,15 +5,25 @@ import SessionScoping
 /// "What do they get": one card, one row per key.
 ///
 /// The row answers the question at a glance (which key, which vault, how many
-/// values) and opens to the value names grouped by the file that defined them.
+/// values) and opens to every source those values sit in: the env files, and
+/// varlock's value cache, listed the same way as siblings. That is the point of
+/// grouping by key rather than by kind. One key is one grant, so one row holds
+/// everything the grant opens, and nothing the user is approving is off to the
+/// side where it can be missed.
+///
 /// That detail is client-reported, and the footnote inside the open row says so:
 /// the daemon has no way to know what an env value is called, and pretending
 /// otherwise would put the panel's own credibility behind a caller's strings.
 final class PanelKeyBoxView: NSView {
     private let onLayoutChanged: () -> Void
+    /// Whether every row starts open. Only `panel-preview` sets this: a picture
+    /// of the panel is worth taking precisely for the list behind the rows, and
+    /// a still cannot click.
+    private let startExpanded: Bool
 
-    init(rows: [PanelKeyRow], onLayoutChanged: @escaping () -> Void) {
+    init(rows: [PanelKeyRow], startExpanded: Bool = false, onLayoutChanged: @escaping () -> Void) {
         self.onLayoutChanged = onLayoutChanged
+        self.startExpanded = startExpanded
         super.init(frame: .zero)
 
         let card = PanelStyle.card()
@@ -81,9 +91,14 @@ final class PanelKeyBoxView: NSView {
             head.addArrangedSubview(PanelStyle.label(note, size: 10.5, color: PanelStyle.warn))
         }
         head.addArrangedSubview(PanelStyle.spacer())
-        if let count = row.valueCountLabel {
-            head.addArrangedSubview(PanelStyle.label(count, size: 11.5, color: PanelStyle.inkTertiary))
-        }
+        // Always says something. A row whose client reported nothing says so, in
+        // the quiet colour, rather than leaving a gap that would read as "there
+        // is not much in here".
+        head.addArrangedSubview(PanelStyle.label(
+            row.contentsLabel,
+            size: 11.5,
+            color: row.reportsContents ? PanelStyle.inkTertiary : PanelStyle.inkQuiet
+        ))
 
         let headBox = NSView()
         head.translatesAutoresizingMaskIntoConstraints = false
@@ -107,9 +122,13 @@ final class PanelKeyBoxView: NSView {
         head.addArrangedSubview(chevron)
 
         let body = valueList(row)
-        body.isHidden = true
+        body.isHidden = !startExpanded
 
-        let disclosure = PanelDisclosureRow(content: headBox, chevron: chevron) { [weak self] isOpen in
+        let disclosure = PanelDisclosureRow(
+            content: headBox,
+            chevron: chevron,
+            isOpen: startExpanded
+        ) { [weak self] isOpen in
             body.isHidden = !isOpen
             self?.onLayoutChanged()
         }
@@ -122,17 +141,20 @@ final class PanelKeyBoxView: NSView {
         return column
     }
 
-    /// The open row: value names, grouped by the file that defined them.
+    /// The open row: one heading and chip list per source, in the order the
+    /// client sent them.
+    ///
+    /// Every source is drawn the same way, on purpose. An env file and the value
+    /// cache sit under the same key because the same grant opens both, so the
+    /// panel puts them in one list and lets the headings say which is which,
+    /// rather than giving one of them a shape that implies it is the real answer
+    /// and the other an aside.
     private func valueList(_ row: PanelKeyRow) -> NSView {
         let column = PanelStyle.column(spacing: 5)
         column.translatesAutoresizingMaskIntoConstraints = false
 
-        for file in row.files where !file.valueNames.isEmpty {
-            let heading = file.path.map { path in
-                let count = file.valueNames.count
-                return "\(path) \u{00B7} \(count == 1 ? "1 value" : "\(count) values")"
-            }
-            if let heading {
+        for source in row.sources where source.isDrawable {
+            if let heading = source.heading {
                 column.addArrangedSubview(PanelStyle.label(
                     heading,
                     size: 10.5,
@@ -140,13 +162,15 @@ final class PanelKeyBoxView: NSView {
                     mono: true
                 ))
             }
-            column.addArrangedSubview(WrappingChipView(
-                names: file.valueNames,
-                maxWidth: PanelStyle.contentWidth - 24
-            ))
+            if !source.entries.isEmpty {
+                column.addArrangedSubview(WrappingChipView(
+                    names: source.entries.map { $0.label },
+                    maxWidth: PanelStyle.contentWidth - 24
+                ))
+            }
         }
         column.addArrangedSubview(PanelStyle.label(
-            PanelContent.valueSourceFootnote,
+            row.sourceFootnote,
             size: 10,
             color: PanelStyle.inkQuiet
         ))

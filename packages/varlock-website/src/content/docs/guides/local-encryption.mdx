@@ -100,9 +100,9 @@ Encryption is unaffected: it only needs the identity's public key, so writing a 
 When an unlock is needed, the daemon draws a panel before anything is decrypted. The daemon draws it rather than the CLI because the daemon is the process that verified who connected, so it is the only one that can say truthfully who is asking. It shows:
 
 - **Who is asking**, read from the connecting process: the process chain (`node ← claude ← zsh`) and the terminal it is attached to. A caller cannot dress itself up as something else, because these lines are derived rather than sent.
-- **What would be unlocked**: the key ids, with a count of how many values each covers.
+- **What would be unlocked**: one row per key, with a count of how many values it covers. Open a row to see the sources behind it, listed together because one approval on a key opens all of them: each `.env` file with the value names it defined, and varlock's [value cache](/guides/caching/) with how many cached values it holds and which plugins and files filled it. A row whose caller reported nothing says `contents not reported` rather than showing an empty list.
 - **For how long**: the scope.
-- Optionally the project name and path, shown dimmed underneath. That part is sent by the CLI, so it is treated as decoration: it changes the wording, never the decision.
+- Optionally the project name and path, shown dimmed underneath. That part is sent by the CLI, so it is treated as decoration: it changes the wording, never the decision. The same goes for everything inside an opened row: the daemon cannot know what an env value is called or what filled a cache, so it labels that detail as reported by the client.
 
 Only after you approve does the system's Touch ID sheet appear. A second unlock in the same session asks only about keys that are new, and asks nothing at all when everything requested is already covered.
 

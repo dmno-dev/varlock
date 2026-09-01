@@ -318,14 +318,121 @@ final class UnlockDecisionTests: XCTestCase {
             display: UnlockDisplayInfo(keys: [
                 "dev": UnlockKeyDisplay(
                     valueCount: 2,
-                    files: [UnlockValueFile(path: ".env", valueNames: ["DATABASE_URL", "STRIPE_KEY"])]
+                    sources: [UnlockValueSource(
+                        path: ".env",
+                        entries: [.init(name: "DATABASE_URL"), .init(name: "STRIPE_KEY")]
+                    )]
                 ),
             ])
         )
         let row = content.keyRows[0]
         XCTAssertEqual(row.valueCountLabel, "2 values")
         XCTAssertTrue(row.isExpandable)
-        XCTAssertEqual(row.files.first?.valueNames, ["DATABASE_URL", "STRIPE_KEY"])
+        XCTAssertEqual(row.sources.first?.entries.map { $0.name }, ["DATABASE_URL", "STRIPE_KEY"])
+        XCTAssertEqual(row.sources.first?.heading, ".env \u{00B7} 2 values")
+        XCTAssertEqual(row.sourceFootnote, PanelContent.valueSourceFootnote)
+    }
+
+    /// The cache is one of the things the key opens, so it is a line in the same
+    /// list the files are in, and the line says which it is.
+    func testTheValueCacheIsListedAsASourceLikeAnyOther() {
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            display: UnlockDisplayInfo(keys: [
+                "dev": UnlockKeyDisplay(
+                    valueCount: 12,
+                    sources: [UnlockValueSource(
+                        kind: .cache,
+                        entries: [.init(name: "1password", count: 8), .init(name: ".env.local", count: 4)],
+                        reportedItemCount: 12
+                    )]
+                ),
+            ])
+        )
+        let row = content.keyRows[0]
+        XCTAssertTrue(row.isExpandable)
+        XCTAssertEqual(row.valueCountLabel, "12 values")
+        XCTAssertEqual(row.sources.first?.heading, "value cache \u{00B7} 12 values")
+        XCTAssertEqual(
+            row.sources.first?.entries.map { $0.label },
+            ["1password \u{00B7} 8", ".env.local \u{00B7} 4"]
+        )
+        XCTAssertEqual(row.sourceFootnote, "Sources and contents reported by the client")
+    }
+
+    /// One request covering both needs no special shape: two sources, one row.
+    func testFilesAndTheCacheShareOneRowWhenOneRequestCoversBoth() {
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            display: UnlockDisplayInfo(keys: [
+                "dev": UnlockKeyDisplay(
+                    valueCount: 14,
+                    sources: [
+                        UnlockValueSource(
+                            path: ".env",
+                            entries: [.init(name: "DATABASE_URL"), .init(name: "S3_KEY")]
+                        ),
+                        UnlockValueSource(kind: .cache, reportedItemCount: 12),
+                    ]
+                ),
+            ])
+        )
+        let row = content.keyRows[0]
+        XCTAssertEqual(content.keyRows.count, 1, "one key means one row, however many sources it holds")
+        XCTAssertEqual(
+            row.sources.map { $0.heading },
+            [".env \u{00B7} 2 values", "value cache \u{00B7} 12 values"]
+        )
+        // A cache with nothing to chip about still draws: its heading is the
+        // fact that matters.
+        XCTAssertTrue(row.sources[1].isDrawable)
+    }
+
+    /// A caller that said nothing must not leave a blank that reads as "there is
+    /// not much in here".
+    func testARowWithNoReportedContentsSaysSo() {
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(plan: plan, requester: PanelRequester(summary: ""))
+        let row = content.keyRows[0]
+        XCTAssertNil(row.valueCountLabel)
+        XCTAssertFalse(row.reportsContents)
+        XCTAssertEqual(row.contentsLabel, "contents not reported")
+        XCTAssertFalse(row.isExpandable)
+    }
+
+    func testCacheSourcesAreReadOffTheWire() {
+        let display = UnlockDisplayInfo.from(payload: ["display": [
+            "keys": [
+                "dev": [
+                    "valueCount": 12,
+                    "sources": [[
+                        "kind": "cache",
+                        "itemCount": 12,
+                        "entries": [["name": "1password", "count": 8], ["name": ".env.local", "count": 4]],
+                    ]],
+                ],
+            ],
+        ]])
+
+        let source = display.keys["dev"]?.sources.first
+        XCTAssertEqual(source?.kind, .cache)
+        XCTAssertEqual(source?.itemCount, 12)
+        XCTAssertEqual(source?.entries.map { $0.name }, ["1password", ".env.local"])
+        XCTAssertEqual(source?.entries.first?.count, 8)
+    }
+
+    /// A source kind this daemon has never heard of is still one of the things
+    /// the grant would open, so it is drawn rather than dropped.
+    func testAnUnknownSourceKindIsDrawnRatherThanHidden() {
+        let display = UnlockDisplayInfo.from(payload: ["display": [
+            "keys": ["dev": ["sources": [["kind": "something-new", "entries": [["name": "MYSTERY"]]]]]],
+        ]])
+        XCTAssertEqual(display.keys["dev"]?.sources.first?.kind, .file)
+        XCTAssertEqual(display.keys["dev"]?.sources.first?.entries.map { $0.name }, ["MYSTERY"])
     }
 
     func testClientSuppliedLinesAreMarkedAsSuch() {
@@ -430,9 +537,9 @@ final class UnlockDecisionTests: XCTestCase {
             "keys": [
                 "dev": [
                     "valueCount": 3,
-                    "files": [
-                        ["path": ".env", "valueNames": ["DATABASE_URL", "STRIPE_KEY"]],
-                        ["path": ".env.local", "valueNames": ["NGROK_TOKEN"]],
+                    "sources": [
+                        ["path": ".env", "entries": [["name": "DATABASE_URL"], ["name": "STRIPE_KEY"]]],
+                        ["path": ".env.local", "entries": [["name": "NGROK_TOKEN"]]],
                     ],
                 ],
                 "prod": [
@@ -444,8 +551,11 @@ final class UnlockDecisionTests: XCTestCase {
         ]])
 
         XCTAssertEqual(display.keys["dev"]?.valueCount, 3)
-        XCTAssertEqual(display.keys["dev"]?.files.map { $0.path }, [".env", ".env.local"])
-        XCTAssertEqual(display.keys["dev"]?.files.first?.valueNames, ["DATABASE_URL", "STRIPE_KEY"])
+        XCTAssertEqual(display.keys["dev"]?.sources.map { $0.path }, [".env", ".env.local"])
+        XCTAssertEqual(
+            display.keys["dev"]?.sources.first?.entries.map { $0.name },
+            ["DATABASE_URL", "STRIPE_KEY"]
+        )
         XCTAssertEqual(display.keys["prod"]?.vaultLabel, "acme-team vault")
         XCTAssertEqual(display.keys["prod"]?.vaultColor, "#b48ce8")
         XCTAssertEqual(display.valueCount(forKey: "dev"), 3)
@@ -457,7 +567,9 @@ final class UnlockDecisionTests: XCTestCase {
             "keys": [
                 "dev": [
                     "valueCount": 0,
-                    "files": (0..<20).map { ["path": ".env.\($0)", "valueNames": manyNames] },
+                    "sources": (0..<20).map { index in
+                        ["path": ".env.\(index)", "entries": manyNames.map { ["name": $0] }]
+                    },
                     // not a colour: dropped rather than drawn
                     "vaultColor": "red; drop table",
                 ],
@@ -467,10 +579,10 @@ final class UnlockDecisionTests: XCTestCase {
         let key = display.keys["dev"]
         XCTAssertNil(key?.valueCount, "a count of zero says nothing, so it is not shown")
         XCTAssertNil(key?.vaultColor)
-        XCTAssertLessThanOrEqual(key?.files.count ?? 0, UnlockKeyDisplay.maxFiles)
+        XCTAssertLessThanOrEqual(key?.sources.count ?? 0, UnlockKeyDisplay.maxSources)
         XCTAssertEqual(
-            key?.files.reduce(0) { $0 + $1.valueNames.count },
-            UnlockKeyDisplay.maxValueNames
+            key?.sources.reduce(0) { $0 + $1.entries.count },
+            UnlockKeyDisplay.maxEntries
         )
     }
 

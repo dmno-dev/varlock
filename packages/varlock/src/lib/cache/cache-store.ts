@@ -5,6 +5,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomBytes } from 'node:crypto';
 import { getUserVarlockDir } from '../user-config-dir';
 import * as localEncrypt from '../local-encrypt';
+import { projectDisplay } from '../local-encrypt/session-decrypt';
+import type { UnlockDisplayInfo } from '../local-encrypt/types';
 import { createDebug } from '../debug';
 
 const debug = createDebug('varlock:cache');
@@ -275,7 +277,13 @@ export type CacheValueCodec = {
   /** called before the first write — e.g. ensure a key exists / is valid */
   ensureReady(): Promise<void> | void;
   encrypt(plaintext: string): Promise<string> | string;
-  decrypt(ciphertext: string): Promise<string> | string;
+  /**
+   * `display` describes the read for the unlock panel, when opening this value
+   * costs a presence check. Nothing is bound into the crypto and the daemon
+   * never checks it: it exists so a cache read is something a person can
+   * recognise on the panel instead of an unexplained request.
+   */
+  decrypt(ciphertext: string, display?: UnlockDisplayInfo): Promise<string> | string;
 };
 
 export type CacheStoreLike = {
@@ -315,6 +323,53 @@ export function hasInvalidCacheKeyChars(key: string): boolean {
   return false;
 }
 
+/**
+ * What a cache key's group is called on the unlock panel.
+ *
+ * A plugin is named by its own name, which is the useful half of
+ * `plugin:1password:vault/...`; a resolver group is named by the file it
+ * resolved in, since the directory it sits in is neither recognisable at panel
+ * size nor anyone's business on a machine that hosts several projects. The
+ * cache key itself is never drawn: it can spell out which item in which vault
+ * was fetched, and the panel only needs to say who filled the cache.
+ */
+export function cacheProducerLabel(prefix: string): string {
+  if (prefix.startsWith('plugin:')) return prefix.slice('plugin:'.length);
+  if (prefix === 'resolver:custom') return 'custom cache keys';
+  if (prefix.startsWith('resolver:')) return path.basename(prefix.slice('resolver:'.length));
+  return prefix;
+}
+
+/** How many producers the panel is willing to name before summarising the tail */
+const MAX_DISPLAYED_PRODUCERS = 8;
+
+/**
+ * Who filled the cache, and how much each of them contributed.
+ *
+ * Biggest first, because that is the order that answers "what is in here" the
+ * fastest, and the tail past the cap is added up rather than dropped: a total
+ * the entries do not add up to would be the panel misleading by omission.
+ */
+export function summariseCacheProducers(
+  cacheKeys: Array<string>,
+): Array<{ name: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const key of cacheKeys) {
+    const label = cacheProducerLabel(groupKeyPrefix(key));
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const sorted = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (sorted.length <= MAX_DISPLAYED_PRODUCERS) {
+    return sorted.map(([name, count]) => ({ name, count }));
+  }
+  const shown = sorted.slice(0, MAX_DISPLAYED_PRODUCERS - 1);
+  const rest = sorted.slice(MAX_DISPLAYED_PRODUCERS - 1);
+  return [
+    ...shown.map(([name, count]) => ({ name, count })),
+    { name: `${rest.length} more`, count: rest.reduce((sum, [, count]) => sum + count, 0) },
+  ];
+}
+
 export function assertValidCacheKey(key: string, label = 'cache key'): void {
   if (typeof key !== 'string') {
     throw new Error(`Invalid ${label}: must be a string`);
@@ -344,19 +399,61 @@ export function assertValidCacheKey(key: string, label = 'cache key'): void {
  * identity key on backends that encrypt to one, the device key elsewhere.
  * `ensureEncryptionReady` puts whichever of those the run needs in place before
  * the first write, so a cache write never races key creation inside the lock.
+ *
+ * Sharing that key means sharing the unlock, so a cache read can be what puts
+ * the panel on screen, and it must be able to say what it is. It describes
+ * itself as a source under its key: see `unlockDisplay`. Cached values are often
+ * the more sensitive half of what a key protects, since they are what came back
+ * from 1Password and the other providers, so a cache read the panel could not
+ * name would be the worst thing on it to approve blind.
  */
 export class CacheStore {
   private filePath: string;
+  private keyId: string;
   private codec: CacheValueCodec;
   private static warnedWriteFailure = false;
 
   constructor(keyId: string = 'varlock-default', codec?: CacheValueCodec) {
     const cacheDir = path.join(getUserVarlockDir(), 'cache');
+    this.keyId = keyId;
     this.filePath = path.join(cacheDir, `${keyId}.json`);
     this.codec = codec ?? {
       ensureReady: () => localEncrypt.ensureEncryptionReady(keyId),
       encrypt: (plaintext) => localEncrypt.encryptValue(plaintext, keyId),
-      decrypt: (ciphertext) => localEncrypt.decryptValue(ciphertext, keyId),
+      decrypt: (ciphertext, display) => localEncrypt.decryptValue(ciphertext, keyId, { display }),
+    };
+  }
+
+  /**
+   * What the unlock panel is told a cache read is for.
+   *
+   * The cache is one of the things this key protects, so it is described the
+   * same way an env file is: a source under the key, with what filled it and
+   * how much. Anything else on this key (the project's own `varlock()` values)
+   * is a sibling source, and one approval covers the lot, which is exactly why
+   * they belong in one list rather than in separate requests that each look
+   * like the whole story.
+   *
+   * Built from the cache file the caller has already read, so it costs no extra
+   * IO, and it is client-reported like every other line the daemon draws from a
+   * caller: none of it reaches the crypto and the daemon checks none of it.
+   */
+  private unlockDisplay(data: CacheData): UnlockDisplayInfo {
+    const live = Object.keys(data).filter((key) => Date.now() <= data[key].e);
+    return {
+      ...projectDisplay(),
+      keys: {
+        [this.keyId]: {
+          valueCount: live.length,
+          sources: [
+            {
+              kind: 'cache',
+              itemCount: live.length,
+              entries: summariseCacheProducers(live),
+            },
+          ],
+        },
+      },
     };
   }
 
@@ -377,7 +474,7 @@ export class CacheStore {
     }
 
     try {
-      const plaintext = await this.codec.decrypt(entry.v);
+      const plaintext = await this.codec.decrypt(entry.v, this.unlockDisplay(data));
       const envelope = JSON.parse(plaintext);
       // the envelope binds the ciphertext to its key — a swapped/replayed entry decrypts
       // fine but fails this check

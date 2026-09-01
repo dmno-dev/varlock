@@ -163,21 +163,53 @@ export type UnlockInvocationMode = 'cli' | 'auto-load' | 'sdk';
  * the row it draws them in.
  */
 export interface UnlockKeyDisplay {
-  /** how many encrypted values this key covers */
+  /** how many encrypted values this key covers, across every source below */
   valueCount?: number;
-  /** the values this key covers, grouped by the file that defined them */
-  files?: Array<UnlockValueFile>;
+  /**
+   * Where those values live: one entry per source.
+   *
+   * Grouping by key is the whole mechanism. Everything a key protects lands in
+   * this one list, so an env file and the value cache are siblings rather than
+   * one being the list and the other a special case, and a source kind added
+   * later slots in beside them with no change to the shape.
+   */
+  sources?: Array<UnlockValueSource>;
   /** the vault this key belongs to, once there are vaults to belong to */
   vaultLabel?: string;
   /** the vault's identity colour, as `#rrggbb` */
   vaultColor?: string;
 }
 
-/** Value names from one env file */
-export interface UnlockValueFile {
-  /** file that defined these values; omitted when the caller does not know */
+/**
+ * What kind of place a key's values sit in.
+ *
+ * - `file`: an env file, whose entries are the value names it defined
+ * - `cache`: varlock's value cache, whose entries are what filled it
+ */
+export type UnlockSourceKind = 'file' | 'cache';
+
+/** One place the values behind a key come from */
+export interface UnlockValueSource {
+  /** defaults to `file` when the caller does not say */
+  kind?: UnlockSourceKind;
+  /** the file that defined these values; file sources only, and only when known */
   path?: string;
-  valueNames: Array<string>;
+  /**
+   * How many values this source contributes.
+   *
+   * Only needed when `entries` does not enumerate them one by one, which is the
+   * cache's case: it reports its providers and how much each contributed rather
+   * than listing every cached key.
+   */
+  itemCount?: number;
+  entries?: Array<UnlockSourceEntry>;
+}
+
+/** One thing inside a source: an env value, or a provider that filled the cache */
+export interface UnlockSourceEntry {
+  name: string;
+  /** how many values this entry stands for, when it stands for more than one */
+  count?: number;
 }
 
 /**

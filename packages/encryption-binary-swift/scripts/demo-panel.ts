@@ -9,7 +9,7 @@
  *
  * The states it walks through:
  *
- *   single  one key, expanded value metadata (12 values across two files)
+ *   single  one key, opening to two env files and the value cache
  *   two     two keys, one of them tagged as a team vault
  *   agent   the same request sent by a script running under an interpreter,
  *           inside something that looks like a Claude Code session, which is
@@ -220,12 +220,21 @@ class Client {
 
 const projectPath = `${os.homedir()}/dev/acme-api`;
 
+const names = (...values: Array<string>) => values.map((name) => ({ name }));
+
+/**
+ * The default key, holding two env files and the value cache.
+ *
+ * The cache is a line in the same list the files are in, under the key that
+ * encrypts it, because one grant on that key opens all three. Listing it apart
+ * from them would suggest the files were the whole story.
+ */
 const defaultKeyDisplay = {
-  valueCount: 12,
-  files: [
+  valueCount: 24,
+  sources: [
     {
       path: '.env',
-      valueNames: [
+      entries: names(
         'DATABASE_URL',
         'STRIPE_TEST_KEY',
         'SENTRY_DSN',
@@ -234,11 +243,16 @@ const defaultKeyDisplay = {
         'JWT_SECRET',
         'S3_KEY',
         'S3_SECRET',
-      ],
+      ),
     },
     {
       path: '.env.local',
-      valueNames: ['OPENAI_API_KEY', 'GH_TOKEN', 'LOCAL_DB_URL', 'NGROK_TOKEN'],
+      entries: names('OPENAI_API_KEY', 'GH_TOKEN', 'LOCAL_DB_URL', 'NGROK_TOKEN'),
+    },
+    {
+      kind: 'cache',
+      itemCount: 12,
+      entries: [{ name: '1password', count: 8 }, { name: '.env.local', count: 4 }],
     },
   ],
 };
@@ -247,7 +261,7 @@ const prodKeyDisplay = {
   valueCount: 3,
   vaultLabel: 'acme-team vault',
   vaultColor: '#b48ce8',
-  files: [{ path: '.env.production', valueNames: ['PROD_DB_URL', 'PROD_STRIPE_KEY', 'PROD_JWT'] }],
+  sources: [{ path: '.env.production', entries: names('PROD_DB_URL', 'PROD_STRIPE_KEY', 'PROD_JWT') }],
 };
 
 const client = new Client();

@@ -325,7 +325,8 @@ case "panel-preview":
     guard let png = ApprovalPanel.previewPng(
         content: previewContent,
         mode: previewMode,
-        expandChain: (previewPayload["expandChain"] as? NSNumber)?.boolValue ?? false
+        expandChain: (previewPayload["expandChain"] as? NSNumber)?.boolValue ?? false,
+        expandKeys: (previewPayload["expandKeys"] as? NSNumber)?.boolValue ?? false
     ) else {
         jsonError("Could not render the panel")
     }
@@ -1006,7 +1007,9 @@ case "help", "--help", "-h":
                                              inline, and can its key hold our wrap
       panel-preview --out <file.png> [--payload <file.json>]
                                       Draw the approval panel to a PNG, without
-                                      showing it or unlocking anything
+                                      showing it or unlocking anything. The
+                                      payload's "expandChain" and "expandKeys"
+                                      open the disclosures a still cannot click
 
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)

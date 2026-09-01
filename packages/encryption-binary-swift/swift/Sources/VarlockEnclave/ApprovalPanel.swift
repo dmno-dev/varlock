@@ -182,12 +182,18 @@ final class ApprovalPanel: NSObject {
     static func previewPng(
         content: PanelContent,
         mode: ApprovalPresenceMode,
-        expandChain: Bool = false
+        expandChain: Bool = false,
+        expandKeys: Bool = false
     ) -> Data? {
         let panel = ApprovalPanel()
         panel.scopes = content.scopes
         panel.flow = ApprovalFlow(content: content, presenceMode: mode)
-        let window = panel.buildWindow(content: content, mode: mode, expandChain: expandChain)
+        let window = panel.buildWindow(
+            content: content,
+            mode: mode,
+            expandChain: expandChain,
+            expandKeys: expandKeys
+        )
         guard let view = window.contentView else { return nil }
         // Icons fill themselves in from the run loop, which a command that never
         // runs one would never give them. Pump it briefly so the picture shows
@@ -732,7 +738,8 @@ final class ApprovalPanel: NSObject {
     private func buildWindow(
         content: PanelContent,
         mode: ApprovalPresenceMode,
-        expandChain: Bool = false
+        expandChain: Bool = false,
+        expandKeys: Bool = false
     ) -> ApprovalPanelWindow {
         let column = PanelStyle.column(spacing: 0)
         column.translatesAutoresizingMaskIntoConstraints = false
@@ -751,7 +758,10 @@ final class ApprovalPanel: NSObject {
         }
 
         if !content.keyRows.isEmpty {
-            let box = PanelKeyBoxView(rows: content.keyRows) { [weak self] in self?.relayout() }
+            let box = PanelKeyBoxView(
+                rows: content.keyRows,
+                startExpanded: expandKeys
+            ) { [weak self] in self?.relayout() }
             box.translatesAutoresizingMaskIntoConstraints = false
             column.setCustomSpacing(13, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(box)

@@ -136,13 +136,13 @@ describe.skipIf(process.platform === 'win32')('v2 decryption through the daemon'
     expect(display.projectName).toBe('acme-api');
     expect(display.keys['varlock-default'].valueCount).toBe(3);
     // grouped by the file that defined them, in the order the files first appear
-    expect(display.keys['varlock-default'].files).toEqual([
-      { path: '.env', valueNames: ['DATABASE_URL', 'STRIPE_KEY'] },
-      { path: '.env.local', valueNames: ['NGROK_TOKEN'] },
+    expect(display.keys['varlock-default'].sources).toEqual([
+      { kind: 'file', path: '.env', entries: [{ name: 'DATABASE_URL' }, { name: 'STRIPE_KEY' }] },
+      { kind: 'file', path: '.env.local', entries: [{ name: 'NGROK_TOKEN' }] },
     ]);
     expect(display.keys['other-key']).toEqual({
       valueCount: 1,
-      files: [{ path: '.env.prod', valueNames: ['PROD_TOKEN'] }],
+      sources: [{ kind: 'file', path: '.env.prod', entries: [{ name: 'PROD_TOKEN' }] }],
     });
   });
 
@@ -187,8 +187,44 @@ describe.skipIf(process.platform === 'win32')('v2 decryption through the daemon'
       vaultLabel: 'acme-team vault',
       vaultColor: '#b48ce8',
       valueCount: 1,
-      files: [{ valueNames: ['PROD_TOKEN'] }],
+      sources: [{ kind: 'file', entries: [{ name: 'PROD_TOKEN' }] }],
     });
+  });
+
+  it("lists a caller's own sources beside the files this batch is opening", async () => {
+    const payload = v2Payload('mixed');
+    harness.setConfig({ plaintexts: { [payload]: 'x' } });
+
+    const localEncrypt = await loadLocalEncrypt();
+    await localEncrypt.decryptIdentityPayloads(
+      [
+        {
+          ciphertext: payload, keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env',
+        },
+      ],
+      {
+        display: {
+          keys: {
+            'varlock-default': {
+              // what the key covers, which is more than this batch decrypts
+              valueCount: 13,
+              sources: [{ kind: 'cache', itemCount: 12, entries: [{ name: '1password', count: 12 }] }],
+            },
+          },
+        },
+      },
+    );
+
+    const display = harness.callsOf('unlock-session')[0].payload.display as any;
+    // One list under one key: the files this batch opens, then the caller's own
+    // sources. Everything the grant covers, in one place.
+    expect(display.keys['varlock-default'].sources).toEqual([
+      { kind: 'file', path: '.env', entries: [{ name: 'DATABASE_URL' }] },
+      { kind: 'cache', itemCount: 12, entries: [{ name: '1password', count: 12 }] },
+    ]);
+    // the caller's count wins: the payload count only measures this batch
+    expect(display.keys['varlock-default'].valueCount).toBe(13);
+    expect(display.itemCounts['varlock-default']).toBe(13);
   });
 
   it('re-unlocks once when the grant dies between the unlock and the decrypt', async () => {

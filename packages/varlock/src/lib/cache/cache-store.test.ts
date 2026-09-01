@@ -4,7 +4,8 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { CacheStore } from './cache-store';
+import { CacheStore, cacheProducerLabel, summariseCacheProducers } from './cache-store';
+import * as localEncrypt from '../local-encrypt';
 
 // mock localEncrypt to avoid needing real encryption keys
 vi.mock('../local-encrypt', () => ({
@@ -290,6 +291,63 @@ describe('CacheStore', () => {
 
       expect(await store.get('plugin:test:other')).toBeUndefined();
       expect((await store.get('plugin:test:original'))!.value).toBe('bound-value');
+    });
+  });
+
+  // Opening a cached value can cost a presence check, and a panel that cannot
+  // say what it is asking about is a panel nobody can answer honestly. So the
+  // cache says which key it sits behind, how much is behind it, and who filled
+  // it. All of it is client-reported decoration, like every other display line.
+  describe('what the unlock panel is told', () => {
+    it('describes itself as a source under the key that encrypts it', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:1password:vault/db', 'a', 60_000);
+      await store.set('plugin:1password:vault/api', 'b', 60_000);
+      await store.set('resolver:/code/acme/.env.local:TOKEN:exec(...)', 'c', 60_000);
+      await store.get('plugin:1password:vault/db');
+
+      const display = vi.mocked(localEncrypt.decryptValue).mock.calls.at(-1)![2]?.display;
+      expect(display?.projectName).toBe(path.basename(process.cwd()));
+      expect(display?.keys?.['varlock-default']).toEqual({
+        valueCount: 3,
+        sources: [
+          {
+            kind: 'cache',
+            itemCount: 3,
+            entries: [{ name: '1password', count: 2 }, { name: '.env.local', count: 1 }],
+          },
+        ],
+      });
+    });
+
+    it('counts only what is still live', async () => {
+      const store = new CacheStore();
+      await store.set('plugin:test:fresh', 'a', 60_000);
+      await store.set('plugin:test:stale', 'b', 60_000);
+
+      const raw = JSON.parse(fs.readFileSync(store.getFilePath(), 'utf-8'));
+      raw['plugin:test:stale'].e = Date.now() - 1;
+      fs.writeFileSync(store.getFilePath(), JSON.stringify(raw));
+
+      await store.get('plugin:test:fresh');
+      const display = vi.mocked(localEncrypt.decryptValue).mock.calls.at(-1)![2]?.display;
+      expect(display?.keys?.['varlock-default']?.valueCount).toBe(1);
+    });
+
+    it('names producers without spelling out the cache keys behind them', () => {
+      expect(cacheProducerLabel('plugin:1password')).toBe('1password');
+      expect(cacheProducerLabel('resolver:custom')).toBe('custom cache keys');
+      // the directory is neither recognisable at panel size nor anyone else's
+      // business on a machine hosting several projects
+      expect(cacheProducerLabel('resolver:/code/acme/.env.local')).toBe('.env.local');
+    });
+
+    it('adds up the tail rather than dropping it, so the entries match the total', () => {
+      const keys = Array.from({ length: 12 }, (_, i) => `plugin:p${i}:x`);
+      const producers = summariseCacheProducers(keys);
+      expect(producers).toHaveLength(8);
+      expect(producers.at(-1)).toEqual({ name: '5 more', count: 5 });
+      expect(producers.reduce((sum, p) => sum + p.count, 0)).toBe(12);
     });
   });
 

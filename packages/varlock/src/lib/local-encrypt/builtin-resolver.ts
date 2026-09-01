@@ -12,6 +12,7 @@ import prompts from '../../cli/helpers/prompts';
 import { IDENTITY_PAYLOAD_VERSION, readPayloadVersion } from './crypto';
 import * as localEncrypt from './index';
 import { buildVarlockReference, LOCAL_SCHEME, parseVarlockReference } from './reference';
+import { projectDisplay } from './session-decrypt';
 import { writeBackValue } from './write-back';
 
 const PLUGIN_ICON = 'mdi:fingerprint';
@@ -125,7 +126,7 @@ async function openIdentityEntries(
     })),
     // decoration for the unlock panel. The daemon works out who is asking from
     // the connection itself and treats all of this as secondary.
-    { display: { projectName: path.basename(process.cwd()), projectPath: process.cwd() } },
+    { display: projectDisplay() },
   );
   identityEntries.forEach((entry, i) => opened.set(entry, plaintexts[i]));
   return opened;
@@ -428,7 +429,26 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
           });
         }
 
-        return localEncrypt.decryptValue(ciphertext);
+        // Reading back the value the user just typed. It can cost an unlock, so
+        // the panel gets the same one-value-in-one-file description the batch
+        // path builds for itself.
+        return localEncrypt.decryptValue(ciphertext, keyId, {
+          display: {
+            ...projectDisplay(),
+            keys: {
+              [keyId]: {
+                valueCount: 1,
+                sources: [
+                  {
+                    kind: 'file',
+                    path: displayFilePath(sourceFilePath),
+                    entries: [{ name: itemKey }],
+                  },
+                ],
+              },
+            },
+          },
+        });
       }
 
       // Terminal prompt for file-based backend

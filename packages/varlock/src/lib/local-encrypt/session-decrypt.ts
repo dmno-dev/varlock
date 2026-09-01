@@ -17,8 +17,19 @@ import path from 'node:path';
 import { VARLOCK_VERSION } from '../varlock-version';
 import { DaemonError, type DaemonClient } from './daemon-client';
 import type {
-  SessionGrantInfo, UnlockDisplayInfo, UnlockInvocationMode, UnlockKeyDisplay, UnlockValueFile,
+  SessionGrantInfo, UnlockDisplayInfo, UnlockInvocationMode, UnlockKeyDisplay, UnlockValueSource,
 } from './types';
+
+/**
+ * The project the panel names, as the caller sees it.
+ *
+ * The working directory, which is what "the project asking" means to every
+ * caller here. Client-reported like everything else in the display, and shared
+ * so a cache unlock and a file unlock name the project the same way.
+ */
+export function projectDisplay(): { projectName: string; projectPath: string } {
+  return { projectName: path.basename(process.cwd()), projectPath: process.cwd() };
+}
 
 /** Thrown when the user was shown the unlock panel and said no */
 export class UnlockDeclinedError extends Error {
@@ -179,8 +190,16 @@ export function detectInvocationMode(): UnlockInvocationMode {
  * that a decrypt depended on would turn a cosmetic mismatch into a failed
  * unlock.
  *
+ * The env files this batch is opening become `sources` on their key. A caller
+ * with sources of its own (the value cache is the first) has them appended to
+ * the same list rather than kept apart, because they are peers: one grant on one
+ * key opens all of them, so one list under that key is what the panel should
+ * show. A caller that already knows its own `valueCount` keeps it, since the
+ * payload count only measures what this batch decrypts and not what the key
+ * covers.
+ *
  * A caller's own `keys` entries (a vault label and colour, once vaults exist)
- * are kept, since only the caller knows those.
+ * are kept too, since only the caller knows those.
  */
 function buildDisplayInfo(
   payloads: Array<IdentityPayloadRequest>,
@@ -188,11 +207,14 @@ function buildDisplayInfo(
   supplied: UnlockDisplayInfo | undefined,
 ): UnlockDisplayInfo {
   const keys: Record<string, UnlockKeyDisplay> = {};
+  const itemCounts: Record<string, number> = {};
 
   for (const [keyId, indexes] of groups) {
+    const suppliedKey = supplied?.keys?.[keyId];
+
     // Grouped by file, in the order the files first appear, so the panel reads
     // the way the env files were loaded rather than in some hash order.
-    const byFile = new Map<string, UnlockValueFile>();
+    const byFile = new Map<string, UnlockValueSource>();
     for (const index of indexes) {
       const { valueName, sourceFile } = payloads[index];
       if (!valueName) continue;
@@ -200,16 +222,20 @@ function buildDisplayInfo(
       const groupKey = sourceFile ?? '';
       let file = byFile.get(groupKey);
       if (!file) {
-        file = { path: sourceFile, valueNames: [] };
+        file = { kind: 'file', path: sourceFile, entries: [] };
         byFile.set(groupKey, file);
       }
-      file.valueNames.push(valueName);
+      file.entries!.push({ name: valueName });
     }
 
+    const sources = [...byFile.values(), ...(suppliedKey?.sources ?? [])];
+    const valueCount = suppliedKey?.valueCount ?? indexes.length;
+    itemCounts[keyId] = valueCount;
+
     keys[keyId] = {
-      ...supplied?.keys?.[keyId],
-      valueCount: indexes.length,
-      ...(byFile.size > 0 ? { files: [...byFile.values()] } : {}),
+      ...suppliedKey,
+      valueCount,
+      ...(sources.length > 0 ? { sources } : {}),
     };
   }
 
@@ -222,7 +248,7 @@ function buildDisplayInfo(
     varlockVersion: VARLOCK_VERSION,
     ...supplied,
     // how much each key is being asked to cover, so the panel can say so
-    itemCounts: Object.fromEntries([...groups].map(([keyId, indexes]) => [keyId, indexes.length])),
+    itemCounts,
     keys,
   };
 }

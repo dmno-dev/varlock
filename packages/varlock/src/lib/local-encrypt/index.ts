@@ -814,15 +814,23 @@ export async function decryptIdentityPayloads(
  * unlock session everywhere else. Decrypting a single value is just a batch of
  * one, so callers with several should use `decryptIdentityPayloads` instead and
  * pay for one unlock rather than one per value.
+ *
+ * `display` is what the unlock panel says this decrypt is for. Pass it: a
+ * caller that does not is a caller the panel has to describe as "something",
+ * and a person cannot approve something the panel cannot name.
  */
-export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_KEY_ID): Promise<string> {
+export async function decryptValue(
+  ciphertext: string,
+  keyId: string = DEFAULT_KEY_ID,
+  opts?: { display?: UnlockDisplayInfo },
+): Promise<string> {
   // checked here rather than per-backend so payloads from a newer varlock fail
   // the same way everywhere, including on the native binary paths
   assertSupportedPayloadVersion(ciphertext);
 
   if (readPayloadVersion(ciphertext) === IDENTITY_PAYLOAD_VERSION) {
     debug('decryptValue: identity-encrypted payload (v2)');
-    const [plaintext] = await decryptIdentityPayloads([{ ciphertext, keyId }]);
+    const [plaintext] = await decryptIdentityPayloads([{ ciphertext, keyId }], opts);
     return plaintext;
   }
 
