@@ -158,6 +158,7 @@ public struct ExecutionChainBuilder {
                     ? nil
                     : "via \(walkedProcess.executableName)",
                 path: isLauncher ? launcherDetailPath(walkedProcess) : walkedProcess.path,
+                scriptPath: scriptPath(of: walkedProcess),
                 bundlePath: walkedProcess.bundlePath,
                 // Read for every hop, because an auto-load's useful line is the
                 // host's command rather than varlock's own. Only the requester's
@@ -363,6 +364,34 @@ public struct ExecutionChainBuilder {
         return candidate.hasPrefix("\(name) ")
             || candidate.hasSuffix(" \(name)")
             || candidate.contains(" \(name) ")
+    }
+
+    /// The script this hop is running, as a real file on disk.
+    ///
+    /// Worth the two syscalls because a file's own icon is the fastest way a
+    /// person recognises the thing they are being asked about, and the system
+    /// will only answer honestly for a path: an extension is ambiguous (".ts" is
+    /// registered for MPEG transport streams as well as TypeScript), so nothing
+    /// here ever guesses from one. An argument that does not resolve to a file
+    /// that exists is left as nil, and the panel draws a plain document.
+    private func scriptPath(of walkedProcess: WalkedProcess) -> String? {
+        guard !walkedProcess.isOwnProcess else { return nil }
+        guard let token = Self.scriptToken(in: walkedProcess.arguments)?.token else { return nil }
+
+        var candidate = token
+        if candidate.hasPrefix("~") {
+            candidate = NSString(string: candidate).expandingTildeInPath
+        }
+        if !candidate.hasPrefix("/") {
+            // Relative to wherever the process was started, which only the
+            // kernel knows. Unreadable for a process we are not allowed to
+            // inspect, and that is a fine place to stop.
+            guard let directory = provider.workingDirectory(for: walkedProcess.snapshot.pid) else { return nil }
+            candidate = NSString(string: directory).appendingPathComponent(candidate)
+        }
+        candidate = NSString(string: candidate).standardizingPath
+        guard FileManager.default.fileExists(atPath: candidate) else { return nil }
+        return candidate
     }
 
     /// The path shown for the launcher once the chain is opened.

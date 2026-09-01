@@ -47,6 +47,11 @@ public struct ExecutionHop: Equatable {
     public let via: String?
     /// Executable path, shown only when the chain is expanded.
     public let path: String?
+    /// The script this hop is running, as a real file on disk, when the argument
+    /// could be resolved to one. This is what the file's own icon is read from:
+    /// asking the system about a path lets the registered handler answer, where
+    /// asking about an extension gets whichever type claimed it first.
+    public let scriptPath: String?
     /// The `.app` bundle this hop is, when it is one: the OUTERMOST enclosing
     /// one, so an Electron editor's nested helper is drawn as the editor. The
     /// panel turns it into the launcher's icon.
@@ -83,6 +88,7 @@ public struct ExecutionHop: Equatable {
         name: String,
         via: String? = nil,
         path: String? = nil,
+        scriptPath: String? = nil,
         bundlePath: String? = nil,
         invocation: String? = nil,
         runTarget: String? = nil,
@@ -97,6 +103,7 @@ public struct ExecutionHop: Equatable {
         self.name = name
         self.via = via
         self.path = path
+        self.scriptPath = scriptPath
         self.bundlePath = bundlePath
         self.invocation = invocation
         self.runTarget = runTarget

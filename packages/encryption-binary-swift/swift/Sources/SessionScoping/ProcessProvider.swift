@@ -5,7 +5,19 @@ import Darwin
 @_silgen_name("proc_pidpath")
 private func proc_pidpath(_ pid: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ buffersize: UInt32) -> Int32
 
+// Same story for proc_pidinfo, which is how a process's current directory is
+// read. Only ever used to turn a relative script argument into a real path.
+@_silgen_name("proc_pidinfo")
+private func proc_pidinfo(
+    _ pid: Int32,
+    _ flavor: Int32,
+    _ arg: UInt64,
+    _ buffer: UnsafeMutableRawPointer?,
+    _ buffersize: Int32
+) -> Int32
+
 private let PROC_PIDPATHINFO_MAXSIZE: UInt32 = 4096
+private let PROC_PIDVNODEPATHINFO: Int32 = 9
 
 /// A snapshot of the OS-level facts the session scoper needs about one process.
 ///
@@ -36,8 +48,18 @@ public protocol ProcessProvider {
     func environment(for pid: pid_t) -> [String: String]?
     func arguments(for pid: pid_t) -> [String]?
     func path(for pid: pid_t) -> String?
+    /// The process's current directory, which is the only way a relative script
+    /// argument ("bun run scripts/agent.ts") becomes a real file on disk.
+    /// nil whenever it cannot be read, which costs one icon and nothing else.
+    func workingDirectory(for pid: pid_t) -> String?
     func ttyName(forDevice dev: dev_t) -> String?
     func sessionLeader(for pid: pid_t) -> pid_t
+}
+
+extension ProcessProvider {
+    /// Providers written before this existed (and test doubles that do not care)
+    /// answer "cannot be read", which is a supported answer everywhere it is used.
+    public func workingDirectory(for pid: pid_t) -> String? { return nil }
 }
 
 /// The production `ProcessProvider`, backed by `sysctl(KERN_PROC*)`,
@@ -79,6 +101,24 @@ public final class LiveProcessProvider: ProcessProvider {
         let result = proc_pidpath(pid, buffer, PROC_PIDPATHINFO_MAXSIZE)
         guard result > 0 else { return nil }
         return String(cString: buffer)
+    }
+
+    public func workingDirectory(for pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        let read = withUnsafeMutablePointer(to: &info) { pointer in
+            proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, UnsafeMutableRawPointer(pointer), size)
+        }
+        // Anything short of a full struct is a process we are not allowed to
+        // read (another user's, or one that exited): no directory, no guess.
+        guard read == size else { return nil }
+        var buffer = info.pvi_cdir.vip_path
+        let path = withUnsafeBytes(of: &buffer) { raw -> String? in
+            guard let base = raw.bindMemory(to: CChar.self).baseAddress else { return nil }
+            return String(cString: base)
+        }
+        guard let path, !path.isEmpty else { return nil }
+        return path
     }
 
     public func arguments(for pid: pid_t) -> [String]? {

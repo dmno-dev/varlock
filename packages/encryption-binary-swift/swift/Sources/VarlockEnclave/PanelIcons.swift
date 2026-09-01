@@ -12,7 +12,16 @@ import SessionScoping
 ///
 /// A drop-in beats both: anything in `Resources/tool-icons/<name>.png` wins, so a
 /// proper icon set can be added later without touching this code.
+///
+/// Every icon in the chain is drawn in a square box of one size. App icons are
+/// square already; a document icon is page-shaped, and a monogram is whatever we
+/// draw. Fitting each one inside the same square, rather than resizing it TO a
+/// square, is what keeps a page from being stretched into a stamp and keeps the
+/// rows on the rail lined up whatever mix of art a chain happens to carry.
 enum PanelIcons {
+    /// The side of that box, everywhere in the chain.
+    static let side: CGFloat = 16
+
     /// Icons are cheap but not free: LaunchServices can hit disk on a cold cache.
     /// Nothing here is ever on the path that draws the panel.
     private static var cache: [String: NSImage] = [:]
@@ -39,15 +48,27 @@ enum PanelIcons {
 
     /// The icon for one hop, or nil when there is nothing worth drawing.
     ///
-    /// In order: the app's own icon, a drop-in for a known tool, a tile with the
-    /// tool's initials, and for a shell the terminal symbol. Resolution can touch
-    /// LaunchServices, so callers do it after the panel is up.
+    /// In order: the app's own icon, the agent's, varlock's own mark, the script
+    /// file's icon as the system draws it, a drop-in for a known tool, a tile
+    /// with the tool's initials, and for a shell the terminal symbol. Resolution
+    /// can touch LaunchServices and the disk, so callers do it after the panel is
+    /// up: see `PanelIconView`.
     static func icon(for hop: ExecutionHop) -> NSImage? {
         if let bundlePath = hop.bundlePath, let icon = appIcon(bundlePath: bundlePath) {
             return icon
         }
         if let session = hop.agentSession {
             return agentIcon(productName: session.productName)
+        }
+        // varlock is in every chain and is the one program in it the panel can
+        // speak for, so it wears its own mark rather than a generic binary.
+        if hop.isVarlock { return varlockHopMark() }
+        // A script is what the values are actually for, and its file's own icon
+        // is the fastest way to recognise it. Read from the resolved path so the
+        // registered handler answers for the real file.
+        if hop.via != nil {
+            guard let scriptPath = hop.scriptPath else { return genericDocument() }
+            return fileIcon(path: scriptPath) ?? genericDocument()
         }
         let name = executableName(for: hop)
         if let dropIn = toolDropIn(named: name) { return dropIn }
@@ -58,12 +79,65 @@ enum PanelIcons {
 
     /// A real app icon, when the path is a bundle that exists.
     static func appIcon(bundlePath: String) -> NSImage? {
-        if let cached = cache[bundlePath] { return cached }
-        guard FileManager.default.fileExists(atPath: bundlePath) else { return nil }
-        let icon = NSWorkspace.shared.icon(forFile: bundlePath)
-        icon.size = NSSize(width: 16, height: 16)
-        cache[bundlePath] = icon
+        return fileIcon(path: bundlePath)
+    }
+
+    /// Whatever the system draws for a file: the type's icon plus whatever the
+    /// registered handler contributes.
+    ///
+    /// Always asked about a PATH, never about an extension or a type derived from
+    /// one. `UTType(filenameExtension: "ts")` answers `public.mpeg-2-transport-stream`
+    /// on a stock machine, so an extension lookup can hand back a video icon for
+    /// a TypeScript file.
+    static func fileIcon(path: String) -> NSImage? {
+        if let cached = cache[path] { return cached }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let icon = fitted(NSWorkspace.shared.icon(forFile: path))
+        cache[path] = icon
         return icon
+    }
+
+    /// varlock's own mark at chain-row size.
+    ///
+    /// The app icon rather than the menu bar art: the menu bar marks are template
+    /// images meant to be tinted by the menu bar, and dropped onto the panel's own
+    /// background they read as a grey smudge. The app icon is the same mark the
+    /// Dock and the panel's header already use, in colour, and it is legible at
+    /// 16pt.
+    private static func varlockHopMark() -> NSImage? {
+        if let cached = cache["varlock-hop"] { return cached }
+        guard let image = bundledResource(named: "AppIcon", extension: "icns")
+            ?? NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "varlock") else {
+            return nil
+        }
+        let mark = fitted(image)
+        cache["varlock-hop"] = mark
+        return mark
+    }
+
+    /// The plain page a script gets when its file cannot be found: honest about
+    /// there being a file, silent about what kind. Never a guess from the name.
+    private static func genericDocument() -> NSImage? {
+        return symbol("doc", tint: PanelStyle.inkTertiary)
+    }
+
+    /// The same artwork, sized to fit the square box without being distorted.
+    ///
+    /// Setting `size` to a square would squash a page-shaped document icon; this
+    /// scales the longer edge to the box and lets the shorter one stay short, and
+    /// `PanelIconView` centres what comes back.
+    private static func fitted(_ image: NSImage, box: CGFloat = side) -> NSImage {
+        // On a copy: NSWorkspace hands back images it also holds, and resizing
+        // one of those resizes it for everybody who asked.
+        let sized = (image.copy() as? NSImage) ?? image
+        let natural = sized.size
+        guard natural.width > 0, natural.height > 0 else {
+            sized.size = NSSize(width: box, height: box)
+            return sized
+        }
+        let scale = box / max(natural.width, natural.height)
+        sized.size = NSSize(width: natural.width * scale, height: natural.height * scale)
+        return sized
     }
 
     /// The agent's own app icon when it is installed, and its initial otherwise.
@@ -103,9 +177,9 @@ enum PanelIcons {
     private static func toolDropIn(named name: String) -> NSImage? {
         if let cached = cache["tool:\(name)"] { return cached }
         guard let image = bundledResource(named: "tool-icons/\(name)", extension: "png") else { return nil }
-        image.size = NSSize(width: 16, height: 16)
-        cache["tool:\(name)"] = image
-        return image
+        let sized = fitted(image)
+        cache["tool:\(name)"] = sized
+        return sized
     }
 
     /// The tools worth drawing a tile for, with the colour each is known by.
@@ -171,7 +245,6 @@ enum PanelIcons {
     private static func monogram(_ text: String, background: NSColor, ink: NSColor) -> NSImage {
         let key = "monogram:\(text):\(background.description):\(ink.description)"
         if let cached = cache[key] { return cached }
-        let side: CGFloat = 16
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             let tile = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
             background.setFill()
@@ -229,12 +302,27 @@ enum PanelIcons {
 /// worth delaying an approval for. This draws a placeholder immediately and
 /// replaces it from the run loop, which for a cached icon is the same frame and
 /// for a cold one is a moment later.
+///
+/// The box is always square and always the same size, whatever turns up in it.
+/// The view owns that, not the image: art arrives at every shape and size (app
+/// icons square, document icons page-shaped, SF Symbols whatever they please),
+/// and a row whose icon is a different width from its neighbour's throws the
+/// whole rail out. So the frame is pinned, the artwork is scaled to fit inside
+/// it, and it is centred; nothing is ever stretched or cropped to fill.
 final class PanelIconView: NSImageView {
     init(side: CGFloat, placeholder: NSImage?, resolve: @escaping () -> NSImage?) {
         super.init(frame: .zero)
         image = placeholder
         imageScaling = .scaleProportionallyUpOrDown
+        imageAlignment = .alignCenter
+        imageFrameStyle = .none
         translatesAutoresizingMaskIntoConstraints = false
+        // The stack view around this one distributes slack, and an icon is not
+        // where slack should go.
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .vertical)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: side),
             heightAnchor.constraint(equalToConstant: side),

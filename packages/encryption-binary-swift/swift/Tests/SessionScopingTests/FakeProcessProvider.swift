@@ -11,6 +11,9 @@ struct FakeProc {
     var path: String?
     var args: [String] = []
     var env: [String: String] = [:]
+    /// Current directory, as `proc_pidinfo` would report it; nil means "could
+    /// not be read", which is what an unreadable process answers.
+    var cwd: String?
     /// Session leader pid as `getsid` would report; `0` means unknown.
     var sid: pid_t = 0
 }
@@ -43,6 +46,10 @@ final class FakeProcessProvider: ProcessProvider {
 
     func path(for pid: pid_t) -> String? {
         return procs[pid]?.path
+    }
+
+    func workingDirectory(for pid: pid_t) -> String? {
+        return procs[pid]?.cwd
     }
 
     func ttyName(forDevice dev: dev_t) -> String? {

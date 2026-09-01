@@ -704,6 +704,92 @@ final class ExecutionChainTests: XCTestCase {
         )
     }
 
+    // MARK: - The script's own file
+
+    /// A real directory with a real script in it, since resolving one means
+    /// asking the file system whether it is there.
+    private func scratchScript(named name: String) throws -> (directory: String, path: String) {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chain-script-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: file.path, contents: Data("// script".utf8))
+        // Resolved, because /var and /tmp are symlinks on macOS and the path a
+        // test compares against has to be the one the resolver produces.
+        let resolved = (directory.path as NSString).standardizingPath
+        return (resolved, (file.path as NSString).standardizingPath)
+    }
+
+    private func chainRunning(_ argument: String, in directory: String?, script: String) -> ExecutionChain {
+        return builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bun", "run", argument],
+                cwd: directory
+            ),
+            FakeProc(pid: 400, ppid: 300, path: "/opt/homebrew/bin/varlock"),
+        ]).build(forPid: 400)
+    }
+
+    func testAScriptGivenByAnAbsolutePathIsResolvedToItsFile() throws {
+        let scratch = try scratchScript(named: "agent.ts")
+        let chain = chainRunning(scratch.path, in: nil, script: scratch.path)
+
+        let actor = chain.hops.first { $0.isImportant }
+        XCTAssertEqual(actor?.name, "agent.ts")
+        // The file itself, so the panel can ask the system what it looks like.
+        // Asking about the extension instead would be asking an ambiguous
+        // question: ".ts" is registered for MPEG transport streams too.
+        XCTAssertEqual(actor?.scriptPath, scratch.path)
+    }
+
+    func testARelativeScriptIsResolvedAgainstTheProcessesOwnDirectory() throws {
+        let scratch = try scratchScript(named: "agent.ts")
+        let chain = chainRunning("./agent.ts", in: scratch.directory, script: scratch.path)
+
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.scriptPath, scratch.path)
+    }
+
+    func testAScriptWithNoReadableDirectoryHasNoPathRatherThanAGuess() throws {
+        let scratch = try scratchScript(named: "agent.ts")
+        // The kernel would not say where this process was started, so a relative
+        // argument names nothing we can point at. The panel draws a plain page.
+        let chain = chainRunning("agent.ts", in: nil, script: scratch.path)
+
+        let actor = chain.hops.first { $0.isImportant }
+        XCTAssertEqual(actor?.name, "agent.ts")
+        XCTAssertNil(actor?.scriptPath)
+    }
+
+    func testAScriptArgumentThatIsNotAFileResolvesToNothing() {
+        let chain = chainRunning("/no/such/place/agent.ts", in: "/tmp", script: "")
+        XCTAssertNil(chain.hops.first { $0.isImportant }?.scriptPath)
+    }
+
+    func testVarlocksOwnCliIsNeverTreatedAsSomebodysScript() throws {
+        let scratch = try scratchScript(named: "varlock")
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bunx", "varlock", "load"],
+                cwd: scratch.directory
+            ),
+        ]).build(forPid: 300)
+
+        // It is varlock, drawn with varlock's own mark, and not a third party's
+        // file that happens to be sitting in the working directory.
+        XCTAssertEqual(chain.hops.last?.name, "varlock")
+        XCTAssertNil(chain.hops.last?.scriptPath)
+        XCTAssertNil(chain.hops.last?.via)
+    }
+
     func testAProcessTheDaemonCannotReadDegradesToAnEmptyChain() {
         let chain = builder([]).build(forPid: 999)
         XCTAssertTrue(chain.isEmpty)

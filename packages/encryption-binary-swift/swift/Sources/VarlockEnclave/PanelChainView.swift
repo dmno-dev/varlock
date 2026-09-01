@@ -463,7 +463,7 @@ final class PanelChainView: NSView {
     /// where there is not, and a terminal when we know nothing. Filled in from the
     /// run loop, so a cold LaunchServices lookup cannot delay the panel.
     private func icon(for hop: ExecutionHop) -> NSView {
-        return PanelIconView(side: 16, placeholder: PanelIcons.genericTerminal()) {
+        return PanelIconView(side: PanelIcons.side, placeholder: PanelIcons.genericTerminal()) {
             PanelIcons.icon(for: hop) ?? PanelIcons.genericTerminal()
         }
     }
