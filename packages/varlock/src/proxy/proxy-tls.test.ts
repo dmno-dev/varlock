@@ -764,7 +764,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     await upstream.close();
   });
 
-  test('response scrubbing covers this rule\'s sensitive values by role-independence, and spares the rest', async () => {
+  test('response scrubbing covers sensitive values by role-independence, and spares non-sensitive ones', async () => {
     // an endpoint that echoes back a mix: the encoded credential, the raw
     // secret, a secret bound for another route, and an ordinary username
     const upstream = await startUpstream((req, res) => {
@@ -806,44 +806,42 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
 
     // the encoded credential (only the scheme can produce this form)
     expect(response).not.toContain(Buffer.from('svc-user:real-password').toString('base64'));
-    // ...and the raw secret behind it, whichever role it was named in
+    // ...the raw secret behind it, whichever role it was named in
     expect(response).not.toContain('real-password');
-    // ...but an ordinary value is left alone rather than corrupted
+    // ...and a secret belonging to a DIFFERENT route: the child is not supposed
+    // to hold any managed secret, so where it leaked from does not matter
+    expect(response).not.toContain('other-route-secret');
+    // ...but an ordinary, non-sensitive value is left alone rather than corrupted
     expect(response).toContain('svc-user');
-    // ...as is a secret bound to a DIFFERENT route: this upstream was never
-    // given it, so a match here is coincidence rather than a reflection, and
-    // rewriting it would corrupt a response for no gain
-    expect(response).toContain('other-route-secret');
 
     tlsSocket.destroy();
     await runtime.stop();
     await upstream.close();
   });
 
-  test('a secret bound to another route is not scanned for, so it cannot corrupt this response', async () => {
-    // Scrubbing is substring replacement with no token boundary, so scanning a
-    // response for secrets this upstream was never given is all cost: a short
-    // value configured for a DIFFERENT domain ("ok") would rewrite ordinary
-    // text. (Only ruled hosts are MITM'd at all, so this is the reachable case:
-    // two domains that both have rules.)
+  test('a reflected placeholder is left alone, and a cross-route secret is still scrubbed', async () => {
+    // Placeholders are inert, so one echoed back (an agent quoting its own env)
+    // passes through untouched rather than being rewritten or flagged. The REAL
+    // value of a secret bound to a DIFFERENT domain is still scrubbed: the child
+    // is never meant to hold it, whichever route it leaked from.
     const upstream = await startUpstream((req, res) => {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
-      res.setHeader('x-status', 'ok');
       res.end(JSON.stringify({
-        status: 'ok', note: 'not ok yet', region: 'us-ok-1', leaked: 'us-ok-1-long-enough-secret',
+        quoted: 'vlk_ph_echoed',
+        leaked: 'other-route-secret-value',
       }));
     });
     const runtime = await startLocalProxyRuntime({
       managedItems: [
-        { key: 'SHORT_PIN', placeholder: 'vlk_ph_short_pin', realValue: 'ok' },
-        { key: 'LONG_SECRET', placeholder: 'vlk_ph_long', realValue: 'us-ok-1-long-enough-secret' },
+        { key: 'ECHOED', placeholder: 'vlk_ph_echoed', realValue: 'echoed-real-value' },
+        { key: 'OTHER_SECRET', placeholder: 'vlk_ph_other', realValue: 'other-route-secret-value' },
       ],
       rules: [
         // this host has a rule (so it is MITM'd) but injects nothing here
         { domain: [UPSTREAM_HOST], itemKeys: [] },
         // ...while both secrets belong to a domain this request never talks to
-        { domain: ['other.example.com'], itemKeys: ['SHORT_PIN', 'LONG_SECRET'] },
+        { domain: ['other.example.com'], itemKeys: ['ECHOED', 'OTHER_SECRET'] },
       ],
       egressMode: 'permissive',
     });
@@ -855,15 +853,13 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
       `GET / HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
     );
 
-    // every ordinary "ok" survives untouched, in the body and in a header
-    expect(response).toContain('"status":"ok"');
-    expect(response).toContain('"note":"not ok yet"');
-    expect(response).toContain('"region":"us-ok-1"');
-    expect(response).toContain('x-status: ok');
-    // ...and neither cross-route value is substituted, long one included
-    expect(response).toContain('us-ok-1-long-enough-secret');
-    expect(response).not.toContain('vlk_ph_short_pin');
-    expect(response).not.toContain('vlk_ph_long');
+    // the echoed placeholder is inert and passes through as-is
+    expect(response).toContain('vlk_ph_echoed');
+    // ...and it did NOT get swapped for the real value on the way out
+    expect(response).not.toContain('echoed-real-value');
+    // the cross-route secret's real value is scrubbed back to its placeholder
+    expect(response).not.toContain('other-route-secret-value');
+    expect(response).toContain('vlk_ph_other');
 
     tlsSocket.destroy();
     await runtime.stop();

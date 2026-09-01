@@ -1565,30 +1565,28 @@ export async function startLocalProxyRuntime({
           : `?${substitutePlaceholdersInSurface(queryPart, managedItems, keysForLocation('query'))}`);
     }
 
-    // Response scrubbing puts back the placeholders for the secrets THIS rule
-    // sent: the items it injects, plus a transform's credentials (consumed ones
-    // never travel raw, but a scheme may put a derived form on the wire, added
-    // below). Those are the only values the upstream was given, so they are the
-    // only ones it can legitimately reflect.
+    // Response scrubbing covers EVERY sensitive value the proxy holds, not just
+    // the ones this rule sends. The child is never supposed to hold ANY managed
+    // secret, so learning one from an unrelated upstream (a service that logged
+    // it, a shared credential echoed back) is exactly as damaging as learning it
+    // from the route it belongs to. Which rule owns it is irrelevant to the harm.
     //
-    // Scoping matters because scrubbing is plain substring replacement with no
-    // token boundary: scanning for every secret the proxy holds would let a
-    // short value configured for another route ("ok") rewrite ordinary text
-    // here. A secret from another route showing up in this response is not
-    // something we can distinguish from coincidence anyway, and the benign cases
-    // (a shared value, a common word) far outnumber the sketchy ones.
+    // The cost is that scrubbing is substring replacement with no token
+    // boundary, so a pathologically short credential would rewrite ordinary text
+    // in unrelated responses. That is the right way to be wrong: over-scrubbing
+    // corrupts a payload, which is visible and debuggable, while under-scrubbing
+    // silently hands the child a live secret. Managed items are only ever items
+    // a @proxy rule references, so this pool is credentials, not arbitrary env
+    // values, and a two-character one is not a real configuration.
     //
+    // Placeholders appearing in a response are left alone: they are inert, and
+    // an agent quoting its own placeholder back is ordinary behavior.
+    //
+    // A scheme may add derived forms the runtime cannot compute (see below).
     // Non-sensitive items are excluded: replacing an ordinary value like a
     // username would corrupt the payload for no benefit.
-    const scrubKeys = new Set([
-      ...hostItems.map((item) => item.key),
-      ...(activeTransform ? [
-        ...transformItemKeys(activeTransform, transformSchemes, 'consumed'),
-        ...transformItemKeys(activeTransform, transformSchemes, 'wire'),
-      ] : []),
-    ]);
     const responseScrubItems: Array<ProxyManagedItem> = managedItems.filter(
-      (item) => scrubKeys.has(item.key) && item.isSensitive !== false,
+      (item) => item.isSensitive !== false,
     );
 
     const upstreamHeaders = transformHeaders(
