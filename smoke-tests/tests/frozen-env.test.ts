@@ -31,6 +31,7 @@ const ISOLATED_KEYS = [
   'PUBLIC_VAR',
   'SECRET_TOKEN',
   'COERCED_FLAG',
+  'UNSET_IN_SEAL',
 ];
 
 function runApp(opts: { cwd?: string, env?: Record<string, string | undefined> } = {}) {
@@ -164,6 +165,45 @@ describe('booting from a frozen env file', () => {
       } finally {
         fs.writeFileSync(brokenFile, original);
       }
+    });
+  });
+
+  // The seal is authoritative: it wins over env supplied at boot, and process.env is kept
+  // in agreement with ENV. This is the opposite of a build-baked snapshot, which sets
+  // `injectedAtBuild` so runtime env survives (see PR #1055) - baking is implicit and never
+  // asked for a seal, freezing is opt-in and its whole promise is a validated unit.
+  // These pin the behavior so a later change can't quietly give freeze the baked semantics.
+  describe('the seal is total', () => {
+    test('a value defined in the seal wins over an ambient one', () => {
+      const result = runApp({
+        env: { _VARLOCK_ENV_KEY: encryptionKey, PUBLIC_VAR: 'from-operator' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('PUBLIC_VAR=public-value-prod');
+      // process.env agrees with ENV rather than keeping the operator's value
+      expect(result.output).toContain('SEALED_SET_env="public-value-prod"');
+    });
+
+    test('a key that resolved to nothing clears an ambient value', () => {
+      const result = runApp({
+        env: { _VARLOCK_ENV_KEY: encryptionKey, UNSET_IN_SEAL: 'from-operator' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('SEALED_UNSET_env=undefined');
+      expect(result.output).toContain('SEALED_UNSET_ENV=undefined');
+    });
+
+    // the control: without a seal, the same ambient value acts as an override and is
+    // resolved + validated normally. This is what shows the clearing above is specific to
+    // sealed payloads rather than general varlock behavior.
+    test('control: without a seal the same ambient value is honored as an override', () => {
+      const result = runApp({
+        cwd: SCENARIO_DIR,
+        env: { _VARLOCK_USE_FROZEN_ENV: '0', APP_ENV: 'production', UNSET_IN_SEAL: 'from-operator' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('SEALED_UNSET_env="from-operator"');
+      expect(result.output).toContain('SEALED_UNSET_ENV="from-operator"');
     });
   });
 
