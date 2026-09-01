@@ -49,24 +49,60 @@ public struct InvocationNote: Equatable {
     /// The lines the panel draws under the varlock hop, in order.
     ///
     /// Always visible. This is not detail for whoever opens the chain; it is the
-    /// answer to "what is this request", and the `$` is what says a person typed
-    /// it.
-    public var lines: [String] {
+    /// answer to "what is this request".
+    ///
+    /// Each line is split into the words around it and the COMMAND itself,
+    /// because the panel draws the command as a command: a tinted strip, a dimmed
+    /// `$`, a monospaced face. It used to be small grey text like every other
+    /// note on the panel, which made the one line a person could recognise as
+    /// something they typed read as prose.
+    public var commandLines: [InvocationLine] {
         switch kind {
         case .typed(let command):
-            var lines = ["$ \(command)"]
+            var lines = [InvocationLine(sigil: "$", command: command)]
             if let target {
                 // The values do not stop at varlock: this command starts another
                 // one and hands them over. That process is in no chain, because
                 // it does not exist yet.
-                lines.append("\u{21B3} \(target) receives these values")
+                lines.append(InvocationLine(
+                    sigil: "\u{21B3}",
+                    command: target,
+                    suffix: "receives these values"
+                ))
             }
             return lines
         case .hosted(let host):
-            return ["auto-loaded inside \(host)"]
+            return [InvocationLine(prefix: "auto-loaded inside", command: host)]
         case .unknown:
             return []
         }
+    }
+
+    /// The same lines as plain text, for a log or a test.
+    public var lines: [String] { commandLines.map(\.text) }
+}
+
+/// One line naming a command, split so the command can be drawn as one.
+public struct InvocationLine: Equatable {
+    /// The dimmed mark before the command: `$` for something a person typed,
+    /// `\u{21B3}` for the command the values are being handed on to.
+    public let sigil: String?
+    /// Words before the command that are ours rather than the shell's.
+    public let prefix: String?
+    /// The command line itself, read from the kernel's copy of argv.
+    public let command: String
+    /// Words after it.
+    public let suffix: String?
+
+    public init(sigil: String? = nil, prefix: String? = nil, command: String, suffix: String? = nil) {
+        self.sigil = sigil
+        self.prefix = prefix
+        self.command = command
+        self.suffix = suffix
+    }
+
+    public var text: String {
+        return [sigil, prefix, command, suffix].compactMap { $0 }.joined(separator: " ")
     }
 }
 

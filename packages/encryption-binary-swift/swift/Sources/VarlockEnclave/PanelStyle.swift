@@ -35,6 +35,16 @@ enum PanelStyle {
     static let chainRail = color(0x38_38_3E)
     static let chainDot = color(0x4A_4A_52)
 
+    /// The strip a command line is drawn on, so `$ varlock load` reads as
+    /// something typed at a prompt rather than as one more grey note.
+    static let commandStrip = color(0x1B_1B_1F)
+    static let commandStripBorder = color(0x35_35_3B)
+    /// The command itself: brighter than the prose around it, because it is the
+    /// one line on the panel a person can match against what they typed.
+    static let commandInk = color(0xC8_C8_D0)
+    /// The `$`. Present, and quiet enough not to be read as part of the command.
+    static let commandSigil = color(0x5F_5F_68)
+
     static let accent = color(0xFF_5D_73)
     /// The agent session's colour, used for its hop and for the rail beneath it.
     static let sessionDot = color(0xB4_8C_E8)

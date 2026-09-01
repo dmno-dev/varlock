@@ -786,6 +786,8 @@ final class ApprovalPanel: NSObject {
             chain: content.requester.chain ?? .empty,
             fallbackSummary: content.requester.summary,
             invocation: invocation,
+            sessionAdvisories: content.sessionAdvisories,
+            reportedVarlockVersion: content.reportedVarlockVersion,
             startExpanded: expandChain
         ) { [weak self] in self?.relayout() }
         chain.translatesAutoresizingMaskIntoConstraints = false

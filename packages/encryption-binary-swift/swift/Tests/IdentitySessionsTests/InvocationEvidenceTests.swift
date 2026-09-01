@@ -22,6 +22,31 @@ final class InvocationEvidenceTests: XCTestCase {
         )
     }
 
+    func testEveryLineKeepsTheCommandApartFromOurWordsAboutIt() {
+        // The panel draws the command as a command (a tinted strip, a dimmed
+        // sigil, a monospaced face), so the split comes from here rather than
+        // from the view picking a finished sentence apart again.
+        let typed = InvocationEvidence.note(
+            chain: chain([varlockHop(invocation: "varlock run -- npm run build", runTarget: "npm run build")]),
+            claimed: .cli
+        ).commandLines
+        XCTAssertEqual(typed.map(\.command), ["varlock run -- npm run build", "npm run build"])
+        XCTAssertEqual(typed.map(\.sigil), ["$", "\u{21B3}"])
+        XCTAssertEqual(typed.map(\.suffix), [nil, "receives these values"])
+
+        let hosted = InvocationEvidence.note(
+            chain: chain([
+                ExecutionHop(pid: 300, name: "next", invocation: "next dev"),
+                varlockHop(invocation: "varlock load"),
+            ]),
+            claimed: .autoLoad
+        ).commandLines
+        // The host's command is a command too, and gets the same treatment.
+        XCTAssertEqual(hosted.map(\.command), ["next dev"])
+        XCTAssertEqual(hosted.map(\.prefix), ["auto-loaded inside"])
+        XCTAssertNil(hosted.first?.sigil)
+    }
+
     func testATypedCommandIsShownAsOne() {
         let note = InvocationEvidence.note(
             chain: chain([
