@@ -70,7 +70,15 @@ Default behavior for all items can be set using the [`@defaultSensitive` root de
 
 Sensitivity may also be implied by the item's [data type](/reference/data-types). For example, plugin "secret-zero" credential types (like a [1Password `opServiceAccountToken`](/plugins/1password/)) are sensitive by default, so you don't need to add `@sensitive` explicitly (use `@public` or `@sensitive=false` to override). An explicit `@sensitive` on the item always wins.
 
-Redaction replaces a sensitive value wherever it appears, and it can't tell a leaked secret from ordinary text that happens to match. Varlock therefore warns when a sensitive value is short enough to collide with normal content (under 12 characters), because redacting it will also rewrite legitimate text in logs and proxied responses. Set `@sensitive=false` when the value isn't really a secret, like an org slug or an account name. Some secrets are short by nature (a one-time code, a PIN) and can't be lengthened; acknowledge the collision risk with `@sensitive={allowShortValue=true}` to silence the warning without changing how the value is redacted.
+Redaction replaces a sensitive value wherever it appears, and it can't tell a leaked secret from ordinary text that happens to match. Varlock therefore checks that a value marked sensitive can actually be protected that way:
+
+- Under 12 characters: a warning. The value is short enough to collide with normal content, so redacting it will also rewrite legitimate text in logs and proxied responses. Set `@sensitive=false` when it isn't really a secret, like an org slug or an account name. Some secrets are short by nature (a one-time code, a PIN) and can't be lengthened; acknowledge the collision risk with `@sensitive={allowShortValue=true}` to silence the warning without changing how the value is redacted.
+- Under 4 characters: an error, since there is no output in which redacting a value that short is harmless. `@sensitive={allowShortValue=true}` still opts in.
+- A boolean value: an error. Redacting it rewrites every `true`/`false` in logs and proxied response bodies, and a boolean is never a secret worth that cost.
+- The [`@currentEnv`](/reference/root-decorators/#currentenv) item: an error. The current env name drives conditional imports and `forEnv()`, and is echoed by most tools in the stack.
+- A value that appears inside a non-sensitive item's value: an error on the non-sensitive item. It carries the secret into logs, generated types, and client bundles, where none of the sensitive item's protections apply. Mark that item `@sensitive` too, or build it from a reference so the secret part stays separate.
+
+Composite values (arrays, objects) are measured per element, since each element is registered for redaction on its own. The first three errors only apply to an explicit per-item `@sensitive`; `@defaultSensitive=true` sweeps in every item in the file, so items that are sensitive only by default get the warning instead.
 
 📖 See the [secrets management guide](/guides/secrets/) for best practices on handling sensitive values, and how to use plugins to fetch them from secret management platforms.
 
@@ -85,6 +93,7 @@ SERVICE_X_CLIENT_ID=
 
 - `enabled` (`boolean`, default `true`): whether the item is sensitive. Lets you keep options while toggling sensitivity, including dynamically via a function (e.g. `enabled=forEnv(production)`). `@sensitive={enabled=false}` is equivalent to `@sensitive=false`.
 - `preventLeaks` (`boolean`, default `true`): when `false`, this item's value is excluded from [leak detection](/reference/root-decorators/#preventleaks), so it will _not_ trigger an error if it appears in a response. Useful when an endpoint legitimately returns a secret to another system. The value is still redacted in logs.
+- `allowShortValue` (`boolean`, default `false`): when `true`, silences the short-value warning and error described above, for secrets that are legitimately short and can't be lengthened (a one-time code, a PIN). Redaction is unchanged; this only records that the collision risk was read and accepted.
 
 ```env-spec
 # @sensitive={preventLeaks=false}

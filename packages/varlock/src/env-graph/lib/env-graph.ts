@@ -12,7 +12,7 @@ import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
-import { ResolutionError, SchemaError } from './errors';
+import { ResolutionError, SchemaError, ValidationError } from './errors';
 import {
   builtInCodeGenerators, collectTypeGenItems, resolveFieldTypes,
   type CodeGeneratorDef, type ResolvedFieldType,
@@ -39,6 +39,7 @@ import {
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
+import { SHORT_SENSITIVE_VALUE_LENGTH, sensitiveValueStrings } from '../../lib/sensitive-value';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -772,7 +773,59 @@ export class EnvGraph {
         resolveItem(itemKey);
       }
     });
-    return deferred;
+    await deferred;
+    this.checkForSensitiveValuesInsideNonSensitiveOnes();
+  }
+
+  /**
+   * A sensitive value that also appears inside a non-sensitive one is not actually
+   * secret: the public item carries it into logs, generated types, and client bundles,
+   * where none of the protections for the sensitive item apply. It also breaks redaction
+   * in the other direction, since masking the secret rewrites part of the public value
+   * everywhere that one legitimately appears.
+   *
+   * Reported on the *public* item, since marking it sensitive (or removing the embedded
+   * secret) is the fix.
+   *
+   * Only values at least SHORT_SENSITIVE_VALUE_LENGTH long are matched. Below that a
+   * substring hit is as likely to be coincidence as a leak (a sensitive `prod` inside a
+   * public `https://prod.example.com`), and those values already carry their own
+   * short-value warning or error saying they cannot be redacted safely - so nothing is
+   * silently dropped by ignoring them here.
+   */
+  private checkForSensitiveValuesInsideNonSensitiveOnes() {
+    const sensitiveStrings: Array<{ key: string, str: string }> = [];
+    for (const itemKey in this.configSchema) {
+      const item = this.configSchema[itemKey];
+      if (!item.isSensitive) continue;
+      for (const str of sensitiveValueStrings(item.resolvedValue)) {
+        if (str.length >= SHORT_SENSITIVE_VALUE_LENGTH) sensitiveStrings.push({ key: itemKey, str });
+      }
+    }
+    if (!sensitiveStrings.length) return;
+
+    for (const itemKey in this.configSchema) {
+      const item = this.configSchema[itemKey];
+      if (item.isSensitive) continue;
+      const publicStrings = sensitiveValueStrings(item.resolvedValue);
+      if (!publicStrings.length) continue;
+      for (const sensitiveKey of _.uniq(
+        sensitiveStrings
+          .filter(({ key, str }) => key !== itemKey && publicStrings.some((p) => p.includes(str)))
+          .map(({ key }) => key),
+      )) {
+        const message = `Value contains the sensitive value of ${sensitiveKey}`;
+        // resolveEnvValues may run more than once (e.g. filtered resolution then a full
+        // pass), and items are only reset on an explicit reset - so do not re-add
+        if (item.validationErrors?.some((e) => e.message === message)) continue;
+        item.validationErrors = [
+          ...(item.validationErrors ?? []),
+          new ValidationError(message, {
+            tip: `This item is not sensitive, so its value is exposed in logs, generated types, and client bundles - which exposes ${sensitiveKey} along with it.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`,
+          }),
+        ];
+      }
+    }
   }
 
   async resolveItemWithDeps(key: string): Promise<void> {

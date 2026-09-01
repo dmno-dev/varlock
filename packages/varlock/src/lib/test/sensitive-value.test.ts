@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../../env-graph';
 import { getItemSummary } from '../formatting';
-import { isShortSensitiveValue, redactSensitiveDisplayValue } from '../sensitive-value';
+import { redactSensitiveDisplayValue, sensitiveValueStrings, shortestSensitiveValueLength } from '../sensitive-value';
 
 describe('redactSensitiveDisplayValue', () => {
   // redactString only handles strings, so callers that guarded on isString
@@ -19,13 +19,21 @@ describe('redactSensitiveDisplayValue', () => {
   });
 });
 
-describe('isShortSensitiveValue', () => {
+describe('shortestSensitiveValueLength', () => {
   test('measures the value as text, whatever its type', () => {
-    expect(isShortSensitiveValue('acmeco')).toBe(true);
-    expect(isShortSensitiveValue(987654)).toBe(true);
-    expect(isShortSensitiveValue('sk-live-9f2b71c4a8de')).toBe(false);
-    expect(isShortSensitiveValue('')).toBe(false);
-    expect(isShortSensitiveValue(undefined)).toBe(false);
+    expect(shortestSensitiveValueLength('acmeco')).toBe(6);
+    expect(shortestSensitiveValueLength(987654)).toBe(6);
+    expect(shortestSensitiveValueLength('sk-live-9f2b71c4a8de')).toBe(20);
+    expect(shortestSensitiveValueLength('')).toBeUndefined();
+    expect(shortestSensitiveValueLength(undefined)).toBeUndefined();
+  });
+
+  // redaction registers each element of a composite separately, so a long joined form
+  // says nothing about whether one of its elements will collide with ordinary text
+  test('measures composite values per element, not as a joined string', () => {
+    expect(sensitiveValueStrings(['averylongsecretvalue', 'x'])).toEqual(['averylongsecretvalue', 'x']);
+    expect(shortestSensitiveValueLength(['averylongsecretvalue', 'x'])).toBe(1);
+    expect(shortestSensitiveValueLength({ a: 'averylongsecretvalue', b: 'xy' })).toBe(2);
   });
 });
 
@@ -54,5 +62,28 @@ describe('getItemSummary redaction', () => {
     expect(getItemSummary(g.configSchema.STRING_SECRET)).not.toContain('987654');
     // a non-sensitive value is still shown in full
     expect(getItemSummary(g.configSchema.PUBLIC_PORT)).toContain('8080');
+  });
+
+  // the "< coerced from ..." suffix prints the same secret in its pre-coercion form,
+  // so masking only the coerced value still leaks it
+  test('the pre-coercion raw value is masked too', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false
+        # ---
+        # @sensitive @type=array(string)
+        LIST_SECRET=aaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbb
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+
+    const item = g.configSchema.LIST_SECRET;
+    expect(item.isCoerced).toBe(true);
+    const summary = getItemSummary(item);
+    expect(summary).toContain('coerced from');
+    expect(summary).not.toContain('aaaaaaaaaaaaaaaaaaaa');
+    expect(summary).not.toContain('bbbbbbbbbbbbbbbbbb');
   });
 });

@@ -1,4 +1,6 @@
-import { isShortSensitiveValue } from '../../lib/sensitive-value';
+import {
+  MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, shortestSensitiveValueLength,
+} from '../../lib/sensitive-value';
 import _ from '@env-spec/utils/my-dash';
 import {
   ParsedEnvSpecDecorator, ParsedEnvSpecArrayLiteral, ParsedEnvSpecObjectLiteral,
@@ -606,10 +608,45 @@ export class ConfigItem {
   get allowShortValue(): boolean {
     return this._allowShortValue;
   }
+  /**
+   * Kinds of item that can never be meaningfully sensitive, rejected at schema time
+   * rather than left to the value-length warning.
+   *
+   * Only fires on an _explicit_ `@sensitive` - `@defaultSensitive=true` (the default)
+   * sweeps in every item in the file, and erroring on something the author never wrote
+   * would be hostile. The implicit cases still surface via the short-value check.
+   */
+  private checkExplicitSensitiveIsPlausible() {
+    if (!this._sensitiveExplicitlySet || !this._isSensitive) return;
+
+    // a boolean only ever redacts as "true"/"false", which appear in essentially every
+    // log line and JSON body - the redaction does far more damage than the value is worth
+    if (this.dataType?.coercedType === 'boolean') {
+      this._schemaErrors.push(new SchemaError(
+        '@sensitive cannot be used on a boolean value',
+        {
+          tip: 'Redacting a boolean rewrites every "true"/"false" in logs and proxied responses.\nIf this really is a secret, give it a string type (`@type=string`) or quote the value.\nOtherwise mark it `@sensitive=false`.',
+        },
+      ));
+    }
+
+    // the env flag drives @import(enabled=...) / forEnv() and is echoed by nearly every
+    // tool in the stack - it is a mode name ("dev", "production"), never a secret
+    if (this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
+      this._schemaErrors.push(new SchemaError(
+        '@sensitive cannot be used on the @currentEnv item',
+        {
+          tip: 'The current env name is not a secret, and redacting it rewrites the env name everywhere it appears.\nMark it `@sensitive=false` (or `@public`).',
+        },
+      ));
+    }
+  }
+
   private async processSensitive() {
     // Resolve the normal sensitivity signals first (so @sensitive/@public schema
     // validation still runs), then force sensitivity for @proxy-managed items below.
     await this.resolveSensitiveSource();
+    this.checkExplicitSensitiveIsPlausible();
 
     // @proxy-managed items are always sensitive: the proxied child only ever sees a
     // placeholder while the real value is injected at the wire, so force sensitivity
@@ -1052,11 +1089,36 @@ export class ConfigItem {
       }
       this.isValidated = true;
 
-      // Advisory, not a failure: a sensitive value short enough to also occur as
-      // ordinary text gets rewritten everywhere redaction runs (console output,
-      // proxied response bodies), because substring replacement cannot tell a
-      // leaked secret from prose that matches it.
-      if (this.isSensitive && !this.allowShortValue && isShortSensitiveValue(this.resolvedValue)) {
+      // A sensitive value short enough to also occur as ordinary text gets rewritten
+      // everywhere redaction runs (console output, proxied response bodies), because
+      // substring replacement cannot tell a leaked secret from prose that matches it.
+      // Composite values are measured per element, since that is how redaction registers
+      // them - a long array with a one-character element is still a one-character match.
+      const shortestLength = (
+        this.isSensitive && !this.allowShortValue
+        // an item already rejected for a different reason (including "this can never be
+        // sensitive" above) does not need length advice piled on top
+        && !this._schemaErrors.some((e) => !e.isWarning)
+      ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
+      if (
+        shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH
+        // only hold an _explicit_ `@sensitive` to this. `@defaultSensitive=true` (the
+        // default) sweeps in every item in the file, and failing the load over a short
+        // value the author never called sensitive would be hostile - those still warn.
+        && this._sensitiveExplicitlySet
+      ) {
+        // hard error: there is no output in which redacting a value this short is harmless
+        this.validationErrors = [
+          ...(this.validationErrors ?? []),
+          new ValidationError(
+            `Sensitive value is only ${shortestLength} character${shortestLength === 1 ? '' : 's'} long - too short to redact safely`,
+            {
+              tip: 'Redaction replaces the value wherever it appears, so a value this short would rewrite ordinary text throughout logs and proxied response bodies.\nMark as `@sensitive=false` if it is not really a secret, or add `@sensitive={allowShortValue=true}` to accept the risk.',
+            },
+          ),
+        ];
+      } else if (shortestLength !== undefined && shortestLength < SHORT_SENSITIVE_VALUE_LENGTH) {
+        // advisory, not a failure - plenty of real secrets are short by nature
         this.validationErrors = [
           ...(this.validationErrors ?? []),
           new ValidationError(

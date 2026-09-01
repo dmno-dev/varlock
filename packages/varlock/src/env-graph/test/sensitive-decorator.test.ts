@@ -7,6 +7,14 @@ import { envFilesTest } from './helpers/generic-test';
 import { EnvGraph, DotEnvFileDataSource, SchemaError } from '../index';
 import { createEnvGraphDataType } from '../lib/data-types';
 
+async function loadSchema(contents: string) {
+  const g = new EnvGraph();
+  await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: contents }));
+  await g.finishLoad();
+  await g.resolveEnvValues();
+  return g;
+}
+
 describe('@sensitive and @defaultSensitive tests', () => {
   test('no @defaultSensitive set - sensitive by default, can override', envFilesTest({
     envFile: outdent`
@@ -499,4 +507,100 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     envFile: 'FOO=val   # @sensitive={allowShortValue="yes"}',
     expectValues: { FOO: SchemaError },
   }));
+
+  test('a value too short to redact safely is an error, not a warning', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @sensitive
+      TINY=abc
+
+      # acknowledged - a value this short can still be opted into
+      # @sensitive={allowShortValue=true}
+      TINY_OK=abc
+
+      # only an *explicit* @sensitive is held to this - @defaultSensitive sweeps in
+      # every item in the file, so implicit sensitivity only ever warns
+      IMPLICIT_TINY=abc
+    `);
+    expect(g.configSchema.TINY.validationState).toBe('error');
+    expect(g.configSchema.TINY.errors.map((e) => e.message)).toEqual([expect.stringContaining('only 3 characters long')]);
+    expect(g.configSchema.TINY_OK.validationState).toBe('valid');
+    expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('warn');
+  });
+
+  test('composite values are measured per element, like redaction registers them', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # the joined form is long, but "x" registers for redaction on its own
+      # @sensitive @type=array(string)
+      ARR=averylongsecretvaluehere,x
+    `);
+    expect(g.configSchema.ARR.validationState).toBe('error');
+    expect(g.configSchema.ARR.errors[0].message).toContain('only 1 character long');
+  });
+
+  test('@sensitive on a boolean is an error', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @sensitive @type=boolean
+      DECLARED=true
+
+      # the type is inferred here, but redaction is just as destructive
+      # @sensitive
+      INFERRED=false
+
+      # implicit sensitivity is not an error - the author never called it a secret
+      IMPLICIT=true
+    `);
+    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on a boolean value']);
+    expect(g.configSchema.INFERRED.validationState).toBe('error');
+    expect(g.configSchema.IMPLICIT.validationState).not.toBe('error');
+  });
+
+  test('@sensitive on the @currentEnv item is an error', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # @currentEnv=$APP_ENV
+      # ---
+      # @sensitive
+      APP_ENV=development
+    `);
+    expect(g.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on the @currentEnv item']);
+  });
+
+  test('a non-sensitive value containing a sensitive one is an error', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @sensitive
+      DB_PASSWORD=sup3rs3cretp4ssw0rd
+
+      # @public
+      DATABASE_URL=postgres://user:sup3rs3cretp4ssw0rd@host/db
+
+      # @public
+      UNRELATED=https://example.com
+    `);
+    expect(g.configSchema.DATABASE_URL.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of DB_PASSWORD']);
+    // the secret itself is fine, and unrelated public items are untouched
+    expect(g.configSchema.DB_PASSWORD.validationState).toBe('valid');
+    expect(g.configSchema.UNRELATED.validationState).toBe('valid');
+  });
+
+  test('short sensitive values are not matched against public ones', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # short enough that a substring hit is as likely coincidence as a leak
+      # @sensitive={allowShortValue=true}
+      MODE=prod
+
+      # @public
+      API_URL=https://prod.example.com
+    `);
+    expect(g.configSchema.API_URL.validationState).toBe('valid');
+  });
 });
