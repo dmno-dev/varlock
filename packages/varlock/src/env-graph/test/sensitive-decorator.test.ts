@@ -512,156 +512,91 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
   // the floor follows the same explicit/implicit split as everything else, so nothing
   // inherited from @defaultSensitive can fail a load - but it cannot be acknowledged
   // either way, since at this length the collision is a certainty rather than a risk
-  test('a value too short to redact safely cannot be acknowledged', async () => {
+  test('a value too short to redact safely fails, and cannot be acknowledged', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
       # @sensitive
       TINY=ab
-
-      # allowShortValue acknowledges a collision risk, and there is nothing to acknowledge
-      # here - no output survives redacting two characters
+      # allowShortValue acknowledges a collision risk - at two characters it is a certainty
       # @sensitive={allowShortValue=true}
       TINY_ACKED=ab
-
-      # sensitive only via @defaultSensitive - warns rather than fails, like every other rule
+      # inherited from @defaultSensitive: registered for redaction all the same
       IMPLICIT_TINY=ab
-
       # @sensitive=false
       NOT_SENSITIVE=ab
 
-      # at the floor: warns, and the ack does apply to the warning
+      # at the floor: a warning, which the ack does silence
       # @sensitive
       AT_FLOOR=abc
       # @sensitive={allowShortValue=true}
       AT_FLOOR_ACKED=abc
     `);
-    expect(g.configSchema.TINY.validationState).toBe('error');
-    expect(g.configSchema.TINY.errors.map((e) => e.message)).toEqual([expect.stringContaining('only 2 characters long')]);
-    expect(g.configSchema.TINY_ACKED.validationState).toBe('error');
-    expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('warn');
+    for (const key of ['TINY', 'TINY_ACKED', 'IMPLICIT_TINY']) {
+      expect(g.configSchema[key].validationState, key).toBe('error');
+      expect(g.configSchema[key].errors.map((e) => e.message)).toEqual([expect.stringContaining('only 2 characters long')]);
+    }
     expect(g.configSchema.NOT_SENSITIVE.validationState).toBe('valid');
-
     expect(g.configSchema.AT_FLOOR.validationState).toBe('warn');
     expect(g.configSchema.AT_FLOOR_ACKED.validationState).toBe('valid');
   });
 
-  test('composite values are measured per element, like redaction registers them', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      # the joined form is long, but "x" registers for redaction on its own
-      # @sensitive @type=array(string)
-      ARR=averylongsecretvaluehere,x
-    `);
-    expect(g.configSchema.ARR.validationState).toBe('error');
-    expect(g.configSchema.ARR.errors[0].message).toContain('only 1 character long');
-  });
-
-  test('a boolean carries no secret, so sensitivity is rejected or warned', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      # @sensitive @type=boolean
-      DECLARED=true
-
-      # same when the type is only inferred from the value
-      # @sensitive
-      INFERRED=false
-
-      # swept in by @defaultSensitive, so nothing was written to reject
-      IMPLICIT=true
-    `);
-    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a boolean value cannot be sensitive']);
-    expect(g.configSchema.INFERRED.validationState).toBe('error');
-
-    expect(g.configSchema.IMPLICIT.validationState).toBe('warn');
-    expect(g.configSchema.IMPLICIT.errors.map((e) => e.message)).toEqual(['sensitive, but a boolean carries no secret to protect']);
-  });
-
-  // demoting a boolean to non-sensitive would also make it @static, so a value read at
-  // runtime would start being inlined into a build with nothing announcing the change.
-  // Until that lands in a breaking release, sensitivity (and therefore dynamic) is untouched.
-  test('rejecting a boolean does not quietly change its static/dynamic behavior', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      IMPLICIT=true
-    `);
-    const item = g.configSchema.IMPLICIT;
-    expect(item.isSensitive).toBe(true);
-    expect(item.isDynamic).toBe(true);
-    // type generation computes sensitivity separately, and must not diverge either
-    const typeGenInfo = await item.getTypeGenInfo();
-    expect(typeGenInfo.isSensitive).toBe(item.isSensitive);
-    expect(typeGenInfo.isDynamic).toBe(item.isDynamic);
-  });
-
-  test('an explicitly sensitive number is an error, pointing at a string instead', async () => {
+  // a number or boolean is never in the redaction map, so it cannot be sensitive however
+  // it got that way - and nothing here demotes it, so @dynamic (and codegen) are untouched
+  test('a sensitive number or boolean fails, whether marked or inherited', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
       # @sensitive @type=number
-      DECLARED=987654321
-
-      # the type is inferred here, and the value is damaged the same way
-      # @sensitive
-      INFERRED=987654321
-
+      DECLARED_NUM=987654321
+      INHERITED_NUM=987654321
+      # @sensitive @type=boolean
+      DECLARED_BOOL=true
+      INHERITED_BOOL=false
       # quoting keeps it a string, which is the fix the error points to
       # @sensitive
       QUOTED="00987654321987"
+      # @sensitive=false
+      PUBLIC_PORT=8080
     `);
-    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a number value cannot be sensitive']);
-    expect(g.configSchema.INFERRED.validationState).toBe('error');
+    expect(g.configSchema.DECLARED_NUM.errors.map((e) => e.message)).toEqual(['a number cannot be sensitive']);
+    expect(g.configSchema.INHERITED_NUM.validationState).toBe('error');
+    expect(g.configSchema.DECLARED_BOOL.errors.map((e) => e.message)).toEqual(['a boolean cannot be sensitive']);
+    expect(g.configSchema.INHERITED_BOOL.validationState).toBe('error');
     expect(g.configSchema.QUOTED.validationState).toBe('valid');
+    expect(g.configSchema.PUBLIC_PORT.validationState).toBe('valid');
+
+    const bool = g.configSchema.INHERITED_BOOL;
+    expect(bool.isSensitive).toBe(true);
+    expect(bool.isDynamic).toBe(true);
+    const typeGenInfo = await bool.getTypeGenInfo();
+    expect(typeGenInfo.isSensitive).toBe(bool.isSensitive);
   });
 
-  // a hand-written schema defaults to sensitive, so every port and timeout in the file
-  // lands here - failing those is a bad trade for a case that is usually not a secret
-  test('a number swept in by @defaultSensitive warns instead of failing', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      PORT=3000
-    `);
-    const item = g.configSchema.PORT;
-    expect(item.validationState).toBe('warn');
-    expect(item.errors.map((e) => e.message)).toEqual(['sensitive, but a number is never redacted']);
-    // still sensitive, so still @dynamic - the value is never inlined into a build
-    expect(item.isSensitive).toBe(true);
-    expect(item.isDynamic).toBe(true);
-    // and the length rules stay quiet, since they are about redaction that never happens
-    expect(item.errors.length).toBe(1);
-  });
-
-  // a composite hides its leaves from the scalar type rules: array(number) has a composite
-  // coercedType while every element is a number, and redaction only registers string leaves
-  test('a sensitive composite with non-string elements is rejected', async () => {
+  // a composite is checked per element, since that is how redaction registers it
+  test('a sensitive composite must be made of strings', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
       # @sensitive @type=array(number)
       NUM_LIST=[111111,222222]
-
+      INHERITED_NUMS=[111111,222222]
       # @sensitive @type=record(number)
       NUM_REC={low=111111}
-
       # @sensitive @type=array(string)
       STR_LIST=[averylongsecretvalue,anotherlongsecretval]
-
-      # not explicitly sensitive, so it warns rather than failing
-      IMPLICIT_NUMS=[111111,222222]
+      # the joined form is long, but "x" registers on its own
+      # @sensitive @type=array(string)
+      SHORT_ELEMENT=[averylongsecretvalue,x]
     `);
-    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['sensitive value has elements that are not strings, which are not redacted on their own']);
+    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['sensitive value has elements that are not strings, which cannot be redacted']);
+    expect(g.configSchema.INHERITED_NUMS.validationState).toBe('error');
     expect(g.configSchema.NUM_REC.validationState).toBe('error');
     expect(g.configSchema.STR_LIST.validationState).toBe('valid');
-
-    expect(g.configSchema.IMPLICIT_NUMS.validationState).toBe('warn');
-    expect(g.configSchema.IMPLICIT_NUMS.errors.map((e) => e.message)).toEqual(['sensitive, but elements that are not strings are not redacted on their own']);
+    expect(g.configSchema.SHORT_ELEMENT.errors[0].message).toContain('only 1 character long');
   });
 
-  test('the @currentEnv item is rejected or warned, like the type rules', async () => {
+  test('the @currentEnv item cannot be sensitive', async () => {
     const explicit = await loadSchema(outdent`
       # @defaultRequired=false
       # @currentEnv=$APP_ENV
@@ -669,20 +604,15 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # @sensitive
       APP_ENV=development
     `);
-    expect(explicit.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on the @currentEnv item']);
+    expect(explicit.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['the @currentEnv item cannot be sensitive']);
 
-    // swept in by @defaultSensitive, which is what most schemas with a @currentEnv have -
-    // failing those would be a bigger break than it is worth, but the env name really is
-    // being redacted everywhere, so staying silent is not right either
-    const implicit = await loadSchema(outdent`
+    const inherited = await loadSchema(outdent`
       # @defaultRequired=false
       # @currentEnv=$APP_ENV
       # ---
       APP_ENV=development
     `);
-    // exactly one message: the specific one replaces the generic short-value warning
-    expect(implicit.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['sensitive, but the @currentEnv item is not a secret']);
-    expect(implicit.configSchema.APP_ENV.validationState).toBe('warn');
+    expect(inherited.configSchema.APP_ENV.validationState).toBe('error');
 
     const optedOut = await loadSchema(outdent`
       # @defaultRequired=false
@@ -694,92 +624,51 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(optedOut.configSchema.APP_ENV.validationState).toBe('valid');
   });
 
-  // a warning for now: this is the only rule that depends on how two resolved values
-  // relate, so as a hard failure it could pass locally and fail in CI. Error in a
-  // breaking release.
-  test('a non-sensitive value containing a sensitive one warns', async () => {
+  test('a non-sensitive value containing a sensitive one fails', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
       # @sensitive
       DB_PASSWORD=sup3rs3cretp4ssw0rd
-
       # @public
       DATABASE_URL=postgres://user:sup3rs3cretp4ssw0rd@host/db
 
-      # @public
-      UNRELATED=https://example.com
-    `);
-    expect(g.configSchema.DATABASE_URL.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of DB_PASSWORD']);
-    expect(g.configSchema.DATABASE_URL.validationState).toBe('warn');
-    // the secret itself is fine, and unrelated public items are untouched
-    expect(g.configSchema.DB_PASSWORD.validationState).toBe('valid');
-    expect(g.configSchema.UNRELATED.validationState).toBe('valid');
-  });
-
-  // a short sensitive value inside a public one is more collision than leak, but that
-  // collision is confirmed rather than hypothetical - redaction really will rewrite the
-  // public value - so it warns even though `allowShortValue` silenced the generic warning
-  // redaction only registers string leaves, so a sensitive number is not in the map and
-  // cannot collide with anything - it carries its own diagnostic instead
-  test('a sensitive number inside a public value is not reported as a collision', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      SERVICE_PORT=3000
-
-      # @public
-      SERVICE_URL=https://api.example.com:3000/v1
-    `);
-    expect(g.configSchema.SERVICE_URL.validationState).toBe('valid');
-    expect(g.configSchema.SERVICE_PORT.errors.map((e) => e.message)).toEqual(['sensitive, but a number is never redacted']);
-  });
-
-  // runtime registers a composite's serialized form as well as its string leaves, so an
-  // array(number) with nothing redactable per element still rewrites its joined form
-  test('the serialized form of a sensitive composite inside a public value is a collision', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      # @type=array(number)
-      PORTS=[3000,3001]
-
-      # @public
-      PORT_RANGE=3000,3001
-    `);
-    expect(g.configSchema.PORT_RANGE.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of PORTS']);
-  });
-
-  // the public side is injected as its serialized string too, so that form has to be
-  // searched - not just its leaves, which for array(number) are never in the map
-  test('a public composite whose serialized form matches a sensitive one is a collision', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      # @type=array(number)
-      PORTS=[3000,3001]
-
-      # @public @type=array(number)
-      PUBLIC_PORTS=[3000,3001]
-    `);
-    expect(g.configSchema.PUBLIC_PORTS.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of PORTS']);
-  });
-
-  test('a short sensitive value inside a public one is flagged too', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
+      # short and acknowledged, but the collision here is confirmed, not hypothetical
       # @sensitive={allowShortValue=true}
       DEPLOY_TIER=prod
-
       # @public
       API_URL=https://prod.example.com
 
       # @public
       UNRELATED=https://example.com
     `);
-    expect(g.configSchema.API_URL.validationState).toBe('warn');
+    expect(g.configSchema.DATABASE_URL.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of DB_PASSWORD']);
     expect(g.configSchema.API_URL.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of DEPLOY_TIER']);
+    expect(g.configSchema.DB_PASSWORD.validationState).toBe('valid');
     expect(g.configSchema.UNRELATED.validationState).toBe('valid');
   });
+
+  // containment matches what runtime actually registers: string leaves plus a composite's
+  // serialized form, on both sides - and never a bare number, which is not in the map
+  test('containment follows what redaction registers', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # @defaultSensitive=false
+      # ---
+      # @sensitive @type=array(string)
+      HOSTS=[secret-host-one.internal,secret-host-two.internal]
+      PUBLIC_HOSTS=[secret-host-one.internal,secret-host-two.internal]
+
+      # a sensitive number is its own error, not a collision candidate
+      SERVICE_PORT=3000
+      SERVICE_URL=https://api.example.com:3000/v1
+    `);
+    expect(g.configSchema.PUBLIC_HOSTS.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of HOSTS']);
+    expect(g.configSchema.SERVICE_URL.validationState).toBe('valid');
+  });
+
+  test('allowShortValue must be a boolean', envFilesTest({
+    envFile: 'FOO=val   # @sensitive={allowShortValue="yes"}',
+    expectValues: { FOO: SchemaError },
+  }));
 });

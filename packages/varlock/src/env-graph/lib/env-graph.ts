@@ -39,7 +39,7 @@ import {
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
-import { MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, collectLeaves } from '../../lib/sensitive-value';
+import { MIN_SENSITIVE_VALUE_LENGTH, collectLeaves } from '../../lib/sensitive-value';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -787,41 +787,30 @@ export class EnvGraph {
   }
 
   /**
-   * A sensitive value that also appears inside a non-sensitive one, reported on the
-   * public item since marking it sensitive is usually the fix.
+   * A sensitive value that also appears inside a non-sensitive one is not secret: the
+   * public item carries it into logs, generated types and client bundles, and redacting
+   * it rewrites the public value everywhere that one legitimately appears. Reported on
+   * the public item, since marking it sensitive is the fix.
    *
-   * Two problems, and the length of the match picks which advice to give. A long value is
-   * a real secret being carried into logs, generated types and client bundles, where none
-   * of the sensitive item's protections apply. A short one is more likely a collision
-   * than a leak, but that collision is what makes redaction rewrite the public value
-   * everywhere it legitimately appears - and unlike the generic short-value warning, it
-   * is confirmed rather than hypothetical, so it is worth saying even where
-   * `allowShortValue` silenced that.
-   *
-   * A warning for now, an error in a breaking release: this is the only rule that depends
-   * on how two resolved values relate, so as a hard failure it could pass locally and
-   * fail in CI.
-   *
-   * Only what redaction actually registers is matched: string leaves, plus a composite's
-   * serialized form. So an inherited-sensitive scalar `PORT=3000` inside a public URL is
-   * not a collision (a bare number is never in the map, and already carries its own
-   * diagnostic), but a sensitive `PORTS=[3000,3001]` inside a public `3000,3001` is.
-   * Values below MIN_SENSITIVE_VALUE_LENGTH are skipped, since they already fail on
-   * their own.
+   * Matches exactly what runtime redaction registers on the sensitive side (string
+   * leaves plus a composite's serialized form) against every string form a public item
+   * can emit. Values below MIN_SENSITIVE_VALUE_LENGTH already fail on their own.
    */
   private checkForSensitiveValuesInsideNonSensitiveOnes() {
+    const stringForms = (item: ConfigItem, includeUnredactable: boolean) => {
+      const { redactable, unredactable } = collectLeaves(item.resolvedValue);
+      const forms = includeUnredactable ? [...redactable, ...unredactable] : redactable;
+      if (typeof item.resolvedValue === 'object' && item.resolvedValue !== null && item.resolvedEnvStringValue) {
+        forms.push(item.resolvedEnvStringValue);
+      }
+      return forms;
+    };
+
     const sensitiveStrings: Array<{ key: string, str: string }> = [];
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       if (!item.isSensitive) continue;
-      // mirrors what resetRedactionMap registers: every string leaf, plus the serialized
-      // form of a composite - so an array(number) with no redactable leaves still has its
-      // joined "3000,3001" in the map
-      const candidates = collectLeaves(item.resolvedValue).redactable;
-      if (typeof item.resolvedValue === 'object' && item.resolvedValue !== null && item.resolvedEnvStringValue) {
-        candidates.push(item.resolvedEnvStringValue);
-      }
-      for (const str of candidates) {
+      for (const str of stringForms(item, false)) {
         if (str.length >= MIN_SENSITIVE_VALUE_LENGTH) sensitiveStrings.push({ key: itemKey, str });
       }
     }
@@ -830,24 +819,12 @@ export class EnvGraph {
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       if (item.isSensitive) continue;
-      // every leaf on this side, since a secret can be embedded in the text of any of them,
-      // plus a composite's serialized form - that string is what actually gets injected
-      // and printed, so it is what redaction would rewrite
-      const { redactable, unredactable } = collectLeaves(item.resolvedValue);
-      const publicStrings = [...redactable, ...unredactable];
-      if (typeof item.resolvedValue === 'object' && item.resolvedValue !== null && item.resolvedEnvStringValue) {
-        publicStrings.push(item.resolvedEnvStringValue);
-      }
+      const publicStrings = stringForms(item, true);
       if (!publicStrings.length) continue;
-      const matches = sensitiveStrings.filter(
-        ({ key, str }) => key !== itemKey && publicStrings.some((pub) => pub.includes(str)),
-      );
-      for (const sensitiveKey of _.uniq(matches.map(({ key }) => key))) {
-        // a long match is a secret genuinely carried into public output; a short one is a
-        // confirmed redaction collision. Same severity for now, different advice.
-        const isRealSecret = matches.some(
-          ({ key, str }) => key === sensitiveKey && str.length >= SHORT_SENSITIVE_VALUE_LENGTH,
-        );
+      const matchedKeys = _.uniq(sensitiveStrings
+        .filter(({ key, str }) => key !== itemKey && publicStrings.some((pub) => pub.includes(str)))
+        .map(({ key }) => key));
+      for (const sensitiveKey of matchedKeys) {
         const message = `Value contains the sensitive value of ${sensitiveKey}`;
         // resolveEnvValues may run more than once (e.g. filtered resolution then a full
         // pass), and items are only reset on an explicit reset - so do not re-add
@@ -855,10 +832,7 @@ export class EnvGraph {
         item.validationErrors = [
           ...(item.validationErrors ?? []),
           new ValidationError(message, {
-            severity: 'warning',
-            tip: isRealSecret
-              ? `This item is not sensitive, so its value is exposed in logs, generated types, and client bundles - which exposes ${sensitiveKey} along with it.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`
-              : `Redacting ${sensitiveKey} will rewrite this value everywhere it appears in logs and proxied responses.\nMark ${sensitiveKey} \`@sensitive=false\` if it is not really a secret, or build this value from a reference so the two do not overlap.`,
+            tip: `This item is not sensitive, so its value is exposed in logs, generated types and client bundles - and redacting ${sensitiveKey} rewrites it everywhere it appears.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`,
           }),
         ];
       }
