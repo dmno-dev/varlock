@@ -296,19 +296,25 @@ final class IdentitySessionManager {
 
         let context: LAContext
         let policy: UnlockPolicy
+        // The scan (or password) the user already gave. Reusing that exact context
+        // is the single-scan promise: a fresh one here would raise a second prompt.
+        let probeKeyId = keysToOpen.first
+        let usableProof = presenceProof.flatMap { proof in
+            proofOpensKey(proof, keyId: probeKeyId, wrap: probeKeyId.flatMap { identity.wraps[$0] })
+                ? proof
+                : nil
+        }
         if let silentContext {
             context = silentContext
             policy = .none
-        } else if let presenceProof {
-            // The scan the user already gave. Reusing that exact context is the
-            // single-scan promise: a fresh one here would raise a second prompt.
-            context = presenceProof.context
-            policy = presenceProof.policy
+        } else if let usableProof {
+            context = usableProof.context
+            policy = usableProof.policy
         } else {
-            // Nothing has asked yet. Only reachable when a gated key got past the
-            // panel with no presence check attached, which the flow does not do
-            // today; keeping the blocking path means that can never silently
-            // become an unlock nobody authenticated.
+            // Nothing has asked yet, or what the panel came back with turned out
+            // not to satisfy this key's gate. Asking again costs the user a second
+            // prompt, which is better than failing an unlock they already answered.
+            presenceProof?.context.invalidate()
             (context, policy) = try authenticate(reason: UnlockPanelContent.presenceReason(
                 forKeyIds: keysToOpen,
                 display: requestContext.display
@@ -615,6 +621,27 @@ final class IdentitySessionManager {
         return nil
     }
 
+    /// Whether the context the panel came back with can really open the key.
+    ///
+    /// A biometric proof is taken as read: that handoff is what
+    /// `probe-embedded-unlock` proves on real hardware, and probing it again
+    /// would cost every unlock an extra enclave round trip. The password path
+    /// pre-authorizes through an access control instead of a policy, so it is
+    /// asked once, silently (the proof context refuses interaction by now), and a
+    /// credential the enclave will not take costs the user another prompt rather
+    /// than costing them the unlock.
+    private func proofOpensKey(_ proof: PresenceProof, keyId: String?, wrap: String?) -> Bool {
+        guard proof.policy != .biometrics else { return true }
+        guard let keyId, let wrap, let wrapData = Data(base64Encoded: wrap) else { return true }
+        guard var probed = try? SecureEnclaveManager.decrypt(
+            payload: wrapData,
+            keyId: keyId,
+            context: proof.context
+        ) else { return false }
+        scrub(&probed)
+        return true
+    }
+
     /// Do the first-use Touch ID setup, on its own, before any panel exists.
     ///
     /// macOS raises its own sheet the moment a policy is evaluated, and on first
@@ -707,31 +734,70 @@ final class IdentitySessionManager {
     /// The same instance serves a retry: the view stays bound to this context, so
     /// re-evaluating it keeps the prompt where the user is already looking.
     final class PresenceAttempt {
+        /// What this attempt asks the system for.
+        ///
+        /// A policy is the usual one. An access control is how the password path
+        /// gets a password field instead of a fingerprint: see `passwordFallback`.
+        enum Check {
+            case policy(LAPolicy)
+            case accessControl(SecAccessControl)
+        }
+
         let context: LAContext
         let mode: ApprovalPresenceMode
-        private let policy: LAPolicy
+        private let check: Check
         private let resolvedPolicy: UnlockPolicy
 
-        init(context: LAContext, mode: ApprovalPresenceMode, policy: LAPolicy, resolvedPolicy: UnlockPolicy) {
+        convenience init(
+            context: LAContext,
+            mode: ApprovalPresenceMode,
+            policy: LAPolicy,
+            resolvedPolicy: UnlockPolicy
+        ) {
+            self.init(context: context, mode: mode, check: .policy(policy), resolvedPolicy: resolvedPolicy)
+        }
+
+        init(context: LAContext, mode: ApprovalPresenceMode, check: Check, resolvedPolicy: UnlockPolicy) {
             self.context = context
             self.mode = mode
-            self.policy = policy
+            self.check = check
             self.resolvedPolicy = resolvedPolicy
         }
 
-        /// The same approval, checked the other way.
+        /// The same approval, checked the other way: a password, asked for as a
+        /// password.
         ///
         /// A sensor that will not read a particular finger is common, and the way
-        /// out has to stay inside the one approval: this is a second attempt on
-        /// the device-password policy, for the panel to run instead. Returns nil
-        /// when this machine cannot check a password either, and the caller keeps
-        /// what it had.
+        /// out has to stay inside the one approval. It also has to be the way out
+        /// it says it is, and `evaluatePolicy(.deviceOwnerAuthentication)` is not:
+        /// on a Mac with an enrolled sensor that policy draws the Touch ID sheet
+        /// first and hides the password behind its "Use Password..." button, so a
+        /// user who has just said "not my finger" is asked for their finger again.
+        /// Apple documents that ordering, and there is no policy that skips it.
+        ///
+        /// `evaluateAccessControl` does skip it. An access control constrained to
+        /// `.devicePasscode` cannot be satisfied by biometry, so the system goes
+        /// straight to the password field. The context that comes back is
+        /// authenticated for device-owner presence, which is what the custody
+        /// key's own `.userPresence` gate accepts.
+        ///
+        /// Falls back to the policy (and its sheet) on a machine that will not
+        /// build that access control, and returns nil when there is no password
+        /// check to be had at all, where the caller keeps what it had.
         func passwordFallback() -> PresenceAttempt? {
             let context = LAContext()
             var error: NSError?
             guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
                 context.invalidate()
                 return nil
+            }
+            if let passcodeOnly = Self.devicePasscodeAccessControl() {
+                return PresenceAttempt(
+                    context: context,
+                    mode: .systemDialog,
+                    check: .accessControl(passcodeOnly),
+                    resolvedPolicy: .deviceOwner
+                )
             }
             return PresenceAttempt(
                 context: context,
@@ -741,13 +807,32 @@ final class IdentitySessionManager {
             )
         }
 
+        /// "The device password, and only that", as an access control to evaluate.
+        ///
+        /// The protection class matches the one the custody key is created under,
+        /// so the two are asking about the same thing. `.privateKeyUsage` is
+        /// deliberately not included: LocalAuthentication refuses to evaluate an
+        /// access control carrying it ("Operation is not allowed"), and it says
+        /// nothing about which credential is wanted, which is all this is for.
+        static func devicePasscodeAccessControl() -> SecAccessControl? {
+            var error: Unmanaged<CFError>?
+            let control = SecAccessControlCreateWithFlags(
+                nil,
+                kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                .devicePasscode,
+                &error
+            )
+            error?.release()
+            return control
+        }
+
         /// Run the check. `completion` lands on the main queue.
         ///
         /// No timeout here on purpose: the prompt has the system's own, and the
         /// panel bounds the whole interaction, so a second one would only give the
         /// two a way to disagree.
         func evaluate(reason: String, completion: @escaping (Result<PresenceProof, Error>) -> Void) {
-            context.evaluatePolicy(policy, localizedReason: reason) { [context, resolvedPolicy] success, error in
+            let finish = { [context, resolvedPolicy] (success: Bool, error: Error?) in
                 // Not `DispatchQueue.main.async`: the panel is drawn from inside a
                 // main-queue work item, so a block posted to that queue would wait
                 // for the panel to close before delivering the panel's own answer.
@@ -763,6 +848,21 @@ final class IdentitySessionManager {
                     // instead of showing a second dialog.
                     context.interactionNotAllowed = true
                     completion(.success(PresenceProof(context: context, policy: resolvedPolicy)))
+                }
+            }
+
+            switch check {
+            case .policy(let policy):
+                context.evaluatePolicy(policy, localizedReason: reason) { success, error in
+                    finish(success, error)
+                }
+            case .accessControl(let accessControl):
+                context.evaluateAccessControl(
+                    accessControl,
+                    operation: .useKeyDecrypt,
+                    localizedReason: reason
+                ) { success, error in
+                    finish(success, error)
                 }
             }
         }

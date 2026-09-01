@@ -279,8 +279,15 @@ The panel shows, top to bottom:
 - the **execution chain**: the line of processes leading to the caller, read off
   the peer. The hop that decides what runs is emphasised (a script rather than the
   interpreter running it), the app that was launched sits at the top with its icon
-  and the controlling terminal, and shells and varlock itself are drawn small and
-  fold into "N more steps" on a long chain. Opening that shows each hop's path,
+  and the tty it hosts ("iTerm2 · ttys004"), and shells fold into "N more steps"
+  on a long chain. A plain shell is never the emphasised one while there is
+  anything else to point at: `zsh` is how a command was typed, not what is
+  running, and one bold row has to mean one actor. Where the chain is nothing but
+  shells (a command typed straight into a terminal), varlock's own hop is the
+  emphasised one, and the command line under it is the thing the user recognises.
+  Without a launcher at the top (tmux, or a walk that ran out of depth) the tty
+  label goes to the topmost hop that really is on that tty, rather than to
+  whatever process happened to come first. Opening that shows each hop's path,
   the word for its code-signing posture, and the command line varlock itself was
   invoked with, read from the kernel's own copy of its argv rather than from
   anything the client sent. What a mark means is said under the hop it belongs to
@@ -316,17 +323,30 @@ The panel shows, top to bottom:
   control used to shift by a few points every time the user changed their mind.
 - the **actions**: Deny, red with a stop mark, and the approve control beside it.
   On a machine that can scan, that control IS the sensor: the system's own Touch
-  ID view sits in it with "Approve with Touch ID" beside it, touching the sensor
-  approves, and clicking anywhere else in the control approves too. It is drawn
-  as a blue outline rather than the mock's solid blue fill, and that is not a
-  taste decision: `render-bisect.ts` measured every arrangement, and any paint of
-  ours behind the sensor blanks it (a layer fill and a `draw(_:)` fill both go to
-  4 distinct greys), while an outline never crosses the sensor's own rectangle
-  and leaves it drawing at 51. Machines with no usable sensor get the plain blue
-  button, which is also what the panel switches to for the password path. On a machine with no usable sensor the approve button is the password
-  path itself and there is no link offering it separately; where there is a
-  sensor, "Use password..." moves this same approval onto the device-password
-  check.
+  ID view, at the `small` control size (which is the 32pt one it actually draws,
+  rather than a 128pt one squeezed), with "Approve with Touch ID" beside it.
+  Touching the sensor approves, and clicking the words approves too. Nothing is
+  drawn behind it, and that is not a taste decision: `render-bisect.ts` measured
+  every arrangement, and any paint of ours behind the sensor blanks it (a layer
+  fill and a `draw(_:)` fill both go to 4 distinct greys), so the mock's solid
+  blue bar is not available at all, and the outline that stood in for it read as
+  neither a button nor a scan. Machines with no usable sensor get the plain blue
+  button, which is also what the panel switches to for the password path. On a
+  machine with no usable sensor the approve button is the password path itself
+  and there is no link offering it separately.
+- **the password path is a password.** Where there is a sensor, "Use password..."
+  moves this same approval onto the device-password check, and puts a password
+  field on screen with no fingerprint step in front of it. That takes a detour.
+  `evaluatePolicy(.deviceOwnerAuthentication)` is the only policy that accepts a
+  password, and on a Mac with an enrolled sensor Apple documents it as drawing
+  the Touch ID sheet first, with the password behind that sheet's "Use
+  Password..." button: a finger asked of someone who has just said "not my
+  finger". No policy skips it. `evaluateAccessControl` does: an access control
+  constrained to `.devicePasscode` cannot be satisfied by biometry, so the system
+  goes straight to the field (measured on macOS 26.1). The context it hands back
+  is authenticated for device-owner presence, which is what the custody key's
+  `.userPresence` gate accepts; if a machine ever disagrees, the unlock asks
+  again through the policy rather than failing on a password the user did give.
 
 Reading the chain is best effort and bounded by a deadline
 (`ExecutionChainBuilder`): a process that exits mid-walk, a signature that cannot

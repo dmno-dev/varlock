@@ -552,9 +552,15 @@ final class ApprovalPanel: NSObject {
     private func failureHint() -> String {
         guard flow.failedScans > 0 else { return "" }
         let button = scanButton?.isHidden == false ? "Approve with Touch ID" : (confirmButton?.title ?? "Approve")
+        // Once the approval has moved onto the password there is no scan to talk
+        // about, and a hint about Touch ID would be describing a control that is
+        // no longer on the panel.
+        let onPassword = flow.presenceMode != .embedded
         switch lastFailure {
         case .cancelled:
-            return "Touch ID canceled. Click \(button) to scan again, or Deny to refuse."
+            return onPassword
+                ? "Password canceled. Click \(button) to try again, or Deny to refuse."
+                : "Touch ID canceled. Click \(button) to scan again, or Deny to refuse."
         case .wantsPassword:
             return "Click \(button) to enter your password, or Deny to refuse."
         case .failed:
@@ -584,9 +590,11 @@ final class ApprovalPanel: NSObject {
     /// The way out for a finger the sensor will not read.
     ///
     /// Not a second panel and not a second question: the same approval, checked
-    /// the other way. The biometric attempt is dropped first so the machine is
-    /// never listening on two contexts at once, and the callback from the one we
-    /// walked away from is ignored by generation.
+    /// the other way. One click gets a password field, with no fingerprint asked
+    /// for on the way there; how that is arranged is `passwordFallback`'s note.
+    /// The biometric attempt is dropped first so the machine is never listening
+    /// on two contexts at once, and the callback from the one we walked away from
+    /// is ignored by generation.
     @objc private func usePasswordPressed(_ sender: Any) {
         // A click on the link is an invitation, so this one does present.
         switchToPassword(present: true)
