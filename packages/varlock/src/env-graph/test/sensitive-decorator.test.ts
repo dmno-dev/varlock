@@ -572,7 +572,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.IMPLICIT.validationState).toBe('valid');
   });
 
-  test('a sensitive number is an error, pointing at a string instead', async () => {
+  test('an explicitly sensitive number is an error, pointing at a string instead', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
@@ -590,6 +590,24 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a number value cannot be sensitive']);
     expect(g.configSchema.INFERRED.validationState).toBe('error');
     expect(g.configSchema.QUOTED.validationState).toBe('valid');
+  });
+
+  // a hand-written schema defaults to sensitive, so every port and timeout in the file
+  // lands here - failing those is a bad trade for a case that is usually not a secret
+  test('a number swept in by @defaultSensitive warns instead of failing', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      PORT=3000
+    `);
+    const item = g.configSchema.PORT;
+    expect(item.validationState).toBe('warn');
+    expect(item.errors.map((e) => e.message)).toEqual(['sensitive, but a number is never redacted']);
+    // still sensitive, so still @dynamic - the value is never inlined into a build
+    expect(item.isSensitive).toBe(true);
+    expect(item.isDynamic).toBe(true);
+    // and the length rules stay quiet, since they are about redaction that never happens
+    expect(item.errors.length).toBe(1);
   });
 
   test('@sensitive on the @currentEnv item is an error', async () => {

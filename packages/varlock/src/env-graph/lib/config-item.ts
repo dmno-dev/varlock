@@ -640,21 +640,26 @@ export class ConfigItem {
       return;
     }
 
-    // a secret held as a number is already damaged before redaction gets a say: leading
-    // zeros are gone (an `007123` OTP resolves to 7123) and anything past 2^53 is silently
-    // rounded. Digits also collide with ordinary content far more readily than a token does.
+    // A number is a bad container for a secret: redaction only ever matches strings, so the
+    // value is never actually masked, and the number itself has already dropped leading
+    // zeros (an `007123` OTP resolves to 7123) and rounded anything past 2^53.
+    //
+    // How loudly to say so depends on who asked. An explicit `@sensitive` is a claim that
+    // this is a secret, and that claim is not being honored - that has to fail. But
+    // `@defaultSensitive=true` is also the default for a hand-written schema, where it
+    // sweeps in every port and timeout in the file; failing those is a bad trade for a
+    // case that is usually not a secret at all. Those warn and stay sensitive, which is no
+    // worse than before (still `@dynamic`, so still never inlined into a build) and now
+    // says out loud that redaction does not cover it.
     if (this.dataType?.coercedType === 'number' || this.dataType?.coercedType === 'int') {
-      this._schemaErrors.push(new SchemaError(
-        'a number value cannot be sensitive',
-        {
-          // the likely fix differs by how it got here: an explicit `@sensitive` means the
-          // author believes it is a secret, while `@defaultSensitive` sweeping in a port
-          // or a timeout usually just needs saying so
-          tip: this._sensitiveExplicitlySet
-            ? 'Make it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).'
-            : 'If it is not a secret, mark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.\nIf it really is a secret, make it a string instead: add `@type=string`, or quote the value.',
-        },
-      ));
+      this._schemaErrors.push(this._sensitiveExplicitlySet
+        ? new SchemaError('a number value cannot be sensitive', {
+          tip: 'Redaction only replaces strings, so a number is never actually masked.\nMake it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).',
+        })
+        : new SchemaError('sensitive, but a number is never redacted', {
+          isWarning: true,
+          tip: 'Redaction only replaces strings, so this value appears as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.\nIf it is, make it a string: add `@type=string`, or quote the value.',
+        }));
     }
 
     // the env flag drives @import(enabled=...) / forEnv() and is echoed by nearly every
@@ -1129,6 +1134,10 @@ export class ConfigItem {
         // an item already rejected for a different reason (including "this can never be
         // sensitive" above) does not need length advice piled on top
         && !this._schemaErrors.some((e) => !e.isWarning)
+        // these rules are about a redacted value colliding with ordinary text, which says
+        // nothing about a number - redaction never matches one in the first place, and
+        // that is already the more useful thing to tell them
+        && this.dataType?.coercedType !== 'number' && this.dataType?.coercedType !== 'int'
       ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
       if (shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH) {
         // hard error regardless of how the item became sensitive: whether it was marked
