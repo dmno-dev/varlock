@@ -653,12 +653,12 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # not explicitly sensitive, so it warns rather than failing
       IMPLICIT_NUMS=[111111,222222]
     `);
-    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['sensitive value has elements that are not strings, which are never redacted']);
+    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['sensitive value has elements that are not strings, which are not redacted on their own']);
     expect(g.configSchema.NUM_REC.validationState).toBe('error');
     expect(g.configSchema.STR_LIST.validationState).toBe('valid');
 
     expect(g.configSchema.IMPLICIT_NUMS.validationState).toBe('warn');
-    expect(g.configSchema.IMPLICIT_NUMS.errors.map((e) => e.message)).toEqual(['sensitive, but elements that are not strings are never redacted']);
+    expect(g.configSchema.IMPLICIT_NUMS.errors.map((e) => e.message)).toEqual(['sensitive, but elements that are not strings are not redacted on their own']);
   });
 
   test('the @currentEnv item is rejected or warned, like the type rules', async () => {
