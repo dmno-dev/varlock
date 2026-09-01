@@ -1,4 +1,5 @@
 import XCTest
+import SessionScoping
 @testable import IdentitySessions
 
 /// Where the panel opens, and why.
@@ -89,6 +90,23 @@ final class UnlockPreselectionTests: XCTestCase {
         XCTAssertEqual(answer.risk, .unusual)
         XCTAssertEqual(answer.breadth, .listedItems)
         XCTAssertEqual(answer.window.scope, .once)
+    }
+
+    /// The rules read a fact, not a line of copy. Rewording the advisory the
+    /// panel draws must never turn a risk rule off.
+    func testTheOutsideProjectSignalIsReadAsAFactRatherThanFromTheAdvisoryText() {
+        let session = AgentSession(
+            productName: "Claude Code",
+            title: nil,
+            startTime: nil,
+            kind: "interactive",
+            workingDirectory: "/code/somewhere-else"
+        )
+        XCTAssertTrue(UnlockPanelContent.isWorkingOutside(session: session, projectPath: "/code/acme"))
+        XCTAssertFalse(UnlockPanelContent.isWorkingOutside(session: session, projectPath: "/code/somewhere-else"))
+        // Neither half on its own is evidence of anything.
+        XCTAssertFalse(UnlockPanelContent.isWorkingOutside(session: session, projectPath: nil))
+        XCTAssertFalse(UnlockPanelContent.isWorkingOutside(session: AgentSession?.none, projectPath: "/code/acme"))
     }
 
     // MARK: - Nothing may widen

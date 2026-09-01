@@ -42,8 +42,12 @@ public struct UnlockRiskSignals: Equatable {
     /// purpose: that is how most installs run, so treating it as an anomaly
     /// would make the anomaly the norm and teach people to click past it.
     public var actorIsForeignScript: Bool
-    /// The kernel had nothing good to say about the actor: no valid signature,
-    /// or it would not answer at all.
+    /// The kernel was asked about the actor and reported no valid signature.
+    ///
+    /// Only that answer. A process the kernel would not discuss at all is left
+    /// out on purpose: "unchecked" is the absence of a verdict rather than a bad
+    /// one, and treating it as one would narrow half the panels on machines
+    /// where the status word is simply unreadable.
     public var actorCodeUnverified: Bool
     /// This project and key have been approved on this Mac before.
     public var seenBefore: Bool
@@ -75,10 +79,10 @@ public struct UnlockRiskSignals: Equatable {
         return UnlockRiskSignals(
             hasAgentSession: session != nil,
             nobodyWatching: session?.unattendedNote != nil,
-            sessionOutsideProject: !UnlockPanelContent.sessionAdvisories(
+            sessionOutsideProject: UnlockPanelContent.isWorkingOutside(
                 session: session,
                 projectPath: projectPath
-            ).filter { $0.hasPrefix("this session is working in") }.isEmpty,
+            ),
             actorIsForeignScript: actor.map { $0.posture == .interpretedScript && !$0.isVarlock } ?? false,
             actorCodeUnverified: actor.map { $0.posture == .unsigned } ?? false,
             seenBefore: seenBefore

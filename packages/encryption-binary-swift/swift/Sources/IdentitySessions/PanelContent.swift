@@ -917,11 +917,22 @@ public enum UnlockPanelContent {
         guard let session else { return [] }
         var advisories: [String] = []
         if let unattended = session.unattendedNote { advisories.append(unattended) }
-        if let cwd = session.workingDirectory, let projectPath,
-           !pathIsInside(cwd, of: projectPath) {
-            advisories.append("this session is working in \(abbreviated(cwd)), not in the project above")
+        if isWorkingOutside(session: session, projectPath: projectPath) {
+            advisories.append("this session is working in \(abbreviated(session.workingDirectory ?? "")), "
+                + "not in the project above")
         }
         return advisories
+    }
+
+    /// The second of those two, on its own.
+    ///
+    /// Split out because the preselection rules need the FACT and not the
+    /// sentence. Reading it back out of the advisory text would tie what varlock
+    /// preselects to how a line of copy happens to be worded, and the next
+    /// person to improve that wording would silently turn a risk rule off.
+    public static func isWorkingOutside(session: AgentSession?, projectPath: String?) -> Bool {
+        guard let cwd = session?.workingDirectory, let projectPath else { return false }
+        return !pathIsInside(cwd, of: projectPath)
     }
 
     /// Whether one path is the same directory as another or sits inside it.
