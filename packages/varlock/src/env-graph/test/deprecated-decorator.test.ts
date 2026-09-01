@@ -10,10 +10,10 @@ describe('@deprecated item decorator', () => {
       # @defaultRequired=false
       # ---
       # @deprecated
-      MY_VAR=a-value-long-enough
+      MY_VAR=hello
     `,
     expectValues: {
-      MY_VAR: 'a-value-long-enough',
+      MY_VAR: 'hello',
     },
   }));
 
@@ -22,10 +22,10 @@ describe('@deprecated item decorator', () => {
       # @defaultRequired=false
       # ---
       # @deprecated=true
-      MY_VAR=a-value-long-enough
+      MY_VAR=hello
     `,
     expectValues: {
-      MY_VAR: 'a-value-long-enough',
+      MY_VAR: 'hello',
     },
   }));
 
@@ -36,7 +36,7 @@ describe('@deprecated item decorator', () => {
         # @defaultRequired=false
         # ---
         # @deprecated="Use NEW_VAR instead"
-        MY_VAR=a-value-long-enough
+        MY_VAR=hello
       `,
     });
     await g.setRootDataSource(source);
@@ -44,7 +44,7 @@ describe('@deprecated item decorator', () => {
     await g.resolveEnvValues();
 
     const item = g.configSchema.MY_VAR;
-    expect(item.resolvedValue).toBe('a-value-long-enough');
+    expect(item.resolvedValue).toBe('hello');
     expect(item.isDeprecated).toBe(true);
     expect(item.deprecationMessage).toBe('Use NEW_VAR instead');
   });
@@ -56,7 +56,7 @@ describe('@deprecated item decorator', () => {
         # @defaultRequired=false
         # ---
         # @deprecated=false
-        MY_VAR=a-value-long-enough
+        MY_VAR=hello
       `,
     });
     await g.setRootDataSource(source);
@@ -64,7 +64,7 @@ describe('@deprecated item decorator', () => {
     await g.resolveEnvValues();
 
     const item = g.configSchema.MY_VAR;
-    expect(item.resolvedValue).toBe('a-value-long-enough');
+    expect(item.resolvedValue).toBe('hello');
     expect(item.isDeprecated).toBe(false);
     expect(item.errors.length).toBe(0);
   });
@@ -76,7 +76,7 @@ describe('@deprecated item decorator', () => {
         # @defaultRequired=false
         # ---
         # @deprecated
-        MY_VAR=a-value-long-enough
+        MY_VAR=hello
       `,
     });
     await g.setRootDataSource(source);
@@ -96,7 +96,7 @@ describe('@deprecated item decorator', () => {
         # @defaultRequired=false
         # ---
         # @deprecated="Use NEW_VAR instead"
-        MY_VAR=a-value-long-enough
+        MY_VAR=hello
         # @deprecated=false
         NOT_DEPRECATED=world
         ALSO_NOT_DEPRECATED=foo
@@ -119,7 +119,7 @@ describe('@deprecated item decorator', () => {
         # @defaultRequired=false
         # ---
         # @deprecated="Use NEW_VAR instead"
-        MY_VAR=a-value-long-enough
+        MY_VAR=hello
         NORMAL_VAR=world
       `,
     });

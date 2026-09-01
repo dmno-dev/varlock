@@ -26,11 +26,11 @@ describe('@internal item decorator', () => {
   it('marks an item internal and still resolves its value', async () => {
     const g = await loadSchema(outdent`
       # @internal @sensitive
-      OP_TOKEN=abc123-long-enough
+      OP_TOKEN=abc123
     `);
     const item = g.configSchema.OP_TOKEN;
     expect(item.isInternal).toBe(true);
-    expect(item.resolvedValue).toBe('abc123-long-enough');
+    expect(item.resolvedValue).toBe('abc123');
     expect(item.errors.length).toBe(0);
   });
 

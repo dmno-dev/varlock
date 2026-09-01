@@ -80,7 +80,7 @@ describe('@tag name validation', () => {
   });
 
   test('accepts letters, numbers, "_", and "-"', async () => {
-    const g = await loadSchema('ITEM=a-value-long-enough # @tag(billing, v2, my-app, my_app)');
+    const g = await loadSchema('ITEM=val # @tag(billing, v2, my-app, my_app)');
     expect(g.configSchema.ITEM.validationState).toBe('valid');
     expect(g.configSchema.ITEM.tags).toEqual(['billing', 'v2', 'my-app', 'my_app']);
   });

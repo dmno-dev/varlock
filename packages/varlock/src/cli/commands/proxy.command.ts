@@ -86,7 +86,6 @@ import {
 } from '../../proxy/sandbox';
 import { commandSpec } from './proxy.command-spec';
 import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../../proxy/types';
-import { isShortSensitiveValue } from '../../lib/sensitive-value';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
@@ -274,21 +273,6 @@ function getRunCommandArgs(): Array<string> {
 }
 
 
-/**
- * Proxied secrets short enough to also occur as ordinary text in a response.
- *
- * Response scrubbing is substring replacement with no token boundary, so a value
- * like an org slug or a short account id gets rewritten wherever it appears, not
- * just where the upstream echoed the credential back. That corrupts legitimate
- * content, and a string that common is not meaningfully protected by redacting
- * it anyway. Surfaced as a start-up warning so it reads as a config problem
- * rather than as a mangled payload to reverse-engineer later.
- */
-export function findShortSensitiveProxyItems(items: Array<ProxyManagedItem>): Array<string> {
-  return items
-    .filter((item) => item.isSensitive !== false && !item.allowShortValue && isShortSensitiveValue(item.realValue))
-    .map((item) => item.key);
-}
 
 /**
  * Load + resolve + validate the schema in the proxy owner's own (trusted)
@@ -335,17 +319,6 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
     );
   }
 
-  const shortSensitiveKeys = findShortSensitiveProxyItems(proxyManagedItems);
-  if (shortSensitiveKeys.length) {
-    console.error(
-      `⚠️  Short proxied secrets: ${shortSensitiveKeys.join(', ')}`,
-    );
-    console.error(
-      '   Real values are scrubbed out of responses from the routes they are sent to. A value short '
-        + 'enough to also appear as ordinary content (an org slug, an account id) gets rewritten wherever '
-        + 'it occurs, which can corrupt a response. Mark it `@sensitive=false` if it is not really a secret.',
-    );
-  }
 
   // Least privilege by default: every sensitive item the child sees is a
   // placeholder (managed/wire items plus the rest), unless explicitly opted out

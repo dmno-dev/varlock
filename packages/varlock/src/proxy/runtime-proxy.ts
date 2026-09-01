@@ -1574,9 +1574,9 @@ export async function startLocalProxyRuntime({
     // every secret the proxy holds would let a value configured for another
     // route rewrite ordinary text here. Containing it to the matched rules keeps
     // that blast radius to the route the value belongs to. (Within that route a
-    // low-entropy value can still collide with ordinary content, which is what
-    // the short-value warning at proxy start is for: a string common enough to
-    // appear in a payload is not meaningfully protected by redacting it.)
+    // low-entropy value can still collide with ordinary content: a string common
+    // enough to appear in a payload is not meaningfully protected by redacting
+    // it, and redacting it will rewrite legitimate text.)
     //
     // Reflected placeholders are left alone: they are inert, and an agent
     // quoting its own env back is ordinary behavior.

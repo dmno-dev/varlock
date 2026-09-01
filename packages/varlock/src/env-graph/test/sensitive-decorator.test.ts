@@ -463,40 +463,4 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     const messages = g.configSchema.FOO.errors.map((e) => e.message);
     expect(messages.some((m) => m.includes('@sensitive={preventLeaks=false}'))).toBe(true);
   });
-
-  test('a short sensitive value warns, and allowShortValue acknowledges it', async () => {
-    const g = new EnvGraph();
-    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
-      overrideContents: outdent`
-        # @defaultRequired=false
-        # ---
-        # @sensitive
-        SLUG=acmeco
-
-        # a one-time code is short by nature, so the warning has no remedy
-        # @sensitive={allowShortValue=true}
-        OTP=123456
-
-        # @sensitive
-        REAL_SECRET=sk-live-9f2b71c4a8de
-      `,
-    }));
-    await g.finishLoad();
-    await g.resolveEnvValues();
-
-    const warnings = (key: string) => g.configSchema[key].errors.filter((e) => e.isWarning).map((e) => e.message);
-    expect(warnings('SLUG')).toEqual([expect.stringContaining('only 6 characters')]);
-    expect(g.configSchema.SLUG.validationState).toBe('warn');
-    // acknowledged: no warning, and still sensitive (redaction is unaffected)
-    expect(warnings('OTP')).toEqual([]);
-    expect(g.configSchema.OTP.isSensitive).toBe(true);
-    expect(g.configSchema.OTP.validationState).toBe('valid');
-    // long enough that a collision is implausible
-    expect(warnings('REAL_SECRET')).toEqual([]);
-  });
-
-  test('allowShortValue must be a boolean', envFilesTest({
-    envFile: 'FOO=val   # @sensitive={allowShortValue="yes"}',
-    expectValues: { FOO: SchemaError },
-  }));
 });

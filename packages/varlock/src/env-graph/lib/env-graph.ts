@@ -999,7 +999,6 @@ export class EnvGraph {
           ? { envStr: item.resolvedEnvStringValue } : {},
         ...(overrideStr !== undefined) ? { overrideStr } : {},
         isSensitive: item.isSensitive,
-        ...(item.allowShortValue ? { allowShortValue: true } : {}),
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
