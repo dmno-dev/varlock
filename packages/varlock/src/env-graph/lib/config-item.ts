@@ -1060,10 +1060,10 @@ export class ConfigItem {
         this.validationErrors = [
           ...(this.validationErrors ?? []),
           new ValidationError(
-            `value is only ${String(this.resolvedValue).length} characters, short enough to also appear as ordinary text`,
+            'Value is very short! Is it actually sensitive?',
             {
               severity: 'warning',
-              tip: 'Redaction replaces this value wherever it occurs, so a short one can also rewrite ordinary text\nin logs and proxied responses. Mark it `@sensitive=false` if it is not actually a secret. Some\nsecrets are short by nature (an OTP, a PIN) and cannot be lengthened - for those, acknowledge\nthe collision risk with `@sensitive={allowShortValue=true}` to silence this.',
+              tip: 'Can cause issues with redaction and proxy response scrubbing if the value appears elsewhere.\nMark as `@sensitive=false`, or add `@sensitive={allowShortValue=true}` to hide this warning.',
             },
           ),
         ];

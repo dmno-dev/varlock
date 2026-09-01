@@ -485,7 +485,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     await g.resolveEnvValues();
 
     const warnings = (key: string) => g.configSchema[key].errors.filter((e) => e.isWarning).map((e) => e.message);
-    expect(warnings('SLUG')).toEqual([expect.stringContaining('only 6 characters')]);
+    expect(warnings('SLUG')).toEqual([expect.stringContaining('Value is very short')]);
     expect(g.configSchema.SLUG.validationState).toBe('warn');
     // acknowledged: no warning, and still sensitive (redaction is unaffected)
     expect(warnings('OTP')).toEqual([]);
