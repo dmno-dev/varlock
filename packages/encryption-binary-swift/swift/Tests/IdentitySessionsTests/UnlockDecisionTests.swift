@@ -1,5 +1,6 @@
 import XCTest
 @testable import IdentitySessions
+import SessionScoping
 
 /// What the daemon decides before it draws anything.
 ///
@@ -516,5 +517,120 @@ final class UnlockDecisionTests: XCTestCase {
     func testMissingDisplayIsEmpty() {
         XCTAssertTrue(UnlockDisplayInfo.from(payload: nil).isEmpty)
         XCTAssertTrue(UnlockDisplayInfo.from(payload: ["keyIds": ["dev"]]).isEmpty)
+    }
+}
+
+/// Cross-checking the agent session against the project being unlocked.
+///
+/// Two halves that arrive by different routes: the session comes off the kernel
+/// and the agent's own record of itself, the project comes off the client. Only
+/// together do they say anything, and what they say is an observation rather
+/// than an accusation, so these pin down when the panel stays quiet as hard as
+/// when it speaks.
+final class SessionAdvisoryTests: XCTestCase {
+    private func session(kind: String? = "interactive", cwd: String?) -> AgentSession {
+        return AgentSession(
+            productName: "Claude Code",
+            title: "a session",
+            startTime: nil,
+            kind: kind,
+            workingDirectory: cwd
+        )
+    }
+
+    func testAnAgentInsideTheProjectSaysNothing() {
+        XCTAssertTrue(UnlockPanelContent.sessionAdvisories(
+            session: session(cwd: "/Users/dev/projects/api/packages/core"),
+            projectPath: "/Users/dev/projects/api"
+        ).isEmpty)
+        // The project directory itself counts as inside it.
+        XCTAssertTrue(UnlockPanelContent.sessionAdvisories(
+            session: session(cwd: "/Users/dev/projects/api"),
+            projectPath: "/Users/dev/projects/api"
+        ).isEmpty)
+    }
+
+    func testAnAgentSomewhereElseIsSaidOutLoud() {
+        let advisories = UnlockPanelContent.sessionAdvisories(
+            session: session(cwd: "/Users/dev/projects/other"),
+            projectPath: "/Users/dev/projects/api"
+        )
+        XCTAssertEqual(advisories.count, 1)
+        XCTAssertTrue(advisories[0].contains("/Users/dev/projects/other"))
+    }
+
+    func testANeighbourWithASharedPrefixIsNotInsideAnything() {
+        // "/a/project-two" starts with "/a/project" and is a different directory.
+        XCTAssertEqual(
+            UnlockPanelContent.sessionAdvisories(
+                session: session(cwd: "/Users/dev/projects/api-two"),
+                projectPath: "/Users/dev/projects/api"
+            ).count,
+            1
+        )
+    }
+
+    func testThePrivatePrefixAndSymlinksAreNotAnAnomaly() {
+        // /tmp is a symlink to /private/tmp on macOS, and the two sides of this
+        // comparison reach the same directory by different routes. A panel that
+        // cried anomaly over that would be trained away inside a week.
+        XCTAssertTrue(UnlockPanelContent.pathIsInside("/private/tmp/work", of: "/tmp/work"))
+        XCTAssertTrue(UnlockPanelContent.pathIsInside("/tmp/work/inner", of: "/private/tmp/work"))
+        XCTAssertFalse(UnlockPanelContent.pathIsInside("/tmp/other", of: "/tmp/work"))
+    }
+
+    func testWithOnlyOneHalfNothingIsSaid() {
+        // The agent not saying where it is, is not evidence of anything.
+        XCTAssertTrue(UnlockPanelContent.sessionAdvisories(
+            session: session(cwd: nil),
+            projectPath: "/Users/dev/projects/api"
+        ).isEmpty)
+        XCTAssertTrue(UnlockPanelContent.sessionAdvisories(
+            session: session(cwd: "/Users/dev/projects/other"),
+            projectPath: nil
+        ).isEmpty)
+        XCTAssertTrue(UnlockPanelContent.sessionAdvisories(session: nil, projectPath: "/a").isEmpty)
+    }
+
+    func testBothProblemsAreSaidWhenBothAreTrue() {
+        let advisories = UnlockPanelContent.sessionAdvisories(
+            session: session(kind: "print", cwd: "/Users/dev/projects/other"),
+            projectPath: "/Users/dev/projects/api"
+        )
+        // Nobody watching comes first: it is the one that changes what "this
+        // session" means.
+        XCTAssertEqual(advisories.count, 2)
+        XCTAssertTrue(advisories[0].contains("no person is watching"))
+        XCTAssertTrue(advisories[1].contains("not in the project above"))
+    }
+
+    func testTheClientsVersionClaimIsCarriedAndLabelled() {
+        let content = UnlockPanelContent.build(
+            plan: UnlockPlanner.plan(
+                requested: [RequestedKey(keyId: "varlock-default")],
+                requestedScope: .session,
+                existing: [:]
+            ),
+            requester: PanelRequester(summary: "Requested by varlock"),
+            display: UnlockDisplayInfo(varlockVersion: "1.17.1-dev")
+        )
+        XCTAssertEqual(content.reportedVarlockVersion, "1.17.1-dev")
+    }
+
+    func testAVersionThatIsNotOneIsDropped() {
+        // Client-supplied, so it is checked for being a version at all rather
+        // than drawn because it arrived.
+        XCTAssertEqual(
+            UnlockDisplayInfo.from(payload: ["display": ["varlockVersion": "1.17.1-dev"]]).varlockVersion,
+            "1.17.1-dev"
+        )
+        XCTAssertNil(
+            UnlockDisplayInfo.from(payload: ["display": ["varlockVersion": "1.0 \u{1F600} and a sentence"]])
+                .varlockVersion
+        )
+        XCTAssertNil(
+            UnlockDisplayInfo.from(payload: ["display": ["varlockVersion": String(repeating: "9", count: 200)]])
+                .varlockVersion
+        )
     }
 }

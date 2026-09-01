@@ -28,12 +28,41 @@ public enum AgentProduct: String, Equatable, CaseIterable {
 public struct AgentSessionMetadata: Equatable {
     /// The session's own human name.
     public let title: String?
+    /// Whether the agent generated that name itself rather than the user typing
+    /// it. A derived name is still worth showing (it tells two sessions apart)
+    /// but it is not somebody's words, and the panel must not dress it as one.
+    public let isTitleDerived: Bool
     /// When the agent says the session began, in seconds since the epoch.
     public let startTime: Int?
+    /// What kind of session this is: "interactive" when a person is sitting in
+    /// front of it, something else when nobody is. nil when the agent did not
+    /// say, which is not the same as "nobody is watching" and is never drawn as
+    /// though it were.
+    public let kind: String?
+    /// The directory the session is working in. Cross-checked against the
+    /// project whose values are being unlocked, and shown as evidence.
+    public let workingDirectory: String?
+    /// How the agent was started ("claude-desktop", "cli"). Expanded detail only.
+    public let entrypoint: String?
+    /// The agent's own version. Expanded detail only.
+    public let version: String?
 
-    public init(title: String?, startTime: Int?) {
+    public init(
+        title: String?,
+        isTitleDerived: Bool = false,
+        startTime: Int?,
+        kind: String? = nil,
+        workingDirectory: String? = nil,
+        entrypoint: String? = nil,
+        version: String? = nil
+    ) {
         self.title = title
+        self.isTitleDerived = isTitleDerived
         self.startTime = startTime
+        self.kind = kind
+        self.workingDirectory = workingDirectory
+        self.entrypoint = entrypoint
+        self.version = version
     }
 }
 
@@ -104,7 +133,13 @@ public struct LiveAgentSessionMetadataReader: AgentSessionMetadataReader {
 
         return AgentSessionMetadata(
             title: Self.humanTitle(record["name"]),
-            startTime: startedAt
+            // Claude Code says so itself when it made the name up.
+            isTitleDerived: (record["nameSource"] as? String) == "derived",
+            startTime: startedAt,
+            kind: Self.shortField(record["kind"]),
+            workingDirectory: Self.shortField(record["cwd"], limit: Self.maxPathLength),
+            entrypoint: Self.shortField(record["entrypoint"]),
+            version: Self.shortField(record["version"])
         )
     }
 
@@ -121,11 +156,30 @@ public struct LiveAgentSessionMetadataReader: AgentSessionMetadataReader {
     ///
     /// Agents fall back to the session id when they have nothing better, and an
     /// id on the panel is noise a person cannot check anything against.
-    static func humanTitle(_ value: Any?) -> String? {
+    public static func humanTitle(_ value: Any?) -> String? {
         guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty, !looksLikeIdentifier(text) else { return nil }
         let flattened = text.components(separatedBy: .newlines).joined(separator: " ")
         return String(flattened.prefix(64))
+    }
+
+    /// How much of a path from this file the panel will ever draw.
+    public static let maxPathLength = 160
+    /// How much of any other field. These are short words ("interactive",
+    /// "2.1.234"); anything longer is not the field we are reading.
+    public static let maxFieldLength = 40
+
+    /// One small field from the record, trimmed, flattened, and capped.
+    ///
+    /// Everything here is written by the agent into a file any process running as
+    /// the user can edit, so it is bounded before it is ever drawn: a field is
+    /// display decoration, and no amount of it may push the panel's own lines off
+    /// the screen.
+    public static func shortField(_ value: Any?, limit: Int = maxFieldLength) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        let flattened = text.components(separatedBy: .newlines).joined(separator: " ")
+        return String(flattened.prefix(limit))
     }
 
     static func looksLikeIdentifier(_ text: String) -> Bool {

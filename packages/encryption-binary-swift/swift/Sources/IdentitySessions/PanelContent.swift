@@ -153,6 +153,14 @@ public struct PanelContent: Equatable {
     /// How the client says varlock came to be running, which changes how the
     /// chain words its command line.
     public let invocationMode: UnlockInvocationMode?
+    /// Amber lines drawn on the session-root row: what is unusual about the
+    /// session this request came from. Worked out where both halves are known,
+    /// which is here: the session comes off the kernel, the project comes off the
+    /// client, and neither side can answer on its own.
+    public let sessionAdvisories: [String]
+    /// Which build of varlock the client says it is, for the rows where the
+    /// daemon could not establish it. Always drawn as a claim.
+    public let reportedVarlockVersion: String?
     public let scopes: [SessionGrantScope]
     public let defaultScope: SessionGrantScope
     public let confirmButtonTitle: String
@@ -166,6 +174,8 @@ public struct PanelContent: Equatable {
         notes: [String] = [],
         factLine: String? = nil,
         invocationMode: UnlockInvocationMode? = nil,
+        sessionAdvisories: [String] = [],
+        reportedVarlockVersion: String? = nil,
         scopes: [SessionGrantScope],
         defaultScope: SessionGrantScope,
         confirmButtonTitle: String,
@@ -178,6 +188,8 @@ public struct PanelContent: Equatable {
         self.notes = notes
         self.factLine = factLine
         self.invocationMode = invocationMode
+        self.sessionAdvisories = sessionAdvisories
+        self.reportedVarlockVersion = reportedVarlockVersion
         self.scopes = scopes
         self.defaultScope = defaultScope
         self.confirmButtonTitle = confirmButtonTitle
@@ -380,24 +392,33 @@ public struct UnlockDisplayInfo: Equatable {
     public let keys: [String: UnlockKeyDisplay]
     /// How the client says varlock came to be running.
     public let invocationMode: UnlockInvocationMode?
+    /// Which build of varlock the client says it is.
+    ///
+    /// A claim, like everything else here, and drawn as one. It exists for the
+    /// compiled binary, which carries no package the daemon can read a version
+    /// out of; where varlock is running as JavaScript the daemon resolves the
+    /// package itself and that answer wins.
+    public let varlockVersion: String?
 
     public init(
         projectName: String? = nil,
         projectPath: String? = nil,
         itemCounts: [String: Int] = [:],
         keys: [String: UnlockKeyDisplay] = [:],
-        invocationMode: UnlockInvocationMode? = nil
+        invocationMode: UnlockInvocationMode? = nil,
+        varlockVersion: String? = nil
     ) {
         self.projectName = projectName
         self.projectPath = projectPath
         self.itemCounts = itemCounts
         self.keys = keys
         self.invocationMode = invocationMode
+        self.varlockVersion = varlockVersion
     }
 
     public var isEmpty: Bool {
         return projectName == nil && projectPath == nil && itemCounts.isEmpty && keys.isEmpty
-            && invocationMode == nil
+            && invocationMode == nil && varlockVersion == nil
     }
 
     /// How many values a key covers, from either form the client sent.
@@ -428,7 +449,8 @@ public struct UnlockDisplayInfo: Equatable {
             projectPath: trimmedNonEmpty(display["projectPath"]),
             itemCounts: counts,
             keys: keys,
-            invocationMode: UnlockInvocationMode(wireValue: display["invocationMode"] as? String)
+            invocationMode: UnlockInvocationMode(wireValue: display["invocationMode"] as? String),
+            varlockVersion: ExecutionChainBuilder.versionText(display["varlockVersion"])
         )
     }
 
@@ -482,6 +504,11 @@ public enum UnlockPanelContent {
             notes: notes(for: plan),
             factLine: factLine(plan: plan, lockOn: lockOn),
             invocationMode: display.invocationMode,
+            sessionAdvisories: sessionAdvisories(
+                session: requester.chain?.agentSession,
+                projectPath: display.projectPath
+            ),
+            reportedVarlockVersion: display.varlockVersion,
             scopes: plan.offeredScopes,
             defaultScope: plan.defaultScope,
             confirmButtonTitle: "Unlock"
@@ -549,6 +576,78 @@ public enum UnlockPanelContent {
         guard let path = display.projectPath else { return nil }
         let leaf = (path as NSString).lastPathComponent
         return "for \(leaf.isEmpty ? path : leaf)"
+    }
+
+    /// What is unusual about the agent session this request came from.
+    ///
+    /// Two things earn a line, and nothing else does:
+    ///
+    ///   - NOBODY IS WATCHING. A headless or print-mode agent has no person in
+    ///     front of it, and "approve for this session" then means approving for
+    ///     something that will keep going unobserved.
+    ///   - THE AGENT IS SOMEWHERE ELSE. An agent working in one project asking to
+    ///     open another project's secrets is exactly the shape this panel exists
+    ///     to make visible. Both halves are needed to say it, and both are weak
+    ///     on their own: the session's directory is the agent's own record of
+    ///     itself, and the project is what the client said. So it is worded as an
+    ///     observation and never as an accusation, and it never blocks anything.
+    ///
+    /// Silence when either side is missing. "The agent did not say where it is"
+    /// is not evidence of anything.
+    public static func sessionAdvisories(session: AgentSession?, projectPath: String?) -> [String] {
+        guard let session else { return [] }
+        var advisories: [String] = []
+        if let unattended = session.unattendedNote { advisories.append(unattended) }
+        if let cwd = session.workingDirectory, let projectPath,
+           !pathIsInside(cwd, of: projectPath) {
+            advisories.append("this session is working in \(abbreviated(cwd)), not in the project above")
+        }
+        return advisories
+    }
+
+    /// Whether one path is the same directory as another or sits inside it.
+    ///
+    /// Compared on standardized, symlink-resolved paths, because the two sides
+    /// arrive by different routes: `/tmp/x` and `/private/tmp/x` are the same
+    /// directory, a worktree reached through a symlink is the same directory as
+    /// the one it links to, and a panel that cried anomaly over either would be
+    /// trained away inside a week. The comparison is on whole components, so
+    /// `/a/project-two` is not inside `/a/project`.
+    static func pathIsInside(_ path: String, of parent: String) -> Bool {
+        let child = canonical(path)
+        let root = canonical(parent)
+        guard !child.isEmpty, !root.isEmpty else { return false }
+        if child == root { return true }
+        return child.hasPrefix(root == "/" ? root : root + "/")
+    }
+
+    /// The macOS firmlinks that make one directory reachable by two names.
+    ///
+    /// `resolvingSymlinksInPath` collapses these, but only for a path that
+    /// exists, and neither of the paths being compared here is guaranteed to
+    /// still be on disk by the time the panel draws. Stripping the prefix
+    /// outright makes the comparison the same either way.
+    static let privatePrefixes = ["/private/tmp", "/private/var", "/private/etc"]
+
+    private static func canonical(_ path: String) -> String {
+        var resolved = NSString(string: NSString(string: path).expandingTildeInPath)
+            .resolvingSymlinksInPath
+        resolved = NSString(string: resolved).standardizingPath
+        for prefix in privatePrefixes where resolved == prefix || resolved.hasPrefix(prefix + "/") {
+            resolved = String(resolved.dropFirst("/private".count))
+            break
+        }
+        // `standardizingPath` already drops a trailing slash, but a caller can
+        // hand us "/" and a root of "/" must not become "".
+        if resolved.count > 1, resolved.hasSuffix("/") { resolved.removeLast() }
+        return resolved
+    }
+
+    /// A path with the home directory folded back to `~`, for a line of prose.
+    static func abbreviated(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        guard !home.isEmpty, path.hasPrefix(home) else { return path }
+        return "~" + path.dropFirst(home.count)
     }
 
     static func notes(for plan: UnlockPlan) -> [String] {
