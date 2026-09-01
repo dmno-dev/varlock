@@ -65,10 +65,11 @@ public struct ExecutionHop: Equatable {
     public let isLauncher: Bool
     /// The hop that decides what runs. Drawn large; everything else is quiet.
     public let isImportant: Bool
-    /// Set on the process that is the root of a coding-agent session. That hop is
-    /// where the session actually begins in the ancestry, so it is drawn there
-    /// rather than as a note floating beside the chain.
-    public let agentSession: AgentSession?
+    /// Set on the hop the unlock's session identity is anchored to: the process a
+    /// "this session" grant will actually attach to. Exactly one hop in a chain
+    /// carries it, and it is where the session begins in the ancestry, so it is
+    /// drawn there rather than as a note floating beside the chain.
+    public let sessionRoot: SessionRootMark?
     /// Whether this hop is running inside the session rooted above it. The panel
     /// tints the rail for these, so "inside the session" is something you can see
     /// rather than something you work out.
@@ -86,7 +87,7 @@ public struct ExecutionHop: Equatable {
         isRequester: Bool = false,
         isLauncher: Bool = false,
         isImportant: Bool = false,
-        agentSession: AgentSession? = nil,
+        sessionRoot: SessionRootMark? = nil,
         isInsideSession: Bool = false
     ) {
         self.pid = pid
@@ -100,15 +101,19 @@ public struct ExecutionHop: Equatable {
         self.isRequester = isRequester
         self.isLauncher = isLauncher
         self.isImportant = isImportant
-        self.agentSession = agentSession
+        self.sessionRoot = sessionRoot
         self.isInsideSession = isInsideSession
     }
 
     /// Whether this hop is varlock itself, however it was started.
     public var isVarlock: Bool { ExecutionChainBuilder.isOwnCommand(name) }
 
-    /// Whether a coding-agent session begins here.
-    public var isSessionRoot: Bool { agentSession != nil }
+    /// Whether the session a grant attaches to begins here.
+    public var isSessionRoot: Bool { sessionRoot != nil }
+
+    /// The coding-agent session running at this hop, when it is one. Decoration
+    /// on the session root row rather than the reason that row exists.
+    public var agentSession: AgentSession? { sessionRoot?.agent }
 
     /// The one thing about this hop a person should know before approving.
     ///
@@ -125,10 +130,30 @@ public struct ExecutionHop: Equatable {
     /// shells, wrappers, and varlock itself. Present for completeness, drawn
     /// small, and the first thing to fold away.
     ///
-    /// A session root is never one of these. Which session a request came from is
-    /// the single most load-bearing fact on the panel when there is one, and a
-    /// fact that important does not go behind a disclosure.
+    /// A session root is never one of these. It is the answer to "which session
+    /// am I granting to", which the panel is asking about in the same breath, and
+    /// a fact that load-bearing does not go behind a disclosure.
     public var isMinor: Bool { !isImportant && !isLauncher && !isSessionRoot }
+}
+
+/// The session-root mark a hop can carry: what the session is called, and the
+/// agent running it where there is one.
+///
+/// The label comes from the identifier the grant is scoped to, so the panel and
+/// the menu bar call the same session by the same name.
+public struct SessionRootMark: Equatable {
+    /// "Terminal ttys004", "Process 4120", "Claude Code session".
+    public let label: String
+    /// How the identity was anchored, for anyone who needs to word it.
+    public let kind: SessionAnchor.Kind
+    /// The coding-agent session rooted at this exact hop, when there is one.
+    public let agent: AgentSession?
+
+    public init(label: String, kind: SessionAnchor.Kind, agent: AgentSession? = nil) {
+        self.label = label
+        self.kind = kind
+        self.agent = agent
+    }
 }
 
 /// A coding-agent session the chain is running inside.

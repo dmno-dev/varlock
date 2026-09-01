@@ -277,17 +277,22 @@ The panel shows, top to bottom:
   the daemon has no way to know what an env value is called, and does not lend its
   credibility to a string a caller sent. None of it is bound into the crypto.
 - the **execution chain**: the line of processes leading to the caller, read off
-  the peer. The hop that decides what runs is emphasised (a script rather than the
-  interpreter running it), the app that was launched sits at the top with its icon
-  and the tty it hosts ("iTerm2 · ttys004"), and shells fold into "N more steps"
-  on a long chain. A plain shell is never the emphasised one while there is
-  anything else to point at: `zsh` is how a command was typed, not what is
-  running, and one bold row has to mean one actor. Where the chain is nothing but
-  shells (a command typed straight into a terminal), varlock's own hop is the
-  emphasised one, and the command line under it is the thing the user recognises.
-  Without a launcher at the top (tmux, or a walk that ran out of depth) the tty
-  label goes to the topmost hop that really is on that tty, rather than to
-  whatever process happened to come first. Opening that shows each hop's path,
+  the peer. The app that was launched sits at the top with its icon and the tty
+  it hosts ("iTerm2 · ttys004"), and the plumbing folds into "N more steps" on a
+  long chain. Without a launcher at the top (tmux, or a walk that ran out of
+  depth) the tty label goes to the topmost hop that really is on that tty, rather
+  than to whatever process happened to come first.
+
+  One row can be **emphasised**, and it means one thing: the ACTOR, the program
+  the secrets are being loaded for. A script beats the interpreter running it
+  (`agent.ts`, not `bun`); a host that auto-loaded varlock (`next dev`, `vite`, a
+  test runner) is the actor because varlock ran on its behalf. varlock itself
+  never is: it is in every chain, so emphasising it would say nothing about this
+  request. Shells never are, since `zsh` is how a command was typed rather than
+  what it was typed for. The session root never is, having a treatment of its
+  own. When nothing qualifies, nothing is bold, which is the honest state for a
+  command a person typed: the values are for that command, and the command is
+  varlock. A bold row that always exists is a bold row that means nothing. Opening that shows each hop's path,
   the word for its code-signing posture, and the command line varlock itself was
   invoked with, read from the kernel's own copy of its argv rather than from
   anything the client sent. What a mark means is said under the hop it belongs to
@@ -306,16 +311,27 @@ The panel shows, top to bottom:
   accent colour: a coloured marker sitting next to a green dot reads as a verdict
   on the process, and that marker is about structure. Red is not used here at
   all, so it stays available for posture that is actually bad.
-- a **coding-agent session**, when there is one, as a hop in that chain at the
-  place it really sits in the ancestry: a tinted row tagged "session root",
-  carrying the product, the session's own title, and when it started. The rail
-  below it is tinted to match, so every process inside the session is a span you
-  can see rather than a relationship you have to work out, and that hop is never
-  folded away. The title comes from the
-  agent's own on-disk record of the session, matched to the process by pid and
-  checked against its start time so a recycled pid cannot put somebody else's
-  session on the panel. No uuid is ever shown: where the agent has no name but
-  its own session id, the row goes without a title.
+- the **session root**: the hop a "this session" grant actually attaches to,
+  drawn as a tinted row tagged "session root" at the place it really sits in the
+  ancestry. Every chain has exactly one, because every grant has one. The panel
+  offers "This session" as a scope, and a session nobody can point at is a
+  promise nobody can check. The hop comes from `SessionScoper.sessionAnchor`,
+  the same code that computes the identifier the grant is keyed by, so the row a
+  person reads and the identity they are granting to cannot drift apart. Usually
+  that is the outermost shell on the controlling terminal, drawn as "zsh" with
+  "Terminal ttys004" under it, which is the name the menu bar lists that session
+  under and the name ending it will use. With no terminal it is the stable
+  process-tree ancestor the scoper picks. A coding-agent session is DECORATION on
+  that row, applied when the agent turns out to be the anchoring process: the row
+  then carries the product, the session's own title, and when it started. The
+  title comes from the agent's own on-disk record, matched to the process by pid
+  and checked against its start time so a recycled pid cannot put somebody else's
+  session on the panel. No uuid is ever shown. The rail below the row is tinted
+  to match, so every process inside the session is a span you can see rather than
+  a relationship you have to work out, and that hop is never folded away. When
+  the walk stopped before reaching the anchor (an app bundle at the top, the
+  depth cap, the deadline) the mark goes on the topmost hop the chain does have,
+  which is the nearest thing to the anchor that was actually read.
 - **for how long**: this session (the default), once, or a set time (1, 4, 8, or
   12 hours). The longest window on offer is the 12h cap itself, so a choice can
   never be one the grant table would quietly clip. Selecting a segment changes

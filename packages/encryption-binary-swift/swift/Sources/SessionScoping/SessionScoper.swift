@@ -15,6 +15,38 @@ import Darwin
 /// when present, is *combined with* the TTY/process-tree anchor — never trusted
 /// on its own. This means a rogue process that forges the env var still gets a
 /// distinct identity unless it is genuinely inside the same process subtree.
+/// Where a session identity comes from: the process it is anchored to, and the
+/// identifier computed from that process.
+///
+/// A grant is scoped to the identifier. A person can only be asked about the
+/// process, so both travel together: the panel's "session root" row is the hop
+/// this names, and there is no second place deciding which one that is.
+public struct SessionAnchor: Equatable {
+    public enum Kind: Equatable {
+        /// A controlling terminal, anchored at the outermost process on it.
+        case terminal
+        /// No terminal, so a stable ancestor in the process tree.
+        case processTree
+        /// Neither: an agent's own session id, with no process to point at.
+        case environment
+    }
+
+    /// The process the identity is computed from. nil only in the anchorless
+    /// environment case, where the session is a value and not a process.
+    public let pid: pid_t?
+    public let kind: Kind
+    public let identifier: String
+
+    public init(pid: pid_t?, kind: Kind, identifier: String) {
+        self.pid = pid
+        self.kind = kind
+        self.identifier = identifier
+    }
+
+    /// What to call this session in a few words, e.g. "Terminal ttys004".
+    public var label: String { SessionLabel.describe(sessionId: identifier) }
+}
+
 public struct SessionScoper {
     private let provider: ProcessProvider
 
@@ -77,15 +109,30 @@ public struct SessionScoper {
     /// Returns nil only when no ancestor can be determined (chain shorter than 2)
     /// and there is no LLM-session env identifier either.
     public func sessionIdentifier(forPid pid: pid_t) -> String? {
+        return sessionAnchor(forPid: pid)?.identifier
+    }
+
+    /// The same answer, with the process it was computed from.
+    ///
+    /// The identifier alone is enough to scope a grant and not enough to show
+    /// one: "This session" is a promise about a particular process, and the panel
+    /// has to be able to point at the row that process is on. Both come from here
+    /// so the row the user reads and the identity the grant attaches to can never
+    /// be two different decisions.
+    public func sessionAnchor(forPid pid: pid_t) -> SessionAnchor? {
         guard let info = provider.info(for: pid) else { return nil }
-        let parentSessionId = parentSessionIdentifier(forPid: pid, info: info)
+        let anchor = parentSessionAnchor(forPid: pid, info: info)
         let aiSession = aiSessionFromEnvironment(forPid: pid)
 
-        if let aiSession, let parentSessionId {
-            return "env:\(aiSession.key):\(aiSession.value)|\(parentSessionId)"
+        if let aiSession, let anchor {
+            return SessionAnchor(
+                pid: anchor.pid,
+                kind: anchor.kind,
+                identifier: "env:\(aiSession.key):\(aiSession.value)|\(anchor.identifier)"
+            )
         }
-        if let parentSessionId {
-            return parentSessionId
+        if let anchor {
+            return anchor
         }
         if let aiSession {
             // No TTY and no walkable process tree (e.g. a process reparented to
@@ -95,7 +142,11 @@ public struct SessionScoper {
             // to `noTtySessionEnvKeys` can't scope a shared session. Fail closed
             // → the daemon re-authenticates on every call.
             if aiSession.value.count >= Self.minStandaloneSessionIdLength {
-                return "env:\(aiSession.key):\(aiSession.value)"
+                return SessionAnchor(
+                    pid: nil,
+                    kind: .environment,
+                    identifier: "env:\(aiSession.key):\(aiSession.value)"
+                )
             }
             return nil
         }
@@ -104,11 +155,11 @@ public struct SessionScoper {
 
     // MARK: - Anchor selection
 
-    private func parentSessionIdentifier(forPid pid: pid_t, info: ProcSnapshot) -> String? {
-        if let ttyId = ttySessionIdentifier(forPid: pid, info: info) {
-            return ttyId
+    private func parentSessionAnchor(forPid pid: pid_t, info: ProcSnapshot) -> SessionAnchor? {
+        if let ttyAnchor = ttySessionAnchor(forPid: pid, info: info) {
+            return ttyAnchor
         }
-        return processTreeSessionIdentifier(forPid: pid)
+        return processTreeSessionAnchor(forPid: pid)
     }
 
     private func parentPid(of pid: pid_t) -> pid_t? {
@@ -127,7 +178,7 @@ public struct SessionScoper {
         return nil
     }
 
-    private func ttySessionIdentifier(forPid pid: pid_t, info: ProcSnapshot) -> String? {
+    private func ttySessionAnchor(forPid pid: pid_t, info: ProcSnapshot) -> SessionAnchor? {
         // e_tdev is dev_t (Int32). NODEV is -1, so we require strictly > 0.
         let peerTty = info.tty
         guard peerTty > 0 else { return nil }
@@ -179,12 +230,20 @@ public struct SessionScoper {
         if let mux = multiplexer {
             // Include the multiplexer value so separate tmux servers / sessions
             // stay distinct even if a TTY device name happens to collide.
-            return "tty:\(ttyName):\(startTimestamp):\(mux.key)=\(mux.value)"
+            return SessionAnchor(
+                pid: anchorPid,
+                kind: .terminal,
+                identifier: "tty:\(ttyName):\(startTimestamp):\(mux.key)=\(mux.value)"
+            )
         }
-        return "tty:\(ttyName):\(startTimestamp)"
+        return SessionAnchor(
+            pid: anchorPid,
+            kind: .terminal,
+            identifier: "tty:\(ttyName):\(startTimestamp)"
+        )
     }
 
-    private func processTreeSessionIdentifier(forPid pid: pid_t) -> String? {
+    private func processTreeSessionAnchor(forPid pid: pid_t) -> SessionAnchor? {
         // No TTY — walk up the process tree to find a scoping ancestor.
         //
         // Build the ancestry chain from the peer up to (but not including) PID 1.
@@ -206,7 +265,11 @@ public struct SessionScoper {
         let chain = buildAncestryChain(from: pid)
         guard let scopePid = selectScopePid(from: chain) else { return nil }
         let startTime = provider.info(for: scopePid)?.startTime ?? 0
-        return "ptree:\(scopePid):\(startTime)"
+        return SessionAnchor(
+            pid: scopePid,
+            kind: .processTree,
+            identifier: "ptree:\(scopePid):\(startTime)"
+        )
     }
 
     // MARK: - Process-tree helpers

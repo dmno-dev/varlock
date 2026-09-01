@@ -292,20 +292,27 @@ final class PanelChainView: NSView {
         return row
     }
 
-    /// The session root: which agent, which session, and when it started.
+    /// The session root: which session a "this session" grant attaches to.
     ///
-    /// Two lines, because the title is the part a person recognises and a title
-    /// squeezed onto the end of a row is a title that gets truncated. The row is
-    /// allowed to be taller than the others; it is the one row on the panel most
-    /// likely to change the answer.
+    /// Every chain has one, because every grant has one. Usually that is the
+    /// shell on the controlling terminal; inside a coding agent it is the agent
+    /// itself, and the row then says which product, what the session is called,
+    /// and when it started. Two lines, because the second line is what tells one
+    /// session from another and squeezing it onto the first would truncate it.
+    /// The row is allowed to be taller than the others: it answers the question
+    /// the scope buttons are asking.
     private func sessionRow(_ hop: ExecutionHop) -> NSStackView {
         let column = PanelStyle.column(spacing: 2)
-        guard let session = hop.agentSession else { return column }
+        guard let root = hop.sessionRoot else { return column }
+        let session = root.agent
 
         let heading = PanelStyle.row(spacing: 8)
         heading.addArrangedSubview(icon(for: hop))
+        // The agent's product where there is one, and the process itself
+        // otherwise: "zsh" is what this session is, and naming it anything
+        // grander would be inventing a session that does not exist.
         let name = PanelStyle.label(
-            session.productName,
+            session?.productName ?? hop.name,
             size: 12.5,
             color: PanelStyle.sessionInk,
             weight: .semibold
@@ -314,7 +321,7 @@ final class PanelChainView: NSView {
         heading.addArrangedSubview(name)
         heading.addArrangedSubview(sessionRootTag())
         heading.addArrangedSubview(PanelStyle.spacer())
-        if let started = startedLabel(session.startTime) {
+        if let started = startedLabel(session?.startTime) {
             let time = PanelStyle.label("started \(started)", size: 9.5, color: PanelStyle.inkQuiet)
             // When the chain is opened the path joins this row, and the time is
             // the half worth keeping: it is what tells two sessions apart.
@@ -325,23 +332,27 @@ final class PanelChainView: NSView {
         column.addArrangedSubview(heading)
         heading.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
 
-        if let title = session.title {
-            let titleLabel = PanelStyle.label(
-                "\u{201C}\(title)\u{201D}",
-                size: 11.5,
-                color: PanelStyle.sessionTitleInk
-            )
-            titleLabel.font = NSFontManager.shared.convert(
+        // The agent's own title where there is one, and otherwise the name this
+        // session goes by everywhere else ("Terminal ttys004"), which is what the
+        // menu bar lists it under and what ending it will be called.
+        let titled = session?.title
+        let secondary = PanelStyle.label(
+            titled.map { "\u{201C}\($0)\u{201D}" } ?? root.label,
+            size: 11.5,
+            color: PanelStyle.sessionTitleInk
+        )
+        if titled != nil {
+            secondary.font = NSFontManager.shared.convert(
                 NSFont.systemFont(ofSize: 11.5),
                 toHaveTrait: .italicFontMask
             )
-            // Wraps rather than truncates: this is the line that tells one
-            // session apart from another.
-            titleLabel.lineBreakMode = .byWordWrapping
-            titleLabel.maximumNumberOfLines = 3
-            titleLabel.preferredMaxLayoutWidth = PanelStyle.contentWidth - 72
-            column.addArrangedSubview(titleLabel)
         }
+        // Wraps rather than truncates: this is the line that tells one session
+        // apart from another.
+        secondary.lineBreakMode = .byWordWrapping
+        secondary.maximumNumberOfLines = 3
+        secondary.preferredMaxLayoutWidth = PanelStyle.contentWidth - 72
+        column.addArrangedSubview(secondary)
         return column
     }
 

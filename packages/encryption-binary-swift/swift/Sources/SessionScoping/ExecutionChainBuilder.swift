@@ -123,10 +123,25 @@ public struct ExecutionChainBuilder {
         // Launcher first, the process that connected last: the order things
         // happened in, which is the order a person reconstructs them in.
         let ordered = Array(walked.reversed())
-        // Found before the hops are built, because where the session begins
-        // changes which hop is the actor and which hops read as inside it.
+        // Where a "this session" grant will actually attach, and therefore which
+        // row has to say so. Found before the hops are built, because it changes
+        // which hop is the actor and which hops read as inside the session.
+        let anchor = SessionScoper(provider: provider).sessionAnchor(forPid: pid)
+        let rootIndex = sessionRootIndex(in: ordered, anchor: anchor)
         let session = agentSession(in: ordered, startedAt: started)
-        let importantIndex = importantHopIndex(ordered, sessionRootIndex: session?.index)
+        let root = anchor.flatMap { anchor in
+            rootIndex.map { index in
+                SessionRootMark(
+                    label: anchor.label,
+                    kind: anchor.kind,
+                    // Decoration, not the reason the row exists: an agent named
+                    // here is this session's agent only when the session is
+                    // anchored on that very process.
+                    agent: index == session?.index ? session?.session : nil
+                )
+            }
+        }
+        let importantIndex = importantHopIndex(ordered, sessionRootIndex: rootIndex)
         let terminalIndex = terminalHopIndex(ordered, device: terminalDevice)
 
         var hops: [ExecutionHop] = []
@@ -156,37 +171,39 @@ public struct ExecutionChainBuilder {
                 isRequester: walkedProcess.snapshot.pid == pid,
                 isLauncher: isLauncher,
                 isImportant: importantIndex.map { $0 == index } ?? false,
-                agentSession: index == session?.index ? session?.session : nil,
+                sessionRoot: index == rootIndex ? root : nil,
                 // Everything below the session root ran inside it, which the
                 // panel draws as one span rather than leaving to be inferred.
-                isInsideSession: session.map { index > $0.index } ?? false
+                isInsideSession: rootIndex.map { index > $0 } ?? false
             ))
         }
 
         return ExecutionChain(hops: hops)
     }
 
-    /// Which hop actually decides what runs.
+    /// Which hop is the ACTOR: the program the secrets are being loaded FOR.
     ///
-    /// A script wins, because the interpreter running it is interchangeable and
-    /// the script is not. Failing that it is the first thing below the launcher
-    /// that is neither a shell nor varlock.
+    /// That is the whole definition, and everything below follows from it:
     ///
-    /// A plain shell is never the answer while there is anything else to point
-    /// at. `zsh` is how a command was typed, not what is running, and emphasising
-    /// it made the panel say two different things at once: a bold shell next to a
-    /// tinted session root reads as a second claim about which row matters. So
-    /// shells stay minor hops, and when everything else has been ruled out the
-    /// answer is varlock itself, which for a typed command is the honest one: the
-    /// command line under that hop is the thing the user recognises.
+    ///   - a script beats the interpreter running it. `bun` is interchangeable;
+    ///     `agent.ts` is the thing the values are for, and the mutable one.
+    ///   - a host that auto-loaded varlock (`next dev`, `vite`, a test runner) is
+    ///     the actor. varlock ran on its behalf.
+    ///   - varlock itself NEVER is. It is in every chain, being the process that
+    ///     connected, so emphasising it says nothing about this request. Its
+    ///     command line is still shown under its own hop, which is where the
+    ///     recognisable information actually lives.
+    ///   - shells never are. `zsh` is how a command was typed, not what it was
+    ///     typed for.
+    ///   - the session root never is. It has a treatment of its own, and marking
+    ///     it twice would claim the session is what is running, when what is
+    ///     running is whatever the session started.
     ///
-    /// The session root is never the answer either. It has a treatment of its own
-    /// and marking it twice would say the agent is what is running, when what is
-    /// running is whatever the agent started.
-    ///
-    /// Returns nil when the only hops left are shells and some other row already
-    /// carries the chain's identity (the launcher, or a session root). One bold
-    /// row means one actor; no bold row is better than the wrong one.
+    /// When nothing qualifies, nothing is bold. That is the honest state for a
+    /// command a person typed themselves: the values are for the command, the
+    /// command is varlock, and there is no third party in the picture. Do not
+    /// reintroduce a fallback here; a bold row that always exists is a bold row
+    /// that means nothing.
     private func importantHopIndex(_ ordered: [WalkedProcess], sessionRootIndex: Int?) -> Int? {
         let candidates = ordered.enumerated().filter {
             !($0.element.bundlePath != nil && $0.offset == 0) && $0.offset != sessionRootIndex
@@ -194,16 +211,29 @@ public struct ExecutionChainBuilder {
         if let script = candidates.last(where: { $0.element.scriptName != nil && !$0.element.isOwnProcess }) {
             return script.offset
         }
-        if let binary = candidates.first(where: {
-            !$0.element.isShell && !$0.element.isOwnProcess
-        }) {
-            return binary.offset
+        return candidates.first(where: { !$0.element.isShell && !$0.element.isOwnProcess })?.offset
+    }
+
+    /// Which hop the session a grant attaches to begins at.
+    ///
+    /// The anchor comes from `SessionScoper`, the same code that computes the
+    /// identifier the grant is keyed by, so the row a person reads and the
+    /// identity they are granting to cannot drift apart.
+    ///
+    /// The anchor is always the peer or one of its ancestors. When the walk
+    /// stopped before reaching it (an app bundle at the top, the depth cap, the
+    /// deadline) the nearest hop this chain has is its topmost one, so the mark
+    /// goes there: the session exists either way, and a panel offering "This
+    /// session" as a scope has to be able to say which session that is.
+    private func sessionRootIndex(in ordered: [WalkedProcess], anchor: SessionAnchor?) -> Int? {
+        guard let anchor else { return nil }
+        guard !ordered.isEmpty else { return nil }
+        guard let anchorPid = anchor.pid else {
+            // An agent's own session id, with no process behind it. The outermost
+            // hop is as close as the chain can get to where that session begins.
+            return 0
         }
-        if let own = candidates.last(where: { !$0.element.isShell }) {
-            return own.offset
-        }
-        guard sessionRootIndex == nil, ordered.first?.bundlePath == nil else { return nil }
-        return candidates.last?.offset
+        return ordered.firstIndex { $0.snapshot.pid == anchorPid } ?? 0
     }
 
     /// Which hop wears the tty label.

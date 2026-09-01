@@ -32,9 +32,16 @@ final class ExecutionChainTests: XCTestCase {
         }
     }
 
+    /// Names for the tty devices these trees use.
+    ///
+    /// A default, because a device with no name is a machine whose `ttyname`
+    /// failed, and session scoping falls back to the process tree there. A
+    /// realistic terminal tree should never be testing that by accident.
+    private static let ttyNames: [dev_t: String] = [16: "ttys004", 17: "ttys005"]
+
     private func builder(
         _ procs: [FakeProc],
-        ttyNames: [dev_t: String] = [:],
+        ttyNames: [dev_t: String] = ExecutionChainTests.ttyNames,
         posture: FakePosture = FakePosture(),
         sessionMetadata: AgentSessionMetadataReader = FakeSessionMetadata()
     ) -> ExecutionChainBuilder {
@@ -46,16 +53,20 @@ final class ExecutionChainTests: XCTestCase {
     }
 
     /// iTerm2 -> zsh -> varlock: the plain terminal case.
+    ///
+    /// The app holds no controlling tty, the way a windowed app does not: it owns
+    /// the pty the shell below it is on. That is what makes the shell the session
+    /// the grant attaches to.
     private var terminalTree: [FakeProc] {
         return [
-            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
             FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
             FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
         ]
     }
 
     func testTheChainReadsFromTheLauncherDownToTheCaller() {
-        let chain = builder(terminalTree, ttyNames: [16: "ttys004"]).build(forPid: 300)
+        let chain = builder(terminalTree).build(forPid: 300)
 
         XCTAssertEqual(chain.hops.map { $0.name }, ["iTerm2", "zsh", "varlock"])
         XCTAssertTrue(chain.hops[0].isLauncher)
@@ -65,45 +76,53 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertNil(chain.hops[1].terminalName)
     }
 
-    func testAPlainShellIsNeverTheEmphasisedActor() {
+    func testATypedCommandHasNoActorAndSaysWhichSessionItIs() {
         let chain = builder(terminalTree).build(forPid: 300)
-        // A shell says how a command was typed, not what is running. With nothing
-        // else in the chain the typed command itself is the honest answer.
-        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "varlock")
-        XCTAssertTrue(chain.hops.first { $0.name == "zsh" }?.isMinor ?? false)
-        XCTAssertEqual(chain.hops.filter { $0.isImportant }.count, 1)
+
+        // Nothing is bold. The values are for the command, the command is
+        // varlock, and inventing a third party would be inventing information.
+        XCTAssertTrue(chain.hops.allSatisfy { !$0.isImportant })
+        XCTAssertTrue(chain.hops.first { $0.name == "varlock" }?.isMinor ?? false)
+        // The session the grant would attach to is the shell on the tty, and it
+        // is named the way the menu bar names it.
+        XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.label, "Terminal ttys004")
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.kind, .terminal)
+        XCTAssertNil(chain.agentSession)
+        // Exactly one, always: "This session" has one answer.
+        XCTAssertEqual(chain.hops.filter { $0.isSessionRoot }.count, 1)
+        XCTAssertEqual(chain.hops.map { $0.isInsideSession }, [false, false, true])
     }
 
-    func testAShellIsNotTheActorJustBecauseAnAgentStartedIt() {
-        let chain = builder([
-            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+    func testTheSessionRootIsTheHopTheGrantWouldAttachTo() {
+        let procs = [
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
             FakeProc(pid: 150, ppid: 100, tty: 16, path: "/Users/dev/.local/bin/claude"),
             FakeProc(pid: 200, ppid: 150, tty: 16, path: "/bin/zsh"),
             FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
-        ]).build(forPid: 300)
+        ]
+        let chain = builder(procs).build(forPid: 300)
 
-        // Exactly one bold row, and it is not the shell the agent spawned: with a
-        // session root on screen, a second emphasised row would be a second claim
-        // about which hop the reader should be looking at.
-        XCTAssertEqual(chain.hops.filter { $0.isImportant }.count, 1)
-        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "varlock")
-        XCTAssertFalse(chain.hops.first { $0.name == "zsh" }?.isImportant ?? true)
-        // And the session root keeps its own treatment, which is what says where
-        // the request came from.
+        // The same process the scoper keys the grant by, found the same way.
+        let scoped = SessionScoper(provider: FakeProcessProvider(procs, ttyNames: Self.ttyNames))
+        XCTAssertEqual(chain.sessionRootHop?.pid, scoped.sessionAnchor(forPid: 300)?.pid)
         XCTAssertEqual(chain.sessionRootHop?.name, "claude")
-        XCTAssertFalse(chain.sessionRootHop?.isImportant ?? true)
+        // The agent decorates that row rather than creating it.
+        XCTAssertEqual(chain.agentSession?.productName, "Claude Code")
+        // No shell is bold, and neither is varlock: nothing here qualifies.
+        XCTAssertTrue(chain.hops.allSatisfy { !$0.isImportant })
         XCTAssertFalse(chain.sessionRootHop?.isMinor ?? true)
     }
 
     func testOnlyOneHopIsEmphasisedInAFullAgentChain() {
         let chain = builder([
-            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
             FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
             FakeProc(pid: 250, ppid: 200, tty: 16, path: "/Users/dev/.local/bin/claude"),
             FakeProc(pid: 260, ppid: 250, path: "/bin/bash", args: ["bash", "-c", "bun run agent.ts"]),
             FakeProc(pid: 300, ppid: 260, path: "/Users/dev/.bun/bin/bun", args: ["bun", "run", "agent.ts"]),
             FakeProc(pid: 400, ppid: 300, path: "/opt/homebrew/bin/varlock"),
-        ], ttyNames: [16: "ttys004"]).build(forPid: 400)
+        ]).build(forPid: 400)
 
         XCTAssertEqual(chain.hops.filter { $0.isImportant }.map { $0.name }, ["agent.ts"])
         XCTAssertEqual(chain.sessionRootHop?.agentSession?.productName, "Claude Code")
@@ -133,7 +152,7 @@ final class ExecutionChainTests: XCTestCase {
 
     func testAScriptIsTheActorRatherThanTheInterpreterRunningIt() {
         let chain = builder([
-            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
             FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
             FakeProc(
                 pid: 300,
@@ -343,9 +362,9 @@ final class ExecutionChainTests: XCTestCase {
         // Everything started by the agent reads as inside its session; the app
         // that launched the agent does not.
         XCTAssertEqual(chain.hops.map { $0.isInsideSession }, [false, false, true, true])
-        // The agent is not also the actor: what is running is what it started,
-        // and the shell it started is not that either.
-        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "varlock")
+        // The agent is not also the actor, the shell it started is not one, and
+        // varlock is never one: this request has nothing to emphasise.
+        XCTAssertTrue(chain.hops.allSatisfy { !$0.isImportant })
     }
 
     func testTheSessionHopIsNeverFoldedAway() {
