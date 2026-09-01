@@ -65,12 +65,70 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertNil(chain.hops[1].terminalName)
     }
 
-    func testAPlainShellIsTheActorWhenNothingElseIs() {
+    func testAPlainShellIsNeverTheEmphasisedActor() {
         let chain = builder(terminalTree).build(forPid: 300)
-        // varlock is always in the chain, being the process that connected, and
-        // is never the answer to "who is asking".
-        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "zsh")
-        XCTAssertTrue(chain.hops.last { $0.name == "varlock" }?.isMinor ?? false)
+        // A shell says how a command was typed, not what is running. With nothing
+        // else in the chain the typed command itself is the honest answer.
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "varlock")
+        XCTAssertTrue(chain.hops.first { $0.name == "zsh" }?.isMinor ?? false)
+        XCTAssertEqual(chain.hops.filter { $0.isImportant }.count, 1)
+    }
+
+    func testAShellIsNotTheActorJustBecauseAnAgentStartedIt() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 150, ppid: 100, tty: 16, path: "/Users/dev/.local/bin/claude"),
+            FakeProc(pid: 200, ppid: 150, tty: 16, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
+        ]).build(forPid: 300)
+
+        // Exactly one bold row, and it is not the shell the agent spawned: with a
+        // session root on screen, a second emphasised row would be a second claim
+        // about which hop the reader should be looking at.
+        XCTAssertEqual(chain.hops.filter { $0.isImportant }.count, 1)
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "varlock")
+        XCTAssertFalse(chain.hops.first { $0.name == "zsh" }?.isImportant ?? true)
+        // And the session root keeps its own treatment, which is what says where
+        // the request came from.
+        XCTAssertEqual(chain.sessionRootHop?.name, "claude")
+        XCTAssertFalse(chain.sessionRootHop?.isImportant ?? true)
+        XCTAssertFalse(chain.sessionRootHop?.isMinor ?? true)
+    }
+
+    func testOnlyOneHopIsEmphasisedInAFullAgentChain() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, tty: 16, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
+            FakeProc(pid: 250, ppid: 200, tty: 16, path: "/Users/dev/.local/bin/claude"),
+            FakeProc(pid: 260, ppid: 250, path: "/bin/bash", args: ["bash", "-c", "bun run agent.ts"]),
+            FakeProc(pid: 300, ppid: 260, path: "/Users/dev/.bun/bin/bun", args: ["bun", "run", "agent.ts"]),
+            FakeProc(pid: 400, ppid: 300, path: "/opt/homebrew/bin/varlock"),
+        ], ttyNames: [16: "ttys004"]).build(forPid: 400)
+
+        XCTAssertEqual(chain.hops.filter { $0.isImportant }.map { $0.name }, ["agent.ts"])
+        XCTAssertEqual(chain.sessionRootHop?.agentSession?.productName, "Claude Code")
+        // The shells either side of the agent stay minor, so they fold away.
+        XCTAssertEqual(chain.collapsibleHops.map { $0.name }, ["zsh", "bash", "varlock"])
+        // And the tty is on the app, not on one of them.
+        XCTAssertEqual(chain.hops.compactMap { $0.terminalName }, ["ttys004"])
+        XCTAssertEqual(chain.hops.first { $0.terminalName != nil }?.name, "iTerm2")
+    }
+
+    func testWithoutALauncherTheTtyGoesToTheHopThatIsOnIt() {
+        // tmux: the server is the top of the chain and holds no tty of its own,
+        // so the pane's shell is what "ttys005" actually names.
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/opt/homebrew/bin/tmux"),
+            FakeProc(pid: 200, ppid: 100, tty: 17, path: "/bin/zsh"),
+            FakeProc(pid: 300, ppid: 200, tty: 17, path: "/opt/homebrew/bin/varlock"),
+        ], ttyNames: [17: "ttys005"]).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops.map { $0.name }, ["tmux", "zsh", "varlock"])
+        XCTAssertNil(chain.hops[0].terminalName)
+        XCTAssertEqual(chain.hops[1].terminalName, "ttys005")
+        XCTAssertNil(chain.hops[2].terminalName)
+        // tmux is a program rather than a shell, so it is what is running here.
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "tmux")
     }
 
     func testAScriptIsTheActorRatherThanTheInterpreterRunningIt() {
@@ -193,7 +251,7 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertNil(chain.hops[1].via)
     }
 
-    func testVarlockRunningAsAScriptIsStillNotTheActor() {
+    func testVarlockRunningAsAScriptIsStillNamedVarlock() {
         let chain = builder([
             FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
             FakeProc(pid: 200, ppid: 100, path: "/bin/zsh"),
@@ -205,7 +263,12 @@ final class ExecutionChainTests: XCTestCase {
             ),
         ]).build(forPid: 300)
 
-        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "zsh")
+        // node running varlock's own CLI is varlock, not a third-party script, so
+        // it is not called out as somebody else's code.
+        XCTAssertEqual(chain.hops.last?.name, "varlock")
+        XCTAssertNil(chain.hops.last?.advisory)
+        // And the shell above it is still not what is running.
+        XCTAssertFalse(chain.hops.first { $0.name == "zsh" }?.isImportant ?? true)
     }
 
     func testSignatureIsReportedOnlyWhenItWasActuallyRead() {
@@ -280,8 +343,9 @@ final class ExecutionChainTests: XCTestCase {
         // Everything started by the agent reads as inside its session; the app
         // that launched the agent does not.
         XCTAssertEqual(chain.hops.map { $0.isInsideSession }, [false, false, true, true])
-        // The agent is not also the actor: what is running is what it started.
-        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "zsh")
+        // The agent is not also the actor: what is running is what it started,
+        // and the shell it started is not that either.
+        XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "varlock")
     }
 
     func testTheSessionHopIsNeverFoldedAway() {

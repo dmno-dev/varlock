@@ -92,11 +92,15 @@ public struct ExecutionChainBuilder {
         var walked: [WalkedProcess] = []
         var current = pid
         var terminal: String?
+        /// The device behind that name, so the label can be put on a hop that
+        /// really is on this tty rather than on whichever hop came first.
+        var terminalDevice: dev_t?
 
         for _ in 0..<Self.maxDepth {
             guard let info = provider.info(for: current) else { break }
-            if terminal == nil, info.tty > 0 {
-                terminal = provider.ttyName(forDevice: info.tty)
+            if terminal == nil, info.tty > 0, let name = provider.ttyName(forDevice: info.tty) {
+                terminal = name
+                terminalDevice = info.tty
             }
             let path = provider.path(for: current)
             let walkedProcess = WalkedProcess(
@@ -123,6 +127,7 @@ public struct ExecutionChainBuilder {
         // changes which hop is the actor and which hops read as inside it.
         let session = agentSession(in: ordered, startedAt: started)
         let importantIndex = importantHopIndex(ordered, sessionRootIndex: session?.index)
+        let terminalIndex = terminalHopIndex(ordered, device: terminalDevice)
 
         var hops: [ExecutionHop] = []
         for (index, walkedProcess) in ordered.enumerated() {
@@ -140,9 +145,9 @@ public struct ExecutionChainBuilder {
                     ? walkedProcess.bundlePath.map { ($0 as NSString).deletingLastPathComponent }
                     : walkedProcess.path,
                 bundlePath: walkedProcess.bundlePath,
-                // The terminal belongs on the row a person recognises: the app
-                // they launched, or failing that whatever started the chain.
-                terminalName: index == 0 ? terminal : nil,
+                // The terminal belongs on the row that actually owns it; see
+                // `terminalHopIndex`.
+                terminalName: index == terminalIndex ? terminal : nil,
                 // Read for every hop, because an auto-load's useful line is the
                 // host's command rather than varlock's own. Only the requester's
                 // is drawn.
@@ -150,7 +155,7 @@ public struct ExecutionChainBuilder {
                 posture: hopPosture(walkedProcess),
                 isRequester: walkedProcess.snapshot.pid == pid,
                 isLauncher: isLauncher,
-                isImportant: index == importantIndex,
+                isImportant: importantIndex.map { $0 == index } ?? false,
                 agentSession: index == session?.index ? session?.session : nil,
                 // Everything below the session root ran inside it, which the
                 // panel draws as one span rather than leaving to be inferred.
@@ -165,13 +170,24 @@ public struct ExecutionChainBuilder {
     ///
     /// A script wins, because the interpreter running it is interchangeable and
     /// the script is not. Failing that it is the first thing below the launcher
-    /// that is neither a shell nor varlock, and failing that the shell itself,
-    /// which for a plain terminal is the honest answer.
+    /// that is neither a shell nor varlock.
+    ///
+    /// A plain shell is never the answer while there is anything else to point
+    /// at. `zsh` is how a command was typed, not what is running, and emphasising
+    /// it made the panel say two different things at once: a bold shell next to a
+    /// tinted session root reads as a second claim about which row matters. So
+    /// shells stay minor hops, and when everything else has been ruled out the
+    /// answer is varlock itself, which for a typed command is the honest one: the
+    /// command line under that hop is the thing the user recognises.
     ///
     /// The session root is never the answer either. It has a treatment of its own
     /// and marking it twice would say the agent is what is running, when what is
     /// running is whatever the agent started.
-    private func importantHopIndex(_ ordered: [WalkedProcess], sessionRootIndex: Int?) -> Int {
+    ///
+    /// Returns nil when the only hops left are shells and some other row already
+    /// carries the chain's identity (the launcher, or a session root). One bold
+    /// row means one actor; no bold row is better than the wrong one.
+    private func importantHopIndex(_ ordered: [WalkedProcess], sessionRootIndex: Int?) -> Int? {
         let candidates = ordered.enumerated().filter {
             !($0.element.bundlePath != nil && $0.offset == 0) && $0.offset != sessionRootIndex
         }
@@ -183,10 +199,26 @@ public struct ExecutionChainBuilder {
         }) {
             return binary.offset
         }
-        if let shell = candidates.last(where: { !$0.element.isOwnProcess }) {
-            return shell.offset
+        if let own = candidates.last(where: { !$0.element.isShell }) {
+            return own.offset
         }
-        return candidates.last?.offset ?? ordered.count - 1
+        guard sessionRootIndex == nil, ordered.first?.bundlePath == nil else { return nil }
+        return candidates.last?.offset
+    }
+
+    /// Which hop wears the tty label.
+    ///
+    /// The terminal a person recognises is the app they launched, even though a
+    /// windowed app holds no controlling tty of its own: it owns the pty the
+    /// shell below it sits on, and "iTerm2 \u{00B7} ttys004" is how someone picks
+    /// out the window they typed in. With no launcher at the top of the chain
+    /// (tmux, or a walk that ran out of depth) the label goes to the topmost hop
+    /// that really is on that tty, rather than to whichever process happened to
+    /// come first.
+    private func terminalHopIndex(_ ordered: [WalkedProcess], device: dev_t?) -> Int? {
+        guard let device else { return nil }
+        if ordered.first?.bundlePath != nil { return 0 }
+        return ordered.firstIndex { $0.snapshot.tty == device }
     }
 
     /// The command line, short enough to draw.
