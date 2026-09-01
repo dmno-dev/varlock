@@ -133,11 +133,10 @@ EXCHANGE_API_KEY=yourPreferredPlugin()
 
 The signature is computed over the **final outbound request**, after placeholder substitution, so it covers exactly the bytes the upstream receives. Any signature or timestamp headers the child sent are overwritten (an SDK configured with placeholder credentials produces a garbage signature; the proxy replaces it with a valid one).
 
-Each scheme accepts its own option set. Options for the `hmac-*` schemes:
+Each scheme accepts its own option set. `scheme` is required on every transform: `hmac-sha256`, `hmac-sha512`, and `http-basic` are built in, and plugins add more (e.g. `aws-sigv4`, see below). Options for the `hmac-*` schemes:
 
 | Option | Meaning |
 |---|---|
-| `scheme` | **(required)** `hmac-sha256`, `hmac-sha512`, or `http-basic` built in; plugins add more (e.g. `aws-sigv4`, see below). |
 | `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
 | `signatureHeader` | **(required)** Header the signature is written to. |
 | `secretKey` | Reference to the item whose value is the HMAC key, e.g. `secretKey=$PARTNER_SECRET`. Defaults to the decorated item on an attached rule; **required** on a detached rule. |

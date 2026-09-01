@@ -272,8 +272,6 @@ function getRunCommandArgs(): Array<string> {
   return rest;
 }
 
-
-
 /**
  * Load + resolve + validate the schema in the proxy owner's own (trusted)
  * context, throwing on any schema/config error. This is what makes the owner
@@ -318,7 +316,6 @@ async function prepareProxyPolicy(entryFilePaths?: Array<string>): Promise<Prepa
         + 'at client construction. Add an explicit `@placeholder` or a data type with a known format.',
     );
   }
-
 
   // Least privilege by default: every sensitive item the child sees is a
   // placeholder (managed/wire items plus the rest), unless explicitly opted out
@@ -1602,8 +1599,6 @@ export async function runAction(ctx: any) {
   });
   return gracefulExit(exitCode);
 }
-
-
 
 /**
  * Shared tail for running a proxied child: forward signals, await exit, run
