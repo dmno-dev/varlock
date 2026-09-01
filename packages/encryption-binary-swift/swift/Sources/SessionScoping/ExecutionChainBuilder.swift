@@ -60,6 +60,10 @@ public struct ExecutionChainBuilder {
     /// and is never the answer to "who is asking".
     static let ownNames: Set<String> = ["varlock", "varlock-local-encrypt", "VarlockEnclave"]
 
+    /// The npm package varlock's JavaScript ships in, and the name a manifest
+    /// has to carry for a file under it to be varlock's own code.
+    static let ownPackageName = "varlock"
+
     /// Wrappers that exist to go and fetch the real command.
     ///
     /// `bunx varlock load` is varlock being run, and saying so is the whole job
@@ -115,6 +119,22 @@ public struct ExecutionChainBuilder {
         // Launcher first, the process that connected last: the order things
         // happened in, which is the order a person reconstructs them in.
         let ordered = Array(walked.reversed())
+        // Which file each hop is really running, and which package that file
+        // came out of. Resolved once, up front, because three separate questions
+        // depend on the answer (is this varlock, what is this row called, which
+        // build is it) and they are not allowed to be answered from different
+        // evidence: that is exactly how a row came to say "cli.js" while the
+        // version line beside it said varlock.
+        let scripts = ordered.map { scriptPath(of: $0) }
+        let packages = scripts.map { path -> OwningPackage? in
+            // Bounded like every other read in this walk. A manifest that is not
+            // ready by the deadline costs a name and a version, never a panel.
+            guard let path, clock().timeIntervalSince(started) < Self.deadlineSeconds else { return nil }
+            return Self.ownerPackage(of: path)
+        }
+        let isOwnHop = zip(ordered, packages).map { walkedProcess, package in
+            walkedProcess.isOwnProcess || package?.name == Self.ownPackageName
+        }
         // Where a "this session" grant will actually attach, and therefore which
         // row has to say so. Found before the hops are built, because it changes
         // which hop is the actor and which hops read as inside the session.
@@ -143,19 +163,22 @@ public struct ExecutionChainBuilder {
                 )
             }
         }
-        let importantIndex = importantHopIndex(ordered, sessionRootIndex: rootIndex)
+        let importantIndex = importantHopIndex(ordered, isOwnHop: isOwnHop, sessionRootIndex: rootIndex)
 
         var hops: [ExecutionHop] = []
         for (index, walkedProcess) in ordered.enumerated() {
             let isLauncher = walkedProcess.bundlePath != nil && index == 0
-            let resolvedScript = scriptPath(of: walkedProcess)
+            let resolvedScript = scripts[index]
+            let isOwn = isOwnHop[index]
             hops.append(ExecutionHop(
                 pid: walkedProcess.snapshot.pid,
-                name: isLauncher ? launcherName(walkedProcess) : walkedProcess.displayName,
+                name: isLauncher
+                    ? launcherName(walkedProcess)
+                    : Self.hopName(walkedProcess, isOwn: isOwn),
                 // "varlock via node" is true and useless: node is how varlock
                 // ships, not who is asking. The interpreter is still there in
                 // the path when the chain is opened.
-                via: walkedProcess.scriptName == nil || walkedProcess.isOwnProcess
+                via: walkedProcess.scriptName == nil || isOwn
                     ? nil
                     : "via \(walkedProcess.executableName)",
                 path: isLauncher ? launcherDetailPath(walkedProcess) : walkedProcess.path,
@@ -170,12 +193,12 @@ public struct ExecutionChainBuilder {
                 interpreterPosture: walkedProcess.scriptName == nil
                     ? .unknown
                     : Self.posture(from: posture.posture(forPid: walkedProcess.snapshot.pid)),
-                release: release(of: walkedProcess, scriptPath: resolvedScript),
+                release: Self.release(from: packages[index]),
                 // Read for every hop, because an auto-load's useful line is the
                 // host's command rather than varlock's own. Only the requester's
                 // is drawn.
-                invocation: Self.invocation(from: walkedProcess.arguments),
-                runTarget: Self.runTarget(from: walkedProcess.arguments),
+                invocation: Self.invocation(from: walkedProcess.arguments, scriptIsOwn: isOwn),
+                runTarget: Self.runTarget(from: walkedProcess.arguments, scriptIsOwn: isOwn),
                 posture: hopPosture(walkedProcess),
                 isRequester: walkedProcess.snapshot.pid == pid,
                 isLauncher: isLauncher,
@@ -218,14 +241,31 @@ public struct ExecutionChainBuilder {
     /// command is varlock, and there is no third party in the picture. Do not
     /// reintroduce a fallback here; a bold row that always exists is a bold row
     /// that means nothing.
-    private func importantHopIndex(_ ordered: [WalkedProcess], sessionRootIndex: Int?) -> Int? {
+    private func importantHopIndex(
+        _ ordered: [WalkedProcess],
+        isOwnHop: [Bool],
+        sessionRootIndex: Int?
+    ) -> Int? {
         let candidates = ordered.enumerated().filter {
             $0.element.bundlePath == nil && $0.offset != sessionRootIndex
         }
-        if let script = candidates.last(where: { $0.element.scriptName != nil && !$0.element.isOwnProcess }) {
+        if let script = candidates.last(where: { $0.element.scriptName != nil && !isOwnHop[$0.offset] }) {
             return script.offset
         }
-        return candidates.first(where: { !$0.element.isShell && !$0.element.isOwnProcess })?.offset
+        return candidates.first(where: { !$0.element.isShell && !isOwnHop[$0.offset] })?.offset
+    }
+
+    /// What a hop that is not the app at the top of the chain is called.
+    ///
+    /// varlock's own CLI is called varlock however it was reached. Installed as
+    /// a package it is entered through `node_modules/.bin/varlock`, which is a
+    /// symlink to `varlock/bin/cli.js`, so what a runner puts in argv is that
+    /// `cli.js` path and the file name says nothing. A row called "cli.js" sends
+    /// the reader looking for a script nobody wrote, on the one screen where
+    /// their job is to recognise what is asking.
+    private static func hopName(_ walkedProcess: WalkedProcess, isOwn: Bool) -> String {
+        if isOwn, walkedProcess.scriptName != nil { return ownPackageName }
+        return walkedProcess.displayName
     }
 
     /// Which hop the session a grant attaches to begins at.
@@ -257,7 +297,12 @@ public struct ExecutionChainBuilder {
     /// "/opt/homebrew/bin/varlock load" is where it happened to live. Long
     /// argument lists are cut at the end, so the subcommand and the first
     /// arguments (the part that says what is happening) always survive.
-    public static func invocation(from arguments: [String]) -> String? {
+    ///
+    /// - Parameter scriptIsOwn: whether the file this command line runs was
+    ///   established to be varlock's own, by the caller that could resolve it.
+    ///   The token alone cannot always say so: an installed copy is entered
+    ///   through a symlink and argv ends up naming `cli.js`.
+    public static func invocation(from arguments: [String], scriptIsOwn: Bool = false) -> String? {
         guard let program = arguments.first else { return nil }
 
         // "bunx varlock load", "node .../node_modules/.bin/varlock load" and
@@ -265,7 +310,7 @@ public struct ExecutionChainBuilder {
         // way to say it is the way the user typed it. So when varlock appears
         // anywhere in the front of the command line, the line starts there.
         var tokens = arguments
-        if let index = tokens.firstIndex(where: { isOwnCommand($0) }) {
+        if let index = ownCommandIndex(in: tokens, scriptIsOwn: scriptIsOwn) {
             tokens = ["varlock"] + tokens.dropFirst(index + 1)
         } else if let script = scriptToken(in: tokens) {
             // "node .../node_modules/.bin/next dev" is "next dev" to everyone
@@ -294,9 +339,20 @@ public struct ExecutionChainBuilder {
 
     /// The command a `varlock run` will hand these values to, when that is what
     /// this command line is.
-    public static func runTarget(from arguments: [String]) -> String? {
-        guard let index = arguments.firstIndex(where: { isOwnCommand($0) }) else { return nil }
+    public static func runTarget(from arguments: [String], scriptIsOwn: Bool = false) -> String? {
+        guard let index = ownCommandIndex(in: arguments, scriptIsOwn: scriptIsOwn) else { return nil }
         return VarlockInvocation.runTarget(["varlock"] + arguments.dropFirst(index + 1))
+    }
+
+    /// Where varlock's own command starts in an argument list.
+    ///
+    /// The token's own name answers first and answers most of the time. When it
+    /// cannot, the file the command runs is the witness, and only the caller
+    /// that resolved that file can say so, which is what `scriptIsOwn` carries.
+    static func ownCommandIndex(in tokens: [String], scriptIsOwn: Bool) -> Int? {
+        if let index = tokens.firstIndex(where: { isOwnCommand($0) }) { return index }
+        guard scriptIsOwn else { return nil }
+        return scriptToken(in: tokens)?.index
     }
 
     /// The script an interpreter or wrapper was pointed at, if that is the shape
@@ -319,7 +375,15 @@ public struct ExecutionChainBuilder {
         return nil
     }
 
-    /// Whether one argv token names varlock's own CLI, however it was reached.
+    /// Whether one argv token NAMES varlock's own CLI.
+    ///
+    /// The cheap half of the question, and the one that answers a compiled
+    /// binary, a `node_modules/.bin` entry, and anything a person typed. It is
+    /// deliberately still just a name test: the other half, "does this file
+    /// belong to varlock's package", needs the file system and lives in
+    /// `ownerPackage(of:)`, because the name genuinely cannot answer it. A
+    /// `.bin/varlock` symlink resolves to `varlock/bin/cli.js`, and no amount of
+    /// looking at "cli" will tell you what it is.
     static func isOwnCommand(_ token: String) -> Bool {
         var name = (token as NSString).lastPathComponent
         for suffix in [".js", ".mjs", ".cjs", ".ts"] where name.hasSuffix(suffix) {
@@ -414,44 +478,99 @@ public struct ExecutionChainBuilder {
         return NSString(string: candidate).resolvingSymlinksInPath
     }
 
-    /// Which build of varlock is running, read off the package it came out of.
+    /// The package an entry script belongs to: the nearest `package.json` above
+    /// it, whatever that package turns out to be.
     ///
-    /// Only for varlock, and only from a file the daemon resolved itself: the
-    /// nearest `package.json` above the entry script that actually names varlock.
+    /// This is the daemon's answer to BOTH questions it has about a file it
+    /// resolved: whether the file is varlock's own code, and which build of it
+    /// this is. They used to be answered from different evidence, and the two
+    /// disagreed in exactly the invocation people actually use: `bunx varlock
+    /// load` enters through a `node_modules/.bin/varlock` symlink that resolves
+    /// to `varlock/bin/cli.js`, so the version line read varlock's manifest and
+    /// said 1.17.1 while the row above it, going by the file name, said "cli.js".
+    /// One lookup means they cannot drift again.
+    ///
+    /// Anything found here is the NEAREST manifest, never a search for a wanted
+    /// answer. A package.json that says something else is that file's owner, and
+    /// the file is somebody else's code: walking further up to find a varlock
+    /// manifest would let a third party's script sitting inside our package tree
+    /// wear varlock's name.
+    ///
+    /// The compiled binary has no package around it, so nothing is returned for
+    /// it; the panel falls back to what the client reported and says so.
+    struct OwningPackage: Equatable {
+        let name: String?
+        let version: String?
+    }
+
+    /// Which build of varlock is running, when the file that is running belongs
+    /// to varlock's own package.
+    ///
     /// A version is worth drawing on this panel because a `-dev` suffix says the
     /// running code is not the published artifact, and that is exactly the kind
     /// of thing somebody should notice before approving.
+    static func release(from package: OwningPackage?) -> HopRelease? {
+        guard let package, package.name == ownPackageName else { return nil }
+        return package.version.map { HopRelease(version: $0, source: .readFromDisk) }
+    }
+
+    /// The owning package, read once per resolved path.
     ///
-    /// The manifest's own `name` is the test, rather than the argv looking like
-    /// varlock. The two disagree in real invocations: a `node_modules/.bin`
-    /// entry resolves through its symlink to `varlock/bin/cli.js`, and by then
-    /// the file is called `cli.js`. The package that owns the file is the better
-    /// witness anyway, and it is why a third party's script gets no version line:
-    /// its manifest does not say varlock, so nothing is drawn.
-    ///
-    /// The compiled binary has no package around it, so nothing is returned for
-    /// it here; the panel falls back to what the client reported and says so.
-    private func release(of walkedProcess: WalkedProcess, scriptPath: String?) -> HopRelease? {
-        guard let scriptPath else { return nil }
+    /// Cached because this runs while a modal is pending and the same file is
+    /// asked about repeatedly: a chain is rebuilt whenever the panel refreshes,
+    /// and every hop asks about its own entry file. The walk is capped by depth
+    /// and the manifest read is capped by size, so a miss is a handful of
+    /// `stat`s and a hit is a dictionary lookup.
+    static func ownerPackage(of scriptPath: String) -> OwningPackage? {
+        packageCacheLock.lock()
+        if let cached = packageCache[scriptPath] {
+            packageCacheLock.unlock()
+            return cached
+        }
+        packageCacheLock.unlock()
+
+        let found = readOwnerPackage(of: scriptPath)
+
+        packageCacheLock.lock()
+        // A flat cap rather than an eviction policy. This is a cache of paths a
+        // handful of processes were started from; if it ever grows past that,
+        // something is wrong and starting over is cheap.
+        if packageCache.count >= maxPackageCacheEntries { packageCache.removeAll() }
+        packageCache[scriptPath] = found
+        packageCacheLock.unlock()
+        return found
+    }
+
+    private static func readOwnerPackage(of scriptPath: String) -> OwningPackage? {
         var directory = (scriptPath as NSString).deletingLastPathComponent
-        for _ in 0..<Self.maxPackageDepth {
+        for _ in 0..<maxPackageDepth {
             guard !directory.isEmpty, directory != "/" else { return nil }
             let manifest = NSString(string: directory).appendingPathComponent("package.json")
-            if let package = Self.readPackage(atPath: manifest) {
-                // Any other package.json on the way up belongs to something
-                // varlock happens to live inside, and its version is not ours.
-                guard package.name == "varlock" else { return nil }
-                return package.version.map { HopRelease(version: $0, source: .readFromDisk) }
+            if let package = readPackage(atPath: manifest) {
+                return OwningPackage(name: package.name, version: package.version)
             }
             directory = (directory as NSString).deletingLastPathComponent
         }
         return nil
     }
 
+    private static let packageCacheLock = NSLock()
+    private static var packageCache: [String: OwningPackage?] = [:]
+
+    /// Test seam: the cache is keyed by path, and a test that writes a manifest
+    /// at a path a previous test used would otherwise read the old answer.
+    static func resetPackageCache() {
+        packageCacheLock.lock()
+        packageCache.removeAll()
+        packageCacheLock.unlock()
+    }
+
     /// How far above an entry script to look for the package that owns it.
     /// `packages/varlock/src/cli/cli-executable.ts` is three, and a bundled
     /// `dist/cli.mjs` is one.
     static let maxPackageDepth = 6
+    /// How many resolved paths to remember before starting over.
+    static let maxPackageCacheEntries = 128
     /// A manifest bigger than this is not one worth reading two fields out of.
     static let maxPackageBytes = 512 * 1024
 
@@ -672,6 +791,13 @@ struct WalkedProcess {
 
     var isInterpreter: Bool { ExecutionChainBuilder.interpreterNames.contains(executableName) }
 
+    /// Whether the names in this command line say varlock.
+    ///
+    /// The half of the question that can be answered without touching the disk,
+    /// which is why it lives here: a `WalkedProcess` is what the walk already
+    /// read. The other half, whether the file this runs belongs to varlock's
+    /// package, needs a resolved path and is answered in the builder, which has
+    /// one. Neither is complete on its own and the builder uses both.
     var isOwnProcess: Bool {
         if ExecutionChainBuilder.isOwnCommand(executableName) { return true }
         if let script = scriptName, ExecutionChainBuilder.isOwnCommand(script) { return true }

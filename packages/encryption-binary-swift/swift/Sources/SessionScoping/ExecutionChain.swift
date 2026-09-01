@@ -290,6 +290,12 @@ public struct ExecutionHop: Equatable {
     }
 
     /// Whether this hop is varlock itself, however it was started.
+    ///
+    /// Read off the name, which the builder has already settled: it names a hop
+    /// varlock when the names say so OR when the file it runs came out of
+    /// varlock's own package, so an installed copy entered through a symlink is
+    /// varlock here too, and the row, its mark, and its version line all follow
+    /// from the same finding.
     public var isVarlock: Bool { ExecutionChainBuilder.isOwnCommand(name) }
 
     /// Whether this hop is a plain shell: plumbing that says how something was

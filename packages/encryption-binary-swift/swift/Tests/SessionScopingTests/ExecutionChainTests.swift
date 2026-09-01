@@ -39,6 +39,15 @@ final class ExecutionChainTests: XCTestCase {
     /// realistic terminal tree should never be testing that by accident.
     private static let ttyNames: [dev_t: String] = [16: "ttys004", 17: "ttys005"]
 
+    override func setUp() {
+        super.setUp()
+        // The owning-package lookup is cached by resolved path. These tests write
+        // manifests under a fresh directory every time, so nothing should carry
+        // over; clearing makes that a property of the suite rather than of the
+        // uuid generator.
+        ExecutionChainBuilder.resetPackageCache()
+    }
+
     private func builder(
         _ procs: [FakeProc],
         ttyNames: [dev_t: String] = ExecutionChainTests.ttyNames,
@@ -881,30 +890,59 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.hops.last?.scriptPath, scratch.path)
     }
 
-    func testVarlocksVersionIsReadFromThePackageItCameOutOf() throws {
-        // A `node_modules/varlock/bin/cli.js` with a manifest above it, which is
-        // what an installed copy looks like.
+    /// An installed npm package on disk, entered the way one really is:
+    /// `<root>/node_modules/<directory>/bin/cli.js` with the package's manifest
+    /// above it. `node_modules/.bin/<name>` is a symlink to that file, so what a
+    /// runner hands the interpreter is this path, whose file name is `cli.js`
+    /// and says nothing about which package it came from.
+    private func installedPackage(
+        manifestName: String,
+        version: String = "1.17.1",
+        directory: String = "varlock"
+    ) throws -> String {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("chain-package-\(UUID().uuidString)")
-        let packageRoot = root.appendingPathComponent("node_modules/varlock")
+        let packageRoot = root.appendingPathComponent("node_modules/\(directory)")
         try FileManager.default.createDirectory(
             at: packageRoot.appendingPathComponent("bin"),
             withIntermediateDirectories: true
         )
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let entry = packageRoot.appendingPathComponent("bin/cli.js")
-        try Data().write(to: entry)
+        try Data("#!/usr/bin/env node\n".utf8).write(to: entry)
         try JSONSerialization
-            .data(withJSONObject: ["name": "varlock", "version": "1.17.1-dev"])
+            .data(withJSONObject: ["name": manifestName, "version": version])
             .write(to: packageRoot.appendingPathComponent("package.json"))
+        // /var and /tmp are symlinks on macOS and the resolver follows them, so
+        // a test has to compare against what it will produce.
+        return (entry.path as NSString).resolvingSymlinksInPath
+    }
 
+    /// `bunx varlock load` against an installed copy: bun with the resolved
+    /// entry file in argv.
+    private func bunxVarlockTree(entry: String) -> [FakeProc] {
+        return [
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh", args: ["-zsh"]),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                tty: 16,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bun", entry, "load"]
+            ),
+        ]
+    }
+
+    func testVarlocksVersionIsReadFromThePackageItCameOutOf() throws {
+        let entry = try installedPackage(manifestName: "varlock", version: "1.17.1-dev")
         let chain = builder([
             FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
             FakeProc(
                 pid: 300,
                 ppid: 200,
                 path: "/Users/dev/.bun/bin/bun",
-                args: ["bun", entry.path, "load"]
+                args: ["bun", entry, "load"]
             ),
         ]).build(forPid: 300)
 
@@ -913,6 +951,10 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.hops.last?.release, HopRelease(version: "1.17.1-dev", source: .readFromDisk))
         XCTAssertTrue(chain.hops.last?.release?.isPrerelease ?? false)
         XCTAssertEqual(chain.hops.last?.release?.displayValue, "1.17.1-dev")
+        // The same manifest that gives the version gives the name. These two
+        // used to be answered from different evidence, and the row read "cli.js"
+        // with varlock's own version printed underneath it.
+        XCTAssertEqual(chain.hops.last?.name, "varlock")
         // A version the client merely asserted always says who asserted it.
         XCTAssertEqual(
             HopRelease(version: "1.17.1", source: .clientReported).displayValue,
@@ -920,11 +962,123 @@ final class ExecutionChainTests: XCTestCase {
         )
     }
 
+    func testAnInstalledVarlockIsRecognisedByThePackageItCameOutOf() throws {
+        let entry = try installedPackage(manifestName: "varlock")
+        let chain = builder(
+            bunxVarlockTree(entry: entry),
+            posture: FakePosture(facts: [300: Self.signed])
+        ).build(forPid: 300)
+
+        let hop = try XCTUnwrap(chain.hops.last)
+        // `bunx varlock load` drew a row called "cli.js" and treated varlock as
+        // somebody's stray node script. The file name is the one part of that
+        // path that says nothing; the package it sits in says everything.
+        XCTAssertEqual(hop.name, "varlock")
+        XCTAssertTrue(hop.isVarlock)
+        // Which is what puts varlock's own mark on the row rather than a
+        // document icon, and what suppresses "via bun": bun is how varlock ships.
+        XCTAssertNil(hop.via)
+        // Normalised by varlock's own rule, so the line reads as the act a
+        // person performed rather than as the file a runner resolved.
+        XCTAssertEqual(hop.invocation, "varlock load")
+        // varlock is never the actor. Nothing in this chain is bold, because the
+        // values are for the command and the command is varlock itself.
+        XCTAssertTrue(chain.hops.allSatisfy { !$0.isImportant })
+        XCTAssertEqual(hop.release, HopRelease(version: "1.17.1", source: .readFromDisk))
+        // And the row says which varlock this is, in words.
+        XCTAssertEqual(hop.runtimeForm, "varlock's JavaScript, run by bun, not the standalone binary")
+        XCTAssertTrue(hop.runtimeFormIsCaution)
+    }
+
+    func testRecognisingVarlockRestoresNoClaimAboutTheCodeItself() throws {
+        let entry = try installedPackage(manifestName: "varlock")
+        let chain = builder(
+            bunxVarlockTree(entry: entry),
+            posture: FakePosture(facts: [300: Self.signed])
+        ).build(forPid: 300)
+
+        let hop = try XCTUnwrap(chain.hops.last)
+        // Knowing WHICH package these files came out of says nothing about
+        // whether anyone signed them. They are ordinary JavaScript any process
+        // running as the user can rewrite, and calling the row varlock must
+        // never be a route back to a green shield on unsigned code.
+        XCTAssertEqual(hop.posture, .interpretedScript)
+        XCTAssertEqual(hop.interpreterName, "bun")
+        XCTAssertEqual(hop.interpreterPosture, .signedHardened)
+
+        let evidence = hop.evidence
+        XCTAssertEqual(evidence.map(\.label), ["program", "interpreter", "version"])
+        // The signature is stated beside the name of what it is a signature of,
+        // and nowhere else. The program line carries no posture at all.
+        XCTAssertEqual(evidence[0].value, entry)
+        XCTAssertNil(evidence[0].posture)
+        XCTAssertEqual(evidence[1].posture, .signedHardened)
+        XCTAssertEqual(evidence[1].postureSubject, "\u{201C}bun\u{201D}")
+    }
+
+    func testAScriptFromSomebodyElsesPackageIsNotVarlock() throws {
+        // The same shape exactly, down to the `bin/cli.js`, with a manifest that
+        // says something else. Nothing about the path is evidence; the name in
+        // the manifest is the whole test.
+        let entry = try installedPackage(manifestName: "helpful-tools", directory: "helpful-tools")
+        let chain = builder(
+            bunxVarlockTree(entry: entry),
+            posture: FakePosture(facts: [300: Self.signed])
+        ).build(forPid: 300)
+
+        let hop = try XCTUnwrap(chain.hops.last)
+        XCTAssertEqual(hop.name, "cli.js")
+        XCTAssertFalse(hop.isVarlock)
+        XCTAssertEqual(hop.via, "via bun")
+        // A third party's script IS the actor: it is what the values are for.
+        XCTAssertTrue(hop.isImportant)
+        XCTAssertEqual(hop.invocation, "cli.js load")
+        XCTAssertEqual(
+            hop.advisory,
+            "a script run by bun: approval trusts this file, not the signed interpreter"
+        )
+        // Neither varlock's version line nor varlock's runtime line is drawn for
+        // somebody else's package.
+        XCTAssertNil(hop.release)
+        XCTAssertNil(hop.runtimeForm)
+        XCTAssertEqual(hop.posture, .interpretedScript)
+    }
+
+    func testAThirdPartyScriptWithNoPackageAroundItIsUnchanged() throws {
+        let scratch = try scratchScript(named: "agent.ts")
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/usr/local/bin/node",
+                args: ["node", scratch.path]
+            ),
+        ], posture: FakePosture(facts: [300: Self.signed])).build(forPid: 300)
+
+        let hop = try XCTUnwrap(chain.hops.last)
+        // No manifest anywhere above it, so the walk finds nothing and the hop
+        // is what it always was: the bold actor, named after its own file.
+        XCTAssertEqual(hop.name, "agent.ts")
+        XCTAssertTrue(hop.isImportant)
+        XCTAssertEqual(hop.via, "via node")
+        XCTAssertEqual(hop.posture, .interpretedScript)
+        XCTAssertNil(hop.release)
+        XCTAssertNil(hop.runtimeForm)
+    }
+
     func testTheCompiledBinaryHasNoPackageVersionToRead() {
         let chain = builder(terminalTree).build(forPid: 300)
         // Nothing is invented for it. The panel falls back to what the client
         // said and labels it, rather than the chain making something up.
         XCTAssertNil(chain.hops.last?.release)
+        // A `varlock load` typed against the compiled binary is untouched by any
+        // of this: no script to resolve, no package to read, and the name was
+        // never in doubt.
+        XCTAssertEqual(chain.hops.last?.name, "varlock")
+        XCTAssertTrue(chain.hops.last?.isVarlock ?? false)
+        XCTAssertNil(chain.hops.last?.interpreterName)
+        XCTAssertEqual(chain.hops.last?.runtimeForm, "the standalone varlock binary")
     }
 
     func testEvidenceNamesTheProgramTheInterpreterAndTheVersion() throws {
