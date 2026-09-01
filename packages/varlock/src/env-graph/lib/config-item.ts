@@ -647,7 +647,12 @@ export class ConfigItem {
       this._schemaErrors.push(new SchemaError(
         'a number value cannot be sensitive',
         {
-          tip: 'Make it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).',
+          // the likely fix differs by how it got here: an explicit `@sensitive` means the
+          // author believes it is a secret, while `@defaultSensitive` sweeping in a port
+          // or a timeout usually just needs saying so
+          tip: this._sensitiveExplicitlySet
+            ? 'Make it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).'
+            : 'If it is not a secret, mark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.\nIf it really is a secret, make it a string instead: add `@type=string`, or quote the value.',
         },
       ));
     }
