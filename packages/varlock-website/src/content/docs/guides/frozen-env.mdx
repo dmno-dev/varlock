@@ -121,6 +121,27 @@ Encryption protects against exactly that: image layers, registry access, CI arti
 
 `--allow-plaintext` exists for schemas with nothing sensitive in them. It prints a warning, and there is no config setting for it, so it cannot be turned on once and forgotten.
 
+## The frozen file wins over runtime env
+
+This is the most important thing to understand before you use it.
+
+A frozen file is a complete, already-validated snapshot, and it is **authoritative**. Environment variables set when the container starts do not override it:
+
+```bash
+# the frozen file has DATABASE_URL, so this is ignored
+docker run -e DATABASE_URL=postgres://somewhere-else/db my-image
+```
+
+For a key that resolved to a value at freeze time, the frozen value wins. For a key that resolved to nothing, `process.env` is cleared to match, so `process.env.KEY` and `ENV.KEY` always agree. Nothing silently reads one resolution while something else reads another.
+
+This is deliberate: freezing means the config was resolved and validated as a unit, and a value injected afterwards was part of neither. Accepting it would mean running on config that nothing validated.
+
+:::caution[Config that genuinely varies per container]
+Freezing is all or nothing: there is currently no way to seal most of your config while leaving a few keys to the runtime. If some values must come from the container rather than the deploy (a per-container `DATABASE_URL`, say), freezing is not the right tool for that service yet. Use [`varlock run`](/reference/cli/load-and-run/#run), or let the app resolve at boot, so every value is validated where it is supplied.
+
+In particular, marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**. It gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
+:::
+
 ## Tradeoffs
 
 **Rotating a secret takes effect on your next deploy, not on the next restart.** This is the entire point of freezing, but it inverts what most secret managers do, so everyone touching the deploy should know it. To pick up a rotated value, re-run `varlock freeze` and redeploy.
