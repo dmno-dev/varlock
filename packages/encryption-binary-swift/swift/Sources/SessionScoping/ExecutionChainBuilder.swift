@@ -134,10 +134,15 @@ public struct ExecutionChainBuilder {
                 SessionRootMark(
                     label: anchor.label,
                     kind: anchor.kind,
-                    // Decoration, not the reason the row exists: an agent named
-                    // here is this session's agent only when the session is
-                    // anchored on that very process.
-                    agent: index == session?.index ? session?.session : nil
+                    // Decoration, not the reason the row exists, and only on
+                    // positive evidence: a row is named after an agent when the
+                    // session is anchored on the agent's own process. An
+                    // inherited environment marker says the request came from
+                    // inside a session, which the label already says, and is no
+                    // reason to call some other program by the agent's name.
+                    agent: index == session?.index && session?.isTheAgentItself == true
+                        ? session?.session
+                        : nil
                 )
             }
         }
@@ -167,6 +172,7 @@ public struct ExecutionChainBuilder {
                 // host's command rather than varlock's own. Only the requester's
                 // is drawn.
                 invocation: Self.invocation(from: walkedProcess.arguments),
+                runTarget: Self.runTarget(from: walkedProcess.arguments),
                 posture: hopPosture(walkedProcess),
                 isRequester: walkedProcess.snapshot.pid == pid,
                 isLauncher: isLauncher,
@@ -278,9 +284,26 @@ public struct ExecutionChainBuilder {
             tokens = [name] + tokens.dropFirst()
         }
 
+        // varlock's own line gets the trimming rule: it is the one a person is
+        // being asked to judge, so it is drawn without waiting for the chain to
+        // be opened, and it earns that place by saying only what matters.
+        if tokens.first == "varlock" {
+            return VarlockInvocation.fit(
+                VarlockInvocation.trimmed(tokens),
+                limit: maxVarlockInvocationLength
+            )
+        }
+
         let line = tokens.joined(separator: " ")
         guard line.count > maxInvocationLength else { return line }
         return String(line.prefix(maxInvocationLength - 1)) + "\u{2026}"
+    }
+
+    /// The command a `varlock run` will hand these values to, when that is what
+    /// this command line is.
+    public static func runTarget(from arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(where: { isOwnCommand($0) }) else { return nil }
+        return VarlockInvocation.runTarget(["varlock"] + arguments.dropFirst(index + 1))
     }
 
     /// The script an interpreter or wrapper was pointed at, if that is the shape
@@ -314,6 +337,10 @@ public struct ExecutionChainBuilder {
 
     /// Enough for a subcommand and its first arguments, and no more.
     public static let maxInvocationLength = 56
+
+    /// varlock's own line is always on screen and is the one being judged, so it
+    /// gets more room than a passing mention of a host command does.
+    public static let maxVarlockInvocationLength = 72
 
     /// What to call the app at the top of the chain.
     ///
@@ -376,10 +403,13 @@ public struct ExecutionChainBuilder {
         ),
     ]
 
-    /// A session, and which hop it is rooted at.
+    /// A session, which hop it was found at, and how strong that finding is.
     struct FoundSession {
         let index: Int
         let session: AgentSession
+        /// Whether this hop IS the agent, rather than merely a process running
+        /// inside one. Only the first can put the agent's name on a row.
+        let isTheAgentItself: Bool
     }
 
     /// The agent session this request came from, if it came from one.
@@ -391,7 +421,7 @@ public struct ExecutionChainBuilder {
     private func agentSession(in ordered: [WalkedProcess], startedAt: Date) -> FoundSession? {
         for (index, walkedProcess) in ordered.enumerated() {
             for marker in Self.agentMarkers where marker.executableNames.contains(walkedProcess.executableName) {
-                return found(marker: marker, index: index, process: walkedProcess)
+                return found(marker: marker, index: index, process: walkedProcess, isTheAgentItself: true)
             }
         }
 
@@ -403,7 +433,14 @@ public struct ExecutionChainBuilder {
                     guard let value = environment[key] else { return false }
                     return !value.isEmpty && value != "0"
                 }
-                if matched { return found(marker: marker, index: index, process: walkedProcess) }
+                // An exported marker proves the request came from INSIDE that
+                // agent's session, never that this process is the agent: the
+                // variable is inherited by every descendant, so the topmost
+                // carrier is just the outermost process the walk could read.
+                // `next dev` started by an agent would answer to this too.
+                if matched {
+                    return found(marker: marker, index: index, process: walkedProcess, isTheAgentItself: false)
+                }
             }
         }
         return nil
@@ -411,7 +448,12 @@ public struct ExecutionChainBuilder {
 
     /// The session as the panel will say it: product, the session's own title
     /// where the agent recorded one, and when it began.
-    private func found(marker: AgentMarker, index: Int, process: WalkedProcess) -> FoundSession {
+    private func found(
+        marker: AgentMarker,
+        index: Int,
+        process: WalkedProcess,
+        isTheAgentItself: Bool
+    ) -> FoundSession {
         let processStart = process.snapshot.startTime > 0 ? process.snapshot.startTime : nil
         let metadata = sessionMetadata.metadata(
             for: marker.product,
@@ -426,7 +468,8 @@ public struct ExecutionChainBuilder {
                 // The agent's own record of when the session began where there is
                 // one, since a session can outlive the process that started it.
                 startTime: metadata?.startTime ?? processStart
-            )
+            ),
+            isTheAgentItself: isTheAgentItself
         )
     }
 }

@@ -58,6 +58,10 @@ public struct ExecutionHop: Equatable {
     /// than from anything it sent, which is what makes it worth showing next to
     /// the value names the client reported for itself.
     public let invocation: String?
+    /// For a `varlock run`, the command this run will start and hand the values
+    /// to. That process does not exist yet, so it is in no ancestry: naming it
+    /// from argv is the only way the panel can say where the values are going.
+    public let runTarget: String?
     public let posture: HopPosture
     /// The process that actually connected to the daemon.
     public let isRequester: Bool
@@ -83,6 +87,7 @@ public struct ExecutionHop: Equatable {
         bundlePath: String? = nil,
         terminalName: String? = nil,
         invocation: String? = nil,
+        runTarget: String? = nil,
         posture: HopPosture = .unknown,
         isRequester: Bool = false,
         isLauncher: Bool = false,
@@ -97,6 +102,7 @@ public struct ExecutionHop: Equatable {
         self.bundlePath = bundlePath
         self.terminalName = terminalName
         self.invocation = invocation
+        self.runTarget = runTarget
         self.posture = posture
         self.isRequester = isRequester
         self.isLauncher = isLauncher
@@ -107,6 +113,10 @@ public struct ExecutionHop: Equatable {
 
     /// Whether this hop is varlock itself, however it was started.
     public var isVarlock: Bool { ExecutionChainBuilder.isOwnCommand(name) }
+
+    /// Whether this hop is a plain shell: plumbing that says how something was
+    /// started rather than what is running.
+    public var isShell: Bool { ExecutionChainBuilder.shellNames.contains(name) }
 
     /// Whether the session a grant attaches to begins here.
     public var isSessionRoot: Bool { sessionRoot != nil }
@@ -194,13 +204,26 @@ public struct ExecutionChain: Equatable {
     /// varlock's own internal command but the command it was loaded inside: the
     /// nearest thing above it that is not varlock.
     public var hostInvocation: String? {
+        if let hostProgram { return hostProgram.invocation }
         guard let requesterIndex = hops.firstIndex(where: { $0.isRequester }) else { return nil }
-        let above = hops[..<requesterIndex].reversed().filter { !$0.isVarlock && !$0.isLauncher }
-        // The host is whatever loaded varlock, which is a program rather than the
-        // shell that started that program. A shell answers only when there is
-        // nothing else to point at.
-        let program = above.first { !ExecutionChainBuilder.shellNames.contains($0.name) }
-        return (program ?? above.first)?.invocation
+        // Nothing but shells above: they answer only when there is nothing else
+        // to point at.
+        return hops[..<requesterIndex].reversed().first { !$0.isVarlock && !$0.isLauncher }?.invocation
+    }
+
+    /// The program that could have loaded varlock: the nearest hop above the
+    /// requester that is neither a shell, nor varlock, nor the app that was
+    /// launched.
+    ///
+    /// This is the kernel's half of the auto-load question. The mode itself is
+    /// client-reported (a spawned CLI looks the same either way from inside), but
+    /// whether anything up there could have done the spawning is a fact, and a
+    /// claim that contradicts it does not get to stand.
+    public var hostProgram: ExecutionHop? {
+        guard let requesterIndex = hops.firstIndex(where: { $0.isRequester }) else { return nil }
+        return hops[..<requesterIndex].reversed().first {
+            !$0.isVarlock && !$0.isLauncher && !$0.isShell
+        }
     }
 
     /// The hop a coding-agent session begins at, when the request came from one.

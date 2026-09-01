@@ -292,18 +292,41 @@ The panel shows, top to bottom:
   what it was typed for. The session root never is, having a treatment of its
   own. When nothing qualifies, nothing is bold, which is the honest state for a
   command a person typed: the values are for that command, and the command is
-  varlock. A bold row that always exists is a bold row that means nothing. Opening that shows each hop's path,
-  the word for its code-signing posture, and the command line varlock itself was
-  invoked with, read from the kernel's own copy of its argv rather than from
-  anything the client sent. What a mark means is said under the hop it belongs to
-  ("a script run by bun: approval trusts this file, not the signed interpreter"),
-  never in a legend at the bottom that a reader would have to match back up to a
-  row. varlock's own hop is named plainly: `bunx varlock load` shows as `varlock`
-  and not as "varlock via bun", since bun is how varlock ships rather than who is
-  asking, and its command line reads as it was typed (`$ varlock load`). When
-  varlock was loaded by a host process instead of run by a person, the line says
-  so and names the host's command (`auto-loaded inside next dev`): the mode is
-  client-reported, the command is the kernel's.
+  varlock. A bold row that always exists is a bold row that means nothing.
+  Opening the chain shows each hop's path and the word for its code-signing
+  posture. What a mark means is said under the hop it belongs to ("a script run
+  by bun: approval trusts this file, not the signed interpreter"), never in a
+  legend at the bottom that a reader would have to match back up to a row.
+  varlock's own hop is named plainly: `bunx varlock load` shows as `varlock` and
+  not as "varlock via bun", since bun is how varlock ships rather than who is
+  asking.
+
+  **How varlock got here is always on screen**, never behind the expander: a
+  person typing a command and a program loading varlock as it starts are
+  different requests, and which one this is should not have to be inferred.
+  A typed command reads as one, with its command line (`$ varlock load`). An
+  auto-load says so and names the host's own command (`auto-loaded inside next
+  dev`). A `varlock run` also names the command that will receive the values
+  (`npm run build receives these values`), because that process does not exist
+  yet and is in no ancestry: a panel stopping at varlock would imply the values
+  do too.
+
+  The command lines are read from the kernel's copy of each process's argv. The
+  MODE (cli, auto-load, sdk) is client-reported over the socket, because from
+  inside a spawned CLI an auto-load and a typed command are the same process with
+  the same arguments; it is a claim, and the wording never presents it as more.
+  Where the claim contradicts the chain (a peer that is not varlock's CLI at all,
+  or an auto-load claim with nothing above the CLI that could have loaded it) the
+  chain wins and the disagreement goes to the debug log as
+  `invocation-mode-overruled`.
+
+  A varlock command line is trimmed to what a person needs to judge it: the
+  subcommand always, plus whatever changes what is being asked for (the `--`
+  target, `--env`, `--path`, a filter, and anything unrecognised, since staying
+  quiet about an unknown flag is the wrong default for evidence). Presentation
+  flags (`--format`, `--compact`, cache and verbosity switches) are dropped: a
+  shorter honest line gets read and a complete one does not. A line too long to
+  draw loses its middle rather than its tail, so the `--` target always survives.
 
   Colour on the chain means exactly one thing at a time. Green is a signature we
   checked, amber is a script whose source is mutable, purple is a coding-agent

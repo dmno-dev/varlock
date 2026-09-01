@@ -238,17 +238,88 @@ final class ExecutionChainTests: XCTestCase {
         ]).build(forPid: 400)
 
         // An auto-load runs the same CLI a person would, so varlock's own
-        // command line is not the one worth showing: the host's is.
+        // command line is not the one worth showing: the host's is. The host is
+        // the program, not the shell that started it.
         XCTAssertEqual(chain.hostInvocation, "next dev")
-        XCTAssertEqual(chain.hops.last?.invocation, "varlock load --format json-full")
+        XCTAssertEqual(chain.hostProgram?.name, "next")
+        // Output formatting says nothing about which secrets go where.
+        XCTAssertEqual(chain.hops.last?.invocation, "varlock load")
+    }
+
+    func testAVarlockLineKeepsWhatChangesTheRequestAndDropsPresentation() {
+        let line = ExecutionChainBuilder.invocation(from: [
+            "/opt/homebrew/bin/varlock", "load",
+            "--format", "json-full", "--compact", "--include-internal",
+            "--env", "production", "--path", ".env.production",
+        ])
+        // Which environment and which file are the request; the rest is printing.
+        XCTAssertEqual(line, "varlock load --env production --path .env.production")
+
+        // The `=` form takes its value with it, and an unknown flag is kept:
+        // staying quiet about something we do not recognise is the wrong default
+        // for a line that exists to be evidence.
+        XCTAssertEqual(
+            ExecutionChainBuilder.invocation(from: ["varlock", "load", "--format=json", "--brand-new-flag"]),
+            "varlock load --brand-new-flag"
+        )
+    }
+
+    func testAVarlockRunNamesTheCommandThatReceivesTheValues() {
+        let arguments = ["/opt/homebrew/bin/varlock", "run", "--format", "json", "--", "npm", "run", "build"]
+        XCTAssertEqual(ExecutionChainBuilder.invocation(from: arguments), "varlock run -- npm run build")
+        // The process that gets the values does not exist yet, so it is in no
+        // ancestry: argv is the only place it can be read from.
+        XCTAssertEqual(ExecutionChainBuilder.runTarget(from: arguments), "npm run build")
+        XCTAssertNil(ExecutionChainBuilder.runTarget(from: ["varlock", "load"]))
+        XCTAssertNil(ExecutionChainBuilder.runTarget(from: ["node", "server.js"]))
+    }
+
+    func testTheHostThatAutoLoadedVarlockIsTheActor() {
+        let chain = builder([
+            FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+            FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh", args: ["-zsh"]),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                tty: 16,
+                path: "/usr/local/bin/node",
+                args: ["node", "/app/node_modules/.bin/next", "dev"]
+            ),
+            FakeProc(
+                pid: 400,
+                ppid: 300,
+                tty: 16,
+                path: "/app/node_modules/.bin/varlock",
+                args: ["/app/node_modules/.bin/varlock", "load"]
+            ),
+        ]).build(forPid: 400)
+
+        // The values are for the dev server; varlock fetched them on its behalf.
+        XCTAssertEqual(chain.hops.filter { $0.isImportant }.map { $0.name }, ["next"])
+        // And the session is still the terminal it was started from.
+        XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.label, "Terminal ttys004")
     }
 
     func testALongCommandLineKeepsTheSubcommandAndTheFirstArguments() {
         let long = ExecutionChainBuilder.invocation(from: ["varlock", "run"] + (0..<40).map { "--flag-\($0)" })
         XCTAssertTrue(long?.hasPrefix("varlock run --flag-0") ?? false)
-        XCTAssertEqual(long?.count, ExecutionChainBuilder.maxInvocationLength)
+        XCTAssertEqual(long?.count, ExecutionChainBuilder.maxVarlockInvocationLength)
         XCTAssertTrue(long?.hasSuffix("\u{2026}") ?? false)
         XCTAssertNil(ExecutionChainBuilder.invocation(from: []))
+    }
+
+    func testALongRunLineElidesTheMiddleAndKeepsTheTarget() {
+        let long = ExecutionChainBuilder.invocation(
+            from: ["varlock", "run", "--env", "staging"] + (0..<20).map { "--flag-\($0)" }
+                + ["--", "npm", "run", "build"]
+        )
+        // The head says what was run and the tail says who receives the values.
+        // Truncating the tail would drop exactly the half worth reading.
+        XCTAssertTrue(long?.hasPrefix("varlock run --env staging") ?? false)
+        XCTAssertTrue(long?.hasSuffix("-- npm run build") ?? false)
+        XCTAssertTrue(long?.contains("\u{2026}") ?? false)
+        XCTAssertLessThanOrEqual(long?.count ?? 0, ExecutionChainBuilder.maxVarlockInvocationLength)
     }
 
     func testOnlyACheckedSignatureGetsAWord() {
@@ -398,18 +469,23 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.agentSession?.startTime, 1_700_000_042)
     }
 
-    func testAnAgentSessionIsFoundThroughTheEnvironmentItExported() {
+    func testAnExportedMarkerDoesNotPutTheAgentsNameOnSomeOtherProcess() {
         // The agent itself is out of reach (too far up, or not on the path we
-        // walked), but what it exported into the shell is still there.
+        // walked) and what it exported into the shell is still there. That marker
+        // travels to every descendant, so it says the request came from inside a
+        // session and nothing about which process this is: `next dev` started by
+        // an agent carries it too, and is not Claude Code.
         let chain = builder([
             FakeProc(pid: 200, ppid: 1, startTime: 1_700_000_500, path: "/bin/zsh", env: ["CLAUDECODE": "1"]),
             FakeProc(pid: 300, ppid: 200, path: "/opt/homebrew/bin/varlock", env: ["CLAUDECODE": "1"]),
         ]).build(forPid: 300)
 
-        XCTAssertEqual(chain.agentSession?.productName, "Claude Code")
-        // The topmost process carrying the marker is the one nearest the agent,
-        // so its start time is the closest thing to the session's.
+        XCTAssertNil(chain.agentSession)
+        // The session root is still drawn, because a grant still attaches to
+        // something: the process the scoper anchored on, named as itself.
         XCTAssertEqual(chain.sessionRootHop?.pid, 200)
+        XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.label, "Process 200")
     }
 
     func testAnEmptyMarkerIsNotASession() {

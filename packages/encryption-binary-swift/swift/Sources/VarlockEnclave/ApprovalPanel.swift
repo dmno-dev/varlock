@@ -767,10 +767,25 @@ final class ApprovalPanel: NSObject {
             column.addArrangedSubview(label)
         }
 
+        // How varlock came to be running. The command lines in it are read from
+        // the kernel; the mode that frames them was reported by the client, so a
+        // claim the chain contradicts is overruled here, and the disagreement is
+        // recorded rather than drawn: the user gets the conclusion, and whoever
+        // is debugging gets the argument.
+        let invocation = InvocationEvidence.note(
+            chain: content.requester.chain ?? .empty,
+            claimed: content.invocationMode
+        )
+        if let disagreement = invocation.disagreement {
+            PanelDebug.note("invocation-mode-overruled", [
+                "claimed": content.invocationMode?.rawValue ?? "-",
+                "reason": disagreement,
+            ])
+        }
         let chain = PanelChainView(
             chain: content.requester.chain ?? .empty,
             fallbackSummary: content.requester.summary,
-            invocationMode: content.invocationMode,
+            invocation: invocation,
             startExpanded: expandChain
         ) { [weak self] in self?.relayout() }
         chain.translatesAutoresizingMaskIntoConstraints = false

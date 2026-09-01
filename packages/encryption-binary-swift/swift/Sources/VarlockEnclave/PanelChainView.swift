@@ -6,16 +6,22 @@ import SessionScoping
 ///
 /// The chain is always visible, because one process name is not an answer: `bun`
 /// says nothing, and `agent.ts via bun, launched from iTerm2` says everything.
-/// Size carries the meaning: the hop that decides what runs is large, the app
-/// that was launched is small context at the top, and the boring hops in between
-/// fold away until someone asks for them.
+/// Size carries the meaning: the actor (the program the values are for) is large,
+/// the app that was launched is small context at the top, and the plumbing in
+/// between folds away until someone asks for it. Nothing is large when nothing
+/// qualifies, which is the honest state for a command a person typed.
 ///
-/// A coding-agent session is a hop like any other, sitting where it really is in
-/// the ancestry, marked in purple with its own title and start time. The rail
-/// below it is tinted the same purple, so everything running inside that session
-/// is a span you can see rather than a relationship you have to work out. It is
-/// never folded away: which session a request came from is the most load-bearing
-/// fact on the panel when there is one.
+/// One row is the session root, tinted purple and tagged: the process a "this
+/// session" grant attaches to, which the panel is asking about in the same
+/// breath. The rail below it is tinted to match, so everything inside that
+/// session is a span you can see rather than a relationship you have to work
+/// out, and it is never folded away. When the session belongs to a coding agent,
+/// that row also carries the product, the session's title, and its start time.
+///
+/// The line under varlock's own hop says how it came to be running: a typed
+/// command with its command line, or the host that auto-loaded it. That is never
+/// hidden behind the expander, because it is the difference between a person
+/// asking and a program asking.
 final class PanelChainView: NSView {
     private let onLayoutChanged: () -> Void
     private var expanded = false
@@ -23,8 +29,6 @@ final class PanelChainView: NSView {
     private var pathLabels: [NSTextField] = []
     /// The expander's label and what it says, so the preview can open the chain.
     private var expander: (field: NSTextField, label: String)?
-    /// Lines that only appear once the chain is opened.
-    private var invocationRows: [NSView] = []
     /// Marks that grow a word when the chain is opened.
     private var postureLabels: [(label: NSTextField, posture: HopPosture)] = []
 
@@ -33,7 +37,7 @@ final class PanelChainView: NSView {
     init(
         chain: ExecutionChain,
         fallbackSummary: String,
-        invocationMode: UnlockInvocationMode? = nil,
+        invocation: InvocationNote = InvocationNote(kind: .unknown),
         startExpanded: Bool = false,
         onLayoutChanged: @escaping () -> Void
     ) {
@@ -81,17 +85,15 @@ final class PanelChainView: NSView {
                 foldedRows.append(row)
             }
 
-            // The warning about a hop goes under that hop. A legend at the
-            // bottom of the chain is a warning the reader has to match back up
-            // to a row, which is a warning that gets skipped.
-            // How varlock itself was invoked, from the kernel rather than from
-            // anything the client said. Evidence, so it keeps company with the
-            // paths and appears when the chain is opened.
-            if hop.isRequester, let invocation = invocationText(hop: hop, chain: chain, mode: invocationMode) {
-                let line = invocationRow(invocation, insideSession: hop.isInsideSession)
-                column.addArrangedSubview(line)
-                invocationRows.append(line)
-                line.isHidden = true
+            // How varlock came to be running, and what receives the values. Read
+            // from the kernel rather than from anything the client said, and
+            // always on screen: a typed command and an auto-load are different
+            // requests, and which one this is should never have to be inferred
+            // (or found behind a disclosure).
+            if hop.isRequester {
+                for text in invocation.lines {
+                    column.addArrangedSubview(invocationRow(text, insideSession: hop.isInsideSession))
+                }
             }
 
             guard let advisory = hop.advisory else { continue }
@@ -126,7 +128,6 @@ final class PanelChainView: NSView {
             // Nothing folds away, but the evidence lines still have to appear.
             expanded = true
             for path in pathLabels { path.isHidden = false }
-            for row in invocationRows { row.isHidden = false }
             applyPostureWords()
             return
         }
@@ -197,25 +198,6 @@ final class PanelChainView: NSView {
             container.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
         ])
         return container
-    }
-
-    /// What the line under varlock's hop says.
-    ///
-    /// A typed command is shown as one ("$ varlock load"). A load from inside a
-    /// host process is not: the command a person would recognise is the host's,
-    /// and varlock's own internal invocation would be a command nobody ran. The
-    /// framing word is client-reported and the command is the kernel's, which is
-    /// the split the whole panel is built on.
-    private func invocationText(
-        hop: ExecutionHop,
-        chain: ExecutionChain,
-        mode: UnlockInvocationMode?
-    ) -> String? {
-        guard let mode, mode.isHosted else {
-            return hop.invocation.map { "$ \($0)" }
-        }
-        guard let host = chain.hostInvocation ?? hop.invocation else { return nil }
-        return "auto-loaded inside \(host)"
     }
 
     /// The command line under the hop that ran it.
@@ -435,7 +417,6 @@ final class PanelChainView: NSView {
         expanded.toggle()
         for row in foldedRows { row.isHidden = !expanded }
         for path in pathLabels { path.isHidden = !expanded }
-        for row in invocationRows { row.isHidden = !expanded }
         for (label, posture) in postureLabels {
             let word = posture.inlineLabel.map { " \($0)" } ?? ""
             label.stringValue = "\u{25CF}" + (expanded ? word : "")
