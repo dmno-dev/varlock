@@ -49,8 +49,12 @@ import { commandSpec as proxyCommandSpec } from './commands/proxy.command-spec';
 // must happen before anything writes to stdio
 handleBrokenPipe();
 
+// Read defensively: the define does not exist when this file is run straight
+// from source, which is how the CLI is run while working in this repo, and a
+// bare read throws before the command has a chance to do anything.
+const buildType: string = typeof __VARLOCK_BUILD_TYPE__ === 'undefined' ? 'dev' : __VARLOCK_BUILD_TYPE__;
 let versionId = packageJson.version;
-if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
+if (buildType !== 'release') versionId += `-${buildType}`;
 
 const subCommands = new Map();
 subCommands.set('init', lazy(async () => (await import('./commands/init.command')).commandFn, initCommandSpec));

@@ -197,9 +197,15 @@ export function checkIsOptedOutViaEnv(env: NodeJS.ProcessEnv = process.env) {
   );
 }
 
+// Substituted at build time, so it does not exist when a source file is run
+// directly without the defines, which is how the CLI is run while working in
+// this repo. Read bare it throws a ReferenceError before the command can do
+// anything at all, so an unbuilt source tree is treated as the dev build it is.
+const buildType: string = typeof __VARLOCK_BUILD_TYPE__ === 'undefined' ? 'dev' : __VARLOCK_BUILD_TYPE__;
+
 function checkIsOptedOut() {
   // Check if this is a dev build, rather than a published npm package or standalone binary
-  if (__VARLOCK_BUILD_TYPE__ === 'dev') {
+  if (buildType === 'dev') {
     debug('telemetry opted out - dev build');
     return true;
   }
@@ -478,7 +484,7 @@ function getTelemetryMeta() {
 
   let versionIdentifier = packageJson.version;
   // TODO: for preview builds, it would be nice to track which preview it is (PR number or commit hash)
-  if (__VARLOCK_BUILD_TYPE__ !== 'release') versionIdentifier += `-${__VARLOCK_BUILD_TYPE__}`;
+  if (buildType !== 'release') versionIdentifier += `-${buildType}`;
 
   cachedTelemetryMetadata = {
     anonymous_project_id: getAnonymousProjectId(),

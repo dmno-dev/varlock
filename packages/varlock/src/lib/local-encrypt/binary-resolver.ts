@@ -183,6 +183,15 @@ function resolveNpmBundled(): string | undefined {
   return resolveBinaryFromDir(path.join(packageRoot, 'native-bins', getNativeBinSubdir()));
 }
 
+/** Modification time of a binary, or 0 if it cannot be statted */
+function getMtimeMs(binaryPath: string): number {
+  try {
+    return fs.statSync(binaryPath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Strategy 4: Development fallback — look for build output in the monorepo.
  * Walks up from __dirname looking for native binary build output
@@ -194,28 +203,29 @@ function resolveDevFallback(): string | undefined {
     if (parent === dir) break;
     dir = parent;
 
-    // Check for Swift build output (macOS)
+    // Debug as well as release, newest wins. Day to day work on the native
+    // helper builds debug (`swift build`), so probing only release meant a dev
+    // checkout silently fell through to whatever was installed from npm and ran
+    // an old daemon against new client code.
+    const buildOutputs: Array<string> = [];
     if (process.platform === 'darwin') {
-      const swiftBuild = path.join(dir, 'packages', 'encryption-binary-swift', 'swift', '.build', 'release', 'VarlockEnclave');
-      if (fs.existsSync(swiftBuild)) return swiftBuild;
+      for (const config of ['release', 'debug']) {
+        buildOutputs.push(path.join(dir, 'packages', 'encryption-binary-swift', 'swift', '.build', config, 'VarlockEnclave'));
+      }
+    }
+    for (const config of ['release', 'debug']) {
+      buildOutputs.push(path.join(dir, 'packages', 'encryption-binary-rust', 'target', config, getPlatformBinaryName()));
     }
 
-    // Check for Rust build output (Linux/Windows)
-    const rustBuild = path.join(dir, 'packages', 'encryption-binary-rust', 'target', 'release', getPlatformBinaryName());
-    if (fs.existsSync(rustBuild)) return rustBuild;
+    const built = buildOutputs.filter((binaryPath) => fs.existsSync(binaryPath));
+    if (built.length) {
+      return built.reduce((a, b) => (getMtimeMs(b) > getMtimeMs(a) ? b : a));
+    }
   }
 
   return undefined;
 }
 
-/** Modification time of a binary, or 0 if it cannot be statted */
-function getMtimeMs(binaryPath: string): number {
-  try {
-    return fs.statSync(binaryPath).mtimeMs;
-  } catch {
-    return 0;
-  }
-}
 
 /**
  * Ensure the binary at the given path is executable.
@@ -247,6 +257,21 @@ export function resolveNativeBinary(): string | undefined {
     debug('_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK is set — skipping native binary resolution');
     _cachedBinaryPath = undefined;
     return undefined;
+  }
+
+  // An explicit path wins over every strategy below. Resolution otherwise
+  // depends on where the caller happens to sit and on build timestamps, which
+  // is fine in an install and miserable when working on the helper itself:
+  // pointing a scratch project at a specific build should not require guessing
+  // which candidate the resolver will prefer.
+  const override = process.env._VARLOCK_NATIVE_BINARY;
+  if (override) {
+    if (!fs.existsSync(override)) {
+      throw new Error(`_VARLOCK_NATIVE_BINARY is set to "${override}", which does not exist`);
+    }
+    debug(`resolved via _VARLOCK_NATIVE_BINARY: ${override}`);
+    _cachedBinaryPath = ensureExecutable(override);
+    return _cachedBinaryPath;
   }
 
   debug(`resolving: platform=${process.platform}, isWSL=${isWSL()}, binaryName=${getPlatformBinaryName()}, subdir=${getNativeBinSubdir()}`);
