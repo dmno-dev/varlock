@@ -113,8 +113,12 @@ export function pluginTest(spec: PluginTestSpec) {
             expect(item.errors[0]).toBeInstanceOf(expected);
           }
         } else {
-          if (item.errors.length > 0) {
-            expect.fail(`Unexpected errors on "${key}": ${item.errors.map((e: Error) => e.message).join(', ')}`);
+          // warnings are advisory by design (e.g. the short-sensitive-value rule), and the
+          // source-level check above already ignores them - failing here would make every
+          // plugin's fixtures hostage to advisory rules added in core
+          const unexpectedErrors = item.errors.filter((e) => !e.isWarning);
+          if (unexpectedErrors.length > 0) {
+            expect.fail(`Unexpected errors on "${key}": ${unexpectedErrors.map((e: Error) => e.message).join(', ')}`);
           }
           expect(item.resolvedValue, `Value of "${key}"`).toEqual(expected);
         }

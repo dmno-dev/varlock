@@ -123,14 +123,14 @@ describe('dashlane plugin', () => {
 
     test('multiple secrets in one schema', dlTest({
       dcliResponses: {
-        'dl://abc/password': 'pw1',
-        'dl://def/password': 'pw2',
+        'dl://abc/password': 'dashlane-password-1',
+        'dl://def/password': 'dashlane-password-2',
       },
       schema: outdent`
         A=dashlane("dl://abc/password")
         B=dashlane("dl://def/password")
       `,
-      expectValues: { A: 'pw1', B: 'pw2' },
+      expectValues: { A: 'dashlane-password-1', B: 'dashlane-password-2' },
     }));
   });
 
@@ -306,24 +306,24 @@ describe('dashlane plugin', () => {
 
   describe('allowMissing', () => {
     test('missing entry resolves empty when allowMissing is set per call', dlTest({
-      dcliResponses: { 'dl://abc/password': 'pw1' },
+      dcliResponses: { 'dl://abc/password': 'dashlane-password-1' },
       schema: outdent`
         SECRET=dashlane("dl://abc/password")
         # @optional
         MISSING=dashlane("dl://nope/password", allowMissing=true)
       `,
-      expectValues: { SECRET: 'pw1', MISSING: undefined },
+      expectValues: { SECRET: 'dashlane-password-1', MISSING: undefined },
     }));
 
     test('missing entry resolves empty when allowMissing is set on init', dlTest({
-      dcliResponses: { 'dl://abc/password': 'pw1' },
+      dcliResponses: { 'dl://abc/password': 'dashlane-password-1' },
       initParams: 'allowMissing=true',
       schema: outdent`
         SECRET=dashlane("dl://abc/password")
         # @optional
         MISSING=dashlane("dl://nope/password")
       `,
-      expectValues: { SECRET: 'pw1', MISSING: undefined },
+      expectValues: { SECRET: 'dashlane-password-1', MISSING: undefined },
     }));
 
     test('per-call allowMissing=false overrides instance default', dlTest({
