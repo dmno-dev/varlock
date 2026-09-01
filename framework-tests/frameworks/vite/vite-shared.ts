@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import {
   describe, beforeAll, afterAll, test, expect,
 } from 'vitest';
+import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { FrameworkTestEnv } from '../../harness/index';
 
 export function defineViteTests(
@@ -428,6 +429,29 @@ export function defineViteTests(
         // no baked-snapshot conflict warning - the fresh blob is authoritative
         expect(output).not.toContain('Runtime environment conflicts');
         expect(output).toContain('process-env-unset::"from-fresh-blob"');
+      }, 180_000);
+
+      test('an ENCRYPTED fresh runtime blob is decrypted and wins over the baked payload', async () => {
+        // `varlock run --inject blob` under @encryptInjectedEnv hands the child a
+        // varlock:v1: ciphertext blob - the artifact must decrypt it in place and use
+        // it, not throw on ciphertext or fall back to the baked payload
+        const freshBlob = JSON.stringify({
+          sources: [],
+          settings: {},
+          config: {
+            UNSET_VAR: { value: 'from-encrypted-blob', isSensitive: false },
+            PUBLIC_VAR: { value: 'public-test-value', isSensitive: false },
+          },
+        });
+        const encryptionKey = generateEncryptionKeyHex();
+        const { output, status } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection', {
+          __VARLOCK_ENV: encryptEnvBlobSync(freshBlob, encryptionKey),
+          _VARLOCK_ENV_KEY: encryptionKey,
+        });
+        expect(status).toBe(0);
+        expect(output).toContain('ssr-undefined-check-done');
+        expect(output).not.toContain('Runtime environment conflicts');
+        expect(output).toContain('process-env-unset::"from-encrypted-blob"');
       }, 180_000);
     });
 

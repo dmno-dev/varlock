@@ -454,6 +454,15 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
       '  globalThis.__varlockLoadedEnv = JSON.parse(decryptEnvBlobSync(globalThis.__varlockEncryptedEnv, __key));',
       '  delete globalThis.__varlockEncryptedEnv;',
       '}',
+      // a fresh ambient blob (which the baked payload deferred to above) may itself be
+      // encrypted (`varlock run --inject blob` under @encryptInjectedEnv) - decrypt it
+      // in place, mirroring the nextjs init-server behavior, so initVarlockEnv never
+      // sees ciphertext
+      "if (typeof process !== 'undefined' && process.env.__VARLOCK_ENV && process.env.__VARLOCK_ENV.startsWith('varlock:v1:')) {",
+      '  const __key = process.env._VARLOCK_ENV_KEY;',
+      "  if (!__key) throw new Error('[varlock] encrypted env blob present but _VARLOCK_ENV_KEY is not set');",
+      '  process.env.__VARLOCK_ENV = decryptEnvBlobSync(process.env.__VARLOCK_ENV, __key);',
+      '}',
     );
     if (!isEdgeRuntime) {
       lines.push("import { patchGlobalServerResponse } from 'varlock/patch-server-response';");
