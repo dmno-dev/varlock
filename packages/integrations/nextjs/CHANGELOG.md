@@ -14,6 +14,15 @@
 
 
 
+
+## 1.2.2
+<sub>2026-09-01</sub>
+
+- [#1051](https://github.com/dmno-dev/varlock/pull/1051)  *(patch)*
+  Fix "exports is not defined in ES module scope" when using varlockNextConfigPlugin in a next.config.ts file. varlock now ships CJS builds of its runtime entry points (varlock/env, varlock/patch-console, varlock/patch-server-response, varlock/encrypt-env, varlock/exec-sync-varlock) via the `require` condition, so requiring them from CommonJS works through Next's TypeScript config loader and on Node versions without require(esm) support (below 22.12).
+- [#1055](https://github.com/dmno-dev/varlock/pull/1055)  *(patch)*
+  Fixes runtime-provided env vars being deleted from `process.env` when a server boots from the env snapshot baked into the build output (e.g. a Next.js standalone container where the varlock CLI is unavailable). Introduced in 1.17.1, this could take down a service that passes config at boot with `docker run -e ...`.
+
 ## 1.2.1
 <sub>2026-08-25</sub>
 

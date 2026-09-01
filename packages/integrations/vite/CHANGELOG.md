@@ -12,6 +12,13 @@
 
 
 
+
+## 1.5.1
+<sub>2026-09-01</sub>
+
+- [#1055](https://github.com/dmno-dev/varlock/pull/1055)  *(patch)*
+  Fixes runtime-provided env vars being deleted from `process.env` when a server boots from the env snapshot baked into the build output (e.g. a Next.js standalone container where the varlock CLI is unavailable). Introduced in 1.17.1, this could take down a service that passes config at boot with `docker run -e ...`.
+
 ## 1.5.0
 <sub>2026-08-25</sub>
 

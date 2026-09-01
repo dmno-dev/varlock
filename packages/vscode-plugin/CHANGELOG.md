@@ -12,6 +12,13 @@
 
 
 
+
+## 0.4.0
+<sub>2026-09-01</sub>
+
+- [#1045](https://github.com/dmno-dev/varlock/pull/1045)  *(minor)* - Add completions and diagnostics for the new `domain` data type
+- [#1043](https://github.com/dmno-dev/varlock/pull/1043)  *(minor)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)! - Added allowed protocol validation for URL values.
+
 ## 0.3.3
 <sub>2026-08-25</sub>
 

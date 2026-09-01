@@ -17,6 +17,12 @@
 
 
 
+
+## 1.5.1
+<sub>2026-09-01</sub>
+
+- *(patch)* Version bump from `@varlock/vite-integration` v1.5.1
+
 ## 1.5.0
 <sub>2026-08-25</sub>
 
