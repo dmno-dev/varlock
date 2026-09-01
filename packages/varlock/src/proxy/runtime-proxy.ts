@@ -13,7 +13,8 @@ import tls from 'node:tls';
 import { URL } from 'node:url';
 
 import {
-  createApprovalRequest, isApprovalValid, type ApprovalProvider,
+  createApprovalRequest, isApprovalValid,
+  type ApprovalPendingNotification, type ApprovalProvider,
 } from './approval';
 import type { ProxyActivity } from './audit';
 import {
@@ -83,6 +84,10 @@ export type StartLocalProxyRuntimeInput = {
    * (deny on timeout/error). Absent ⇒ require-approval requests are denied.
    */
   approvalProvider?: ApprovalProvider;
+  /** Subscribe remote tunnel clients to pending approval notifications. */
+  subscribeApprovalNotifications?: (
+    listener: (notification: ApprovalPendingNotification) => void,
+  ) => () => void;
   /**
    * Enables the `varlock.internal` internal endpoint, which serves the current
    * session-env payload (child-view env + graph; never wire real values) so an
@@ -1124,6 +1129,7 @@ export async function startLocalProxyRuntime({
   onActivity,
   onResponse,
   approvalProvider,
+  subscribeApprovalNotifications,
   internalEndpoint,
   port,
   certDir,
@@ -1710,6 +1716,7 @@ export async function startLocalProxyRuntime({
       token: dataPlaneToken,
       proxyPort: address.port,
       buildBootstrap: buildTunnelBootstrap,
+      ...(subscribeApprovalNotifications ? { subscribeApprovalNotifications } : {}),
       onAuthFailure: () => internalEndpoint?.onAuthFailure?.(),
     })
     : undefined;

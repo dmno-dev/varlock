@@ -34,6 +34,20 @@ const allowReloadArg = {
   },
 } as const;
 
+const approvalArgs = {
+  'approval-url': {
+    type: 'string',
+    description: 'Use an HTTP approval service instead of a terminal prompt. The endpoint receives a request-bound '
+      + 'approval request and returns approvalUrl + statusUrl. May also be set with VARLOCK_APPROVAL_URL; set '
+      + 'VARLOCK_APPROVAL_TOKEN (at least 32 characters) for broker authentication.',
+  },
+  'approval-public-key': {
+    type: 'string',
+    description: 'Ed25519 decision-verification key as <key-id>=<base64-SPKI>. May also be set with '
+      + 'VARLOCK_APPROVAL_PUBLIC_KEY. Required with an HTTP approval service.',
+  },
+} as const;
+
 // Fix the proxy's loopback port / CA-cert location so a caller can wire tools to a
 // known endpoint before it boots. Only meaningful when STARTING a proxy (proxy start,
 // or proxy run that isn't attaching), so only those verbs declare them.
@@ -86,6 +100,7 @@ export const runCommandSpec = define({
     ...sessionArg,
     ...pathArg,
     ...allowReloadArg,
+    ...approvalArgs,
     ...bindArgs,
     ...remoteArgs,
     new: {
@@ -128,6 +143,7 @@ export const startCommandSpec = define({
   args: {
     ...pathArg,
     ...allowReloadArg,
+    ...approvalArgs,
     ...bindArgs,
   },
 });
