@@ -46,6 +46,9 @@ export default tseslint.config(
       // SwiftPM build output. Generated JSON, and anyone who builds the Swift
       // package would otherwise get a red lint they did not cause.
       'packages/encryption-binary-swift/swift/.build',
+      // Cargo build output, for the same reason: it is full of generated JSON,
+      // and running `cargo test` should not turn the lint red.
+      'packages/encryption-binary-rust/target',
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
       'packages/varlock-website/.astro',
