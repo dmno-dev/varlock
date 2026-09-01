@@ -610,6 +610,47 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(item.errors.length).toBe(1);
   });
 
+  // a composite hides its leaves from the scalar type rules: array(number) has a composite
+  // coercedType while every element is a number, and redaction only registers string leaves
+  test('a sensitive composite with non-string elements is rejected', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @sensitive @type=array(number)
+      NUM_LIST=[111111,222222]
+
+      # @sensitive @type=record(number)
+      NUM_REC={low=111111}
+
+      # @sensitive @type=array(string)
+      STR_LIST=[averylongsecretvalue,anotherlongsecretval]
+
+      # not explicitly sensitive, so it warns rather than failing
+      IMPLICIT_NUMS=[111111,222222]
+    `);
+    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['sensitive value has elements that are not strings, which are never redacted']);
+    expect(g.configSchema.NUM_REC.validationState).toBe('error');
+    expect(g.configSchema.STR_LIST.validationState).toBe('valid');
+
+    expect(g.configSchema.IMPLICIT_NUMS.validationState).toBe('warn');
+    expect(g.configSchema.IMPLICIT_NUMS.errors.map((e) => e.message)).toEqual(['sensitive, but elements that are not strings are never redacted']);
+  });
+
+  // codegen runs off getTypeGenInfo(), which recomputes sensitivity independently - if it
+  // disagreed, generated public types would omit a field the resolved graph exposes
+  test('type generation agrees that a boolean is not sensitive', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      DEBUG=true
+    `);
+    const item = g.configSchema.DEBUG;
+    const typeGenInfo = await item.getTypeGenInfo();
+    expect(item.isSensitive).toBe(false);
+    expect(typeGenInfo.isSensitive).toBe(false);
+    expect(typeGenInfo.isDynamic).toBe(item.isDynamic);
+  });
+
   test('@sensitive on the @currentEnv item is an error', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false

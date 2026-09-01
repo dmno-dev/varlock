@@ -1,5 +1,5 @@
 import {
-  MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, shortestSensitiveValueLength,
+  MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, hasNonStringLeaf, shortestSensitiveValueLength,
 } from '../../lib/sensitive-value';
 import _ from '@env-spec/utils/my-dash';
 import {
@@ -1129,6 +1129,27 @@ export class ConfigItem {
       // substring replacement cannot tell a leaked secret from prose that matches it.
       // Composite values are measured per element, since that is how redaction registers
       // them - a long array with a one-character element is still a one-character match.
+      // A composite hides unredactable leaves from the scalar type rules above: an
+      // `@type=array(number)` item has a composite coercedType while every element is a
+      // number, and redaction registers only string leaves - so those elements reach logs
+      // and proxied responses unchanged. Same explicit/implicit split as a bare number.
+      const compositeHasUnredactableLeaf = this.isSensitive
+        && isCompositeCoercedType(this.dataType?.coercedType)
+        && hasNonStringLeaf(this.resolvedValue);
+      if (compositeHasUnredactableLeaf) {
+        this.validationErrors = [
+          ...(this.validationErrors ?? []),
+          this._sensitiveExplicitlySet
+            ? new ValidationError('sensitive value has elements that are not strings, which are never redacted', {
+              tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nUse a string element type (e.g. `@type=array(string)`) to keep them protected.',
+            })
+            : new ValidationError('sensitive, but elements that are not strings are never redacted', {
+              severity: 'warning',
+              tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).\nIf it is, use a string element type (e.g. `@type=array(string)`).',
+            }),
+        ];
+      }
+
       const shortestLength = (
         this.isSensitive && !this.allowShortValue
         // an item already rejected for a different reason (including "this can never be
@@ -1138,6 +1159,7 @@ export class ConfigItem {
         // nothing about a number - redaction never matches one in the first place, and
         // that is already the more useful thing to tell them
         && this.dataType?.coercedType !== 'number' && this.dataType?.coercedType !== 'int'
+        && !compositeHasUnredactableLeaf
       ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
       if (shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH) {
         // hard error regardless of how the item became sensitive: whether it was marked
@@ -1311,6 +1333,12 @@ export class ConfigItem {
       }
       if (!foundSensitive && sensitiveFromDataType !== undefined) {
         isSensitive = sensitiveFromDataType;
+      }
+      // a boolean is never sensitive (mirrors checkSensitiveIsPlausible). Runs before the
+      // @proxy override for the same reason it does there, and has to run at all or
+      // generated public types would omit a field the resolved graph exposes as public.
+      if (this.dataType?.coercedType === 'boolean' && !this.isBuiltin) {
+        isSensitive = false;
       }
       // @proxy forces sensitivity (same override as processSensitive) so generated
       // types mark a @public @proxy item sensitive rather than contradicting runtime.

@@ -52,6 +52,24 @@ export function sensitiveValueStrings(value: unknown, collected: Array<string> =
 }
 
 /**
+ * Whether any leaf of this value is something other than a string.
+ *
+ * Runtime redaction only ever replaces strings (`collectSensitiveStrings` in
+ * `runtime/env.ts` collects string leaves and nothing else), so a non-string leaf is
+ * emitted unchanged no matter how sensitive the item is. For a scalar this is caught by
+ * the data type, but a composite hides it: `@type=array(number)` has a composite
+ * coercedType, and only its elements are numbers.
+ */
+export function hasNonStringLeaf(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((el) => hasNonStringLeaf(el));
+  if (value && typeof value === 'object') {
+    return Object.values(value).some((el) => hasNonStringLeaf(el));
+  }
+  if (value === undefined || value === null || value === '') return false;
+  return typeof value !== 'string';
+}
+
+/**
  * Length of the shortest string this value contributes, or undefined if it
  * contributes none (empty/unset). The shortest is what matters: it is the piece most
  * likely to collide with ordinary text.
