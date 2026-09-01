@@ -793,17 +793,26 @@ export class EnvGraph {
    * on how two resolved values relate, so as a hard failure it could pass locally and
    * fail in CI.
    *
-   * Only leaves redaction actually registers are matched, so an inherited-sensitive
-   * `PORT=3000` inside a public URL is not a collision - a number is never in the map,
-   * and already carries its own diagnostic. Values below MIN_SENSITIVE_VALUE_LENGTH are
-   * skipped too, since they already fail on their own.
+   * Only what redaction actually registers is matched: string leaves, plus a composite's
+   * serialized form. So an inherited-sensitive scalar `PORT=3000` inside a public URL is
+   * not a collision (a bare number is never in the map, and already carries its own
+   * diagnostic), but a sensitive `PORTS=[3000,3001]` inside a public `3000,3001` is.
+   * Values below MIN_SENSITIVE_VALUE_LENGTH are skipped, since they already fail on
+   * their own.
    */
   private checkForSensitiveValuesInsideNonSensitiveOnes() {
     const sensitiveStrings: Array<{ key: string, str: string }> = [];
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       if (!item.isSensitive) continue;
-      for (const str of collectLeaves(item.resolvedValue).redactable) {
+      // mirrors what resetRedactionMap registers: every string leaf, plus the serialized
+      // form of a composite - so an array(number) with no redactable leaves still has its
+      // joined "3000,3001" in the map
+      const candidates = collectLeaves(item.resolvedValue).redactable;
+      if (typeof item.resolvedValue === 'object' && item.resolvedValue !== null && item.resolvedEnvStringValue) {
+        candidates.push(item.resolvedEnvStringValue);
+      }
+      for (const str of candidates) {
         if (str.length >= MIN_SENSITIVE_VALUE_LENGTH) sensitiveStrings.push({ key: itemKey, str });
       }
     }

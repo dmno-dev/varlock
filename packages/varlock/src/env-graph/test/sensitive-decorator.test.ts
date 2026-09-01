@@ -735,6 +735,21 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.SERVICE_PORT.errors.map((e) => e.message)).toEqual(['sensitive, but a number is never redacted']);
   });
 
+  // runtime registers a composite's serialized form as well as its string leaves, so an
+  // array(number) with nothing redactable per element still rewrites its joined form
+  test('the serialized form of a sensitive composite inside a public value is a collision', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @type=array(number)
+      PORTS=[3000,3001]
+
+      # @public
+      PORT_RANGE=3000,3001
+    `);
+    expect(g.configSchema.PORT_RANGE.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of PORTS']);
+  });
+
   test('a short sensitive value inside a public one is flagged too', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false

@@ -1133,12 +1133,12 @@ export class ConfigItem {
         && unredactable.length > 0;
       if (compositeIsUnredactable) {
         addError(this._sensitiveExplicitlySet
-          ? new ValidationError('sensitive value has elements that are not strings, which are never redacted', {
-            tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nUse a string element type (e.g. `@type=array(string)`) to keep them protected.',
+          ? new ValidationError('sensitive value has elements that are not strings, which are not redacted on their own', {
+            tip: 'Redaction only replaces strings, so an element printed by itself appears as-is in logs and proxied responses.\nUse a string element type (e.g. `@type=array(string)`) to keep each one protected.',
           })
-          : new ValidationError('sensitive, but elements that are not strings are never redacted', {
+          : new ValidationError('sensitive, but elements that are not strings are not redacted on their own', {
             severity: 'warning',
-            tip: 'Redaction only replaces strings, so those elements appear as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).\nIf it is, use a string element type (e.g. `@type=array(string)`).',
+            tip: 'Redaction only replaces strings, so an element printed by itself appears as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).\nIf it is, use a string element type (e.g. `@type=array(string)`).',
           }));
       }
 
