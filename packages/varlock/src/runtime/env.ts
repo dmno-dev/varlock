@@ -551,28 +551,32 @@ export function initVarlockEnv(opts?: {
     ].join('\n'));
     throw new Error('initVarlockEnv failed');
   }
-  // When the blob was baked into the build output and used as a boot-time fallback
-  // (marker set by the injection preludes; e.g. Next.js standalone in a container where
-  // the varlock CLI is unreachable), it was resolved at BUILD time. Values in the actual
-  // runtime environment never had a chance to act as overrides during that resolution,
-  // and they cannot be validated or coerced here (the blob carries no schema/type info).
-  // A runtime value that CONFLICTS with the blob is therefore evidence of
-  // misconfiguration: someone is supplying config (`docker run -e REDIS_URL=...`) that
+  // A payload baked into the build output carries `injectedAtBuild: true` INSIDE the
+  // serialized blob (set by the injection preludes; e.g. Next.js standalone in a container
+  // where the varlock CLI is unreachable). It was resolved at BUILD time: values in the
+  // actual runtime environment never had a chance to act as overrides during that
+  // resolution, and they cannot be validated or coerced here (the blob carries no
+  // schema/type info). A runtime value that CONFLICTS with the blob is therefore evidence
+  // of misconfiguration: someone is supplying config (`docker run -e REDIS_URL=...`) that
   // this boot would silently ignore. Fail closed with the remedy instead.
   // Absent values are fine: blob-only deployments (e.g. serverless) intentionally
   // deliver every value via the blob, so nothing is present in the runtime env to check.
-  // The globalThis marker is mirrored into an env var so child processes that inherit
-  // the baked blob (e.g. render workers) apply the same semantics.
-  const envInjectedAtBuild = !!(globalThis as any).__varlockEnvInjectedAtBuild
-    || (processExists && process.env.__VARLOCK_ENV_INJECTED_AT_BUILD === '1');
+  // Because the flag lives inside the payload, it travels with the blob to child/worker
+  // processes and can never outlive it: any fresh resolution produces an unflagged blob.
+  const envInjectedAtBuild = !!serializedEnvData.injectedAtBuild;
   if (envInjectedAtBuild && processExists) {
-    process.env.__VARLOCK_ENV_INJECTED_AT_BUILD = '1';
     const conflictingKeys: Array<string> = [];
     for (const itemKey in serializedEnvData.config) {
       const ambientValue = envState.originalProcessEnv[itemKey];
       if (ambientValue === undefined) continue;
       const item = serializedEnvData.config[itemKey];
       if (envValueMatchesBlobItem(ambientValue, item, serializedEnvData.settings)) continue;
+      // A coerced value (e.g. `FLAG=YES` -> boolean true) whose raw pre-coercion string
+      // was not recorded (`overrideStr` is omitted for sensitive items on purpose, and
+      // never recorded for values that came from files rather than overrides) cannot be
+      // compared against the ambient raw form. Skip it rather than report a false
+      // conflict (e.g. the same YES present at both build and runtime).
+      if (item.overrideStr === undefined && item.value !== undefined && typeof item.value !== 'string') continue;
       conflictingKeys.push(itemKey);
     }
     if (conflictingKeys.length) {

@@ -81,11 +81,6 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the ENV proxy can detect app code executing during build/prerender and guard public+dynamic access. An env var (not a global) because prerendering may run in a child process.',
     internal: true,
   },
-  {
-    name: '__VARLOCK_ENV_INJECTED_AT_BUILD',
-    description: 'Marker set when the runtime booted from a build-time baked env snapshot rather than a fresh resolution, so child/worker processes inheriting the blob apply the same semantics (conflicting runtime env values fail the boot).',
-    internal: true,
-  },
 ];
 
 /**

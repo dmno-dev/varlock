@@ -92,6 +92,3 @@ A marker set so a child process can detect that it is running under `varlock run
 
 Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the runtime can detect app code executing during build/prerender and apply the [public+dynamic access guard](/guides/dynamic-config/#prerenderbuild-guardrails).
 
-### `__VARLOCK_ENV_INJECTED_AT_BUILD`
-
-A marker set when the runtime booted from a build-time baked env snapshot rather than a fresh resolution, so child/worker processes inheriting the [`__VARLOCK_ENV`](#__varlock_env) blob apply the same semantics (conflicting runtime env values fail the boot, see [`_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS`](#_varlock_allow_baked_env_conflicts)).

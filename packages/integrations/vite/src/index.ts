@@ -409,17 +409,18 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
           );
         }
       }
-      const serialized = JSON.stringify(varlockLoadedEnv);
+      // `injectedAtBuild` marks the payload itself as resolved at BUILD time, so
+      // initVarlockEnv treats runtime env values conflicting with it as a
+      // misconfiguration (they never had a chance to act as overrides during
+      // resolution and cannot be validated now) and fails the boot. Living inside the
+      // payload, the provenance survives encryption and never outlives the payload.
+      const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: true });
       if (encryptionKey) {
         const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
         lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
       } else {
-        lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+        lines.push(`globalThis.__varlockLoadedEnv = ${serialized};`);
       }
-      // marks the blob as resolved at BUILD time, so initVarlockEnv treats runtime env
-      // values conflicting with it as a misconfiguration (they never had a chance to act
-      // as overrides during resolution and cannot be validated now) and fails the boot
-      lines.push('globalThis.__varlockEnvInjectedAtBuild = true;');
     }
 
     // inject custom entry code from integrations (e.g., CF bindings loader) —

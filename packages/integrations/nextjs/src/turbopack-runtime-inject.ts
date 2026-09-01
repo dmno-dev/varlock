@@ -39,9 +39,19 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
       + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
     );
   }
+  // the baked env is a build-time fallback: the `injectedAtBuild` flag is baked INSIDE
+  // the payload so provenance travels with the blob (child processes, encryption
+  // round-trips) and can never outlive it - initVarlockEnv treats runtime env values
+  // conflicting with a flagged payload as a misconfiguration and fails the boot
   let envPayload = rawEnv;
+  try {
+    envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
+  } catch {
+    // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
+    // without provenance, so the boot behaves like a plain injected blob
+  }
   if (encryptionKey) {
-    envPayload = encryptEnvBlobSync(rawEnv, encryptionKey);
+    envPayload = encryptEnvBlobSync(envPayload, encryptionKey);
   }
 
   // Find turbopack runtime files ([turbopack]_runtime.js) and edge-wrapper files.
@@ -91,12 +101,9 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // Load both init bundles — server (full, node:zlib/node:http) and edge (no node builtins)
   const initServerSrc = fs.readFileSync(require.resolve('varlock/init-server'), 'utf8');
   const initEdgeSrc = fs.readFileSync(require.resolve('varlock/init-edge'), 'utf8');
-  // the baked env is a build-time fallback: a blob already present in the actual
-  // runtime env (fresh boot-time resolution, `varlock run`) always wins. The
-  // `__varlockEnvInjectedAtBuild` marker tells initVarlockEnv the blob was resolved
-  // at build time, so runtime env values conflicting with it are a misconfiguration
-  // (they cannot be validated or applied) and must fail the boot loudly.
-  const envInline = `if (!process.env.__VARLOCK_ENV) { process.env.__VARLOCK_ENV = ${JSON.stringify(envPayload)}; globalThis.__varlockEnvInjectedAtBuild = true; }`;
+  // a blob already present in the actual runtime env (fresh boot-time resolution,
+  // `varlock run`) always wins over the baked fallback
+  const envInline = `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`;
 
   // The CJS init bundles use `exports.X = ...` at the end, so we must provide
   // a dummy `exports` object when wrapping in an IIFE to avoid ReferenceError.

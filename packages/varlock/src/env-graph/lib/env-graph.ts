@@ -111,6 +111,15 @@ export type SerializedEnvGraph = {
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
+  /**
+   * true = this payload was resolved at BUILD time and baked into build output as a
+   * boot-time fallback. Set by the integration injection preludes (never by the graph
+   * serializer): initVarlockEnv treats conflicting runtime env values as a
+   * misconfiguration when set. Living inside the payload means the provenance travels
+   * with the blob (child processes, encryption round-trips) and can never outlive it -
+   * a fresh resolution always produces an unflagged blob.
+   */
+  injectedAtBuild?: boolean;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };

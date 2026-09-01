@@ -562,12 +562,12 @@ export function loadEnvConfig(
 
   let useCachedEnv = !!process.env.__VARLOCK_ENV;
   // If the bundled runtime loaded before this compat ran (e.g. via instrumentation),
-  // its prelude may have engaged the build-time baked fallback. That blob is a stale
+  // its prelude may have engaged the build-time baked fallback - detectable by the
+  // `injectedAtBuild` flag the preludes bake inside the payload. That blob is a stale
   // build-time snapshot, not a fresh resolution, so attempt a real load instead of
   // trusting it. If the CLI is unavailable this falls through to the same deferral
   // path as a cold start, and the baked blob (with its conflict guard) stands.
-  // (the env var is the marker's mirror, inherited by child/worker processes)
-  if ((globalThis as any).__varlockEnvInjectedAtBuild || process.env.__VARLOCK_ENV_INJECTED_AT_BUILD === '1') {
+  if (varlockLoadedEnv?.injectedAtBuild) {
     useCachedEnv = false;
   }
   if (forceReload) {
@@ -750,13 +750,10 @@ export function loadEnvConfig(
     parsedEnv[itemKey] = itemInfo.value;
   }
   debug('LOADED ENV:', parsedEnv);
+  // a fresh resolution's blob carries no `injectedAtBuild` flag, so writing it here
+  // inherently replaces any build-time baked fallback the runtime prelude may have
+  // engaged earlier - no provenance cleanup needed
   process.env.__VARLOCK_ENV = JSON.stringify(varlockLoadedEnv);
-  // a fresh resolution replaces any build-time baked fallback the runtime prelude
-  // may have engaged earlier, so clear the marker (and its child-process mirror)
-  // before re-initializing
-  delete (globalThis as any).__varlockEnvInjectedAtBuild;
-  delete process.env.__VARLOCK_ENV_INJECTED_AT_BUILD;
-  if (initialEnv) delete initialEnv.__VARLOCK_ENV_INJECTED_AT_BUILD;
   initVarlockEnv(); // calling this will set process.env vars
 
   resetRedactionMap(varlockLoadedEnv);
