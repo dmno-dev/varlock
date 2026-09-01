@@ -9,6 +9,7 @@ import path from 'node:path';
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import prompts from '../../cli/helpers/prompts';
+import { DEFAULT_KEY_ID } from './constants';
 import { IDENTITY_PAYLOAD_VERSION, readPayloadVersion } from './crypto';
 import * as localEncrypt from './index';
 import { buildVarlockReference, LOCAL_SCHEME, parseVarlockReference } from './reference';
@@ -295,11 +296,36 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     // can say which values in which files this batch is about.
     const parent = (this as any).parent;
     const dataSource = this.dataSource as any;
+    const sourceFilePath = displayFilePath(dataSource?.fullPath as string | undefined);
+
+    // What this value adds to the panel, declared now rather than when it is
+    // decrypted.
+    //
+    // The first unlock of a run has to describe the whole grant, and by the
+    // time this value is being opened it is too late to learn about the ones
+    // that will ride the same grant afterwards with no panel of their own. Only
+    // identity-encrypted values are declared, because those are the ones a
+    // grant covers; a v1 payload asks in its own way.
+    if (parent?.key) {
+      try {
+        if (readPayloadVersion(parseVarlockReference(payload).payload) === IDENTITY_PAYLOAD_VERSION) {
+          this._unlockInventoryEntry = {
+            keyId: DEFAULT_KEY_ID,
+            valueName: parent.key,
+            sourceFile: sourceFilePath,
+          };
+        }
+      } catch {
+        // an unreadable reference is the resolve step's problem to report; the
+        // panel simply has one less line to draw
+      }
+    }
+
     return {
       mode: 'decrypt',
       payload,
       itemKey: parent?.key,
-      sourceFilePath: displayFilePath(dataSource?.fullPath as string | undefined),
+      sourceFilePath,
     };
   },
   async resolve(state: VarlockResolverState) {

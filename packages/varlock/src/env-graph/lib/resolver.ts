@@ -20,6 +20,7 @@ import {
   type GeneratedTotp, type OtpAlgorithm, type OtpSecretEncoding,
 } from '../../lib/otp';
 import { assertValidCacheKey, hasInvalidCacheKeyChars, MAX_CACHE_KEY_LENGTH } from '../../lib/cache/cache-store';
+import type { DeclaredEncryptedValue } from '../../lib/local-encrypt/unlock-inventory';
 import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
@@ -74,6 +75,15 @@ export class Resolver {
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
     | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
   _errors: Array<SchemaError> = [];
+  /**
+   * What this resolver contributes to the unlock panel's inventory, set during
+   * process() by the resolvers that open encrypted values.
+   *
+   * Read once, after the whole graph is processed and before anything resolves,
+   * so the first unlock can describe every value it covers rather than only the
+   * batch that reached it first. Display only, and never bound into anything.
+   */
+  _unlockInventoryEntry?: DeclaredEncryptedValue;
   private _depsObj: Record<string, boolean> = {};
 
   get childResolvers(): Array<Resolver> {

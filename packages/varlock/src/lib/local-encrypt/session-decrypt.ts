@@ -11,11 +11,17 @@
  * here turns a file full of secrets into a single unlock: one panel, one scan,
  * however many values. Splitting a batch would cost a prompt per value, which is
  * the behaviour the identity layer exists to get rid of.
+ *
+ * The panel it draws describes the whole grant, not this batch. What a batch
+ * carries is only what it happens to be decrypting; what the run declared up
+ * front (see `unlock-inventory`) is everything that grant will open before it
+ * lapses, including the batches that will ride it later without a second panel.
  */
 
 import path from 'node:path';
 import { VARLOCK_VERSION } from '../varlock-version';
 import { DaemonError, type DaemonClient } from './daemon-client';
+import { unlockInventoryForKey } from './unlock-inventory';
 import type {
   SessionGrantInfo, UnlockDisplayInfo, UnlockInvocationMode, UnlockKeyDisplay, UnlockValueSource,
 } from './types';
@@ -179,8 +185,57 @@ export function detectInvocationMode(): UnlockInvocationMode {
   return entry === 'varlock' ? 'cli' : 'sdk';
 }
 
+/** Two sources are the same place when they are the same kind of the same name */
+function sourceIdentity(source: UnlockValueSource): string {
+  const kind = source.kind ?? 'file';
+  return kind === 'file' ? `file:${source.path ?? ''}` : kind;
+}
+
 /**
- * Describe what this batch is asking each key to open.
+ * Fold a later description of a source into the one already listed.
+ *
+ * A file described twice (declared by the graph, then decrypted by a batch) is
+ * one file with the union of its values, so the panel lists it once and the
+ * count adds up. Anything else, the value cache included, summarises rather
+ * than enumerates: two summaries cannot be added together, so the later one
+ * wins, being the fresher read.
+ */
+function combineSources(existing: UnlockValueSource, incoming: UnlockValueSource): UnlockValueSource {
+  if ((existing.kind ?? 'file') !== 'file') return { ...incoming };
+  const entries = [...(existing.entries ?? [])];
+  const seen = new Set(entries.map((entry) => entry.name));
+  for (const entry of incoming.entries ?? []) {
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    entries.push(entry);
+  }
+  return { ...existing, ...incoming, entries };
+}
+
+/** One list of sources from several accounts of the same key, in first-seen order */
+function mergeSources(...accounts: Array<Array<UnlockValueSource>>): Array<UnlockValueSource> {
+  const byIdentity = new Map<string, UnlockValueSource>();
+  for (const source of accounts.flat()) {
+    const id = sourceIdentity(source);
+    const existing = byIdentity.get(id);
+    byIdentity.set(id, existing ? combineSources(existing, source) : { ...source });
+  }
+  return [...byIdentity.values()];
+}
+
+/**
+ * How many values a source stands for, counted the way the panel counts it.
+ *
+ * A source that summarises says so with `itemCount`; one that enumerates is its
+ * entries, each of which may itself stand for several.
+ */
+function sourceItemCount(source: UnlockValueSource): number {
+  if (typeof source.itemCount === 'number') return source.itemCount;
+  return (source.entries ?? []).reduce((total, entry) => total + (entry.count ?? 1), 0);
+}
+
+/**
+ * Describe what each key is being asked to open.
  *
  * The panel says who is asking on its own authority, but it cannot know what
  * the values are called: that lives in the env graph in this process. So the
@@ -190,16 +245,20 @@ export function detectInvocationMode(): UnlockInvocationMode {
  * that a decrypt depended on would turn a cosmetic mismatch into a failed
  * unlock.
  *
- * The env files this batch is opening become `sources` on their key. A caller
- * with sources of its own (the value cache is the first) has them appended to
- * the same list rather than kept apart, because they are peers: one grant on one
- * key opens all of them, so one list under that key is what the panel should
- * show. A caller that already knows its own `valueCount` keeps it, since the
- * payload count only measures what this batch decrypts and not what the key
- * covers.
+ * Three accounts of the same key are merged into one list of sources: what the
+ * run declared before anything resolved, what this batch is decrypting right
+ * now, and whatever the caller described for itself. Only the first of those
+ * knows the whole grant. A batch knows what it holds and nothing about the
+ * batches that will ride the same grant afterwards without a panel, so a panel
+ * built from a batch alone describes whichever caller happened to be first,
+ * which is not what the user is approving.
+ *
+ * The count follows the sources rather than being reported alongside them, so
+ * the header and the list underneath it can never tell different stories. Only
+ * a key nobody described at all falls back to counting this batch.
  *
  * A caller's own `keys` entries (a vault label and colour, once vaults exist)
- * are kept too, since only the caller knows those.
+ * are kept, since only the caller knows those.
  */
 function buildDisplayInfo(
   payloads: Array<IdentityPayloadRequest>,
@@ -228,8 +287,14 @@ function buildDisplayInfo(
       file.entries!.push({ name: valueName });
     }
 
-    const sources = [...byFile.values(), ...(suppliedKey?.sources ?? [])];
-    const valueCount = suppliedKey?.valueCount ?? indexes.length;
+    const sources = mergeSources(
+      unlockInventoryForKey(keyId),
+      [...byFile.values()],
+      suppliedKey?.sources ?? [],
+    );
+    const valueCount = sources.length > 0
+      ? sources.reduce((total, source) => total + sourceItemCount(source), 0)
+      : (suppliedKey?.valueCount ?? indexes.length);
     itemCounts[keyId] = valueCount;
 
     keys[keyId] = {

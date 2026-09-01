@@ -9,7 +9,9 @@ import {
 import { type KeyFilter } from './key-filter';
 import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
-import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
+import {
+  BaseResolvers, createResolver, type Resolver, type ResolverChildClass,
+} from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError } from './errors';
@@ -39,9 +41,20 @@ import {
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
+import {
+  clearDeclaredCacheInventories, declareEncryptedFileValues,
+  type DeclaredEncryptedValue,
+} from '../../lib/local-encrypt/unlock-inventory';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
+
+/** A resolver and everything nested inside its arguments */
+function* walkResolvers(root: Resolver | undefined): Generator<Resolver> {
+  if (!root) return;
+  yield root;
+  for (const child of root.childResolvers) yield* walkResolvers(child);
+}
 
 export type SerializedEnvGraphErrors = {
   /** Per-item validation errors, keyed by config item key */
@@ -628,6 +641,11 @@ export class EnvGraph {
 
     if (hasErrors) return;
 
+    // Everything encrypted is now known, and nothing has been resolved yet, so
+    // this is the last moment before an unlock can happen and the first at
+    // which the whole picture exists.
+    this.declareUnlockInventory();
+
     // check for cycles in resolver dependencies
     const cycles = findGraphCycles(this.graphAdjacencyList);
     for (const cycleItemKeys of cycles) {
@@ -679,6 +697,42 @@ export class EnvGraph {
     await this.getRootDec('injectUndefinedAsEmpty')?.resolve();
     await this.getRootDec('proxyConfig')?.resolve();
     await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
+  }
+
+  /**
+   * Tell the unlock panel everything one approval will open in this run.
+   *
+   * An unlock is a session grant, so the first panel is the only one the user
+   * sees: whatever asks afterwards rides the same grant silently. A panel built
+   * from the batch that happened to ask first describes a fraction of that, and
+   * the user approves on partial information. So the whole picture is declared
+   * here instead, while it is all in hand and before anything has resolved: the
+   * encrypted values this graph will open, and the value cache when this run
+   * has one that shares their key.
+   *
+   * Only the resolvers that will actually run are read (`valueResolver`, not
+   * every definition), so a value shadowed by a later file is not listed as
+   * something the grant hands over.
+   */
+  private declareUnlockInventory() {
+    clearDeclaredCacheInventories();
+    this._cacheStore?.declareUnlockInventory?.();
+
+    const declared: Array<DeclaredEncryptedValue> = [];
+    for (const itemKey in this.configSchema) {
+      const item = this.configSchema[itemKey];
+      let resolvers: Array<Resolver>;
+      try {
+        resolvers = [...walkResolvers(item.valueResolver)];
+      } catch {
+        continue; // a definition too broken to describe is one the panel skips
+      }
+      for (const resolver of resolvers) {
+        const entry = resolver._unlockInventoryEntry;
+        if (entry) declared.push({ ...entry, valueName: entry.valueName ?? itemKey });
+      }
+    }
+    declareEncryptedFileValues(declared);
   }
 
   get graphAdjacencyList() {

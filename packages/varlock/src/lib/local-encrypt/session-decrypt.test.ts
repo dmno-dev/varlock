@@ -227,6 +227,146 @@ describe.skipIf(process.platform === 'win32')('v2 decryption through the daemon'
     expect(display.itemCounts['varlock-default']).toBe(13);
   });
 
+  /**
+   * The bug this covers: a run with encrypted values in `.env.local` and a
+   * populated value cache used to show whichever of the two asked first, and
+   * only that. The other opened moments later on the same grant with no panel
+   * of its own, so the approval was given on a fraction of what it bought.
+   *
+   * The fix is that the run declares everything before anything asks, so the
+   * order the callers happen to arrive in cannot change what the panel says.
+   */
+  describe('the panel describes the whole grant, not the batch that asked first', () => {
+    const cacheEntry = v2Payload('cached');
+    const fileValue = v2Payload('file-one');
+    const otherFileValue = v2Payload('file-two');
+
+    /** What a `CacheStore` read sends: the cache as a source under its key */
+    const cacheDisplay = {
+      keys: {
+        'varlock-default': {
+          valueCount: 8,
+          sources: [
+            {
+              kind: 'cache' as const,
+              itemCount: 8,
+              entries: [{ name: '1password', count: 8 }],
+            },
+          ],
+        },
+      },
+    };
+
+    /** The two encrypted values in `.env.local`, as the graph declares them */
+    const declaredFileValues = [
+      { keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env.local' },
+      { keyId: 'varlock-default', valueName: 'STRIPE_KEY', sourceFile: '.env.local' },
+    ];
+
+    /** The file batch, as the varlock() resolver sends it */
+    const filePayloads = [
+      {
+        ciphertext: fileValue, keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env.local',
+      },
+      {
+        ciphertext: otherFileValue, keyId: 'varlock-default', valueName: 'STRIPE_KEY', sourceFile: '.env.local',
+      },
+    ];
+
+    beforeEach(() => {
+      harness.setConfig({
+        plaintexts: {
+          [cacheEntry]: 'from-cache', [fileValue]: 'a', [otherFileValue]: 'b',
+        },
+      });
+    });
+
+    /** Both sources on the one row, and a header that agrees with them */
+    function expectBothListed(display: any) {
+      expect(display.keys['varlock-default'].sources).toEqual([
+        {
+          kind: 'file',
+          path: '.env.local',
+          entries: [{ name: 'DATABASE_URL' }, { name: 'STRIPE_KEY' }],
+        },
+        { kind: 'cache', itemCount: 8, entries: [{ name: '1password', count: 8 }] },
+      ]);
+      expect(display.keys['varlock-default'].valueCount).toBe(10);
+      expect(display.itemCounts['varlock-default']).toBe(10);
+    }
+
+    it('lists the env files too when the cache is what triggers the unlock', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.declareEncryptedFileValues(declaredFileValues);
+
+      await localEncrypt.decryptValue(cacheEntry, 'varlock-default', { display: cacheDisplay });
+      await localEncrypt.decryptIdentityPayloads(filePayloads);
+
+      // one grant, so one panel: the second caller never gets one of its own
+      expect(harness.callsOf('unlock-session')).toHaveLength(1);
+      expectBothListed(harness.callsOf('unlock-session')[0].payload.display);
+    });
+
+    it('lists the cache too when an env file is what triggers the unlock', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.declareEncryptedFileValues(declaredFileValues);
+      localEncrypt.declareCacheInventory('varlock-default', {
+        kind: 'cache',
+        itemCount: 8,
+        entries: [{ name: '1password', count: 8 }],
+      });
+
+      await localEncrypt.decryptIdentityPayloads(filePayloads);
+      await localEncrypt.decryptValue(cacheEntry, 'varlock-default', { display: cacheDisplay });
+
+      expect(harness.callsOf('unlock-session')).toHaveLength(1);
+      expectBothListed(harness.callsOf('unlock-session')[0].payload.display);
+    });
+
+    it('does not list a cache the run is not using', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.declareEncryptedFileValues(declaredFileValues);
+      localEncrypt.declareCacheInventory('varlock-default', { kind: 'cache', itemCount: 8 });
+      // e.g. @cache=memory, or a disk cache that turned out to be empty
+      localEncrypt.clearDeclaredCacheInventories();
+
+      await localEncrypt.decryptIdentityPayloads(filePayloads);
+
+      const display = harness.callsOf('unlock-session')[0].payload.display as any;
+      expect(display.keys['varlock-default'].sources).toEqual([
+        {
+          kind: 'file',
+          path: '.env.local',
+          entries: [{ name: 'DATABASE_URL' }, { name: 'STRIPE_KEY' }],
+        },
+      ]);
+      expect(display.keys['varlock-default'].valueCount).toBe(2);
+    });
+
+    it('counts a declared value once, however many times it is described', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      // the graph declares three, and the batch happens to open two of them
+      localEncrypt.declareEncryptedFileValues([
+        ...declaredFileValues,
+        { keyId: 'varlock-default', valueName: 'NGROK_TOKEN', sourceFile: '.env.local' },
+      ]);
+
+      await localEncrypt.decryptIdentityPayloads(filePayloads);
+
+      const display = harness.callsOf('unlock-session')[0].payload.display as any;
+      expect(display.keys['varlock-default'].sources).toEqual([
+        {
+          kind: 'file',
+          path: '.env.local',
+          entries: [{ name: 'DATABASE_URL' }, { name: 'STRIPE_KEY' }, { name: 'NGROK_TOKEN' }],
+        },
+      ]);
+      // the third value rides this same grant, so the header says three rather
+      // than the two being decrypted at this moment
+      expect(display.keys['varlock-default'].valueCount).toBe(3);
+    });
+  });
+
   it('re-unlocks once when the grant dies between the unlock and the decrypt', async () => {
     const payload = v2Payload('racy');
     harness.setConfig({

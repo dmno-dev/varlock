@@ -6,7 +6,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { getUserVarlockDir } from '../user-config-dir';
 import * as localEncrypt from '../local-encrypt';
 import { projectDisplay } from '../local-encrypt/session-decrypt';
-import type { UnlockDisplayInfo } from '../local-encrypt/types';
+import { declareCacheInventory } from '../local-encrypt/unlock-inventory';
+import type { UnlockDisplayInfo, UnlockValueSource } from '../local-encrypt/types';
 import { createDebug } from '../debug';
 
 const debug = createDebug('varlock:cache');
@@ -296,6 +297,11 @@ export type CacheStoreLike = {
   set(cacheKey: string, value: any, ttlMs: number): Promise<{ cachedAt: number; expiresAt: number } | undefined>;
   delete(cacheKey: string): Promise<void>;
   clearAll(): Promise<number>;
+  /**
+   * Tell the unlock panel what this store holds, for the stores that cost an
+   * unlock to read. A store that costs none does not implement it.
+   */
+  declareUnlockInventory?(): void;
 };
 
 /** Compute a concrete expiry timestamp from a TTL (Infinity → far-future) */
@@ -411,12 +417,20 @@ export class CacheStore {
   private filePath: string;
   private keyId: string;
   private codec: CacheValueCodec;
+  /**
+   * Whether this store's values sit behind the local encryption key, which is
+   * what decides whether it belongs on the unlock panel at all. A store with a
+   * codec of its own (the `_VARLOCK_CACHE_KEY` one) costs no unlock, so listing
+   * it would name a source no grant opens.
+   */
+  private sharesLocalEncryptKey: boolean;
   private static warnedWriteFailure = false;
 
   constructor(keyId: string = 'varlock-default', codec?: CacheValueCodec) {
     const cacheDir = path.join(getUserVarlockDir(), 'cache');
     this.keyId = keyId;
     this.filePath = path.join(cacheDir, `${keyId}.json`);
+    this.sharesLocalEncryptKey = codec === undefined;
     this.codec = codec ?? {
       ensureReady: () => localEncrypt.ensureEncryptionReady(keyId),
       encrypt: (plaintext) => localEncrypt.encryptValue(plaintext, keyId),
@@ -425,7 +439,7 @@ export class CacheStore {
   }
 
   /**
-   * What the unlock panel is told a cache read is for.
+   * The cache as one source under its key, or nothing when it holds nothing.
    *
    * The cache is one of the things this key protects, so it is described the
    * same way an env file is: a source under the key, with what filled it and
@@ -434,24 +448,55 @@ export class CacheStore {
    * they belong in one list rather than in separate requests that each look
    * like the whole story.
    *
+   * An empty cache returns nothing rather than an empty line: a grant that will
+   * open no cached value should not be shown one.
+   */
+  private unlockSource(data: CacheData): UnlockValueSource | undefined {
+    const live = Object.keys(data).filter((key) => Date.now() <= data[key].e);
+    if (live.length === 0) return undefined;
+    return { kind: 'cache', itemCount: live.length, entries: summariseCacheProducers(live) };
+  }
+
+  /**
+   * Say what this cache holds before anything asks it for a value.
+   *
+   * Called once, when this store becomes the run's cache. Without it the cache
+   * only describes itself at the moment it decrypts, which is too late whenever
+   * an env file got to the same key first: the panel would then have described
+   * one caller's batch as if it were the whole grant, and the cache would open
+   * moments later on an approval that never mentioned it.
+   *
+   * Costs one read of a file the first cache hit would have read anyway, and a
+   * failure here loses a line on a panel, never a load.
+   */
+  declareUnlockInventory(): void {
+    if (!this.sharesLocalEncryptKey) return;
+    try {
+      declareCacheInventory(this.keyId, this.unlockSource(this.loadFile()));
+    } catch (err) {
+      debug('could not declare cache contents for the unlock panel: %O', err);
+    }
+  }
+
+  /**
+   * What the unlock panel is told a cache read is for.
+   *
    * Built from the cache file the caller has already read, so it costs no extra
    * IO, and it is client-reported like every other line the daemon draws from a
    * caller: none of it reaches the crypto and the daemon checks none of it.
+   * The same fresher account replaces what was declared at load time, so an
+   * unlock triggered later in the run counts what the cache holds now.
    */
   private unlockDisplay(data: CacheData): UnlockDisplayInfo {
-    const live = Object.keys(data).filter((key) => Date.now() <= data[key].e);
+    const source = this.unlockSource(data);
+    if (this.sharesLocalEncryptKey) declareCacheInventory(this.keyId, source);
+    if (!source) return { ...projectDisplay() };
     return {
       ...projectDisplay(),
       keys: {
         [this.keyId]: {
-          valueCount: live.length,
-          sources: [
-            {
-              kind: 'cache',
-              itemCount: live.length,
-              entries: summariseCacheProducers(live),
-            },
-          ],
+          valueCount: source.itemCount,
+          sources: [source],
         },
       },
     };

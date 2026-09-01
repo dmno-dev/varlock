@@ -37,6 +37,11 @@ export {
 } from './identity';
 export { UnlockDeclinedError, UnlockNoUiError } from './session-decrypt';
 export { StaleDaemonError } from './daemon-client';
+export {
+  clearDeclaredCacheInventories, clearUnlockInventory, declareCacheInventory,
+  declareEncryptedFileValues, unlockInventoryForKey,
+  type DeclaredEncryptedValue,
+} from './unlock-inventory';
 
 /** Debug logger — prints to stderr when VARLOCK_DEBUG is set */
 function debug(msg: string) {
