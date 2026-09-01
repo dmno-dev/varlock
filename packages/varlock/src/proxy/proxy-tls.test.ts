@@ -1,7 +1,13 @@
-import { describe, expect, test } from 'vitest';
+import {
+  describe, expect, test, vi,
+} from 'vitest';
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import https from 'node:https';
+import outdent from 'outdent';
+
+import { DotEnvFileDataSource, EnvGraph } from '../env-graph/index';
 
 import { startLocalProxyRuntime } from './runtime-proxy';
 import { createHostCert } from './cert-authority';
@@ -813,6 +819,63 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     expect(response).not.toContain('other-route-secret');
     // ...but an ordinary, non-sensitive value is left alone rather than corrupted
     expect(response).toContain('svc-user');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('a scheme registered by a REAL loaded plugin runs through the runtime', async () => {
+    // The tests above hand the runtime a hand-built scheme def, so they cannot
+    // catch the plugin-facing contract drifting away from what a plugin actually
+    // registers. This one goes through the real loader: schema -> @plugin ->
+    // registry -> runtime -> outbound request.
+    let upstreamHeaders: import('node:http').IncomingHttpHeaders = {};
+    const upstream = await startUpstream((req, res) => {
+      upstreamHeaders = req.headers;
+      res.statusCode = 200;
+      res.end('{}');
+    });
+
+    // relative @plugin(...) paths resolve against cwd - pin it at the fixture's dir
+    const fixtureDir = path.join(__dirname, '../env-graph/test');
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(fixtureDir);
+    const graph = new EnvGraph();
+    await graph.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @plugin(./plugins/test-transform-plugin)
+        # ---
+        # @proxy(domain="${UPSTREAM_HOST}", transform={
+        #   scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Test-Sig",
+        # })
+        SIGNING_SECRET=shhh-real
+
+        # @sensitive
+        TOKEN_ID=tok-real
+      `,
+    }));
+    await graph.finishLoad();
+    await graph.resolveEnvValues();
+    cwdSpy.mockRestore();
+
+    const runtime = await startLocalProxyRuntime({
+      managedItems: await graph.getProxyManagedItems(),
+      rules: await graph.getProxyRules(),
+      transformSchemes: graph.proxyTransformSchemes,
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET /x HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    // 200, not the 502 an unregistered/uncallable transform would produce
+    expect(response.split('\r\n')[0]).toContain('200');
+    // the header the FIXTURE's own code writes, with real credentials resolved
+    expect(String(upstreamHeaders['x-test-sig'])).toMatch(/^test-signed:shhh-real:tok-real:\d+$/);
 
     tlsSocket.destroy();
     await runtime.stop();

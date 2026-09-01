@@ -1,6 +1,6 @@
 const { plugin } = require('varlock/plugin-lib');
 
-// A fake signing scheme exercising every option-spec surface: required options,
+// A fake transform scheme exercising every option-spec surface: required options,
 // enums, string lists, header names, and both item roles (consumed + wire).
 plugin.registerProxyTransformScheme({
   scheme: 'test-sign',
@@ -10,7 +10,7 @@ plugin.registerProxyTransformScheme({
     mode: { type: 'enum', enumValues: ['plain', 'fancy'] },
     allowedThings: { type: 'stringList' },
   },
-  sign(transform, input, nowMs) {
+  apply(transform, input, nowMs) {
     return {
       ok: true,
       setHeaders: {
