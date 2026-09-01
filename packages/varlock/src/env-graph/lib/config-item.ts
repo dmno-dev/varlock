@@ -1153,10 +1153,13 @@ export class ConfigItem {
         : undefined;
 
       if (shortest !== undefined && shortest < MIN_SENSITIVE_VALUE_LENGTH) {
+        // same explicit/implicit split as checkSensitiveIsPlausible, and not ackable
+        // either way: at this length the collision is a certainty, not a risk
         addError(new ValidationError(
           `Sensitive value is only ${shortest} character${shortest === 1 ? '' : 's'} long - too short to redact safely`,
           {
-            tip: 'Redaction replaces the value wherever it appears, so a value this short would rewrite ordinary text throughout logs and proxied response bodies.\nMark it `@sensitive=false` if it is not really a secret. `allowShortValue` does not apply at this length.',
+            ...(this._sensitiveExplicitlySet ? {} : { severity: 'warning' as const }),
+            tip: 'Redaction replaces the value wherever it appears, so a value this short rewrites ordinary text throughout logs and proxied response bodies.\nMark it `@sensitive=false` if it is not really a secret. `allowShortValue` does not apply at this length.',
           },
         ));
       } else if (

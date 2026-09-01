@@ -10,6 +10,7 @@ import { redactString } from '../runtime/lib/redaction';
  * character string occurs constantly in ordinary text, so registering it for redaction
  * shreds every log line and proxied response body it touches. `allowShortValue` does not
  * opt out of this - it acknowledges a collision risk, and at this length it is a certainty.
+ * An error for an explicit `@sensitive`, a warning when `@defaultSensitive` swept it in.
  */
 export const MIN_SENSITIVE_VALUE_LENGTH = 3;
 

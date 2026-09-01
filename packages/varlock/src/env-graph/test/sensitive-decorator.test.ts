@@ -509,7 +509,10 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expectValues: { FOO: SchemaError },
   }));
 
-  test('a value too short to redact safely is an error that cannot be acknowledged', async () => {
+  // the floor follows the same explicit/implicit split as everything else, so nothing
+  // inherited from @defaultSensitive can fail a load - but it cannot be acknowledged
+  // either way, since at this length the collision is a certainty rather than a risk
+  test('a value too short to redact safely cannot be acknowledged', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
@@ -521,8 +524,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # @sensitive={allowShortValue=true}
       TINY_ACKED=ab
 
-      # sensitive only via @defaultSensitive, but it is registered for redaction all the
-      # same - so how it became sensitive makes no difference here
+      # sensitive only via @defaultSensitive - warns rather than fails, like every other rule
       IMPLICIT_TINY=ab
 
       # @sensitive=false
@@ -537,7 +539,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.TINY.validationState).toBe('error');
     expect(g.configSchema.TINY.errors.map((e) => e.message)).toEqual([expect.stringContaining('only 2 characters long')]);
     expect(g.configSchema.TINY_ACKED.validationState).toBe('error');
-    expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('error');
+    expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('warn');
     expect(g.configSchema.NOT_SENSITIVE.validationState).toBe('valid');
 
     expect(g.configSchema.AT_FLOOR.validationState).toBe('warn');
