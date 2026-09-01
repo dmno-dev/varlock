@@ -594,6 +594,18 @@ export class ConfigItem {
   get preventLeaks(): boolean {
     return this._preventLeaks;
   }
+
+  /**
+   * Acknowledges that this item's value is short enough to collide with ordinary
+   * text, silencing that warning. For secrets that are short by nature and cannot
+   * be lengthened (a one-time code, a PIN), where the collision risk is real but
+   * there is nothing to fix. Redaction still applies - this only says the warning
+   * has been read and accepted.
+   */
+  _allowShortValue: boolean = false;
+  get allowShortValue(): boolean {
+    return this._allowShortValue;
+  }
   private async processSensitive() {
     // Resolve the normal sensitivity signals first (so @sensitive/@public schema
     // validation still runs), then force sensitivity for @proxy-managed items below.
@@ -717,8 +729,14 @@ export class ConfigItem {
           continue;
         }
         this._preventLeaks = opts[optKey];
+      } else if (optKey === 'allowShortValue') {
+        if (typeof opts[optKey] !== 'boolean') {
+          this._schemaErrors.push(new SchemaError('@sensitive allowShortValue option must be a boolean'));
+          continue;
+        }
+        this._allowShortValue = opts[optKey];
       } else {
-        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: enabled, preventLeaks`));
+        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: enabled, preventLeaks, allowShortValue`));
       }
     }
     return enabled;
@@ -1038,14 +1056,14 @@ export class ConfigItem {
       // ordinary text gets rewritten everywhere redaction runs (console output,
       // proxied response bodies), because substring replacement cannot tell a
       // leaked secret from prose that matches it.
-      if (this.isSensitive && isShortSensitiveValue(this.resolvedValue)) {
+      if (this.isSensitive && !this.allowShortValue && isShortSensitiveValue(this.resolvedValue)) {
         this.validationErrors = [
           ...(this.validationErrors ?? []),
           new ValidationError(
             `value is only ${String(this.resolvedValue).length} characters, short enough to also appear as ordinary text`,
             {
               severity: 'warning',
-              tip: 'Redaction replaces this value wherever it occurs, so a short one can also rewrite ordinary text\nin logs and proxied responses. Mark it `@sensitive=false` if it is not actually a secret. Some\nsecrets are short by nature (an OTP, a PIN) and cannot be lengthened - for those this is a\nheads-up about the collision risk, not something to fix.',
+              tip: 'Redaction replaces this value wherever it occurs, so a short one can also rewrite ordinary text\nin logs and proxied responses. Mark it `@sensitive=false` if it is not actually a secret. Some\nsecrets are short by nature (an OTP, a PIN) and cannot be lengthened - for those, acknowledge\nthe collision risk with `@sensitive={allowShortValue=true}` to silence this.',
             },
           ),
         ];

@@ -286,7 +286,7 @@ function getRunCommandArgs(): Array<string> {
  */
 export function findShortSensitiveProxyItems(items: Array<ProxyManagedItem>): Array<string> {
   return items
-    .filter((item) => item.isSensitive !== false && isShortSensitiveValue(item.realValue))
+    .filter((item) => item.isSensitive !== false && !item.allowShortValue && isShortSensitiveValue(item.realValue))
     .map((item) => item.key);
 }
 

@@ -386,6 +386,10 @@ describe('findShortSensitiveProxyItems', () => {
       {
         key: 'ACCOUNT_NAME', placeholder: 'vlk_ph_name', realValue: 'acme', isSensitive: false,
       },
+      // short by nature and acknowledged as such - nothing left to tell the user
+      {
+        key: 'OTP_CODE', placeholder: 'vlk_ph_otp', realValue: '123456', allowShortValue: true,
+      },
     ]);
     expect(flagged).toEqual(['ACME_ACCOUNT', 'DEV_PASSWORD']);
   });

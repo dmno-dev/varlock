@@ -635,6 +635,8 @@ export type ProxyManagedItem = {
    * alone, since redacting ordinary data would corrupt legitimate responses.
    */
   isSensitive?: boolean;
+  /** `@sensitive={allowShortValue=true}` - the short-value warning was acknowledged. */
+  allowShortValue?: boolean;
   /** True when the placeholder is the generic format-agnostic fallback (may fail SDK key-format checks). */
   placeholderIsGenericFallback?: boolean;
 };
