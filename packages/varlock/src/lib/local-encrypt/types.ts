@@ -62,6 +62,20 @@ export type IdentityDaemonAction = 'unlock-session' | 'list-sessions' | 'decrypt
  */
 export type SessionGrantScope = 'once' | 'session' | 'duration';
 
+/**
+ * How MUCH of a key one approval opens, the second axis beside the duration.
+ *
+ * - `listed`: only the ciphertexts that were on the panel when it was approved
+ * - `key`: anything the key can decrypt, which is what an approval covered
+ *   before there was a choice
+ *
+ * A client never asks for a breadth. It sends the payloads it needs (`items`
+ * below), the daemon hashes them itself, and only a person at the panel can
+ * choose the narrow answer. Reported back on the grant so a caller can say what
+ * it is holding, never to be sent up.
+ */
+export type SessionGrantBreadth = 'listed' | 'key';
+
 export const SESSION_GRANT_SCOPES: Array<SessionGrantScope> = ['once', 'session', 'duration'];
 
 /**
@@ -106,6 +120,24 @@ export interface UnlockSessionRequest {
   lockOn?: SessionLockPolicy;
   /** optional context for the approval panel; see `UnlockDisplayInfo` */
   display?: UnlockDisplayInfo;
+  /**
+   * The ciphertexts this unlock is being asked to cover, by key id.
+   *
+   * The one part of this request the daemon does NOT treat as decoration. It
+   * hashes each payload itself, and if the user chooses the narrow breadth on
+   * the panel the resulting grant is bound to exactly those digests: a later
+   * `decrypt-v2` carrying anything else is refused and raises a fresh panel.
+   *
+   * Payloads, not digests. A digest computed on this side would be a digest
+   * this side chose, and a grant that trusted it would cover whatever the
+   * client felt like.
+   *
+   * Send everything the grant will open, not just what this batch is about: a
+   * grant is opened once and ridden by whatever asks next, so a request that
+   * lists only the first batch would narrow the grant to it and prompt again
+   * for every value that follows.
+   */
+  items?: Record<string, Array<string>>;
 }
 
 /**
@@ -278,6 +310,17 @@ export interface SessionGrantInfo extends SessionGrantRef {
   sessionExpiresInMs: number;
   /** how many decrypts this grant has served */
   useCount: number;
+  /** how much of the key this grant opens */
+  breadth: SessionGrantBreadth;
+  /**
+   * How many distinct ciphertexts an item-scoped grant currently covers.
+   *
+   * Absent on a whole-key grant, which covers a number nobody can count. Grows
+   * over the grant's life where the value cache is involved: cache entries are
+   * admitted as the daemon verifies them against the cache file, since the
+   * cache is never item scoped.
+   */
+  coveredItemCount?: number;
 }
 
 export interface UnlockSessionResult {
@@ -378,6 +421,9 @@ export interface DecryptV2Result {
 export type IdentitySessionErrorCode = (
   | 'NO_SESSION_GRANT' // nothing unlocked for this (session x key)
   | 'SESSION_GRANT_EXPIRED' // the grant or its session cap ran out
+  // the grant is live but item scoped, and this batch carries a ciphertext it
+  // was not approved over. Not a failure: unlock again and the panel asks.
+  | 'GRANT_ITEM_NOT_COVERED'
   | 'SESSION_KEY_MISSING' // daemon no longer holds the key (restarted, or locked)
   | 'NO_SESSION_IDENTITY' // the caller's session could not be identified
   | 'NO_KEYS_REQUESTED' // the unlock named no key, so there was nothing to open

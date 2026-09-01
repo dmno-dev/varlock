@@ -281,12 +281,25 @@ case "panel-preview":
     let previewDisplay = UnlockDisplayInfo.from(payload: previewPayload)
     let strictKeyIds = Set((previewPayload["strictKeyIds"] as? [String]) ?? [])
     let coveredKeyIds = Set((previewPayload["coveredKeyIds"] as? [String]) ?? [])
+    // Item digests, so the breadth choice can be looked at. A preview has no
+    // real ciphertexts, so a payload may instead say how many items each key
+    // brought and the preview stands in synthetic digests for them: the panel
+    // only ever counts them, and nothing here is granted or decrypted.
+    let previewItems = UnlockRequestItems.from(payload: previewPayload)
+    let previewItemCounts = (previewPayload["itemDigestCounts"] as? [String: Any]) ?? [:]
+    func previewDigests(_ keyId: String) -> Set<String> {
+        if let real = previewItems[keyId] { return real }
+        guard let count = (previewItemCounts[keyId] as? NSNumber)?.intValue, count > 0 else { return [] }
+        return Set((0..<count).map { GrantItemDigest.of(Data("preview:\(keyId):\($0)".utf8)) })
+    }
     let previewPlan = UnlockPlanner.plan(
         requested: previewKeyIds.map {
             RequestedKey(
                 keyId: $0,
                 policy: strictKeyIds.contains($0) ? .everyTime : .standard,
-                itemCount: previewDisplay.valueCount(forKey: $0)
+                itemCount: previewDisplay.valueCount(forKey: $0),
+                itemDigests: previewDigests($0),
+                hasUnlistableSource: previewDisplay.keys[$0]?.sources.contains { !$0.isItemScopable } ?? false
             )
         },
         requestedScope: .session,
@@ -310,11 +323,35 @@ case "panel-preview":
             (previewPayload["pid"] as? NSNumber)?.int32Value ?? getppid()
         )
     }
+    // The preselection, so the panel can be looked at in the state a given
+    // request would actually open it in. `risk` forces one of the three rungs
+    // where a payload wants to see it; otherwise the real rules run on the real
+    // signals the scripted chain carries.
+    let previewRemembered = (previewPayload["remembered"] as? NSNumber)?.boolValue == true
+        ? UnlockNarrowing(breadth: .listedItems, window: GrantWindow(scope: .once), approvedBefore: true)
+        : nil
+    var previewSignals = UnlockRiskSignals.read(
+        chain: previewRequester.chain,
+        projectPath: previewDisplay.projectPath,
+        seenBefore: (previewPayload["seenBefore"] as? NSNumber)?.boolValue ?? (previewRemembered != nil)
+    )
+    switch previewPayload["risk"] as? String {
+    case "routine": previewSignals = UnlockRiskSignals(seenBefore: true)
+    case "elevated": previewSignals = UnlockRiskSignals(hasAgentSession: true, seenBefore: true)
+    case "unusual": previewSignals = UnlockRiskSignals(nobodyWatching: true, seenBefore: true)
+    default: break
+    }
     let previewContent = UnlockPanelContent.build(
         plan: previewPlan,
         requester: previewRequester,
         display: previewDisplay,
-        lockOn: SessionLockPolicy(wireValue: previewPayload["lockOn"] as? String) ?? .builtInDefault
+        lockOn: SessionLockPolicy(wireValue: previewPayload["lockOn"] as? String) ?? .builtInDefault,
+        preselection: UnlockDefaults.preselect(
+            signals: previewSignals,
+            remembered: previewRemembered,
+            offeredBreadths: previewPlan.offeredBreadths,
+            offeredScopes: previewPlan.offeredScopes
+        )
     )
     let previewMode: ApprovalPresenceMode
     switch previewPayload["mode"] as? String {
@@ -661,7 +698,10 @@ case "daemon":
             // only ever changes the wording on the panel.
             let requestContext = IdentitySessionManager.UnlockRequestContext(
                 requester: panelRequesterForPid(peerPid),
-                display: UnlockDisplayInfo.from(payload: payload)
+                display: UnlockDisplayInfo.from(payload: payload),
+                // The ciphertexts this unlock would cover, hashed on this side.
+                // Not decoration: this is what an item-scoped grant binds to.
+                itemDigests: UnlockRequestItems.from(payload: payload)
             )
 
             do {

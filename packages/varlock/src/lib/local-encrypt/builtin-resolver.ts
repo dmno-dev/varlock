@@ -308,11 +308,15 @@ export const VarlockResolver: typeof Resolver = createResolver<VarlockResolverSt
     // grant covers; a v1 payload asks in its own way.
     if (parent?.key) {
       try {
-        if (readPayloadVersion(parseVarlockReference(payload).payload) === IDENTITY_PAYLOAD_VERSION) {
+        const { payload: ciphertext } = parseVarlockReference(payload);
+        if (readPayloadVersion(ciphertext) === IDENTITY_PAYLOAD_VERSION) {
           this._unlockInventoryEntry = {
             keyId: DEFAULT_KEY_ID,
             valueName: parent.key,
             sourceFile: sourceFilePath,
+            // Not display: this is what an item-scoped grant would be bound to,
+            // once the daemon has hashed it for itself.
+            ciphertext,
           };
         }
       } catch {

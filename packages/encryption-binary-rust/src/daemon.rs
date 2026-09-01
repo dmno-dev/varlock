@@ -432,6 +432,12 @@ fn handle_unlock_session(
     let scope = SessionGrantScope::from_wire_value(payload.get("scope").and_then(|v| v.as_str()))
         .unwrap_or(SessionGrantScope::Session);
 
+    // `items` (the ciphertexts a narrow approval would be bound to) and
+    // `display` are both read past here. Neither means anything on a daemon
+    // with no panel: `display` decorates a window that is never drawn, and
+    // `items` narrows a grant only if a person chooses to narrow it, and there
+    // is nobody to ask. Grants issued here cover the whole key and say so.
+
     // Accept one key or several: one unlock, one check, however many keys.
     // Deliberately no default: naming no key is refused, not guessed at.
     let mut key_ids: Vec<String> = payload

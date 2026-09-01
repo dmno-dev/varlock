@@ -36,6 +36,12 @@ export interface FakeDaemonConfig {
   unlockError?: { code: string; message?: string };
   /** drop grants once, just before the next decrypt-v2, to stage the retry */
   dropGrantsBeforeDecrypt?: boolean;
+  /**
+   * Treat every unlock as if the user picked the narrow breadth, so a grant
+   * covers only the `items` its unlock named. Stands in for a panel nobody can
+   * click in a test.
+   */
+  itemScoped?: boolean;
 }
 
 export interface RecordedCall {

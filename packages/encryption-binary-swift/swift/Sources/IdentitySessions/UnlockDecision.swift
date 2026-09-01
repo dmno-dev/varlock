@@ -31,11 +31,31 @@ public struct RequestedKey: Equatable {
     /// How many encrypted items the client says this key covers. Client-supplied
     /// decoration: it changes what the panel says, never what the daemon allows.
     public let itemCount: Int?
+    /// The ciphertexts this key is being asked to open, by digest, as the daemon
+    /// computed them from the payloads the client handed over.
+    ///
+    /// This is the only part of a request that can narrow a grant, and it is the
+    /// only part of it the daemon worked out for itself. Everything else about a
+    /// key (its name, its file, how many values the client claims) is
+    /// decoration; this is the enforcement set.
+    public let itemDigests: Set<String>
+    /// Whether this key has a source that item scope does not reach: today,
+    /// varlock's value cache. See `SessionGrantBreadth`, and the line the panel
+    /// draws about it.
+    public let hasUnlistableSource: Bool
 
-    public init(keyId: String, policy: KeyAuthPolicy = .standard, itemCount: Int? = nil) {
+    public init(
+        keyId: String,
+        policy: KeyAuthPolicy = .standard,
+        itemCount: Int? = nil,
+        itemDigests: Set<String> = [],
+        hasUnlistableSource: Bool = false
+    ) {
         self.keyId = keyId
         self.policy = policy
         self.itemCount = itemCount
+        self.itemDigests = itemDigests
+        self.hasUnlistableSource = hasUnlistableSource
     }
 }
 
@@ -48,10 +68,17 @@ public struct ExistingGrantSnapshot: Equatable {
     /// to pick a clock. The table already reconciles the wall and monotonic
     /// deadlines; this is the answer it arrived at.
     public let remainingMs: Int64
+    /// What an item-scoped grant covers, or nil when it covers the whole key.
+    ///
+    /// A grant that is long enough but narrow is still not enough for a batch
+    /// carrying something it never covered, so this sits beside the window
+    /// rather than behind it: the two are independent, and coverage means both.
+    public let coveredItems: Set<String>?
 
-    public init(scope: SessionGrantScope, remainingMs: Int64) {
+    public init(scope: SessionGrantScope, remainingMs: Int64, coveredItems: Set<String>? = nil) {
         self.scope = scope
         self.remainingMs = remainingMs
+        self.coveredItems = coveredItems
     }
 }
 
@@ -68,6 +95,14 @@ public struct UnlockPlan: Equatable {
     public let offeredScopes: [SessionGrantScope]
     /// Which scope the panel starts on.
     public let defaultScope: SessionGrantScope
+    /// Which breadths the panel may offer.
+    ///
+    /// The narrow one is only there when EVERY key in the question brought
+    /// items with it. A batch where one key's ciphertexts arrived and another's
+    /// did not cannot honestly offer "only these values": the second key's grant
+    /// would open nothing, and the panel would have promised a narrowing that
+    /// was really an outage.
+    public let offeredBreadths: [SessionGrantBreadth]
 
     /// The keys the user is actually being asked about, in a stable order.
     public var promptKeys: [RequestedKey] { newKeys + refreshKeys }
@@ -88,6 +123,22 @@ public struct UnlockPlan: Equatable {
     /// Whether every key in the question asks every time, so no lasting scope is
     /// on offer.
     public var isStrictOnly: Bool { requiresPrompt && standardPromptKeys.isEmpty }
+
+    /// Whether the panel has a breadth choice to draw at all.
+    public var offersBreadthChoice: Bool { offeredBreadths.count > 1 }
+
+    /// How many distinct ciphertexts a narrow approval would cover, across every
+    /// key in the question.
+    ///
+    /// Counted from the digests the daemon computed, so unlike the client's own
+    /// value count this number is one varlock can stand behind: it is exactly
+    /// how many payloads the grant will open.
+    public var listedItemCount: Int {
+        return promptKeys.reduce(into: Set<String>()) { $0.formUnion($1.itemDigests) }.count
+    }
+
+    /// Whether anything in the question has a source item scope does not reach.
+    public var hasUnlistableSource: Bool { promptKeys.contains { $0.hasUnlistableSource } }
 }
 
 /// Preset windows offered behind the "for a set time" choice.
@@ -155,7 +206,12 @@ public enum UnlockPlanner {
                 refreshKeys.append(key)
                 continue
             }
-            if covers(live: live, requestedScope: requestedScope, requestedDurationMs: requestedDurationMs) {
+            if covers(
+                live: live,
+                requestedScope: requestedScope,
+                requestedDurationMs: requestedDurationMs,
+                requestedItems: key.itemDigests
+            ) {
                 coveredKeys.append(key)
             } else {
                 refreshKeys.append(key)
@@ -165,13 +221,15 @@ public enum UnlockPlanner {
         let promptKeys = newKeys + refreshKeys
         let anyStandard = promptKeys.contains { $0.policy == .standard }
         let offered: [SessionGrantScope] = anyStandard ? fullScopes : [.once]
+        let canNarrow = !promptKeys.isEmpty && promptKeys.allSatisfy { !$0.itemDigests.isEmpty }
 
         return UnlockPlan(
             newKeys: newKeys,
             refreshKeys: refreshKeys,
             coveredKeys: coveredKeys,
             offeredScopes: offered,
-            defaultScope: offered.contains(.session) ? .session : .once
+            defaultScope: offered.contains(.session) ? .session : .once,
+            offeredBreadths: canNarrow ? [.listedItems, .wholeKey] : [.wholeKey]
         )
     }
 
@@ -187,12 +245,23 @@ public enum UnlockPlanner {
     ///   - a `once` grant covers only another `once` request
     ///
     /// Anything else counts as an upgrade and is worth asking about.
+    ///
+    /// Breadth is checked first and separately. A grant can be long enough and
+    /// still not cover this request, because the two axes are independent: a
+    /// session-long approval over three values does not become an approval over
+    /// a fourth just by having time left on it. A batch carrying something
+    /// outside the covered set is an upgrade, and upgrades are what the panel is
+    /// for, so it goes back through the same delta prompt a brand-new key takes.
     static func covers(
         live: ExistingGrantSnapshot,
         requestedScope: SessionGrantScope,
-        requestedDurationMs: Int64?
+        requestedDurationMs: Int64?,
+        requestedItems: Set<String> = []
     ) -> Bool {
         guard live.remainingMs > 0 else { return false }
+        if let coveredItems = live.coveredItems, !requestedItems.isSubset(of: coveredItems) {
+            return false
+        }
         switch live.scope {
         case .session:
             return true

@@ -30,6 +30,16 @@ public struct AuthorizationRecord: Equatable {
     public let payloadCount: Int
     /// The grant scope the call ran under, when there was one.
     public let scope: String?
+    /// How much of the key the call ran under, when there was a grant.
+    ///
+    /// Recorded beside the scope because the two together are what was
+    /// authorized: "session" alone does not say whether a whole key was opened
+    /// or three named values were, and a record that cannot tell those apart
+    /// cannot answer the question the log exists for.
+    public let breadth: String?
+    /// How many ciphertexts an item-scoped grant covered at the time. Absent
+    /// for a whole-key grant, which covers a number nobody can count.
+    public let coveredItemCount: Int?
     /// One line describing the process that asked, derived by the daemon.
     public let requester: String?
 
@@ -40,6 +50,8 @@ public struct AuthorizationRecord: Equatable {
         identityId: String? = nil,
         payloadCount: Int = 0,
         scope: String? = nil,
+        breadth: String? = nil,
+        coveredItemCount: Int? = nil,
         requester: String? = nil
     ) {
         self.kind = kind
@@ -48,6 +60,8 @@ public struct AuthorizationRecord: Equatable {
         self.identityId = identityId
         self.payloadCount = payloadCount
         self.scope = scope
+        self.breadth = breadth
+        self.coveredItemCount = coveredItemCount
         self.requester = requester
     }
 
@@ -61,6 +75,8 @@ public struct AuthorizationRecord: Equatable {
         ]
         if let identityId { object["identityId"] = identityId }
         if let scope { object["scope"] = scope }
+        if let breadth { object["breadth"] = breadth }
+        if let coveredItemCount { object["coveredItemCount"] = coveredItemCount }
         if let requester { object["requester"] = requester }
         return object
     }

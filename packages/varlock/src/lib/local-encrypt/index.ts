@@ -39,7 +39,7 @@ export { UnlockDeclinedError, UnlockNoUiError } from './session-decrypt';
 export { StaleDaemonError } from './daemon-client';
 export {
   clearDeclaredCacheInventories, clearUnlockInventory, declareCacheInventory,
-  declareEncryptedFileValues, unlockInventoryForKey,
+  declareEncryptedFileValues, unlockInventoryForKey, unlockItemsForKey,
   type DeclaredEncryptedValue,
 } from './unlock-inventory';
 

@@ -166,6 +166,14 @@ impl SessionGrantInfo {
             "lockOn": self.lock_on.wire_value(),
             "useCount": self.use_count,
             "expiresInMs": self.remaining_ms,
+            // How much of the key this grant opens. Always the whole key here.
+            //
+            // The narrow answer is one a person picks on an approval panel, and
+            // this daemon has no panel: it never prompts, so there is nobody to
+            // pick it. Reported anyway, and reported honestly, because a client
+            // reading a grant should never have to work out whether a missing
+            // field means "the whole key" or "an old daemon".
+            "breadth": "key",
         });
         if let (Some(last_used_at), Some(map)) = (self.last_used_at, object.as_object_mut()) {
             map.insert("lastUsedAt".into(), json!(last_used_at));
@@ -1026,6 +1034,7 @@ mod tests {
         assert_eq!(
             keys,
             vec![
+                "breadth",
                 "expiresAt",
                 "expiresInMs",
                 "grantedAt",
@@ -1044,6 +1053,7 @@ mod tests {
         assert_eq!(object["scope"], json!("session"));
         assert_eq!(object["lockOn"], json!("sleep"));
         assert_eq!(object["useCount"], json!(1));
+        assert_eq!(object["breadth"], json!("key"));
     }
 
     #[test]

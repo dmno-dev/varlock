@@ -28,12 +28,32 @@ export type DeclaredEncryptedValue = {
   valueName?: string;
   /** the file as the panel should name it, or undefined when it is not known */
   sourceFile?: string;
+  /**
+   * The value's own ciphertext.
+   *
+   * The one thing declared here that is not display. It goes to the daemon as
+   * a payload, the daemon hashes it, and an item-scoped grant is bound to that
+   * digest. Declaring it up front is what makes the narrow choice usable: a
+   * grant narrowed to the batch that happened to ask first would refuse every
+   * value that rides it afterwards, so the whole run's values are named before
+   * anything resolves.
+   */
+  ciphertext?: string;
 };
 
 /** keyId -> (file heading -> the values it defined), in first-seen order */
 const declaredFiles = new Map<string, Map<string, UnlockValueSource>>();
 /** keyId -> what the value cache on that key holds */
 const declaredCaches = new Map<string, UnlockValueSource>();
+/**
+ * keyId -> the ciphertexts a grant on that key will be asked to open.
+ *
+ * Files only. The value cache is deliberately absent: it is never item scoped
+ * (its entries are machine-written and rewritten constantly, so narrowing to
+ * them would prompt on every provider refresh), and the daemon covers it by
+ * reading its own cache file rather than by anything sent from here.
+ */
+const declaredCiphertexts = new Map<string, Set<string>>();
 
 /**
  * Declare the encrypted values a graph load found, replacing whatever the last
@@ -45,8 +65,19 @@ const declaredCaches = new Map<string, UnlockValueSource>();
  */
 export function declareEncryptedFileValues(values: Array<DeclaredEncryptedValue>) {
   declaredFiles.clear();
-  for (const { keyId, valueName, sourceFile } of values) {
+  declaredCiphertexts.clear();
+  for (const {
+    keyId, valueName, sourceFile, ciphertext,
+  } of values) {
     if (!keyId || !valueName) continue;
+    if (ciphertext) {
+      let items = declaredCiphertexts.get(keyId);
+      if (!items) {
+        items = new Set();
+        declaredCiphertexts.set(keyId, items);
+      }
+      items.add(ciphertext);
+    }
     let byFile = declaredFiles.get(keyId);
     if (!byFile) {
       byFile = new Map();
@@ -96,8 +127,20 @@ export function unlockInventoryForKey(keyId: string): Array<UnlockValueSource> {
   return sources;
 }
 
+/**
+ * The ciphertexts a grant on this key will be asked to open, so far.
+ *
+ * What an item-scoped approval would be bound to, once the daemon has hashed
+ * them. Empty when nothing declared itself, and the panel then offers no narrow
+ * choice rather than one that would open nothing.
+ */
+export function unlockItemsForKey(keyId: string): Array<string> {
+  return [...(declaredCiphertexts.get(keyId) ?? [])];
+}
+
 /** Forget everything declared (used by tests and the lock flows) */
 export function clearUnlockInventory() {
   declaredFiles.clear();
   declaredCaches.clear();
+  declaredCiphertexts.clear();
 }

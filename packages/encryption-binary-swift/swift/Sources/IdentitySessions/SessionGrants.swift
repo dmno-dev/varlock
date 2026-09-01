@@ -67,6 +67,47 @@ public struct SessionGrantInfo: Equatable {
     public let lockOn: SessionLockPolicy
     /// how many decrypts this grant has served
     public let useCount: Int
+    /// how much of the key this grant opens
+    public let breadth: SessionGrantBreadth
+    /// how many distinct ciphertexts an item-scoped grant currently covers.
+    /// nil for a whole-key grant, which covers a number nobody can count.
+    public let coveredItemCount: Int?
+
+    /// Defaulted, so every caller that predates the breadth axis reads as what
+    /// it has always been: an approval over the whole key.
+    public init(
+        sessionId: String,
+        keyId: String,
+        identityId: String,
+        scope: SessionGrantScope,
+        grantedAt: Int64,
+        expiresAt: Int64,
+        remainingMs: Int64,
+        lastUsedAt: Int64? = nil,
+        sessionUnlockedAt: Int64,
+        sessionExpiresAt: Int64,
+        sessionRemainingMs: Int64,
+        lockOn: SessionLockPolicy,
+        useCount: Int,
+        breadth: SessionGrantBreadth = .wholeKey,
+        coveredItemCount: Int? = nil
+    ) {
+        self.sessionId = sessionId
+        self.keyId = keyId
+        self.identityId = identityId
+        self.scope = scope
+        self.grantedAt = grantedAt
+        self.expiresAt = expiresAt
+        self.remainingMs = remainingMs
+        self.lastUsedAt = lastUsedAt
+        self.sessionUnlockedAt = sessionUnlockedAt
+        self.sessionExpiresAt = sessionExpiresAt
+        self.sessionRemainingMs = sessionRemainingMs
+        self.lockOn = lockOn
+        self.useCount = useCount
+        self.breadth = breadth
+        self.coveredItemCount = coveredItemCount
+    }
 
     public func toDictionary() -> [String: Any] {
         var dict: [String: Any] = [
@@ -82,9 +123,13 @@ public struct SessionGrantInfo: Equatable {
             "lockOn": lockOn.rawValue,
             "useCount": useCount,
             "expiresInMs": remainingMs,
+            "breadth": breadth.rawValue,
         ]
         if let lastUsedAt {
             dict["lastUsedAt"] = lastUsedAt
+        }
+        if let coveredItemCount {
+            dict["coveredItemCount"] = coveredItemCount
         }
         return dict
     }
@@ -93,6 +138,9 @@ public struct SessionGrantInfo: Equatable {
 public enum SessionGrantError: LocalizedError {
     case noGrant(SessionGrantRef)
     case expired(SessionGrantRef)
+    /// The grant is live, but this batch carries a ciphertext it was not
+    /// approved over. Not a failure: the caller is expected to go and ask.
+    case itemNotCovered(SessionGrantRef)
 
     public var errorDescription: String? {
         switch self {
@@ -100,6 +148,9 @@ public enum SessionGrantError: LocalizedError {
             return "No unlock session for key \"\(ref.keyId)\"; run an unlock first"
         case .expired(let ref):
             return "The unlock session for key \"\(ref.keyId)\" has expired; unlock again"
+        case .itemNotCovered(let ref):
+            return "The unlock session for key \"\(ref.keyId)\" covers only the values it was approved over; "
+                + "this request includes others, so it needs approving again"
         }
     }
 
@@ -108,6 +159,7 @@ public enum SessionGrantError: LocalizedError {
         switch self {
         case .noGrant: return "NO_SESSION_GRANT"
         case .expired: return "SESSION_GRANT_EXPIRED"
+        case .itemNotCovered: return "GRANT_ITEM_NOT_COVERED"
         }
     }
 }
@@ -132,6 +184,16 @@ public final class SessionGrantTable {
         var deadline: GrantDeadline
         var lastUsedAt: Int64?
         var useCount: Int
+        /// The ciphertexts this grant may open, by SHA-256 digest, or nil when
+        /// it opens anything the key can.
+        ///
+        /// Digests only. The grant never holds a ciphertext, a value name, or
+        /// anything else a client sent: it holds the one thing the daemon
+        /// computed for itself, which is what makes membership in this set an
+        /// answer rather than a claim.
+        var coveredItems: Set<String>?
+
+        var breadth: SessionGrantBreadth { coveredItems == nil ? .wholeKey : .listedItems }
     }
 
     private struct SessionState {
@@ -201,19 +263,33 @@ public final class SessionGrantTable {
         return info(ref: ref, grant: grant, session: state)
     }
 
+    /// What an item-scoped grant currently covers, or nil when it covers the
+    /// whole key. Read by the unlock planner, which is how a batch carrying a
+    /// ciphertext nobody approved becomes a panel rather than a refusal.
+    public func coveredItems(ref: SessionGrantRef) -> Set<String>? {
+        pruneExpired()
+        return sessions[ref.sessionId]?.grants[ref.keyId]?.coveredItems
+    }
+
     // MARK: - Granting
 
     /// Record a grant, opening the session if this is its first one.
     ///
     /// The session's cap starts at its first unlock, so a caller cannot extend its
     /// hold past 12h by re-granting the same key over and over.
+    ///
+    /// - Parameter coveredItems: the ciphertext digests this grant may open, or
+    ///   nil for the whole key. An empty set is not the same as nil: it is a
+    ///   grant that opens nothing yet, which is what an item-scoped approval
+    ///   over a batch the client described badly should degrade to.
     @discardableResult
     public func grant(
         ref: SessionGrantRef,
         identityId: String,
         scope: SessionGrantScope,
         durationMs: Int64? = nil,
-        lockOn: SessionLockPolicy = .builtInDefault
+        lockOn: SessionLockPolicy = .builtInDefault,
+        coveredItems: Set<String>? = nil
     ) -> SessionGrantInfo {
         pruneExpired()
         let now = clock()
@@ -251,7 +327,8 @@ public final class SessionGrantTable {
             // never past the session cap, whatever was asked for, on either clock
             deadline: GrantDeadline.earliest(requestedDeadline, state.deadline),
             lastUsedAt: nil,
-            useCount: 0
+            useCount: 0,
+            coveredItems: coveredItems
         )
         sessions[ref.sessionId]?.grants[ref.keyId] = grant
         return info(ref: ref, grant: grant, session: sessions[ref.sessionId]!)
@@ -263,7 +340,22 @@ public final class SessionGrantTable {
     ///
     /// A `once` grant is spent here: it serves exactly one `decrypt-v2` call, however
     /// many payloads that call carries, and is then dropped.
-    public func consume(ref: SessionGrantRef) throws -> (info: SessionGrantInfo, change: SessionGrantChange) {
+    ///
+    /// - Parameters:
+    ///   - itemDigests: the digests of the ciphertexts this batch carries, as
+    ///     the daemon computed them. An item-scoped grant refuses the WHOLE
+    ///     batch if any of them is outside what it was approved over, and is
+    ///     not charged for the attempt: the caller's next move is to ask, and
+    ///     spending a `once` grant on a refusal would cost it the answer.
+    ///   - alsoCovered: digests the grant covers for a structural reason rather
+    ///     than because they were listed. This is where the value cache lives:
+    ///     see `admitsUnlistedItems` on the source kind. Consulted only when the
+    ///     listed set has already said no, so it costs nothing in the normal case.
+    public func consume(
+        ref: SessionGrantRef,
+        itemDigests: [String] = [],
+        alsoCovered: () -> Set<String> = { [] }
+    ) throws -> (info: SessionGrantInfo, change: SessionGrantChange) {
         // Deliberately no prune first: an expired grant should still be found here
         // so the caller is told the session ran out, not that it never existed.
         let now = clock()
@@ -277,6 +369,22 @@ public final class SessionGrantTable {
             // Drop it here rather than leaving a dead row for the next prune to find.
             drop(ref: ref)
             throw SessionGrantError.expired(ref)
+        }
+
+        if var covered = grant.coveredItems {
+            let unlisted = itemDigests.filter { !covered.contains($0) }
+            if !unlisted.isEmpty {
+                let structural = alsoCovered()
+                guard unlisted.allSatisfy({ structural.contains($0) }) else {
+                    // Nothing is charged and nothing is dropped. The grant is
+                    // still good for what it covers; this batch simply is not it.
+                    throw SessionGrantError.itemNotCovered(ref)
+                }
+                // Remembered, so the same entry read again later is an O(1) hit
+                // and stays readable even once the store behind it has moved on.
+                covered.formUnion(unlisted)
+                grant.coveredItems = covered
+            }
         }
 
         grant.useCount += 1
@@ -427,7 +535,9 @@ public final class SessionGrantTable {
             sessionExpiresAt: session.deadline.wall,
             sessionRemainingMs: session.deadline.remainingMs(wallNow: now, monotonicNow: monotonicNow),
             lockOn: session.lockOn,
-            useCount: grant.useCount
+            useCount: grant.useCount,
+            breadth: grant.breadth,
+            coveredItemCount: grant.coveredItems?.count
         )
     }
 }

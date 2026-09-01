@@ -21,7 +21,7 @@
 import path from 'node:path';
 import { VARLOCK_VERSION } from '../varlock-version';
 import { DaemonError, type DaemonClient } from './daemon-client';
-import { unlockInventoryForKey } from './unlock-inventory';
+import { unlockInventoryForKey, unlockItemsForKey } from './unlock-inventory';
 import type {
   SessionGrantInfo, UnlockDisplayInfo, UnlockInvocationMode, UnlockKeyDisplay, UnlockValueSource,
 } from './types';
@@ -130,9 +130,12 @@ async function unlock(
   client: DaemonClient,
   keyIds: Array<string>,
   display: UnlockDisplayInfo | undefined,
+  items: Record<string, Array<string>>,
 ) {
   try {
-    const result = await client.unlockSession({ keyIds, scope: 'session', display });
+    const result = await client.unlockSession({
+      keyIds, scope: 'session', display, items,
+    });
     for (const grant of result.grants ?? []) rememberGrant(grant);
     return result;
   } catch (err) {
@@ -141,25 +144,35 @@ async function unlock(
   }
 }
 
+/**
+ * The daemon's answers that mean "ask again", rather than "this failed".
+ *
+ * The first two are a grant that died between the unlock and the decrypt: the
+ * session was locked from the menu bar, or the machine slept. The third is an
+ * item-scoped grant meeting a ciphertext it was never approved over, which is
+ * the narrow breadth doing exactly its job. All three are answered the same
+ * way, because from here they are the same situation: this session does not
+ * hold what this batch needs, so put it back in front of the user.
+ */
+const RETRYABLE_GRANT_CODES = new Set(['NO_SESSION_GRANT', 'SESSION_GRANT_EXPIRED', 'GRANT_ITEM_NOT_COVERED']);
+
 async function decryptGroup(
   client: DaemonClient,
   keyId: string,
   ciphertexts: Array<string>,
   display: UnlockDisplayInfo | undefined,
+  items: Record<string, Array<string>>,
 ): Promise<Array<string>> {
   try {
     const result = await client.decryptV2({ keyId, ciphertexts });
     rememberGrant(result.grant);
     return result.plaintexts;
   } catch (err) {
-    // The grant can die between the unlock and the decrypt: the session may have
-    // been locked from the menu bar, or the machine may have slept. One more
-    // unlock covers that, and a second failure is a real refusal rather than a race.
-    if (daemonErrorCode(err) !== 'NO_SESSION_GRANT' && daemonErrorCode(err) !== 'SESSION_GRANT_EXPIRED') {
+    if (!RETRYABLE_GRANT_CODES.has(daemonErrorCode(err) ?? '')) {
       throw translateSessionError(err);
     }
     liveGrants.delete(keyId);
-    await unlock(client, [keyId], display);
+    await unlock(client, [keyId], display, items);
     try {
       const retried = await client.decryptV2({ keyId, ciphertexts });
       rememberGrant(retried.grant);
@@ -319,6 +332,35 @@ function buildDisplayInfo(
 }
 
 /**
+ * The ciphertexts each key is being asked to cover, for the daemon to hash.
+ *
+ * Two accounts, unioned: what the run declared before anything resolved, and
+ * what this batch is holding. Both are needed, and for the same reason the
+ * panel's own source list needs both. The declaration knows the whole grant,
+ * which is what a narrow approval has to be bound to or it will refuse every
+ * value that rides the grant afterwards. The batch knows what is in hand right
+ * now, which covers a caller that never declared itself at all.
+ *
+ * The value cache is not here on purpose. It is never item scoped: its entries
+ * are machine-written and rewritten whenever a provider value is renewed, so
+ * binding a grant to them would put a panel in front of the user on a normal
+ * dev loop. The daemon covers cache reads by checking its own cache file, which
+ * is a fact it establishes rather than one this side asserts.
+ */
+function buildItems(
+  payloads: Array<IdentityPayloadRequest>,
+  groups: Map<string, Array<number>>,
+): Record<string, Array<string>> {
+  const items: Record<string, Array<string>> = {};
+  for (const [keyId, indexes] of groups) {
+    const ciphertexts = new Set(unlockItemsForKey(keyId));
+    for (const index of indexes) ciphertexts.add(payloads[index].ciphertext);
+    items[keyId] = [...ciphertexts];
+  }
+  return items;
+}
+
+/**
  * Open every payload, in payload order, using as few unlocks as possible.
  *
  * Keys already covered by a grant this process opened are left out of the unlock
@@ -341,9 +383,10 @@ export async function decryptIdentityPayloadsViaDaemon(
 
   const keyIds = [...groups.keys()];
   const display = buildDisplayInfo(payloads, groups, opts?.display);
+  const items = buildItems(payloads, groups);
 
   const needUnlock = keyIds.filter((keyId) => !grantLooksLive(keyId));
-  if (needUnlock.length > 0) await unlock(client, needUnlock, display);
+  if (needUnlock.length > 0) await unlock(client, needUnlock, display, items);
 
   const plaintexts = new Array<string>(payloads.length);
   for (const [keyId, indexes] of groups) {
@@ -355,6 +398,7 @@ export async function decryptIdentityPayloadsViaDaemon(
       keyId,
       indexes.map((i) => payloads[i].ciphertext),
       display,
+      items,
     );
     if (opened.length !== indexes.length) {
       throw new Error(

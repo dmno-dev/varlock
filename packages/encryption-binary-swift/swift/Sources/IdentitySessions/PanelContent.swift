@@ -197,6 +197,19 @@ public struct PanelContent: Equatable {
     public let reportedVarlockVersion: String?
     public let scopes: [SessionGrantScope]
     public let defaultScope: SessionGrantScope
+    /// How much of each key an approval may cover. One entry means there is no
+    /// choice to draw and the approval covers the whole key, as it always did.
+    public let breadths: [SessionGrantBreadth]
+    /// Which breadth the panel starts on.
+    public let defaultBreadth: SessionGrantBreadth
+    /// How many ciphertexts the narrow choice would cover. Daemon-counted.
+    public let listedItemCount: Int
+    /// Whether anything in this request has a source item scope cannot reach,
+    /// which the panel has to say out loud rather than let a reader assume.
+    public let hasUnlistableSource: Bool
+    /// What the panel says about why it opened where it did, when there is
+    /// something to say (a remembered narrowing, an unusual-looking request).
+    public let selectionNote: String?
     public let confirmButtonTitle: String
     public let cancelButtonTitle: String
 
@@ -212,9 +225,19 @@ public struct PanelContent: Equatable {
         reportedVarlockVersion: String? = nil,
         scopes: [SessionGrantScope],
         defaultScope: SessionGrantScope,
+        breadths: [SessionGrantBreadth] = [.wholeKey],
+        defaultBreadth: SessionGrantBreadth = .wholeKey,
+        listedItemCount: Int = 0,
+        hasUnlistableSource: Bool = false,
+        selectionNote: String? = nil,
         confirmButtonTitle: String,
         cancelButtonTitle: String = "Deny"
     ) {
+        self.breadths = breadths
+        self.defaultBreadth = defaultBreadth
+        self.listedItemCount = listedItemCount
+        self.hasUnlistableSource = hasUnlistableSource
+        self.selectionNote = selectionNote
         self.titleSegments = titleSegments
         self.subtitle = subtitle
         self.requester = requester
@@ -234,6 +257,66 @@ public struct PanelContent: Equatable {
     public var title: String {
         return titleSegments.map { $0.text }.joined()
     }
+
+    /// Human label for a breadth button.
+    ///
+    /// The narrow one carries the number, because a number is what makes it
+    /// obviously the smaller of the two: "Only these 12" beside "Anything on
+    /// this key" needs no legend, where "Listed values" beside "All values"
+    /// asks the reader to work out which is which at the moment they are least
+    /// inclined to.
+    public static func breadthLabel(
+        _ breadth: SessionGrantBreadth,
+        itemCount: Int,
+        keyCount: Int = 1
+    ) -> String {
+        switch breadth {
+        case .listedItems: return itemCount > 0 ? "Only these \(itemCount)" : "Only what is listed"
+        case .wholeKey: return keyCount == 1 ? "Anything on this key" : "Anything on these keys"
+        }
+    }
+
+    /// The whole answer in one sentence, under the two controls.
+    ///
+    /// Two pills are two halves of one decision, and a person reading them has
+    /// to combine them in their head. This does the combining, so what is about
+    /// to be approved is written somewhere in full rather than assembled from
+    /// two labels.
+    public static func selectionSummary(
+        breadth: SessionGrantBreadth,
+        itemCount: Int,
+        keyCount: Int = 1,
+        scope: SessionGrantScope,
+        durationLabel: String?
+    ) -> String {
+        let what: String
+        switch breadth {
+        case .listedItems:
+            what = itemCount == 1 ? "Opens the 1 value listed above" : "Opens the \(itemCount) values listed above"
+        case .wholeKey:
+            what = keyCount == 1
+                ? "Opens anything this key can decrypt"
+                : "Opens anything these \(keyCount) keys can decrypt"
+        }
+        let howLong: String
+        switch scope {
+        case .once: return "\(what), for this one read."
+        case .session: howLong = "until this session ends"
+        case .duration: howLong = "for \(durationLabel ?? DurationPreset.default.label)"
+        }
+        return "\(what), \(howLong)."
+    }
+
+    /// What the panel says when a narrow choice does not narrow everything.
+    ///
+    /// The value cache is never item scoped, so "only these" means "only these
+    /// FILE values, and the cache as a whole". A person choosing the narrow
+    /// option must not walk away believing they restricted cache access. It is
+    /// one line, next to the choice, rather than a footnote under the key rows:
+    /// a caveat about a control belongs beside the control.
+    public static let unlistableSourceNote =
+        "\u{201C}Only these\u{201D} covers the listed values one by one; "
+        + "the value cache is always covered as a whole."
 
     /// Human label for a scope button. Plain words, no jargon.
     public static func scopeLabel(_ scope: SessionGrantScope) -> String {
@@ -265,15 +348,30 @@ public struct PanelDecision: Equatable {
     public let approved: Bool
     public let scope: SessionGrantScope
     public let durationMs: Int64?
+    /// How much of each key this answer opens. Defaults to the broad answer, so
+    /// every caller that predates the choice keeps the behaviour it had.
+    public let breadth: SessionGrantBreadth
 
-    public init(approved: Bool, scope: SessionGrantScope, durationMs: Int64? = nil) {
+    public init(
+        approved: Bool,
+        scope: SessionGrantScope,
+        durationMs: Int64? = nil,
+        breadth: SessionGrantBreadth = .wholeKey
+    ) {
         self.approved = approved
         self.scope = scope
         self.durationMs = durationMs
+        self.breadth = breadth
     }
 
-    public static func denied(defaultScope: SessionGrantScope) -> PanelDecision {
-        return PanelDecision(approved: false, scope: defaultScope, durationMs: nil)
+    /// The scope and its window as one value, for comparing and remembering.
+    public var window: GrantWindow { GrantWindow(scope: scope, durationMs: durationMs) }
+
+    public static func denied(
+        defaultScope: SessionGrantScope,
+        breadth: SessionGrantBreadth = .wholeKey
+    ) -> PanelDecision {
+        return PanelDecision(approved: false, scope: defaultScope, durationMs: nil, breadth: breadth)
     }
 }
 
@@ -302,6 +400,45 @@ public enum UnlockRequestKeys {
     }
 }
 
+/// Reads the ciphertexts an unlock is being asked to cover.
+///
+/// `{ "items": { "<key id>": ["<base64 payload>", ...] } }`, and nothing else.
+/// Not part of `display`, deliberately: everything in `display` is decoration
+/// the daemon does not check, and this is the one thing a client sends that the
+/// daemon turns into an enforced fact. Keeping them apart keeps that difference
+/// visible in the payload as well as in the code.
+///
+/// Payloads, never digests. A digest the client computed would be a digest the
+/// client chose, and an item-scoped grant would then cover whatever it felt
+/// like. Hashing happens on this side or not at all.
+public enum UnlockRequestItems {
+    /// Caps on how much a caller can bind one grant to. A request over the cap
+    /// is trimmed rather than refused, and a trimmed key simply cannot be
+    /// narrowed: `UnlockPlanner` only offers item scope where every key's
+    /// digests arrived, so the panel does not promise a narrowing it would then
+    /// have to break.
+    public static let maxItemsPerKey = 500
+    public static let maxItemsTotal = 2000
+
+    public static func from(payload: [String: Any]?) -> [String: Set<String>] {
+        guard let raw = payload?["items"] as? [String: Any] else { return [:] }
+        var out: [String: Set<String>] = [:]
+        var budget = maxItemsTotal
+        for (keyId, value) in raw {
+            guard budget > 0, let list = value as? [Any] else { continue }
+            var digests = Set<String>()
+            for entry in list.prefix(min(maxItemsPerKey, budget)) {
+                guard let text = entry as? String, let data = Data(base64Encoded: text) else { continue }
+                digests.insert(GrantItemDigest.of(data))
+            }
+            guard !digests.isEmpty else { continue }
+            budget -= digests.count
+            out[keyId] = digests
+        }
+        return out
+    }
+}
+
 /// One place the values behind a key come from.
 ///
 /// An env file and varlock's value cache are the same kind of thing here, and
@@ -326,6 +463,28 @@ public struct UnlockValueSource: Equatable {
             switch self {
             case .file: return "values"
             case .cache: return "value cache"
+            }
+        }
+
+        /// Whether an item-scoped approval reaches inside this kind of source.
+        ///
+        /// A file's values are written by a person and change when that person
+        /// changes them, so approving them one by one is a thing a person can
+        /// mean. The value cache is not like that: it is machine-written, and
+        /// every provider refresh rewrites an entry into a ciphertext nobody has
+        /// ever seen. Item-scoping it would refuse the next read of a value that
+        /// only changed because it was renewed on schedule, and the user would
+        /// answer a panel per refresh for the rest of the day. A control that
+        /// makes varlock unusable is not a control, so the cache is always
+        /// covered as a whole and the panel says so.
+        ///
+        /// This lives on the kind rather than at the place the decision is
+        /// enforced, so a source kind added later cannot quietly acquire the
+        /// exemption by being handled somewhere that forgot to ask.
+        public var isItemScopable: Bool {
+            switch self {
+            case .file: return true
+            case .cache: return false
             }
         }
     }
@@ -404,6 +563,9 @@ public struct UnlockValueSource: Equatable {
     public var isDrawable: Bool {
         return !entries.isEmpty || heading != nil
     }
+
+    /// Whether an item-scoped approval reaches inside this source.
+    public var isItemScopable: Bool { kind.isItemScopable }
 
     /// "1 value" / "12 values", in one place so every line that counts values
     /// counts them the same way.
@@ -626,16 +788,20 @@ public enum UnlockPanelContent {
     ///   - requester: who is asking, as the daemon read it off the peer process.
     ///   - display: client-supplied decoration.
     ///   - lockOn: the lock policy this unlock would run under, for the top bar.
+    ///   - preselection: where the two controls open, and why. Worked out in
+    ///     `UnlockDefaults`, which is the one place that decision is made.
     public static func build(
         plan: UnlockPlan,
         requester: PanelRequester,
         display: UnlockDisplayInfo = UnlockDisplayInfo(),
-        lockOn: SessionLockPolicy = .builtInDefault
+        lockOn: SessionLockPolicy = .builtInDefault,
+        preselection: UnlockPreselection? = nil
     ) -> PanelContent {
         var details = requester.details
         if let project = projectLine(display) {
             details.append(.clientSupplied(project))
         }
+        let rows = plan.promptKeys.map { row(for: $0, display: display) }
 
         return PanelContent(
             titleSegments: titleSegments(for: plan),
@@ -645,7 +811,7 @@ public enum UnlockPanelContent {
                 details: details,
                 chain: requester.chain
             ),
-            keyRows: plan.promptKeys.map { row(for: $0, display: display) },
+            keyRows: rows,
             notes: notes(for: plan),
             factLine: factLine(plan: plan, lockOn: lockOn),
             invocationMode: display.invocationMode,
@@ -655,7 +821,15 @@ public enum UnlockPanelContent {
             ),
             reportedVarlockVersion: display.varlockVersion,
             scopes: plan.offeredScopes,
-            defaultScope: plan.defaultScope,
+            defaultScope: preselection?.window.scope ?? plan.defaultScope,
+            breadths: plan.offeredBreadths,
+            defaultBreadth: preselection?.breadth ?? plan.offeredBreadths.last ?? .wholeKey,
+            listedItemCount: plan.listedItemCount,
+            // The caveat is only worth a line where the choice it qualifies is
+            // actually on the panel.
+            hasUnlistableSource: plan.offersBreadthChoice
+                && (plan.hasUnlistableSource || rows.contains { row in row.sources.contains { !$0.isItemScopable } }),
+            selectionNote: preselection?.note,
             confirmButtonTitle: "Unlock"
         )
     }

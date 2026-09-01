@@ -12,6 +12,14 @@ export const commandSpec = define({
       type: 'boolean',
       description: "Lock only this terminal's own session",
     },
+    'forget-preferences': {
+      type: 'boolean',
+      description: 'Also forget the unlock choices remembered for this project',
+    },
+    'forget-all-preferences': {
+      type: 'boolean',
+      description: 'Forget the unlock choices remembered for every project on this Mac',
+    },
   },
   examples: `
 With no options this locks every session on the machine, which is what you want when
@@ -25,5 +33,12 @@ Examples:
   varlock lock --current          # Lock only this terminal's session
   varlock lock --session <id>     # Lock one session by id
   varlock sessions                # See what is currently unlocked
+
+The unlock panel remembers it when you tighten an approval, so it does not spring back
+to the broad default next time. Choosing the broad option again forgets that, and so
+does this:
+
+  varlock lock --forget-preferences       # Forget this project's remembered choices
+  varlock lock --forget-all-preferences   # Forget every project's
 `.trim(),
 });

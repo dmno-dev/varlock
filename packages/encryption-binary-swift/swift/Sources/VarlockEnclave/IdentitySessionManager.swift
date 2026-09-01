@@ -58,6 +58,14 @@ final class IdentitySessionManager {
     struct UnlockRequestContext {
         var requester: PanelRequester = PanelRequester(summary: "")
         var display: UnlockDisplayInfo = UnlockDisplayInfo()
+        /// The ciphertexts this unlock is being asked to cover, by key id.
+        ///
+        /// The one part of a request that is neither derived nor decoration. The
+        /// client sends payloads; the daemon hashes them itself, and those
+        /// digests are what an item-scoped grant is bound to. A label the client
+        /// attached to a payload never reaches here: that decides what the panel
+        /// says, this decides what the grant opens.
+        var itemDigests: [String: Set<String>] = [:]
     }
 
     /// The answer to an approval panel, or the reason there wasn't one.
@@ -218,6 +226,10 @@ final class IdentitySessionManager {
         var carriedGrants: [SessionGrantInfo] = []
         var chosenScope = scope
         var chosenDurationMs = durationMs
+        // The broad answer, which is what an unlock covered before there was a
+        // choice. Only a panel can narrow it: a caller cannot ask for item scope
+        // and a caller cannot ask to be let out of one.
+        var chosenBreadth = SessionGrantBreadth.wholeKey
         var prompted = false
         var presenceProof: PresenceProof?
 
@@ -227,7 +239,8 @@ final class IdentitySessionManager {
                 keyIds: usableKeyIds,
                 scope: scope,
                 durationMs: durationMs,
-                display: requestContext.display
+                display: requestContext.display,
+                itemDigests: requestContext.itemDigests
             )
 
             guard plan.requiresPrompt else {
@@ -247,10 +260,26 @@ final class IdentitySessionManager {
                 )
             }
 
+            // Where the two controls open, and why. One rule, in one place: the
+            // narrowest of the broad default, the risk this request carries, and
+            // any narrowing the user chose here before.
+            let projectPath = requestContext.display.projectPath
+            let remembered = rememberedNarrowing(projectPath: projectPath, keyIds: plan.promptKeys.map { $0.keyId })
+            let preselection = UnlockDefaults.preselect(
+                signals: UnlockRiskSignals.read(
+                    chain: requestContext.requester.chain,
+                    projectPath: projectPath,
+                    seenBefore: remembered?.approvedBefore ?? false
+                ),
+                remembered: remembered,
+                offeredBreadths: plan.offeredBreadths,
+                offeredScopes: plan.offeredScopes
+            )
             let content = UnlockPanelContent.build(
                 plan: plan,
                 requester: requestContext.requester,
-                display: requestContext.display
+                display: requestContext.display,
+                preselection: preselection
             )
             // The system's sheet is built from the same content the panel draws,
             // so the two can never tell different stories. It stays a short verb
@@ -286,7 +315,19 @@ final class IdentitySessionManager {
             case .approved(let decision, let proof):
                 chosenScope = decision.scope
                 chosenDurationMs = decision.durationMs
+                // A breadth the panel never offered cannot be chosen, whatever
+                // comes back: the answer is clamped to the question that was asked.
+                chosenBreadth = plan.offeredBreadths.contains(decision.breadth) ? decision.breadth : .wholeKey
                 presenceProof = proof
+                // Remember only a narrowing, and forget one by choosing the
+                // default again. Best effort: a preference that will not write
+                // must never cost somebody an unlock they just approved.
+                UnlockPreferenceStore.record(
+                    projectPath: projectPath,
+                    keyIds: plan.promptKeys.map { $0.keyId },
+                    breadth: chosenBreadth,
+                    window: GrantWindow(scope: chosenScope, durationMs: chosenDurationMs)
+                )
             }
 
             prompted = true
@@ -361,7 +402,15 @@ final class IdentitySessionManager {
                         chosenDurationMs: chosenDurationMs,
                         policy: policyForKey
                     ),
-                    lockOn: lockPolicy.policy
+                    lockOn: lockPolicy.policy,
+                    // A narrow grant is bound to the digests the daemon computed
+                    // for this request, and to nothing else. A key that arrived
+                    // with no digests cannot be narrowed to them (that would be a
+                    // grant that opens nothing), so it keeps the whole key.
+                    coveredItems: coveredItems(
+                        breadth: chosenBreadth,
+                        digests: requestContext.itemDigests[keyId]
+                    )
                 ))
             }
 
@@ -375,6 +424,10 @@ final class IdentitySessionManager {
                     keyIds: keysToOpen.sorted(),
                     identityId: identityId,
                     scope: chosenScope.rawValue,
+                    breadth: chosenBreadth.rawValue,
+                    coveredItemCount: chosenBreadth == .listedItems
+                        ? granted.compactMap { $0.coveredItemCount }.reduce(0, +)
+                        : nil,
                     requester: requestContext.requester.summary
                 ))
             } catch {
@@ -396,6 +449,41 @@ final class IdentitySessionManager {
         }
     }
 
+    // MARK: - Breadth
+
+    /// What a chosen breadth means for one key's grant.
+    ///
+    /// `nil` is the whole key. A key that arrived with no digests keeps the
+    /// whole key even under a narrow choice: binding it to an empty set would
+    /// be a grant that opens nothing, which is a broken unlock dressed up as a
+    /// careful one. The panel only offers the narrow choice when every key in
+    /// the question brought digests, so this is the belt to that braces.
+    private func coveredItems(breadth: SessionGrantBreadth, digests: Set<String>?) -> Set<String>? {
+        guard breadth == .listedItems, let digests, !digests.isEmpty else { return nil }
+        return digests
+    }
+
+    /// The narrowing this Mac remembers for a batch, if any.
+    ///
+    /// Several keys in one question are folded into the narrowest thing any of
+    /// them remembers, and `approvedBefore` holds only when EVERY key has been
+    /// approved here before. Both fold in the restrictive direction on purpose:
+    /// a memory can only ever tighten a preselection, so a fold that guesses
+    /// wrong costs a panel rather than an over-broad grant.
+    private func rememberedNarrowing(projectPath: String?, keyIds: [String]) -> UnlockNarrowing? {
+        guard projectPath != nil, !keyIds.isEmpty else { return nil }
+        let rows = keyIds.map { UnlockPreferenceStore.narrowing(projectPath: projectPath, keyId: $0) }
+        let breadths = rows.compactMap { $0?.breadth }
+        let windows = rows.compactMap { $0?.window }
+        let seenAll = rows.allSatisfy { $0?.approvedBefore == true }
+        let folded = UnlockNarrowing(
+            breadth: breadths.isEmpty ? nil : SessionGrantBreadth.narrowest(breadths),
+            window: windows.isEmpty ? nil : GrantWindow.narrowest(windows),
+            approvedBefore: seenAll
+        )
+        return folded.isEmpty ? nil : folded
+    }
+
     // MARK: - Planning
 
     /// Work out what this unlock still has to ask about.
@@ -408,18 +496,31 @@ final class IdentitySessionManager {
         keyIds: [String],
         scope: SessionGrantScope,
         durationMs: Int64?,
-        display: UnlockDisplayInfo
+        display: UnlockDisplayInfo,
+        itemDigests: [String: Set<String>] = [:]
     ) -> UnlockPlan {
         return queue.sync {
             var existing: [String: ExistingGrantSnapshot] = [:]
             for keyId in keyIds {
-                guard let live = grants.liveGrant(ref: SessionGrantRef(sessionId: sessionId, keyId: keyId)) else {
-                    continue
-                }
-                existing[keyId] = ExistingGrantSnapshot(scope: live.scope, remainingMs: live.remainingMs)
+                let ref = SessionGrantRef(sessionId: sessionId, keyId: keyId)
+                guard let live = grants.liveGrant(ref: ref) else { continue }
+                existing[keyId] = ExistingGrantSnapshot(
+                    scope: live.scope,
+                    remainingMs: live.remainingMs,
+                    coveredItems: grants.coveredItems(ref: ref)
+                )
             }
-            let requested = keyIds.map {
-                RequestedKey(keyId: $0, policy: keyPolicy($0), itemCount: display.itemCounts[$0])
+            let requested = keyIds.map { keyId in
+                RequestedKey(
+                    keyId: keyId,
+                    policy: keyPolicy(keyId),
+                    itemCount: display.itemCounts[keyId],
+                    itemDigests: itemDigests[keyId] ?? [],
+                    // Which of a key's sources item scope cannot reach. Read off
+                    // the source kind, so a kind added later is not silently
+                    // assumed to be narrowable.
+                    hasUnlistableSource: display.keys[keyId]?.sources.contains { !$0.isItemScopable } ?? false
+                )
             }
             return UnlockPlanner.plan(
                 requested: requested,
@@ -463,7 +564,20 @@ final class IdentitySessionManager {
             let ref = SessionGrantRef(sessionId: sessionId, keyId: keyId)
             let consumed: (info: SessionGrantInfo, change: SessionGrantChange)
             do {
-                consumed = try grants.consume(ref: ref)
+                // The enforcement point. Digests are computed HERE, from the
+                // payloads about to be opened, so what a grant covers is decided
+                // by the bytes rather than by anything the caller said about
+                // them. A batch carrying something an item-scoped grant was not
+                // approved over is refused whole, before the audit record, before
+                // the session key is touched, and without charging the grant.
+                consumed = try grants.consume(
+                    ref: ref,
+                    itemDigests: GrantItemDigest.of(payloads),
+                    // The value cache, which is never item scoped: read out of
+                    // varlock's own cache file at a path this process computes,
+                    // never a membership the caller asserted. See CacheCiphertexts.
+                    alsoCovered: { CacheCiphertexts.digests(keyId: keyId) }
+                )
             } catch {
                 reconcileLocked()
                 throw error
@@ -476,6 +590,8 @@ final class IdentitySessionManager {
                 identityId: identityId,
                 payloadCount: payloads.count,
                 scope: consumed.info.scope.rawValue,
+                breadth: consumed.info.breadth.rawValue,
+                coveredItemCount: consumed.info.coveredItemCount,
                 requester: requester
             ))
 

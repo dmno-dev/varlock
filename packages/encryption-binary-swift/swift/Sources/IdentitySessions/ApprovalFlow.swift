@@ -75,18 +75,32 @@ public struct ApprovalFlow {
     /// a scan takes what is on screen when the finger lands.
     public private(set) var scope: SessionGrantScope
     public private(set) var durationMs: Int64?
+    /// The other half of what an approval carries. Tracked exactly like the
+    /// scope, and for the same reason: with nothing modal over the panel, the
+    /// breadth pill is live right up to the moment the scan lands, so the answer
+    /// is what is on screen then rather than what the panel opened on.
+    public private(set) var breadth: SessionGrantBreadth
     /// How many presence checks have failed. Reported so the panel can say
     /// something more useful the second time around.
     public private(set) var failedScans = 0
 
-    public init(defaultScope: SessionGrantScope, presenceMode: ApprovalPresenceMode) {
+    public init(
+        defaultScope: SessionGrantScope,
+        presenceMode: ApprovalPresenceMode,
+        defaultBreadth: SessionGrantBreadth = .wholeKey
+    ) {
         self.presenceMode = presenceMode
         self.scope = defaultScope
+        self.breadth = defaultBreadth
         self.state = .awaitingInput
     }
 
     public init(content: PanelContent, presenceMode: ApprovalPresenceMode) {
-        self.init(defaultScope: content.defaultScope, presenceMode: presenceMode)
+        self.init(
+            defaultScope: content.defaultScope,
+            presenceMode: presenceMode,
+            defaultBreadth: content.defaultBreadth
+        )
     }
 
     /// Opening the panel. Only the embedded prompt arms itself; the other two modes
@@ -108,10 +122,15 @@ public struct ApprovalFlow {
     /// change right up to the moment the scan lands. Refused only once an answer
     /// has been given, so a late control event cannot rewrite a decision already
     /// made.
-    public mutating func select(scope newScope: SessionGrantScope, durationMs newDurationMs: Int64? = nil) {
+    public mutating func select(
+        scope newScope: SessionGrantScope,
+        durationMs newDurationMs: Int64? = nil,
+        breadth newBreadth: SessionGrantBreadth? = nil
+    ) {
         if case .finished = state { return }
         scope = newScope
         durationMs = newScope == .duration ? newDurationMs : nil
+        if let newBreadth { breadth = newBreadth }
     }
 
     public mutating func apply(_ event: ApprovalFlowEvent) -> ApprovalFlowEffect {
@@ -122,10 +141,10 @@ public struct ApprovalFlow {
 
         switch event {
         case .cancelPressed, .timedOut:
-            return finish(PanelDecision.denied(defaultScope: scope))
+            return finish(PanelDecision.denied(defaultScope: scope, breadth: breadth))
 
         case .scanSucceeded:
-            return finish(PanelDecision(approved: true, scope: scope, durationMs: durationForAnswer()))
+            return finish(approval())
 
         case .scanFailed:
             // Not a refusal. Leave the panel as it is, with the button live so the
@@ -138,7 +157,7 @@ public struct ApprovalFlow {
             guard state == .awaitingInput else { return .beginScan }
             switch presenceMode {
             case .none:
-                return finish(PanelDecision(approved: true, scope: scope, durationMs: durationForAnswer()))
+                return finish(approval())
             case .embedded, .systemDialog:
                 state = .scanning
                 return .beginScan
@@ -149,6 +168,11 @@ public struct ApprovalFlow {
     private mutating func finish(_ decision: PanelDecision) -> ApprovalFlowEffect {
         state = .finished(decision)
         return .finish(decision)
+    }
+
+    /// What a yes right now carries, on both axes at once.
+    private func approval() -> PanelDecision {
+        return PanelDecision(approved: true, scope: scope, durationMs: durationForAnswer(), breadth: breadth)
     }
 
     private func durationForAnswer() -> Int64? {

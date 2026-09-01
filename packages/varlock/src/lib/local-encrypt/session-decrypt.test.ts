@@ -456,6 +456,122 @@ describe.skipIf(process.platform === 'win32')('lock and sessions over the daemon
     expect(sessions[0]).toMatchObject({ sessionId: 'tty:/dev/ttys009', keyId: 'varlock-default' });
   });
 
+  /**
+   * The breadth axis, from this side of the socket.
+   *
+   * What the client owes the daemon is the full set of ciphertexts a grant will
+   * be asked to open, sent as payloads for the daemon to hash. What it owes the
+   * user is to turn a refusal into a panel rather than into an error, because a
+   * narrow grant meeting an unlisted value is the feature working, not a fault.
+   */
+  describe('item-scoped grants', () => {
+    const declared = v2Payload('declared-by-the-graph');
+    const inBatch = v2Payload('in-this-batch');
+    const laterOn = v2Payload('nobody-mentioned-this');
+
+    beforeEach(() => {
+      harness.setConfig({
+        itemScoped: true,
+        plaintexts: { [declared]: 'a', [inBatch]: 'b', [laterOn]: 'c' },
+      });
+    });
+
+    it('sends the ciphertexts the whole run declared, not just the batch in hand', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.declareEncryptedFileValues([
+        {
+          keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env.local', ciphertext: declared,
+        },
+        {
+          keyId: 'varlock-default', valueName: 'STRIPE_KEY', sourceFile: '.env.local', ciphertext: inBatch,
+        },
+      ]);
+
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default', valueName: 'STRIPE_KEY' }]);
+
+      const items = harness.callsOf('unlock-session')[0].payload.items as Record<string, Array<string>>;
+      // Both, and only once each: a grant narrowed to the batch that asked first
+      // would refuse everything that rides it afterwards.
+      expect(new Set(items['varlock-default'])).toEqual(new Set([declared, inBatch]));
+    });
+
+    it('sends payloads rather than digests, so the daemon does its own hashing', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);
+
+      const items = harness.callsOf('unlock-session')[0].payload.items as Record<string, Array<string>>;
+      expect(items['varlock-default']).toEqual([inBatch]);
+    });
+
+    it('leaves the value cache out of the items it sends', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.declareEncryptedFileValues([
+        {
+          keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env.local', ciphertext: declared,
+        },
+      ]);
+      // The cache describes itself for the panel, and contributes no items: it
+      // is never item scoped, and the daemon covers it by reading its own file.
+      localEncrypt.declareCacheInventory('varlock-default', {
+        kind: 'cache',
+        itemCount: 8,
+        entries: [{ name: '1password', count: 8 }],
+      });
+
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: declared, keyId: 'varlock-default' }]);
+
+      const call = harness.callsOf('unlock-session')[0].payload as any;
+      expect(call.items['varlock-default']).toEqual([declared]);
+      // ...while still being on the panel, which is the whole point of listing it
+      expect(call.display.keys['varlock-default'].sources).toContainEqual(
+        { kind: 'cache', itemCount: 8, entries: [{ name: '1password', count: 8 }] },
+      );
+    });
+
+    it('asks again when a batch carries a value the grant was never approved over', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);
+      expect(harness.callsOf('unlock-session')).toHaveLength(1);
+
+      // A second batch in the same run, carrying something the first unlock
+      // never named. The daemon refuses it, and the client turns that into a
+      // fresh unlock rather than an error.
+      const opened = await localEncrypt.decryptIdentityPayloads([{ ciphertext: laterOn, keyId: 'varlock-default', valueName: 'NEW_TOKEN' }]);
+
+      expect(opened).toEqual(['c']);
+      expect(harness.callsOf('unlock-session')).toHaveLength(2);
+      expect(
+        (harness.callsOf('unlock-session')[1].payload.items as any)['varlock-default'],
+      ).toContain(laterOn);
+    });
+
+    it('costs no second panel for a batch the grant already covers', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.declareEncryptedFileValues([
+        {
+          keyId: 'varlock-default', valueName: 'DATABASE_URL', sourceFile: '.env.local', ciphertext: declared,
+        },
+        {
+          keyId: 'varlock-default', valueName: 'STRIPE_KEY', sourceFile: '.env.local', ciphertext: inBatch,
+        },
+      ]);
+
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: declared, keyId: 'varlock-default' }]);
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);
+
+      expect(harness.callsOf('unlock-session')).toHaveLength(1);
+      expect(harness.callsOf('decrypt-v2')).toHaveLength(2);
+    });
+
+    it('reports the breadth the grant came back with', async () => {
+      const localEncrypt = await loadLocalEncrypt();
+      await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);
+
+      const sessions = await localEncrypt.listSessions();
+      expect(sessions[0]).toMatchObject({ breadth: 'listed', coveredItemCount: 1 });
+    });
+  });
+
   it('locks one session by id, leaving the rest of the request shape alone', async () => {
     const payload = v2Payload('locked');
     harness.setConfig({ plaintexts: { [payload]: 'x' } });

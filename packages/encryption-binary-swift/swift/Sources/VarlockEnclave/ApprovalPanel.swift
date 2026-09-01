@@ -112,6 +112,13 @@ final class ApprovalPanel: NSObject {
 
     private var scopes: [SessionGrantScope] = []
     private var duration: DurationPreset = .default
+    /// The breadth pill, when this request has a breadth choice to make.
+    private var breadthControl: PanelSegmentedControl?
+    private var breadths: [SessionGrantBreadth] = []
+    private var listedItemCount = 0
+    private var keyRowCount = 1
+    /// The one sentence under the two pills, kept current with both of them.
+    private var selectionSummaryLabel: NSTextField?
     private var timedOut = false
     private var flow: ApprovalFlow!
     private var attempt: IdentitySessionManager.PresenceAttempt?
@@ -187,6 +194,9 @@ final class ApprovalPanel: NSObject {
     ) -> Data? {
         let panel = ApprovalPanel()
         panel.scopes = content.scopes
+        panel.breadths = content.breadths
+        panel.listedItemCount = content.listedItemCount
+        panel.keyRowCount = content.keyRows.count
         panel.flow = ApprovalFlow(content: content, presenceMode: mode)
         let window = panel.buildWindow(
             content: content,
@@ -214,6 +224,9 @@ final class ApprovalPanel: NSObject {
     ) -> Outcome {
         SecureInputDialog.ensureEditMenu()
         scopes = content.scopes
+        breadths = content.breadths
+        listedItemCount = content.listedItemCount
+        keyRowCount = content.keyRows.count
         self.attempt = attempt
         self.presenceReason = presenceReason
         let mode = attempt?.mode ?? .none
@@ -650,6 +663,11 @@ final class ApprovalPanel: NSObject {
         relayout()
     }
 
+    private func breadthChanged() {
+        syncSelectionIntoFlow()
+        relayout()
+    }
+
     /// Offer the windows. Called when the duration segment is chosen and again
     /// whenever it is clicked, so changing your mind costs one click.
     ///
@@ -698,7 +716,26 @@ final class ApprovalPanel: NSObject {
     /// what the panel is showing.
     private func syncSelectionIntoFlow() {
         let scope = selectedScope(fallback: flow.scope)
-        flow.select(scope: scope, durationMs: scope == .duration ? duration.milliseconds : nil)
+        let breadth = selectedBreadth(fallback: flow.breadth)
+        flow.select(
+            scope: scope,
+            durationMs: scope == .duration ? duration.milliseconds : nil,
+            breadth: breadth
+        )
+        selectionSummaryLabel?.stringValue = PanelContent.selectionSummary(
+            breadth: breadth,
+            itemCount: listedItemCount,
+            keyCount: keyRowCount,
+            scope: scope,
+            durationLabel: duration.label
+        )
+    }
+
+    private func selectedBreadth(fallback: SessionGrantBreadth) -> SessionGrantBreadth {
+        guard let index = breadthControl?.selectedIndex, index >= 0, index < breadths.count else {
+            return fallback
+        }
+        return breadths[index]
     }
 
     private func selectedScope(fallback: SessionGrantScope) -> SessionGrantScope {
@@ -805,6 +842,27 @@ final class ApprovalPanel: NSObject {
         column.addArrangedSubview(chain)
         chain.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth).isActive = true
 
+        // The breadth pill, above the duration one. Two axes, two controls, and
+        // never a grid: "once over only these" and "this session over the whole
+        // key" are both real answers, so six buttons would be six ways to say
+        // four things and a reader would have to find theirs among them.
+        if content.breadths.count > 1 {
+            let control = PanelSegmentedControl(
+                labels: content.breadths.map {
+                    PanelContent.breadthLabel(
+                        $0,
+                        itemCount: content.listedItemCount,
+                        keyCount: content.keyRows.count
+                    )
+                },
+                selectedIndex: content.breadths.firstIndex(of: content.defaultBreadth) ?? 0,
+                onChange: { [weak self] _ in self?.breadthChanged() }
+            )
+            breadthControl = control
+            column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(control))
+        }
+
         if content.scopes.count > 1 {
             let control = PanelSegmentedControl(
                 labels: content.scopes.map { scopeLabel($0, chosen: $0 == content.defaultScope) },
@@ -822,7 +880,7 @@ final class ApprovalPanel: NSObject {
                 }
             )
             scopeControl = control
-            column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
+            column.setCustomSpacing(breadthControl == nil ? 15 : 7, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(control))
         } else if let only = content.scopes.first {
             let label = PanelStyle.label(
@@ -832,6 +890,49 @@ final class ApprovalPanel: NSObject {
             )
             label.alignment = .center
             column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(label))
+        }
+
+        // The two pills said back as one sentence, so what is about to be
+        // approved is written somewhere in full rather than assembled in the
+        // reader's head from two labels.
+        if content.breadths.count > 1 || content.scopes.count > 1 {
+            let summary = PanelStyle.label("", size: 11.5, color: PanelStyle.inkSecondary)
+            summary.alignment = .center
+            summary.lineBreakMode = .byWordWrapping
+            summary.maximumNumberOfLines = 2
+            summary.preferredMaxLayoutWidth = PanelStyle.contentWidth
+            selectionSummaryLabel = summary
+            column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(summary))
+        }
+
+        // The caveat about the choice, next to the choice. The value cache is
+        // never item scoped, and a person picking "only these" must not walk
+        // away thinking they restricted it.
+        if content.hasUnlistableSource {
+            let caveat = PanelStyle.label(
+                PanelContent.unlistableSourceNote,
+                size: 11,
+                color: PanelStyle.inkTertiary
+            )
+            caveat.alignment = .center
+            caveat.lineBreakMode = .byWordWrapping
+            caveat.maximumNumberOfLines = 3
+            caveat.preferredMaxLayoutWidth = PanelStyle.contentWidth
+            column.setCustomSpacing(6, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(caveat))
+        }
+
+        // Why the panel opened where it did, when something narrowed it. Said
+        // out loud rather than left as a preselection nobody can account for.
+        if let note = content.selectionNote {
+            let label = PanelStyle.label(note, size: 11, color: PanelStyle.inkTertiary)
+            label.alignment = .center
+            label.lineBreakMode = .byWordWrapping
+            label.maximumNumberOfLines = 2
+            label.preferredMaxLayoutWidth = PanelStyle.contentWidth
+            column.setCustomSpacing(6, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(label))
         }
 
@@ -850,6 +951,11 @@ final class ApprovalPanel: NSObject {
         column.addArrangedSubview(actionRow(content: content, mode: mode))
         column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(underActions(mode: mode))
+
+        // Fill the summary in from the controls as built, so the sentence under
+        // them is right the first time the panel is read rather than only after
+        // somebody touches something.
+        syncSelectionIntoFlow()
 
         let contentView = NSView()
         contentView.wantsLayer = true

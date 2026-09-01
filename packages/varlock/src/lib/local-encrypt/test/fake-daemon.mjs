@@ -72,6 +72,16 @@ const protocolVersionAtStartup = readConfig().protocolVersion ?? 3;
 
 /** Key ids this "session" currently holds a grant for */
 const grantedKeys = new Set();
+/**
+ * keyId -> the ciphertexts an item-scoped grant covers.
+ *
+ * Only populated when the config asks for `itemScoped`, which stands in for a
+ * user picking the narrow breadth on the real panel. The real daemon binds to
+ * SHA-256 digests it computes itself; the fake compares the ciphertexts
+ * directly, because what is under test on this side is the client's reaction to
+ * a refusal, not the hashing.
+ */
+const coveredItems = new Map();
 
 function grantFor(keyId, config) {
   const now = Date.now();
@@ -88,6 +98,8 @@ function grantFor(keyId, config) {
     lockOn: 'sleep',
     expiresInMs: 3_600_000,
     useCount: 1,
+    breadth: coveredItems.has(keyId) ? 'listed' : 'key',
+    ...(coveredItems.has(keyId) ? { coveredItemCount: coveredItems.get(keyId).size } : {}),
   };
 }
 
@@ -119,7 +131,12 @@ function handle(message) {
         return { error: config.unlockError.message ?? 'unlock failed', errorCode: config.unlockError.code };
       }
       const keyIds = payload.keyIds ?? (payload.keyId ? [payload.keyId] : []);
-      for (const keyId of keyIds) grantedKeys.add(keyId);
+      for (const keyId of keyIds) {
+        grantedKeys.add(keyId);
+        const items = (payload.items ?? {})[keyId];
+        if (config.itemScoped && items?.length) coveredItems.set(keyId, new Set(items));
+        else coveredItems.delete(keyId);
+      }
       return {
         result: {
           sessionId: config.sessionId ?? 'fake-session',
@@ -144,6 +161,16 @@ function handle(message) {
       }
       if (!grantedKeys.has(keyId)) {
         return { error: `No grant for key ${keyId}`, errorCode: 'NO_SESSION_GRANT' };
+      }
+
+      // An item-scoped grant refuses the whole batch when any ciphertext in it
+      // was not approved over, and stays live: the caller is expected to ask.
+      const covered = coveredItems.get(keyId);
+      if (covered && ciphertexts.some((ciphertext) => !covered.has(ciphertext))) {
+        return {
+          error: `Key ${keyId} was not approved over every value in this request`,
+          errorCode: 'GRANT_ITEM_NOT_COVERED',
+        };
       }
 
       const table = config.plaintexts ?? {};

@@ -4,10 +4,31 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import * as localEncrypt from '../../lib/local-encrypt';
 import { CliExitError } from '../helpers/exit-error';
 import { commandSpec } from './lock.command-spec';
+// Imported straight from its own module rather than through the library's
+// index: forgetting a preference is a CLI errand, and re-exporting it would
+// pull the file into every process that loads varlock as a library.
+import { forgetUnlockPreferences } from '../../lib/local-encrypt/unlock-preferences';
 
 export { commandSpec };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  // Forgetting is a file edit in the user's own varlock directory, not a daemon
+  // op, so it works whether or not anything is running and whether or not this
+  // machine has a backend that can lock at all.
+  const forgetAll = Boolean(ctx.values['forget-all-preferences']);
+  const forgetHere = Boolean(ctx.values['forget-preferences']);
+  if (forgetAll || forgetHere) {
+    const forgotten = forgetUnlockPreferences(
+      forgetAll ? undefined : { projectPath: process.cwd() },
+    );
+    const where = forgetAll ? 'this Mac' : 'this project';
+    console.log(
+      forgotten > 0
+        ? `Forgot ${forgotten} remembered unlock choice${forgotten !== 1 ? 's' : ''} for ${where}.`
+        : `No remembered unlock choices for ${where}.`,
+    );
+  }
+
   const backend = localEncrypt.getBackendInfo();
 
   if (!backend.biometricAvailable) {
