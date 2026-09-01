@@ -338,7 +338,7 @@ export function defineViteTests(
     // the inlined varlock init performs the process.env injection per the blob's settings.
     // This verifies how an unset schema item (`UNSET_VAR=`) appears on each env surface.
     describe('undefined injection modes (SSR runtime)', () => {
-      async function buildAndRunSsrEntry(schemaTemplate: string) {
+      async function buildAndRunSsrEntry(schemaTemplate: string, runEnv: Record<string, string> = {}) {
         const buildResult = await viteEnv.runScenario({
           command: 'vite build --ssr src/ssr-undefined-entry.ts',
           templateFiles: {
@@ -360,15 +360,15 @@ export function defineViteTests(
           cwd: viteEnv.dir,
           encoding: 'utf-8',
           timeout: 30_000,
-          env: cleanEnv,
+          env: { ...cleanEnv, ...runEnv },
         });
         const output = (runResult.stdout ?? '') + (runResult.stderr ?? '');
-        expect(output).toContain('ssr-undefined-check-done');
-        return output;
+        return { output, status: runResult.status };
       }
 
       test('default: unset items are left out of process.env', async () => {
-        const output = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection');
+        const { output } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection');
+        expect(output).toContain('ssr-undefined-check-done');
         expect(output).toContain('unset-in-process-env::false');
         expect(output).toContain('process-env-unset::undefined');
         expect(output).toContain('process-env-set::public-test-value');
@@ -377,7 +377,8 @@ export function defineViteTests(
       }, 180_000);
 
       test('@injectUndefinedAsEmpty: empty strings land on process.env but not import.meta.env', async () => {
-        const output = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection-empty');
+        const { output } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection-empty');
+        expect(output).toContain('ssr-undefined-check-done');
         expect(output).toContain('unset-in-process-env::true');
         expect(output).toContain('process-env-unset::""');
         expect(output).toContain('process-env-set::public-test-value');
@@ -386,6 +387,19 @@ export function defineViteTests(
         expect(output).toContain('import-meta-env-unset::undefined');
         // the ENV surface always reflects the real resolved value
         expect(output).toContain('env-proxy-unset::undefined');
+      }, 180_000);
+
+      test('a conflicting runtime env value fails the boot loudly (baked snapshot guard)', async () => {
+        // the resolved-env payload was baked at build time (`injectedAtBuild` flag), so a
+        // runtime env value the build resolved differently (or not at all) cannot be
+        // validated or applied - the boot must fail and point at `varlock run`
+        const { output, status } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection', {
+          UNSET_VAR: 'runtime-provided-value',
+        });
+        expect(status).not.toBe(0);
+        expect(output).toContain('Runtime environment conflicts');
+        expect(output).toContain('UNSET_VAR');
+        expect(output).toContain('varlock run');
       }, 180_000);
     });
 
