@@ -82,12 +82,12 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
 
     /// Our own mark first, then a plain lock symbol as the fallback.
     ///
-    /// The varlock menu bar art has been in the repo the whole time and was never
-    /// reached: the symbol branch came first and a system symbol is always
-    /// available, so the daemon has been sitting in the menu bar as a generic
-    /// padlock indistinguishable from anything else that draws one. The artwork
-    /// is a template image, so it still follows the menu bar's own light and dark
-    /// treatment rather than fighting it.
+    /// The released daemon on main loads this art PDF-first and shows it fine;
+    /// this branch's menu bar rewrite briefly inverted the order (symbol first,
+    /// and a system symbol always exists), which turned the mark into a generic
+    /// padlock until it was put back. The artwork is a template image, so it
+    /// still follows the menu bar's own light and dark treatment rather than
+    /// fighting it.
     ///
     /// Resolved through `PanelIcons`, which also finds resources in the source
     /// tree, so a development build shows the real icon instead of quietly
@@ -99,8 +99,8 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
             image.size = NSSize(width: 18, height: 18)
             return image
         }
-        // Worth saying out loud: a missing asset is why this used to be a generic
-        // padlock, and silence is how it stayed one.
+        // Worth saying out loud: a silent fallback is how the mark went missing
+        // on this branch without anyone noticing.
         PanelDebug.note("menu-icon-fallback", ["missing": resourceName])
         let symbolName = unlocked ? "lock.open.fill" : "lock.fill"
         guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: menuTitle) else {
