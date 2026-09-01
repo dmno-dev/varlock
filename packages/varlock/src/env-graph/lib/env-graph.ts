@@ -821,9 +821,14 @@ export class EnvGraph {
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       if (item.isSensitive) continue;
-      // every leaf on this side, since a secret can be embedded in the text of any of them
+      // every leaf on this side, since a secret can be embedded in the text of any of them,
+      // plus a composite's serialized form - that string is what actually gets injected
+      // and printed, so it is what redaction would rewrite
       const { redactable, unredactable } = collectLeaves(item.resolvedValue);
       const publicStrings = [...redactable, ...unredactable];
+      if (typeof item.resolvedValue === 'object' && item.resolvedValue !== null && item.resolvedEnvStringValue) {
+        publicStrings.push(item.resolvedEnvStringValue);
+      }
       if (!publicStrings.length) continue;
       const matches = sensitiveStrings.filter(
         ({ key, str }) => key !== itemKey && publicStrings.some((pub) => pub.includes(str)),

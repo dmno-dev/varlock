@@ -750,6 +750,21 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.PORT_RANGE.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of PORTS']);
   });
 
+  // the public side is injected as its serialized string too, so that form has to be
+  // searched - not just its leaves, which for array(number) are never in the map
+  test('a public composite whose serialized form matches a sensitive one is a collision', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      # @type=array(number)
+      PORTS=[3000,3001]
+
+      # @public @type=array(number)
+      PUBLIC_PORTS=[3000,3001]
+    `);
+    expect(g.configSchema.PUBLIC_PORTS.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of PORTS']);
+  });
+
   test('a short sensitive value inside a public one is flagged too', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
