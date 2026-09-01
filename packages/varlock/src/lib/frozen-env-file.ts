@@ -111,11 +111,16 @@ export function readFrozenEnvFile(opts: { env: EnvRecord, cwd?: string }): Froze
     return { found: false, reason: `no frozen env file at ${filePath}` };
   }
 
-  // A frozen file is an unscoped snapshot of the whole graph, so honoring _VARLOCK_FILTER
-  // would hand over values the caller expected to exclude (same reasoning as the blob path).
+  // A frozen file is a complete, already-validated snapshot of the graph, so honoring
+  // _VARLOCK_FILTER would hand over values the caller expected to exclude (same reasoning as
+  // the blob path). `varlock freeze` deliberately has no --filter: a partial seal would mean
+  // keys outside the scope are neither sealed nor validated, which is the split-validation
+  // state the whole feature exists to prevent. So the remedy is to drop one or the other,
+  // never to re-freeze with a matching filter.
   if (env._VARLOCK_FILTER) {
     throw new FrozenEnvFileError(
-      `a frozen env file (${filePath}) cannot be combined with _VARLOCK_FILTER - freeze with --filter instead`,
+      `a frozen env file (${filePath}) cannot be combined with _VARLOCK_FILTER`
+      + ' - unset _VARLOCK_FILTER to use the frozen env, or set _VARLOCK_USE_FROZEN_ENV=0 to resolve from .env files instead',
     );
   }
 
