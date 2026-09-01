@@ -129,31 +129,20 @@ export function execSyncVarlock(
     ...childProcessOpts
   } = opts ?? {};
   try {
-    // in most cases, user will be running via their package manager
-    // and a package.json script (ie `pnpm run start`)
-    // which will inject node_modules/.bin into PATH
-    try {
-      const result = execSync(`varlock ${command}`, {
-        env: execEnv,
-        ...opts?.cwd && { cwd: opts.cwd },
-        stdio: 'pipe',
-      });
-      return opts?.fullResult
-        ? { stdout: result.toString(), stderr: '' }
-        : result.toString();
-    } catch (err) {
-      // code 127 means not found (on linux only)
-      // ENOENT from execSync means that a shell was not found
-      if (!isWindows && (err as any).status !== 127 && (err as any).code !== 'ENOENT') throw err;
-      // on windows, we'll just do the extra checks anyway
-    }
-
-    // if varlock was not found, it either means it is not installed
-    // or we must find the path to node_modules/.bin ourselves.
-    // Search from cwd (if provided), callerDir, then process.cwd().
-    // This handles monorepo setups where cwd may be an unrelated workspace
-    // root while varlock is only installed in a sub-package - the callerDir
-    // supplied by auto-load.ts points inside that sub-package's node_modules.
+    // The project's own varlock first, then whatever is on PATH.
+    //
+    // A package manager script (`pnpm run start`) puts node_modules/.bin on
+    // PATH and the two agree, but plenty of real entry points do not: a file
+    // run directly, a test runner, an editor task, a tool that spawns node
+    // itself. In those a globally installed varlock silently answers for the
+    // project's own, which is how you end up debugging a version the project
+    // does not depend on. Local install wins, the same precedence every
+    // package manager applies.
+    //
+    // Search from cwd (if provided), callerDir, then process.cwd(). This
+    // handles monorepo setups where cwd may be an unrelated workspace root
+    // while varlock is only installed in a sub-package: the callerDir supplied
+    // by auto-load.ts points inside that sub-package's node_modules.
     const cwdStr = opts?.cwd ? String(opts.cwd) : undefined;
     const searchDirs = [
       ...(cwdStr ? [cwdStr] : []),
@@ -177,6 +166,25 @@ export function execSyncVarlock(
           : result.toString();
       }
     }
+
+    // No local install: a standalone binary or a global install is the whole
+    // point of this path, so ask PATH.
+    try {
+      const result = execSync(`varlock ${command}`, {
+        env: execEnv,
+        ...opts?.cwd && { cwd: opts.cwd },
+        stdio: 'pipe',
+      });
+      return opts?.fullResult
+        ? { stdout: result.toString(), stderr: '' }
+        : result.toString();
+    } catch (err) {
+      // code 127 means not found (on linux only)
+      // ENOENT from execSync means that a shell was not found
+      if (!isWindows && (err as any).status !== 127 && (err as any).code !== 'ENOENT') throw err;
+      // on windows, we'll just do the extra checks anyway
+    }
+
     throw new Error('Unable to find varlock executable');
   } catch (err) {
     // In fullResult mode, wrap the error as VarlockExecError with structured fields

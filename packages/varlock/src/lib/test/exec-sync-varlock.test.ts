@@ -1,6 +1,8 @@
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { execSync, execFileSync } from 'node:child_process';
 import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
 
@@ -13,9 +15,15 @@ describe('execSyncVarlock integration telemetry', () => {
   beforeEach(() => {
     vi.mocked(execSync).mockClear();
     vi.mocked(execFileSync).mockClear();
+    // These cases are about the env handed to the child, which is shared by
+    // both ways of finding varlock. Pin them to the PATH lookup by making the
+    // local install invisible, so they do not quietly change meaning with
+    // whatever node_modules the suite happens to run inside.
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
   });
 
   afterEach(() => {
+    vi.mocked(fs.existsSync).mockRestore();
     delete process.env.__VARLOCK_INTEGRATION;
   });
 
@@ -92,5 +100,44 @@ describe('execSyncVarlock integration telemetry', () => {
         }),
       }),
     );
+  });
+});
+
+describe('execSyncVarlock picks which varlock to run', () => {
+  beforeEach(() => {
+    vi.mocked(execSync).mockClear();
+    vi.mocked(execFileSync).mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('runs the project\'s own varlock rather than one on PATH', () => {
+    // Only node_modules/.bin/varlock under the search root exists.
+    vi.spyOn(fs, 'existsSync').mockImplementation(
+      (candidate) => String(candidate).includes(`node_modules${path.sep}.bin`),
+    );
+
+    execSyncVarlock('load', { cwd: path.join(path.sep, 'proj') });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      path.join(path.sep, 'proj', 'node_modules', '.bin', 'varlock'),
+      ['load'],
+      expect.anything(),
+    );
+    // A globally installed varlock must not answer for the project's own: it
+    // is a different version, and which one ran would depend on whether the
+    // process happened to be started by a package manager script.
+    expect(execSync).not.toHaveBeenCalled();
+  });
+
+  it('falls back to PATH when the project has no varlock installed', () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+
+    execSyncVarlock('load', { cwd: path.join(path.sep, 'proj') });
+
+    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
   });
 });
