@@ -389,17 +389,22 @@ export function defineViteTests(
         expect(output).toContain('env-proxy-unset::undefined');
       }, 180_000);
 
-      test('a conflicting runtime env value fails the boot loudly (baked snapshot guard)', async () => {
-        // the resolved-env payload was baked at build time (`injectedAtBuild` flag), so a
-        // runtime env value the build resolved differently (or not at all) cannot be
-        // validated or applied - the boot must fail and point at `varlock run`
+      test('a conflicting runtime env value warns loudly but boots on baked values', async () => {
+        // `resolved-env` is a chosen bake-into-build (`injectedAtBuild: 'explicit'`), so a
+        // runtime env value the build resolved differently (or not at all) must not kill
+        // the boot - the baked values are the declared contract. But it cannot be
+        // validated or applied either, so it is surfaced as a loud warning (unlike the
+        // implicit 'fallback' bake in Next.js standalone, where a conflict throws).
         const { output, status } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection', {
           UNSET_VAR: 'runtime-provided-value',
         });
-        expect(status).not.toBe(0);
+        expect(status).toBe(0);
+        expect(output).toContain('ssr-undefined-check-done');
         expect(output).toContain('Runtime environment conflicts');
         expect(output).toContain('UNSET_VAR');
-        expect(output).toContain('varlock run');
+        // the runtime-provided value is ignored by ENV but never deleted from process.env
+        expect(output).toContain('env-proxy-unset::undefined');
+        expect(output).toContain('process-env-unset::"runtime-provided-value"');
       }, 180_000);
     });
 

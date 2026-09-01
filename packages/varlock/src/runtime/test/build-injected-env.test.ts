@@ -1,18 +1,20 @@
 /*
-  Tests for initVarlockEnv behavior when the env blob was baked into the build output
-  and used as a boot-time fallback, identified by the `injectedAtBuild: true` flag the
-  injection preludes (webpack/turbopack runtime preludes, vite `resolved-env` SSR entry)
-  bake INSIDE the payload. Because the flag lives inside the blob, provenance travels
-  with it to child processes and through encryption, and can never outlive the payload:
-  a fresh resolution always produces an unflagged blob.
+  Tests for initVarlockEnv behavior when the env blob was baked into the build output,
+  identified by the `injectedAtBuild` flag the injection preludes bake INSIDE the
+  payload: 'fallback' (webpack/turbopack runtime preludes - implicit bake, conflicts
+  throw) or 'explicit' (vite `resolved-env` SSR entry - chosen bake, conflicts warn).
+  Because the flag lives inside the blob, provenance travels with it to child processes
+  and through encryption, and can never outlive the payload: a fresh resolution always
+  produces an unflagged blob.
 
   A build-baked blob was resolved at BUILD time, so values in the actual runtime
   environment never had a chance to act as overrides, and cannot be validated here.
   Semantics: absent runtime values are fine (blob-only deployments), matching values are
-  fine, but a CONFLICTING runtime value is a misconfiguration (it would be silently
-  ignored) and fails the boot loudly, pointing at `varlock run`. The escape hatch
-  `_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1` downgrades the failure to a logged warning and
-  boots on the baked values, without deleting runtime-provided vars from process.env.
+  fine, but a CONFLICTING runtime value would be silently ignored - so it fails the boot
+  loudly in 'fallback' mode (pointing at `varlock run`) and warns loudly in 'explicit'
+  mode. The escape hatch `_VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1` downgrades the
+  fallback-mode failure to a logged warning and boots on the baked values, without
+  deleting runtime-provided vars from process.env.
 */
 import {
   describe, it, expect, beforeEach, afterEach, vi,
@@ -28,12 +30,12 @@ type BlobItem = {
 };
 function makeEnvBlob(
   config: Record<string, BlobItem>,
-  opts: { settings?: Record<string, any>, injectedAtBuild?: boolean } = {},
+  opts: { settings?: Record<string, any>, injectedAtBuild?: 'fallback' | 'explicit' } = {},
 ) {
   return JSON.stringify({
     sources: [],
     settings: opts.settings || {},
-    ...(opts.injectedAtBuild ? { injectedAtBuild: true } : {}),
+    ...(opts.injectedAtBuild ? { injectedAtBuild: opts.injectedAtBuild } : {}),
     config: Object.fromEntries(
       Object.entries(config).map(([key, item]) => [key, { isSensitive: false, ...item }]),
     ),
@@ -62,7 +64,7 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
     process.env.__VARLOCK_ENV = makeEnvBlob({
       BIE_SET: { value: 'build-value' },
       BIE_UNSET: { value: undefined },
-    }, { injectedAtBuild: true });
+    }, { injectedAtBuild: 'fallback' });
     const envModule = await importFreshEnvModuleCopy();
     envModule.initVarlockEnv();
 
@@ -73,7 +75,7 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
 
   it('throws when a runtime value conflicts with an item that resolved to undefined at build', async () => {
     process.env.BIE_UNSET = 'redis://redis:6379';
-    process.env.__VARLOCK_ENV = makeEnvBlob({ BIE_UNSET: { value: undefined } }, { injectedAtBuild: true });
+    process.env.__VARLOCK_ENV = makeEnvBlob({ BIE_UNSET: { value: undefined } }, { injectedAtBuild: 'fallback' });
     const envModule = await importFreshEnvModuleCopy();
 
     expect(() => envModule.initVarlockEnv()).toThrowError(/BIE_UNSET/);
@@ -89,7 +91,7 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
       BIE_SET: { value: 'build-value' },
       BIE_UNSET: { value: undefined },
       BIE_BLOB_ONLY: { value: 'blob-only-value' },
-    }, { injectedAtBuild: true });
+    }, { injectedAtBuild: 'fallback' });
     const envModule = await importFreshEnvModuleCopy();
 
     expect(() => envModule.initVarlockEnv()).toThrowError(/BIE_SET, BIE_UNSET/);
@@ -101,7 +103,7 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
     process.env.BIE_COERCED = 'YES';
     process.env.__VARLOCK_ENV = makeEnvBlob({
       BIE_COERCED: { value: true, overrideStr: 'YES' },
-    }, { injectedAtBuild: true });
+    }, { injectedAtBuild: 'fallback' });
     const envModule = await importFreshEnvModuleCopy();
     envModule.initVarlockEnv();
 
@@ -117,7 +119,7 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
     process.env.BIE_COERCED = 'YES';
     process.env.__VARLOCK_ENV = makeEnvBlob({
       BIE_COERCED: { value: true, envStr: 'true', isSensitive: true },
-    }, { injectedAtBuild: true });
+    }, { injectedAtBuild: 'fallback' });
     const envModule = await importFreshEnvModuleCopy();
     envModule.initVarlockEnv();
 
@@ -131,7 +133,7 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
     process.env.__VARLOCK_ENV = makeEnvBlob({
       BIE_UNSET: { value: undefined },
       BIE_SET: { value: 'build-value' },
-    }, { injectedAtBuild: true });
+    }, { injectedAtBuild: 'fallback' });
     const envModule = await importFreshEnvModuleCopy();
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     envModule.initVarlockEnv();
@@ -150,11 +152,32 @@ describe('build-injected env blob (injectedAtBuild payload flag)', () => {
   it('conflict check applies when the blob comes via globalThis.__varlockLoadedEnv', async () => {
     process.env.BIE_UNSET = 'redis://redis:6379';
     (globalThis as any).__varlockLoadedEnv = JSON.parse(
-      makeEnvBlob({ BIE_UNSET: { value: undefined } }, { injectedAtBuild: true }),
+      makeEnvBlob({ BIE_UNSET: { value: undefined } }, { injectedAtBuild: 'fallback' }),
     );
     const envModule = await importFreshEnvModuleCopy();
 
     expect(() => envModule.initVarlockEnv()).toThrowError(/BIE_UNSET/);
+  });
+
+  it("explicit bake ('resolved-env' style): conflicts warn loudly but boot on baked values", async () => {
+    // bake-into-build is the user's declared contract in explicit mode, so a stray
+    // runtime value must not kill the boot - but it is surfaced, and never deleted
+    process.env.BIE_SET = 'runtime-value';
+    process.env.BIE_UNSET = 'redis://redis:6379';
+    process.env.__VARLOCK_ENV = makeEnvBlob({
+      BIE_SET: { value: 'build-value' },
+      BIE_UNSET: { value: undefined },
+    }, { injectedAtBuild: 'explicit' });
+    const envModule = await importFreshEnvModuleCopy();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    envModule.initVarlockEnv();
+    const warned = consoleErrorSpy.mock.calls.flat().join('\n');
+    consoleErrorSpy.mockRestore();
+
+    expect(warned).toContain('BIE_SET, BIE_UNSET');
+    expect((envModule.ENV as any).BIE_SET).toBe('build-value');
+    expect(process.env.BIE_SET).toBe('build-value');
+    expect(process.env.BIE_UNSET).toBe('redis://redis:6379');
   });
 
   it('an unflagged blob is treated as a fresh resolution: conflicting ambient values never throw', async () => {

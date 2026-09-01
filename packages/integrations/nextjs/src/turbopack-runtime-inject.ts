@@ -45,7 +45,7 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // conflicting with a flagged payload as a misconfiguration and fails the boot
   let envPayload = rawEnv;
   try {
-    envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
+    envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: 'fallback' });
   } catch {
     // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
     // without provenance, so the boot behaves like a plain injected blob

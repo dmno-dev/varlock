@@ -409,12 +409,14 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
           );
         }
       }
-      // `injectedAtBuild` marks the payload itself as resolved at BUILD time, so
-      // initVarlockEnv treats runtime env values conflicting with it as a
-      // misconfiguration (they never had a chance to act as overrides during
-      // resolution and cannot be validated now) and fails the boot. Living inside the
-      // payload, the provenance survives encryption and never outlives the payload.
-      const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: true });
+      // `injectedAtBuild: 'explicit'` marks the payload itself as resolved at BUILD
+      // time by user choice (`resolved-env` is opt-in bake-into-build). Runtime env
+      // values conflicting with it never had a chance to act as overrides and cannot
+      // be validated now - initVarlockEnv surfaces them as a loud warning but boots
+      // on the baked values (the declared contract), unlike the 'fallback' mode used
+      // by implicit baking, which fails the boot. Living inside the payload, the
+      // provenance survives encryption and never outlives the payload.
+      const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: 'explicit' });
       if (encryptionKey) {
         const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
         lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);

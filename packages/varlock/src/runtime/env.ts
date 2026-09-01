@@ -551,16 +551,22 @@ export function initVarlockEnv(opts?: {
     ].join('\n'));
     throw new Error('initVarlockEnv failed');
   }
-  // A payload baked into the build output carries `injectedAtBuild: true` INSIDE the
-  // serialized blob (set by the injection preludes; e.g. Next.js standalone in a container
-  // where the varlock CLI is unreachable). It was resolved at BUILD time: values in the
-  // actual runtime environment never had a chance to act as overrides during that
-  // resolution, and they cannot be validated or coerced here (the blob carries no
-  // schema/type info). A runtime value that CONFLICTS with the blob is therefore evidence
-  // of misconfiguration: someone is supplying config (`docker run -e REDIS_URL=...`) that
-  // this boot would silently ignore. Fail closed with the remedy instead.
-  // Absent values are fine: blob-only deployments (e.g. serverless) intentionally
-  // deliver every value via the blob, so nothing is present in the runtime env to check.
+  // A payload baked into the build output carries `injectedAtBuild` INSIDE the
+  // serialized blob (set by the injection preludes). It was resolved at BUILD time:
+  // values in the actual runtime environment never had a chance to act as overrides
+  // during that resolution, and they cannot be validated or coerced here (the blob
+  // carries no schema/type info), so a runtime value that CONFLICTS with the blob would
+  // be silently ignored. How that surfaces depends on the mode (i.e. user intent):
+  // - 'fallback' (e.g. Next.js standalone booted where the varlock CLI is unreachable):
+  //   nobody chose baking, so a conflict is a misconfiguration (`docker run -e
+  //   REDIS_URL=...` supplying config this boot cannot honor). Fail closed with the
+  //   remedy.
+  // - 'explicit' (e.g. vite `ssrInjectMode: 'resolved-env'`): bake-into-build is the
+  //   user's declared contract, so a stray runtime value must not kill a deploy working
+  //   as configured. Surface it as a loud warning and boot on the baked values.
+  // Absent values are fine either way: blob-only deployments (e.g. serverless)
+  // intentionally deliver every value via the blob, so nothing is present in the
+  // runtime env to check.
   // Because the flag lives inside the payload, it travels with the blob to child/worker
   // processes and can never outlive it: any fresh resolution produces an unflagged blob.
   const envInjectedAtBuild = !!serializedEnvData.injectedAtBuild;
@@ -580,15 +586,21 @@ export function initVarlockEnv(opts?: {
       conflictingKeys.push(itemKey);
     }
     if (conflictingKeys.length) {
+      const explicitBake = serializedEnvData.injectedAtBuild === 'explicit';
       const conflictMessage = [
         '[varlock] ❌ Runtime environment conflicts with the build-time env snapshot',
-        `This server booted from env values baked into the build (the varlock CLI was not available to re-resolve), but the runtime environment provides different values for: ${conflictingKeys.join(', ')}`,
-        'These runtime values cannot be validated or applied from a baked snapshot, so they would be silently ignored.',
-        'Fix: boot via `varlock run` (or make the varlock CLI available) so env is re-resolved and validated at boot.',
-        'Already booting via `varlock run`? Then its injected __VARLOCK_ENV blob did not reach this process: make sure nothing in between strips env vars (wrapper scripts, process managers) and that you are not using `--inject vars`.',
-        'To boot anyway using the baked values, set _VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1 (the runtime values for these keys will be ignored by ENV).',
+        explicitBake
+          ? `This build bakes its resolved env into the output, but the runtime environment provides different values for: ${conflictingKeys.join(', ')}`
+          : `This server booted from env values baked into the build (the varlock CLI was not available to re-resolve), but the runtime environment provides different values for: ${conflictingKeys.join(', ')}`,
+        'These runtime values cannot be validated or applied from a baked snapshot, so they are ignored by ENV.',
+        ...explicitBake ? ['If these values should apply at runtime, re-resolve at boot instead of baking (e.g. `varlock run`, or a non-baking inject mode).'] : [
+          'Fix: boot via `varlock run` (or make the varlock CLI available) so env is re-resolved and validated at boot.',
+          'Already booting via `varlock run`? Then its injected __VARLOCK_ENV blob did not reach this process: make sure nothing in between strips env vars (wrapper scripts, process managers) and that you are not using `--inject vars`.',
+          'To boot anyway using the baked values, set _VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1 (the runtime values for these keys will be ignored by ENV).',
+        ],
       ].join('\n');
-      if (['1', 'true'].includes(process.env._VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS || '')) {
+      const allowConflicts = ['1', 'true'].includes(process.env._VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS || '');
+      if (explicitBake || allowConflicts) {
         // eslint-disable-next-line no-console
         console.error(conflictMessage.replace('❌', '⚠️'));
       } else {
