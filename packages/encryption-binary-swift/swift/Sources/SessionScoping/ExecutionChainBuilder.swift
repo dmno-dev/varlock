@@ -148,6 +148,7 @@ public struct ExecutionChainBuilder {
         var hops: [ExecutionHop] = []
         for (index, walkedProcess) in ordered.enumerated() {
             let isLauncher = walkedProcess.bundlePath != nil && index == 0
+            let resolvedScript = scriptPath(of: walkedProcess)
             hops.append(ExecutionHop(
                 pid: walkedProcess.snapshot.pid,
                 name: isLauncher ? launcherName(walkedProcess) : walkedProcess.displayName,
@@ -158,8 +159,18 @@ public struct ExecutionChainBuilder {
                     ? nil
                     : "via \(walkedProcess.executableName)",
                 path: isLauncher ? launcherDetailPath(walkedProcess) : walkedProcess.path,
-                scriptPath: scriptPath(of: walkedProcess),
+                scriptPath: resolvedScript,
                 bundlePath: walkedProcess.bundlePath,
+                // The interpreter is a fact whether or not the row shows "via
+                // bun". `via` is a display choice; this is what the posture claim
+                // is actually about, and the two are not allowed to be the same
+                // decision ever again.
+                interpreterName: walkedProcess.scriptName == nil ? nil : walkedProcess.executableName,
+                interpreterPath: walkedProcess.scriptName == nil ? nil : walkedProcess.path,
+                interpreterPosture: walkedProcess.scriptName == nil
+                    ? .unknown
+                    : Self.posture(from: posture.posture(forPid: walkedProcess.snapshot.pid)),
+                release: release(of: walkedProcess, scriptPath: resolvedScript),
                 // Read for every hop, because an auto-load's useful line is the
                 // host's command rather than varlock's own. Only the requester's
                 // is drawn.
@@ -374,8 +385,12 @@ public struct ExecutionChainBuilder {
     /// registered for MPEG transport streams as well as TypeScript), so nothing
     /// here ever guesses from one. An argument that does not resolve to a file
     /// that exists is left as nil, and the panel draws a plain document.
+    ///
+    /// Resolved for varlock's own CLI too. It used to be skipped there, on the
+    /// reasoning that varlock does not need to be introduced to itself; but the
+    /// resolved path is the answer to "WHICH varlock is this", which for a
+    /// `node_modules` copy is the whole question.
     private func scriptPath(of walkedProcess: WalkedProcess) -> String? {
-        guard !walkedProcess.isOwnProcess else { return nil }
         guard let token = Self.scriptToken(in: walkedProcess.arguments)?.token else { return nil }
 
         var candidate = token
@@ -391,7 +406,73 @@ public struct ExecutionChainBuilder {
         }
         candidate = NSString(string: candidate).standardizingPath
         guard FileManager.default.fileExists(atPath: candidate) else { return nil }
-        return candidate
+        // Through the symlink, because a package manager's `node_modules/.bin`
+        // entry is a link and the question the reader is asking is where the
+        // code actually is. `.../node_modules/.bin/varlock` and
+        // `.../node_modules/varlock/bin/cli.js` are the same file, and only the
+        // second one says which package it came out of.
+        return NSString(string: candidate).resolvingSymlinksInPath
+    }
+
+    /// Which build of varlock is running, read off the package it came out of.
+    ///
+    /// Only for varlock, and only from a file the daemon resolved itself: the
+    /// nearest `package.json` above the entry script that actually names varlock.
+    /// A version is worth drawing on this panel because a `-dev` suffix says the
+    /// running code is not the published artifact, and that is exactly the kind
+    /// of thing somebody should notice before approving.
+    ///
+    /// The manifest's own `name` is the test, rather than the argv looking like
+    /// varlock. The two disagree in real invocations: a `node_modules/.bin`
+    /// entry resolves through its symlink to `varlock/bin/cli.js`, and by then
+    /// the file is called `cli.js`. The package that owns the file is the better
+    /// witness anyway, and it is why a third party's script gets no version line:
+    /// its manifest does not say varlock, so nothing is drawn.
+    ///
+    /// The compiled binary has no package around it, so nothing is returned for
+    /// it here; the panel falls back to what the client reported and says so.
+    private func release(of walkedProcess: WalkedProcess, scriptPath: String?) -> HopRelease? {
+        guard let scriptPath else { return nil }
+        var directory = (scriptPath as NSString).deletingLastPathComponent
+        for _ in 0..<Self.maxPackageDepth {
+            guard !directory.isEmpty, directory != "/" else { return nil }
+            let manifest = NSString(string: directory).appendingPathComponent("package.json")
+            if let package = Self.readPackage(atPath: manifest) {
+                // Any other package.json on the way up belongs to something
+                // varlock happens to live inside, and its version is not ours.
+                guard package.name == "varlock" else { return nil }
+                return package.version.map { HopRelease(version: $0, source: .readFromDisk) }
+            }
+            directory = (directory as NSString).deletingLastPathComponent
+        }
+        return nil
+    }
+
+    /// How far above an entry script to look for the package that owns it.
+    /// `packages/varlock/src/cli/cli-executable.ts` is three, and a bundled
+    /// `dist/cli.mjs` is one.
+    static let maxPackageDepth = 6
+    /// A manifest bigger than this is not one worth reading two fields out of.
+    static let maxPackageBytes = 512 * 1024
+
+    static func readPackage(atPath path: String) -> (name: String?, version: String?)? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = (attributes[.size] as? NSNumber)?.intValue,
+              size > 0, size <= maxPackageBytes else { return nil }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: [.mappedIfSafe]),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return (json["name"] as? String, Self.versionText(json["version"]))
+    }
+
+    /// A version string short enough and plain enough to draw. Anything else is
+    /// dropped: this is a file on disk that anyone running as the user can edit,
+    /// and it is display decoration either way.
+    public static func versionText(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty, text.count <= 32 else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-+_"))
+        guard text.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return text
     }
 
     /// The path shown for the launcher once the chain is opened.
@@ -399,26 +480,50 @@ public struct ExecutionChainBuilder {
     /// The headline is the app a person launched; the evidence is the bundle the
     /// process is actually in, which for an Electron editor is a helper nested
     /// several directories down. Saying so is honest, and it is not the headline.
+    ///
+    /// The whole bundle path, not the directory it sits in. The directory used to
+    /// be shown on the theory that the bundle's name was already the row's name,
+    /// which made the evidence line under an app in `/Applications` read
+    /// "/Applications" and say nothing. Which COPY of an app this is, is the
+    /// question the line exists to answer, and only the full path answers it: an
+    /// agent CLI installed under `~/Library/Application Support` is not the one in
+    /// `/Applications`, and the version is in that path too.
     private func launcherDetailPath(_ walkedProcess: WalkedProcess) -> String? {
         if let inner = walkedProcess.innerBundlePath, inner != walkedProcess.bundlePath {
             return inner
         }
-        return walkedProcess.bundlePath.map { ($0 as NSString).deletingLastPathComponent }
+        return walkedProcess.bundlePath
     }
 
+    /// What the daemon can honestly say about the code running at one hop.
+    ///
+    /// An interpreter's signature covers the interpreter and nothing else. When a
+    /// hop is `bun` running a `.mjs` file, the kernel reports a valid signature
+    /// and the Hardened Runtime, and every word of that is about bun: the file it
+    /// was handed is unsigned and any process running as the user can rewrite it
+    /// between now and the next read. So an interpreted hop gets
+    /// `.interpretedScript` and its interpreter's real posture is carried
+    /// separately, to be stated next to the interpreter's name.
+    ///
+    /// varlock's own CLI used to be exempt from this, on the grounds that the
+    /// daemon "verifies the peer's code signature before it will speak to it at
+    /// all". It does not. `verifyPeerProcess` checks the peer's binary NAME
+    /// against an allowlist that contains `node` and `bun` precisely so that
+    /// varlock's JavaScript can connect, and `PeerPosture.check` reads the same
+    /// status word this function reads, about the same interpreter process. The
+    /// effect of the exemption was that `bunx varlock load` drew a green shield
+    /// and the word "signed" on a row labelled "varlock", describing bun. That is
+    /// the one claim this panel must never make, so the exemption is gone.
     private func hopPosture(_ walkedProcess: WalkedProcess) -> HopPosture {
-        // An interpreter's signature says nothing about the script it was given,
-        // so claiming "signed and hardened" here would be true of the wrong
-        // thing. The panel says what is actually running instead.
-        //
-        // varlock's own CLI is the exception, and not because we trust ourselves:
-        // the daemon verifies the peer's code signature before it will speak to
-        // it at all, so warning the user about the script here would be warning
-        // them about the check that already happened.
-        if walkedProcess.scriptName != nil, !walkedProcess.isOwnProcess { return .interpretedScript }
-        let facts = posture.posture(forPid: walkedProcess.snapshot.pid)
+        if walkedProcess.scriptName != nil { return .interpretedScript }
+        return Self.posture(from: posture.posture(forPid: walkedProcess.snapshot.pid))
+    }
+
+    /// The posture of one process's own binary, from the kernel's status word.
+    static func posture(from facts: PeerPostureFacts) -> HopPosture {
         guard facts.isReadable else { return .unknown }
-        return facts.signatureValid && facts.hasHardenedRuntime ? .signedHardened : .unhardened
+        guard facts.signatureValid else { return .unsigned }
+        return facts.hasHardenedRuntime ? .signedHardened : .signedOnly
     }
 
     // MARK: - Agent sessions
@@ -509,9 +614,14 @@ public struct ExecutionChainBuilder {
             session: AgentSession(
                 productName: marker.product.displayName,
                 title: metadata?.title,
+                isTitleDerived: metadata?.isTitleDerived ?? false,
                 // The agent's own record of when the session began where there is
                 // one, since a session can outlive the process that started it.
-                startTime: metadata?.startTime ?? processStart
+                startTime: metadata?.startTime ?? processStart,
+                kind: metadata?.kind,
+                workingDirectory: metadata?.workingDirectory,
+                entrypoint: metadata?.entrypoint,
+                version: metadata?.version
             ),
             isTheAgentItself: isTheAgentItself
         )

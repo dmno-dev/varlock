@@ -13,27 +13,175 @@ import Darwin
 /// syscalls of its own so the shape, the emphasis, and the collapsing can be
 /// tested against synthetic process trees.
 
-/// What the daemon can say about one hop's own hardening.
+/// What the daemon can say about the code running at one hop.
+///
+/// The distinction that matters most here is between a hop that IS an executable
+/// and a hop that is a FILE an executable was handed. macOS will happily tell you
+/// that a `bun` process is signed by Jarred Sumner with the Hardened Runtime, and
+/// every word of that is true of bun and none of it is true of the JavaScript bun
+/// is running, which is an ordinary file any process running as the user can
+/// rewrite. Reporting the first as though it answered for the second is the one
+/// claim a security prompt must never make, so `interpretedScript` is its own
+/// answer rather than a shade of `signedHardened`.
 public enum HopPosture: Equatable {
-    /// Signed, with the hardened runtime. The strongest thing we can say.
+    /// A valid signature and the Hardened Runtime. The strongest thing the
+    /// kernel will say about an executable.
     case signedHardened
-    /// Signed, but without the hardened runtime, or not signed at all. Not an
-    /// accusation: plenty of legitimate tools ship this way.
-    case unhardened
-    /// An interpreter running a script. The signature belongs to the
-    /// interpreter, and the script it is running is the part that decides what
-    /// happens, so the signature says nothing about the actor.
+    /// A valid signature, but no Hardened Runtime, so nothing stops a debugger
+    /// or an injected library attaching to it later. Not an accusation: plenty
+    /// of legitimate tools ship this way, `varlock`'s own binary included.
+    case signedOnly
+    /// The status word was readable and there is no valid signature on it.
+    case unsigned
+    /// The code that decides what happens here is a file an interpreter was
+    /// handed. Whatever the interpreter's own signature says, nothing has been
+    /// checked about the file, so nothing is claimed about it.
     case interpretedScript
-    /// Nothing could be read. Drawn as neutral, never as either answer.
+    /// Nothing could be read. Neither answer, and drawn as neither.
     case unknown
 
     /// The word that goes next to the mark once the chain is opened.
     ///
-    /// Only for what we actually checked. There is no word for "unhardened" or
-    /// "unknown", because a hop the daemon could not vouch for should read as
-    /// unremarked rather than as accused.
-    public var inlineLabel: String? {
-        return self == .signedHardened ? "signed" : nil
+    /// Every posture has one now, including the ones that are not good news. An
+    /// absent word used to mean "we are not saying", which reads on a panel as
+    /// "nothing to report": the two are opposites, and a reader cannot tell them
+    /// apart from a blank space.
+    public var inlineLabel: String {
+        switch self {
+        case .signedHardened: return "signed"
+        case .signedOnly: return "unhardened"
+        case .unsigned: return "unsigned"
+        case .interpretedScript: return "not verified"
+        case .unknown: return "unchecked"
+        }
+    }
+
+    /// The SF Symbol the mark is drawn with.
+    ///
+    /// A bare coloured dot says nothing to anyone who was not told the legend, so
+    /// each answer gets a shape that carries it: a shield for what was checked, a
+    /// warning triangle for code that was not, and a question mark for a process
+    /// the kernel would not talk about.
+    public var symbolName: String {
+        switch self {
+        case .signedHardened: return "checkmark.shield.fill"
+        case .signedOnly: return "shield"
+        case .unsigned: return "shield.slash"
+        case .interpretedScript: return "exclamationmark.triangle.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    /// Every answer, so a test can hold each one to the same standard.
+    public static let allAnswers: [HopPosture] = [
+        .signedHardened, .signedOnly, .unsigned, .interpretedScript, .unknown,
+    ]
+
+    /// Whether this answer is the good one, for whoever is choosing a colour.
+    public var isVerified: Bool { self == .signedHardened }
+
+    /// Whether this answer should read as a caution rather than as a shrug.
+    public var isCaution: Bool { self == .interpretedScript }
+
+    /// What was checked and what was not, in plain language, for the tooltip.
+    ///
+    /// - Parameter subject: what this mark is about, as the row names it.
+    /// - Parameter interpreter: the interpreter running the code, when there is
+    ///   one, so the sentence can say whose signature is being set aside.
+    public func explanation(subject: String, interpreter: String? = nil) -> String {
+        switch self {
+        case .signedHardened:
+            return "\(subject) has a code signature the kernel accepts, and is running with the "
+                + "Hardened Runtime, so macOS refuses to attach a debugger to it or inject code into it. "
+                + "Checked: signature valid, Hardened Runtime on, no debugger attached. "
+                + "Not checked: who signed it."
+        case .signedOnly:
+            return "\(subject) has a code signature the kernel accepts, but is not running with the "
+                + "Hardened Runtime, so nothing stops a debugger or an injected library attaching to it "
+                + "later. Checked: signature valid, no debugger attached right now. "
+                + "Not checked: who signed it, and whether it stays uncompromised."
+        case .unsigned:
+            return "\(subject) has no code signature the kernel accepts. "
+                + "Checked: no debugger attached right now. "
+                + "Not checked: everything else. Anything running as you could have replaced this file."
+        case .interpretedScript:
+            let runner = interpreter ?? "an interpreter"
+            return "Nothing has been verified about the code running here. "
+                + "\(subject) is a file on disk that \(runner) is executing, and any process running "
+                + "as you can edit that file. \(runner)'s own signature is checked and says nothing "
+                + "about it. Checked: the interpreter. Not checked: the code that actually decides "
+                + "what happens."
+        case .unknown:
+            return "The kernel would not report this process's code-signing status, so nothing about "
+                + "\(subject) has been checked either way. This is not a verdict, it is the absence "
+                + "of one."
+        }
+    }
+}
+
+/// One line of evidence under a hop, drawn only once the chain is opened.
+public struct HopEvidence: Equatable {
+    /// The quiet word on the left: "program", "interpreter", "version".
+    public let label: String
+    public let value: String
+    /// Paths are drawn monospaced and elided in the MIDDLE, so the tail (the
+    /// package and the entry file, which is the identifying half) survives.
+    public let isPath: Bool
+    /// A posture mark at the end of the line, when this line is about something
+    /// whose posture was checked.
+    public let posture: HopPosture?
+    /// What that mark is a claim about, for its tooltip.
+    public let postureSubject: String?
+
+    public init(
+        label: String,
+        value: String,
+        isPath: Bool = false,
+        posture: HopPosture? = nil,
+        postureSubject: String? = nil
+    ) {
+        self.label = label
+        self.value = value
+        self.isPath = isPath
+        self.posture = posture
+        self.postureSubject = postureSubject
+    }
+}
+
+/// Which build of a program is running, and how confident the daemon is of it.
+///
+/// A version on a security prompt is only worth drawing if the reader can tell
+/// whether the machine established it or the caller merely said it, so the two
+/// are different cases rather than one string with an asterisk.
+public struct HopRelease: Equatable {
+    public enum Source: Equatable {
+        /// Read by the daemon off a file on disk that it resolved itself.
+        case readFromDisk
+        /// Sent over the socket by the client. A claim, and drawn as one.
+        case clientReported
+    }
+
+    public let version: String
+    public let source: Source
+
+    public init(version: String, source: Source) {
+        self.version = version
+        self.source = source
+    }
+
+    /// Whether this is a build somebody made rather than one that was published.
+    ///
+    /// A `-dev` or `-canary` suffix is real signal on this panel: a development
+    /// build is not the artifact the release pipeline produced and nobody can
+    /// look up what is in it.
+    public var isPrerelease: Bool { version.contains("-") }
+
+    /// "1.17.1", or "1.17.1 (reported by the caller)".
+    public var displayValue: String {
+        switch source {
+        case .readFromDisk: return version
+        case .clientReported: return "\(version) (reported by the caller)"
+        }
     }
 }
 
@@ -56,6 +204,24 @@ public struct ExecutionHop: Equatable {
     /// one, so an Electron editor's nested helper is drawn as the editor. The
     /// panel turns it into the launcher's icon.
     public let bundlePath: String?
+    /// The interpreter's own file name, when this hop's code is a script rather
+    /// than an executable: "bun", "node".
+    ///
+    /// Set whether or not `via` is, and they are not the same decision. `via` is
+    /// a DISPLAY choice ("varlock via bun" is noise on the resting row, so it is
+    /// left off); this is the FACT, and the panel needs it wherever it makes a
+    /// claim about what was checked, because the interpreter is the only part
+    /// that was.
+    public let interpreterName: String?
+    /// Where that interpreter is, for the expanded detail.
+    public let interpreterPath: String?
+    /// The interpreter's own posture. Never this hop's: it is stated next to the
+    /// interpreter's name, never on its own, so the verified thing and the claim
+    /// about it can never drift apart on screen.
+    public let interpreterPosture: HopPosture
+    /// The version of the code running here, when it could be established, and
+    /// where that answer came from.
+    public let release: HopRelease?
     /// How this process was invoked, as the kernel has it: "varlock load".
     ///
     /// Set on the process that actually connected, and read from its argv rather
@@ -90,6 +256,10 @@ public struct ExecutionHop: Equatable {
         path: String? = nil,
         scriptPath: String? = nil,
         bundlePath: String? = nil,
+        interpreterName: String? = nil,
+        interpreterPath: String? = nil,
+        interpreterPosture: HopPosture = .unknown,
+        release: HopRelease? = nil,
         invocation: String? = nil,
         runTarget: String? = nil,
         posture: HopPosture = .unknown,
@@ -105,6 +275,10 @@ public struct ExecutionHop: Equatable {
         self.path = path
         self.scriptPath = scriptPath
         self.bundlePath = bundlePath
+        self.interpreterName = interpreterName
+        self.interpreterPath = interpreterPath
+        self.interpreterPosture = interpreterPosture
+        self.release = release
         self.invocation = invocation
         self.runTarget = runTarget
         self.posture = posture
@@ -138,6 +312,73 @@ public struct ExecutionHop: Equatable {
         guard posture == .interpretedScript, let via else { return nil }
         let interpreter = via.hasPrefix("via ") ? String(via.dropFirst(4)) : via
         return "a script run by \(interpreter): approval trusts this file, not the signed interpreter"
+    }
+
+    /// What this posture mark is a claim about, worded for a tooltip.
+    public var postureSubject: String {
+        if posture == .interpretedScript { return "The code at \u{201C}\(name)\u{201D}" }
+        return "\u{201C}\(name)\u{201D}"
+    }
+
+    /// How varlock itself is running, in words, on the row that is varlock.
+    ///
+    /// `bunx varlock load` and `/opt/homebrew/bin/varlock load` both draw a row
+    /// called "varlock", and they are not the same thing: one is a self-contained
+    /// binary the kernel has a signature for, the other is ordinary JavaScript
+    /// files any process running as the user can rewrite, executed by somebody
+    /// else's signed interpreter. A reader should not have to work that out from
+    /// a path, so the row says it.
+    public var runtimeForm: String? {
+        guard isVarlock else { return nil }
+        guard let interpreterName else { return "the standalone varlock binary" }
+        return "varlock's JavaScript, run by \(interpreterName), not the standalone binary"
+    }
+
+    /// Whether that line is the one that should read as a caution.
+    public var runtimeFormIsCaution: Bool { isVarlock && interpreterName != nil }
+
+    /// The lines drawn under this hop once the chain is opened: where the code
+    /// is, what is running it, and which build it is.
+    ///
+    /// Paths used to be crammed into the right-hand end of the hop's own row,
+    /// where they had a few dozen points to live in and truncated to things like
+    /// "~/Libra\u{2026}2.1.234". Evidence you cannot read is not evidence, so it
+    /// gets full-width lines of its own.
+    public var evidence: [HopEvidence] {
+        var lines: [HopEvidence] = []
+
+        // The file whose contents decide what this hop does, named first.
+        if let scriptPath {
+            lines.append(HopEvidence(label: "program", value: scriptPath, isPath: true))
+        } else if interpreterName != nil {
+            // An interpreter with a script we could not resolve to a real file.
+            // Saying so is better than leaving the row looking complete.
+            lines.append(HopEvidence(label: "program", value: "could not be resolved to a file on disk"))
+        } else if let path {
+            lines.append(HopEvidence(label: isLauncher ? "bundle" : "program", value: path, isPath: true))
+        }
+
+        // The interpreter, and its posture stated right beside it. These two
+        // never appear apart: the whole failure this replaces was a signature
+        // shown without the name of what it was a signature of.
+        if let interpreterName {
+            lines.append(HopEvidence(
+                label: "interpreter",
+                value: interpreterPath ?? interpreterName,
+                isPath: interpreterPath != nil,
+                posture: interpreterPosture,
+                postureSubject: "\u{201C}\(interpreterName)\u{201D}"
+            ))
+        }
+
+        if let release {
+            lines.append(HopEvidence(label: "version", value: release.displayValue))
+        }
+
+        if let agent = agentSession {
+            lines.append(contentsOf: agent.evidence)
+        }
+        return lines
     }
 
     /// Hops that are neither the launcher, the actor, nor the root of a session:
@@ -193,10 +434,17 @@ public struct SessionRootMark: Equatable {
         return "\(quoted) \u{00B7} \(terminal ?? label)"
     }
 
-    /// The agent's own words, in quotes: the prefix of `descriptionLine` the view
-    /// sets in italics so a title cannot be read as something varlock asserts.
+    /// The session's own title as it is drawn: the prefix of `descriptionLine`
+    /// the view sets in italics, so a name cannot be read as something varlock
+    /// asserts.
+    ///
+    /// Quotation marks are reserved for a name a PERSON chose. Agents generate a
+    /// name for every session from the directory they were opened in, and
+    /// dressing that in quotes would present a machine's guess as somebody's
+    /// words, on the one surface where the difference matters.
     public var quotedTitle: String? {
         guard let title = agent?.title, !title.isEmpty else { return nil }
+        guard agent?.isTitleDerived != true else { return title }
         return "\u{201C}\(title)\u{201D}"
     }
 }
@@ -211,14 +459,82 @@ public struct AgentSession: Equatable {
     /// What the agent itself calls this session. nil when it could not be read,
     /// which costs the row its title and nothing else.
     public let title: String?
+    /// Whether the agent made that name up rather than the user typing it.
+    public let isTitleDerived: Bool
     /// Seconds since the epoch: the agent's own record of when the session began
     /// where that is available, and the process start otherwise.
     public let startTime: Int?
+    /// The agent's word for what kind of session this is. nil when it did not
+    /// say, which is not the same as saying "not interactive".
+    public let kind: String?
+    /// Where the session is working. Cross-checked against the project being
+    /// unlocked, because an agent in one project opening another project's
+    /// secrets is exactly the anomaly this panel exists to surface.
+    public let workingDirectory: String?
+    public let entrypoint: String?
+    public let version: String?
 
-    public init(productName: String, title: String?, startTime: Int?) {
+    public init(
+        productName: String,
+        title: String?,
+        isTitleDerived: Bool = false,
+        startTime: Int?,
+        kind: String? = nil,
+        workingDirectory: String? = nil,
+        entrypoint: String? = nil,
+        version: String? = nil
+    ) {
         self.productName = productName
         self.title = title
+        self.isTitleDerived = isTitleDerived
         self.startTime = startTime
+        self.kind = kind
+        self.workingDirectory = workingDirectory
+        self.entrypoint = entrypoint
+        self.version = version
+    }
+
+    /// The agent's own word for an attended session.
+    public static let interactiveKind = "interactive"
+
+    /// Said out loud on the session row when nobody is watching this agent.
+    ///
+    /// This is the single most decision-changing thing in the whole record. An
+    /// interactive session has a person in front of it who will see what happens
+    /// next; a print-mode or headless one does not, and "approve for this
+    /// session" then means "approve for a program running unattended".
+    ///
+    /// Only ever said on positive evidence. A record with no `kind` gets no line,
+    /// because "the agent did not say" and "no human is watching" are different
+    /// facts and only one of them is worth an alarm.
+    public var unattendedNote: String? {
+        guard let kind, kind != Self.interactiveKind else { return nil }
+        return "a \(kind) session: no person is watching this agent"
+    }
+
+    /// The evidence lines this session contributes once the chain is opened.
+    public var evidence: [HopEvidence] {
+        var lines: [HopEvidence] = []
+        if let workingDirectory {
+            lines.append(HopEvidence(label: "working dir", value: workingDirectory, isPath: true))
+        }
+        if let build = buildLine {
+            lines.append(HopEvidence(label: "agent", value: build))
+        }
+        if isTitleDerived, title != nil {
+            lines.append(HopEvidence(label: "name", value: "generated by \(productName), not typed by you"))
+        }
+        return lines
+    }
+
+    /// "Claude Code 2.1.234, started from claude-desktop".
+    private var buildLine: String? {
+        switch (version, entrypoint) {
+        case (let version?, let entrypoint?): return "\(productName) \(version), started from \(entrypoint)"
+        case (let version?, nil): return "\(productName) \(version)"
+        case (nil, let entrypoint?): return "\(productName), started from \(entrypoint)"
+        default: return nil
+        }
     }
 }
 

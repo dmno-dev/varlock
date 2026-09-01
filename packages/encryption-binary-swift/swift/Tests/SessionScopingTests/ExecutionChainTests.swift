@@ -72,8 +72,11 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertTrue(chain.hops[0].isLauncher)
         XCTAssertEqual(chain.hops[0].bundlePath, "/Applications/iTerm.app")
         // A plain single-bundle app: the outer walk finds nothing to walk out
-        // to, and the path shown is still the directory the app lives in.
-        XCTAssertEqual(chain.hops[0].path, "/Applications")
+        // to, and the evidence line is the bundle itself. It used to be the
+        // directory the app sits in, which for anything in /Applications read
+        // "/Applications" and answered nothing; WHICH copy of an app this is, is
+        // the question the line exists for.
+        XCTAssertEqual(chain.hops[0].path, "/Applications/iTerm.app")
         // The tty is stated once, on the session root, and nowhere else.
         XCTAssertEqual(Self.terminalMentions(chain), ["Terminal ttys004"])
         XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
@@ -237,13 +240,46 @@ final class ExecutionChainTests: XCTestCase {
 
         let hop = try? XCTUnwrap(chain.hops.last)
         // "varlock via bun" is true and useless: bun is how varlock ships, not
-        // who is asking. The interpreter stays in the path, which the expanded
-        // chain shows.
+        // who is asking. So the row stays plain.
         XCTAssertEqual(hop?.name, "varlock")
         XCTAssertNil(hop?.via)
         XCTAssertNil(hop?.advisory)
-        XCTAssertEqual(hop?.posture, .signedHardened)
         XCTAssertEqual(hop?.invocation, "varlock load")
+
+        // But the row is NOT allowed to wear bun's signature. bun really is
+        // signed with the Hardened Runtime here, and every word of that is about
+        // bun: what this row names is a directory of JavaScript files that any
+        // process running as the user can rewrite. This assertion used to read
+        // `.signedHardened`, which is how `bunx varlock load` came to draw a
+        // green shield and the word "signed" on a row labelled varlock.
+        XCTAssertEqual(hop?.posture, .interpretedScript)
+        // The signature is still reported, attached to what it is a signature of
+        // and never separated from it.
+        XCTAssertEqual(hop?.interpreterName, "bun")
+        XCTAssertEqual(hop?.interpreterPosture, .signedHardened)
+        // And the row says in words which varlock this is.
+        XCTAssertEqual(hop?.runtimeForm, "varlock's JavaScript, run by bun, not the standalone binary")
+        XCTAssertTrue(hop?.runtimeFormIsCaution ?? false)
+    }
+
+    func testACompiledVarlockSaysSoAndAnswersForItself() {
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/opt/homebrew/bin/varlock",
+                args: ["/opt/homebrew/bin/varlock", "load"]
+            ),
+        ], posture: FakePosture(facts: [300: Self.signed])).build(forPid: 300)
+
+        let hop = chain.hops.last
+        // A self-contained binary is the one case where the kernel's answer is
+        // about the code that will run, so the row keeps it.
+        XCTAssertEqual(hop?.posture, .signedHardened)
+        XCTAssertNil(hop?.interpreterName)
+        XCTAssertEqual(hop?.runtimeForm, "the standalone varlock binary")
+        XCTAssertFalse(hop?.runtimeFormIsCaution ?? true)
     }
 
     func testTheHostCommandIsFoundForAVarlockLoadedInsideSomethingElse() {
@@ -349,13 +385,42 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertLessThanOrEqual(long?.count ?? 0, ExecutionChainBuilder.maxVarlockInvocationLength)
     }
 
-    func testOnlyACheckedSignatureGetsAWord() {
+    func testEveryPostureSaysWhichOneItIs() {
+        // Each answer gets its own word and its own shape. A blank space used to
+        // stand for "we are not saying", which on a panel reads as "nothing to
+        // report": the opposite fact.
         XCTAssertEqual(HopPosture.signedHardened.inlineLabel, "signed")
-        // Nothing to say about a hop we could not vouch for. Silence is honest;
-        // a word would read as a verdict.
-        XCTAssertNil(HopPosture.unhardened.inlineLabel)
-        XCTAssertNil(HopPosture.unknown.inlineLabel)
-        XCTAssertNil(HopPosture.interpretedScript.inlineLabel)
+        XCTAssertEqual(HopPosture.signedOnly.inlineLabel, "unhardened")
+        XCTAssertEqual(HopPosture.unsigned.inlineLabel, "unsigned")
+        XCTAssertEqual(HopPosture.interpretedScript.inlineLabel, "not verified")
+        XCTAssertEqual(HopPosture.unknown.inlineLabel, "unchecked")
+
+        let shapes = Set(HopPosture.allAnswers.map(\.symbolName))
+        XCTAssertEqual(shapes.count, HopPosture.allAnswers.count)
+        // Only one answer reads as good news, and only one as a caution.
+        XCTAssertEqual(HopPosture.allAnswers.filter(\.isVerified), [.signedHardened])
+        XCTAssertEqual(HopPosture.allAnswers.filter(\.isCaution), [.interpretedScript])
+    }
+
+    func testEveryPostureSpellsOutWhatWasAndWasNotChecked() {
+        for posture in HopPosture.allAnswers {
+            let explanation = posture.explanation(subject: "\u{201C}varlock\u{201D}", interpreter: "bun")
+            XCTAssertTrue(explanation.contains("varlock"), "\(posture) never names its subject")
+            // The half people skip is the half that matters, so every one of
+            // these has to say what it did NOT establish.
+            XCTAssertTrue(
+                explanation.lowercased().contains("not checked")
+                    || explanation.lowercased().contains("nothing about"),
+                "\(posture) does not say what was left unchecked"
+            )
+        }
+        // The interpreted case names the interpreter, so the signature and the
+        // thing it is a signature of can never be read as the same claim.
+        XCTAssertTrue(
+            HopPosture.interpretedScript
+                .explanation(subject: "\u{201C}varlock\u{201D}", interpreter: "bun")
+                .contains("bun")
+        )
     }
 
     func testAnInterpreterWithNoScriptStaysItself() {
@@ -381,9 +446,15 @@ final class ExecutionChainTests: XCTestCase {
         ]).build(forPid: 300)
 
         // node running varlock's own CLI is varlock, not a third-party script, so
-        // it is not called out as somebody else's code.
+        // it is not called out as somebody else's code and keeps its own name.
         XCTAssertEqual(chain.hops.last?.name, "varlock")
+        // The generic "a script run by node" advisory is still suppressed: the
+        // varlock row has its own, more specific line instead.
         XCTAssertNil(chain.hops.last?.advisory)
+        XCTAssertEqual(
+            chain.hops.last?.runtimeForm,
+            "varlock's JavaScript, run by node, not the standalone binary"
+        )
         // And the shell above it is still not what is running.
         XCTAssertFalse(chain.hops.first { $0.name == "zsh" }?.isImportant ?? true)
     }
@@ -405,8 +476,23 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.hops[1].posture, .signedHardened)
         // Signed but not hardened is not the same claim, and an unreadable
         // process is no claim at all.
-        XCTAssertEqual(chain.hops[2].posture, .unhardened)
+        XCTAssertEqual(chain.hops[2].posture, .signedOnly)
         XCTAssertEqual(chain.hops[0].posture, .unknown)
+
+        // A readable status word with no valid signature is a fourth answer, and
+        // saying "unhardened" for it would be describing the wrong failure.
+        let unsigned = builder(
+            terminalTree,
+            posture: FakePosture(facts: [
+                300: PeerPostureFacts(
+                    isTraced: false,
+                    hasHardenedRuntime: false,
+                    signatureValid: false,
+                    isReadable: true
+                ),
+            ])
+        ).build(forPid: 300)
+        XCTAssertEqual(unsigned.hops[2].posture, .unsigned)
     }
 
     func testAShortChainShowsEverythingAndALongOneFoldsTheBoringHops() {
@@ -626,7 +712,7 @@ final class ExecutionChainTests: XCTestCase {
 
             let expected = String(path[path.startIndex..<path.range(of: ".app/")!.lowerBound]) + ".app"
             XCTAssertEqual(chain.hops[0].bundlePath, expected)
-            XCTAssertEqual(chain.hops[0].path, (expected as NSString).deletingLastPathComponent)
+            XCTAssertEqual(chain.hops[0].path, expected)
         }
     }
 
@@ -715,10 +801,11 @@ final class ExecutionChainTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent(name)
         FileManager.default.createFile(atPath: file.path, contents: Data("// script".utf8))
-        // Resolved, because /var and /tmp are symlinks on macOS and the path a
-        // test compares against has to be the one the resolver produces.
-        let resolved = (directory.path as NSString).standardizingPath
-        return (resolved, (file.path as NSString).standardizingPath)
+        // Resolved through the symlinks, because /var and /tmp are symlinks on
+        // macOS and a package manager's `node_modules/.bin` entry is one too, so
+        // the resolver follows them and a test has to compare what it produces.
+        let resolved = (directory.path as NSString).resolvingSymlinksInPath
+        return (resolved, (file.path as NSString).resolvingSymlinksInPath)
     }
 
     private func chainRunning(_ argument: String, in directory: String?, script: String) -> ExecutionChain {
@@ -786,8 +873,81 @@ final class ExecutionChainTests: XCTestCase {
         // It is varlock, drawn with varlock's own mark, and not a third party's
         // file that happens to be sitting in the working directory.
         XCTAssertEqual(chain.hops.last?.name, "varlock")
-        XCTAssertNil(chain.hops.last?.scriptPath)
         XCTAssertNil(chain.hops.last?.via)
+        // The file IS resolved, though. It used to be skipped on the reasoning
+        // that varlock does not need introducing to itself, which left the panel
+        // unable to answer "which varlock is this" for a node_modules copy: the
+        // whole question in the interpreted case.
+        XCTAssertEqual(chain.hops.last?.scriptPath, scratch.path)
+    }
+
+    func testVarlocksVersionIsReadFromThePackageItCameOutOf() throws {
+        // A `node_modules/varlock/bin/cli.js` with a manifest above it, which is
+        // what an installed copy looks like.
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chain-package-\(UUID().uuidString)")
+        let packageRoot = root.appendingPathComponent("node_modules/varlock")
+        try FileManager.default.createDirectory(
+            at: packageRoot.appendingPathComponent("bin"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let entry = packageRoot.appendingPathComponent("bin/cli.js")
+        try Data().write(to: entry)
+        try JSONSerialization
+            .data(withJSONObject: ["name": "varlock", "version": "1.17.1-dev"])
+            .write(to: packageRoot.appendingPathComponent("package.json"))
+
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bun", entry.path, "load"]
+            ),
+        ]).build(forPid: 300)
+
+        // Read off disk by the daemon, so it is stated flatly. A build-type
+        // suffix survives on purpose: a dev build is not the published artifact.
+        XCTAssertEqual(chain.hops.last?.release, HopRelease(version: "1.17.1-dev", source: .readFromDisk))
+        XCTAssertTrue(chain.hops.last?.release?.isPrerelease ?? false)
+        XCTAssertEqual(chain.hops.last?.release?.displayValue, "1.17.1-dev")
+        // A version the client merely asserted always says who asserted it.
+        XCTAssertEqual(
+            HopRelease(version: "1.17.1", source: .clientReported).displayValue,
+            "1.17.1 (reported by the caller)"
+        )
+    }
+
+    func testTheCompiledBinaryHasNoPackageVersionToRead() {
+        let chain = builder(terminalTree).build(forPid: 300)
+        // Nothing is invented for it. The panel falls back to what the client
+        // said and labels it, rather than the chain making something up.
+        XCTAssertNil(chain.hops.last?.release)
+    }
+
+    func testEvidenceNamesTheProgramTheInterpreterAndTheVersion() throws {
+        let scratch = try scratchScript(named: "varlock")
+        let chain = builder([
+            FakeProc(pid: 200, ppid: 1, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                path: "/Users/dev/.bun/bin/bun",
+                args: ["bun", scratch.path, "load"]
+            ),
+        ], posture: FakePosture(facts: [300: Self.signed])).build(forPid: 300)
+
+        let evidence = try XCTUnwrap(chain.hops.last).evidence
+        XCTAssertEqual(evidence.map(\.label), ["program", "interpreter"])
+        XCTAssertEqual(evidence[0].value, scratch.path)
+        XCTAssertTrue(evidence[0].isPath)
+        // The signature rides on the interpreter's own line and nowhere else.
+        XCTAssertNil(evidence[0].posture)
+        XCTAssertEqual(evidence[1].value, "/Users/dev/.bun/bin/bun")
+        XCTAssertEqual(evidence[1].posture, .signedHardened)
+        XCTAssertEqual(evidence[1].postureSubject, "\u{201C}bun\u{201D}")
     }
 
     func testAProcessTheDaemonCannotReadDegradesToAnEmptyChain() {
