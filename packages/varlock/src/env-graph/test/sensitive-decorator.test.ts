@@ -509,29 +509,39 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expectValues: { FOO: SchemaError },
   }));
 
-  test('a value too short to redact safely is an error, not a warning', async () => {
+  test('a value too short to redact safely is an error that cannot be acknowledged', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
       # @sensitive
-      TINY=abc
+      TINY=ab
 
-      # acknowledged - a value this short can still be opted into
+      # allowShortValue acknowledges a collision risk, and there is nothing to acknowledge
+      # here - no output survives redacting two characters
       # @sensitive={allowShortValue=true}
-      TINY_OK=abc
+      TINY_ACKED=ab
 
       # sensitive only via @defaultSensitive, but it is registered for redaction all the
       # same - so how it became sensitive makes no difference here
-      IMPLICIT_TINY=abc
+      IMPLICIT_TINY=ab
 
       # @sensitive=false
-      NOT_SENSITIVE=abc
+      NOT_SENSITIVE=ab
+
+      # at the floor: warns, and the ack does apply to the warning
+      # @sensitive
+      AT_FLOOR=abc
+      # @sensitive={allowShortValue=true}
+      AT_FLOOR_ACKED=abc
     `);
     expect(g.configSchema.TINY.validationState).toBe('error');
-    expect(g.configSchema.TINY.errors.map((e) => e.message)).toEqual([expect.stringContaining('only 3 characters long')]);
-    expect(g.configSchema.TINY_OK.validationState).toBe('valid');
+    expect(g.configSchema.TINY.errors.map((e) => e.message)).toEqual([expect.stringContaining('only 2 characters long')]);
+    expect(g.configSchema.TINY_ACKED.validationState).toBe('error');
     expect(g.configSchema.IMPLICIT_TINY.validationState).toBe('error');
     expect(g.configSchema.NOT_SENSITIVE.validationState).toBe('valid');
+
+    expect(g.configSchema.AT_FLOOR.validationState).toBe('warn');
+    expect(g.configSchema.AT_FLOOR_ACKED.validationState).toBe('valid');
   });
 
   test('composite values are measured per element, like redaction registers them', async () => {
@@ -546,11 +556,10 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.ARR.errors[0].message).toContain('only 1 character long');
   });
 
-  test('a boolean is never sensitive', async () => {
+  test('a boolean carries no secret, so sensitivity is rejected or warned', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
-      # a boolean holds no secret, so an explicit @sensitive is ignored (with a warning)
       # @sensitive @type=boolean
       DECLARED=true
 
@@ -558,18 +567,32 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       # @sensitive
       INFERRED=false
 
-      # swept in by @defaultSensitive - demoted silently, nothing was written to ignore
+      # swept in by @defaultSensitive, so nothing was written to reject
       IMPLICIT=true
     `);
-    expect(g.configSchema.DECLARED.isSensitive).toBe(false);
-    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a boolean is never sensitive - treating this item as `@sensitive=false`']);
-    expect(g.configSchema.DECLARED.errors.every((e) => e.isWarning)).toBe(true);
+    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a boolean value cannot be sensitive']);
+    expect(g.configSchema.INFERRED.validationState).toBe('error');
 
-    expect(g.configSchema.INFERRED.isSensitive).toBe(false);
-    expect(g.configSchema.INFERRED.validationState).toBe('warn');
+    expect(g.configSchema.IMPLICIT.validationState).toBe('warn');
+    expect(g.configSchema.IMPLICIT.errors.map((e) => e.message)).toEqual(['sensitive, but a boolean carries no secret to protect']);
+  });
 
-    expect(g.configSchema.IMPLICIT.isSensitive).toBe(false);
-    expect(g.configSchema.IMPLICIT.validationState).toBe('valid');
+  // demoting a boolean to non-sensitive would also make it @static, so a value read at
+  // runtime would start being inlined into a build with nothing announcing the change.
+  // Until that lands in a breaking release, sensitivity (and therefore dynamic) is untouched.
+  test('rejecting a boolean does not quietly change its static/dynamic behavior', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultRequired=false
+      # ---
+      IMPLICIT=true
+    `);
+    const item = g.configSchema.IMPLICIT;
+    expect(item.isSensitive).toBe(true);
+    expect(item.isDynamic).toBe(true);
+    // type generation computes sensitivity separately, and must not diverge either
+    const typeGenInfo = await item.getTypeGenInfo();
+    expect(typeGenInfo.isSensitive).toBe(item.isSensitive);
+    expect(typeGenInfo.isDynamic).toBe(item.isDynamic);
   });
 
   test('an explicitly sensitive number is an error, pointing at a string instead', async () => {
@@ -634,21 +657,6 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
 
     expect(g.configSchema.IMPLICIT_NUMS.validationState).toBe('warn');
     expect(g.configSchema.IMPLICIT_NUMS.errors.map((e) => e.message)).toEqual(['sensitive, but elements that are not strings are never redacted']);
-  });
-
-  // codegen runs off getTypeGenInfo(), which recomputes sensitivity independently - if it
-  // disagreed, generated public types would omit a field the resolved graph exposes
-  test('type generation agrees that a boolean is not sensitive', async () => {
-    const g = await loadSchema(outdent`
-      # @defaultRequired=false
-      # ---
-      DEBUG=true
-    `);
-    const item = g.configSchema.DEBUG;
-    const typeGenInfo = await item.getTypeGenInfo();
-    expect(item.isSensitive).toBe(false);
-    expect(typeGenInfo.isSensitive).toBe(false);
-    expect(typeGenInfo.isDynamic).toBe(item.isDynamic);
   });
 
   test('@sensitive on the @currentEnv item is an error', async () => {

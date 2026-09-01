@@ -6,13 +6,16 @@
 import { redactString } from '../runtime/lib/redaction';
 
 /**
- * Below this length, a sensitive value cannot be redacted safely at all: a one to
- * three character string occurs constantly in ordinary text, so registering it for
- * redaction shreds every log line and proxied response body it touches. Nothing is
- * meaningfully protected either - a value that short is guessable. This is an error
- * rather than a warning, since there is no output in which the redaction is harmless.
+ * Below this length, a sensitive value cannot be redacted safely at all: a one or two
+ * character string occurs constantly in ordinary text, so registering it for redaction
+ * shreds every log line and proxied response body it touches. Nothing is meaningfully
+ * protected either - a value that short is guessable.
+ *
+ * Unlike the warning threshold below, `@sensitive={allowShortValue=true}` does not opt
+ * out of this. That flag acknowledges a collision risk; there is no output in which
+ * redacting one or two characters is merely risky, so there is nothing to acknowledge.
  */
-export const MIN_SENSITIVE_VALUE_LENGTH = 4;
+export const MIN_SENSITIVE_VALUE_LENGTH = 3;
 
 /**
  * Below this length, a sensitive value is likely to also occur as ordinary text

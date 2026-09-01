@@ -619,24 +619,23 @@ export class ConfigItem {
   private checkSensitiveIsPlausible() {
     if (!this._isSensitive || this.isBuiltin) return;
 
-    // A boolean holds one bit, so there is no secret in it to protect - but redacting it
-    // rewrites every "true"/"false" in logs and proxied response bodies. Nothing is lost
-    // by simply treating it as non-sensitive, which is the one case where demoting is
-    // safe: for any other type the value could carry a real secret, and silently making
-    // it public would also make it @static and eligible to be inlined into a build.
+    // A boolean holds one bit, so there is no secret in it to protect, while redacting it
+    // would rewrite every "true"/"false" in logs and proxied response bodies.
+    //
+    // Demoting it to non-sensitive is the eventual answer, but sensitivity is what
+    // `@dynamic` defaults to, so demoting would also flip the item to `@static` and make
+    // it eligible to be inlined into a build - a silent runtime behavior change that
+    // nothing in the output would announce. So for now the item stays sensitive either
+    // way and only the reporting differs; the demotion belongs in a breaking release.
     if (this.dataType?.coercedType === 'boolean') {
-      if (this._sensitiveExplicitlySet) {
-        // do not silently discard something the author wrote
-        this._schemaErrors.push(new SchemaError(
-          'a boolean is never sensitive - treating this item as `@sensitive=false`',
-          {
-            isWarning: true,
-            tip: 'A boolean carries no secret, and redacting it would rewrite every "true"/"false" in logs and proxied response bodies.\nIf this really is a secret, make it a string instead: `@type=string`, or quote the value.',
-          },
-        ));
-      }
-      this._isSensitive = false;
-      this._sensitiveSource = 'data-type';
+      this._schemaErrors.push(this._sensitiveExplicitlySet
+        ? new SchemaError('a boolean value cannot be sensitive', {
+          tip: 'A boolean carries no secret, and redacting it would rewrite every "true"/"false" in logs and proxied response bodies.\nMark it `@sensitive=false` (or `@public`).\nIf this really is a secret, make it a string instead: `@type=string`, or quote the value.',
+        })
+        : new SchemaError('sensitive, but a boolean carries no secret to protect', {
+          isWarning: true,
+          tip: 'Redacting it would rewrite every "true"/"false" in logs and proxied responses.\nMark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.',
+        }));
       return;
     }
 
@@ -1151,16 +1150,18 @@ export class ConfigItem {
       }
 
       const shortestLength = (
-        this.isSensitive && !this.allowShortValue
+        this.isSensitive
         // an item already rejected for a different reason (including "this can never be
         // sensitive" above) does not need length advice piled on top
         && !this._schemaErrors.some((e) => !e.isWarning)
         // these rules are about a redacted value colliding with ordinary text, which says
-        // nothing about a number - redaction never matches one in the first place, and
-        // that is already the more useful thing to tell them
+        // nothing about a value redaction never matches in the first place - and that is
+        // already the more useful thing to tell them
         && this.dataType?.coercedType !== 'number' && this.dataType?.coercedType !== 'int'
+        && this.dataType?.coercedType !== 'boolean'
         && !compositeHasUnredactableLeaf
       ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
+      // note this one is not opt-out-able - see MIN_SENSITIVE_VALUE_LENGTH
       if (shortestLength !== undefined && shortestLength < MIN_SENSITIVE_VALUE_LENGTH) {
         // hard error regardless of how the item became sensitive: whether it was marked
         // explicitly or swept in by `@defaultSensitive=true`, a value this short is
@@ -1171,11 +1172,14 @@ export class ConfigItem {
           new ValidationError(
             `Sensitive value is only ${shortestLength} character${shortestLength === 1 ? '' : 's'} long - too short to redact safely`,
             {
-              tip: 'Redaction replaces the value wherever it appears, so a value this short would rewrite ordinary text throughout logs and proxied response bodies.\nMark as `@sensitive=false` if it is not really a secret, or add `@sensitive={allowShortValue=true}` to accept the risk.',
+              tip: 'Redaction replaces the value wherever it appears, so a value this short would rewrite ordinary text throughout logs and proxied response bodies.\nMark it `@sensitive=false` if it is not really a secret. `allowShortValue` does not apply here - there is no output in which this redaction is harmless.',
             },
           ),
         ];
-      } else if (shortestLength !== undefined && shortestLength < SHORT_SENSITIVE_VALUE_LENGTH) {
+      } else if (
+        shortestLength !== undefined && shortestLength < SHORT_SENSITIVE_VALUE_LENGTH
+        && !this.allowShortValue
+      ) {
         // advisory, not a failure - plenty of real secrets are short by nature
         this.validationErrors = [
           ...(this.validationErrors ?? []),
@@ -1333,12 +1337,6 @@ export class ConfigItem {
       }
       if (!foundSensitive && sensitiveFromDataType !== undefined) {
         isSensitive = sensitiveFromDataType;
-      }
-      // a boolean is never sensitive (mirrors checkSensitiveIsPlausible). Runs before the
-      // @proxy override for the same reason it does there, and has to run at all or
-      // generated public types would omit a field the resolved graph exposes as public.
-      if (this.dataType?.coercedType === 'boolean' && !this.isBuiltin) {
-        isSensitive = false;
       }
       // @proxy forces sensitivity (same override as processSensitive) so generated
       // types mark a @public @proxy item sensitive rather than contradicting runtime.
