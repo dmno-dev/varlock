@@ -21,15 +21,10 @@ public enum SessionLabel {
             return envKey
         }
 
+        if let terminal = terminal(sessionId: sessionId) { return terminal }
+
         let fields = sessionId.split(separator: ":", omittingEmptySubsequences: false)
         switch fields.first {
-        case "tty":
-            guard fields.count >= 2, !fields[1].isEmpty else { break }
-            // A fourth field is the multiplexer signal, "TMUX=<socket>,<pid>,<id>".
-            if fields.count >= 4, let multiplexer = multiplexerName(String(fields[3])) {
-                return "Terminal \(fields[1]) (\(multiplexer))"
-            }
-            return "Terminal \(fields[1])"
         case "ptree":
             guard fields.count >= 2, !fields[1].isEmpty else { break }
             return "Process \(fields[1])"
@@ -38,6 +33,30 @@ public enum SessionLabel {
         }
 
         return truncated(sessionId)
+    }
+
+    /// The terminal a session is on, when it is on one: "Terminal ttys004", or
+    /// "Terminal ttys005 (tmux)" inside a multiplexer.
+    ///
+    /// A tty id is stated exactly once in the panel, on the session-root row,
+    /// and this is where that text comes from: read back out of the identifier
+    /// the grant is keyed by, so the row a person reads and the session a grant
+    /// attaches to can never name two different terminals.
+    public static func terminal(sessionId: String) -> String? {
+        // "env:KEY:value|<anchor>": the terminal, if any, is in the anchor half.
+        if sessionId.hasPrefix("env:") {
+            let parts = sessionId.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, !parts[1].isEmpty else { return nil }
+            return terminal(sessionId: String(parts[1]))
+        }
+
+        let fields = sessionId.split(separator: ":", omittingEmptySubsequences: false)
+        guard fields.first == "tty", fields.count >= 2, !fields[1].isEmpty else { return nil }
+        // A fourth field is the multiplexer signal, "TMUX=<socket>,<pid>,<id>".
+        if fields.count >= 4, let multiplexer = multiplexerName(String(fields[3])) {
+            return "Terminal \(fields[1]) (\(multiplexer))"
+        }
+        return "Terminal \(fields[1])"
     }
 
     /// "env:CLAUDE_CODE_SESSION_ID:abc123" -> "Claude Code session".

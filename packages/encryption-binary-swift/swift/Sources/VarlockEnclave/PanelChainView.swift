@@ -18,6 +18,11 @@ import SessionScoping
 /// out, and it is never folded away. When the session belongs to a coding agent,
 /// that row also carries the product, the session's title, and its start time.
 ///
+/// That row is also the only place a tty id appears. A controlling terminal is
+/// inherited, so every hop below the session root is on the same one, and the app
+/// at the top of the chain holds none of its own: saying "ttys004" anywhere else
+/// is either the same fact twice or a fact about the wrong row.
+///
 /// The line under varlock's own hop says how it came to be running: a typed
 /// command with its command line, or the host that auto-loaded it. That is never
 /// hidden behind the expander, because it is the difference between a person
@@ -254,10 +259,11 @@ final class PanelChainView: NSView {
 
         row.addArrangedSubview(icon(for: hop))
 
-        var nameText = hop.name
-        if let terminal = hop.terminalName { nameText += " \u{00B7} \(terminal)" }
+        // No tty here, ever. A controlling terminal is inherited, so every hop
+        // below the session root shares the one the session-root row already
+        // names, and the app at the top holds none of its own.
         row.addArrangedSubview(PanelStyle.label(
-            nameText,
+            hop.name,
             size: hop.isImportant ? 14.5 : 11.5,
             color: hop.isImportant ? PanelStyle.ink : PanelStyle.inkTertiary,
             weight: hop.isImportant ? .semibold : .regular,
@@ -314,20 +320,32 @@ final class PanelChainView: NSView {
         column.addArrangedSubview(heading)
         heading.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
 
-        // The agent's own title where there is one, and otherwise the name this
-        // session goes by everywhere else ("Terminal ttys004"), which is what the
-        // menu bar lists it under and what ending it will be called.
-        let titled = session?.title
+        // What this session is: the name it goes by everywhere else ("Terminal
+        // ttys004"), which is what the menu bar lists it under and what ending it
+        // will be called, led by the agent's own title where it recorded one.
+        // The tty is stated here and nowhere else in the chain.
         let secondary = PanelStyle.label(
-            titled.map { "\u{201C}\($0)\u{201D}" } ?? root.label,
+            root.descriptionLine,
             size: 11.5,
             color: PanelStyle.sessionTitleInk
         )
-        if titled != nil {
-            secondary.font = NSFontManager.shared.convert(
-                NSFont.systemFont(ofSize: 11.5),
-                toHaveTrait: .italicFontMask
+        // The agent's words in italics, ours upright, so a title cannot be
+        // mistaken for something varlock is asserting.
+        if let quoted = root.quotedTitle {
+            let upright = NSFont.systemFont(ofSize: 11.5)
+            let text = NSMutableAttributedString(
+                string: root.descriptionLine,
+                attributes: [.foregroundColor: PanelStyle.sessionTitleInk, .font: upright]
             )
+            let titleRange = (root.descriptionLine as NSString).range(of: quoted)
+            if titleRange.location != NSNotFound {
+                text.addAttribute(
+                    .font,
+                    value: NSFontManager.shared.convert(upright, toHaveTrait: .italicFontMask),
+                    range: titleRange
+                )
+            }
+            secondary.attributedStringValue = text
         }
         // Wraps rather than truncates: this is the line that tells one session
         // apart from another.

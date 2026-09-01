@@ -47,11 +47,10 @@ public struct ExecutionHop: Equatable {
     public let via: String?
     /// Executable path, shown only when the chain is expanded.
     public let path: String?
-    /// The `.app` bundle this hop is, when it is one. The panel turns it into
-    /// the launcher's icon.
+    /// The `.app` bundle this hop is, when it is one: the OUTERMOST enclosing
+    /// one, so an Electron editor's nested helper is drawn as the editor. The
+    /// panel turns it into the launcher's icon.
     public let bundlePath: String?
-    /// Controlling terminal, on the hop that has one.
-    public let terminalName: String?
     /// How this process was invoked, as the kernel has it: "varlock load".
     ///
     /// Set on the process that actually connected, and read from its argv rather
@@ -85,7 +84,6 @@ public struct ExecutionHop: Equatable {
         via: String? = nil,
         path: String? = nil,
         bundlePath: String? = nil,
-        terminalName: String? = nil,
         invocation: String? = nil,
         runTarget: String? = nil,
         posture: HopPosture = .unknown,
@@ -100,7 +98,6 @@ public struct ExecutionHop: Equatable {
         self.via = via
         self.path = path
         self.bundlePath = bundlePath
-        self.terminalName = terminalName
         self.invocation = invocation
         self.runTarget = runTarget
         self.posture = posture
@@ -156,13 +153,44 @@ public struct SessionRootMark: Equatable {
     public let label: String
     /// How the identity was anchored, for anyone who needs to word it.
     public let kind: SessionAnchor.Kind
+    /// The terminal this session is on, when it is on one, read back out of the
+    /// same identifier. This row is the ONLY place a tty id is drawn: a
+    /// controlling terminal is inherited, so naming it on a second row would be
+    /// saying the same fact twice, and naming it on the app that was launched
+    /// would be saying it where it is not even true.
+    public let terminal: String?
     /// The coding-agent session rooted at this exact hop, when there is one.
     public let agent: AgentSession?
 
-    public init(label: String, kind: SessionAnchor.Kind, agent: AgentSession? = nil) {
+    public init(
+        label: String,
+        kind: SessionAnchor.Kind,
+        terminal: String? = nil,
+        agent: AgentSession? = nil
+    ) {
         self.label = label
         self.kind = kind
+        self.terminal = terminal
         self.agent = agent
+    }
+
+    /// The line under the session root's name.
+    ///
+    /// The session is always named here, because this is the row that answers
+    /// "which session am I granting to" and the one place the chain states a
+    /// tty. An agent's own title leads when it recorded one, since that is what
+    /// tells two of its sessions apart, but it never replaces the name: a title
+    /// is what somebody called a conversation, and the terminal is where it is.
+    public var descriptionLine: String {
+        guard let quoted = quotedTitle else { return label }
+        return "\(quoted) \u{00B7} \(terminal ?? label)"
+    }
+
+    /// The agent's own words, in quotes: the prefix of `descriptionLine` the view
+    /// sets in italics so a title cannot be read as something varlock asserts.
+    public var quotedTitle: String? {
+        guard let title = agent?.title, !title.isEmpty else { return nil }
+        return "\u{201C}\(title)\u{201D}"
     }
 }
 

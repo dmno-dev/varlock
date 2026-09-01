@@ -45,6 +45,10 @@ public struct SessionAnchor: Equatable {
 
     /// What to call this session in a few words, e.g. "Terminal ttys004".
     public var label: String { SessionLabel.describe(sessionId: identifier) }
+
+    /// The terminal this session is on, when it is on one. nil for a session
+    /// anchored on the process tree or on an agent's own session id.
+    public var terminal: String? { SessionLabel.terminal(sessionId: identifier) }
 }
 
 public struct SessionScoper {

@@ -91,17 +91,9 @@ public struct ExecutionChainBuilder {
         let started = clock()
         var walked: [WalkedProcess] = []
         var current = pid
-        var terminal: String?
-        /// The device behind that name, so the label can be put on a hop that
-        /// really is on this tty rather than on whichever hop came first.
-        var terminalDevice: dev_t?
 
         for _ in 0..<Self.maxDepth {
             guard let info = provider.info(for: current) else { break }
-            if terminal == nil, info.tty > 0, let name = provider.ttyName(forDevice: info.tty) {
-                terminal = name
-                terminalDevice = info.tty
-            }
             let path = provider.path(for: current)
             let walkedProcess = WalkedProcess(
                 snapshot: info,
@@ -134,6 +126,11 @@ public struct ExecutionChainBuilder {
                 SessionRootMark(
                     label: anchor.label,
                     kind: anchor.kind,
+                    // The one tty id in the chain. It belongs here because a
+                    // controlling terminal is inherited: the shell and varlock
+                    // below it share this exact tty, and the app that launched
+                    // them holds none of its own.
+                    terminal: anchor.terminal,
                     // Decoration, not the reason the row exists, and only on
                     // positive evidence: a row is named after an agent when the
                     // session is anchored on the agent's own process. An
@@ -147,7 +144,6 @@ public struct ExecutionChainBuilder {
             }
         }
         let importantIndex = importantHopIndex(ordered, sessionRootIndex: rootIndex)
-        let terminalIndex = terminalHopIndex(ordered, device: terminalDevice)
 
         var hops: [ExecutionHop] = []
         for (index, walkedProcess) in ordered.enumerated() {
@@ -161,13 +157,8 @@ public struct ExecutionChainBuilder {
                 via: walkedProcess.scriptName == nil || walkedProcess.isOwnProcess
                     ? nil
                     : "via \(walkedProcess.executableName)",
-                path: isLauncher
-                    ? walkedProcess.bundlePath.map { ($0 as NSString).deletingLastPathComponent }
-                    : walkedProcess.path,
+                path: isLauncher ? launcherDetailPath(walkedProcess) : walkedProcess.path,
                 bundlePath: walkedProcess.bundlePath,
-                // The terminal belongs on the row that actually owns it; see
-                // `terminalHopIndex`.
-                terminalName: index == terminalIndex ? terminal : nil,
                 // Read for every hop, because an auto-load's useful line is the
                 // host's command rather than varlock's own. Only the requester's
                 // is drawn.
@@ -204,6 +195,11 @@ public struct ExecutionChainBuilder {
     ///   - the session root never is. It has a treatment of its own, and marking
     ///     it twice would claim the session is what is running, when what is
     ///     running is whatever the session started.
+    ///   - an app bundle never is, wherever it sits. Today the walk stops at the
+    ///     first one it meets, so that is the launcher; but an Electron editor's
+    ///     "Code Helper" is a bundle and is not a shell, so without this it would
+    ///     answer to the second rule the moment one ever appeared lower down.
+    ///     A windowed app is where a command was started, never the command.
     ///
     /// When nothing qualifies, nothing is bold. That is the honest state for a
     /// command a person typed themselves: the values are for the command, the
@@ -212,7 +208,7 @@ public struct ExecutionChainBuilder {
     /// that means nothing.
     private func importantHopIndex(_ ordered: [WalkedProcess], sessionRootIndex: Int?) -> Int? {
         let candidates = ordered.enumerated().filter {
-            !($0.element.bundlePath != nil && $0.offset == 0) && $0.offset != sessionRootIndex
+            $0.element.bundlePath == nil && $0.offset != sessionRootIndex
         }
         if let script = candidates.last(where: { $0.element.scriptName != nil && !$0.element.isOwnProcess }) {
             return script.offset
@@ -240,21 +236,6 @@ public struct ExecutionChainBuilder {
             return 0
         }
         return ordered.firstIndex { $0.snapshot.pid == anchorPid } ?? 0
-    }
-
-    /// Which hop wears the tty label.
-    ///
-    /// The terminal a person recognises is the app they launched, even though a
-    /// windowed app holds no controlling tty of its own: it owns the pty the
-    /// shell below it sits on, and "iTerm2 \u{00B7} ttys004" is how someone picks
-    /// out the window they typed in. With no launcher at the top of the chain
-    /// (tmux, or a walk that ran out of depth) the label goes to the topmost hop
-    /// that really is on that tty, rather than to whichever process happened to
-    /// come first.
-    private func terminalHopIndex(_ ordered: [WalkedProcess], device: dev_t?) -> Int? {
-        guard let device else { return nil }
-        if ordered.first?.bundlePath != nil { return 0 }
-        return ordered.firstIndex { $0.snapshot.tty == device }
     }
 
     /// The command line, short enough to draw.
@@ -345,21 +326,55 @@ public struct ExecutionChainBuilder {
     /// What to call the app at the top of the chain.
     ///
     /// The name on screen is the one the user knows it by, which is the app's
-    /// own display name, not the file its bundle happens to be called. Falls
-    /// back to the executable, which is right often enough ("iTerm2"), and only
-    /// then to the bundle's file name.
+    /// own display name rather than the file its bundle happens to be called,
+    /// and it is read from the OUTERMOST enclosing bundle: Electron editors
+    /// spawn terminals from a helper nested inside the real app, and nobody
+    /// launched "Code Helper (Plugin)".
+    ///
+    /// The bundle's file name wins when it is the fuller form of the same name,
+    /// because that is the one Finder and the Dock show: "Visual Studio Code.app"
+    /// says CFBundleName "Code". It never wins over a different name, so
+    /// "iTerm.app" is still called iTerm2.
+    ///
+    /// Falls back to the executable, which is right often enough ("iTerm2"), and
+    /// only then to the bundle's file name. A nested bundle skips that step: the
+    /// executable there is the helper, which is the name being corrected.
     private func launcherName(_ walkedProcess: WalkedProcess) -> String {
         guard let bundlePath = walkedProcess.bundlePath else { return walkedProcess.displayName }
+        let fileName = walkedProcess.displayName
         if let bundle = Bundle(path: bundlePath) {
             for key in ["CFBundleDisplayName", "CFBundleName"] {
-                if let name = bundle.object(forInfoDictionaryKey: key) as? String, !name.isEmpty {
-                    return name
+                guard let name = bundle.object(forInfoDictionaryKey: key) as? String, !name.isEmpty else {
+                    continue
                 }
+                return Self.isFullerForm(fileName, of: name) ? fileName : name
             }
         }
         let executable = walkedProcess.executableName
-        if executable != "unknown" { return executable }
-        return walkedProcess.displayName
+        if executable != "unknown", !walkedProcess.isNestedBundle { return executable }
+        return fileName
+    }
+
+    /// Whether `candidate` is the same name as `name` with more of it: "Visual
+    /// Studio Code" for "Code". Whole words only, so "Xcode" is not a fuller
+    /// form of "code".
+    static func isFullerForm(_ candidate: String, of name: String) -> Bool {
+        guard candidate.count > name.count, !name.isEmpty else { return false }
+        return candidate.hasPrefix("\(name) ")
+            || candidate.hasSuffix(" \(name)")
+            || candidate.contains(" \(name) ")
+    }
+
+    /// The path shown for the launcher once the chain is opened.
+    ///
+    /// The headline is the app a person launched; the evidence is the bundle the
+    /// process is actually in, which for an Electron editor is a helper nested
+    /// several directories down. Saying so is honest, and it is not the headline.
+    private func launcherDetailPath(_ walkedProcess: WalkedProcess) -> String? {
+        if let inner = walkedProcess.innerBundlePath, inner != walkedProcess.bundlePath {
+            return inner
+        }
+        return walkedProcess.bundlePath.map { ($0 as NSString).deletingLastPathComponent }
     }
 
     private func hopPosture(_ walkedProcess: WalkedProcess) -> HopPosture {
@@ -486,10 +501,32 @@ struct WalkedProcess {
         return (path as NSString).lastPathComponent
     }
 
-    /// The `.app` this process belongs to, when it is a bundled app.
-    var bundlePath: String? {
+    /// The `.app` this process's executable sits directly inside, which for an
+    /// Electron editor is a helper bundle: "Code Helper (Plugin).app".
+    var innerBundlePath: String? {
         guard let path, let range = path.range(of: ".app/Contents/MacOS/") else { return nil }
         return String(path[path.startIndex..<range.lowerBound]) + ".app"
+    }
+
+    /// The `.app` a person actually launched: the OUTERMOST bundle enclosing this
+    /// process.
+    ///
+    /// Electron editors run their terminals from a helper nested inside the real
+    /// app ("Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app"),
+    /// and the name and the icon anyone recognises belong to the outer one. Where
+    /// there is no outer bundle this is the same path as `innerBundlePath`, which
+    /// is every non-Electron case.
+    var bundlePath: String? {
+        guard let inner = innerBundlePath else { return nil }
+        guard let range = inner.range(of: ".app/") else { return inner }
+        return String(inner[inner.startIndex..<range.lowerBound]) + ".app"
+    }
+
+    /// Whether this process runs from a helper bundle inside a bigger app, the
+    /// way every Electron editor spawns its integrated terminal.
+    var isNestedBundle: Bool {
+        guard let inner = innerBundlePath else { return false }
+        return inner != bundlePath
     }
 
     var isShell: Bool { ExecutionChainBuilder.shellNames.contains(executableName) }

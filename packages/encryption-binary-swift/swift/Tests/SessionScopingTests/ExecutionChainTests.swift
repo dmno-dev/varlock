@@ -71,9 +71,26 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.hops.map { $0.name }, ["iTerm2", "zsh", "varlock"])
         XCTAssertTrue(chain.hops[0].isLauncher)
         XCTAssertEqual(chain.hops[0].bundlePath, "/Applications/iTerm.app")
-        // The terminal goes on the row a person recognises, which is the app.
-        XCTAssertEqual(chain.hops[0].terminalName, "ttys004")
-        XCTAssertNil(chain.hops[1].terminalName)
+        // A plain single-bundle app: the outer walk finds nothing to walk out
+        // to, and the path shown is still the directory the app lives in.
+        XCTAssertEqual(chain.hops[0].path, "/Applications")
+        // The tty is stated once, on the session root, and nowhere else.
+        XCTAssertEqual(Self.terminalMentions(chain), ["Terminal ttys004"])
+        XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
+    }
+
+    /// Every place the panel prints a tty id, in the order it draws them.
+    ///
+    /// The invariant this exists for: exactly one, on the row that owns it. A
+    /// controlling terminal is inherited, so a second mention is the same fact
+    /// twice, and a mention on the app that was launched is a fact that is not
+    /// even true of it.
+    private static func terminalMentions(_ chain: ExecutionChain) -> [String] {
+        return chain.hops.flatMap { hop -> [String] in
+            var drawn = [hop.name, hop.via, hop.invocation, hop.runTarget].compactMap { $0 }
+            if let root = hop.sessionRoot { drawn.append(root.descriptionLine) }
+            return drawn.filter { $0.contains("ttys") }
+        }
     }
 
     func testATypedCommandHasNoActorAndSaysWhichSessionItIs() {
@@ -128,24 +145,34 @@ final class ExecutionChainTests: XCTestCase {
         XCTAssertEqual(chain.sessionRootHop?.agentSession?.productName, "Claude Code")
         // The shells either side of the agent stay minor, so they fold away.
         XCTAssertEqual(chain.collapsibleHops.map { $0.name }, ["zsh", "bash", "varlock"])
-        // And the tty is on the app, not on one of them.
-        XCTAssertEqual(chain.hops.compactMap { $0.terminalName }, ["ttys004"])
-        XCTAssertEqual(chain.hops.first { $0.terminalName != nil }?.name, "iTerm2")
+        // Nothing under the agent has a controlling terminal, so this session is
+        // anchored on the process tree and there is no tty to state. The panel
+        // used to state one anyway, borrowed off an ancestor and printed on the
+        // app, which named a terminal the grant is not even scoped to.
+        XCTAssertEqual(Self.terminalMentions(chain), [])
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.kind, .processTree)
     }
 
-    func testWithoutALauncherTheTtyGoesToTheHopThatIsOnIt() {
+    func testTheTtyIsSaidOnceByTheSessionRootUnderTmux() {
         // tmux: the server is the top of the chain and holds no tty of its own,
-        // so the pane's shell is what "ttys005" actually names.
+        // so the pane's shell is what "ttys005" actually names, and that shell is
+        // where the grant attaches.
         let chain = builder([
             FakeProc(pid: 100, ppid: 1, path: "/opt/homebrew/bin/tmux"),
-            FakeProc(pid: 200, ppid: 100, tty: 17, path: "/bin/zsh"),
-            FakeProc(pid: 300, ppid: 200, tty: 17, path: "/opt/homebrew/bin/varlock"),
+            FakeProc(pid: 200, ppid: 100, tty: 17, path: "/bin/zsh", env: ["TMUX": "/tmp/tmux-501/default,91,0"]),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                tty: 17,
+                path: "/opt/homebrew/bin/varlock",
+                env: ["TMUX": "/tmp/tmux-501/default,91,0"]
+            ),
         ], ttyNames: [17: "ttys005"]).build(forPid: 300)
 
         XCTAssertEqual(chain.hops.map { $0.name }, ["tmux", "zsh", "varlock"])
-        XCTAssertNil(chain.hops[0].terminalName)
-        XCTAssertEqual(chain.hops[1].terminalName, "ttys005")
-        XCTAssertNil(chain.hops[2].terminalName)
+        XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
+        // The pane is its own session, and the multiplexer is named with it.
+        XCTAssertEqual(Self.terminalMentions(chain), ["Terminal ttys005 (tmux)"])
         // tmux is a program rather than a shell, so it is what is running here.
         XCTAssertEqual(chain.hops.first { $0.isImportant }?.name, "tmux")
     }
@@ -495,6 +522,186 @@ final class ExecutionChainTests: XCTestCase {
         ]).build(forPid: 300)
 
         XCTAssertNil(chain.agentSession)
+    }
+
+    // MARK: - Launchers nested inside a bigger app
+
+    /// VS Code's integrated terminal, which is what most of this is for.
+    ///
+    /// Electron editors spawn the shell from a helper bundle buried inside the
+    /// real app, so the process path names something nobody launched.
+    private var vsCodeTree: [FakeProc] {
+        return [
+            FakeProc(
+                pid: 100,
+                ppid: 1,
+                path: "/Applications/Visual Studio Code.app/Contents/Frameworks"
+                    + "/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"
+            ),
+            FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
+            FakeProc(
+                pid: 300,
+                ppid: 200,
+                tty: 16,
+                path: "/opt/homebrew/bin/varlock",
+                args: ["/opt/homebrew/bin/varlock", "load"]
+            ),
+        ]
+    }
+
+    func testANestedHelperIsDrawnAsTheAppThatWasLaunched() {
+        let chain = builder(vsCodeTree).build(forPid: 300)
+        let launcher = chain.hops[0]
+
+        // The name and the icon come from the outermost bundle. "Visual Studio
+        // Code" beats the plist's own "Code" only because it is the fuller form
+        // of the same name, which is what Finder and the Dock show.
+        XCTAssertEqual(launcher.name, "Visual Studio Code")
+        XCTAssertEqual(launcher.bundlePath, "/Applications/Visual Studio Code.app")
+        // The helper is still said, once the chain is opened: honest, just not
+        // the headline.
+        XCTAssertEqual(
+            launcher.path,
+            "/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app"
+        )
+        XCTAssertTrue(launcher.isLauncher)
+        // A helper is a windowed app, not a command: it never becomes the actor.
+        XCTAssertTrue(chain.hops.allSatisfy { !$0.isImportant })
+    }
+
+    func testTheTtyIsSaidOnceInAVSCodeTerminal() {
+        let chain = builder(vsCodeTree).build(forPid: 300)
+
+        XCTAssertEqual(chain.hops.map { $0.name }, ["Visual Studio Code", "zsh", "varlock"])
+        // Was twice: once appended to the launcher's name, once in the session
+        // root's own label. The launcher holds no controlling tty of its own.
+        XCTAssertEqual(Self.terminalMentions(chain), ["Terminal ttys004"])
+        XCTAssertEqual(chain.sessionRootHop?.name, "zsh")
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.terminal, "Terminal ttys004")
+    }
+
+    func testEveryFlavourOfNestedHelperResolvesToItsOuterApp() {
+        let cases: [(path: String, bundle: String, name: String)] = [
+            (
+                "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper (Renderer).app"
+                    + "/Contents/MacOS/Cursor Helper (Renderer)",
+                "/Applications/Cursor.app",
+                "Cursor"
+            ),
+            (
+                "/Users/dev/build/MyEditor.app/Contents/Frameworks/Electron Helper.app"
+                    + "/Contents/MacOS/Electron Helper",
+                "/Users/dev/build/MyEditor.app",
+                "MyEditor"
+            ),
+        ]
+        for testCase in cases {
+            let chain = builder([
+                FakeProc(pid: 100, ppid: 1, path: testCase.path),
+                FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
+                FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
+            ]).build(forPid: 300)
+
+            XCTAssertEqual(chain.hops[0].bundlePath, testCase.bundle, testCase.path)
+            // The outer app may not be installed on the machine running this, so
+            // the name falls back to the bundle's own file name, which is the
+            // outer one either way.
+            XCTAssertEqual(chain.hops[0].name, testCase.name, testCase.path)
+            XCTAssertEqual(Self.terminalMentions(chain), ["Terminal ttys004"], testCase.path)
+        }
+    }
+
+    func testAPlainAppIsUntouchedByTheWalkOutwards() {
+        // One bundle in the path, so there is nothing to walk out to: the name
+        // and the icon are read from exactly the bundle the process is in.
+        for path in [
+            "/Applications/iTerm.app/Contents/MacOS/iTerm2",
+            "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+        ] {
+            let chain = builder([
+                FakeProc(pid: 100, ppid: 1, path: path),
+                FakeProc(pid: 200, ppid: 100, tty: 16, path: "/bin/zsh"),
+                FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
+            ]).build(forPid: 300)
+
+            let expected = String(path[path.startIndex..<path.range(of: ".app/")!.lowerBound]) + ".app"
+            XCTAssertEqual(chain.hops[0].bundlePath, expected)
+            XCTAssertEqual(chain.hops[0].path, (expected as NSString).deletingLastPathComponent)
+        }
+    }
+
+    func testTheFullerFormOfANameOnlyWinsWhenItIsTheSameName() {
+        // "Visual Studio Code.app" carrying CFBundleName "Code": same name, more
+        // of it, and the one Finder shows.
+        XCTAssertTrue(ExecutionChainBuilder.isFullerForm("Visual Studio Code", of: "Code"))
+        XCTAssertTrue(ExecutionChainBuilder.isFullerForm("Code Runner", of: "Code"))
+        // A different name never loses to the file it happens to be stored in:
+        // iTerm.app is called iTerm2 by the app itself.
+        XCTAssertFalse(ExecutionChainBuilder.isFullerForm("iTerm", of: "iTerm2"))
+        // Whole words only, so a name that merely contains the letters is not a
+        // fuller form of anything.
+        XCTAssertFalse(ExecutionChainBuilder.isFullerForm("Xcode", of: "code"))
+        XCTAssertFalse(ExecutionChainBuilder.isFullerForm("Cursor", of: "Cursor"))
+    }
+
+    func testTheTtyIsSaidOnceInAnAgentChain() {
+        let chain = builder(
+            [
+                FakeProc(pid: 100, ppid: 1, path: "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
+                FakeProc(
+                    pid: 150,
+                    ppid: 100,
+                    tty: 16,
+                    startTime: 1_700_000_000,
+                    path: "/Users/dev/.local/bin/claude"
+                ),
+                FakeProc(pid: 200, ppid: 150, tty: 16, path: "/bin/zsh"),
+                FakeProc(pid: 300, ppid: 200, tty: 16, path: "/opt/homebrew/bin/varlock"),
+            ],
+            sessionMetadata: FakeSessionMetadata(records: [
+                150: AgentSessionMetadata(title: "vault panel redesign", startTime: 1_700_000_042),
+            ])
+        ).build(forPid: 300)
+
+        XCTAssertEqual(chain.sessionRootHop?.name, "claude")
+        XCTAssertEqual(chain.agentSession?.title, "vault panel redesign")
+        // The title says which conversation and the terminal says where it is
+        // running. A title is not a substitute for the second: two sessions can
+        // be called the same thing, and only one of them is on this tty.
+        XCTAssertEqual(
+            chain.sessionRootHop?.sessionRoot?.descriptionLine,
+            "\u{201C}vault panel redesign\u{201D} \u{00B7} Terminal ttys004"
+        )
+        XCTAssertEqual(
+            Self.terminalMentions(chain),
+            ["\u{201C}vault panel redesign\u{201D} \u{00B7} Terminal ttys004"]
+        )
+    }
+
+    func testASessionWithNoTitleIsStillNamedByItsTerminal() {
+        let chain = builder(terminalTree).build(forPid: 300)
+        XCTAssertEqual(chain.sessionRootHop?.sessionRoot?.descriptionLine, "Terminal ttys004")
+        XCTAssertNil(chain.sessionRootHop?.sessionRoot?.quotedTitle)
+    }
+
+    func testASessionWithNoTerminalFallsBackToItsOwnName() {
+        let chain = builder(
+            [
+                FakeProc(pid: 150, ppid: 1, startTime: 1_700_000_000, path: "/Users/dev/.local/bin/claude"),
+                FakeProc(pid: 300, ppid: 150, path: "/opt/homebrew/bin/varlock"),
+            ],
+            sessionMetadata: FakeSessionMetadata(records: [
+                150: AgentSessionMetadata(title: "nightly sweep", startTime: 1_700_000_042),
+            ])
+        ).build(forPid: 300)
+
+        XCTAssertNil(chain.sessionRootHop?.sessionRoot?.terminal)
+        // No tty to name, so the row falls back to the name this session goes by
+        // in the menu bar. It never falls back to nothing.
+        XCTAssertEqual(
+            chain.sessionRootHop?.sessionRoot?.descriptionLine,
+            "\u{201C}nightly sweep\u{201D} \u{00B7} Process 150"
+        )
     }
 
     func testAProcessTheDaemonCannotReadDegradesToAnEmptyChain() {
