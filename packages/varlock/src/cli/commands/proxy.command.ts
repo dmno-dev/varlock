@@ -85,10 +85,8 @@ import {
   parseSandboxSpec, isContainerKind, checkSandboxAvailable, type SandboxSpec,
 } from '../../proxy/sandbox';
 import { commandSpec } from './proxy.command-spec';
-import {
-  SHORT_SENSITIVE_VALUE_LENGTH,
-  type ProxyManagedItem, type ProxyRule, type ProxyTransformSchemeDef,
-} from '../../proxy/types';
+import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../../proxy/types';
+import { isShortSensitiveValue } from '../../lib/sensitive-value';
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
@@ -288,7 +286,7 @@ function getRunCommandArgs(): Array<string> {
  */
 export function findShortSensitiveProxyItems(items: Array<ProxyManagedItem>): Array<string> {
   return items
-    .filter((item) => item.isSensitive !== false && item.realValue.length < SHORT_SENSITIVE_VALUE_LENGTH)
+    .filter((item) => item.isSensitive !== false && isShortSensitiveValue(item.realValue))
     .map((item) => item.key);
 }
 

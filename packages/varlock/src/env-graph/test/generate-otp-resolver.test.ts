@@ -29,7 +29,7 @@ async function loadAndResolve(envContent: string) {
 describe('generateOtp()', () => {
   it('generates a 6 digit code by default', async () => {
     const g = await loadAndResolve(`A=generateOtp("${TEST_SECRET}")`);
-    expect(g.configSchema.A.errors).toEqual([]);
+    expect(g.configSchema.A.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.A.resolvedValue).toMatch(/^\d{6}$/);
   });
 
@@ -44,7 +44,7 @@ describe('generateOtp()', () => {
       TOTP_SECRET=${TEST_SECRET}
       OTP=generateOtp(ref(TOTP_SECRET))
     `);
-    expect(g.configSchema.OTP.errors).toEqual([]);
+    expect(g.configSchema.OTP.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.OTP.resolvedValue).toMatch(/^\d{6}$/);
   });
 
@@ -55,14 +55,14 @@ describe('generateOtp()', () => {
       BARE=generateOtp($TOTP_SECRET)
       BRACED=generateOtp("\${TOTP_SECRET}")
     `);
-    expect(g.configSchema.BARE.errors).toEqual([]);
+    expect(g.configSchema.BARE.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.BARE.resolvedValue).toMatch(/^\d{6}$/);
     expect(g.configSchema.BRACED.resolvedValue).toEqual(g.configSchema.BARE.resolvedValue);
   });
 
   it('accepts an otpauth:// URI', async () => {
     const g = await loadAndResolve(`A=generateOtp("otpauth://totp/npm:theo?secret=${TEST_SECRET}&issuer=npm&digits=8")`);
-    expect(g.configSchema.A.errors).toEqual([]);
+    expect(g.configSchema.A.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.A.resolvedValue).toMatch(/^\d{8}$/);
   });
 
@@ -70,19 +70,19 @@ describe('generateOtp()', () => {
     const g = await loadAndResolve(
       `A=generateOtp("${TEST_SECRET}", digits=8, period=60, algorithm=SHA256)`,
     );
-    expect(g.configSchema.A.errors).toEqual([]);
+    expect(g.configSchema.A.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.A.resolvedValue).toMatch(/^\d{8}$/);
   });
 
   it('accepts a duration string for period', async () => {
     const g = await loadAndResolve(`A=generateOtp("${TEST_SECRET}", period="60s")`);
-    expect(g.configSchema.A.errors).toEqual([]);
+    expect(g.configSchema.A.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.A.resolvedValue).toMatch(/^\d{6}$/);
   });
 
   it('accepts hex encoded secrets', async () => {
     const g = await loadAndResolve('A=generateOtp("3132333435363738393031323334353637383930", encoding=hex)');
-    expect(g.configSchema.A.errors).toEqual([]);
+    expect(g.configSchema.A.errors.filter((e) => !e.isWarning)).toEqual([]);
     expect(g.configSchema.A.resolvedValue).toMatch(/^\d{6}$/);
   });
 

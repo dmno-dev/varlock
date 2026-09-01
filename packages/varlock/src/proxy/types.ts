@@ -123,17 +123,6 @@ export const REMOVED_PROXY_RULE_OPTIONS: Record<string, string> = {
     + '(e.g. substituteIn=["header:authorization", "body:signature"]) instead of raising a count.',
 };
 
-/**
- * Below this length, a proxied secret is likely to also occur as ordinary text
- * in a response (an org slug, a short account id, a dev password). Response
- * scrubbing is substring replacement with no token boundary, so such a value
- * gets rewritten wherever it appears, corrupting legitimate content - and a
- * string that common is not meaningfully protected by redacting it anyway.
- * `varlock proxy` warns about these rather than letting them silently mangle
- * payloads; `@sensitive=false` is the fix when the value is not really a secret.
- */
-export const SHORT_SENSITIVE_VALUE_LENGTH = 12;
-
 // ~ Request transforms ~
 
 export const PROXY_TRANSFORM_ENCODINGS = ['base64', 'hex'] as const;

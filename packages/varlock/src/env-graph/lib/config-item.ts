@@ -1,3 +1,4 @@
+import { isShortSensitiveValue } from '../../lib/sensitive-value';
 import _ from '@env-spec/utils/my-dash';
 import {
   ParsedEnvSpecDecorator, ParsedEnvSpecArrayLiteral, ParsedEnvSpecObjectLiteral,
@@ -1032,6 +1033,23 @@ export class ConfigItem {
         throw new ValidationError('validation failed with `false` return value');
       }
       this.isValidated = true;
+
+      // Advisory, not a failure: a sensitive value short enough to also occur as
+      // ordinary text gets rewritten everywhere redaction runs (console output,
+      // proxied response bodies), because substring replacement cannot tell a
+      // leaked secret from prose that matches it.
+      if (this.isSensitive && isShortSensitiveValue(this.resolvedValue)) {
+        this.validationErrors = [
+          ...(this.validationErrors ?? []),
+          new ValidationError(
+            `value is only ${String(this.resolvedValue).length} characters, short enough to also appear as ordinary text`,
+            {
+              severity: 'warning',
+              tip: 'Redaction replaces this value wherever it occurs, so a short one can also rewrite ordinary text\nin logs and proxied responses. Mark it `@sensitive=false` if it is not actually a secret. Some\nsecrets are short by nature (an OTP, a PIN) and cannot be lengthened - for those this is a\nheads-up about the collision risk, not something to fix.',
+            },
+          ),
+        ];
+      }
     } catch (err) {
       if (_.isArray(err)) {
         // could do more checking...
