@@ -73,7 +73,16 @@ enum PanelIcons {
         let name = executableName(for: hop)
         if let dropIn = toolDropIn(named: name) { return dropIn }
         if let monogram = monogramIcon(forTool: name) { return monogram }
-        if isShell(name) { return symbol("terminal", tint: PanelStyle.inkTertiary) }
+        // A tile rather than the "terminal" symbol, which draws a landscape
+        // screen: square canvas or not, the artwork still read as a wide
+        // rectangle beside the square tiles and app icons around it.
+        if isShell(name) {
+            return monogram(
+                ">_",
+                background: PanelStyle.chipBackground,
+                ink: PanelStyle.inkTertiary
+            )
+        }
         return nil
     }
 
@@ -231,9 +240,11 @@ enum PanelIcons {
     }
 
     /// The last-resort mark: a terminal, which is where a request without any
-    /// other identity came from.
+    /// other identity came from. Drawn as the same square tile the shells get,
+    /// so a row waiting on its icon does not change shape when the real one
+    /// arrives.
     static func genericTerminal() -> NSImage? {
-        return symbol("terminal", tint: PanelStyle.inkQuiet)
+        return monogram(">_", background: PanelStyle.chipBackground, ink: PanelStyle.inkQuiet)
     }
 
     // MARK: - Drawing
