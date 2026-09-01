@@ -659,15 +659,37 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.IMPLICIT_NUMS.errors.map((e) => e.message)).toEqual(['sensitive, but elements that are not strings are never redacted']);
   });
 
-  test('@sensitive on the @currentEnv item is an error', async () => {
-    const g = await loadSchema(outdent`
+  test('the @currentEnv item is rejected or warned, like the type rules', async () => {
+    const explicit = await loadSchema(outdent`
       # @defaultRequired=false
       # @currentEnv=$APP_ENV
       # ---
       # @sensitive
       APP_ENV=development
     `);
-    expect(g.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on the @currentEnv item']);
+    expect(explicit.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['@sensitive cannot be used on the @currentEnv item']);
+
+    // swept in by @defaultSensitive, which is what most schemas with a @currentEnv have -
+    // failing those would be a bigger break than it is worth, but the env name really is
+    // being redacted everywhere, so staying silent is not right either
+    const implicit = await loadSchema(outdent`
+      # @defaultRequired=false
+      # @currentEnv=$APP_ENV
+      # ---
+      APP_ENV=development
+    `);
+    // exactly one message: the specific one replaces the generic short-value warning
+    expect(implicit.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['sensitive, but the @currentEnv item is not a secret']);
+    expect(implicit.configSchema.APP_ENV.validationState).toBe('warn');
+
+    const optedOut = await loadSchema(outdent`
+      # @defaultRequired=false
+      # @currentEnv=$APP_ENV
+      # ---
+      # @sensitive=false
+      APP_ENV=development
+    `);
+    expect(optedOut.configSchema.APP_ENV.validationState).toBe('valid');
   });
 
   test('a non-sensitive value containing a sensitive one is an error', async () => {

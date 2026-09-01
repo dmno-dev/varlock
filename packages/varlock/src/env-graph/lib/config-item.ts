@@ -568,6 +568,8 @@ export class ConfigItem {
 
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
+  /** set when {@link checkSensitiveIsPlausible} already reported something more specific */
+  _sensitiveIsImplausible = false;
   /** how sensitivity was determined (undefined = the global default that items are sensitive) */
   _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy';
   get isSensitive(): boolean {
@@ -618,6 +620,12 @@ export class ConfigItem {
    */
   private checkSensitiveIsPlausible() {
     if (!this._isSensitive || this.isBuiltin) return;
+    // any branch below says something more specific than the generic length rules, which
+    // are then skipped rather than stacking a second message onto the same item
+    const flag = (err: SchemaError) => {
+      this._sensitiveIsImplausible = true;
+      this._schemaErrors.push(err);
+    };
 
     // A boolean holds one bit, so there is no secret in it to protect, while redacting it
     // would rewrite every "true"/"false" in logs and proxied response bodies.
@@ -628,7 +636,7 @@ export class ConfigItem {
     // nothing in the output would announce. So for now the item stays sensitive either
     // way and only the reporting differs; the demotion belongs in a breaking release.
     if (this.dataType?.coercedType === 'boolean') {
-      this._schemaErrors.push(this._sensitiveExplicitlySet
+      flag(this._sensitiveExplicitlySet
         ? new SchemaError('a boolean value cannot be sensitive', {
           tip: 'A boolean carries no secret, and redacting it would rewrite every "true"/"false" in logs and proxied response bodies.\nMark it `@sensitive=false` (or `@public`).\nIf this really is a secret, make it a string instead: `@type=string`, or quote the value.',
         })
@@ -651,7 +659,7 @@ export class ConfigItem {
     // worse than before (still `@dynamic`, so still never inlined into a build) and now
     // says out loud that redaction does not cover it.
     if (this.dataType?.coercedType === 'number' || this.dataType?.coercedType === 'int') {
-      this._schemaErrors.push(this._sensitiveExplicitlySet
+      flag(this._sensitiveExplicitlySet
         ? new SchemaError('a number value cannot be sensitive', {
           tip: 'Redaction only replaces strings, so a number is never actually masked.\nMake it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).',
         })
@@ -662,17 +670,20 @@ export class ConfigItem {
     }
 
     // the env flag drives @import(enabled=...) / forEnv() and is echoed by nearly every
-    // tool in the stack - it is a mode name ("dev", "production"), never a secret.
-    // Explicit-only: `@defaultSensitive=true` makes the env flag sensitive in most
-    // schemas today, and failing those loads is a bigger break than it is worth.
-    if (this._sensitiveExplicitlySet
-      && this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
-      this._schemaErrors.push(new SchemaError(
-        '@sensitive cannot be used on the @currentEnv item',
-        {
+    // tool in the stack - it is a mode name ("dev", "production"), never a secret. Same
+    // explicit/implicit split as the type rules: `@defaultSensitive=true` makes the env
+    // flag sensitive in most schemas today, and failing those loads is a bigger break
+    // than it is worth, but staying silent about it is not right either - the env name
+    // really is being redacted everywhere it appears.
+    if (this.envGraph.sortedDataSources.some((s) => s._envFlagKey === this.key)) {
+      flag(this._sensitiveExplicitlySet
+        ? new SchemaError('@sensitive cannot be used on the @currentEnv item', {
           tip: 'The current env name is not a secret, and redacting it rewrites the env name everywhere it appears.\nMark it `@sensitive=false` (or `@public`).',
-        },
-      ));
+        })
+        : new SchemaError('sensitive, but the @currentEnv item is not a secret', {
+          isWarning: true,
+          tip: 'Redacting it rewrites the env name everywhere it appears in logs and proxied responses.\nMark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.',
+        }));
     }
   }
 
@@ -1155,10 +1166,9 @@ export class ConfigItem {
         // sensitive" above) does not need length advice piled on top
         && !this._schemaErrors.some((e) => !e.isWarning)
         // these rules are about a redacted value colliding with ordinary text, which says
-        // nothing about a value redaction never matches in the first place - and that is
-        // already the more useful thing to tell them
-        && this.dataType?.coercedType !== 'number' && this.dataType?.coercedType !== 'int'
-        && this.dataType?.coercedType !== 'boolean'
+        // nothing about a value redaction never matches in the first place - and in every
+        // such case something more specific has already been reported
+        && !this._sensitiveIsImplausible
         && !compositeHasUnredactableLeaf
       ) ? shortestSensitiveValueLength(this.resolvedValue) : undefined;
       // note this one is not opt-out-able - see MIN_SENSITIVE_VALUE_LENGTH
