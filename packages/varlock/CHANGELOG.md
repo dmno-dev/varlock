@@ -27,6 +27,29 @@
 
 
 
+
+## 1.18.0
+<sub>2026-09-01</sub>
+
+- [#1038](https://github.com/dmno-dev/varlock/pull/1038)  *(minor)*
+  Behavior change: schema items that resolve to undefined are no longer injected into process.env as empty strings by auto-load, matching `varlock run` and the documented `VAR=` semantics (so `process.env.MY_VAR ?? 'fallback'` works). `varlock load --format shell` now also skips them. If your code relies on unset vars being `""`, add `# @injectUndefinedAsEmpty` to your `.env.schema` header to restore the old behavior; when set, generated types mark process.env keys as always-present strings (optional enums become `"a" | "b" | ""`).
+- [#1045](https://github.com/dmno-dev/varlock/pull/1045)  *(minor)*
+  New `domain` data type for validating bare domain names (hostnames), with options for wildcards, single-label hostnames, IPv4 values (for HOST-style vars), lowercasing, and regex matching
+- [#1043](https://github.com/dmno-dev/varlock/pull/1043)  *(minor)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)! - Added allowed protocol validation for URL values.
+- [#1046](https://github.com/dmno-dev/varlock/pull/1046)  *(minor)*
+  Proxy: a placeholder appearing in a request surface its rule doesn't substitute in (e.g. the body under the default header-only targets) is now skipped (forwarded unsubstituted) and logged as a skipped-placeholder audit event, instead of blocking the request. Blocking still applies to occurrences off the named path/param within a body:<path> or query:<param> target.
+
+  The `maxOccurrences` option has been removed. Each `substituteIn` target is now worth one substitution per request, so listing a target is what grants it an occurrence: an API that carries the secret in two places just names both (`substituteIn=["header:authorization", "body:signature"]`) instead of raising a count. A repeat at the same target still blocks. Setting `maxOccurrences` is now a schema error that points at the replacement.
+- [#1051](https://github.com/dmno-dev/varlock/pull/1051)  *(minor)*
+  Fix "exports is not defined in ES module scope" when using varlockNextConfigPlugin in a next.config.ts file. varlock now ships CJS builds of its runtime entry points (varlock/env, varlock/patch-console, varlock/patch-server-response, varlock/encrypt-env, varlock/exec-sync-varlock) via the `require` condition, so requiring them from CommonJS works through Next's TypeScript config loader and on Node versions without require(esm) support (below 22.12).
+- [#981](https://github.com/dmno-dev/varlock/pull/981)  *(patch)* - Fix leak detection missing sensitive values split across response chunks
+- [#1035](https://github.com/dmno-dev/varlock/pull/1035)  *(patch)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)! - Fix `encrypt --file` crashing when confirming values to encrypt
+- [#1042](https://github.com/dmno-dev/varlock/pull/1042)  *(patch)*
+  auto-load and framework integrations no longer pass NODE_OPTIONS to the varlock CLI subprocess, so preloaded modules (e.g. NODE_OPTIONS="-r next-logger") can no longer corrupt its output and crash env loading
+- [#1050](https://github.com/dmno-dev/varlock/pull/1050)  *(patch)* - Fix `@currentEnv` from an import losing to the `--env` fallback when loading a directory's own `.env.[env]` files
+- [#1055](https://github.com/dmno-dev/varlock/pull/1055)  *(patch)*
+  Fixes runtime-provided env vars being deleted from `process.env` when a server boots from the env snapshot baked into the build output (e.g. a Next.js standalone container where the varlock CLI is unavailable). Introduced in 1.17.1, this could take down a service that passes config at boot with `docker run -e ...`.
+
 ## 1.17.1
 <sub>2026-08-25</sub>
 

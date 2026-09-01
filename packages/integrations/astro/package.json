@@ -1,7 +1,7 @@
 {
   "name": "@varlock/astro-integration",
   "description": "Astro integration to use varlock for .env file loading - adds validation, type-safety, and extra security features",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dmno-dev/varlock.git",
@@ -45,7 +45,7 @@
   "peerDependencies": {
     "varlock": "workspace:^",
     "astro": ">=4",
-    "@varlock/cloudflare-integration": "^1.5.0"
+    "@varlock/cloudflare-integration": "^1.5.1"
   },
   "peerDependenciesMeta": {
     "@varlock/cloudflare-integration": {
