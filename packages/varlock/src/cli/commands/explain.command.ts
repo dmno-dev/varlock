@@ -3,7 +3,6 @@ import { gracefulExit } from 'exit-hook';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { formattedValue, formatTimeAgo, formatDuration } from '../../lib/formatting';
-import { redactString } from '../../runtime/lib/redaction';
 import {
   checkForSchemaErrors, checkForNoEnvFiles,
 } from '../helpers/error-checks';
@@ -13,6 +12,7 @@ import { StaticValueResolver } from '../../env-graph/lib/resolver';
 import type { ConfigItem } from '../../env-graph/lib/config-item';
 import _ from '@env-spec/utils/my-dash';
 import { commandSpec } from './explain.command-spec';
+import { redactSensitiveDisplayValue } from '../../lib/sensitive-value';
 
 /** Human-readable explanation of how an item's sensitivity was determined */
 function describeSensitiveSource(item: ConfigItem): string {
@@ -114,14 +114,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } else {
     let valStr = formattedValue(item.resolvedValue, true);
-    if (isSensitive && item.resolvedValue && _.isString(item.resolvedValue)) {
-      valStr = redactString(item.resolvedValue)!;
+    if (isSensitive) {
+      valStr = redactSensitiveDisplayValue(item.resolvedValue) ?? valStr;
     }
     console.log(`    ${valStr}`);
     if (item.isCoerced) {
       let rawStr = formattedValue(item.resolvedRawValue, true);
-      if (isSensitive && item.resolvedRawValue && _.isString(item.resolvedRawValue)) {
-        rawStr = redactString(item.resolvedRawValue)!;
+      if (isSensitive) {
+        rawStr = redactSensitiveDisplayValue(item.resolvedRawValue) ?? rawStr;
       }
       console.log(`    ${ansis.gray.italic(`coerced from ${rawStr}`)}`);
     }
