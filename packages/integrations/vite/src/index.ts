@@ -416,18 +416,18 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
       // on the baked values (the declared contract), unlike the 'fallback' mode used
       // by implicit baking, which fails the boot. Living inside the payload, the
       // provenance survives encryption and never outlives the payload.
+      // The baked payload is authoritative and deliberately NOT deferred to an ambient
+      // blob: `resolved-env` freezes the artifact's config on purpose, and its static
+      // (non-sensitive, non-dynamic) values are already inlined into the bundle at build
+      // time, so letting a boot-time blob win would only override the runtime-resolved
+      // subset and leave the artifact reading from two different resolutions.
+      // (initVarlockEnv prefers globalThis over the process.env blob.)
       const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: 'explicit' });
-      // a blob already present in the runtime env (fresh boot-time resolution via
-      // `varlock run`) wins over the baked payload, matching the Next.js preludes -
-      // otherwise the conflict warning's `varlock run` remedy could never work.
-      // Note statically-inlined (non-sensitive, non-dynamic) values are replaced at
-      // build time regardless; the fresh blob governs runtime-resolved reads.
-      const skipIfAmbientBlob = "if (typeof process === 'undefined' || !process.env.__VARLOCK_ENV) ";
       if (encryptionKey) {
         const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
-        lines.push(`${skipIfAmbientBlob}globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
+        lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
       } else {
-        lines.push(`${skipIfAmbientBlob}globalThis.__varlockLoadedEnv = ${serialized};`);
+        lines.push(`globalThis.__varlockLoadedEnv = ${serialized};`);
       }
     }
 
@@ -454,10 +454,10 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
       '  globalThis.__varlockLoadedEnv = JSON.parse(decryptEnvBlobSync(globalThis.__varlockEncryptedEnv, __key));',
       '  delete globalThis.__varlockEncryptedEnv;',
       '}',
-      // a fresh ambient blob (which the baked payload deferred to above) may itself be
-      // encrypted (`varlock run --inject blob` under @encryptInjectedEnv) - decrypt it
-      // in place, mirroring the nextjs init-server behavior, so initVarlockEnv never
-      // sees ciphertext
+      // With no baked payload (init-only mode), the ambient blob is the env source and
+      // may itself be encrypted (`varlock run --inject blob` under @encryptInjectedEnv).
+      // Decrypt it in place, mirroring the nextjs init-server behavior, so
+      // initVarlockEnv never sees ciphertext.
       "if (typeof process !== 'undefined' && process.env.__VARLOCK_ENV && process.env.__VARLOCK_ENV.startsWith('varlock:v1:')) {",
       '  const __key = process.env._VARLOCK_ENV_KEY;',
       "  if (!__key) throw new Error('[varlock] encrypted env blob present but _VARLOCK_ENV_KEY is not set');",

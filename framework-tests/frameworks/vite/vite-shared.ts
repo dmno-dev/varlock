@@ -339,11 +339,15 @@ export function defineViteTests(
     // the inlined varlock init performs the process.env injection per the blob's settings.
     // This verifies how an unset schema item (`UNSET_VAR=`) appears on each env surface.
     describe('undefined injection modes (SSR runtime)', () => {
-      async function buildAndRunSsrEntry(schemaTemplate: string, runEnv: Record<string, string> = {}) {
+      async function buildAndRunSsrEntry(
+        schemaTemplate: string,
+        runEnv: Record<string, string> = {},
+        viteConfig = 'vite-configs/vite.config.resolved-env.ts',
+      ) {
         const buildResult = await viteEnv.runScenario({
           command: 'vite build --ssr src/ssr-undefined-entry.ts',
           templateFiles: {
-            'vite.config.ts': 'vite-configs/vite.config.resolved-env.ts',
+            'vite.config.ts': viteConfig,
             'index.html': 'html/basic.html',
             '.env.schema': schemaTemplate,
             'src/ssr-undefined-entry.ts': 'pages/ssr-undefined-entry.ts',
@@ -408,34 +412,36 @@ export function defineViteTests(
         expect(output).toContain('process-env-unset::"runtime-provided-value"');
       }, 180_000);
 
-      test('a fresh runtime blob (varlock run) wins over the baked payload', async () => {
-        // `varlock run` injects a fresh __VARLOCK_ENV blob; the baked payload must
-        // defer to it, so the conflict warning's `varlock run` remedy actually works.
-        // Statically-inlined values are replaced at build time regardless - the fresh
-        // blob governs runtime-resolved reads (process.env injection here).
-        const freshBlob = JSON.stringify({
+      test('the baked payload stays authoritative even under an ambient runtime blob', async () => {
+        // `resolved-env` freezes the artifact's config on purpose: static values are
+        // already inlined into the bundle at build time, so honoring a boot-time blob
+        // would only override the runtime-resolved subset and leave the artifact
+        // reading from two different resolutions. The baked payload wins, and the
+        // differing ambient value is surfaced as a conflict warning.
+        const ambientBlob = JSON.stringify({
           sources: [],
           settings: {},
           config: {
-            UNSET_VAR: { value: 'from-fresh-blob', isSensitive: false },
+            UNSET_VAR: { value: 'from-ambient-blob', isSensitive: false },
             PUBLIC_VAR: { value: 'public-test-value', isSensitive: false },
           },
         });
         const { output, status } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection', {
-          __VARLOCK_ENV: freshBlob,
+          __VARLOCK_ENV: ambientBlob,
         });
         expect(status).toBe(0);
         expect(output).toContain('ssr-undefined-check-done');
-        // no baked-snapshot conflict warning - the fresh blob is authoritative
-        expect(output).not.toContain('Runtime environment conflicts');
-        expect(output).toContain('process-env-unset::"from-fresh-blob"');
+        // baked (unset) wins over the ambient blob's value
+        expect(output).toContain('env-proxy-unset::undefined');
+        expect(output).not.toContain('from-ambient-blob');
       }, 180_000);
 
-      test('an ENCRYPTED fresh runtime blob is decrypted and wins over the baked payload', async () => {
-        // `varlock run --inject blob` under @encryptInjectedEnv hands the child a
-        // varlock:v1: ciphertext blob - the artifact must decrypt it in place and use
-        // it, not throw on ciphertext or fall back to the baked payload
-        const freshBlob = JSON.stringify({
+      test('init-only: an ENCRYPTED ambient blob is decrypted before init', async () => {
+        // with no baked payload the ambient blob IS the env source, and
+        // `varlock run --inject blob` under @encryptInjectedEnv hands over a
+        // varlock:v1: ciphertext - the artifact must decrypt it rather than letting
+        // initVarlockEnv throw on ciphertext
+        const ambientBlob = JSON.stringify({
           sources: [],
           settings: {},
           config: {
@@ -444,13 +450,17 @@ export function defineViteTests(
           },
         });
         const encryptionKey = generateEncryptionKeyHex();
-        const { output, status } = await buildAndRunSsrEntry('schemas/.env.schema.undefined-injection', {
-          __VARLOCK_ENV: encryptEnvBlobSync(freshBlob, encryptionKey),
-          _VARLOCK_ENV_KEY: encryptionKey,
-        });
+        const { output, status } = await buildAndRunSsrEntry(
+          'schemas/.env.schema.undefined-injection',
+          {
+            __VARLOCK_ENV: encryptEnvBlobSync(ambientBlob, encryptionKey),
+            _VARLOCK_ENV_KEY: encryptionKey,
+          },
+          'vite-configs/vite.config.init-only.ts',
+        );
         expect(status).toBe(0);
         expect(output).toContain('ssr-undefined-check-done');
-        expect(output).not.toContain('Runtime environment conflicts');
+        expect(output).not.toContain('still encrypted');
         expect(output).toContain('process-env-unset::"from-encrypted-blob"');
       }, 180_000);
     });

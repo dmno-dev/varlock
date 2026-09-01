@@ -593,7 +593,10 @@ export function initVarlockEnv(opts?: {
           ? `This build bakes its resolved env into the output, but the runtime environment provides different values for: ${conflictingKeys.join(', ')}`
           : `This server booted from env values baked into the build (the varlock CLI was not available to re-resolve), but the runtime environment provides different values for: ${conflictingKeys.join(', ')}`,
         'These runtime values cannot be validated or applied from a baked snapshot, so they are ignored by ENV.',
-        ...explicitBake ? ['If these values should apply at runtime, re-resolve at boot instead of baking (e.g. `varlock run`, or a non-baking inject mode).'] : [
+        ...explicitBake ? [
+          'This build bakes its env on purpose, so the baked values stay authoritative here - wrapping the boot in `varlock run` does not change them.',
+          'If these values should apply at runtime, rebuild with them set, or switch to a non-baking inject mode (e.g. vite `ssrInjectMode: \'init-only\'`) and boot via `varlock run`.',
+        ] : [
           'Fix: boot via `varlock run` (or make the varlock CLI available) so env is re-resolved and validated at boot.',
           'Already booting via `varlock run`? Then its injected __VARLOCK_ENV blob did not reach this process: make sure nothing in between strips env vars (wrapper scripts, process managers) and that you are not using `--inject vars`.',
           'To boot anyway using the baked values, set _VARLOCK_ALLOW_ENV_SNAPSHOT_CONFLICTS=1 (the runtime values for these keys will be ignored by ENV).',
