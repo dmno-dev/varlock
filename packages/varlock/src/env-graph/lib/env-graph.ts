@@ -112,22 +112,15 @@ export type SerializedEnvGraph = {
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
   /**
-   * Present when this payload was resolved at BUILD time and baked into build output.
-   * Set by the integration injection preludes (never by the graph serializer). Living
-   * inside the payload means the provenance travels with the blob (child processes,
-   * encryption round-trips) and can never outlive it - a fresh resolution always
-   * produces an unflagged blob. The mode captures the user's intent, which decides how
-   * initVarlockEnv treats a conflicting runtime env value:
-   * - 'fallback': baking was an implicit safety net (e.g. Next.js standalone booted
-   *   where the varlock CLI is unreachable). The user expected runtime env to work, so
-   *   a conflict is a misconfiguration and fails the boot.
-   * - 'explicit': the user chose bake-into-build (e.g. vite `ssrInjectMode:
-   *   'resolved-env'`). The baked values are the declared contract, so a conflict is
-   *   surfaced as a loud warning but boots on the baked values.
-   * Either mode suppresses the stale-echo cleanup of ambient values for
-   * undefined-resolved items (no resolution happened in this process).
+   * true = this payload was resolved at BUILD time and baked into build output (set by
+   * the integration injection preludes, never by the graph serializer). Living inside
+   * the payload means the provenance travels with the blob (child processes, encryption
+   * round-trips) and can never outlive it - a fresh resolution always produces an
+   * unflagged blob. initVarlockEnv uses it to skip the stale-echo cleanup of ambient
+   * values (no resolution happened in this process) and to warn when a runtime env value
+   * differs from the snapshot.
    */
-  injectedAtBuild?: 'fallback' | 'explicit';
+  injectedAtBuild?: boolean;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };

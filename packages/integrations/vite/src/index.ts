@@ -409,20 +409,18 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
           );
         }
       }
-      // `injectedAtBuild: 'explicit'` marks the payload itself as resolved at BUILD
-      // time by user choice (`resolved-env` is opt-in bake-into-build). Runtime env
-      // values conflicting with it never had a chance to act as overrides and cannot
-      // be validated now - initVarlockEnv surfaces them as a loud warning but boots
-      // on the baked values (the declared contract), unlike the 'fallback' mode used
-      // by implicit baking, which fails the boot. Living inside the payload, the
-      // provenance survives encryption and never outlives the payload.
+      // `injectedAtBuild` marks the payload itself as resolved at BUILD time, so
+      // initVarlockEnv skips the stale-echo cleanup (no resolution happened in the
+      // booted process) and warns when a runtime env value differs from the snapshot.
+      // Living inside the payload, the provenance survives encryption and never
+      // outlives the payload.
       // The baked payload is authoritative and deliberately NOT deferred to an ambient
       // blob: `resolved-env` freezes the artifact's config on purpose, and its static
       // (non-sensitive, non-dynamic) values are already inlined into the bundle at build
       // time, so letting a boot-time blob win would only override the runtime-resolved
       // subset and leave the artifact reading from two different resolutions.
       // (initVarlockEnv prefers globalThis over the process.env blob.)
-      const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: 'explicit' });
+      const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: true });
       if (encryptionKey) {
         const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
         lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);

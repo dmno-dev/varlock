@@ -214,7 +214,7 @@ export function createWebpackConfigFn(
         let envPayload = rawEnv;
         if (envPayload) {
           try {
-            envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: 'fallback' });
+            envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
           } catch {
             // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
             // without provenance, so the boot behaves like a plain injected blob
