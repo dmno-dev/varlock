@@ -409,12 +409,16 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
           );
         }
       }
-      const serialized = JSON.stringify(varlockLoadedEnv);
+      // `injectedAtBuild` marks the payload as resolved at BUILD time, so `initVarlockEnv`
+      // skips its stale-echo cleanup (no resolution happened in the booted process) and
+      // never deletes runtime-provided vars. Living inside the payload, the provenance
+      // survives encryption and never outlives the payload it describes.
+      const serialized = JSON.stringify({ ...varlockLoadedEnv, injectedAtBuild: true });
       if (encryptionKey) {
         const encrypted = encryptEnvBlobSync(serialized, encryptionKey);
         lines.push(`globalThis.__varlockEncryptedEnv = ${JSON.stringify(encrypted)};`);
       } else {
-        lines.push(`globalThis.__varlockLoadedEnv = ${JSON.stringify(varlockLoadedEnv)};`);
+        lines.push(`globalThis.__varlockLoadedEnv = ${serialized};`);
       }
     }
 

@@ -605,6 +605,71 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             ],
           });
         });
+
+        describe.skipIf(!runBuildScenarios)('output=standalone', () => {
+          // Regression test for the reported incident: a standalone server booted in a
+          // container with no reachable varlock CLI falls back to the env blob baked into
+          // the bundled runtime at build time. Items that resolved to undefined at build
+          // used to have their runtime-provided values DELETED from process.env, taking
+          // the service down (`docker run -e REDIS_URL=...`).
+          //
+          // The standalone output is copied outside the project tree (so varlock cannot be
+          // found by walking up to the fixture node_modules) and booted with a stripped
+          // environment, mimicking a real container image.
+          const standalonePort = 15000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 5 : 0);
+          const standaloneCopyDir = `/tmp/varlock-next-standalone-${label}-${webpackOrTurbo}`;
+          const standaloneBootCommand = [
+            `next build ${buildToolFlag}`.replace(/\s+/g, ' ').trim(),
+            `rm -rf ${standaloneCopyDir}`,
+            `cp -R .next/standalone ${standaloneCopyDir}`,
+            // remove all package-manager bin dirs so the varlock CLI is unreachable
+            `find ${standaloneCopyDir} -type d -name .bin -prune -exec rm -rf {} +`,
+            // server.js is nested at the traced workspace root, which varies by next
+            // version (it walks up to whatever lockfiles it finds above the project)
+            `cd "$(dirname "$(find ${standaloneCopyDir} -name server.js -not -path "*/node_modules/*" | head -1)")"`,
+            'NODE_BIN="$(command -v node)"',
+            [
+              'env -i PATH=/usr/bin:/bin NODE_ENV=production',
+              `HOSTNAME=127.0.0.1 PORT=${standalonePort}`,
+              'RUNTIME_BOOT_VAR=runtime-boot-value',
+              '"$NODE_BIN" server.js',
+            ].join(' '),
+          ].join(' && ');
+
+          nextEnv.describeDevScenario('standalone boot does not delete runtime-provided env vars', {
+            command: `sh -c '${standaloneBootCommand}'`,
+            env: { NODE_ENV: 'production' },
+            readyPattern: /Ready in|Starting\.\.\./,
+            readyTimeout: 240_000,
+            timeout: 300_000,
+            templateFiles: {
+              '.env.schema': {
+                path: 'schemas/.env.schema',
+                append: '\n# provided at boot time only (e.g. `docker run -e ...`)\nRUNTIME_BOOT_VAR= # @dynamic\n',
+              },
+              'next.config.mjs': {
+                path: '_base/next.config.mjs',
+                replacements: { '// OUTPUT-MODE': "output: 'standalone'," },
+              },
+              'app/page.tsx': 'pages/runtime-boot-page.tsx',
+            },
+            requests: [
+              {
+                label: 'boot-provided value survives in process.env',
+                path: '/',
+                bodyAssertions: {
+                  shouldContain: [
+                    'Varlock Framework Test - runtime boot',
+                    'runtime var via process.env: runtime-boot-value',
+                    // the baked snapshot stays authoritative for ENV: it resolved this
+                    // item to undefined at build time and cannot validate a runtime value
+                    'runtime var via ENV: undefined',
+                  ],
+                },
+              },
+            ],
+          });
+        });
       });
     });
   });

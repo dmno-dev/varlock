@@ -205,9 +205,21 @@ export function createWebpackConfigFn(
             + 'Consider enabling `@encryptInjectedEnv` — see https://varlock.dev/guides/encrypted-deployments/',
           );
         }
+        // The baked env is a build-time fallback: a blob already present in the actual
+        // runtime env (a fresh boot-time resolution, e.g. `varlock run`) always wins.
+        // Flag the payload as build-resolved so `initVarlockEnv` skips its stale-echo
+        // cleanup and never deletes runtime-provided vars. The flag lives INSIDE the
+        // payload so it travels with the blob (child processes, encryption round-trips)
+        // and can never outlive it.
         let envPayload = rawEnv;
-        if (rawEnv && encryptionKey) {
-          envPayload = encryptEnvBlobSync(rawEnv, encryptionKey);
+        if (envPayload) {
+          try {
+            envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
+          } catch {
+            // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
+            // without provenance, so the boot behaves like a plain injected blob
+          }
+          if (encryptionKey) envPayload = encryptEnvBlobSync(envPayload, encryptionKey);
         }
         const envInline = envPayload
           ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`

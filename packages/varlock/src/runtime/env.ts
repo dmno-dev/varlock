@@ -594,7 +594,11 @@ export function initVarlockEnv(opts?: {
         // echo (a genuine ambient value would have acted as an override and resolved to it),
         // so clear it rather than leave it shadowing the fresh resolution.
         // `@injectUndefinedAsEmpty` opts back into dotenv-style empty-string injection.
-        delete process.env[itemKey];
+        // EXCEPT when the blob was baked into the build output (`injectedAtBuild`): no
+        // resolution happened in this process, so the echo reasoning cannot hold and a
+        // present value is genuine runtime env (e.g. `docker run -e REDIS_URL=...` against
+        // a Next.js standalone image). Deleting it destroys runtime-provided config.
+        if (!serializedEnvData.injectedAtBuild) delete process.env[itemKey];
       } else {
         envState.injectedProcessEnvKeys?.push(itemKey);
         process.env[itemKey] = envStrValue ?? '';
