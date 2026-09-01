@@ -39,7 +39,7 @@ import {
 } from '../../proxy/types';
 import { parseDuration } from '../../lib/duration';
 import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
-import { SHORT_SENSITIVE_VALUE_LENGTH, sensitiveValueStrings } from '../../lib/sensitive-value';
+import { MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, sensitiveValueStrings } from '../../lib/sensitive-value';
 
 const processExists = !!globalThis.process;
 const originalProcessEnv = { ...processExists && process.env };
@@ -787,11 +787,16 @@ export class EnvGraph {
    * Reported on the *public* item, since marking it sensitive (or removing the embedded
    * secret) is the fix.
    *
-   * Only values at least SHORT_SENSITIVE_VALUE_LENGTH long are matched. Below that a
-   * substring hit is as likely to be coincidence as a leak (a sensitive `prod` inside a
-   * public `https://prod.example.com`), and those values already carry their own
-   * short-value warning or error saying they cannot be redacted safely - so nothing is
-   * silently dropped by ignoring them here.
+   * Severity depends on the length of the matched value, because the two halves above are
+   * not equally likely at every size. A long value inside a public one is a real secret
+   * being exposed, and fails. A short one is more likely a collision than a leak (a
+   * sensitive `prod` inside a public `https://prod.example.com`), but that collision is
+   * precisely what makes redaction rewrite the public value everywhere it appears - and
+   * unlike the generic short-value warning, this one is confirmed rather than
+   * hypothetical, so it is worth saying even where `allowShortValue` silenced that.
+   *
+   * Values below MIN_SENSITIVE_VALUE_LENGTH are skipped: they already fail on their own,
+   * and matching them against everything would bury that error under coincidental hits.
    */
   private checkForSensitiveValuesInsideNonSensitiveOnes() {
     const sensitiveStrings: Array<{ key: string, str: string }> = [];
@@ -799,7 +804,7 @@ export class EnvGraph {
       const item = this.configSchema[itemKey];
       if (!item.isSensitive) continue;
       for (const str of sensitiveValueStrings(item.resolvedValue)) {
-        if (str.length >= SHORT_SENSITIVE_VALUE_LENGTH) sensitiveStrings.push({ key: itemKey, str });
+        if (str.length >= MIN_SENSITIVE_VALUE_LENGTH) sensitiveStrings.push({ key: itemKey, str });
       }
     }
     if (!sensitiveStrings.length) return;
@@ -809,11 +814,15 @@ export class EnvGraph {
       if (item.isSensitive) continue;
       const publicStrings = sensitiveValueStrings(item.resolvedValue);
       if (!publicStrings.length) continue;
-      for (const sensitiveKey of _.uniq(
-        sensitiveStrings
-          .filter(({ key, str }) => key !== itemKey && publicStrings.some((p) => p.includes(str)))
-          .map(({ key }) => key),
-      )) {
+      const matches = sensitiveStrings.filter(
+        ({ key, str }) => key !== itemKey && publicStrings.some((p) => p.includes(str)),
+      );
+      for (const sensitiveKey of _.uniq(matches.map(({ key }) => key))) {
+        // a long match is a secret genuinely carried into public output; a short one is a
+        // confirmed redaction collision, the same severity the value itself already carries
+        const isRealSecret = matches.some(
+          ({ key, str }) => key === sensitiveKey && str.length >= SHORT_SENSITIVE_VALUE_LENGTH,
+        );
         const message = `Value contains the sensitive value of ${sensitiveKey}`;
         // resolveEnvValues may run more than once (e.g. filtered resolution then a full
         // pass), and items are only reset on an explicit reset - so do not re-add
@@ -821,7 +830,10 @@ export class EnvGraph {
         item.validationErrors = [
           ...(item.validationErrors ?? []),
           new ValidationError(message, {
-            tip: `This item is not sensitive, so its value is exposed in logs, generated types, and client bundles - which exposes ${sensitiveKey} along with it.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`,
+            ...(isRealSecret ? {} : { severity: 'warning' as const }),
+            tip: isRealSecret
+              ? `This item is not sensitive, so its value is exposed in logs, generated types, and client bundles - which exposes ${sensitiveKey} along with it.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`
+              : `Redacting ${sensitiveKey} will rewrite this value everywhere it appears in logs and proxied responses.\nMark ${sensitiveKey} \`@sensitive=false\` if it is not really a secret, or build this value from a reference so the two do not overlap.`,
           }),
         ];
       }

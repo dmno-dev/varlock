@@ -711,17 +711,24 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.UNRELATED.validationState).toBe('valid');
   });
 
-  test('short sensitive values are not matched against public ones', async () => {
+  // a short sensitive value inside a public one is more collision than leak, but that
+  // collision is confirmed rather than hypothetical - redaction really will rewrite the
+  // public value - so it warns even though `allowShortValue` silenced the generic warning
+  test('a short sensitive value inside a public one warns rather than failing', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
-      # short enough that a substring hit is as likely coincidence as a leak
       # @sensitive={allowShortValue=true}
-      MODE=prod
+      DEPLOY_TIER=prod
 
       # @public
       API_URL=https://prod.example.com
+
+      # @public
+      UNRELATED=https://example.com
     `);
-    expect(g.configSchema.API_URL.validationState).toBe('valid');
+    expect(g.configSchema.API_URL.validationState).toBe('warn');
+    expect(g.configSchema.API_URL.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of DEPLOY_TIER']);
+    expect(g.configSchema.UNRELATED.validationState).toBe('valid');
   });
 });
