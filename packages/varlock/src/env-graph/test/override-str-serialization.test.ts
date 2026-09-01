@@ -43,12 +43,13 @@ describe('getSerializedGraph overrideStr', () => {
   });
 
   it('omits overrideStr for sensitive items even when coercion changed the form', async () => {
+    // a boolean would be demoted to non-sensitive, so coerce a string instead
     const g = await loadSchema(outdent`
-      # @type=boolean @sensitive
-      SECRET_FLAG=false
-    `, { SECRET_FLAG: 'YES' });
+      # @type=string(toLowerCase=true) @sensitive
+      SECRET_TOKEN=sk-live-placeholder
+    `, { SECRET_TOKEN: 'SK-LIVE-9F2B71C4A8DE' });
     const blob = g.getSerializedGraph();
-    expect(blob.config.SECRET_FLAG.value).toBe(true);
-    expect(blob.config.SECRET_FLAG.overrideStr).toBeUndefined();
+    expect(blob.config.SECRET_TOKEN.value).toBe('sk-live-9f2b71c4a8de');
+    expect(blob.config.SECRET_TOKEN.overrideStr).toBeUndefined();
   });
 });

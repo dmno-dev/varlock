@@ -546,28 +546,30 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.ARR.errors[0].message).toContain('only 1 character long');
   });
 
-  test('a sensitive boolean is an error', async () => {
+  test('a boolean is never sensitive', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
+      # a boolean holds no secret, so an explicit @sensitive is ignored (with a warning)
       # @sensitive @type=boolean
       DECLARED=true
 
-      # the type is inferred here, but redaction is just as destructive
+      # same when the type is only inferred from the value
       # @sensitive
       INFERRED=false
 
-      # sensitive only via @defaultSensitive, but it is registered for redaction the
-      # same way, so it fails the same way
+      # swept in by @defaultSensitive - demoted silently, nothing was written to ignore
       IMPLICIT=true
-
-      # @sensitive=false
-      NOT_SENSITIVE=true
     `);
-    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a boolean value cannot be sensitive']);
-    expect(g.configSchema.INFERRED.validationState).toBe('error');
-    expect(g.configSchema.IMPLICIT.validationState).toBe('error');
-    expect(g.configSchema.NOT_SENSITIVE.validationState).toBe('valid');
+    expect(g.configSchema.DECLARED.isSensitive).toBe(false);
+    expect(g.configSchema.DECLARED.errors.map((e) => e.message)).toEqual(['a boolean is never sensitive - treating this item as `@sensitive=false`']);
+    expect(g.configSchema.DECLARED.errors.every((e) => e.isWarning)).toBe(true);
+
+    expect(g.configSchema.INFERRED.isSensitive).toBe(false);
+    expect(g.configSchema.INFERRED.validationState).toBe('warn');
+
+    expect(g.configSchema.IMPLICIT.isSensitive).toBe(false);
+    expect(g.configSchema.IMPLICIT.validationState).toBe('valid');
   });
 
   test('a sensitive number is an error, pointing at a string instead', async () => {

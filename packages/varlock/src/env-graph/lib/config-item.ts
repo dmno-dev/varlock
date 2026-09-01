@@ -609,26 +609,35 @@ export class ConfigItem {
     return this._allowShortValue;
   }
   /**
-   * Kinds of item that can never be meaningfully sensitive, rejected at schema time
-   * rather than left to the value-length warning.
+   * Kinds of item that can never be meaningfully sensitive.
    *
-   * Type-based rules apply however the item became sensitive: an item swept in by
+   * These apply however the item became sensitive: an item swept in by
    * `@defaultSensitive=true` is registered for redaction exactly like an explicitly
-   * marked one, so a boolean or number does the same damage either way. Builtins are
-   * exempt - they are varlock's own metadata, never a secret.
+   * marked one, so the value does the same damage either way. Builtins are exempt -
+   * they are varlock's own metadata, never a secret.
    */
   private checkSensitiveIsPlausible() {
     if (!this._isSensitive || this.isBuiltin) return;
 
-    // a boolean only ever redacts as "true"/"false", which appear in essentially every
-    // log line and JSON body - the redaction does far more damage than the value is worth
+    // A boolean holds one bit, so there is no secret in it to protect - but redacting it
+    // rewrites every "true"/"false" in logs and proxied response bodies. Nothing is lost
+    // by simply treating it as non-sensitive, which is the one case where demoting is
+    // safe: for any other type the value could carry a real secret, and silently making
+    // it public would also make it @static and eligible to be inlined into a build.
     if (this.dataType?.coercedType === 'boolean') {
-      this._schemaErrors.push(new SchemaError(
-        'a boolean value cannot be sensitive',
-        {
-          tip: 'Redacting a boolean rewrites every "true"/"false" in logs and proxied response bodies.\nMark it `@sensitive=false` (or `@public`) - which is also what an item swept in by `@defaultSensitive` needs.\nIf it really is a secret, make it a string instead: `@type=string`, or quote the value.',
-        },
-      ));
+      if (this._sensitiveExplicitlySet) {
+        // do not silently discard something the author wrote
+        this._schemaErrors.push(new SchemaError(
+          'a boolean is never sensitive - treating this item as `@sensitive=false`',
+          {
+            isWarning: true,
+            tip: 'A boolean carries no secret, and redacting it would rewrite every "true"/"false" in logs and proxied response bodies.\nIf this really is a secret, make it a string instead: `@type=string`, or quote the value.',
+          },
+        ));
+      }
+      this._isSensitive = false;
+      this._sensitiveSource = 'data-type';
+      return;
     }
 
     // a secret held as a number is already damaged before redaction gets a say: leading
