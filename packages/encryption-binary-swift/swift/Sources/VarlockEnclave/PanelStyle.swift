@@ -29,6 +29,10 @@ enum PanelStyle {
     static let cardDivider = color(0x2E_2E_34)
     static let chipBackground = color(0x2D_2D_33)
     static let chipInk = color(0xC2_C2_C8)
+    /// The ground under a count badge. Quieter than a value chip, because the
+    /// number is a measure of the line it sits on and not another thing in it.
+    static let countBadgeBackground = color(0x2B_2B_31)
+    static let countBadgeInk = color(0x9C_9C_A4)
 
     static let chainBackground = color(0x28_28_2C)
     static let chainBorder = color(0x35_35_3B)
@@ -173,6 +177,43 @@ enum PanelStyle {
             field.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
             field.topAnchor.constraint(equalTo: view.topAnchor, constant: 1),
             field.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -1),
+        ])
+        return view
+    }
+
+    /// How much is in a source, as a mark beside its name.
+    ///
+    /// A count is the one thing on these lines a reader compares rather than
+    /// reads, so it gets a shape of its own: numerals in a pill at a fixed
+    /// height, so a column of them lines up whatever the names beside them are.
+    /// One and two digits come out round; three widen the pill rather than
+    /// shrinking the number, since a count too small to read is worse than one
+    /// that takes a few more points.
+    ///
+    /// Tabular figures, so the digits line up as well as the pills do.
+    static func countBadge(_ count: Int) -> NSView {
+        let height: CGFloat = 15
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = countBadgeBackground.cgColor
+        view.layer?.cornerRadius = height / 2
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        let field = NSTextField(labelWithString: String(count))
+        field.font = NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .medium)
+        field.textColor = countBadgeInk
+        field.alignment = .center
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.setContentCompressionResistancePriority(.required, for: .horizontal)
+        view.addSubview(field)
+
+        NSLayoutConstraint.activate([
+            view.heightAnchor.constraint(equalToConstant: height),
+            view.widthAnchor.constraint(greaterThanOrEqualToConstant: height),
+            field.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            field.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 5),
+            field.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -5),
         ])
         return view
     }

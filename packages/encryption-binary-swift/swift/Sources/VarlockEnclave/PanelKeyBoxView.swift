@@ -155,12 +155,20 @@ final class PanelKeyBoxView: NSView {
 
         for source in row.sources where source.isDrawable {
             if let heading = source.heading {
-                column.addArrangedSubview(PanelStyle.label(
+                let line = PanelStyle.row(spacing: 6)
+                line.addArrangedSubview(PanelStyle.label(
                     heading,
                     size: 10.5,
                     color: PanelStyle.inkTertiary,
                     mono: true
                 ))
+                // Only when there is a number to put in it: a source whose size
+                // the client did not report draws no badge, rather than an empty
+                // one that would read as a count of nothing.
+                if let count = source.headingCount {
+                    line.addArrangedSubview(PanelStyle.countBadge(count))
+                }
+                column.addArrangedSubview(line)
             }
             if !source.entries.isEmpty {
                 column.addArrangedSubview(WrappingChipView(

@@ -67,7 +67,7 @@ A few things to keep in mind:
 - Only entry **values** are encrypted. Cache keys are stored in plaintext and include file paths, item names, and resolver source text.
 - The disk cache is per-OS-user and shared across all projects. This is intentional - projects often share config - but it means any env file you load can read and write it, so treat untrusted repos accordingly.
 - With the file-based encryption fallback, the decryption key sits on the same disk as the cache, so encryption is obfuscation-only (see warning above).
-- The cache shares its encryption key with your `varlock("local:...")` env values, so one approval covers both. Reading a cached value can be what raises the [unlock panel](/guides/local-encryption/#the-unlock-panel), and when it does the panel lists the cache alongside the env files under that key, with how many cached values it holds and which plugins and files filled it.
+- The cache shares its encryption key with your `varlock("local:...")` env values, so one approval covers both. Reading a cached value can be what raises the [unlock panel](/guides/local-encryption/#the-unlock-panel), and when it does the panel lists the cache alongside the env files under that key, with how many cached values it holds and which plugins and files filled it. Which of them the run reaches first makes no difference: the panel lists both either way, because one approval opens both.
 
 ## Concurrent runs
 

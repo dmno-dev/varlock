@@ -379,13 +379,25 @@ public struct UnlockValueSource: Equatable {
         return entries.reduce(0) { $0 + ($1.count ?? 1) }
     }
 
-    /// The line above the chips. nil for a file the client did not name, whose
-    /// values are listed under no heading rather than under a made-up one.
+    /// The line above the chips: the source's own name and nothing else. nil
+    /// for a file the client did not name, whose values are listed under no
+    /// heading rather than under a made-up one.
+    ///
+    /// How much is in it is `headingCount`, drawn as a badge rather than said
+    /// in words: a column of sources is read by comparing their sizes, and
+    /// numerals compare at a glance where "8 values / 4 values / 12 values"
+    /// has to be read three times.
     public var heading: String? {
-        let name = path ?? (kind == .file ? nil : kind.fallbackLabel)
-        guard let name else { return nil }
-        guard itemCount > 0 else { return name }
-        return "\(name) \u{00B7} \(UnlockValueSource.valuesLabel(itemCount))"
+        return path ?? (kind == .file ? nil : kind.fallbackLabel)
+    }
+
+    /// The number on the heading's badge, or nil when there is nothing to say.
+    ///
+    /// A source whose size is unknown draws no badge at all: an empty one would
+    /// be a claim of its own, and a zero would be a wrong one.
+    public var headingCount: Int? {
+        guard heading != nil, itemCount > 0 else { return nil }
+        return itemCount
     }
 
     /// Whether this source puts anything on the panel at all.

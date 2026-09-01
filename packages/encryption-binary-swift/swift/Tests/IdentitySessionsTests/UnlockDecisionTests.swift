@@ -329,7 +329,8 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(row.valueCountLabel, "2 values")
         XCTAssertTrue(row.isExpandable)
         XCTAssertEqual(row.sources.first?.entries.map { $0.name }, ["DATABASE_URL", "STRIPE_KEY"])
-        XCTAssertEqual(row.sources.first?.heading, ".env \u{00B7} 2 values")
+        XCTAssertEqual(row.sources.first?.heading, ".env")
+        XCTAssertEqual(row.sources.first?.headingCount, 2)
         XCTAssertEqual(row.sourceFootnote, PanelContent.valueSourceFootnote)
     }
 
@@ -354,7 +355,8 @@ final class UnlockDecisionTests: XCTestCase {
         let row = content.keyRows[0]
         XCTAssertTrue(row.isExpandable)
         XCTAssertEqual(row.valueCountLabel, "12 values")
-        XCTAssertEqual(row.sources.first?.heading, "value cache \u{00B7} 12 values")
+        XCTAssertEqual(row.sources.first?.heading, "value cache")
+        XCTAssertEqual(row.sources.first?.headingCount, 12)
         XCTAssertEqual(
             row.sources.first?.entries.map { $0.label },
             ["1password \u{00B7} 8", ".env.local \u{00B7} 4"]
@@ -383,13 +385,53 @@ final class UnlockDecisionTests: XCTestCase {
         )
         let row = content.keyRows[0]
         XCTAssertEqual(content.keyRows.count, 1, "one key means one row, however many sources it holds")
-        XCTAssertEqual(
-            row.sources.map { $0.heading },
-            [".env \u{00B7} 2 values", "value cache \u{00B7} 12 values"]
-        )
+        XCTAssertEqual(row.sources.map { $0.heading }, [".env", "value cache"])
+        // the count sits beside the name as a badge, so a column of sources is
+        // compared rather than read
+        XCTAssertEqual(row.sources.map { $0.headingCount }, [2, 12])
         // A cache with nothing to chip about still draws: its heading is the
         // fact that matters.
         XCTAssertTrue(row.sources[1].isDrawable)
+    }
+
+    /// A badge is a claim about size, so a source of unknown size gets none.
+    /// An empty pill would still say something, and a zero would say the wrong
+    /// thing.
+    func testASourceOfUnknownSizeGetsNoBadge() {
+        let unknown = UnlockValueSource(kind: .cache)
+        XCTAssertEqual(unknown.heading, "value cache")
+        XCTAssertNil(unknown.headingCount)
+        XCTAssertTrue(unknown.isDrawable)
+
+        // a file the client did not name has no heading to hang a badge on, and
+        // its values are listed under nothing rather than under a guess
+        let nameless = UnlockValueSource(entries: [.init(name: "DATABASE_URL")])
+        XCTAssertNil(nameless.heading)
+        XCTAssertNil(nameless.headingCount)
+    }
+
+    /// Every count on the panel is counted the same way, so a badge and the
+    /// row's own total can never tell different stories.
+    func testABadgeCountsWhatTheSourceSaysItHolds() {
+        // enumerated: one per entry
+        XCTAssertEqual(
+            UnlockValueSource(path: ".env", entries: [.init(name: "A"), .init(name: "B")]).headingCount,
+            2
+        )
+        // summarised: what the client reported, not the number of summary lines
+        XCTAssertEqual(
+            UnlockValueSource(
+                kind: .cache,
+                entries: [.init(name: "1password", count: 120), .init(name: "aws", count: 8)],
+                reportedItemCount: 128
+            ).headingCount,
+            128
+        )
+        // entries that each stand for several, with nothing reported over them
+        XCTAssertEqual(
+            UnlockValueSource(kind: .cache, entries: [.init(name: "1password", count: 8)]).headingCount,
+            8
+        )
     }
 
     /// A caller that said nothing must not leave a blank that reads as "there is
