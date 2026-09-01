@@ -175,34 +175,55 @@ final class PanelChainView: NSView {
         // with a different coloured dot. Which session a request came from is
         // the fact most likely to change the answer, so it has to be impossible
         // to skim past.
-        let host: NSView
+        // Every row gets the same padding, whether or not anything is painted
+        // behind it. Only the session root has a background, and giving that
+        // background its own inset is what used to push its icon and text out of
+        // line with the rows around it.
+        let host = NSView()
+        host.translatesAutoresizingMaskIntoConstraints = false
         if hop.isSessionRoot {
-            let tinted = NSView()
-            tinted.wantsLayer = true
-            tinted.layer?.backgroundColor = PanelStyle.sessionRowBackground.cgColor
-            tinted.layer?.cornerRadius = 7
-            tinted.translatesAutoresizingMaskIntoConstraints = false
-            tinted.addSubview(row)
-            NSLayoutConstraint.activate([
-                row.leadingAnchor.constraint(equalTo: tinted.leadingAnchor, constant: 8),
-                row.trailingAnchor.constraint(equalTo: tinted.trailingAnchor, constant: -8),
-                row.topAnchor.constraint(equalTo: tinted.topAnchor, constant: 6),
-                row.bottomAnchor.constraint(equalTo: tinted.bottomAnchor, constant: -6),
-            ])
-            host = tinted
-        } else {
-            host = row
+            host.wantsLayer = true
+            host.layer?.backgroundColor = PanelStyle.sessionRowBackground.cgColor
+            host.layer?.cornerRadius = 7
         }
+        host.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: ChainGrid.rowPadding),
+            row.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -ChainGrid.rowPadding),
+            row.topAnchor.constraint(equalTo: host.topAnchor, constant: hop.isSessionRoot ? 6 : 0),
+            row.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: hop.isSessionRoot ? -6 : 0),
+        ])
 
         container.addSubview(host)
         NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            host.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: ChainGrid.rowInset),
             host.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             host.topAnchor.constraint(equalTo: container.topAnchor, constant: hop.isSessionRoot ? 2 : 3),
             host.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: hop.isSessionRoot ? -2 : -3),
             container.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth - 24),
         ])
         return container
+    }
+
+    /// The one grid every row in the chain is laid out on.
+    ///
+    /// Rows used to set their own leading constants, and the session root's
+    /// tinted background gave it padding nothing else had, so its icon and text
+    /// sat further right than the rows above and below it. Every row now carries
+    /// the same padding whether or not anything is drawn behind it, and every
+    /// line of text starts at `textInset`, icons or no icons.
+    private enum ChainGrid {
+        /// The rail's width: where a row's own leading edge begins.
+        static let rowInset: CGFloat = 16
+        /// Breathing room inside a row. Applied to all of them, so the session
+        /// root's background can be painted without moving its contents.
+        static let rowPadding: CGFloat = 8
+        /// Between an icon and the text beside it.
+        static let iconSpacing: CGFloat = 8
+        /// Where text starts, measured from the rail's leading edge.
+        static var textInset: CGFloat { rowInset + rowPadding + PanelIcons.side + iconSpacing }
+        /// The same column, measured from inside a row that already has an icon.
+        static var textIndent: CGFloat { PanelIcons.side + iconSpacing }
     }
 
     /// The command line under the hop that ran it.
@@ -219,7 +240,7 @@ final class PanelChainView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         rail.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 42),
+            label.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: ChainGrid.textInset),
             label.trailingAnchor.constraint(lessThanOrEqualTo: rail.trailingAnchor),
             label.topAnchor.constraint(equalTo: rail.topAnchor),
             label.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -3),
@@ -244,7 +265,7 @@ final class PanelChainView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         rail.addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 42),
+            label.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: ChainGrid.textInset),
             label.trailingAnchor.constraint(lessThanOrEqualTo: rail.trailingAnchor),
             label.topAnchor.constraint(equalTo: rail.topAnchor),
             label.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -3),
@@ -352,7 +373,22 @@ final class PanelChainView: NSView {
         secondary.lineBreakMode = .byWordWrapping
         secondary.maximumNumberOfLines = 3
         secondary.preferredMaxLayoutWidth = PanelStyle.contentWidth - 72
-        column.addArrangedSubview(secondary)
+        // Indented past the icon so it starts where the name above it starts,
+        // rather than under the icon in a column of its own.
+        let secondaryRow = NSView()
+        secondary.translatesAutoresizingMaskIntoConstraints = false
+        secondaryRow.addSubview(secondary)
+        NSLayoutConstraint.activate([
+            secondary.leadingAnchor.constraint(
+                equalTo: secondaryRow.leadingAnchor,
+                constant: ChainGrid.textIndent
+            ),
+            secondary.trailingAnchor.constraint(lessThanOrEqualTo: secondaryRow.trailingAnchor),
+            secondary.topAnchor.constraint(equalTo: secondaryRow.topAnchor),
+            secondary.bottomAnchor.constraint(equalTo: secondaryRow.bottomAnchor),
+        ])
+        column.addArrangedSubview(secondaryRow)
+        secondaryRow.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
         return column
     }
 
