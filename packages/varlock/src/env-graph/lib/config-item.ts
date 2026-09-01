@@ -638,7 +638,7 @@ export class ConfigItem {
       this._schemaErrors.push(new SchemaError(
         'a number value cannot be sensitive',
         {
-          tip: 'Make it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).\nA number drops leading zeros and rounds anything past 2^53, so a numeric secret is corrupted before redaction is even involved.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`).',
+          tip: 'Make it a string instead: add `@type=string`, or quote the value (`PIN="007123"`).',
         },
       ));
     }
