@@ -38,16 +38,6 @@ import {
 
 const LOCALHOST = '127.0.0.1';
 
-/**
- * Length floor for scrubbing a sensitive value from a response on a route it
- * cannot reach. Scrubbing is substring replacement with no token boundary, so a
- * short value would corrupt unrelated content; below this length a chance
- * collision in ordinary text is far likelier than a genuine reflection of a
- * credential the upstream was never given. Values that CAN reach the upstream
- * bypass this entirely, so a legitimately short secret is still protected on the
- * routes where it actually travels.
- */
-const MIN_CROSS_ROUTE_SCRUB_LENGTH = 8;
 
 /**
  * Stand-in written over a reflected transform credential in a response.
@@ -1575,30 +1565,31 @@ export async function startLocalProxyRuntime({
           : `?${substitutePlaceholdersInSurface(queryPart, managedItems, keysForLocation('query'))}`);
     }
 
-    // Response scrubbing covers EVERY sensitive value the proxy holds, not just
-    // the ones substituted into this request: a consumed transform credential, or
-    // a secret bound for another route, is just as damaging reflected back. A
-    // scheme may add derived forms the runtime cannot compute (see below).
+    // Response scrubbing puts back the placeholders for the secrets THIS rule
+    // sent: the items it injects, plus a transform's credentials (consumed ones
+    // never travel raw, but a scheme may put a derived form on the wire, added
+    // below). Those are the only values the upstream was given, so they are the
+    // only ones it can legitimately reflect.
     //
-    // That wide net has a cost, though, because scrubbing is plain substring
-    // replacement: a SHORT sensitive value configured for another route ("ok",
-    // "true") would rewrite ordinary text in this route's response, and in
-    // permissive mode that means corrupting passthrough traffic it can never
-    // legitimately appear in. So values that can actually reach this upstream are
-    // always scrubbed, whatever their length, and everything else must clear a
-    // length floor to be worth the false-positive risk.
-    const reachesThisUpstream = new Set([
+    // Scoping matters because scrubbing is plain substring replacement with no
+    // token boundary: scanning for every secret the proxy holds would let a
+    // short value configured for another route ("ok") rewrite ordinary text
+    // here. A secret from another route showing up in this response is not
+    // something we can distinguish from coincidence anyway, and the benign cases
+    // (a shared value, a common word) far outnumber the sketchy ones.
+    //
+    // Non-sensitive items are excluded: replacing an ordinary value like a
+    // username would corrupt the payload for no benefit.
+    const scrubKeys = new Set([
       ...hostItems.map((item) => item.key),
       ...(activeTransform ? [
         ...transformItemKeys(activeTransform, transformSchemes, 'consumed'),
         ...transformItemKeys(activeTransform, transformSchemes, 'wire'),
       ] : []),
     ]);
-    const responseScrubItems: Array<ProxyManagedItem> = managedItems.filter((item) => {
-      if (item.isSensitive === false) return false;
-      if (reachesThisUpstream.has(item.key)) return true;
-      return item.realValue.length >= MIN_CROSS_ROUTE_SCRUB_LENGTH;
-    });
+    const responseScrubItems: Array<ProxyManagedItem> = managedItems.filter(
+      (item) => scrubKeys.has(item.key) && item.isSensitive !== false,
+    );
 
     const upstreamHeaders = transformHeaders(
       req.headers,

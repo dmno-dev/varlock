@@ -764,7 +764,7 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     await upstream.close();
   });
 
-  test('response scrubbing covers sensitive values by role-independence, and spares non-sensitive ones', async () => {
+  test('response scrubbing covers this rule\'s sensitive values by role-independence, and spares the rest', async () => {
     // an endpoint that echoes back a mix: the encoded credential, the raw
     // secret, a secret bound for another route, and an ordinary username
     const upstream = await startUpstream((req, res) => {
@@ -806,24 +806,26 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
 
     // the encoded credential (only the scheme can produce this form)
     expect(response).not.toContain(Buffer.from('svc-user:real-password').toString('base64'));
-    // the raw secret, and a secret belonging to a different route
+    // ...and the raw secret behind it, whichever role it was named in
     expect(response).not.toContain('real-password');
-    expect(response).not.toContain('other-route-secret');
     // ...but an ordinary value is left alone rather than corrupted
     expect(response).toContain('svc-user');
+    // ...as is a secret bound to a DIFFERENT route: this upstream was never
+    // given it, so a match here is coincidence rather than a reflection, and
+    // rewriting it would corrupt a response for no gain
+    expect(response).toContain('other-route-secret');
 
     tlsSocket.destroy();
     await runtime.stop();
     await upstream.close();
   });
 
-  test('a short secret bound to another route does not corrupt an unrelated response', async () => {
-    // Scrubbing is substring replacement with no token boundary, so a short
-    // sensitive value configured for a DIFFERENT domain must not rewrite
-    // ordinary text in this one's response. (Only ruled hosts are MITM'd at all,
-    // so this is the reachable case: two domains that both have rules.) A long
-    // cross-route value is still scrubbed: a chance collision is implausible
-    // there, so a match is a real reflection rather than coincidence.
+  test('a secret bound to another route is not scanned for, so it cannot corrupt this response', async () => {
+    // Scrubbing is substring replacement with no token boundary, so scanning a
+    // response for secrets this upstream was never given is all cost: a short
+    // value configured for a DIFFERENT domain ("ok") would rewrite ordinary
+    // text. (Only ruled hosts are MITM'd at all, so this is the reachable case:
+    // two domains that both have rules.)
     const upstream = await startUpstream((req, res) => {
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
@@ -858,9 +860,10 @@ describe('plugin-provided transform schemes over MITM (scheme registry seam)', (
     expect(response).toContain('"note":"not ok yet"');
     expect(response).toContain('"region":"us-ok-1"');
     expect(response).toContain('x-status: ok');
-    // ...while the long cross-route secret the upstream reflected IS scrubbed
-    expect(response).not.toContain('us-ok-1-long-enough-secret');
-    expect(response).toContain('vlk_ph_long');
+    // ...and neither cross-route value is substituted, long one included
+    expect(response).toContain('us-ok-1-long-enough-secret');
+    expect(response).not.toContain('vlk_ph_short_pin');
+    expect(response).not.toContain('vlk_ph_long');
 
     tlsSocket.destroy();
     await runtime.stop();
