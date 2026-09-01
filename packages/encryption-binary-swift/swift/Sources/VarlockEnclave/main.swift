@@ -294,9 +294,22 @@ case "panel-preview":
             ($0, ExistingGrantSnapshot(scope: .session, remainingMs: 4 * 60 * 60 * 1000))
         })
     )
-    let previewRequester = panelRequesterForPid(
-        (previewPayload["pid"] as? NSNumber)?.int32Value ?? getppid()
-    )
+    // A written-down process tree wins over the live one. The situations worth
+    // looking hardest at (varlock running as JavaScript under an interpreter, an
+    // agent session with nobody watching, an agent working outside the project
+    // being unlocked) are all awkward to arrange on purpose, and the panel is the
+    // surface where being wrong about them matters most.
+    let previewRequester: PanelRequester
+    if let scripted = PanelPreviewChain.chain(from: previewPayload) {
+        previewRequester = PanelRequester(
+            summary: "Requested by \(scripted.hops.last?.name ?? "an unidentified process")",
+            chain: scripted
+        )
+    } else {
+        previewRequester = panelRequesterForPid(
+            (previewPayload["pid"] as? NSNumber)?.int32Value ?? getppid()
+        )
+    }
     let previewContent = UnlockPanelContent.build(
         plan: previewPlan,
         requester: previewRequester,

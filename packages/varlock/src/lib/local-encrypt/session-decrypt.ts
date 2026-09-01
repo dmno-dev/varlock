@@ -14,6 +14,7 @@
  */
 
 import path from 'node:path';
+import { VARLOCK_VERSION } from '../varlock-version';
 import { DaemonError, type DaemonClient } from './daemon-client';
 import type {
   SessionGrantInfo, UnlockDisplayInfo, UnlockInvocationMode, UnlockKeyDisplay, UnlockValueFile,
@@ -214,6 +215,11 @@ function buildDisplayInfo(
 
   return {
     invocationMode: detectInvocationMode(),
+    // Which build of varlock is asking. The daemon resolves this for itself when
+    // varlock is running as JavaScript, since it can find the package on disk;
+    // the standalone binary carries no package to read, so this is the only
+    // answer available there, and the panel draws it as the caller's claim.
+    varlockVersion: VARLOCK_VERSION,
     ...supplied,
     // how much each key is being asked to cover, so the panel can say so
     itemCounts: Object.fromEntries([...groups].map(([keyId, indexes]) => [keyId, indexes.length])),

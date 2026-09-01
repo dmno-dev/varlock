@@ -126,6 +126,16 @@ export interface UnlockDisplayInfo {
   keys?: Record<string, UnlockKeyDisplay>;
   /** how varlock came to be running; see `UnlockInvocationMode` */
   invocationMode?: UnlockInvocationMode;
+  /**
+   * which build of varlock is asking, including a build-type suffix for
+   * anything that is not a release (`1.17.1-dev`)
+   *
+   * A claim, like everything else here. Where varlock runs as JavaScript the
+   * daemon resolves the package itself and prefers its own answer; the
+   * standalone binary has no package on disk to read, so this is the only
+   * source there, and the panel says so when it draws it.
+   */
+  varlockVersion?: string;
 }
 
 /**
