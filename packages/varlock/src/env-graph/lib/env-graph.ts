@@ -787,13 +787,18 @@ export class EnvGraph {
    * Reported on the *public* item, since marking it sensitive (or removing the embedded
    * secret) is the fix.
    *
-   * Severity depends on the length of the matched value, because the two halves above are
-   * not equally likely at every size. A long value inside a public one is a real secret
-   * being exposed, and fails. A short one is more likely a collision than a leak (a
-   * sensitive `prod` inside a public `https://prod.example.com`), but that collision is
-   * precisely what makes redaction rewrite the public value everywhere it appears - and
-   * unlike the generic short-value warning, this one is confirmed rather than
-   * hypothetical, so it is worth saying even where `allowShortValue` silenced that.
+   * A warning for now, promoted to an error in a breaking release. This is the only rule
+   * here that depends on how two resolved values relate, so whether it fires depends on
+   * what a given machine's .env happens to contain - as a hard failure it could pass
+   * locally and fail in CI.
+   *
+   * The length of the matched value still picks the advice, because it is really catching
+   * two things. A long value inside a public one is a real secret being exposed. A short
+   * one is more likely a collision than a leak (a sensitive `prod` inside a public
+   * `https://prod.example.com`), but that collision is precisely what makes redaction
+   * rewrite the public value everywhere it appears - and unlike the generic short-value
+   * warning, this one is confirmed rather than hypothetical, so it is worth saying even
+   * where `allowShortValue` silenced that.
    *
    * Values below MIN_SENSITIVE_VALUE_LENGTH are skipped: they already fail on their own,
    * and matching them against everything would bury that error under coincidental hits.
@@ -819,7 +824,7 @@ export class EnvGraph {
       );
       for (const sensitiveKey of _.uniq(matches.map(({ key }) => key))) {
         // a long match is a secret genuinely carried into public output; a short one is a
-        // confirmed redaction collision, the same severity the value itself already carries
+        // confirmed redaction collision. Same severity for now, different advice.
         const isRealSecret = matches.some(
           ({ key, str }) => key === sensitiveKey && str.length >= SHORT_SENSITIVE_VALUE_LENGTH,
         );
@@ -830,7 +835,7 @@ export class EnvGraph {
         item.validationErrors = [
           ...(item.validationErrors ?? []),
           new ValidationError(message, {
-            ...(isRealSecret ? {} : { severity: 'warning' as const }),
+            severity: 'warning',
             tip: isRealSecret
               ? `This item is not sensitive, so its value is exposed in logs, generated types, and client bundles - which exposes ${sensitiveKey} along with it.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`
               : `Redacting ${sensitiveKey} will rewrite this value everywhere it appears in logs and proxied responses.\nMark ${sensitiveKey} \`@sensitive=false\` if it is not really a secret, or build this value from a reference so the two do not overlap.`,

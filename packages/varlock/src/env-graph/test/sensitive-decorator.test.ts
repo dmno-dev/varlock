@@ -692,7 +692,10 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(optedOut.configSchema.APP_ENV.validationState).toBe('valid');
   });
 
-  test('a non-sensitive value containing a sensitive one is an error', async () => {
+  // a warning for now: this is the only rule that depends on how two resolved values
+  // relate, so as a hard failure it could pass locally and fail in CI. Error in a
+  // breaking release.
+  test('a non-sensitive value containing a sensitive one warns', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
@@ -706,6 +709,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       UNRELATED=https://example.com
     `);
     expect(g.configSchema.DATABASE_URL.errors.map((e) => e.message)).toEqual(['Value contains the sensitive value of DB_PASSWORD']);
+    expect(g.configSchema.DATABASE_URL.validationState).toBe('warn');
     // the secret itself is fine, and unrelated public items are untouched
     expect(g.configSchema.DB_PASSWORD.validationState).toBe('valid');
     expect(g.configSchema.UNRELATED.validationState).toBe('valid');
@@ -714,7 +718,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
   // a short sensitive value inside a public one is more collision than leak, but that
   // collision is confirmed rather than hypothetical - redaction really will rewrite the
   // public value - so it warns even though `allowShortValue` silenced the generic warning
-  test('a short sensitive value inside a public one warns rather than failing', async () => {
+  test('a short sensitive value inside a public one is flagged too', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
