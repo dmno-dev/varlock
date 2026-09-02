@@ -96,15 +96,28 @@ function render(name: string, payload: Record<string, unknown>): Render {
 }
 
 console.log('rendering every answer the ladder offers, plus both disclosures open');
-// Every scope, and the same three again with the key box and the chain
+// Every scope, the custom rung (which reveals a row of its own for the number
+// and the unit toggle), and the same set again with the key box and the chain
 // expanded: a disclosure changes the content above the buttons too, and it must
 // not move them either.
+//
+// `custom` is a duration naming no preset, which is exactly what a remembered
+// custom answer looks like coming back: the rung opens selected, wearing its
+// value, with the field under it.
+const CUSTOM_MS = 45 * 60 * 1000;
 const renders = [
   render('once', { scope: 'once' }),
   render('duration', { scope: 'duration' }),
+  render('custom', { scope: 'duration', durationMs: CUSTOM_MS }),
   render('session', { scope: 'session' }),
   render('once-expanded', { scope: 'once', expandKeys: true, expandChain: true }),
   render('duration-expanded', { scope: 'duration', expandKeys: true, expandChain: true }),
+  render('custom-expanded', {
+    scope: 'duration',
+    durationMs: CUSTOM_MS,
+    expandKeys: true,
+    expandChain: true,
+  }),
   render('session-expanded', { scope: 'session', expandKeys: true, expandChain: true }),
 ];
 for (const one of renders) {
@@ -123,10 +136,33 @@ check(
 // an empty row open again.
 const once = renders.find((one) => one.name === 'once')!;
 const session = renders.find((one) => one.name === 'session')!;
+const custom = renders.find((one) => one.name === 'custom')!;
+const duration = renders.find((one) => one.name === 'duration')!;
 check(
   'once draws a shorter panel rather than reserving the hidden checkbox row',
   once.height < session.height,
   { once: once.height, session: session.height },
+);
+
+// And the same rule in the other direction, for the row the custom rung
+// reveals: the panel GROWS for it rather than everything else reserving space
+// against the day somebody picks it.
+check(
+  'custom draws a taller panel rather than every other answer reserving its row',
+  custom.height > duration.height,
+  { custom: custom.height, duration: duration.height },
+);
+
+// The device-key panel, which has no ladder at all and is the one most easily
+// forgotten when the controls above it change. Checked on its own, because its
+// content is a different builder and its height has no business matching.
+console.log('\nrendering the legacy device-key panel');
+const legacy = render('legacy', { legacy: true });
+console.log(`  ${legacy.name}: height ${legacy.height}, action row ${legacy.actionRowInsetFromBottom} above the bottom`);
+check(
+  'the legacy device-key panel keeps the same action row inset',
+  legacy.actionRowInsetFromBottom === once.actionRowInsetFromBottom,
+  { legacy: legacy.actionRowInsetFromBottom, rest: once.actionRowInsetFromBottom },
 );
 
 if (keep) {

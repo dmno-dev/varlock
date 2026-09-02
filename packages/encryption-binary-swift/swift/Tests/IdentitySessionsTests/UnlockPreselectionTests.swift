@@ -158,10 +158,10 @@ final class UnlockPreselectionTests: XCTestCase {
         let answer = preselect(
             // unusual, so the risk alone wants once + only these
             UnlockRiskSignals(nobodyWatching: true, seenBefore: true),
-            // and the memory wants a four hour window, which is longer
+            // and the memory wants a 45 minute window, which is longer
             remembered: UnlockNarrowing(
                 breadth: .listedItems,
-                window: GrantWindow(scope: .duration, durationMs: DurationPreset.fourHours.milliseconds),
+                window: GrantWindow(scope: .duration, durationMs: 2_700_000),
                 approvedBefore: true
             )
         )
@@ -310,9 +310,11 @@ final class UnlockPreselectionTests: XCTestCase {
 
     func testAFileRoundTrips() {
         let key = UnlockPreferences.rowKey(projectPath: "/code/acme", keyId: "varlock-default")!
+        // A window nothing on the ladder names, so this is also the round trip
+        // a custom answer takes: typed, remembered, and read back unchanged.
         let rows = [key: UnlockNarrowing(
             breadth: .listedItems,
-            window: GrantWindow(scope: .duration, durationMs: DurationPreset.fourHours.milliseconds),
+            window: GrantWindow(scope: .duration, durationMs: 2_700_000),
             approvedBefore: true,
             savedAt: 1_700_000_000_000
         )]

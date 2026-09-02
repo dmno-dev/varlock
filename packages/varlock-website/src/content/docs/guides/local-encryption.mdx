@@ -164,9 +164,15 @@ The panel offers a scope, which decides how long one approval lasts:
 |-------|-------|
 | `once` | a single batch of decrypts |
 | `session` | until the session ends (the default) |
-| `duration` | a window you pick from a row of presets: 1, 4, 8, or 12 hours |
+| `duration` | a window: 10 minutes, 1 hour, or one you set yourself |
 
-Everything is capped at 12 hours from the session's first unlock, whatever the scope. That cap is not configurable.
+The panel draws these as one row, ordered from least to most permissive: `Once`, `10min`, `1hr`, `Custom`, `This session`. Picking `Custom` reveals a field and a `min` / `hr` toggle under the row. Whatever you set shows on the rung itself, so the row still reads as an ordered list of answers, and selecting that rung again reopens the field to adjust it. Switching the unit converts the value rather than rereading the number, so 90 minutes becomes 1 hour and not 90 of them.
+
+The field never blocks the panel. An empty, zero or unparseable value reads as the shortest legal window, and anything past the cap reads as the cap, so there is no error state to get stuck in while the sensor is armed. Return commits the number rather than approving, and Escape refuses the panel as it does everywhere else on it. What an approval carries is always what the field is showing at that instant, including a number you are part way through typing.
+
+A custom window shorter than the default is a tightening like any other, so it is remembered and preselected the next time you are asked, with the field primed to it.
+
+Everything is capped at 12 hours from the session's first unlock, whatever the scope. That cap is not configurable, and the custom field cannot be set past it.
 
 A key created with `varlock-local-encrypt generate-key --auth-every-time` never receives a lasting grant. It is offered `once` and nothing else, so every batch asks again. Use it for the handful of values where a session is too loose.
 
@@ -222,6 +228,8 @@ Invalidations are recorded too, but best effort: refusing to erase key material 
 ### Migrating existing values
 
 Existing encrypted values keep working with no action. They are device-encrypted, they still decrypt, and nothing breaks. They just do not get the session behavior, because they are not tied to an identity key.
+
+They get a panel of their own, without the scope row or the coverage checkbox: neither has anything to control on that path, since there is no session behind it. It states what approving really grants instead. macOS is asked to reuse one scan for five minutes there, so the panel says "Allowed for up to 5 minutes" rather than offering a choice varlock cannot honor. Until you upgrade a project, a load that touches both formats draws both panels.
 
 To move them over, use [`varlock encrypt --upgrade`](/reference/cli/encryption/#encrypt):
 

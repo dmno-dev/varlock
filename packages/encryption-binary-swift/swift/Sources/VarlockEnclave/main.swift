@@ -107,6 +107,35 @@ func panelRequesterForPid(_ pid: pid_t?) -> PanelRequester {
     )
 }
 
+/// The panel for a device-key read, which is the pre-identity payload format.
+///
+/// One builder for the daemon and for `panel-preview`, so the picture a designer
+/// looks at is the window a user gets. What it says, and why none of it is a
+/// control, is `LegacyDeviceKeyPanel`.
+func legacyDeviceKeyPanelContent(requester: PanelRequester) -> PanelContent {
+    return PanelContent(
+        titleSegments: [.plain("Unlock "), .code(UnlockPanelContent.defaultKeyDisplayName)],
+        subtitle: nil,
+        requester: requester,
+        keyRows: [PanelKeyRow(
+            keyId: defaultKeyId,
+            displayName: UnlockPanelContent.defaultKeyDisplayName
+        )],
+        // Both derived from the constant this path actually hands macOS, so the
+        // panel cannot end up describing a window nobody grants.
+        notes: [LegacyDeviceKeyPanel.formatNote(reuse: SessionManager.sessionTimeout)],
+        windowFactLine: LegacyDeviceKeyPanel.windowFactLine(reuse: SessionManager.sessionTimeout),
+        factLine: "Recorded to the audit log",
+        // `once` is what this path can OFFER, since there is no grant table
+        // behind it to hold anything longer. It is not what approving GRANTS,
+        // which is why the window is stated above rather than drawn as the
+        // ladder's narrowest rung.
+        scopes: [.once],
+        defaultScope: .once,
+        confirmButtonTitle: "Unlock"
+    )
+}
+
 /// One line naming the peer, for the authorization log. Same derivation as the
 /// panel's, flattened.
 func requesterSummaryForPid(_ pid: pid_t?) -> String? {
@@ -352,22 +381,36 @@ case "panel-preview":
     // is what makes "does the layout move when you change scope" answerable from
     // two pictures: forcing the risk instead would change the advisory line
     // underneath and the two renders would differ for a second reason.
+    //
+    // `durationMs` rides along with `scope: "duration"`. A value naming no
+    // preset is what a remembered custom answer looks like coming back in, so
+    // that one knob renders both the custom rung and the whole memory round
+    // trip. It is deliberately NOT clamped here: `PanelContent` clamps what it
+    // draws, and a preview that pre-clamped could not show that it does.
     if let forced = SessionGrantScope(wireValue: previewPayload["scope"] as? String) {
         previewSelection = UnlockPreselection(
             breadth: forced == .once ? .listedItems : previewSelection.breadth,
-            window: GrantWindow(scope: forced),
+            window: GrantWindow(
+                scope: forced,
+                durationMs: (previewPayload["durationMs"] as? NSNumber)?.int64Value
+            ),
             risk: previewSelection.risk,
             isRemembered: previewSelection.isRemembered,
             note: previewSelection.note
         )
     }
-    let previewContent = UnlockPanelContent.build(
-        plan: previewPlan,
-        requester: previewRequester,
-        display: previewDisplay,
-        lockOn: SessionLockPolicy(wireValue: previewPayload["lockOn"] as? String) ?? .builtInDefault,
-        preselection: previewSelection
-    )
+    // The device-key panel is a different content builder, not a variant of the
+    // normal one, so it gets a flag of its own rather than a payload that
+    // pretends to be an unlock plan. Same builder the daemon uses.
+    let previewContent = (previewPayload["legacy"] as? NSNumber)?.boolValue == true
+        ? legacyDeviceKeyPanelContent(requester: previewRequester)
+        : UnlockPanelContent.build(
+            plan: previewPlan,
+            requester: previewRequester,
+            display: previewDisplay,
+            lockOn: SessionLockPolicy(wireValue: previewPayload["lockOn"] as? String) ?? .builtInDefault,
+            preselection: previewSelection
+        )
     let previewMode: ApprovalPresenceMode
     switch previewPayload["mode"] as? String {
     case "systemDialog": previewMode = .systemDialog
@@ -378,7 +421,9 @@ case "panel-preview":
         content: previewContent,
         mode: previewMode,
         expandChain: (previewPayload["expandChain"] as? NSNumber)?.boolValue ?? false,
-        expandKeys: (previewPayload["expandKeys"] as? NSNumber)?.boolValue ?? false
+        expandKeys: (previewPayload["expandKeys"] as? NSNumber)?.boolValue ?? false,
+        focusCustom: (previewPayload["focusCustom"] as? NSNumber)?.boolValue ?? false,
+        customUnit: DurationUnit(rawValue: (previewPayload["customUnit"] as? String) ?? "")
     ) else {
         jsonError("Could not render the panel")
     }
@@ -486,24 +531,7 @@ case "daemon":
         // Setup first and alone, exactly as an identity unlock does it.
         try identitySessions.runBiometricSetupIfNeeded()
 
-        let requester = panelRequesterForPid(peerPid)
-        let content = PanelContent(
-            titleSegments: [.plain("Unlock "), .code(UnlockPanelContent.defaultKeyDisplayName)],
-            subtitle: nil,
-            requester: requester,
-            keyRows: [PanelKeyRow(
-                keyId: defaultKeyId,
-                displayName: UnlockPanelContent.defaultKeyDisplayName
-            )],
-            notes: [
-                "These values are encrypted to this Mac's device key, the format varlock "
-                + "used before unlock sessions. Approving covers this terminal for a few minutes.",
-            ],
-            factLine: "Recorded to the audit log",
-            scopes: [.once],
-            defaultScope: .once,
-            confirmButtonTitle: "Unlock"
-        )
+        let content = legacyDeviceKeyPanelContent(requester: panelRequesterForPid(peerPid))
         let attempt = identitySessions.beginPresence()
         // The sheet says what the panel says, in the shortest form that is true.
         guard let outcome = ApprovalPanel.present(
@@ -1074,7 +1102,11 @@ case "help", "--help", "-h":
                                       Draw the approval panel to a PNG, without
                                       showing it or unlocking anything. The
                                       payload's "expandChain" and "expandKeys"
-                                      open the disclosures a still cannot click
+                                      open the disclosures a still cannot click,
+                                      "durationMs", "customUnit" and
+                                      "focusCustom" draw the custom window rung
+                                      in states only a click can reach, and
+                                      "legacy" draws the device-key panel
 
     OPTIONS:
       --key-id <id>       Key identifier (default: varlock-default)

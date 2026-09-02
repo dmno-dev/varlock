@@ -164,40 +164,32 @@ public struct UnlockPlan: Equatable {
     }
 }
 
-/// The timed rungs of the "how long" choice.
+/// The timed rungs the ladder names for you.
 ///
-/// The longest is the session cap itself, so the choice never offers a window
-/// the grant table would quietly clip.
+/// Two of them, not four. Four clock rungs spent most of the control's width on
+/// the options people reach for least, and the ones they did reach for were
+/// rarely the number they actually had in mind. So the presets cover the two
+/// shapes a timed approval usually has, and everything else is typed on the
+/// `Custom` rung beside them.
+///
+/// Ten minutes is deliberate, and it is at the short end on purpose: a window
+/// here is a guard around a task, not a convenience that lasts the afternoon.
+/// The 12h cap is still the ceiling, but it is now something you have to name
+/// rather than something the row hands you.
 public enum DurationPreset: Int64, CaseIterable {
+    case tenMinutes = 600_000
     case oneHour = 3_600_000
-    case fourHours = 14_400_000
-    case eightHours = 28_800_000
-    case twelveHours = 43_200_000
 
-    /// The long form, for prose: the summary sentence reads "for 4 hours".
-    public var label: String {
-        switch self {
-        case .oneHour: return "1 hour"
-        case .fourHours: return "4 hours"
-        case .eightHours: return "8 hours"
-        case .twelveHours: return "12 hours"
-        }
-    }
+    /// The long form, for prose: the summary sentence reads "for 10 minutes".
+    public var label: String { DurationText.prose(rawValue) }
 
-    /// The form the panel's ladder uses, where four timed rungs sit in one row
-    /// beside `Once` and `This session`.
+    /// The form the ladder uses, where the timed rungs sit in one row beside
+    /// `Once`, `Custom` and `This session`.
     ///
-    /// The unit does not have to be spelled out four times for the row to read
-    /// as a scale of times, and spelling it out is what pushed the six rungs
-    /// wider than the panel.
-    public var shortLabel: String {
-        switch self {
-        case .oneHour: return "1h"
-        case .fourHours: return "4h"
-        case .eightHours: return "8h"
-        case .twelveHours: return "12h"
-        }
-    }
+    /// Written exactly the way a custom value is, so a row reading
+    /// `Once  10min  1hr  45min  This session` is one scale rather than a set of
+    /// labels in two dialects.
+    public var shortLabel: String { DurationText.short(rawValue) }
 
     public var milliseconds: Int64 { rawValue }
 

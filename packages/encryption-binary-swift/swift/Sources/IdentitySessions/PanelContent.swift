@@ -171,12 +171,33 @@ public struct PanelKeyRow: Equatable {
 
 /// One rung of the panel's "how long" ladder: an answer, and what it is called.
 public struct PanelWindowOption: Equatable {
+    /// Whether the rung's answer is fixed, or set by the person approving.
+    public enum Kind: Equatable {
+        /// `Once`, a preset window, `This session`. The label is the answer.
+        case fixed
+        /// The rung whose window is typed in. Its `window` is whatever the field
+        /// currently holds, so the panel re-reads it rather than trusting the
+        /// value the row was built with.
+        case custom
+    }
+
     public let window: GrantWindow
     public let label: String
+    public let kind: Kind
 
     public init(window: GrantWindow) {
         self.window = window
         self.label = PanelContent.windowLabel(window)
+        self.kind = .fixed
+    }
+
+    /// The custom rung. Reads `Custom` until a value is set, and the value
+    /// itself afterwards, so the ladder still shows the answer it is holding
+    /// without anybody having to open anything to see it.
+    public init(custom: CustomDuration?) {
+        self.window = GrantWindow(scope: .duration, durationMs: (custom ?? .unset).milliseconds)
+        self.label = custom?.shortLabel ?? PanelContent.customWindowLabel
+        self.kind = .custom
     }
 }
 
@@ -228,6 +249,14 @@ public struct PanelContent: Equatable {
     /// What the panel says about why it opened where it did, when there is
     /// something to say (a remembered narrowing, an unusual-looking request).
     public let selectionNote: String?
+    /// The window this approval carries, stated rather than offered.
+    ///
+    /// Set where the user has no say in it, and the window is not the one the
+    /// ladder's narrowest rung would imply. A control implies a decision, so a
+    /// window nobody can change has to be a sentence instead; see the legacy
+    /// device-key panel, where macOS owns the reuse window and varlock is only
+    /// reporting it.
+    public let windowFactLine: String?
     public let confirmButtonTitle: String
     public let cancelButtonTitle: String
 
@@ -237,6 +266,7 @@ public struct PanelContent: Equatable {
         requester: PanelRequester = PanelRequester(summary: ""),
         keyRows: [PanelKeyRow] = [],
         notes: [String] = [],
+        windowFactLine: String? = nil,
         factLine: String? = nil,
         invocationMode: UnlockInvocationMode? = nil,
         sessionAdvisories: [String] = [],
@@ -264,13 +294,22 @@ public struct PanelContent: Equatable {
         self.requester = requester
         self.keyRows = keyRows
         self.notes = notes
+        self.windowFactLine = windowFactLine
         self.factLine = factLine
         self.invocationMode = invocationMode
         self.sessionAdvisories = sessionAdvisories
         self.reportedVarlockVersion = reportedVarlockVersion
         self.scopes = scopes
         self.defaultScope = defaultScope
-        self.defaultDurationMs = defaultScope == .duration ? defaultDurationMs : nil
+        // Clamped here, at the boundary where a duration becomes something the
+        // panel DRAWS. A preselection can arrive from a remembered answer, and
+        // that file is a text file somebody can edit; a rung reading `48hr` on a
+        // grant the table would cut to 12 is the panel telling a lie it did not
+        // author. Below the floor is clamped for the same reason in the other
+        // direction.
+        self.defaultDurationMs = defaultScope == .duration
+            ? defaultDurationMs.map { min(max(1, $0), SessionGrantTable.maxGrantMs) }
+            : nil
         self.confirmButtonTitle = confirmButtonTitle
         self.cancelButtonTitle = cancelButtonTitle
     }
@@ -285,9 +324,24 @@ public struct PanelContent: Equatable {
         return GrantWindow(scope: defaultScope, durationMs: defaultDurationMs)
     }
 
+    /// The value the custom rung opens holding, when the panel opens on one.
+    ///
+    /// This is the memory ratchet's other half. A remembered narrowing comes
+    /// back through `defaultDurationMs` like any other preselection; a value
+    /// that names no preset is by definition a custom one, so it comes back
+    /// selected, showing itself on the rung, and primed in the field. There is
+    /// no second path for remembering a custom answer, and deliberately so: one
+    /// preselection rule is a rule people can check.
+    public var customDuration: CustomDuration? {
+        guard defaultScope == .duration,
+              let durationMs = defaultDurationMs,
+              DurationPreset.matching(milliseconds: durationMs) == nil else { return nil }
+        return CustomDuration.forMilliseconds(durationMs)
+    }
+
     /// Every rung this request may be answered with, shortest first.
     public var windowOptions: [PanelWindowOption] {
-        return PanelContent.windowOptions(scopes: scopes)
+        return PanelContent.windowOptions(scopes: scopes, custom: customDuration)
     }
 
     /// The breadth control: one checkbox, ticked for the broad answer.
@@ -371,8 +425,20 @@ public struct PanelContent: Equatable {
         case .once: return "Once"
         case .session: return "This session"
         case .duration:
-            return (DurationPreset.matching(milliseconds: window.durationMs) ?? .default).shortLabel
+            return DurationText.short(window.durationMs ?? DurationPreset.default.milliseconds)
         }
+    }
+
+    /// What the custom rung says before anybody has set a value on it.
+    public static let customWindowLabel = "Custom"
+
+    /// The ceiling, said next to the field that is bounded by it.
+    ///
+    /// Written out rather than left to be discovered by a clamp. A number that
+    /// silently becomes a different number is fine as a safety net and poor as a
+    /// way of teaching somebody what the limit is.
+    public static func customDurationCapLabel(unit: DurationUnit) -> String {
+        return "max \(unit.maxAmount)\(unit.suffix)"
     }
 
     /// Every answer to "how long", as one ladder, shortest first.
@@ -387,11 +453,24 @@ public struct PanelContent: Equatable {
     /// through to the whole session. So the timed rungs sit BETWEEN `Once` and
     /// `This session` rather than after them, because that is where they fall.
     ///
-    /// Presets only, deliberately. Typing a duration with a sensor armed invites
-    /// unit ambiguity and a validation error on a security prompt, and tends to
-    /// push people to the maximum anyway. The 12h cap is the last timed rung and
-    /// is not settable from here.
-    public static func windowOptions(scopes: [SessionGrantScope]) -> [PanelWindowOption] {
+    /// Two of the rungs are presets and one is yours. Four clock rungs guessed
+    /// at numbers, spent the row's width doing it, and still missed: the person
+    /// who cares enough about duration to change it usually wants a value nobody
+    /// guessed. So the row names the two windows most approvals want and then
+    /// offers the rest of the range on one rung.
+    ///
+    /// `Custom` sits after the presets and before `This session`. Its VALUE is
+    /// free and may well be shorter than the rung to its left, so the ladder is
+    /// strictly ascending only in its fixed rungs; what its position promises is
+    /// that a typed window is bounded by the session, never that it is longer
+    /// than an hour.
+    ///
+    /// - Parameter custom: the value the custom rung is holding, or nil for a
+    ///   rung nobody has set yet.
+    public static func windowOptions(
+        scopes: [SessionGrantScope],
+        custom: CustomDuration? = nil
+    ) -> [PanelWindowOption] {
         var options: [PanelWindowOption] = []
         if scopes.contains(.once) {
             options.append(PanelWindowOption(window: GrantWindow(scope: .once)))
@@ -400,6 +479,7 @@ public struct PanelContent: Equatable {
             options.append(contentsOf: DurationPreset.allCases.map {
                 PanelWindowOption(window: GrantWindow(scope: .duration, durationMs: $0.milliseconds))
             })
+            options.append(PanelWindowOption(custom: custom))
         }
         if scopes.contains(.session) {
             options.append(PanelWindowOption(window: GrantWindow(scope: .session)))
@@ -409,9 +489,14 @@ public struct PanelContent: Equatable {
 
     /// Which rung an answer is, falling back to the shortest one offered.
     ///
+    /// A remembered custom window matches the custom rung exactly, because the
+    /// rung was built from the same `defaultDurationMs` this is looking up. That
+    /// is the whole round trip: one value, one rung, no second mechanism.
+    ///
     /// A fallback that reached outwards would open the panel on more than the
     /// caller asked for, so an answer with no rung lands on the narrowest thing
-    /// on the row.
+    /// on the row rather than on the custom rung, whose value it has no claim
+    /// over.
     public static func windowOptionIndex(
         of window: GrantWindow,
         in options: [PanelWindowOption]

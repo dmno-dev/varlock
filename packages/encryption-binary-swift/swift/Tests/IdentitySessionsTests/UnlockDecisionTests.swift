@@ -172,48 +172,68 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(UnlockPlanner.effectiveDurationMs(chosen: .duration, chosenDurationMs: hour, policy: .standard), hour)
     }
 
-    func testDurationPresetsNeverOfferMoreThanTheHardCap() {
+    func testNothingOnTheLadderReachesPastTheHardCap() {
         for preset in DurationPreset.allCases {
             XCTAssertLessThanOrEqual(preset.milliseconds, SessionGrantTable.maxGrantMs)
         }
-        // The longest window on offer is the cap itself: a choice the grant table
-        // would silently clip is a choice that lied to the user.
-        XCTAssertEqual(DurationPreset.allCases.last?.milliseconds, SessionGrantTable.maxGrantMs)
+        // The cap is no longer a preset; it is the ceiling of the typed rung.
+        // Neither unit can name a window past it, which is the property that
+        // used to be carried by "the last rung IS the cap".
+        for unit in DurationUnit.allCases {
+            XCTAssertEqual(unit.maxAmount * unit.milliseconds, SessionGrantTable.maxGrantMs)
+        }
     }
 
-    func testEveryWindowIsOfferedAtOnce() {
-        // The panel draws all of them as a row, so there is no ordering, no
-        // stepping, and nothing that can leave a window unreachable. This just
-        // holds the list itself steady.
+    func testTheTimedPresetsAreTheTwoShapesMostApprovalsWant() {
+        // Two, not four. The row stopped guessing at the numbers people wanted
+        // and gave them a rung to say it on instead.
         XCTAssertEqual(
             DurationPreset.allCases.map { $0.label },
-            ["1 hour", "4 hours", "8 hours", "12 hours"]
+            ["10 minutes", "1 hour"]
         )
-        // The row says "4h" where the summary sentence says "4 hours": six rungs
-        // share one line, and the unit only has to be spelled out in prose.
+        // The row says "10min" where the summary sentence says "10 minutes": a
+        // row of rungs is a scale, and a sentence is prose.
         XCTAssertEqual(
             DurationPreset.allCases.map { $0.shortLabel },
-            ["1h", "4h", "8h", "12h"]
+            ["10min", "1hr"]
         )
     }
 
     func testTheWindowLadderRunsFromLeastToMostPermissive() {
         // One question, one control, and an order that is itself information:
         // reading left to right is reading the ladder you are picking a rung on.
+        // `Custom` sits after the presets and before the session, so a typed
+        // window reads as bounded by the session whatever number it holds.
         XCTAssertEqual(
             PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes).map { $0.label },
-            ["Once", "1h", "4h", "8h", "12h", "This session"]
+            ["Once", "10min", "1hr", "Custom", "This session"]
         )
-        // The cap stays the last timed rung, so the panel can never name a
-        // window longer than the grant table would honour.
-        let timed = PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes)
-            .filter { $0.window.scope == .duration }
-        XCTAssertEqual(timed.last?.window.durationMs, SessionGrantTable.maxGrantMs)
+        // Exactly one rung is the one you set, and it is a timed one.
+        let custom = PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes)
+            .filter { $0.kind == .custom }
+        XCTAssertEqual(custom.count, 1)
+        XCTAssertEqual(custom.first?.window.scope, .duration)
+    }
+
+    func testTheCustomRungShowsItsValueRatherThanTheWordCustom() {
+        // The ladder has to stay readable as a ladder: an answer you have to
+        // open something to see is an answer the row is no longer showing.
+        let options = PanelContent.windowOptions(
+            scopes: UnlockPlanner.fullScopes,
+            custom: CustomDuration(amount: 45, unit: .minutes)
+        )
+        XCTAssertEqual(options.map { $0.label }, ["Once", "10min", "1hr", "45min", "This session"])
+        XCTAssertEqual(
+            options.first { $0.kind == .custom }?.window,
+            GrantWindow(scope: .duration, durationMs: 2_700_000)
+        )
     }
 
     func testTheLadderOnlyOffersWhatTheRequestAllows() {
         // A strict key can only be answered once, and a panel drawing rungs it
-        // would then clamp would be lying about what approving does.
+        // would then clamp would be lying about what approving does. No timed
+        // scope means no custom rung either: there would be nothing it could
+        // name that the request would honour.
         XCTAssertEqual(
             PanelContent.windowOptions(scopes: [.once]).map { $0.label },
             ["Once"]
@@ -224,15 +244,17 @@ final class UnlockDecisionTests: XCTestCase {
         let options = PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes)
         XCTAssertEqual(
             PanelContent.windowOptionIndex(
-                of: GrantWindow(scope: .duration, durationMs: DurationPreset.eightHours.milliseconds),
+                of: GrantWindow(scope: .duration, durationMs: DurationPreset.oneHour.milliseconds),
                 in: options
             ),
-            3
+            2
         )
         // A duration nothing on the row names opens on the shortest timed rung,
         // and an answer off the row entirely opens on the narrowest rung there
         // is. Neither fallback may reach outwards: opening on more than was
-        // asked for is the one direction that can hand something away.
+        // asked for is the one direction that can hand something away. In
+        // particular it does NOT land on the custom rung, whose value it has no
+        // claim over.
         XCTAssertEqual(
             PanelContent.windowOptionIndex(
                 of: GrantWindow(scope: .duration, durationMs: 90_000),
@@ -246,6 +268,48 @@ final class UnlockDecisionTests: XCTestCase {
             ]),
             0
         )
+    }
+
+    func testARememberedCustomWindowComesBackSelectedAndShowingItself() {
+        // The whole round trip, through the one `defaultDurationMs` path the
+        // preselection already used: a value that names no preset comes back as
+        // the custom rung, selected, wearing its own value, with the field
+        // primed to it.
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            preselection: UnlockPreselection(
+                breadth: .wholeKey,
+                window: GrantWindow(scope: .duration, durationMs: 2_700_000),
+                risk: .routine,
+                isRemembered: true
+            )
+        )
+        XCTAssertEqual(content.customDuration, CustomDuration(amount: 45, unit: .minutes))
+        XCTAssertEqual(
+            PanelContent.windowOptionIndex(of: content.defaultWindow, in: content.windowOptions),
+            3
+        )
+        XCTAssertEqual(content.windowOptions[3].label, "45min")
+    }
+
+    func testARememberedWindowPastTheCapIsDrawnAtTheCap() {
+        // The preferences file is a text file somebody can edit. A rung reading
+        // `48hr` on a grant the table would cut to 12 is the panel telling a lie
+        // it did not author.
+        let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
+        let content = UnlockPanelContent.build(
+            plan: plan,
+            requester: PanelRequester(summary: ""),
+            preselection: UnlockPreselection(
+                breadth: .wholeKey,
+                window: GrantWindow(scope: .duration, durationMs: 999_999_999),
+                risk: .routine
+            )
+        )
+        XCTAssertEqual(content.defaultDurationMs, SessionGrantTable.maxGrantMs)
+        XCTAssertEqual(content.customDuration, CustomDuration(amount: 12, unit: .hours))
     }
 
     // MARK: - Panel content

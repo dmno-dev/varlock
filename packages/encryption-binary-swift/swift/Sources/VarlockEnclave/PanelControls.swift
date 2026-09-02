@@ -328,19 +328,30 @@ private extension NSLayoutConstraint {
 /// A stock `NSSegmentedControl` would follow the system appearance, and this
 /// panel commits to its own whatever the user's theme is set to. Segments size
 /// to their own labels rather than to the widest one, which is what lets a
-/// six-rung ladder from "Once" to "This session" sit on one row: padding "1h"
-/// out to the width of "This session" would spend most of the panel on space.
+/// ladder from "Once" to "This session" sit on one row: padding "1hr" out to the
+/// width of "This session" would spend most of the panel on space.
 final class PanelSegmentedControl: NSView {
     private var buttons: [PanelSegmentButton] = []
     private(set) var selectedIndex = 0
     private let onChange: (Int) -> Void
+    /// A click on the rung that is already selected. Not a change, so it must
+    /// never be reported as one; the custom rung uses it to put the caret back
+    /// in its field.
+    private let onReselect: ((Int) -> Void)?
 
+    /// - Parameter widthTemplates: per-index labels a segment must stay wide
+    ///   enough for, whatever it currently says. The custom rung's label changes
+    ///   as somebody types, and a rung that resized on every keystroke would
+    ///   slide the rest of the ladder out from under the pointer.
     init(
         labels: [String],
         selectedIndex: Int,
-        onChange: @escaping (Int) -> Void
+        widthTemplates: [Int: [String]] = [:],
+        onChange: @escaping (Int) -> Void,
+        onReselect: ((Int) -> Void)? = nil
     ) {
         self.onChange = onChange
+        self.onReselect = onReselect
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = PanelStyle.segmentTrack.cgColor
@@ -351,7 +362,10 @@ final class PanelSegmentedControl: NSView {
         let row = PanelStyle.row(spacing: 0)
         row.translatesAutoresizingMaskIntoConstraints = false
         for (index, title) in labels.enumerated() {
-            let button = PanelSegmentButton(title: title) { [weak self] view in
+            let button = PanelSegmentButton(
+                title: title,
+                widthTemplates: widthTemplates[index] ?? []
+            ) { [weak self] view in
                 self?.handleClick(index: index, view: view)
             }
             buttons.append(button)
@@ -370,10 +384,15 @@ final class PanelSegmentedControl: NSView {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     private func handleClick(index: Int, view: NSView) {
-        // Clicking what is already selected does nothing: a control that fires
-        // on a click that changes nothing is a control that can surprise
-        // somebody, on a panel where a surprise is an approval.
-        guard index != selectedIndex else { return }
+        // Clicking what is already selected does not change the answer: a
+        // control that fires a change on a click that changes nothing is a
+        // control that can surprise somebody, on a panel where a surprise is an
+        // approval. It is still a click, and a rung that has something to open
+        // gets told about it.
+        guard index != selectedIndex else {
+            onReselect?(index)
+            return
+        }
         select(index: index, notify: true)
     }
 
@@ -385,6 +404,12 @@ final class PanelSegmentedControl: NSView {
         }
         if notify { onChange(index) }
     }
+
+    /// Change what one rung says, without changing what is selected.
+    func setTitle(_ title: String, at index: Int) {
+        guard index >= 0, index < buttons.count else { return }
+        buttons[index].setTitle(title)
+    }
 }
 
 /// One rung of the "how long" control.
@@ -394,13 +419,14 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
     private var titleText: String
     private var selected = false
 
-    init(title: String, onClick: @escaping (NSView) -> Void) {
+    init(title: String, widthTemplates: [String] = [], onClick: @escaping (NSView) -> Void) {
         self.onClick = onClick
         self.titleText = title
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 6
-        field.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        let font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        field.font = font
         field.stringValue = title
         field.alignment = .center
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -412,6 +438,14 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
             field.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             field.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
+        // Wide enough for the longest thing this rung will ever say, so its
+        // width is decided once at build time rather than by whatever it happens
+        // to be showing.
+        if let widest = widthTemplates
+            .map({ ($0 as NSString).size(withAttributes: [.font: font]).width })
+            .max() {
+            widthAnchor.constraint(greaterThanOrEqualToConstant: ceil(widest) + 22).isActive = true
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -419,6 +453,11 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
     func setSelected(_ isSelected: Bool) {
         selected = isSelected
         layer?.backgroundColor = (isSelected ? PanelStyle.vaultLocal : NSColor.clear).cgColor
+        applyTitle()
+    }
+
+    func setTitle(_ title: String) {
+        titleText = title
         applyTitle()
     }
 
@@ -575,5 +614,217 @@ final class PanelCheckbox: NSView, PanelClickTarget {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+}
+
+/// The custom rung's value: a number, and the unit it is in.
+///
+/// Typed rather than stepped, which is a decision with a cost this control has
+/// to pay for. The sensor is live the whole time this field has focus, and a
+/// scan approves with no click, so a half-typed number must never become an
+/// approval for something other than what the panel is showing. Three rules
+/// carry that:
+///
+///   1. There is no committed value hiding behind the field. `liveValue` is a
+///      clamped reading of the text as it stands at this instant, and it is what
+///      the panel grants; the summary sentence is rewritten from it on every
+///      keystroke. A finger landing mid-word approves what is on screen. Partial
+///      numbers are prefixes, so a scan during typing can only ever land shorter
+///      than what was being aimed at, never longer.
+///   2. Return commits and gets out of the way. It does not reach the panel's
+///      confirm handler, because a key that means "done editing" must not also
+///      mean "unlock". Escape is left alone to refuse the whole panel, which is
+///      what it does everywhere else here.
+///   3. Nothing is ever invalid. See `CustomDuration`: empty, zero, nonsense and
+///      over the cap all read as the nearest legal window, and the field is
+///      rewritten to the clamped value when editing ends. There is no error
+///      state, so there is no way to leave the panel holding an answer it cannot
+///      act on.
+///
+/// Notably NOT solved by disarming the sensor while the field has focus. Arming
+/// is the part of this panel with the longest bug history, and a rule that says
+/// "grant what is displayed" needs no state machine to be right.
+final class PanelDurationField: NSView, NSTextFieldDelegate {
+    private let amountField = NSTextField()
+    private let amountBox = NSView()
+    private let capLabel: NSTextField
+    private var unitControl: PanelSegmentedControl!
+    /// Any change to the value, typed or through the unit toggle.
+    private let onChange: () -> Void
+    /// Escape, which is a refusal of the panel and not of the field.
+    private let onCancel: () -> Void
+    private(set) var unit: DurationUnit
+
+    /// What the panel would grant if a finger landed right now.
+    var liveValue: CustomDuration {
+        return CustomDuration.parse(amountField.stringValue, unit: unit)
+    }
+
+    init(
+        value: CustomDuration,
+        onChange: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.onChange = onChange
+        self.onCancel = onCancel
+        self.unit = value.unit
+        capLabel = PanelStyle.label("", size: 11, color: PanelStyle.inkTertiary)
+        super.init(frame: .zero)
+
+        amountBox.wantsLayer = true
+        amountBox.layer?.backgroundColor = PanelStyle.segmentTrack.cgColor
+        amountBox.layer?.cornerRadius = 8
+        amountBox.layer?.borderWidth = 1
+        amountBox.translatesAutoresizingMaskIntoConstraints = false
+
+        // Drawn in the panel's chrome like everything else here: no bezel, no
+        // background of its own, no focus ring. A stock field would be the one
+        // control on this window that follows the system's appearance.
+        amountField.isBordered = false
+        amountField.drawsBackground = false
+        amountField.focusRingType = .none
+        amountField.isEditable = true
+        amountField.isSelectable = true
+        amountField.usesSingleLineMode = true
+        amountField.cell?.wraps = false
+        amountField.cell?.isScrollable = true
+        // Tabular figures, so the number does not jitter sideways as digits are
+        // typed and deleted under a live sensor.
+        amountField.font = NSFont.monospacedDigitSystemFont(ofSize: 12.5, weight: .regular)
+        amountField.textColor = PanelStyle.ink
+        amountField.alignment = .center
+        amountField.delegate = self
+        amountField.stringValue = String(value.amount)
+        amountField.translatesAutoresizingMaskIntoConstraints = false
+        amountBox.addSubview(amountField)
+
+        addSubview(amountBox)
+
+        let unitControl = PanelSegmentedControl(
+            labels: DurationUnit.allCases.map { $0.suffix },
+            selectedIndex: DurationUnit.allCases.firstIndex(of: value.unit) ?? 0
+        ) { [weak self] index in
+            self?.unitChanged(to: DurationUnit.allCases[index])
+        }
+        unitControl.translatesAutoresizingMaskIntoConstraints = false
+        self.unitControl = unitControl
+        addSubview(unitControl)
+
+        capLabel.alignment = .left
+        capLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(capLabel)
+
+        NSLayoutConstraint.activate([
+            amountBox.leadingAnchor.constraint(equalTo: leadingAnchor),
+            amountBox.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // Wide enough for three digits, which is every number this field can
+            // hold, so the box never resizes around its own contents.
+            amountBox.widthAnchor.constraint(equalToConstant: 54),
+            amountBox.heightAnchor.constraint(equalToConstant: 26),
+            amountField.leadingAnchor.constraint(equalTo: amountBox.leadingAnchor, constant: 6),
+            amountField.trailingAnchor.constraint(equalTo: amountBox.trailingAnchor, constant: -6),
+            amountField.centerYAnchor.constraint(equalTo: amountBox.centerYAnchor),
+            unitControl.leadingAnchor.constraint(equalTo: amountBox.trailingAnchor, constant: 8),
+            unitControl.centerYAnchor.constraint(equalTo: centerYAnchor),
+            capLabel.leadingAnchor.constraint(equalTo: unitControl.trailingAnchor, constant: 12),
+            capLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            capLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            // The cap is said in whichever unit is showing, so its text changes
+            // with the toggle. Sized for the longer of the two once, or the row
+            // would re-centre itself every time somebody switched units.
+            capLabel.widthAnchor.constraint(equalToConstant: Self.capLabelWidth),
+            heightAnchor.constraint(greaterThanOrEqualTo: amountBox.heightAnchor),
+        ])
+        applyCapLabel()
+        setFocusedLook(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// Room for `max 720min`, which is the wider of the two things it says.
+    private static let capLabelWidth: CGFloat = {
+        let font = NSFont.systemFont(ofSize: 11)
+        let widest = DurationUnit.allCases
+            .map { PanelContent.customDurationCapLabel(unit: $0) }
+            .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return ceil(widest) + 1
+    }()
+
+    /// Show the value the panel would actually act on.
+    ///
+    /// Called when editing ends rather than on every keystroke: rewriting `80`
+    /// to `72` under somebody's fingers as they reach for the `0` of `800` is
+    /// the kind of help nobody asked for. Until then the clamp is applied to the
+    /// VALUE and said out loud in the summary sentence, so the panel is honest
+    /// about what it would grant even while the text is not yet legal.
+    func commit() {
+        amountField.stringValue = String(liveValue.amount)
+    }
+
+    /// Put the caret in the field, for a click on the rung that opens it.
+    func focusField() {
+        window?.makeFirstResponder(amountField)
+    }
+
+    /// The focused look, as a border rather than a system focus ring.
+    ///
+    /// Exposed so a preview can render the focused state: the panel is checked
+    /// by looking at pictures of it, and a state only reachable by clicking is a
+    /// state nobody checks.
+    func setFocusedLook(_ focused: Bool) {
+        amountBox.layer?.borderColor = (focused ? PanelStyle.vaultLocal : PanelStyle.segmentTrackBorder).cgColor
+    }
+
+    private func applyCapLabel() {
+        capLabel.stringValue = PanelContent.customDurationCapLabel(unit: unit)
+    }
+
+    /// Switching units converts the window, never rereads the number.
+    ///
+    /// 90 minutes becomes one hour, not ninety hours. `CustomDuration.converted`
+    /// owns the rounding and the re-clamp; this only has to show the answer.
+    private func unitChanged(to newUnit: DurationUnit) {
+        let converted = liveValue.converted(to: newUnit)
+        unit = newUnit
+        amountField.stringValue = String(converted.amount)
+        applyCapLabel()
+        onChange()
+    }
+
+    // MARK: - NSTextFieldDelegate
+
+    func controlTextDidChange(_ obj: Notification) {
+        onChange()
+    }
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        setFocusedLook(true)
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        setFocusedLook(false)
+        commit()
+        onChange()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)):
+            // Return means "I am done with this number". It must not fall
+            // through to the window, where Return approves.
+            commit()
+            onChange()
+            window?.makeFirstResponder(window)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            // Escape refuses the panel, exactly as it does with the field
+            // unfocused. A field that swallowed it would leave somebody pressing
+            // Escape at an approval prompt and watching nothing happen.
+            onCancel()
+            return true
+        default:
+            return false
+        }
     }
 }

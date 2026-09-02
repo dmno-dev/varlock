@@ -39,14 +39,18 @@ final class ApprovalFlowTests: XCTestCase {
     func testADurationSelectionCarriesItsWindow() {
         var flow = embedded()
         _ = flow.start()
-        flow.select(scope: .duration, durationMs: DurationPreset.fourHours.milliseconds)
+        // A window nothing on the ladder names, which is what the custom rung
+        // produces. The flow carries whatever it is handed: it is not in the
+        // business of second-guessing a number the panel already clamped.
+        let typed: Int64 = 2_700_000
+        flow.select(scope: .duration, durationMs: typed)
 
         XCTAssertEqual(
             flow.apply(.scanSucceeded),
             .finish(PanelDecision(
                 approved: true,
                 scope: .duration,
-                durationMs: DurationPreset.fourHours.milliseconds,
+                durationMs: typed,
                 chosenBreadth: .wholeKey
             ))
         )
@@ -71,7 +75,7 @@ final class ApprovalFlowTests: XCTestCase {
     func testMovingOffDurationDropsTheWindow() {
         var flow = embedded()
         _ = flow.start()
-        flow.select(scope: .duration, durationMs: DurationPreset.eightHours.milliseconds)
+        flow.select(scope: .duration, durationMs: DurationPreset.oneHour.milliseconds)
         flow.select(scope: .session)
 
         XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .session, chosenBreadth: .wholeKey)))

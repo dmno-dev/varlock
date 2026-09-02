@@ -117,6 +117,16 @@ final class ApprovalPanel: NSObject {
 
     /// The rungs this request may be answered with, in the order they are drawn.
     private var windowOptions: [PanelWindowOption] = []
+    /// The number and unit behind the `Custom` rung.
+    private var customControl: PanelDurationField?
+    /// What that sits in, so the row goes away with the rung it belongs to.
+    private var customRow: NSView?
+    /// Which rung `Custom` is, when the request offers one.
+    private var customOptionIndex: Int?
+    /// Preview only: draw the custom value in a unit other than the one it would
+    /// pick for itself, so the state a unit switch leaves behind can be
+    /// photographed. Never set on a panel anybody is looking at.
+    private var previewUnitOverride: DurationUnit?
     /// The breadth checkbox, when this request has a breadth choice to make.
     private var breadthControl: PanelCheckbox?
     /// What the checkbox sits in, so hiding it takes its row with it.
@@ -211,9 +221,12 @@ final class ApprovalPanel: NSObject {
         content: PanelContent,
         mode: ApprovalPresenceMode,
         expandChain: Bool = false,
-        expandKeys: Bool = false
+        expandKeys: Bool = false,
+        focusCustom: Bool = false,
+        customUnit: DurationUnit? = nil
     ) -> Preview? {
         let panel = ApprovalPanel()
+        panel.previewUnitOverride = customUnit
         panel.windowOptions = content.windowOptions
         panel.breadths = content.breadths
         panel.listedItemCount = content.listedItemCount
@@ -225,6 +238,10 @@ final class ApprovalPanel: NSObject {
             expandChain: expandChain,
             expandKeys: expandKeys
         )
+        // A preview has no key window and so no field editor: the focused state
+        // is set on the view rather than reached by clicking, because a state
+        // nobody can render is a state nobody checks.
+        if focusCustom { panel.customControl?.setFocusedLook(true) }
         guard let view = window.contentView else { return nil }
         // Icons fill themselves in from the run loop, which a command that never
         // runs one would never give them. Pump it briefly so the picture shows
@@ -685,16 +702,51 @@ final class ApprovalPanel: NSObject {
         perform(effect: flow.apply(.confirmPressed))
     }
 
+    /// Everything the custom rung can ever say, so it can be sized once.
+    ///
+    /// `Custom` before a value is set, and the longest value it can hold in
+    /// either unit afterwards.
+    private static let customRungWidthTemplates: [String] = [
+        PanelContent.customWindowLabel,
+    ] + DurationUnit.allCases.map { CustomDuration(amount: $0.maxAmount, unit: $0).shortLabel }
+
     private func windowChanged() {
         syncSelectionIntoFlow()
         PanelDebug.note("window-chosen", [
             "scope": flow.scope.rawValue,
             "ms": Int(flow.durationMs ?? 0),
         ])
-        // The checkbox appears and disappears with the answer, so the content
-        // above the buttons is a different height. Re-fit around the action row
-        // rather than around the top edge.
+        // Picking the custom rung is picking the number the field is holding, so
+        // the rung stops saying `Custom` and starts saying the answer, and the
+        // caret goes where the answer is set. Neither approves anything: focus
+        // changes what a keystroke does, never what a scan would grant.
+        if windowControl?.selectedIndex == customOptionIndex {
+            customValueChanged()
+            customControl?.focusField()
+        }
+        // The checkbox and the custom row appear and disappear with the answer,
+        // so the content above the buttons is a different height. Re-fit around
+        // the action row rather than around the top edge.
         relayout(anchor: .actionRow)
+    }
+
+    /// The number changed, by typing or by a unit switch.
+    ///
+    /// The rung is relabelled from the LIVE reading rather than from a committed
+    /// one, so the ladder, the sentence underneath it and what a scan would
+    /// grant are the same answer at every keystroke. Nothing relayouts: the rung
+    /// reserved its width up front for exactly this.
+    private func customValueChanged() {
+        if let index = customOptionIndex, let value = customControl?.liveValue {
+            windowControl?.setTitle(value.shortLabel, at: index)
+        }
+        syncSelectionIntoFlow()
+    }
+
+    /// Show the number only where there is a number to set.
+    private func syncCustomVisibility() {
+        guard let customRow else { return }
+        customRow.isHidden = windowControl?.selectedIndex != customOptionIndex
     }
 
     /// Show the breadth checkbox only where there is a breadth to choose.
@@ -733,6 +785,7 @@ final class ApprovalPanel: NSObject {
             breadth: breadth
         )
         syncBreadthVisibility()
+        syncCustomVisibility()
         // Taken from the flow rather than from the checkbox, so the sentence and
         // the grant can never disagree: under `once` the checkbox is not the
         // answer, and this is the line that has to say so.
@@ -741,9 +794,11 @@ final class ApprovalPanel: NSObject {
             itemCount: listedItemCount,
             vaultCount: vaultCount,
             scope: window.scope,
-            // The sentence says "4 hours" where the rung says "4h": a row of
-            // rungs is a scale, and a sentence is prose.
-            durationLabel: DurationPreset.matching(milliseconds: window.durationMs)?.label
+            // The sentence says "45 minutes" where the rung says "45min": a row
+            // of rungs is a scale, and a sentence is prose. Derived from the
+            // same milliseconds the grant will carry, including a number still
+            // being typed, so the words are never a stale echo of the field.
+            durationLabel: window.durationMs.map { DurationText.prose($0) }
         )
     }
 
@@ -754,13 +809,26 @@ final class ApprovalPanel: NSObject {
         return breadthControl.isChecked ? .wholeKey : .listedItems
     }
 
+    /// What a yes right now would carry, read off the controls at this instant.
+    ///
+    /// On the custom rung the value comes from the FIELD, not from the option
+    /// the row was built with. The sensor stays armed while somebody types, so a
+    /// scan can land between two keystrokes; reading the field here is what makes
+    /// the rule "you get what the panel is showing" true without anything having
+    /// to be committed first. A partial number is a prefix of the intended one,
+    /// so the worst a scan mid-word can do is grant a shorter window than was
+    /// being aimed at.
     private func selectedWindow(fallback: GrantWindow) -> GrantWindow {
         guard let index = windowControl?.selectedIndex,
               index >= 0,
               index < windowOptions.count else {
             return fallback
         }
-        return windowOptions[index].window
+        let option = windowOptions[index]
+        guard option.kind == .custom, let live = customControl?.liveValue else {
+            return option.window
+        }
+        return GrantWindow(scope: .duration, durationMs: live.milliseconds)
     }
 
     /// Which edge of the panel holds still when its content changes height.
@@ -889,20 +957,24 @@ final class ApprovalPanel: NSObject {
         column.addArrangedSubview(chain)
         chain.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth).isActive = true
 
-        // How long, as ONE row: Once, the timed rungs, then This session.
+        // How long, as ONE row: Once, the timed rungs, Custom, then This session.
         //
         // This was a mode pill plus a row of windows that appeared underneath it
         // once "for a set time" was picked. Two controls for one question, where
         // the second one was hidden most of the time, so the timed answers cost
         // two clicks and the panel had to hold an empty band open under every
-        // other answer to keep its height. One row of six rungs is the same
-        // choice with nothing hidden and nothing reserved, and the order says
-        // something the labels cannot: this is a ladder, and you are picking a
-        // rung on it.
+        // other answer to keep its height. One row of rungs is the same choice
+        // with nothing hidden and nothing reserved, and the order says something
+        // the labels cannot: this is a ladder, and you are picking a rung on it.
         //
         // The rungs are not equal width, deliberately. "This session" is longer
-        // than "4h" and reads better allowed to be; a row padded to the widest
-        // label would spend most of the panel's width on space.
+        // than "1hr" and reads better allowed to be; a row padded to the widest
+        // label would spend most of the panel's width on space. The one
+        // exception is the custom rung, which reserves room for the longest
+        // thing it can say: its label changes while somebody types into the
+        // field below, and a rung that resized on each keystroke would slide the
+        // rest of the ladder out from under the pointer.
+        customOptionIndex = content.windowOptions.firstIndex { $0.kind == .custom }
         if content.windowOptions.count > 1 {
             let control = PanelSegmentedControl(
                 labels: content.windowOptions.map { $0.label },
@@ -910,14 +982,61 @@ final class ApprovalPanel: NSObject {
                     of: content.defaultWindow,
                     in: content.windowOptions
                 ),
-                onChange: { [weak self] _ in self?.windowChanged() }
+                widthTemplates: customOptionIndex.map { [$0: Self.customRungWidthTemplates] } ?? [:],
+                onChange: { [weak self] _ in self?.windowChanged() },
+                // Clicking the rung you are already on is not a change, but on
+                // this one it is a request to adjust the number, so it puts the
+                // caret back where the adjusting happens.
+                onReselect: { [weak self] index in
+                    guard let self, index == self.customOptionIndex else { return }
+                    self.customControl?.focusField()
+                }
             )
             windowControl = control
             column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(control))
+
+            // The custom rung's value, on a row of its own directly under the
+            // ladder. Collapsed unless that rung is selected: nothing is
+            // reserved for it, because the action row is anchored to the bottom
+            // of the panel and absorbs the difference by moving the window
+            // rather than by padding this out. Same arrangement as the breadth
+            // checkbox, and for the same reason.
+            if let customOptionIndex {
+                // The unit a value opens in is derived from the value itself, so
+                // a remembered `2h` opens in hours and a remembered `45min` in
+                // minutes. A preview may override it to photograph what a unit
+                // switch leaves behind, which is otherwise a state only a click
+                // can reach.
+                let seeded = content.customDuration ?? .unset
+                let field = PanelDurationField(
+                    value: previewUnitOverride.map { seeded.converted(to: $0) } ?? seeded,
+                    onChange: { [weak self] in self?.customValueChanged() },
+                    onCancel: { [weak self] in
+                        guard let self else { return }
+                        self.denyPressed(self)
+                    }
+                )
+                customControl = field
+                column.setCustomSpacing(10, after: column.arrangedSubviews.last!)
+                let row = centred(field)
+                customRow = row
+                column.addArrangedSubview(row)
+                // The rung says whatever the field is holding, from the first
+                // frame. Built from the field rather than from the option, so
+                // the two can never open disagreeing.
+                if control.selectedIndex == customOptionIndex {
+                    control.setTitle(field.liveValue.shortLabel, at: customOptionIndex)
+                }
+            }
         } else if let only = content.windowOptions.first {
+            // One answer is not a choice, so it is stated rather than drawn as a
+            // control. `windowFactLine` is for the path where the window that is
+            // really granted is not the one the single rung names: see the
+            // legacy device-key panel, where macOS reuses a scan for minutes and
+            // saying "once" would be the panel understating what a finger buys.
             let label = PanelStyle.label(
-                "Allowed for: \(only.label.lowercased())",
+                content.windowFactLine ?? "Allowed for: \(only.label.lowercased())",
                 size: 11.5,
                 color: PanelStyle.inkTertiary
             )
