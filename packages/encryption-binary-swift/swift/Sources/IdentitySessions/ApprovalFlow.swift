@@ -139,6 +139,12 @@ public struct ApprovalFlow {
         return .beginScan
     }
 
+    /// The two duration fields as the one answer they are, which is the shape
+    /// the panel's ladder deals in.
+    public var window: GrantWindow {
+        return GrantWindow(scope: scope, durationMs: durationMs)
+    }
+
     /// A control the user moved.
     ///
     /// Allowed while a scan is armed on purpose: with the prompt inside the panel

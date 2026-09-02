@@ -164,7 +164,7 @@ public struct UnlockPlan: Equatable {
     }
 }
 
-/// Preset windows offered behind the "for a set time" choice.
+/// The timed rungs of the "how long" choice.
 ///
 /// The longest is the session cap itself, so the choice never offers a window
 /// the grant table would quietly clip.
@@ -174,6 +174,7 @@ public enum DurationPreset: Int64, CaseIterable {
     case eightHours = 28_800_000
     case twelveHours = 43_200_000
 
+    /// The long form, for prose: the summary sentence reads "for 4 hours".
     public var label: String {
         switch self {
         case .oneHour: return "1 hour"
@@ -183,9 +184,30 @@ public enum DurationPreset: Int64, CaseIterable {
         }
     }
 
+    /// The form the panel's ladder uses, where four timed rungs sit in one row
+    /// beside `Once` and `This session`.
+    ///
+    /// The unit does not have to be spelled out four times for the row to read
+    /// as a scale of times, and spelling it out is what pushed the six rungs
+    /// wider than the panel.
+    public var shortLabel: String {
+        switch self {
+        case .oneHour: return "1h"
+        case .fourHours: return "4h"
+        case .eightHours: return "8h"
+        case .twelveHours: return "12h"
+        }
+    }
+
     public var milliseconds: Int64 { rawValue }
 
     public static let `default`: DurationPreset = .oneHour
+
+    /// The preset a duration in milliseconds names, when it names one.
+    public static func matching(milliseconds: Int64?) -> DurationPreset? {
+        guard let milliseconds else { return nil }
+        return DurationPreset(rawValue: milliseconds)
+    }
 }
 
 public enum UnlockPlanner {

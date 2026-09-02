@@ -323,12 +323,13 @@ private extension NSLayoutConstraint {
     }
 }
 
-/// The scope choice, drawn as a pill of segments.
+/// The "how long" choice, drawn as a pill of segments.
 ///
-/// A stock `NSSegmentedControl` would follow the system appearance and cannot
-/// carry the duration caret inside the selected segment, which is where the
-/// design puts it: picking a window and seeing which window you picked are the
-/// same control.
+/// A stock `NSSegmentedControl` would follow the system appearance, and this
+/// panel commits to its own whatever the user's theme is set to. Segments size
+/// to their own labels rather than to the widest one, which is what lets a
+/// six-rung ladder from "Once" to "This session" sit on one row: padding "1h"
+/// out to the width of "This session" would spend most of the panel on space.
 final class PanelSegmentedControl: NSView {
     private var buttons: [PanelSegmentButton] = []
     private(set) var selectedIndex = 0
@@ -369,9 +370,9 @@ final class PanelSegmentedControl: NSView {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     private func handleClick(index: Int, view: NSView) {
-        // Clicking what is already selected does nothing. It used to reopen the
-        // duration menu; there is no menu now, and a control that fires on a
-        // click that changes nothing is a control that can surprise somebody.
+        // Clicking what is already selected does nothing: a control that fires
+        // on a click that changes nothing is a control that can surprise
+        // somebody, on a panel where a surprise is an approval.
         guard index != selectedIndex else { return }
         select(index: index, notify: true)
     }
@@ -384,17 +385,9 @@ final class PanelSegmentedControl: NSView {
         }
         if notify { onChange(index) }
     }
-
-    /// Change one segment's words, which is how "For a set time" becomes
-    /// "For 4 hours" once a window has been chosen.
-    func setTitle(_ title: String, at index: Int) {
-        guard index >= 0, index < buttons.count else { return }
-        buttons[index].setTitle(title)
-    }
-
 }
 
-/// One segment of the scope control.
+/// One rung of the "how long" control.
 final class PanelSegmentButton: NSView, PanelClickTarget {
     private let field = PanelStyle.label("", size: 12, color: PanelStyle.ink)
     private let onClick: (NSView) -> Void
@@ -422,11 +415,6 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
-
-    func setTitle(_ title: String) {
-        titleText = title
-        applyTitle()
-    }
 
     func setSelected(_ isSelected: Bool) {
         selected = isSelected

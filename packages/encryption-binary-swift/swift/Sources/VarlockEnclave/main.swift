@@ -374,7 +374,7 @@ case "panel-preview":
     case "none": previewMode = .none
     default: previewMode = .embedded
     }
-    guard let png = ApprovalPanel.previewPng(
+    guard let preview = ApprovalPanel.preview(
         content: previewContent,
         mode: previewMode,
         expandChain: (previewPayload["expandChain"] as? NSNumber)?.boolValue ?? false,
@@ -383,11 +383,21 @@ case "panel-preview":
         jsonError("Could not render the panel")
     }
     do {
-        try png.write(to: URL(fileURLWithPath: outPath))
+        try preview.png.write(to: URL(fileURLWithPath: outPath))
     } catch {
         jsonError("Could not write \(outPath): \(error.localizedDescription)")
     }
-    jsonSuccess(["path": outPath, "title": previewContent.title])
+    // The measurements go out with the picture, so the layout promise can be
+    // checked by a script instead of by squinting at two of them.
+    // `actionRowInsetFromBottom` is the number that has to hold steady across
+    // answers; the height is reported beside it because it deliberately does
+    // not, and reading one without the other invites the old assumption back.
+    jsonSuccess([
+        "path": outPath,
+        "title": previewContent.title,
+        "height": Double(preview.height),
+        "actionRowInsetFromBottom": Double(preview.actionRowInsetFromBottom),
+    ])
 
 // MARK: - status
 

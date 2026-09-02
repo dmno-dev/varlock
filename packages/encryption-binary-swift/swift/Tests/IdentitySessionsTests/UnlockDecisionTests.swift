@@ -189,6 +189,63 @@ final class UnlockDecisionTests: XCTestCase {
             DurationPreset.allCases.map { $0.label },
             ["1 hour", "4 hours", "8 hours", "12 hours"]
         )
+        // The row says "4h" where the summary sentence says "4 hours": six rungs
+        // share one line, and the unit only has to be spelled out in prose.
+        XCTAssertEqual(
+            DurationPreset.allCases.map { $0.shortLabel },
+            ["1h", "4h", "8h", "12h"]
+        )
+    }
+
+    func testTheWindowLadderRunsFromLeastToMostPermissive() {
+        // One question, one control, and an order that is itself information:
+        // reading left to right is reading the ladder you are picking a rung on.
+        XCTAssertEqual(
+            PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes).map { $0.label },
+            ["Once", "1h", "4h", "8h", "12h", "This session"]
+        )
+        // The cap stays the last timed rung, so the panel can never name a
+        // window longer than the grant table would honour.
+        let timed = PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes)
+            .filter { $0.window.scope == .duration }
+        XCTAssertEqual(timed.last?.window.durationMs, SessionGrantTable.maxGrantMs)
+    }
+
+    func testTheLadderOnlyOffersWhatTheRequestAllows() {
+        // A strict key can only be answered once, and a panel drawing rungs it
+        // would then clamp would be lying about what approving does.
+        XCTAssertEqual(
+            PanelContent.windowOptions(scopes: [.once]).map { $0.label },
+            ["Once"]
+        )
+    }
+
+    func testAnAnswerWithNoRungFallsBackToTheNarrowestOne() {
+        let options = PanelContent.windowOptions(scopes: UnlockPlanner.fullScopes)
+        XCTAssertEqual(
+            PanelContent.windowOptionIndex(
+                of: GrantWindow(scope: .duration, durationMs: DurationPreset.eightHours.milliseconds),
+                in: options
+            ),
+            3
+        )
+        // A duration nothing on the row names opens on the shortest timed rung,
+        // and an answer off the row entirely opens on the narrowest rung there
+        // is. Neither fallback may reach outwards: opening on more than was
+        // asked for is the one direction that can hand something away.
+        XCTAssertEqual(
+            PanelContent.windowOptionIndex(
+                of: GrantWindow(scope: .duration, durationMs: 90_000),
+                in: options
+            ),
+            1
+        )
+        XCTAssertEqual(
+            PanelContent.windowOptionIndex(of: GrantWindow(scope: .session), in: [
+                PanelWindowOption(window: GrantWindow(scope: .once)),
+            ]),
+            0
+        )
     }
 
     // MARK: - Panel content

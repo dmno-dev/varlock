@@ -169,6 +169,17 @@ public struct PanelKeyRow: Equatable {
     }
 }
 
+/// One rung of the panel's "how long" ladder: an answer, and what it is called.
+public struct PanelWindowOption: Equatable {
+    public let window: GrantWindow
+    public let label: String
+
+    public init(window: GrantWindow) {
+        self.window = window
+        self.label = PanelContent.windowLabel(window)
+    }
+}
+
 /// Everything the panel needs to draw itself and to report a decision.
 public struct PanelContent: Equatable {
     /// The heading, in runs, so key names can be drawn as identifiers.
@@ -197,6 +208,10 @@ public struct PanelContent: Equatable {
     public let reportedVarlockVersion: String?
     public let scopes: [SessionGrantScope]
     public let defaultScope: SessionGrantScope
+    /// Which timed rung the panel opens on, when `defaultScope` is `duration`.
+    /// nil means the shortest one, which is what a preselection that named no
+    /// window is asking for.
+    public let defaultDurationMs: Int64?
     /// How much of each key an approval may cover. One entry means there is no
     /// choice to draw and the approval covers the whole key, as it always did.
     public let breadths: [SessionGrantBreadth]
@@ -228,6 +243,7 @@ public struct PanelContent: Equatable {
         reportedVarlockVersion: String? = nil,
         scopes: [SessionGrantScope],
         defaultScope: SessionGrantScope,
+        defaultDurationMs: Int64? = nil,
         breadths: [SessionGrantBreadth] = [.wholeKey],
         defaultBreadth: SessionGrantBreadth = .wholeKey,
         listedItemCount: Int = 0,
@@ -254,6 +270,7 @@ public struct PanelContent: Equatable {
         self.reportedVarlockVersion = reportedVarlockVersion
         self.scopes = scopes
         self.defaultScope = defaultScope
+        self.defaultDurationMs = defaultScope == .duration ? defaultDurationMs : nil
         self.confirmButtonTitle = confirmButtonTitle
         self.cancelButtonTitle = cancelButtonTitle
     }
@@ -261,6 +278,16 @@ public struct PanelContent: Equatable {
     /// Plain-text form, for a window title, a log line, or a test.
     public var title: String {
         return titleSegments.map { $0.text }.joined()
+    }
+
+    /// The rung of the ladder the panel opens on.
+    public var defaultWindow: GrantWindow {
+        return GrantWindow(scope: defaultScope, durationMs: defaultDurationMs)
+    }
+
+    /// Every rung this request may be answered with, shortest first.
+    public var windowOptions: [PanelWindowOption] {
+        return PanelContent.windowOptions(scopes: scopes)
     }
 
     /// The breadth control: one checkbox, ticked for the broad answer.
@@ -338,13 +365,63 @@ public struct PanelContent: Equatable {
         "The value cache is always covered as a whole: "
         + "it is machine-written and changes constantly."
 
-    /// Human label for a scope button. Plain words, no jargon.
-    public static func scopeLabel(_ scope: SessionGrantScope) -> String {
-        switch scope {
-        case .session: return "This session"
+    /// Human label for one answer to "how long". Plain words, no jargon.
+    public static func windowLabel(_ window: GrantWindow) -> String {
+        switch window.scope {
         case .once: return "Once"
-        case .duration: return "For a set time"
+        case .session: return "This session"
+        case .duration:
+            return (DurationPreset.matching(milliseconds: window.durationMs) ?? .default).shortLabel
         }
+    }
+
+    /// Every answer to "how long", as one ladder, shortest first.
+    ///
+    /// One question gets one control. Splitting it into a mode ("for a set
+    /// time") and then a second row of windows made the timed answers cost two
+    /// clicks and a reveal, and the reveal is what forced an empty band to be
+    /// held open under every other answer so the buttons would not move.
+    ///
+    /// The order carries information the labels do not: a reader scanning left
+    /// to right sees the ladder they are picking a rung on, from the single read
+    /// through to the whole session. So the timed rungs sit BETWEEN `Once` and
+    /// `This session` rather than after them, because that is where they fall.
+    ///
+    /// Presets only, deliberately. Typing a duration with a sensor armed invites
+    /// unit ambiguity and a validation error on a security prompt, and tends to
+    /// push people to the maximum anyway. The 12h cap is the last timed rung and
+    /// is not settable from here.
+    public static func windowOptions(scopes: [SessionGrantScope]) -> [PanelWindowOption] {
+        var options: [PanelWindowOption] = []
+        if scopes.contains(.once) {
+            options.append(PanelWindowOption(window: GrantWindow(scope: .once)))
+        }
+        if scopes.contains(.duration) {
+            options.append(contentsOf: DurationPreset.allCases.map {
+                PanelWindowOption(window: GrantWindow(scope: .duration, durationMs: $0.milliseconds))
+            })
+        }
+        if scopes.contains(.session) {
+            options.append(PanelWindowOption(window: GrantWindow(scope: .session)))
+        }
+        return options
+    }
+
+    /// Which rung an answer is, falling back to the shortest one offered.
+    ///
+    /// A fallback that reached outwards would open the panel on more than the
+    /// caller asked for, so an answer with no rung lands on the narrowest thing
+    /// on the row.
+    public static func windowOptionIndex(
+        of window: GrantWindow,
+        in options: [PanelWindowOption]
+    ) -> Int {
+        if let exact = options.firstIndex(where: { $0.window == window }) { return exact }
+        if window.scope == .duration,
+           let firstTimed = options.firstIndex(where: { $0.window.scope == .duration }) {
+            return firstTimed
+        }
+        return 0
     }
 
     /// The one line macOS puts in its own sheet, as a verb phrase.
@@ -891,6 +968,7 @@ public enum UnlockPanelContent {
             reportedVarlockVersion: display.varlockVersion,
             scopes: plan.offeredScopes,
             defaultScope: preselection?.window.scope ?? plan.defaultScope,
+            defaultDurationMs: preselection?.window.durationMs,
             breadths: plan.offeredBreadths,
             defaultBreadth: preselection?.breadth ?? plan.offeredBreadths.last ?? .wholeKey,
             listedItemCount: plan.listedItemCount,

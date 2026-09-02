@@ -97,7 +97,9 @@ final class ApprovalPanel: NSObject {
     }
 
     private var window: ApprovalPanelWindow?
-    private var scopeControl: PanelSegmentedControl?
+    /// The one "how long" control: `Once`, the timed rungs, and `This session`,
+    /// in one row that never hides anything.
+    private var windowControl: PanelSegmentedControl?
     private var confirmButton: PanelButton?
     private var passwordLink: PanelButton?
     private var hintLabel: NSTextField?
@@ -109,17 +111,20 @@ final class ApprovalPanel: NSObject {
     /// The primary control on a machine that can scan: the button that is also
     /// the sensor.
     private var scanButton: PanelScanButton?
+    /// Deny and the approve control, as one row. Held so a render can measure
+    /// where it sits, which is the layout promise this panel makes.
+    private var actionRowView: NSView?
 
-    private var scopes: [SessionGrantScope] = []
-    private var duration: DurationPreset = .default
+    /// The rungs this request may be answered with, in the order they are drawn.
+    private var windowOptions: [PanelWindowOption] = []
     /// The breadth checkbox, when this request has a breadth choice to make.
     private var breadthControl: PanelCheckbox?
-    /// The row of windows, shown while `duration` is the selected scope.
-    private var durationControl: PanelSegmentedControl?
+    /// What the checkbox sits in, so hiding it takes its row with it.
+    private var breadthRow: NSView?
     private var breadths: [SessionGrantBreadth] = []
     private var listedItemCount = 0
     private var vaultCount = 1
-    /// The one sentence under the two pills, kept current with both of them.
+    /// The one sentence under the controls, kept current with all of them.
     private var selectionSummaryLabel: NSTextField?
     private var timedOut = false
     private var flow: ApprovalFlow!
@@ -180,6 +185,20 @@ final class ApprovalPanel: NSObject {
         return outcome
     }
 
+    /// A rendered panel, and the few measurements worth asserting about it.
+    struct Preview {
+        let png: Data
+        /// The panel's height in points.
+        let height: CGFloat
+        /// How far the bottom of the action row sits above the panel's bottom
+        /// edge. The property the layout actually owes the user: whatever the
+        /// content above it does, Deny and the scan control stay put, because
+        /// they are what a finger is already heading for while the sensor is
+        /// armed. Constant across every answer, and checked by
+        /// `scripts/panel-layout-check.ts` rather than left to the eye.
+        let actionRowInsetFromBottom: CGFloat
+    }
+
     /// Draw the panel to a PNG without showing it or asking anyone anything.
     ///
     /// The panel is the one part of this daemon whose correctness is visual, and
@@ -188,14 +207,14 @@ final class ApprovalPanel: NSObject {
     /// This renders the very same view tree the modal would put on screen, so a
     /// layout can be checked by looking at the picture. Nothing is unlocked and
     /// no presence check is started.
-    static func previewPng(
+    static func preview(
         content: PanelContent,
         mode: ApprovalPresenceMode,
         expandChain: Bool = false,
         expandKeys: Bool = false
-    ) -> Data? {
+    ) -> Preview? {
         let panel = ApprovalPanel()
-        panel.scopes = content.scopes
+        panel.windowOptions = content.windowOptions
         panel.breadths = content.breadths
         panel.listedItemCount = content.listedItemCount
         panel.vaultCount = content.vaultCount
@@ -214,7 +233,15 @@ final class ApprovalPanel: NSObject {
         view.layoutSubtreeIfNeeded()
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
         view.cacheDisplay(in: view.bounds, to: rep)
-        return rep.representation(using: .png, properties: [:])
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let actionRowInset = panel.actionRowView.map {
+            view.convert($0.bounds, from: $0).minY
+        } ?? 0
+        return Preview(
+            png: png,
+            height: view.bounds.height,
+            actionRowInsetFromBottom: actionRowInset
+        )
     }
 
     // MARK: - Running
@@ -225,7 +252,7 @@ final class ApprovalPanel: NSObject {
         attempt: IdentitySessionManager.PresenceAttempt?
     ) -> Outcome {
         SecureInputDialog.ensureEditMenu()
-        scopes = content.scopes
+        windowOptions = content.windowOptions
         breadths = content.breadths
         listedItemCount = content.listedItemCount
         vaultCount = content.vaultCount
@@ -658,11 +685,16 @@ final class ApprovalPanel: NSObject {
         perform(effect: flow.apply(.confirmPressed))
     }
 
-    private func scopeChanged(_ index: Int) {
+    private func windowChanged() {
         syncSelectionIntoFlow()
-        // The duration segment's label changes with what was picked, so the
-        // control can want a different width. Re-fit rather than clip.
-        relayout()
+        PanelDebug.note("window-chosen", [
+            "scope": flow.scope.rawValue,
+            "ms": Int(flow.durationMs ?? 0),
+        ])
+        // The checkbox appears and disappears with the answer, so the content
+        // above the buttons is a different height. Re-fit around the action row
+        // rather than around the top edge.
+        relayout(anchor: .actionRow)
     }
 
     /// Show the breadth checkbox only where there is a breadth to choose.
@@ -675,13 +707,14 @@ final class ApprovalPanel: NSObject {
     /// somebody read while a sensor is waiting for their finger. The summary
     /// sentence underneath still says what the grant covers, so nothing about
     /// this is hidden state.
+    ///
+    /// Its whole row goes with it. Holding an empty row open so the panel keeps
+    /// one height was the old answer, and it left a visible band of nothing
+    /// under `once`. What actually matters is that the buttons do not move under
+    /// a pointer while the sensor is armed, and `relayout(anchor:)` keeps them
+    /// still by moving the window instead.
     private func syncBreadthVisibility() {
-        let scope = selectedScope(fallback: flow.scope)
-        breadthControl?.isHidden = scope == .once
-        // The windows only mean anything while their scope is the chosen one.
-        // Hidden inside its holder, like the checkbox, so the row reserves its
-        // height whether or not it is drawn and nothing under it moves.
-        durationControl?.isHidden = scope != .duration
+        breadthRow?.isHidden = selectedWindow(fallback: flow.window).scope == .once
     }
 
     private func breadthChanged() {
@@ -689,31 +722,14 @@ final class ApprovalPanel: NSObject {
         relayout()
     }
 
-    /// Take a chosen window: say it on the scope segment, and put it in the answer.
-    ///
-    /// The segment keeps saying which window is chosen ("For 4 hours") even
-    /// though the row below is showing the same thing, because the row is only
-    /// on screen while `duration` is selected and the segment is what the eye
-    /// lands on when reading the panel back.
-    private func apply(duration preset: DurationPreset) {
-        duration = preset
-        if let index = scopes.firstIndex(of: .duration) {
-            scopeControl?.setTitle(scopeLabel(.duration, chosen: true), at: index)
-            scopeControl?.select(index: index, notify: false)
-        }
-        syncSelectionIntoFlow()
-        relayout()
-        PanelDebug.note("duration-chosen", ["ms": Int(preset.milliseconds), "label": preset.label])
-    }
-
     /// Copy the controls' current state into the flow, so what a scan approves is
     /// what the panel is showing.
     private func syncSelectionIntoFlow() {
-        let scope = selectedScope(fallback: flow.scope)
+        let window = selectedWindow(fallback: flow.window)
         let breadth = selectedBreadth(fallback: flow.breadth)
         flow.select(
-            scope: scope,
-            durationMs: scope == .duration ? duration.milliseconds : nil,
+            scope: window.scope,
+            durationMs: window.durationMs,
             breadth: breadth
         )
         syncBreadthVisibility()
@@ -724,8 +740,10 @@ final class ApprovalPanel: NSObject {
             breadth: flow.effectiveBreadth,
             itemCount: listedItemCount,
             vaultCount: vaultCount,
-            scope: scope,
-            durationLabel: duration.label
+            scope: window.scope,
+            // The sentence says "4 hours" where the rung says "4h": a row of
+            // rungs is a scale, and a sentence is prose.
+            durationLabel: DurationPreset.matching(milliseconds: window.durationMs)?.label
         )
     }
 
@@ -736,27 +754,50 @@ final class ApprovalPanel: NSObject {
         return breadthControl.isChecked ? .wholeKey : .listedItems
     }
 
-    private func selectedScope(fallback: SessionGrantScope) -> SessionGrantScope {
-        guard let index = scopeControl?.selectedIndex, index >= 0, index < scopes.count else {
+    private func selectedWindow(fallback: GrantWindow) -> GrantWindow {
+        guard let index = windowControl?.selectedIndex,
+              index >= 0,
+              index < windowOptions.count else {
             return fallback
         }
-        return scopes[index]
+        return windowOptions[index].window
+    }
+
+    /// Which edge of the panel holds still when its content changes height.
+    private enum RelayoutAnchor {
+        /// The top edge, for a disclosure the user opened: what they clicked
+        /// stays where they clicked it and the panel grows downward.
+        case top
+        /// The action row, for a change in the approval controls: Deny and the
+        /// scan control keep their place on screen and the content above them
+        /// absorbs the difference. The sensor is armed the whole time the
+        /// controls are live, so this is the row that must not move.
+        case actionRow
     }
 
     /// Re-fit the window after something opened or closed. The panel grows and
     /// shrinks with its disclosures rather than scrolling, so the window has to
     /// follow its content.
-    private func relayout() {
+    private func relayout(anchor: RelayoutAnchor = .top) {
         guard let window, let contentColumn else { return }
         contentColumn.layoutSubtreeIfNeeded()
         let height = contentColumn.fittingSize.height + PanelStyle.contentInset * 2
         let width = PanelStyle.contentWidth + PanelStyle.contentInset * 2
         var frame = window.frame
         let topEdge = frame.maxY
+        let bottomEdge = frame.minY
         frame.size = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: width, height: height)).size
-        // Grow downward from where the panel already is, so an expanding row does
-        // not move the buttons out from under the pointer.
-        frame.origin.y = topEdge - frame.height
+        switch anchor {
+        case .top:
+            // Grow downward from where the panel already is, so an expanding row
+            // does not move the buttons out from under the pointer.
+            frame.origin.y = topEdge - frame.height
+        case .actionRow:
+            // The action row sits a fixed distance above the panel's bottom edge
+            // (its own row, the hint line under it, and the inset), so holding
+            // the bottom edge still holds the buttons still.
+            frame.origin.y = bottomEdge
+        }
         // Unless growing downward would push it off the screen, in which case it
         // climbs instead: the top of the panel is the part that has to stay.
         if let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
@@ -840,18 +881,35 @@ final class ApprovalPanel: NSObject {
         column.addArrangedSubview(chain)
         chain.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth).isActive = true
 
-        if content.scopes.count > 1 {
+        // How long, as ONE row: Once, the timed rungs, then This session.
+        //
+        // This was a mode pill plus a row of windows that appeared underneath it
+        // once "for a set time" was picked. Two controls for one question, where
+        // the second one was hidden most of the time, so the timed answers cost
+        // two clicks and the panel had to hold an empty band open under every
+        // other answer to keep its height. One row of six rungs is the same
+        // choice with nothing hidden and nothing reserved, and the order says
+        // something the labels cannot: this is a ladder, and you are picking a
+        // rung on it.
+        //
+        // The rungs are not equal width, deliberately. "This session" is longer
+        // than "4h" and reads better allowed to be; a row padded to the widest
+        // label would spend most of the panel's width on space.
+        if content.windowOptions.count > 1 {
             let control = PanelSegmentedControl(
-                labels: content.scopes.map { scopeLabel($0, chosen: $0 == content.defaultScope) },
-                selectedIndex: content.scopes.firstIndex(of: content.defaultScope) ?? 0,
-                onChange: { [weak self] index in self?.scopeChanged(index) }
+                labels: content.windowOptions.map { $0.label },
+                selectedIndex: PanelContent.windowOptionIndex(
+                    of: content.defaultWindow,
+                    in: content.windowOptions
+                ),
+                onChange: { [weak self] _ in self?.windowChanged() }
             )
-            scopeControl = control
+            windowControl = control
             column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(control))
-        } else if let only = content.scopes.first {
+        } else if let only = content.windowOptions.first {
             let label = PanelStyle.label(
-                "Allowed for: \(PanelContent.scopeLabel(only).lowercased())",
+                "Allowed for: \(only.label.lowercased())",
                 size: 11.5,
                 color: PanelStyle.inkTertiary
             )
@@ -860,38 +918,7 @@ final class ApprovalPanel: NSObject {
             column.addArrangedSubview(centred(label))
         }
 
-        // The windows, as a row rather than behind a dropdown.
-        //
-        // This was an NSMenu, and it broke twice for unrelated reasons: once
-        // unwired, then with every option greyed out because AppKit validates
-        // menu items down a responder chain that does not reach this panel from
-        // inside its modal session. It was also the last surface here drawn in
-        // the system's appearance rather than the panel's own, and it carried a
-        // fallback that stepped to the next window when the menu would not
-        // open, which meant a failure to draw could silently change what
-        // somebody was about to approve. None of that is worth keeping for a
-        // list of four fixed options: they fit on one row, so they go on one
-        // row, visible without a click and chosen in one.
-        //
-        // Presets only, deliberately. Typing a duration with a sensor armed
-        // invites unit ambiguity and a validation error on a security prompt,
-        // and tends to push people to the maximum anyway. The 12h cap is the
-        // last option and is not configurable from here.
-        if content.scopes.contains(.duration) {
-            let windows = PanelSegmentedControl(
-                labels: DurationPreset.allCases.map { $0.label },
-                selectedIndex: DurationPreset.allCases.firstIndex(of: duration) ?? 0,
-                onChange: { [weak self] index in
-                    guard let self, index < DurationPreset.allCases.count else { return }
-                    self.apply(duration: DurationPreset.allCases[index])
-                }
-            )
-            durationControl = windows
-            column.setCustomSpacing(8, after: column.arrangedSubviews.last!)
-            column.addArrangedSubview(centred(windows))
-        }
-
-        // The breadth control, in ONE place: directly under the duration
+        // The breadth control, in ONE place: directly under the window
         // control, whatever the request names. It does not move into the vault
         // rows when there happen to be several and back out again when there is
         // one. A control that relocates by situation is a control you have to
@@ -908,18 +935,19 @@ final class ApprovalPanel: NSObject {
             ) { [weak self] _ in self?.breadthChanged() }
             breadthControl = checkbox
             column.setCustomSpacing(13, after: column.arrangedSubviews.last!)
-            // The checkbox is hidden inside its own holder rather than pulled
-            // out of the stack. A hidden arranged subview collapses and takes
-            // the buttons under it with it, and a panel whose Deny button jumps
-            // as you change your mind about a scope is a panel that gets
-            // mis-clicked. The holder keeps the row's height either way.
-            column.addArrangedSubview(centred(checkbox))
+            // The whole row goes when the checkbox does, so `once` gets a panel
+            // with nothing in it rather than a gap where a control used to be.
+            // What must not move is the action row, and that is held still by
+            // `relayout(anchor:)` moving the window, not by padding this out.
+            let row = centred(checkbox)
+            breadthRow = row
+            column.addArrangedSubview(row)
         }
 
         // The controls said back as one sentence, so what is about to be
         // approved is written somewhere in full rather than assembled in the
         // reader's head from a pill and a tickbox.
-        if content.breadths.count > 1 || content.scopes.count > 1 {
+        if content.breadths.count > 1 || content.windowOptions.count > 1 {
             let summary = PanelStyle.label("", size: 11.5, color: PanelStyle.inkSecondary)
             summary.alignment = .center
             summary.lineBreakMode = .byWordWrapping
@@ -978,8 +1006,15 @@ final class ApprovalPanel: NSObject {
         column.setCustomSpacing(10, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(status)
 
+        // The action row and the hint under it are the last two things in the
+        // column, and neither of them ever hides, so the row's distance from the
+        // bottom of the panel is the same whatever the controls above it are
+        // doing. That, plus `relayout(anchor: .actionRow)` holding the bottom
+        // edge still, is what keeps Deny and the sensor under the pointer.
+        let actions = actionRow(content: content, mode: mode)
+        actionRowView = actions
         column.setCustomSpacing(14, after: column.arrangedSubviews.last!)
-        column.addArrangedSubview(actionRow(content: content, mode: mode))
+        column.addArrangedSubview(actions)
         column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
         column.addArrangedSubview(underActions(mode: mode))
 
@@ -1162,17 +1197,6 @@ final class ApprovalPanel: NSObject {
             row.addArrangedSubview(link)
         }
         return fullWidth(row)
-    }
-
-    /// "For a set time" until a window has actually been picked, and the window
-    /// itself afterwards: the segment says what was chosen, not what could be.
-    ///
-    /// No caret. It used to carry one because clicking the segment opened a
-    /// menu; the windows are a row of their own now, so a disclosure mark here
-    /// would point at something that does not open.
-    private func scopeLabel(_ scope: SessionGrantScope, chosen: Bool) -> String {
-        guard scope == .duration, chosen else { return PanelContent.scopeLabel(scope) }
-        return "For \(duration.label)"
     }
 
     /// Wrap a view so it fills the panel's width inside the vertical stack.
