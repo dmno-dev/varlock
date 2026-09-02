@@ -805,6 +805,14 @@ final class ApprovalPanel: NSObject {
             if frame.origin.y < lowest {
                 frame.origin.y = min(lowest, visible.maxY - Self.screenMargin - frame.height)
             }
+            // And a panel already at the top of the screen that grows upward
+            // would push its own heading off it. Steadiness is worth a lot on
+            // this row, but not the part of the panel that says what is being
+            // approved, so in that one case the buttons move instead.
+            let highest = visible.maxY - Self.screenMargin
+            if frame.maxY > highest {
+                frame.origin.y = max(lowest, highest - frame.height)
+            }
         }
         window.setFrame(frame, display: true, animate: false)
     }
