@@ -644,7 +644,10 @@ export class ConfigItem {
           ? 'sensitive value has elements that are not strings, which cannot be redacted'
           : `a ${typeof this.resolvedValue} cannot be sensitive`,
         {
-          tip: 'Redaction only matches strings.\nIf this is a secret, make it a string: `@type=string` (or `@type=array(string)`), or quote the value.\nIf it is not, mark it `@sensitive=false` (or `@public`).',
+          tip: `Redaction only matches strings.\nIf this is a secret, make it a string: \`@type=string\` (or \`@type=array(string)\`), or quote the value.\nIf it is not, mark it \`@sensitive=false\` (or \`@public\`).${
+            // the common case in a hand-written schema is many of these at once, and the
+            // real fix is one line at the top of the file rather than one per item
+            this._sensitiveExplicitlySet ? '' : '\nThis item is only sensitive because of `@defaultSensitive`. If most items in this file are not secrets, set `@defaultSensitive=false` at the top and mark the real secrets `@sensitive`.'}`,
         },
       ));
       return;
