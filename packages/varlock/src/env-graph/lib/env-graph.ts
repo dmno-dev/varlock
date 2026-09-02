@@ -825,16 +825,9 @@ export class EnvGraph {
         .filter(({ key, str }) => key !== itemKey && publicStrings.some((pub) => pub.includes(str)))
         .map(({ key }) => key));
       for (const sensitiveKey of matchedKeys) {
-        const message = `Value contains the sensitive value of ${sensitiveKey}`;
-        // resolveEnvValues may run more than once (e.g. filtered resolution then a full
-        // pass), and items are only reset on an explicit reset - so do not re-add
-        if (item.validationErrors?.some((e) => e.message === message)) continue;
-        item.validationErrors = [
-          ...(item.validationErrors ?? []),
-          new ValidationError(message, {
-            tip: `This item is not sensitive, so its value is exposed in logs, generated types and client bundles - and redacting ${sensitiveKey} rewrites it everywhere it appears.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`,
-          }),
-        ];
+        item.addValidationError(new ValidationError(`Value contains the sensitive value of ${sensitiveKey}`, {
+          tip: `This item is not sensitive, so its value is exposed in logs, generated types and client bundles - and redacting ${sensitiveKey} rewrites it everywhere it appears.\nMark this item \`@sensitive\`, or build it from a reference so the secret part stays separate.`,
+        }));
       }
     }
   }
