@@ -299,7 +299,8 @@ case "panel-preview":
                 policy: strictKeyIds.contains($0) ? .everyTime : .standard,
                 itemCount: previewDisplay.valueCount(forKey: $0),
                 itemDigests: previewDigests($0),
-                hasUnlistableSource: previewDisplay.keys[$0]?.sources.contains { !$0.isItemScopable } ?? false
+                hasUnlistableSource: previewDisplay.keys[$0]?.sources.contains { !$0.isItemScopable } ?? false,
+                vaultId: previewDisplay.vaultId(forKey: $0)
             )
         },
         requestedScope: .session,

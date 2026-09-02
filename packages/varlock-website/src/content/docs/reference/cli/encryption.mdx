@@ -173,7 +173,7 @@ varlock lock --session "tty:ttys004:1756..."
 varlock lock --forget-preferences
 ```
 
-The panel remembers it when you tighten an approval, so it does not spring back to the broader default the next time you are asked. See [Breadth](/guides/local-encryption/#breadth). Choosing the broad option on the panel forgets it too; the flags above are for clearing it without waiting to be asked. They act on the preferences file in your user varlock directory, so they work whether or not a daemon is running, and they can be combined with the locking options or used on their own.
+The panel remembers it when you untick the breadth checkbox, so it does not spring back to the broader default the next time you are asked. See [Breadth](/guides/local-encryption/#breadth). Choosing the broad option on the panel forgets it too; the flags above are for clearing it without waiting to be asked. They act on the preferences file in your user varlock directory, so they work whether or not a daemon is running, and they can be combined with the locking options or used on their own.
 
 `--current` takes no id on purpose. The daemon derives the session from the connection itself, which is what makes it impossible to name your way into someone else's.
 

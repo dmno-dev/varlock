@@ -99,6 +99,7 @@ function grantFor(keyId, config) {
     expiresInMs: 3_600_000,
     useCount: 1,
     breadth: coveredItems.has(keyId) ? 'listed' : 'key',
+    vaultId: 'local',
     ...(coveredItems.has(keyId) ? { coveredItemCount: coveredItems.get(keyId).size } : {}),
   };
 }

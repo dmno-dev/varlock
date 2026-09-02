@@ -112,11 +112,11 @@ final class ApprovalPanel: NSObject {
 
     private var scopes: [SessionGrantScope] = []
     private var duration: DurationPreset = .default
-    /// The breadth pill, when this request has a breadth choice to make.
-    private var breadthControl: PanelSegmentedControl?
+    /// The breadth checkbox, when this request has a breadth choice to make.
+    private var breadthControl: PanelCheckbox?
     private var breadths: [SessionGrantBreadth] = []
     private var listedItemCount = 0
-    private var keyRowCount = 1
+    private var vaultCount = 1
     /// The one sentence under the two pills, kept current with both of them.
     private var selectionSummaryLabel: NSTextField?
     private var timedOut = false
@@ -196,7 +196,7 @@ final class ApprovalPanel: NSObject {
         panel.scopes = content.scopes
         panel.breadths = content.breadths
         panel.listedItemCount = content.listedItemCount
-        panel.keyRowCount = content.keyRows.count
+        panel.vaultCount = content.vaultCount
         panel.flow = ApprovalFlow(content: content, presenceMode: mode)
         let window = panel.buildWindow(
             content: content,
@@ -226,7 +226,7 @@ final class ApprovalPanel: NSObject {
         scopes = content.scopes
         breadths = content.breadths
         listedItemCount = content.listedItemCount
-        keyRowCount = content.keyRows.count
+        vaultCount = content.vaultCount
         self.attempt = attempt
         self.presenceReason = presenceReason
         let mode = attempt?.mode ?? .none
@@ -725,17 +725,17 @@ final class ApprovalPanel: NSObject {
         selectionSummaryLabel?.stringValue = PanelContent.selectionSummary(
             breadth: breadth,
             itemCount: listedItemCount,
-            keyCount: keyRowCount,
+            vaultCount: vaultCount,
             scope: scope,
             durationLabel: duration.label
         )
     }
 
+    /// Ticked is broad. Absent (nothing to narrow to) keeps whatever the flow
+    /// was built with, which is the broad answer.
     private func selectedBreadth(fallback: SessionGrantBreadth) -> SessionGrantBreadth {
-        guard let index = breadthControl?.selectedIndex, index >= 0, index < breadths.count else {
-            return fallback
-        }
-        return breadths[index]
+        guard let breadthControl else { return fallback }
+        return breadthControl.isChecked ? .wholeKey : .listedItems
     }
 
     private func selectedScope(fallback: SessionGrantScope) -> SessionGrantScope {
@@ -842,27 +842,6 @@ final class ApprovalPanel: NSObject {
         column.addArrangedSubview(chain)
         chain.widthAnchor.constraint(equalToConstant: PanelStyle.contentWidth).isActive = true
 
-        // The breadth pill, above the duration one. Two axes, two controls, and
-        // never a grid: "once over only these" and "this session over the whole
-        // key" are both real answers, so six buttons would be six ways to say
-        // four things and a reader would have to find theirs among them.
-        if content.breadths.count > 1 {
-            let control = PanelSegmentedControl(
-                labels: content.breadths.map {
-                    PanelContent.breadthLabel(
-                        $0,
-                        itemCount: content.listedItemCount,
-                        keyCount: content.keyRows.count
-                    )
-                },
-                selectedIndex: content.breadths.firstIndex(of: content.defaultBreadth) ?? 0,
-                onChange: { [weak self] _ in self?.breadthChanged() }
-            )
-            breadthControl = control
-            column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
-            column.addArrangedSubview(centred(control))
-        }
-
         if content.scopes.count > 1 {
             let control = PanelSegmentedControl(
                 labels: content.scopes.map { scopeLabel($0, chosen: $0 == content.defaultScope) },
@@ -880,7 +859,7 @@ final class ApprovalPanel: NSObject {
                 }
             )
             scopeControl = control
-            column.setCustomSpacing(breadthControl == nil ? 15 : 7, after: column.arrangedSubviews.last!)
+            column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(control))
         } else if let only = content.scopes.first {
             let label = PanelStyle.label(
@@ -893,9 +872,29 @@ final class ApprovalPanel: NSObject {
             column.addArrangedSubview(centred(label))
         }
 
-        // The two pills said back as one sentence, so what is about to be
+        // The breadth control, in ONE place: directly under the duration
+        // control, whatever the request names. It does not move into the vault
+        // rows when there happen to be several and back out again when there is
+        // one. A control that relocates by situation is a control you have to
+        // find before you can read it, on a panel whose whole job is to be read
+        // in the second before a finger lands.
+        //
+        // A checkbox rather than a second pill pair: this axis has a default,
+        // and the default is broad. Two equally weighted buttons would present a
+        // decision where there is really a setting.
+        if content.breadths.count > 1 {
+            let checkbox = PanelCheckbox(
+                title: PanelContent.breadthCheckboxLabel(vaultCount: content.vaultCount),
+                isChecked: content.defaultBreadth == .wholeKey
+            ) { [weak self] _ in self?.breadthChanged() }
+            breadthControl = checkbox
+            column.setCustomSpacing(13, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(checkbox))
+        }
+
+        // The controls said back as one sentence, so what is about to be
         // approved is written somewhere in full rather than assembled in the
-        // reader's head from two labels.
+        // reader's head from a pill and a tickbox.
         if content.breadths.count > 1 || content.scopes.count > 1 {
             let summary = PanelStyle.label("", size: 11.5, color: PanelStyle.inkSecondary)
             summary.alignment = .center

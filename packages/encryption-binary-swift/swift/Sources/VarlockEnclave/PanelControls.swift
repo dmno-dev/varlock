@@ -510,3 +510,91 @@ final class PanelDisclosureRow: NSView, PanelClickTarget {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 }
+
+/// The breadth control: one checkbox, ticked for the broad answer.
+///
+/// Drawn here rather than taken from `NSButton(checkboxWithTitle:)` for the same
+/// reason everything else on this panel is: a stock checkbox follows the system
+/// appearance, and this window commits to its own.
+///
+/// The whole row is the target, label included. A checkbox whose 15 points of
+/// box are the only place a click lands is a checkbox people miss, and this one
+/// sits directly under the control that decides how long a grant lasts, where a
+/// missed click reads as the panel ignoring you.
+final class PanelCheckbox: NSView, PanelClickTarget {
+    private(set) var isChecked: Bool
+    private let onChange: (Bool) -> Void
+    private let box = NSView()
+    private let tick = NSImageView()
+    private let field: NSTextField
+
+    init(title: String, isChecked: Bool, onChange: @escaping (Bool) -> Void) {
+        self.isChecked = isChecked
+        self.onChange = onChange
+        field = PanelStyle.label(title, size: 12, color: PanelStyle.ink)
+        super.init(frame: .zero)
+
+        box.wantsLayer = true
+        box.layer?.cornerRadius = 4
+        box.layer?.borderWidth = 1
+        box.translatesAutoresizingMaskIntoConstraints = false
+
+        tick.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
+        tick.contentTintColor = .white
+        tick.translatesAutoresizingMaskIntoConstraints = false
+        box.addSubview(tick)
+
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.lineBreakMode = .byWordWrapping
+        field.maximumNumberOfLines = 2
+        field.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        addSubview(box)
+        addSubview(field)
+
+        NSLayoutConstraint.activate([
+            box.widthAnchor.constraint(equalToConstant: 15),
+            box.heightAnchor.constraint(equalToConstant: 15),
+            box.leadingAnchor.constraint(equalTo: leadingAnchor),
+            box.centerYAnchor.constraint(equalTo: centerYAnchor),
+            tick.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+            tick.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            tick.widthAnchor.constraint(equalToConstant: 10),
+            tick.heightAnchor.constraint(equalToConstant: 10),
+            field.leadingAnchor.constraint(equalTo: box.trailingAnchor, constant: 8),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(greaterThanOrEqualTo: field.heightAnchor),
+        ])
+        applyState()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    /// Set the state without telling anyone, for building the panel.
+    func setChecked(_ checked: Bool) {
+        isChecked = checked
+        applyState()
+    }
+
+    private func applyState() {
+        box.layer?.backgroundColor = (isChecked ? PanelStyle.vaultLocal : NSColor.clear).cgColor
+        box.layer?.borderColor = (isChecked ? PanelStyle.vaultLocal : PanelStyle.segmentTrackBorder).cgColor
+        tick.isHidden = !isChecked
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        isChecked.toggle()
+        applyState()
+        onChange(isChecked)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return clickTargetHitTest(point)
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+}

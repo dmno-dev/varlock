@@ -228,35 +228,63 @@ final class GrantBreadthTests: XCTestCase {
 
     // MARK: - What the panel says
 
-    /// The narrow label carries the number, which is what makes it obviously the
-    /// smaller of the two without a legend.
-    func testTheLabelsSayWhichIsNarrower() {
-        XCTAssertEqual(PanelContent.breadthLabel(.listedItems, itemCount: 12), "Only these 12")
-        XCTAssertEqual(PanelContent.breadthLabel(.wholeKey, itemCount: 12), "Anything on this key")
+    /// The label says what you get, in vaults, not what it switches off.
+    func testTheCheckboxLabelIsWordedInWhatItCovers() {
         XCTAssertEqual(
-            PanelContent.breadthLabel(.wholeKey, itemCount: 12, keyCount: 2),
-            "Anything on these keys"
+            PanelContent.breadthCheckboxLabel(vaultCount: 1),
+            "Cover anything this vault can open"
+        )
+        XCTAssertEqual(
+            PanelContent.breadthCheckboxLabel(vaultCount: 3),
+            "Cover anything these vaults can open"
         )
     }
 
-    func testTheSummarySaysBothAxesInOneSentence() {
+    /// The whole point of the wording. A broad approval is over the VAULT, and
+    /// the list is what it covers right now rather than what defines it, so a
+    /// person who reads only this line is not surprised by a thirteenth value
+    /// later. The narrow sentence gets to say "only", because there the list
+    /// really is the definition and the daemon enforces it.
+    func testTheBroadSummaryFramesTheListRatherThanFollowingIt() {
+        let broad = PanelContent.selectionSummary(
+            breadth: .wholeKey, itemCount: 12, scope: .session, durationLabel: nil
+        )
+        XCTAssertEqual(
+            broad,
+            "Covers anything this vault can open, not just the 12 listed above, until this session ends."
+        )
+        XCTAssertTrue(broad.contains("not just"), "the list must not read as the definition of the grant")
+        XCTAssertFalse(broad.contains("only"))
+    }
+
+    func testTheNarrowSummarySaysOnly() {
         XCTAssertEqual(
             PanelContent.selectionSummary(
                 breadth: .listedItems, itemCount: 12, scope: .session, durationLabel: nil
             ),
-            "Opens the 12 values listed above, until this session ends."
-        )
-        XCTAssertEqual(
-            PanelContent.selectionSummary(
-                breadth: .wholeKey, itemCount: 12, scope: .once, durationLabel: nil
-            ),
-            "Opens anything this key can decrypt, for this one read."
+            "Covers only the 12 values listed above, until this session ends."
         )
         XCTAssertEqual(
             PanelContent.selectionSummary(
                 breadth: .listedItems, itemCount: 1, scope: .duration, durationLabel: "4 hours"
             ),
-            "Opens the 1 value listed above, for 4 hours."
+            "Covers only the 1 value listed above, for 4 hours."
+        )
+    }
+
+    func testTheSummarySpeaksInVaultsAndCarriesTheWindow() {
+        XCTAssertEqual(
+            PanelContent.selectionSummary(
+                breadth: .wholeKey, itemCount: 5, vaultCount: 2, scope: .once, durationLabel: nil
+            ),
+            "Covers anything these vaults can open, not just the 5 listed above, for this one read."
+        )
+        // Nothing listed, so nothing to frame.
+        XCTAssertEqual(
+            PanelContent.selectionSummary(
+                breadth: .wholeKey, itemCount: 0, scope: .session, durationLabel: nil
+            ),
+            "Covers anything this vault can open, until this session ends."
         )
     }
 
@@ -287,6 +315,10 @@ final class GrantBreadthTests: XCTestCase {
         )
         XCTAssertTrue(content.hasUnlistableSource)
         XCTAssertTrue(PanelContent.unlistableSourceNote.contains("value cache"))
+        XCTAssertTrue(
+            PanelContent.unlistableSourceNote.contains("ticked or not"),
+            "the caveat has to hold for both states of the checkbox"
+        )
     }
 
     func testNoCaveatWhenThereIsNoChoiceToQualify() {
@@ -315,6 +347,115 @@ final class GrantBreadthTests: XCTestCase {
             display: display
         )
         XCTAssertEqual(content.listedItemCount, 2)
+    }
+
+    // MARK: - The vault boundary
+
+    /// Not a control. However broad the approval, it stops at the vaults the
+    /// panel showed: a key in a vault nobody was shown is a key nobody said yes
+    /// to. Today every key is in one implicit local vault, so this mostly holds
+    /// trivially, but it is written as a vault rule because that is the only
+    /// version that stays defensible once a second vault exists.
+    func testABroadGrantDoesNotReachAVaultThatWasNotShown() {
+        let live = ExistingGrantSnapshot(
+            scope: .session,
+            remainingMs: 4 * 60 * 60 * 1000,
+            coveredItems: nil,
+            vaultId: "local"
+        )
+        let sameVault = UnlockPlanner.plan(
+            requested: [RequestedKey(keyId: keyId, vaultId: "local")],
+            requestedScope: .session,
+            existing: [keyId: live]
+        )
+        XCTAssertFalse(sameVault.requiresPrompt)
+
+        let crossedVault = UnlockPlanner.plan(
+            requested: [RequestedKey(keyId: keyId, vaultId: "team-production")],
+            requestedScope: .session,
+            existing: [keyId: live]
+        )
+        XCTAssertTrue(crossedVault.requiresPrompt, "crossing a vault always asks")
+        XCTAssertEqual(crossedVault.refreshKeys.map { $0.keyId }, [keyId])
+    }
+
+    func testTheVaultBoundaryHoldsWhateverTheBreadthWas() {
+        // The broadest, longest grant there is.
+        let live = ExistingGrantSnapshot(
+            scope: .session,
+            remainingMs: SessionGrantTable.maxGrantMs,
+            coveredItems: nil,
+            vaultId: "local"
+        )
+        XCTAssertFalse(UnlockPlanner.covers(
+            live: live,
+            requestedScope: .once,
+            requestedDurationMs: nil,
+            requestedVaultId: "team-production"
+        ))
+        XCTAssertFalse(VaultBoundary.covers(approvedVaultId: nil, requestedVaultId: "local"))
+        XCTAssertTrue(VaultBoundary.covers(approvedVaultId: "local", requestedVaultId: "local"))
+    }
+
+    func testAGrantRemembersTheVaultItWasApprovedOver() {
+        let table = SessionGrantTable()
+        table.grant(ref: ref, identityId: "default", scope: .session, vaultId: "team-production")
+        XCTAssertEqual(table.vaultId(ref: ref), "team-production")
+        XCTAssertEqual(table.liveGrant(ref: ref)?.vaultId, "team-production")
+    }
+
+    /// A key with no vault of its own is in the one implicit local vault, and a
+    /// caller that names only a label still gets a boundary between labels.
+    func testAVaultIdFallsBackToTheLabelAndThenToTheLocalVault() {
+        XCTAssertEqual(UnlockKeyDisplay().vaultId, VaultBoundary.localVaultId)
+        XCTAssertEqual(UnlockKeyDisplay(vaultLabel: "Production").vaultId, "label:production")
+        XCTAssertEqual(UnlockKeyDisplay(vaultLabel: "Production", vaultId: "v_42").vaultId, "v_42")
+    }
+
+    // MARK: - One control, per-vault resolution
+
+    /// The checkbox sets every vault today. What reads it asks per vault anyway,
+    /// so a per-vault control later is a change to the panel and nothing else.
+    func testOneAnswerResolvesForEveryVault() {
+        let broad = UnlockBreadthSelection.uniform(.wholeKey)
+        XCTAssertEqual(broad.breadth(forVault: "local"), .wholeKey)
+        XCTAssertEqual(broad.breadth(forVault: "team-production"), .wholeKey)
+        XCTAssertEqual(broad.narrowest, .wholeKey)
+
+        let narrow = UnlockBreadthSelection.uniform(.listedItems)
+        XCTAssertEqual(narrow.breadth(forVault: "anything"), .listedItems)
+        XCTAssertEqual(narrow.narrowest, .listedItems)
+    }
+
+    func testAPerVaultAnswerIsAlreadyHonouredWhereOneIsGiven() {
+        // Not reachable from the panel yet, and deliberately supported by the
+        // model: broad on your own local vault, narrow on a shared one.
+        let mixed = UnlockBreadthSelection(
+            fallback: .wholeKey,
+            byVault: ["team-production": .listedItems]
+        )
+        XCTAssertEqual(mixed.breadth(forVault: "local"), .wholeKey)
+        XCTAssertEqual(mixed.breadth(forVault: "team-production"), .listedItems)
+        XCTAssertEqual(mixed.narrowest, .listedItems, "a summary must never claim less caution than was applied")
+    }
+
+    func testAnAnswerIsClampedToWhatThePanelOffered() {
+        let clamped = UnlockBreadthSelection
+            .uniform(.listedItems)
+            .clamped(to: [.wholeKey])
+        XCTAssertEqual(clamped.breadth(forVault: "local"), .wholeKey)
+    }
+
+    func testThePlanCountsTheVaultsItIsOver() {
+        let plan = UnlockPlanner.plan(
+            requested: [
+                RequestedKey(keyId: "a", itemDigests: [digest("1")], vaultId: "local"),
+                RequestedKey(keyId: "b", itemDigests: [digest("2")], vaultId: "team-production"),
+            ],
+            requestedScope: .session,
+            existing: [:]
+        )
+        XCTAssertEqual(plan.vaultIds, ["local", "team-production"])
     }
 
     // MARK: - The rule that cannot drift

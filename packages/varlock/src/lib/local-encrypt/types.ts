@@ -73,6 +73,10 @@ export type SessionGrantScope = 'once' | 'session' | 'duration';
  * below), the daemon hashes them itself, and only a person at the panel can
  * choose the narrow answer. Reported back on the grant so a caller can say what
  * it is holding, never to be sent up.
+ *
+ * The broad answer has a ceiling that is not a control: it stops at the vaults
+ * the panel showed. A key in a vault that was not on it raises a fresh prompt
+ * however broad the approval was. See `vaultId`.
  */
 export type SessionGrantBreadth = 'listed' | 'key';
 
@@ -208,6 +212,16 @@ export interface UnlockKeyDisplay {
   sources?: Array<UnlockValueSource>;
   /** the vault this key belongs to, once there are vaults to belong to */
   vaultLabel?: string;
+  /**
+   * The vault's stable id, which is the line a broad approval may not cross.
+   *
+   * Falls back to the vault label, and then to the one implicit local vault
+   * every key is in today. Client-supplied like the rest of this type, and
+   * harmless in the only direction it can act: it is compared against the vault
+   * a live grant was approved under, so disagreeing with yourself costs a
+   * prompt and can do nothing else.
+   */
+  vaultId?: string;
   /** the vault's identity colour, as `#rrggbb` */
   vaultColor?: string;
 }
@@ -321,6 +335,14 @@ export interface SessionGrantInfo extends SessionGrantRef {
    * cache is never item scoped.
    */
   coveredItemCount?: number;
+  /**
+   * The vault this grant was approved over.
+   *
+   * A broad approval reaches other keys only inside the vaults the panel
+   * showed; a key that now reports a different vault asks again. `local` until
+   * there are vaults.
+   */
+  vaultId: string;
 }
 
 export interface UnlockSessionResult {

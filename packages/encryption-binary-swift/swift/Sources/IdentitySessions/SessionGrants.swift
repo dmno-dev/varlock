@@ -72,6 +72,9 @@ public struct SessionGrantInfo: Equatable {
     /// how many distinct ciphertexts an item-scoped grant currently covers.
     /// nil for a whole-key grant, which covers a number nobody can count.
     public let coveredItemCount: Int?
+    /// the vault this grant was approved over, which a broad approval may not
+    /// reach outside of
+    public let vaultId: String
 
     /// Defaulted, so every caller that predates the breadth axis reads as what
     /// it has always been: an approval over the whole key.
@@ -90,7 +93,8 @@ public struct SessionGrantInfo: Equatable {
         lockOn: SessionLockPolicy,
         useCount: Int,
         breadth: SessionGrantBreadth = .wholeKey,
-        coveredItemCount: Int? = nil
+        coveredItemCount: Int? = nil,
+        vaultId: String = VaultBoundary.localVaultId
     ) {
         self.sessionId = sessionId
         self.keyId = keyId
@@ -107,6 +111,7 @@ public struct SessionGrantInfo: Equatable {
         self.useCount = useCount
         self.breadth = breadth
         self.coveredItemCount = coveredItemCount
+        self.vaultId = vaultId
     }
 
     public func toDictionary() -> [String: Any] {
@@ -124,6 +129,7 @@ public struct SessionGrantInfo: Equatable {
             "useCount": useCount,
             "expiresInMs": remainingMs,
             "breadth": breadth.rawValue,
+            "vaultId": vaultId,
         ]
         if let lastUsedAt {
             dict["lastUsedAt"] = lastUsedAt
@@ -192,6 +198,10 @@ public final class SessionGrantTable {
         /// computed for itself, which is what makes membership in this set an
         /// answer rather than a claim.
         var coveredItems: Set<String>?
+        /// The vault this was approved over. Held on the grant rather than
+        /// looked up per request, because the answer that matters is the one
+        /// the user was shown, not whatever a caller says now.
+        let vaultId: String
 
         var breadth: SessionGrantBreadth { coveredItems == nil ? .wholeKey : .listedItems }
     }
@@ -271,6 +281,12 @@ public final class SessionGrantTable {
         return sessions[ref.sessionId]?.grants[ref.keyId]?.coveredItems
     }
 
+    /// The vault a live grant was approved over, if there is one.
+    public func vaultId(ref: SessionGrantRef) -> String? {
+        pruneExpired()
+        return sessions[ref.sessionId]?.grants[ref.keyId]?.vaultId
+    }
+
     // MARK: - Granting
 
     /// Record a grant, opening the session if this is its first one.
@@ -289,7 +305,8 @@ public final class SessionGrantTable {
         scope: SessionGrantScope,
         durationMs: Int64? = nil,
         lockOn: SessionLockPolicy = .builtInDefault,
-        coveredItems: Set<String>? = nil
+        coveredItems: Set<String>? = nil,
+        vaultId: String = VaultBoundary.localVaultId
     ) -> SessionGrantInfo {
         pruneExpired()
         let now = clock()
@@ -328,7 +345,8 @@ public final class SessionGrantTable {
             deadline: GrantDeadline.earliest(requestedDeadline, state.deadline),
             lastUsedAt: nil,
             useCount: 0,
-            coveredItems: coveredItems
+            coveredItems: coveredItems,
+            vaultId: vaultId
         )
         sessions[ref.sessionId]?.grants[ref.keyId] = grant
         return info(ref: ref, grant: grant, session: sessions[ref.sessionId]!)
@@ -537,7 +555,8 @@ public final class SessionGrantTable {
             lockOn: session.lockOn,
             useCount: grant.useCount,
             breadth: grant.breadth,
-            coveredItemCount: grant.coveredItems?.count
+            coveredItemCount: grant.coveredItems?.count,
+            vaultId: grant.vaultId
         )
     }
 }

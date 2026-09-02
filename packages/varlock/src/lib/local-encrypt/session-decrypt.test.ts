@@ -568,7 +568,7 @@ describe.skipIf(process.platform === 'win32')('lock and sessions over the daemon
       await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);
 
       const sessions = await localEncrypt.listSessions();
-      expect(sessions[0]).toMatchObject({ breadth: 'listed', coveredItemCount: 1 });
+      expect(sessions[0]).toMatchObject({ breadth: 'listed', coveredItemCount: 1, vaultId: 'local' });
     });
   });
 

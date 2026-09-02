@@ -204,6 +204,9 @@ public struct PanelContent: Equatable {
     public let defaultBreadth: SessionGrantBreadth
     /// How many ciphertexts the narrow choice would cover. Daemon-counted.
     public let listedItemCount: Int
+    /// How many distinct vaults this approval is over. One, until vaults exist.
+    /// Only ever used to word things in the singular or the plural.
+    public let vaultCount: Int
     /// Whether anything in this request has a source item scope cannot reach,
     /// which the panel has to say out loud rather than let a reader assume.
     public let hasUnlistableSource: Bool
@@ -228,6 +231,7 @@ public struct PanelContent: Equatable {
         breadths: [SessionGrantBreadth] = [.wholeKey],
         defaultBreadth: SessionGrantBreadth = .wholeKey,
         listedItemCount: Int = 0,
+        vaultCount: Int = 1,
         hasUnlistableSource: Bool = false,
         selectionNote: String? = nil,
         confirmButtonTitle: String,
@@ -236,6 +240,7 @@ public struct PanelContent: Equatable {
         self.breadths = breadths
         self.defaultBreadth = defaultBreadth
         self.listedItemCount = listedItemCount
+        self.vaultCount = vaultCount
         self.hasUnlistableSource = hasUnlistableSource
         self.selectionNote = selectionNote
         self.titleSegments = titleSegments
@@ -258,45 +263,55 @@ public struct PanelContent: Equatable {
         return titleSegments.map { $0.text }.joined()
     }
 
-    /// Human label for a breadth button.
+    /// The breadth control: one checkbox, ticked for the broad answer.
     ///
-    /// The narrow one carries the number, because a number is what makes it
-    /// obviously the smaller of the two: "Only these 12" beside "Anything on
-    /// this key" needs no legend, where "Listed values" beside "All values"
-    /// asks the reader to work out which is which at the moment they are least
-    /// inclined to.
-    public static func breadthLabel(
-        _ breadth: SessionGrantBreadth,
-        itemCount: Int,
-        keyCount: Int = 1
-    ) -> String {
-        switch breadth {
-        case .listedItems: return itemCount > 0 ? "Only these \(itemCount)" : "Only what is listed"
-        case .wholeKey: return keyCount == 1 ? "Anything on this key" : "Anything on these keys"
-        }
+    /// A checkbox rather than a pair of buttons because there is a default here
+    /// and the default is broad. Two equally weighted pills present a decision
+    /// where there is really a setting, and they make the safe, ordinary answer
+    /// look like something you have to pick.
+    ///
+    /// Worded in what it covers rather than in what it switches off. "Cover
+    /// anything these vaults can open" is what the user gets; something like
+    /// "auto approve other keys" describes the plumbing, and dresses the
+    /// ordinary default as an automation convenience, which is the opposite of
+    /// what it is.
+    public static func breadthCheckboxLabel(vaultCount: Int) -> String {
+        return vaultCount == 1
+            ? "Cover anything this vault can open"
+            : "Cover anything these vaults can open"
     }
 
-    /// The whole answer in one sentence, under the two controls.
+    /// The whole answer in one sentence, under the controls.
     ///
-    /// Two pills are two halves of one decision, and a person reading them has
-    /// to combine them in their head. This does the combining, so what is about
-    /// to be approved is written somewhere in full rather than assembled from
-    /// two labels.
+    /// This is where the panel is honest about the list. Showing twelve named
+    /// values and then opening a thirteenth is the failure this wording exists
+    /// to prevent: under a broad approval the list is WHAT THE GRANT COVERS
+    /// RIGHT NOW, not what defines it, and a person who reads only this line
+    /// should not be surprised later. So the broad sentence names the vault as
+    /// the thing being granted and puts the list inside it ("not just the 12
+    /// listed"), rather than letting the list stand as the definition and
+    /// hoping the reader works out that it is a snapshot.
+    ///
+    /// The narrow sentence can say "only", because there it really is the
+    /// definition and the daemon enforces it.
     public static func selectionSummary(
         breadth: SessionGrantBreadth,
         itemCount: Int,
-        keyCount: Int = 1,
+        vaultCount: Int = 1,
         scope: SessionGrantScope,
         durationLabel: String?
     ) -> String {
+        let vaults = vaultCount == 1 ? "this vault" : "these vaults"
         let what: String
         switch breadth {
         case .listedItems:
-            what = itemCount == 1 ? "Opens the 1 value listed above" : "Opens the \(itemCount) values listed above"
+            what = itemCount == 1
+                ? "Covers only the 1 value listed above"
+                : "Covers only the \(itemCount) values listed above"
         case .wholeKey:
-            what = keyCount == 1
-                ? "Opens anything this key can decrypt"
-                : "Opens anything these \(keyCount) keys can decrypt"
+            what = itemCount > 0
+                ? "Covers anything \(vaults) can open, not just the \(itemCount) listed above"
+                : "Covers anything \(vaults) can open"
         }
         let howLong: String
         switch scope {
@@ -307,16 +322,16 @@ public struct PanelContent: Equatable {
         return "\(what), \(howLong)."
     }
 
-    /// What the panel says when a narrow choice does not narrow everything.
+    /// What the panel says when unticking the box does not narrow everything.
     ///
-    /// The value cache is never item scoped, so "only these" means "only these
-    /// FILE values, and the cache as a whole". A person choosing the narrow
-    /// option must not walk away believing they restricted cache access. It is
-    /// one line, next to the choice, rather than a footnote under the key rows:
-    /// a caveat about a control belongs beside the control.
+    /// The value cache is never item scoped, so the narrow answer means "only
+    /// these FILE values, and the cache as a whole". A person unticking the box
+    /// must not walk away believing they restricted cache access. It is one
+    /// line, next to the control, rather than a footnote under the key rows: a
+    /// caveat about a control belongs beside the control.
     public static let unlistableSourceNote =
-        "\u{201C}Only these\u{201D} covers the listed values one by one; "
-        + "the value cache is always covered as a whole."
+        "The value cache is always covered as a whole, ticked or not: "
+        + "it is machine-written and changes constantly."
 
     /// Human label for a scope button. Plain words, no jargon.
     public static func scopeLabel(_ scope: SessionGrantScope) -> String {
@@ -587,16 +602,36 @@ public struct UnlockKeyDisplay: Equatable {
     /// The vault's identity colour as `#rrggbb`, or nil for the default tint.
     public let vaultColor: String?
 
+    /// The vault's stable id, which is the line a broad approval may not cross.
+    ///
+    /// Client-supplied like the rest of this type, and that is fine in the only
+    /// direction it can act: an id is compared against the one a live grant was
+    /// approved under, and any disagreement means a fresh panel. A caller can
+    /// therefore cost itself a prompt by changing its mind about which vault a
+    /// key is in, and cannot do anything else with it.
+    ///
+    /// Falls back to the vault label, and then to the local vault, so a caller
+    /// that only names its vaults still gets a boundary between them.
+    public var vaultId: String {
+        if let declaredVaultId { return declaredVaultId }
+        if let vaultLabel { return "label:" + vaultLabel.lowercased() }
+        return VaultBoundary.localVaultId
+    }
+
+    private let declaredVaultId: String?
+
     public init(
         valueCount: Int? = nil,
         sources: [UnlockValueSource] = [],
         vaultLabel: String? = nil,
-        vaultColor: String? = nil
+        vaultColor: String? = nil,
+        vaultId: String? = nil
     ) {
         self.valueCount = valueCount
         self.sources = sources
         self.vaultLabel = vaultLabel
         self.vaultColor = vaultColor
+        self.declaredVaultId = vaultId
     }
 
     /// Caps on how much a client can put in one key's row. A caller with more
@@ -638,7 +673,8 @@ public struct UnlockKeyDisplay: Equatable {
             valueCount: (count ?? 0) > 0 ? count : nil,
             sources: sources,
             vaultLabel: UnlockDisplayInfo.trimmedNonEmpty(raw["vaultLabel"], limit: maxVaultLabelLength),
-            vaultColor: hexColor(raw["vaultColor"])
+            vaultColor: hexColor(raw["vaultColor"]),
+            vaultId: UnlockDisplayInfo.trimmedNonEmpty(raw["vaultId"], limit: maxVaultLabelLength)
         )
     }
 
@@ -733,6 +769,12 @@ public struct UnlockDisplayInfo: Equatable {
         return keys[keyId]?.valueCount ?? itemCounts[keyId]
     }
 
+    /// Which vault a key sits in, defaulting to the one implicit local vault
+    /// every key is in until there are vaults to be in.
+    public func vaultId(forKey keyId: String) -> String {
+        return keys[keyId]?.vaultId ?? VaultBoundary.localVaultId
+    }
+
     /// Read the optional `display` object from an `unlock-session` payload.
     /// Anything malformed is dropped rather than rejected: it is decoration.
     public static func from(payload: [String: Any]?) -> UnlockDisplayInfo {
@@ -825,6 +867,7 @@ public enum UnlockPanelContent {
             breadths: plan.offeredBreadths,
             defaultBreadth: preselection?.breadth ?? plan.offeredBreadths.last ?? .wholeKey,
             listedItemCount: plan.listedItemCount,
+            vaultCount: max(1, plan.vaultIds.count),
             // The caveat is only worth a line where the choice it qualifies is
             // actually on the panel.
             hasUnlistableSource: plan.offersBreadthChoice

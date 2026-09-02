@@ -174,6 +174,10 @@ impl SessionGrantInfo {
             // reading a grant should never have to work out whether a missing
             // field means "the whole key" or "an old daemon".
             "breadth": "key",
+            // The vault a broad approval stops at. One implicit local vault
+            // everywhere today; named on the wire so the boundary is a field a
+            // client can read rather than an assumption it has to make.
+            "vaultId": "local",
         });
         if let (Some(last_used_at), Some(map)) = (self.last_used_at, object.as_object_mut()) {
             map.insert("lastUsedAt".into(), json!(last_used_at));
@@ -1048,12 +1052,14 @@ mod tests {
                 "sessionId",
                 "sessionUnlockedAt",
                 "useCount",
+                "vaultId",
             ]
         );
         assert_eq!(object["scope"], json!("session"));
         assert_eq!(object["lockOn"], json!("sleep"));
         assert_eq!(object["useCount"], json!(1));
         assert_eq!(object["breadth"], json!("key"));
+        assert_eq!(object["vaultId"], json!("local"));
     }
 
     #[test]

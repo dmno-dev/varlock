@@ -229,7 +229,12 @@ final class IdentitySessionManager {
         // The broad answer, which is what an unlock covered before there was a
         // choice. Only a panel can narrow it: a caller cannot ask for item scope
         // and a caller cannot ask to be let out of one.
-        var chosenBreadth = SessionGrantBreadth.wholeKey
+        //
+        // Held per vault even though one checkbox currently sets it for all of
+        // them, so that a per-vault control (broad on your own local vault,
+        // narrow on a shared team one) is a change to the panel and nothing
+        // else. See `UnlockBreadthSelection`.
+        var chosenBreadth = UnlockBreadthSelection.uniform(.wholeKey)
         var prompted = false
         var presenceProof: PresenceProof?
 
@@ -317,7 +322,9 @@ final class IdentitySessionManager {
                 chosenDurationMs = decision.durationMs
                 // A breadth the panel never offered cannot be chosen, whatever
                 // comes back: the answer is clamped to the question that was asked.
-                chosenBreadth = plan.offeredBreadths.contains(decision.breadth) ? decision.breadth : .wholeKey
+                chosenBreadth = UnlockBreadthSelection
+                    .uniform(decision.breadth)
+                    .clamped(to: plan.offeredBreadths)
                 presenceProof = proof
                 // Remember only a narrowing, and forget one by choosing the
                 // default again. Best effort: a preference that will not write
@@ -325,7 +332,7 @@ final class IdentitySessionManager {
                 UnlockPreferenceStore.record(
                     projectPath: projectPath,
                     keyIds: plan.promptKeys.map { $0.keyId },
-                    breadth: chosenBreadth,
+                    breadth: chosenBreadth.narrowest,
                     window: GrantWindow(scope: chosenScope, durationMs: chosenDurationMs)
                 )
             }
@@ -368,6 +375,7 @@ final class IdentitySessionManager {
 
             for keyId in keysToOpen {
                 guard let wrapBase64 = identity.wraps[keyId] else { continue }
+                let vaultId = requestContext.display.vaultId(forKey: keyId)
                 guard let wrapData = Data(base64Encoded: wrapBase64) else {
                     throw IdentityStore.IdentityStoreError.malformed(identityId)
                 }
@@ -407,10 +415,17 @@ final class IdentitySessionManager {
                     // for this request, and to nothing else. A key that arrived
                     // with no digests cannot be narrowed to them (that would be a
                     // grant that opens nothing), so it keeps the whole key.
+                    //
+                    // Resolved through the vault, not read off a single answer:
+                    // one checkbox sets every vault today, and this is the line
+                    // that stops being true first when it stops setting them all.
                     coveredItems: coveredItems(
-                        breadth: chosenBreadth,
+                        breadth: chosenBreadth.breadth(forVault: vaultId),
                         digests: requestContext.itemDigests[keyId]
-                    )
+                    ),
+                    // What the user was shown, so a broad approval can never
+                    // reach a vault that was not on the panel.
+                    vaultId: vaultId
                 ))
             }
 
@@ -424,8 +439,8 @@ final class IdentitySessionManager {
                     keyIds: keysToOpen.sorted(),
                     identityId: identityId,
                     scope: chosenScope.rawValue,
-                    breadth: chosenBreadth.rawValue,
-                    coveredItemCount: chosenBreadth == .listedItems
+                    breadth: chosenBreadth.narrowest.rawValue,
+                    coveredItemCount: chosenBreadth.narrowest == .listedItems
                         ? granted.compactMap { $0.coveredItemCount }.reduce(0, +)
                         : nil,
                     requester: requestContext.requester.summary
@@ -507,7 +522,8 @@ final class IdentitySessionManager {
                 existing[keyId] = ExistingGrantSnapshot(
                     scope: live.scope,
                     remainingMs: live.remainingMs,
-                    coveredItems: grants.coveredItems(ref: ref)
+                    coveredItems: grants.coveredItems(ref: ref),
+                    vaultId: grants.vaultId(ref: ref)
                 )
             }
             let requested = keyIds.map { keyId in
@@ -519,7 +535,8 @@ final class IdentitySessionManager {
                     // Which of a key's sources item scope cannot reach. Read off
                     // the source kind, so a kind added later is not silently
                     // assumed to be narrowable.
-                    hasUnlistableSource: display.keys[keyId]?.sources.contains { !$0.isItemScopable } ?? false
+                    hasUnlistableSource: display.keys[keyId]?.sources.contains { !$0.isItemScopable } ?? false,
+                    vaultId: display.vaultId(forKey: keyId)
                 )
             }
             return UnlockPlanner.plan(

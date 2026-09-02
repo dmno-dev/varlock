@@ -102,7 +102,7 @@ When an unlock is needed, the daemon draws a panel before anything is decrypted.
 - **Who is asking**, read from the connecting process: the process chain (`node ← claude ← zsh`) and the terminal it is attached to. A caller cannot dress itself up as something else, because these lines are derived rather than sent.
 - **What would be unlocked**: one row per key, with a count of how many values it covers. Open a row to see the sources behind it, listed together because one approval on a key opens all of them: each `.env` file with the value names it defined, and varlock's [value cache](/guides/caching/) with how many cached values it holds and which plugins and files filled it. Each source carries a badge with how many values it contributes. What is listed is everything that one approval will open during this run, not only the value that happened to need the key first, so the panel reads the same whether an env file or a cached value triggered it. A row whose caller reported nothing says `contents not reported` rather than showing an empty list.
 - **For how long**: the scope.
-- **How much it covers**: the breadth. See [Breadth](#breadth) below.
+- **How much it covers**: one checkbox. See [Breadth](#breadth) below.
 - Optionally the project name and path, shown dimmed underneath. That part is sent by the CLI, so it is treated as decoration: it changes the wording, never the decision. The same goes for everything inside an opened row: the daemon cannot know what an env value is called or what filled a cache, so it labels that detail as reported by the client.
 
 Only after you approve does the system's Touch ID sheet appear. A second unlock in the same session asks only about keys that are new, and asks nothing at all when everything requested is already covered.
@@ -114,18 +114,24 @@ Two answers other than yes:
 
 ### Breadth
 
-The panel asks two questions, not one. Alongside how long an approval lasts, you choose how much of the key it opens:
+Under the scope control sits one checkbox, **Cover anything this vault can open**, ticked by default:
 
-| Choice | Covers |
-|--------|--------|
-| `Only these N` | exactly the encrypted values listed on the panel |
-| `Anything on this key` | anything that key can decrypt (the default) |
+| State | Covers |
+|-------|--------|
+| ticked (the default) | anything the vaults on the panel can decrypt |
+| unticked | exactly the encrypted values listed on the panel |
 
-The narrow choice is enforced by the daemon, not filtered by the CLI. When you pick it, the daemon binds the grant to the SHA-256 digests of the exact ciphertexts it was handed, computed on its own side. A later decrypt carrying anything outside that set is refused and raises a fresh panel, the same way a key nobody has unlocked yet does. Names, files and counts sent by the CLI are display only, and none of them can widen what a grant covers.
+It is always in the same place, whatever the request names. One checkbox governs every key in the request.
 
-The two axes are independent. "Only these 12, for this session" and "anything on this key, once" are both real answers, and the panel says the combination you have picked in a sentence under the controls.
+Unticking it is enforced by the daemon, not filtered by the CLI. The daemon binds the grant to the SHA-256 digests of the exact ciphertexts it was handed, computed on its own side. A later decrypt carrying anything outside that set is refused and raises a fresh panel, the same way a key nobody has unlocked yet does. Names, files and counts sent by the CLI are display only, and none of them can widen what a grant covers.
 
-The [value cache](/guides/caching/) is the exception, and the panel says so where you choose. Cache entries are written by varlock itself and rewritten whenever a cached value is renewed, so an approval bound to their ciphertexts would refuse the next read of a value that only changed because its TTL came round, and you would answer a panel per refresh. So the cache is always covered as a whole. The daemon checks a cache read against varlock's own cache file at a path it computes itself, rather than believing a caller that says a payload came from the cache.
+The two axes are independent, and the sentence under the controls says the combination you have picked. Read that sentence rather than the value list: while the box is ticked, the list is what the grant covers right now, not what defines it, which is why the sentence says "not just the 12 listed above". Unticked, the list is the definition and the sentence says "only".
+
+The [value cache](/guides/caching/) is not narrowed by unticking, and the panel says so next to the box. Cache entries are written by varlock itself and rewritten whenever a cached value is renewed, so an approval bound to their ciphertexts would refuse the next read of a value that only changed because its TTL came round, and you would answer a panel per refresh. So the cache is always covered as a whole. The daemon checks a cache read against varlock's own cache file at a path it computes itself, rather than believing a caller that says a payload came from the cache.
+
+#### The vault boundary
+
+The checkbox has a ceiling that is not a control. A ticked approval covers other keys inside the vaults the panel showed, and never reaches a vault that was not on it: a key in an unshown vault raises a fresh panel however broad the approval was. Today every key sits in one implicit local vault, so this rarely shows itself, but the boundary is the vault rather than the key so that it still holds when there are several.
 
 #### What is preselected
 
@@ -133,13 +139,13 @@ The broad default (anything on this key, for this session) is what an ordinary r
 
 | The request | Opens on |
 |-------------|----------|
-| a key approved here before, in its own project, with somebody watching | anything on this key, this session |
-| a first approval of this key here, an agent session, or somebody else's script driving varlock | only these values, this session |
-| nobody watching the session, a session working outside the project it is unlocking, or code with no signature macOS accepts | only these values, once |
+| a key approved here before, in its own project, with somebody watching | ticked, this session |
+| a first approval of this key here, an agent session, or somebody else's script driving varlock | unticked, this session |
+| nobody watching the session, a session working outside the project it is unlocking, or code with no signature macOS accepts | unticked, once |
 
 varlock's own JavaScript run by `node` or `bun` is not treated as somebody else's script: that is how most installs run.
 
-If you tighten an approval, varlock remembers it and preselects the tighter option next time, saying on the panel that it did. It is stored per project and key under your user varlock directory, never in project files. It only ever remembers tightening: the broad option is already the default, so there is nothing to remember about choosing it, and choosing it again is what forgets a previous narrowing. Because a remembered choice can only narrow, a stale one costs you an extra panel and can never hand anything over.
+If you tighten an approval, varlock remembers it and preselects the tighter option next time, saying on the panel that it did. It is stored per project and key under your user varlock directory, never in project files. It only ever remembers tightening: the ticked box is already the default, so there is nothing to remember about leaving it ticked, and ticking it again is what forgets a previous narrowing. Because a remembered choice can only narrow, a stale one costs you an extra panel and can never hand anything over.
 
 To clear it without waiting to be asked again:
 

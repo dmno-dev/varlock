@@ -1,22 +1,24 @@
 import Foundation
 import CryptoKit
 
-/// The second axis of an approval: how MUCH of a key it opens.
+/// The second axis of an approval: how MUCH an approval opens.
 ///
 /// Duration answers "for how long". This answers "over what", and the two are
 /// independent: a session-long approval over three named values is a real
-/// answer, and so is a single-use approval over everything a key can open.
+/// answer, and so is a single-use approval over everything a vault can open.
 ///
 /// The narrow side is enforced by the daemon, not described by the client. What
 /// it covers is a set of SHA-256 digests the daemon computed itself from the
 /// ciphertexts it was handed at unlock time, so a client cannot widen a grant by
 /// relabelling anything: a payload whose digest is not in the set is refused and
 /// raises a fresh panel, exactly as a key nobody has unlocked yet would.
+///
+/// The broad side has a ceiling that is not a control: see `VaultBoundary`.
 public enum SessionGrantBreadth: String, CaseIterable {
     /// Only the ciphertexts that were on the panel when this was approved.
     case listedItems = "listed"
-    /// Anything the key can open, which is what an approval covered before
-    /// there was a choice to make.
+    /// Anything inside the vaults the panel showed, which is what an approval
+    /// covered before there was a choice to make.
     case wholeKey = "key"
 
     public init?(wireValue: String?) {
@@ -42,6 +44,84 @@ public enum SessionGrantBreadth: String, CaseIterable {
         let present = values.compactMap { $0 }
         guard let first = present.first else { return builtInDefault }
         return present.reduce(first) { $0.restrictiveness <= $1.restrictiveness ? $0 : $1 }
+    }
+}
+
+/// Which breadth applies to which vault.
+///
+/// One control sets it for every vault in a request today, because a request
+/// names one vault in practice and a second checkbox for a distinction nobody
+/// can yet make would be a control with nothing to control.
+///
+/// It resolves PER VAULT anyway, which is the point of the type. A per-vault
+/// checkbox (broad on your own local vault, narrow on a shared team one) is a
+/// real thing to want and is deliberately deferred rather than ruled out;
+/// building the resolution this way now means adding it later is a change to
+/// the panel and nothing else. Nothing downstream asks "what did the user
+/// pick", it asks "what applies to this vault".
+public struct UnlockBreadthSelection: Equatable {
+    /// Per-vault answers, where one has been made.
+    private var byVault: [String: SessionGrantBreadth]
+    /// What a vault with no answer of its own gets.
+    private let fallback: SessionGrantBreadth
+
+    public init(fallback: SessionGrantBreadth, byVault: [String: SessionGrantBreadth] = [:]) {
+        self.fallback = fallback
+        self.byVault = byVault
+    }
+
+    /// One answer for every vault, which is what the panel's single checkbox
+    /// produces today.
+    public static func uniform(_ breadth: SessionGrantBreadth) -> UnlockBreadthSelection {
+        return UnlockBreadthSelection(fallback: breadth)
+    }
+
+    public func breadth(forVault vaultId: String) -> SessionGrantBreadth {
+        return byVault[vaultId] ?? fallback
+    }
+
+    /// Clamp to what the panel actually offered, per vault.
+    ///
+    /// A breadth that was never on the panel cannot be chosen, whatever comes
+    /// back from it: the answer is bounded by the question that was asked.
+    public func clamped(to offered: [SessionGrantBreadth]) -> UnlockBreadthSelection {
+        func allow(_ value: SessionGrantBreadth) -> SessionGrantBreadth {
+            return offered.contains(value) ? value : .wholeKey
+        }
+        return UnlockBreadthSelection(
+            fallback: allow(fallback),
+            byVault: byVault.mapValues(allow)
+        )
+    }
+
+    /// The single answer, for the places that still speak in one (the audit
+    /// record's summary line, and remembering a choice). The narrowest of what
+    /// was chosen, so a summary can never claim less caution than was applied.
+    public var narrowest: SessionGrantBreadth {
+        return SessionGrantBreadth.narrowest([fallback] + byVault.values.map { $0 })
+    }
+}
+
+/// The line a broad approval may not cross.
+///
+/// Breadth is a control; this is not. Approving broadly says "anything in what
+/// you just showed me", and what the panel showed is a set of vaults. A key in
+/// a vault that was never on the panel is not something the user said yes to,
+/// however broad they were feeling, so it asks again.
+///
+/// Today every key sits in one implicit local vault, so this mostly holds
+/// trivially. It is written as a vault rule rather than a key rule anyway,
+/// because the moment a second vault exists it is the only rule that is
+/// defensible, and a boundary retrofitted after the fact is a boundary with
+/// holes in it.
+public enum VaultBoundary {
+    /// The vault every key belongs to until there are vaults to belong to.
+    public static let localVaultId = "local"
+
+    /// Whether a live grant's approval reaches a key in this vault.
+    public static func covers(approvedVaultId: String?, requestedVaultId: String) -> Bool {
+        guard let approvedVaultId else { return false }
+        return approvedVaultId == requestedVaultId
     }
 }
 

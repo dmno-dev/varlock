@@ -43,19 +43,24 @@ public struct RequestedKey: Equatable {
     /// varlock's value cache. See `SessionGrantBreadth`, and the line the panel
     /// draws about it.
     public let hasUnlistableSource: Bool
+    /// The vault this key lives in, which is the line a broad approval may not
+    /// cross. `VaultBoundary.localVaultId` until there are vaults.
+    public let vaultId: String
 
     public init(
         keyId: String,
         policy: KeyAuthPolicy = .standard,
         itemCount: Int? = nil,
         itemDigests: Set<String> = [],
-        hasUnlistableSource: Bool = false
+        hasUnlistableSource: Bool = false,
+        vaultId: String = VaultBoundary.localVaultId
     ) {
         self.keyId = keyId
         self.policy = policy
         self.itemCount = itemCount
         self.itemDigests = itemDigests
         self.hasUnlistableSource = hasUnlistableSource
+        self.vaultId = vaultId
     }
 }
 
@@ -74,11 +79,20 @@ public struct ExistingGrantSnapshot: Equatable {
     /// carrying something it never covered, so this sits beside the window
     /// rather than behind it: the two are independent, and coverage means both.
     public let coveredItems: Set<String>?
+    /// The vault this grant was approved over. A key that now reports a
+    /// different one is not covered by it, however broad or long it is.
+    public let vaultId: String?
 
-    public init(scope: SessionGrantScope, remainingMs: Int64, coveredItems: Set<String>? = nil) {
+    public init(
+        scope: SessionGrantScope,
+        remainingMs: Int64,
+        coveredItems: Set<String>? = nil,
+        vaultId: String? = VaultBoundary.localVaultId
+    ) {
         self.scope = scope
         self.remainingMs = remainingMs
         self.coveredItems = coveredItems
+        self.vaultId = vaultId
     }
 }
 
@@ -139,6 +153,15 @@ public struct UnlockPlan: Equatable {
 
     /// Whether anything in the question has a source item scope does not reach.
     public var hasUnlistableSource: Bool { promptKeys.contains { $0.hasUnlistableSource } }
+
+    /// The vaults this approval would be over, in the order their keys appear.
+    ///
+    /// What the checkbox's label counts, and the set a broad approval is bounded
+    /// by. One entry today, since every key is in the local vault.
+    public var vaultIds: [String] {
+        var seen = Set<String>()
+        return promptKeys.compactMap { seen.insert($0.vaultId).inserted ? $0.vaultId : nil }
+    }
 }
 
 /// Preset windows offered behind the "for a set time" choice.
@@ -210,7 +233,8 @@ public enum UnlockPlanner {
                 live: live,
                 requestedScope: requestedScope,
                 requestedDurationMs: requestedDurationMs,
-                requestedItems: key.itemDigests
+                requestedItems: key.itemDigests,
+                requestedVaultId: key.vaultId
             ) {
                 coveredKeys.append(key)
             } else {
@@ -256,9 +280,16 @@ public enum UnlockPlanner {
         live: ExistingGrantSnapshot,
         requestedScope: SessionGrantScope,
         requestedDurationMs: Int64?,
-        requestedItems: Set<String> = []
+        requestedItems: Set<String> = [],
+        requestedVaultId: String = VaultBoundary.localVaultId
     ) -> Bool {
         guard live.remainingMs > 0 else { return false }
+        // The vault first, because it is the one bound that no answer on the
+        // panel can lift. A key that has moved vault since it was approved was
+        // never approved, and the breadth control has nothing to say about it.
+        guard VaultBoundary.covers(approvedVaultId: live.vaultId, requestedVaultId: requestedVaultId) else {
+            return false
+        }
         if let coveredItems = live.coveredItems, !requestedItems.isSubset(of: coveredItems) {
             return false
         }
