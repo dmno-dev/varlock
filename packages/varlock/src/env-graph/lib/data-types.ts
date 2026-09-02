@@ -26,6 +26,20 @@ export type CoercedType = | 'string'
   // either may be absent when that side is unconstrained
   | { recordOf: { keys?: CoercedType, values?: CoercedType } };
 
+/**
+ * Whether values of this type can never be matched by runtime redaction, which only ever
+ * replaces strings: a number or boolean, or a composite made of them. A free-form
+ * `object` or an untyped record is unknown at the type level and left to the value check.
+ */
+export function isUnredactableCoercedType(ct: CoercedType | undefined): boolean {
+  if (ct === 'number' || ct === 'int' || ct === 'boolean') return true;
+  if (!ct || typeof ct !== 'object') return false;
+  if ('enum' in ct) return ct.enum.length > 0 && ct.enum.every((member) => typeof member !== 'string');
+  if ('arrayOf' in ct) return isUnredactableCoercedType(ct.arrayOf);
+  if ('recordOf' in ct) return ct.recordOf.values ? isUnredactableCoercedType(ct.recordOf.values) : false;
+  return false;
+}
+
 /** a composite coerced value (array/object shaped) cannot be losslessly joined into a
  * flat separator string, so serialization for these always falls back to JSON */
 export function isCompositeCoercedType(ct: CoercedType | undefined): boolean {

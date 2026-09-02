@@ -23,6 +23,7 @@ function describeSensitiveSource(item: ConfigItem): string {
     case 'default-decorator': return 'from @defaultSensitive';
     case 'prefix': return 'from a @defaultSensitive prefix rule';
     case 'proxy': return 'forced sensitive by its @proxy rule, so the agent only sees a placeholder';
+    case 'demoted': return 'not sensitive: a number, boolean, or the @currentEnv item can never be redacted, so @defaultSensitive does not apply';
     default: return 'default: items are sensitive unless marked @public';
   }
 }

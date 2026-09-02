@@ -7,7 +7,7 @@ import {
   ParsedEnvSpecFunctionCall, ParsedEnvSpecStaticValue,
 } from '@env-spec/parser';
 
-import { EnvGraphDataType, isCompositeCoercedType } from './data-types';
+import { EnvGraphDataType, isCompositeCoercedType, isUnredactableCoercedType } from './data-types';
 import { EnvGraph } from './env-graph';
 import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
@@ -406,14 +406,18 @@ export class ConfigItem {
       // currently only static value / literal resolvers do this - but you can imagine another
       // resolver knowing the type ahead of time
       // (maybe we only want to do this if the value is set in a schema file? or if all inferred types match?)
-      this.dataType = this.inferDataTypeFromResolver() ?? this.envGraph.dataTypesRegistry.string();
+      this.dataType = this.inferDataTypeFromResolver(this.valueResolver) ?? this.envGraph.dataTypesRegistry.string();
     }
   }
 
-  /** infer a data type instance from the shape of the (untyped) value resolver */
-  private inferDataTypeFromResolver(): EnvGraphDataType | undefined {
+  /**
+   * infer a data type instance from the shape of an (untyped) value resolver. The resolver
+   * is a required argument on purpose: a default of `this.valueResolver` would silently
+   * kick in when a caller passes an explicit `undefined`, which is exactly what
+   * {@link schemaDataType} does for an item with no schema-level value.
+   */
+  private inferDataTypeFromResolver(resolver: Resolver | undefined): EnvGraphDataType | undefined {
     const registry = this.envGraph.dataTypesRegistry;
-    const resolver = this.valueResolver;
     if (!resolver) return undefined;
 
     // a literal value (`ITEM=[a, b]` / `ITEM={k=v}`) implies a composite type - same
@@ -443,6 +447,21 @@ export class ConfigItem {
       return registry[inferredTypeName]();
     }
     return undefined;
+  }
+
+  /**
+   * The type as the schema declares or implies it, ignoring env-specific sources.
+   *
+   * `dataType` infers from whichever source wins, `.env.local` included, so an untyped
+   * `API_KEY=` becomes a number the moment a local placeholder is `12345`. Anything that
+   * decides *sensitivity* has to use this instead, or sensitivity would flip per
+   * environment based on a value - in the unsafe direction, since a demoted item is also
+   * `@static` and eligible to be inlined into a build.
+   */
+  get schemaDataType(): EnvGraphDataType | undefined {
+    if (this._typeSpecPlan) return this.dataType;
+    const schemaResolver = this.defsForTypeGeneration.find((d) => d.itemDef.resolver)?.itemDef.resolver;
+    return this.inferDataTypeFromResolver(schemaResolver);
   }
 
   get dependencyKeys() {
@@ -569,13 +588,13 @@ export class ConfigItem {
   _isSensitive: boolean = true;
   _sensitiveExplicitlySet = false;
   /** how sensitivity was determined (undefined = the global default that items are sensitive) */
-  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy';
+  _sensitiveSource?: 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'demoted';
   get isSensitive(): boolean {
     return this._isSensitive;
   }
 
   /** how this item's sensitivity was determined — used by `varlock explain` */
-  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'default' {
+  get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'demoted' | 'default' {
     return this._sensitiveSource ?? 'default';
   }
 
@@ -608,17 +627,33 @@ export class ConfigItem {
   get allowShortValue(): boolean {
     return this._allowShortValue;
   }
+  /** whether this item is the env flag of any loaded source */
+  private get isEnvFlag(): boolean {
+    return this.envGraph.sortedDataSources.some((source) => source._envFlagKey === this.key);
+  }
+
   /**
-   * The env flag drives @import(enabled=...) / forEnv() and is echoed by most tools in
-   * the stack. It is a mode name ("dev", "production"), never a secret, and redacting it
-   * rewrites that name everywhere it appears.
+   * Some items can never be meaningfully sensitive: a number or boolean (redaction only
+   * matches strings, and a boolean holds no secret anyway), a composite of them, or the
+   * env flag (a mode name that every tool in the stack echoes). When `@defaultSensitive`
+   * swept one in, it is simply not sensitive - the default was never a claim about that
+   * item. An explicit `@sensitive` is such a claim, and a wrong one, so that fails.
+   *
+   * Keyed off the schema-level type, never the effective one - see {@link schemaDataType}.
    */
-  private checkNotSensitiveEnvFlag() {
+  private applySensitivityDemotion() {
     if (!this._isSensitive || this.isBuiltin) return;
-    if (!this.envGraph.sortedDataSources.some((source) => source._envFlagKey === this.key)) return;
-    this._schemaErrors.push(new SchemaError('the @currentEnv item cannot be sensitive', {
-      tip: 'Mark it `@sensitive=false` (or `@public`). If it is only sensitive because of `@defaultSensitive`, consider `@defaultSensitive=false` with explicit `@sensitive` on your real secrets.',
-    }));
+    const canNeverBeSecret = isUnredactableCoercedType(this.schemaDataType?.coercedType) || this.isEnvFlag;
+    if (!canNeverBeSecret) return;
+    if (this._sensitiveExplicitlySet) {
+      this._schemaErrors.push(new SchemaError(
+        this.isEnvFlag ? 'the @currentEnv item cannot be sensitive' : 'a value of this type cannot be sensitive',
+        { tip: 'Redaction only matches strings, so this can never be protected.\nIf it is a secret, make it a string: `@type=string`, or quote the value. Otherwise mark it `@sensitive=false` (or `@public`).' },
+      ));
+      return;
+    }
+    this._isSensitive = false;
+    this._sensitiveSource = 'demoted';
   }
 
   /**
@@ -669,7 +704,7 @@ export class ConfigItem {
     // Resolve the normal sensitivity signals first (so @sensitive/@public schema
     // validation still runs), then force sensitivity for @proxy-managed items below.
     await this.resolveSensitiveSource();
-    this.checkNotSensitiveEnvFlag();
+    this.applySensitivityDemotion();
 
     // @proxy-managed items are always sensitive: the proxied child only ever sees a
     // placeholder while the real value is injected at the wire, so force sensitivity
@@ -1216,6 +1251,7 @@ export class ConfigItem {
     const sensitiveFromDataType = this.dataType?.isSensitive;
     try {
       let foundSensitive = false;
+      let explicitlySet = false;
       for (const def of defs) {
         const sensitiveDecs = def.itemDef.decorators?.filter((d) => d.name === 'sensitive' || d.name === 'public') || [];
         const sensitiveDec = sensitiveDecs[0];
@@ -1230,6 +1266,7 @@ export class ConfigItem {
           if (sensitiveDecValue !== undefined) {
             isSensitive = usingPublic ? !sensitiveDecValue : sensitiveDecValue;
             foundSensitive = true;
+            explicitlySet = true;
             break;
           }
         }
@@ -1258,6 +1295,12 @@ export class ConfigItem {
       }
       if (!foundSensitive && sensitiveFromDataType !== undefined) {
         isSensitive = sensitiveFromDataType;
+      }
+      // mirrors applySensitivityDemotion - an inherited number/boolean/env flag is not
+      // sensitive, and generated public types must agree with the resolved graph
+      if (isSensitive && !explicitlySet && !this.isBuiltin
+        && (isUnredactableCoercedType(this.schemaDataType?.coercedType) || this.isEnvFlag)) {
+        isSensitive = false;
       }
       // @proxy forces sensitivity (same override as processSensitive) so generated
       // types mark a @public @proxy item sensitive rather than contradicting runtime.

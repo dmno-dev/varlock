@@ -4,7 +4,9 @@ import {
 import path from 'node:path';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
-import { EnvGraph, DotEnvFileDataSource, SchemaError } from '../index';
+import {
+  EnvGraph, DotEnvFileDataSource, DirectoryDataSource, SchemaError,
+} from '../index';
 import { createEnvGraphDataType } from '../lib/data-types';
 
 async function loadSchema(contents: string) {
@@ -541,36 +543,59 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     expect(g.configSchema.AT_FLOOR_ACKED.validationState).toBe('valid');
   });
 
-  // a number or boolean is never in the redaction map, so it cannot be sensitive however
-  // it got that way - and nothing here demotes it, so @dynamic (and codegen) are untouched
-  test('a sensitive number or boolean fails, whether marked or inherited', async () => {
+  // a number or boolean is never in the redaction map. When @defaultSensitive swept one
+  // in it is simply not sensitive - the default was never a claim about that item. An
+  // explicit @sensitive is such a claim, and a wrong one.
+  test('an inherited number or boolean is demoted; an explicit one fails', async () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
+      PORT=3000
+      DEBUG=true
       # @sensitive @type=number
       DECLARED_NUM=987654321
-      INHERITED_NUM=987654321
-      # @sensitive @type=boolean
+      # @sensitive
       DECLARED_BOOL=true
-      INHERITED_BOOL=false
       # quoting keeps it a string, which is the fix the error points to
       # @sensitive
       QUOTED="00987654321987"
-      # @sensitive=false
-      PUBLIC_PORT=8080
     `);
-    expect(g.configSchema.DECLARED_NUM.errors.map((e) => e.message)).toEqual(['a number cannot be sensitive']);
-    expect(g.configSchema.INHERITED_NUM.validationState).toBe('error');
-    expect(g.configSchema.DECLARED_BOOL.errors.map((e) => e.message)).toEqual(['a boolean cannot be sensitive']);
-    expect(g.configSchema.INHERITED_BOOL.validationState).toBe('error');
+    for (const key of ['PORT', 'DEBUG']) {
+      const item = g.configSchema[key];
+      expect(item.isSensitive, key).toBe(false);
+      expect(item.sensitiveSource, key).toBe('demoted');
+      expect(item.validationState, key).toBe('valid');
+      // demotion is a schema-level decision, so codegen must agree with the resolved graph
+      expect((await item.getTypeGenInfo()).isSensitive, key).toBe(false);
+    }
+    expect(g.configSchema.DECLARED_NUM.errors.map((e) => e.message)).toEqual(['a value of this type cannot be sensitive']);
+    expect(g.configSchema.DECLARED_BOOL.validationState).toBe('error');
+    expect(g.configSchema.QUOTED.isSensitive).toBe(true);
     expect(g.configSchema.QUOTED.validationState).toBe('valid');
-    expect(g.configSchema.PUBLIC_PORT.validationState).toBe('valid');
+  });
 
-    const bool = g.configSchema.INHERITED_BOOL;
-    expect(bool.isSensitive).toBe(true);
-    expect(bool.isDynamic).toBe(true);
-    const typeGenInfo = await bool.getTypeGenInfo();
-    expect(typeGenInfo.isSensitive).toBe(bool.isSensitive);
+  // demotion keys off the schema-level type, never the effective one: an untyped item
+  // whose local placeholder happens to be numeric must not flip public (and @static, and
+  // inlinable) in that one environment. It stays sensitive and the value is rejected.
+  test('a numeric value from an env-specific file does not demote an untyped item', async () => {
+    const g = new EnvGraph();
+    const dir = '/virtual-sensitive-test';
+    g.setVirtualImports(dir, {
+      '.env.schema': outdent`
+        # @defaultRequired=false
+        # ---
+        API_KEY=
+      `,
+      '.env.local': 'API_KEY=12345',
+    });
+    await g.setRootDataSource(new DirectoryDataSource(dir));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+
+    const item = g.configSchema.API_KEY;
+    expect(item.dataType?.name).toBe('number'); // the effective type did infer from .env.local
+    expect(item.isSensitive).toBe(true); // but sensitivity did not follow it
+    expect(item.errors.map((e) => e.message)).toEqual(['a number cannot be sensitive']);
   });
 
   // a composite is checked per element, since that is how redaction registers it
@@ -578,25 +603,32 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
     const g = await loadSchema(outdent`
       # @defaultRequired=false
       # ---
+      # schema-inferred array(number): demoted like a bare number
+      INHERITED_NUMS=[111111,222222]
       # @sensitive @type=array(number)
       NUM_LIST=[111111,222222]
-      INHERITED_NUMS=[111111,222222]
-      # @sensitive @type=record(number)
-      NUM_REC={low=111111}
       # @sensitive @type=array(string)
       STR_LIST=[averylongsecretvalue,anotherlongsecretval]
       # the joined form is long, but "x" registers on its own
       # @sensitive @type=array(string)
       SHORT_ELEMENT=[averylongsecretvalue,x]
     `);
-    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['sensitive value has elements that are not strings, which cannot be redacted']);
-    expect(g.configSchema.INHERITED_NUMS.validationState).toBe('error');
-    expect(g.configSchema.NUM_REC.validationState).toBe('error');
+    expect(g.configSchema.INHERITED_NUMS.isSensitive).toBe(false);
+    expect(g.configSchema.NUM_LIST.errors.map((e) => e.message)).toEqual(['a value of this type cannot be sensitive']);
     expect(g.configSchema.STR_LIST.validationState).toBe('valid');
     expect(g.configSchema.SHORT_ELEMENT.errors[0].message).toContain('only 1 character long');
   });
 
-  test('the @currentEnv item cannot be sensitive', async () => {
+  test('the @currentEnv item is demoted when inherited, rejected when explicit', async () => {
+    const inherited = await loadSchema(outdent`
+      # @defaultRequired=false
+      # @currentEnv=$APP_ENV
+      # ---
+      APP_ENV=development
+    `);
+    expect(inherited.configSchema.APP_ENV.isSensitive).toBe(false);
+    expect(inherited.configSchema.APP_ENV.validationState).toBe('valid');
+
     const explicit = await loadSchema(outdent`
       # @defaultRequired=false
       # @currentEnv=$APP_ENV
@@ -605,23 +637,6 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       APP_ENV=development
     `);
     expect(explicit.configSchema.APP_ENV.errors.map((e) => e.message)).toEqual(['the @currentEnv item cannot be sensitive']);
-
-    const inherited = await loadSchema(outdent`
-      # @defaultRequired=false
-      # @currentEnv=$APP_ENV
-      # ---
-      APP_ENV=development
-    `);
-    expect(inherited.configSchema.APP_ENV.validationState).toBe('error');
-
-    const optedOut = await loadSchema(outdent`
-      # @defaultRequired=false
-      # @currentEnv=$APP_ENV
-      # ---
-      # @sensitive=false
-      APP_ENV=development
-    `);
-    expect(optedOut.configSchema.APP_ENV.validationState).toBe('valid');
   });
 
   test('a non-sensitive value containing a sensitive one fails', async () => {
@@ -659,7 +674,8 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
       HOSTS=[secret-host-one.internal,secret-host-two.internal]
       PUBLIC_HOSTS=[secret-host-one.internal,secret-host-two.internal]
 
-      # a sensitive number is its own error, not a collision candidate
+      # an explicitly sensitive number fails on its own and is not a collision candidate
+      # @sensitive
       SERVICE_PORT=3000
       SERVICE_URL=https://api.example.com:3000/v1
     `);
