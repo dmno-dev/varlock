@@ -333,18 +333,13 @@ final class PanelSegmentedControl: NSView {
     private var buttons: [PanelSegmentButton] = []
     private(set) var selectedIndex = 0
     private let onChange: (Int) -> Void
-    /// Called when the segment that is already selected is clicked again, which
-    /// is how the duration menu is reopened.
-    private let onReselect: (Int, NSView) -> Void
 
     init(
         labels: [String],
         selectedIndex: Int,
-        onChange: @escaping (Int) -> Void,
-        onReselect: @escaping (Int, NSView) -> Void = { _, _ in }
+        onChange: @escaping (Int) -> Void
     ) {
         self.onChange = onChange
-        self.onReselect = onReselect
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = PanelStyle.segmentTrack.cgColor
@@ -374,10 +369,10 @@ final class PanelSegmentedControl: NSView {
     required init?(coder: NSCoder) { fatalError("not used") }
 
     private func handleClick(index: Int, view: NSView) {
-        if index == selectedIndex {
-            onReselect(index, view)
-            return
-        }
+        // Clicking what is already selected does nothing. It used to reopen the
+        // duration menu; there is no menu now, and a control that fires on a
+        // click that changes nothing is a control that can surprise somebody.
+        guard index != selectedIndex else { return }
         select(index: index, notify: true)
     }
 
@@ -397,10 +392,6 @@ final class PanelSegmentedControl: NSView {
         buttons[index].setTitle(title)
     }
 
-    func view(at index: Int) -> NSView? {
-        guard index >= 0, index < buttons.count else { return nil }
-        return buttons[index]
-    }
 }
 
 /// One segment of the scope control.

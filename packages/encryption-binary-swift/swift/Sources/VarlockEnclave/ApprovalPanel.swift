@@ -114,6 +114,8 @@ final class ApprovalPanel: NSObject {
     private var duration: DurationPreset = .default
     /// The breadth checkbox, when this request has a breadth choice to make.
     private var breadthControl: PanelCheckbox?
+    /// The row of windows, shown while `duration` is the selected scope.
+    private var durationControl: PanelSegmentedControl?
     private var breadths: [SessionGrantBreadth] = []
     private var listedItemCount = 0
     private var vaultCount = 1
@@ -674,7 +676,12 @@ final class ApprovalPanel: NSObject {
     /// sentence underneath still says what the grant covers, so nothing about
     /// this is hidden state.
     private func syncBreadthVisibility() {
-        breadthControl?.isHidden = selectedScope(fallback: flow.scope) == .once
+        let scope = selectedScope(fallback: flow.scope)
+        breadthControl?.isHidden = scope == .once
+        // The windows only mean anything while their scope is the chosen one.
+        // Hidden inside its holder, like the checkbox, so the row reserves its
+        // height whether or not it is drawn and nothing under it moves.
+        durationControl?.isHidden = scope != .duration
     }
 
     private func breadthChanged() {
@@ -682,43 +689,12 @@ final class ApprovalPanel: NSObject {
         relayout()
     }
 
-    /// Offer the windows. Called when the duration segment is chosen and again
-    /// whenever it is clicked, so changing your mind costs one click.
+    /// Take a chosen window: say it on the scope segment, and put it in the answer.
     ///
-    /// A menu that cannot be drawn must not leave the control dead: the fallback
-    /// steps to the next window, which keeps every option reachable by clicking.
-    private func showDurationMenu(from view: NSView) {
-        let menu = NSMenu()
-        // We own every item here and set its target ourselves. Left to validate
-        // them, AppKit walks a responder chain that does not reach us from
-        // inside the panel's modal session, and greys out all four.
-        menu.autoenablesItems = false
-        for preset in DurationPreset.allCases {
-            let item = NSMenuItem(
-                title: "For \(preset.label)",
-                action: #selector(durationChosen(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = NSNumber(value: preset.milliseconds)
-            item.state = preset == duration ? .on : .off
-            menu.addItem(item)
-        }
-        let shown = menu.popUp(
-            positioning: menu.items.first { ($0.representedObject as? NSNumber)?.int64Value == duration.milliseconds },
-            at: NSPoint(x: 0, y: view.bounds.height + 4),
-            in: view
-        )
-        if !shown { apply(duration: duration.next) }
-    }
-
-    @objc private func durationChosen(_ sender: NSMenuItem) {
-        guard let ms = (sender.representedObject as? NSNumber)?.int64Value,
-              let preset = DurationPreset(rawValue: ms) else { return }
-        apply(duration: preset)
-    }
-
-    /// Take a chosen window: say it on the segment, and put it in the answer.
+    /// The segment keeps saying which window is chosen ("For 4 hours") even
+    /// though the row below is showing the same thing, because the row is only
+    /// on screen while `duration` is selected and the segment is what the eye
+    /// lands on when reading the panel back.
     private func apply(duration preset: DurationPreset) {
         duration = preset
         if let index = scopes.firstIndex(of: .duration) {
@@ -868,17 +844,7 @@ final class ApprovalPanel: NSObject {
             let control = PanelSegmentedControl(
                 labels: content.scopes.map { scopeLabel($0, chosen: $0 == content.defaultScope) },
                 selectedIndex: content.scopes.firstIndex(of: content.defaultScope) ?? 0,
-                onChange: { [weak self] index in
-                    self?.scopeChanged(index)
-                    guard let self, index < self.scopes.count, self.scopes[index] == .duration else { return }
-                    // Choosing "for a set time" is only half an answer, so the
-                    // windows are offered straight away.
-                    if let view = self.scopeControl?.view(at: index) { self.showDurationMenu(from: view) }
-                },
-                onReselect: { [weak self] index, view in
-                    guard let self, index < self.scopes.count, self.scopes[index] == .duration else { return }
-                    self.showDurationMenu(from: view)
-                }
+                onChange: { [weak self] index in self?.scopeChanged(index) }
             )
             scopeControl = control
             column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
@@ -892,6 +858,37 @@ final class ApprovalPanel: NSObject {
             label.alignment = .center
             column.setCustomSpacing(15, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(label))
+        }
+
+        // The windows, as a row rather than behind a dropdown.
+        //
+        // This was an NSMenu, and it broke twice for unrelated reasons: once
+        // unwired, then with every option greyed out because AppKit validates
+        // menu items down a responder chain that does not reach this panel from
+        // inside its modal session. It was also the last surface here drawn in
+        // the system's appearance rather than the panel's own, and it carried a
+        // fallback that stepped to the next window when the menu would not
+        // open, which meant a failure to draw could silently change what
+        // somebody was about to approve. None of that is worth keeping for a
+        // list of four fixed options: they fit on one row, so they go on one
+        // row, visible without a click and chosen in one.
+        //
+        // Presets only, deliberately. Typing a duration with a sensor armed
+        // invites unit ambiguity and a validation error on a security prompt,
+        // and tends to push people to the maximum anyway. The 12h cap is the
+        // last option and is not configurable from here.
+        if content.scopes.contains(.duration) {
+            let windows = PanelSegmentedControl(
+                labels: DurationPreset.allCases.map { $0.label },
+                selectedIndex: DurationPreset.allCases.firstIndex(of: duration) ?? 0,
+                onChange: { [weak self] index in
+                    guard let self, index < DurationPreset.allCases.count else { return }
+                    self.apply(duration: DurationPreset.allCases[index])
+                }
+            )
+            durationControl = windows
+            column.setCustomSpacing(8, after: column.arrangedSubviews.last!)
+            column.addArrangedSubview(centred(windows))
         }
 
         // The breadth control, in ONE place: directly under the duration
@@ -1169,9 +1166,13 @@ final class ApprovalPanel: NSObject {
 
     /// "For a set time" until a window has actually been picked, and the window
     /// itself afterwards: the segment says what was chosen, not what could be.
+    ///
+    /// No caret. It used to carry one because clicking the segment opened a
+    /// menu; the windows are a row of their own now, so a disclosure mark here
+    /// would point at something that does not open.
     private func scopeLabel(_ scope: SessionGrantScope, chosen: Bool) -> String {
         guard scope == .duration, chosen else { return PanelContent.scopeLabel(scope) }
-        return "For \(duration.label) \u{25BE}"
+        return "For \(duration.label)"
     }
 
     /// Wrap a view so it fills the panel's width inside the vertical stack.

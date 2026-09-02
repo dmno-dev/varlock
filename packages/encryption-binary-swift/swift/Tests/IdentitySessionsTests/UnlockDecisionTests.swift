@@ -181,16 +181,14 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(DurationPreset.allCases.last?.milliseconds, SessionGrantTable.maxGrantMs)
     }
 
-    func testTheWindowsCycleSoThePickerIsNeverDead() {
-        // The panel steps through these when a menu cannot be drawn, so every
-        // window has to stay reachable by clicking.
-        var seen: [DurationPreset] = [.default]
-        var current = DurationPreset.default
-        for _ in 0..<DurationPreset.allCases.count {
-            current = current.next
-            if !seen.contains(current) { seen.append(current) }
-        }
-        XCTAssertEqual(Set(seen), Set(DurationPreset.allCases))
+    func testEveryWindowIsOfferedAtOnce() {
+        // The panel draws all of them as a row, so there is no ordering, no
+        // stepping, and nothing that can leave a window unreachable. This just
+        // holds the list itself steady.
+        XCTAssertEqual(
+            DurationPreset.allCases.map { $0.label },
+            ["1 hour", "4 hours", "8 hours", "12 hours"]
+        )
     }
 
     // MARK: - Panel content

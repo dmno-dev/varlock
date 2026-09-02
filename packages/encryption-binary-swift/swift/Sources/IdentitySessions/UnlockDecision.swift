@@ -183,13 +183,6 @@ public enum DurationPreset: Int64, CaseIterable {
         }
     }
 
-    /// The next window in the list, wrapping. Used where a menu cannot be drawn.
-    public var next: DurationPreset {
-        let all = DurationPreset.allCases
-        let index = all.firstIndex(of: self) ?? 0
-        return all[(index + 1) % all.count]
-    }
-
     public var milliseconds: Int64 { rawValue }
 
     public static let `default`: DurationPreset = .oneHour
