@@ -31,6 +31,7 @@ import {
 } from './errors';
 import { getErrorLocation } from './error-location';
 import { getWindowsPathHint } from './path-hints';
+import type { ProxyTransformSchemeDef } from '../../proxy/types';
 import { createResolver, type ResolverDef } from './resolver';
 import type {
   DecoratorInstance, ItemDecoratorDef, RootDecoratorDef, RootDecoratorInstance,
@@ -275,6 +276,19 @@ export class VarlockPlugin {
   registerResolverFunction<T>(resolverDef: ResolverDef<T>) {
     this.debug('registerResolverFunction', resolverDef.name);
     this.resolverFunctions!.push(resolverDef);
+  }
+
+  readonly proxyTransformSchemes?: Array<{ scheme: string } & ProxyTransformSchemeDef> = [];
+  /**
+   * Register a credential-proxy request-transform scheme, usable in schemas as
+   * `@proxy(..., transform={scheme="<name>", ...})`. The def's option specs
+   * drive validation and placeholder management; `apply` runs in the proxy
+   * process per matching request, receiving the final outbound request and the
+   * resolved real values of the scheme's item-role options.
+   */
+  registerProxyTransformScheme(schemeDef: { scheme: string } & ProxyTransformSchemeDef) {
+    this.debug('registerProxyTransformScheme', schemeDef.scheme);
+    this.proxyTransformSchemes!.push(schemeDef);
   }
 
   /** @internal telemetry attributes provider registered by the plugin (collected for official plugins only) */
@@ -535,6 +549,10 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   for (const resolverDef of plugin.resolverFunctions || []) {
     // might want to move into plugin load process
     graph.registerResolver(createResolver(resolverDef));
+  }
+  for (const transformSchemeDef of plugin.proxyTransformSchemes || []) {
+    const { scheme, ...schemeDef } = transformSchemeDef;
+    graph.registerProxyTransformScheme(scheme, schemeDef);
   }
 }
 

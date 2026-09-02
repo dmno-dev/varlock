@@ -1,0 +1,11 @@
+{
+  "name": "@varlock/test-transform-plugin",
+  "private": true,
+  "description": "plugin used in automated tests - registers a fake proxy transform scheme",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  },
+  "files": ["dist"]
+}

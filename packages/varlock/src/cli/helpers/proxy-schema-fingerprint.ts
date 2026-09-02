@@ -86,7 +86,14 @@ export function buildProxySchemaFingerprint(envGraph: EnvGraph): string {
     return { key, valueDefs, decorators };
   });
 
-  const input = JSON.stringify({ rootDecorators, items });
+  // Plugin identity is part of the behavioral surface too: a plugin can
+  // register transform schemes (signer code), resolvers, and decorators, so a
+  // reload that swaps plugin code must not fingerprint as unchanged. The
+  // `@plugin(...)` decorator args (name/semver or local path) are already
+  // hashed above; resolved versions tighten that for floating ranges.
+  const plugins = envGraph.plugins.map((plugin) => `${plugin.name}@${plugin.version}`).sort();
+
+  const input = JSON.stringify({ rootDecorators, items, plugins });
 
   return createHash('sha256').update(input).digest('hex');
 }

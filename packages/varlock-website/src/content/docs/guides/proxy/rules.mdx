@@ -110,6 +110,116 @@ Two things still fail closed, and both return a `403` naming the item, where the
 - **A repeat at one target**, as above.
 - **An occurrence off the named spot inside a targeted body or query.** With a `body:<path>` or `query:<param>` target, substitution is one find-and-replace across that whole surface, so a stray occurrence elsewhere in it can't be skipped without rewriting the body.
 
+### Request transforms
+
+Some APIs never receive the secret at all. Instead, every request carries an HMAC signature computed *with* it: crypto exchange APIs (Coinbase, Kraken), and many webhook and partner APIs that require an `HMAC-SHA256` of the request body in a signature header. Substitution can't cover these, since the secret never appears in the request, so there is no placeholder to swap.
+
+The `transform=` option on a `@proxy` rule makes the proxy compute the credential at the wire instead. This is a stronger boundary than substitution: a substituted credential is a string the child *could* have held, but here the child cannot produce a valid request even in principle, because it never holds the underlying secret. Signing is the main case, but a transform is any scheme that computes what the request carries: `http-basic` below composes a header instead of signing.
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.exchange.com", transform={
+#   scheme="hmac-sha256",
+#   stringToSign="{timestamp}{method}{pathWithQuery}{body}",
+#   signatureHeader="X-ACCESS-SIGN",
+#   timestampHeader="X-ACCESS-TIMESTAMP",
+#   keyId=$EXCHANGE_API_KEY, keyHeader="X-ACCESS-KEY",
+#   encoding="hex",
+# })
+EXCHANGE_API_SECRET=yourPreferredPlugin()
+
+# @sensitive
+EXCHANGE_API_KEY=yourPreferredPlugin()
+```
+
+The signature is computed over the **final outbound request**, after placeholder substitution, so it covers exactly the bytes the upstream receives. Any signature or timestamp headers the child sent are overwritten (an SDK configured with placeholder credentials produces a garbage signature; the proxy replaces it with a valid one).
+
+Each scheme accepts its own option set. `scheme` is required on every transform: `hmac-sha256`, `hmac-sha512`, and `http-basic` are built in, and plugins add more (e.g. `aws-sigv4`, see below). Options for the `hmac-*` schemes:
+
+| Option | Meaning |
+|---|---|
+| `stringToSign` | **(required)** Template for the signed message. Fields: `{timestamp}` `{method}` `{path}` `{pathWithQuery}` `{query}` `{host}` `{body}`. |
+| `signatureHeader` | **(required)** Header the signature is written to. |
+| `secretKey` | Reference to the item whose value is the HMAC key, e.g. `secretKey=$PARTNER_SECRET`. Defaults to the decorated item on an attached rule; **required** on a detached rule. |
+| `keyId` / `keyHeader` | Optional companion item reference (an API key id, e.g. `keyId=$EXCHANGE_API_KEY`) and the header it is written to. Set together. |
+| `timestampHeader` | Header the signing timestamp is written to. |
+| `encoding` | Signature output encoding: `base64` _(default)_ or `hex`. |
+| `keyEncoding` | How the secret decodes into key bytes: `raw` _(default)_, `base64`, or `hex`. Some APIs (Coinbase Prime) issue base64-encoded secrets. |
+| `timestampFormat` | `unix-seconds` _(default)_, `unix-millis`, `unix-nanos`, or `rfc3339`. |
+
+A few properties worth knowing:
+
+- **The transform credential is consumed, not substituted.** The child never holds it: it only ever sees a placeholder, and the proxy applies the real value itself. `substituteIn` therefore doesn't apply to it, and if the placeholder shows up anywhere in any request the request is blocked, since there is no legitimate reason for the child to send it. The `keyId` item is wire-visible (it is an API key id, not a secret key), so it substitutes normally like a `keys=` entry.
+- **Whether the secret itself reaches the API depends on the scheme.** With `hmac-*` and `aws-sigv4` only a derived signature travels, so the secret never leaves the proxy. `http-basic` is different: Basic auth carries the credentials themselves, base64-encoded, so they do reach the API. In both cases the guarantee for the agent is the same, and it is the one that matters here: it cannot produce a valid request itself, because it never holds the credential.
+- **The transform rides its rule's match.** A transform applies when a rule carrying `transform=` matches the request. For a domain with several rules, put the transform on one broad `domain=`-only rule and keep `path`/`method`/`block`/`approval` refinements on separate rules; two *different* transform configs matching the same request is a schema misconfiguration and the request fails closed.
+- **TLS only.** Like injection, transforms refuse cleartext connections: a credential over plain http is readable in transit, and a signature over it is trivially replayable.
+- If the transform-carrying rule requires `approval`, the transform runs only after the approval gate passes, mirroring how approval-gated injection works.
+
+#### HTTP Basic auth
+
+Basic auth defeats plain substitution on its own: the child sends `Authorization: Basic base64(user:placeholder)`, and since the placeholder is base64-encoded, it never appears as a substring the proxy could swap. The built-in `http-basic` scheme has the proxy write the header itself, with the real values.
+
+The scheme has two options, `username` and `password`, one per side of the credential pair. Each references the item holding that side's value, which the proxy resolves when it applies the transform. On an attached rule **the decorated item fills whichever side you leave unset**, and if you set neither it is the userid, since a single-credential Basic API almost always sends the token as the userid with an empty password (`curl -u "token:"`).
+
+```env-spec title=".env.schema"
+# token as the userid, empty password
+# @proxy(domain="api.stripe.com", transform={scheme="http-basic"})
+STRIPE_SECRET_KEY=yourPreferredPlugin()
+
+# username given, so the item is the password
+# @proxy(domain="registry.example.com", transform={scheme="http-basic", username=$REGISTRY_USER})
+REGISTRY_PASSWORD=yourPreferredPlugin()
+
+# @sensitive=false
+REGISTRY_USER=ci-bot
+```
+
+A detached rule names both sides itself:
+
+```env-spec title=".env.schema"
+# @proxy(domain="api.twilio.com", transform={
+#   scheme="http-basic", username=$TWILIO_ACCOUNT_SID, password=$TWILIO_AUTH_TOKEN,
+# })
+# ---
+# @sensitive
+TWILIO_ACCOUNT_SID=yourPreferredPlugin()
+# @sensitive
+TWILIO_AUTH_TOKEN=yourPreferredPlugin()
+```
+
+Both sides are references, never inline values, including fixed ones: GitHub's `TOKEN:x-oauth-basic` pairing is an item holding `x-oauth-basic` referenced as the `password`. That keeps one rule for every case (either side secret, both secret, or one fixed), makes each side environment-overridable, and means a username holding sensitive data gets the same protections as the password. Every referenced item is a consumed credential: managed, so the child only ever sees a placeholder, never substituted, and leak-guarded. A rule needs at least one side, so a detached rule naming neither is a schema error.
+
+Because Basic auth carries the credentials in the request (base64-encoded, not hashed), the proxy also treats the encoded `Authorization` value as a secret in responses: an endpoint that reflects the header cannot hand the child something it could decode. Response scrubbing covers the sensitive values a rule sends to that upstream, and this scheme adds the encoded form on top, since only the scheme can produce it.
+
+Anything computed, like a fixed prefix, is composed in the item rather than in the rule:
+
+```env-spec title=".env.schema"
+# @sensitive
+API_PASSWORD=prefix-${RAW_SECRET}
+```
+
+#### AWS SigV4 (plugin)
+
+The `aws-sigv4` scheme re-signs AWS SDK requests and ships as a separate plugin, [`@varlock/aws-sigv4-plugin`](/plugins/aws-sigv4/), so core varlock carries no AWS dependencies. AWS never receives the secret access key either; every request carries a signature computed from it. Configure the SDK in the child with the **placeholder** credentials (varlock's proxied env does this automatically) and point it at the proxy; the SDK signs normally, and the proxy strips the placeholder signature and re-signs with the real keys.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/aws-sigv4-plugin)
+# ---
+# @proxy(domain="*.amazonaws.com", transform={
+#   scheme="aws-sigv4", keyId=$AWS_ACCESS_KEY_ID,
+#   allowedServices=[bedrock, s3],
+# })
+AWS_SECRET_ACCESS_KEY=somePlugin()
+
+# @sensitive
+AWS_ACCESS_KEY_ID=somePlugin()
+```
+
+The region and service need no configuration: they are parsed from the inbound request's credential scope, so one rule covers every AWS service and region the client talks to. The same scheme covers S3-compatible services that authenticate with SigV4 (Cloudflare R2, MinIO, Backblaze B2, and others); point the rule's `domain` at their endpoint. See the [plugin docs](/plugins/aws-sigv4/) for all options and limitations.
+
+#### Plugin-provided schemes
+
+Transform schemes are registered through the [plugin system](/guides/plugins/): a plugin declares the scheme's options (which are validated exactly like the built-in ones, including which options name credential items) and provides the function that runs in the proxy per matching request. This keeps provider-specific code and dependencies out of core. Custom or venue-specific schemes that the generic template can't express (nested hashing, custom canonicalization) are built the same way, including as local, unpublished plugins (`@plugin(./my-transform-plugin)`).
+
 ## Controlling what the agent sees
 
 By default, varlock applies **least privilege** to the proxied child:

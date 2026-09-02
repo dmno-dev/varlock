@@ -1,6 +1,14 @@
-import { describe, expect, test } from 'vitest';
+import {
+  beforeEach, describe, expect, test, vi,
+} from 'vitest';
+import path from 'node:path';
 import outdent from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
+
+// relative @plugin(...) paths resolve against cwd - pin it to this test dir
+beforeEach(() => {
+  vi.spyOn(process, 'cwd').mockReturnValue(path.dirname(expect.getState().testPath!));
+});
 
 async function loadGraph(envFile: string) {
   const graph = new EnvGraph();
@@ -376,6 +384,466 @@ describe('proxy decorators', () => {
     expect(byKey.EXPLICIT_KEY?.realValue).toBe('sk_live_real_explicit');
     expect(byKey.TYPE_KEY?.realValue).toBe('tok_real_secret');
     expect(byKey.NO_HINT_KEY?.realValue).toBe('whatever_real_secret');
+  });
+
+  test('attached transform: secretKey defaults to the item, is excluded from substitution scope, keyId joins the rule', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.coinbase.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{timestamp}{method}{pathWithQuery}{body}",
+      #   signatureHeader="CB-ACCESS-SIGN", timestampHeader="CB-ACCESS-TIMESTAMP",
+      #   keyId=$CB_KEY_ID, keyHeader="CB-ACCESS-KEY", encoding="hex",
+      # })
+      CB_SECRET=shhh-real
+
+      # @sensitive
+      CB_KEY_ID=kid-real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      {
+        domain: ['api.coinbase.com'],
+        // The signing secret is consumed, never substituted, so it is NOT in the
+        // rule's substitution scope even though the rule is attached to it. The
+        // key id IS wire-visible, so it joins like a keys= entry.
+        itemKeys: ['CB_KEY_ID'],
+        transform: {
+          scheme: 'hmac-sha256',
+          secretKey: { itemRef: 'CB_SECRET' },
+          stringToSign: '{timestamp}{method}{pathWithQuery}{body}',
+          signatureHeader: 'CB-ACCESS-SIGN',
+          timestampHeader: 'CB-ACCESS-TIMESTAMP',
+          keyId: { itemRef: 'CB_KEY_ID' },
+          keyHeader: 'CB-ACCESS-KEY',
+          encoding: 'hex',
+        },
+      },
+    ]);
+
+    // Both transform roles become managed items (placeholder in the child env,
+    // real value withheld) - the secret via the transform, the key id via itemKeys.
+    const managed = await graph.getProxyManagedItems();
+    const managedByKey = Object.fromEntries(managed.map((item) => [item.key, item]));
+    expect(managedByKey.CB_SECRET?.realValue).toBe('shhh-real');
+    expect(managedByKey.CB_KEY_ID?.realValue).toBe('kid-real');
+  });
+
+  test('detached transform rule with explicit secretKey manages the item with no per-item @proxy at all', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.partner.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Signature", secretKey=$HOOK_SECRET,
+      # })
+      # ---
+      # @sensitive
+      HOOK_SECRET=hook-real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([{ domain: ['api.partner.com'], itemKeys: [], transform: { scheme: 'hmac-sha256', secretKey: { itemRef: 'HOOK_SECRET' } } }]);
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((item) => item.key)).toContain('HOOK_SECRET');
+  });
+
+  test('detached transform without secretKey is rejected (no attached item to default to)', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.partner.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Signature"})
+      # ---
+      BASELINE=1
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/transform\.secretKey is required on a detached @proxy rule/);
+  });
+
+  test('transform: unknown option and bad scheme fail loudly at load time', async () => {
+    const unknownOpt = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSine="{body}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    expect(unknownOpt.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /unknown transform option "stringToSine"/.test(e.message))).toBe(true);
+
+    // An unknown scheme can't be judged statically (it may come from a plugin
+    // that only registers at load), so it fails at resolve time instead.
+    const badScheme = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="md5", stringToSign="{body}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    await expect(badScheme.getProxyRules()).rejects.toThrow(/unknown transform scheme "md5"/);
+  });
+
+  test('transform: a forbidden header target is rejected (framing/identity headers)', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="content-length"})
+      API_SECRET=shhh
+    `);
+    expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /cannot target the "content-length" header/.test(e.message))).toBe(true);
+  });
+
+  test('http-basic: the decorated item fills the side left unset (userid when neither is given)', async () => {
+    // neither given: the item is the userid with an empty password
+    // (curl -u "token:", the single-credential Basic convention)
+    const bare = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.stripe.com", transform={scheme="http-basic"})
+      STRIPE_SECRET_KEY=sk_live_real
+    `);
+    expect(await bare.getProxyRules()).toMatchObject([{ transform: { scheme: 'http-basic', username: { itemRef: 'STRIPE_SECRET_KEY' } } }]);
+
+    // username given: the item is the password
+    const withUsername = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", username=$REGISTRY_USER})
+      REGISTRY_PASSWORD=real-password
+
+      # @sensitive=false
+      REGISTRY_USER=ci-bot
+    `);
+    expect(await withUsername.getProxyRules()).toMatchObject([
+      {
+        transform: {
+          scheme: 'http-basic',
+          username: { itemRef: 'REGISTRY_USER' },
+          password: { itemRef: 'REGISTRY_PASSWORD' },
+        },
+      },
+    ]);
+
+    // password given: the item is the userid (GitHub's TOKEN:x-oauth-basic)
+    const withPassword = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.github.com", transform={scheme="http-basic", password=$GH_BASIC_PASSWORD})
+      GH_TOKEN=the-token
+
+      # @sensitive=false
+      GH_BASIC_PASSWORD=x-oauth-basic
+    `);
+    expect(await withPassword.getProxyRules()).toMatchObject([
+      {
+        transform: {
+          scheme: 'http-basic',
+          username: { itemRef: 'GH_TOKEN' },
+          password: { itemRef: 'GH_BASIC_PASSWORD' },
+        },
+      },
+    ]);
+  });
+
+  test('http-basic: a credential option must be a reference, not a literal', async () => {
+    const literalUsername = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", username="ci-bot"})
+      REGISTRY_PASSWORD=real-password
+    `);
+    const errors = literalUsername.configSchema.REGISTRY_PASSWORD.decoratorSchemaErrors.map((err) => err.message);
+    expect(errors.some((msg) => /transform\.username must reference a config item/.test(msg))).toBe(true);
+  });
+
+  test('http-basic: both sides can be references, and both become consumed credentials', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.twilio.com", transform={
+      #   scheme="http-basic", username=$TWILIO_SID, password=$TWILIO_AUTH_TOKEN,
+      # })
+      # ---
+      # @sensitive
+      TWILIO_SID=the-sid
+      # @sensitive
+      TWILIO_AUTH_TOKEN=the-token
+    `);
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      {
+        // neither is substitutable: both are consumed by the transform
+        itemKeys: [],
+        transform: { scheme: 'http-basic', username: { itemRef: 'TWILIO_SID' }, password: { itemRef: 'TWILIO_AUTH_TOKEN' } },
+      },
+    ]);
+    // both are managed (placeholder in the child env), values never in rule data
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((item) => item.key).sort()).toEqual(['TWILIO_AUTH_TOKEN', 'TWILIO_SID']);
+    expect(JSON.stringify(rules)).not.toContain('the-sid');
+    expect(JSON.stringify(rules)).not.toContain('the-token');
+  });
+
+  test('getTransformRoleKeys reports credentials per scheme shape (what `proxy rules` renders)', async () => {
+    const graph = await loadGraph(outdent`
+      # @proxy(domain="api.twilio.com", transform={
+      #   scheme="http-basic", username=$TWILIO_SID, password=$TWILIO_TOKEN,
+      # })
+      # ---
+      # @proxy(domain="api.stripe.com", transform={scheme="http-basic"})
+      STRIPE_KEY=sk_live_fake
+
+      # @proxy(domain="api.exchange.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig",
+      #   keyId=$EXCHANGE_KEY_ID, keyHeader="X-Key",
+      # })
+      EXCHANGE_SECRET=shhh
+
+      # @sensitive
+      TWILIO_SID=ACfake
+      # @sensitive
+      TWILIO_TOKEN=tokfake
+      # @sensitive
+      EXCHANGE_KEY_ID=key-id
+    `);
+    const rules = await graph.getProxyRules();
+    const consumedByDomain = Object.fromEntries(rules.map((rule) => [
+      rule.domain[0],
+      graph.getTransformRoleKeys(rule.transform!, 'consumed').sort(),
+    ]));
+    expect(consumedByDomain).toEqual({
+      // both http-basic sides are credentials
+      'api.twilio.com': ['TWILIO_SID', 'TWILIO_TOKEN'],
+      // attached, neither side given: the decorated item is the userid
+      'api.stripe.com': ['STRIPE_KEY'],
+      // hmac: only the secret is consumed (keyId is wire-visible)
+      'api.exchange.com': ['EXCHANGE_SECRET'],
+    });
+    // the wire-role keyId is substitutable, the consumed secrets are not
+    const exchangeRule = rules.find((rule) => rule.domain[0] === 'api.exchange.com');
+    expect(exchangeRule?.itemKeys).toEqual(['EXCHANGE_KEY_ID']);
+  });
+
+  test('http-basic: a detached rule needs at least one credential reference', async () => {
+    const noCredential = await loadGraph(outdent`
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic"})
+      # ---
+      BASELINE=1
+    `);
+    await expect(noCredential.getProxyRules()).rejects.toThrow(/transform needs a credential/);
+
+    // the generic secretKey name is not part of this scheme's surface
+    const secretKeyName = await loadGraph(outdent`
+      # @proxy(domain="registry.example.com", transform={scheme="http-basic", secretKey=$REGISTRY_PASSWORD})
+      # ---
+      # @sensitive
+      REGISTRY_PASSWORD=real-password
+    `);
+    await expect(secretKeyName.getProxyRules()).rejects.toThrow(/unknown transform option "secretKey" for scheme "http-basic"/);
+  });
+
+  test('credential options require $ references, and a broken reference fails loudly', async () => {
+    // hmac's secretKey is ref-only: a literal there is a credential embedded in
+    // the schema, caught at load for built-in schemes
+    const literalSecret = await loadGraph(outdent`
+      # @proxy(domain="api.a.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig", secretKey="hunter2",
+      # })
+      # ---
+      BASELINE=1
+    `);
+    const loadErrors = (literalSecret.rootDataSource?.schemaErrors ?? []).map((err) => err.message);
+    expect(loadErrors.some((msg) => /transform\.secretKey must reference a config item/.test(msg))).toBe(true);
+
+    // plugin schemes are unknown to the load-time pass, so the same rule is
+    // enforced when rules are built
+    const pluginLiteral = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="test-sign", tokenId="tok-literal", signatureHeader="X-Sig"})
+      SIGNING_SECRET=shhh
+    `);
+    await expect(pluginLiteral.getProxyRules()).rejects.toThrow(/transform\.tokenId must reference a config item/);
+
+    // a reference to a nonexistent item is an ordinary unresolved reference
+    const missingItem = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="http-basic", password=$NO_SUCH_ITEM})
+      BASELINE=1
+    `);
+    const refErrors = missingItem.configSchema.BASELINE.decoratorSchemaErrors.map((err) => err.message);
+    expect(refErrors.some((msg) => /NO_SUCH_ITEM/.test(msg))).toBe(true);
+    // and no half-built rule escapes
+    expect(await missingItem.getProxyRules()).toEqual([]);
+  });
+
+  test('transform: a composed credential is composed in the item, then referenced', async () => {
+    // credential options take a reference, so anything computed (a prefix, an
+    // interpolation) belongs in the item; the value never enters rule data
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.b.com", transform={scheme="http-basic", username=$USER_NAME, password=$PREFIXED_SECRET})
+      BASELINE=1
+
+      # @sensitive=false
+      USER_NAME=bob
+      # @sensitive
+      RAW_SECRET=s3cr3t-value
+      # @sensitive
+      PREFIXED_SECRET=pre-\${RAW_SECRET}
+    `);
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([{ transform: { username: { itemRef: 'USER_NAME' }, password: { itemRef: 'PREFIXED_SECRET' } } }]);
+    expect(JSON.stringify(rules)).not.toContain('s3cr3t-value');
+    expect(graph.configSchema.PREFIXED_SECRET.resolvedValue).toBe('pre-s3cr3t-value');
+
+    // an inline interpolation on a credential option is rejected instead
+    const inline = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.b.com", transform={scheme="http-basic", password="pre-\${RAW_SECRET}"})
+      BASELINE=1
+
+      RAW_SECRET=s3cr3t-value
+    `);
+    await expect(inline.getProxyRules()).rejects.toThrow(/transform\.password must reference a config item/);
+  });
+
+  test('transform: two roles cannot reference the same item, and two options cannot write the same header', async () => {
+    // keyId is sent upstream while secretKey is consumed; pointing both at one
+    // item would put the signing secret on the wire
+    const roleCollision = await loadGraph(outdent`
+      # @proxy(domain="api.a.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig",
+      #   secretKey=$API_SECRET, keyId=$API_SECRET, keyHeader="X-Key",
+      # })
+      # ---
+      # @sensitive
+      API_SECRET=shhh
+    `);
+    await expect(roleCollision.getProxyRules()).rejects.toThrow(/both reference "API_SECRET"/);
+
+    // ...but two options in the SAME role may share an item: http-basic consumes
+    // both sides, so one item for both just sends `base64(v:v)` and exposes
+    // nothing the transform was not already given.
+    const sameRoleReuse = await loadGraph(outdent`
+      # @proxy(domain="api.a.com", transform={
+      #   scheme="http-basic", username=$API_SECRET, password=$API_SECRET,
+      # })
+      # ---
+      # @sensitive
+      API_SECRET=shhh
+    `);
+    const reuseRules = await sameRoleReuse.getProxyRules();
+    expect(reuseRules).toHaveLength(1);
+    expect(reuseRules[0].transform).toMatchObject({
+      scheme: 'http-basic',
+      username: { itemRef: 'API_SECRET' },
+      password: { itemRef: 'API_SECRET' },
+    });
+
+    // a second write to the signature's header would silently overwrite it
+    const headerCollision = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={
+      #   scheme="hmac-sha256", stringToSign="{timestamp}{body}", signatureHeader="X-Sig",
+      #   timestampHeader="x-sig",
+      # })
+      API_SECRET=shhh
+    `);
+    await expect(headerCollision.getProxyRules()).rejects.toThrow(/both write the "x-sig" header/);
+  });
+
+  test('transform: {timestamp} in stringToSign requires a timestampHeader', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{timestamp}{body}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/uses \{timestamp\} but no timestampHeader/);
+  });
+
+  test('transform: an unknown {field} in stringToSign is rejected', async () => {
+    const graph = await loadGraph(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{timestamp}{nonce}", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    expect(graph.configSchema.API_SECRET.decoratorSchemaErrors.some((e) => /unknown field \{nonce\}/.test(e.message))).toBe(true);
+  });
+
+  test('transform: keyId and keyHeader must be set together', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", stringToSign="{body}", signatureHeader="X-Sig", keyId=$SOME_KEY_ID})
+      API_SECRET=shhh
+
+      SOME_KEY_ID=kid
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/keyId and transform\.keyHeader must be set together/);
+  });
+
+  test('transform: missing required fields are rejected at resolve time', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.a.com", transform={scheme="hmac-sha256", signatureHeader="X-Sig"})
+      API_SECRET=shhh
+    `);
+    await expect(graph.getProxyRules()).rejects.toThrow(/transform\.stringToSign is required/);
+  });
+
+  test('plugin transform scheme: registers, roles drive itemKeys + managed items, lists normalize', async () => {
+    // (cwd is mocked to this test dir so the relative @plugin path resolves)
+    const graph = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.example.com", transform={
+      #   scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Test-Sig",
+      #   mode="fancy", allowedThings="one",
+      # })
+      SIGNING_SECRET=shhh-real
+
+      # @sensitive
+      TOKEN_ID=tok-real
+    `);
+
+    const rules = await graph.getProxyRules();
+    expect(rules).toMatchObject([
+      {
+        domain: ['api.example.com'],
+        // wire-role tokenId joins; consumed-role secret is excluded
+        itemKeys: ['TOKEN_ID'],
+        transform: {
+          scheme: 'test-sign',
+          secretKey: { itemRef: 'SIGNING_SECRET' },
+          tokenId: { itemRef: 'TOKEN_ID' },
+          signatureHeader: 'X-Test-Sig',
+          mode: 'fancy',
+          allowedThings: ['one'], // single string normalized to a list
+        },
+      },
+    ]);
+    const managed = await graph.getProxyManagedItems();
+    expect(managed.map((item) => item.key).sort()).toEqual(['SIGNING_SECRET', 'TOKEN_ID']);
+  });
+
+  test('plugin transform scheme: spec-driven validation (required, enum, unknown option)', async () => {
+    const missingRequired = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", signatureHeader="X-Test-Sig"})
+      SIGNING_SECRET=shhh
+    `);
+    await expect(missingRequired.getProxyRules()).rejects.toThrow(/transform\.tokenId is required for scheme "test-sign"/);
+
+    const badEnum = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Test-Sig", mode="bogus"})
+      SIGNING_SECRET=shhh
+
+      # @sensitive
+      TOKEN_ID=tok
+    `);
+    await expect(badEnum.getProxyRules()).rejects.toThrow(/transform\.mode must be one of plain, fancy/);
+
+    const unknownOption = await loadGraph(outdent`
+      # @plugin(./plugins/test-transform-plugin)
+      # ---
+      # @proxy(domain="api.example.com", transform={scheme="test-sign", tokenId=$TOKEN_ID, signatureHeader="X-Test-Sig", stringToSign="{body}"})
+      SIGNING_SECRET=shhh
+
+      # @sensitive
+      TOKEN_ID=tok
+    `);
+    await expect(unknownOption.getProxyRules()).rejects.toThrow(/unknown transform option "stringToSign" for scheme "test-sign"/);
   });
 });
 

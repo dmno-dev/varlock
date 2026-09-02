@@ -13,6 +13,7 @@ export type ProxyAuditDecision = | 'allow' // forwarded upstream (a secret may o
   | 'blocked-cleartext' // refused to inject a secret into a non-TLS connection
   | 'blocked-location' // placeholder appeared in a request location the rule doesn't allow substituting in
   | 'blocked-occurrences' // placeholder appeared more times than the rule's occurrence cap allows
+  | 'blocked-transform' // a request transform failed closed (conflicting configs, credential placeholder on the wire, or unusable credential)
   | 'approval-granted' // require-approval rule matched and the approver allowed it
   | 'approval-denied'; // require-approval rule matched and approval was denied/timed-out
 
@@ -38,6 +39,8 @@ export type ProxyActivity = {
   ruleId?: string;
   /** Keys (names, never values) of the managed items actually injected into this request. */
   injectedKeys?: Array<string>;
+  /** Transform scheme applied to this request (a `transform=` rule matched), e.g. `hmac-sha256`. */
+  transformedWith?: string;
   /**
    * Injected items whose placeholder also appeared in a surface their rule doesn't
    * substitute in, forwarded unsubstituted (inert). Each produces a
@@ -71,6 +74,8 @@ export type ProxyAuditEntry = {
   matched: boolean;
   injected: boolean;
   injectedKeys?: Array<string>;
+  /** Transform scheme applied to this request (a `transform=` rule matched). */
+  transformedWith?: string;
   ruleId?: string;
 };
 
@@ -123,6 +128,7 @@ function activityToEntry(activity: ProxyActivity, ts: string): ProxyAuditEntry {
     matched: activity.matched,
     injected: !!injectedKeys,
     ...(injectedKeys ? { injectedKeys } : {}),
+    ...(activity.transformedWith ? { transformedWith: activity.transformedWith } : {}),
     ...(activity.ruleId ? { ruleId: activity.ruleId } : {}),
   };
 }

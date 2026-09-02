@@ -97,6 +97,7 @@ export function describeRule(rule: ProxyRule): string {
   if (rule.path !== undefined) parts.push(rule.path);
   if (rule.block) parts.push('block');
   if (rule.approval) parts.push('approval');
+  if (rule.transform) parts.push(`transform:${rule.transform.scheme}`);
   return parts.join(' ');
 }
 

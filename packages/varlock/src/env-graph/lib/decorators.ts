@@ -14,7 +14,10 @@ import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
 import { parseDuration } from '../../lib/duration';
-import { PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS, parseProxySubstitutionTarget } from '../../proxy/types';
+import {
+  BUILT_IN_TRANSFORM_SCHEME_SPECS, PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS,
+  parseProxySubstitutionTarget, validateProxyTransformConfig,
+} from '../../proxy/types';
 
 
 export abstract class DecoratorInstance {
@@ -379,7 +382,7 @@ function assertProxyStringListArg(
  * literal and `keys` as an array literal; rejects positional args; validates the
  * approval options.
  */
-const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'rules'] as const;
+const VALID_PROXY_OPTIONS = ['domain', 'path', 'method', 'keys', 'block', 'approval', 'substituteIn', 'rules', 'transform'] as const;
 /** Per-entry options inside the `rules=[{...}]` array form. Each entry is a
  * policy refinement for the parent's `domain`, so it cannot re-set `domain` or
  * `keys` (injection is controlled by the parent rule). */
@@ -478,6 +481,35 @@ function assertProxyApprovalArg(resolver: Resolver | undefined): void {
 }
 
 /**
+ * `transform` is an options object describing a request-transform scheme
+ * (`transform={scheme="hmac-sha256", stringToSign=..., signatureHeader=...}`).
+ * Statically validates the literal entries via the shared config validator
+ * (partial mode - dynamic entries re-check at resolve time). Placement-specific
+ * requirements (`secretKey` on detached rules) are enforced when rules are built.
+ */
+function assertProxyTransformArg(resolver: Resolver | undefined): void {
+  if (!resolver) return;
+  if (!(resolver instanceof ObjectLiteralResolver)) {
+    if (resolver.isStatic) {
+      throw new SchemaError('@proxy: transform must be an options object, e.g. transform={scheme="hmac-sha256", stringToSign="{timestamp}{method}{path}{body}", signatureHeader="X-Signature"}');
+    }
+    return; // dynamic expression - validated at resolve time
+  }
+  const inner = resolver.objArgs ?? {};
+  const staticEntries: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(inner)) {
+    // Include every key so unknown options fail loudly here; only static values
+    // get their content checked.
+    staticEntries[key] = val?.isStatic ? val.staticValue : undefined;
+  }
+  // Static pass knows only built-in schemes; a plugin scheme (or dynamic
+  // scheme value) defers entirely to resolve-time validation, which sees the
+  // full registry after plugins load.
+  const error = validateProxyTransformConfig(staticEntries, BUILT_IN_TRANSFORM_SCHEME_SPECS, { partial: true });
+  if (error) throw new SchemaError(`@proxy: ${error}`);
+}
+
+/**
  * The `rules=[{...}]` form: a list of policy refinements that share the parent's
  * `domain`. Each entry may set path/method/block/approval (but not domain/keys —
  * injection is the parent rule's job). Statically validates literal entries; the
@@ -534,6 +566,7 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   assertProxyApprovalArg(argsVal.objArgs?.approval);
   assertProxySubstituteInArg(argsVal.objArgs?.substituteIn);
   assertProxyRulesArg(argsVal.objArgs?.rules);
+  assertProxyTransformArg(argsVal.objArgs?.transform);
 
   if (argsVal.arrArgs?.length) {
     throw new SchemaError('@proxy: positional args are not supported - use keys=[ITEM_A, ITEM_B] to attach items');
