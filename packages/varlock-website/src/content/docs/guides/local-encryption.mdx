@@ -114,7 +114,7 @@ Two answers other than yes:
 
 ### Breadth
 
-Under the scope control sits one checkbox, **Cover anything this vault can open**, ticked by default:
+Under the scope control sits one checkbox, **Auto-unlock all items in this vault**, ticked by default:
 
 | State | Covers |
 |-------|--------|
@@ -166,7 +166,7 @@ The panel offers a scope, which decides how long one approval lasts:
 | `session` | until the session ends (the default) |
 | `duration` | a window: 10 minutes, 1 hour, or one you set yourself |
 
-The panel draws these as one row, ordered from least to most permissive: `Once`, `10min`, `1hr`, `Custom`, `This session`. Picking `Custom` reveals a field and a `min` / `hr` toggle under the row. Whatever you set shows on the rung itself, so the row still reads as an ordered list of answers, and selecting that rung again reopens the field to adjust it. Switching the unit converts the value rather than rereading the number, so 90 minutes becomes 1 hour and not 90 of them.
+The panel draws these as one row, ordered from least to most permissive: `Once`, `10min`, `1hr`, `Custom`, `This session`. Picking `Custom` reveals a field and a `min` / `hr` toggle under the row, and selecting that rung again puts the caret back in the field. The rung always reads `Custom`, whatever number is set on it: it sits at a fixed place in an ordered row, so wearing a free value would break the order the row is there to show. The number is on screen in the field, which is visible exactly when that rung is selected, and the sentence under the controls states it in words. Switching the unit converts the value rather than rereading the number, so 90 minutes becomes 1 hour and not 90 of them.
 
 The field never blocks the panel. An empty, zero or unparseable value reads as the shortest legal window, and anything past the cap reads as the cap, so there is no error state to get stuck in while the sensor is armed. Return commits the number rather than approving, and Escape refuses the panel as it does everywhere else on it. What an approval carries is always what the field is showing at that instant, including a number you are part way through typing.
 

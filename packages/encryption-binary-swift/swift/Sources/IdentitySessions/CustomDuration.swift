@@ -58,17 +58,17 @@ public struct CustomDuration: Equatable {
 
     public var milliseconds: Int64 { amount * unit.milliseconds }
 
-    /// What the rung says once a value is set: `45min`, `2hr`.
-    public var shortLabel: String { "\(amount)\(unit.suffix)" }
-
-    /// Where the custom rung opens before anybody has set a value.
+    /// What the field opens on before anybody has set a value.
     ///
-    /// Above the longest preset on purpose. The rung sits to the right of the
-    /// presets, and a ladder whose fresh state reads left to right as ascending
-    /// is the ladder the order is supposed to be telling you about. A value
-    /// below `1hr` is perfectly allowed once chosen; it just is not what an
-    /// untouched control should assert.
-    public static let unset = CustomDuration(amount: 2, unit: .hours)
+    /// Shorter than the longest preset on purpose, so an untouched control never
+    /// asserts more than the row was already offering. Somebody who wants longer
+    /// is by definition about to type a number; somebody who picked this rung
+    /// and then walked away should not have been handed one.
+    ///
+    /// Thirty minutes rather than either preset value, so the field opens
+    /// genuinely between them: seeding it at `10min` or `1hr` would make an
+    /// untouched custom rung a duplicate of a rung to its left.
+    public static let unset = CustomDuration(amount: 30, unit: .minutes)
 
     /// Read whatever is in the field right now.
     ///

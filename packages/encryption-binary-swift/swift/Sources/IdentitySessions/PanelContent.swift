@@ -191,12 +191,26 @@ public struct PanelWindowOption: Equatable {
         self.kind = .fixed
     }
 
-    /// The custom rung. Reads `Custom` until a value is set, and the value
-    /// itself afterwards, so the ladder still shows the answer it is holding
-    /// without anybody having to open anything to see it.
+    /// The custom rung, which always reads `Custom`.
+    ///
+    /// Never renamed to the value it holds, and that is the point of it. A rung
+    /// wearing `45min` at a fixed position between `1hr` and `This session` puts
+    /// a free value into an ordered row and breaks the order the row exists to
+    /// show. It can also end up reading exactly the same as the preset beside
+    /// it. The word is what keeps the position honest: this is the rung you set,
+    /// and where it sits says only that a typed window is bounded by the
+    /// session.
+    ///
+    /// Nothing is hidden by that. The field is on screen exactly when this rung
+    /// is selected, so the number is already in front of the reader, and the
+    /// summary sentence underneath states it in words.
+    ///
+    /// - Parameter custom: the value the rung is holding. It sets the rung's
+    ///   `window`, so a remembered answer matches this rung exactly, and it does
+    ///   not touch the label.
     public init(custom: CustomDuration?) {
         self.window = GrantWindow(scope: .duration, durationMs: (custom ?? .unset).milliseconds)
-        self.label = custom?.shortLabel ?? PanelContent.customWindowLabel
+        self.label = PanelContent.customWindowLabel
         self.kind = .custom
     }
 }
@@ -328,9 +342,9 @@ public struct PanelContent: Equatable {
     ///
     /// This is the memory ratchet's other half. A remembered narrowing comes
     /// back through `defaultDurationMs` like any other preselection; a value
-    /// that names no preset is by definition a custom one, so it comes back
-    /// selected, showing itself on the rung, and primed in the field. There is
-    /// no second path for remembering a custom answer, and deliberately so: one
+    /// that names no preset is by definition a custom one, so it comes back with
+    /// the custom rung selected and the field primed to it. There is no second
+    /// path for remembering a custom answer, and deliberately so: one
     /// preselection rule is a rule people can check.
     public var customDuration: CustomDuration? {
         guard defaultScope == .duration,
@@ -351,15 +365,21 @@ public struct PanelContent: Equatable {
     /// where there is really a setting, and they make the safe, ordinary answer
     /// look like something you have to pick.
     ///
-    /// Worded in what it covers rather than in what it switches off. "Cover
-    /// anything these vaults can open" is what the user gets; something like
-    /// "auto approve other keys" describes the plumbing, and dresses the
-    /// ordinary default as an automation convenience, which is the opposite of
-    /// what it is.
+    /// Says what ticking it DOES, in the words somebody would use for it: the
+    /// rest of this vault opens without asking again. An earlier wording,
+    /// "Cover anything this vault can open", described the grant's extent
+    /// accurately and left the reader to work out what that meant for them the
+    /// next time something was decrypted.
+    ///
+    /// Deliberately the plain-language version and not the precise one. The
+    /// sentence directly underneath carries the caveats (what the list is, that
+    /// it is a snapshot rather than a definition, what the vault boundary is),
+    /// and a label that tried to carry them too would be a paragraph on a
+    /// checkbox nobody reads twice.
     public static func breadthCheckboxLabel(vaultCount: Int) -> String {
         return vaultCount == 1
-            ? "Cover anything this vault can open"
-            : "Cover anything these vaults can open"
+            ? "Auto-unlock all items in this vault"
+            : "Auto-unlock all items in these vaults"
     }
 
     /// The whole answer in one sentence, under the controls.

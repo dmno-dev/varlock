@@ -113,21 +113,17 @@ final class CustomDurationTests: XCTestCase {
         XCTAssertEqual(DurationText.prose(600_000), "10 minutes")
         XCTAssertEqual(DurationText.short(60_000), "1min")
         XCTAssertEqual(DurationText.prose(60_000), "1 minute")
-        // The rung wears the unit the field is in, which is not always the unit
-        // the value would pick for itself: 60 typed in minutes reads `60min`,
-        // not `1hr`, because that is what the person is looking at.
-        XCTAssertEqual(CustomDuration(amount: 60, unit: .minutes).shortLabel, "60min")
     }
 
-    func testTheUnsetRungOpensAboveTheLongestPreset() {
-        // The ladder's fresh state reads left to right as ascending. A custom
-        // value may go below its neighbours once chosen; an untouched control
-        // should not assert that on somebody's behalf.
-        XCTAssertGreaterThan(
-            CustomDuration.unset.milliseconds,
-            DurationPreset.allCases.map { $0.milliseconds }.max() ?? 0
-        )
-        XCTAssertLessThanOrEqual(CustomDuration.unset.milliseconds, SessionGrantTable.maxGrantMs)
+    func testTheFieldOpensOnSomethingShorterThanTheLongestPreset() {
+        // An untouched control must not assert more than the row was already
+        // offering, so somebody who picks the custom rung and then walks away is
+        // never handed a longer window than the presets beside it.
+        let longestPreset = DurationPreset.allCases.map { $0.milliseconds }.max() ?? 0
+        XCTAssertLessThan(CustomDuration.unset.milliseconds, longestPreset)
+        // And it is not a copy of a preset either, which would make the fresh
+        // custom rung a duplicate of a rung to its left.
+        XCTAssertFalse(DurationPreset.allCases.contains { $0.milliseconds == CustomDuration.unset.milliseconds })
     }
 
     func testTheLegacyPanelStatesTheWindowItReallyGrants() {

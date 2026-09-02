@@ -339,14 +339,9 @@ final class PanelSegmentedControl: NSView {
     /// in its field.
     private let onReselect: ((Int) -> Void)?
 
-    /// - Parameter widthTemplates: per-index labels a segment must stay wide
-    ///   enough for, whatever it currently says. The custom rung's label changes
-    ///   as somebody types, and a rung that resized on every keystroke would
-    ///   slide the rest of the ladder out from under the pointer.
     init(
         labels: [String],
         selectedIndex: Int,
-        widthTemplates: [Int: [String]] = [:],
         onChange: @escaping (Int) -> Void,
         onReselect: ((Int) -> Void)? = nil
     ) {
@@ -362,10 +357,7 @@ final class PanelSegmentedControl: NSView {
         let row = PanelStyle.row(spacing: 0)
         row.translatesAutoresizingMaskIntoConstraints = false
         for (index, title) in labels.enumerated() {
-            let button = PanelSegmentButton(
-                title: title,
-                widthTemplates: widthTemplates[index] ?? []
-            ) { [weak self] view in
+            let button = PanelSegmentButton(title: title) { [weak self] view in
                 self?.handleClick(index: index, view: view)
             }
             buttons.append(button)
@@ -404,12 +396,6 @@ final class PanelSegmentedControl: NSView {
         }
         if notify { onChange(index) }
     }
-
-    /// Change what one rung says, without changing what is selected.
-    func setTitle(_ title: String, at index: Int) {
-        guard index >= 0, index < buttons.count else { return }
-        buttons[index].setTitle(title)
-    }
 }
 
 /// One rung of the "how long" control.
@@ -419,14 +405,13 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
     private var titleText: String
     private var selected = false
 
-    init(title: String, widthTemplates: [String] = [], onClick: @escaping (NSView) -> Void) {
+    init(title: String, onClick: @escaping (NSView) -> Void) {
         self.onClick = onClick
         self.titleText = title
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 6
-        let font = NSFont.systemFont(ofSize: 12, weight: .regular)
-        field.font = font
+        field.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         field.stringValue = title
         field.alignment = .center
         field.translatesAutoresizingMaskIntoConstraints = false
@@ -438,14 +423,6 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
             field.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             field.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
-        // Wide enough for the longest thing this rung will ever say, so its
-        // width is decided once at build time rather than by whatever it happens
-        // to be showing.
-        if let widest = widthTemplates
-            .map({ ($0 as NSString).size(withAttributes: [.font: font]).width })
-            .max() {
-            widthAnchor.constraint(greaterThanOrEqualToConstant: ceil(widest) + 22).isActive = true
-        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -453,11 +430,6 @@ final class PanelSegmentButton: NSView, PanelClickTarget {
     func setSelected(_ isSelected: Bool) {
         selected = isSelected
         layer?.backgroundColor = (isSelected ? PanelStyle.vaultLocal : NSColor.clear).cgColor
-        applyTitle()
-    }
-
-    func setTitle(_ title: String) {
-        titleText = title
         applyTitle()
     }
 

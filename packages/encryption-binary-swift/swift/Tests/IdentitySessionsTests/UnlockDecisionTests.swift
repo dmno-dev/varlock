@@ -215,18 +215,28 @@ final class UnlockDecisionTests: XCTestCase {
         XCTAssertEqual(custom.first?.window.scope, .duration)
     }
 
-    func testTheCustomRungShowsItsValueRatherThanTheWordCustom() {
-        // The ladder has to stay readable as a ladder: an answer you have to
-        // open something to see is an answer the row is no longer showing.
+    func testTheCustomRungKeepsItsNameWhateverValueItHolds() {
+        // The rung sits at a fixed place in an ordered row, so it must not wear
+        // a free value: `45min` between `1hr` and `This session` would break the
+        // order the row exists to show, and a value that landed on a preset
+        // would read as a duplicate of the rung beside it. The value goes in the
+        // rung's WINDOW, which is what a remembered answer matches on, and it is
+        // on screen in the field and in the summary sentence.
         let options = PanelContent.windowOptions(
             scopes: UnlockPlanner.fullScopes,
             custom: CustomDuration(amount: 45, unit: .minutes)
         )
-        XCTAssertEqual(options.map { $0.label }, ["Once", "10min", "1hr", "45min", "This session"])
+        XCTAssertEqual(options.map { $0.label }, ["Once", "10min", "1hr", "Custom", "This session"])
         XCTAssertEqual(
             options.first { $0.kind == .custom }?.window,
             GrantWindow(scope: .duration, durationMs: 2_700_000)
         )
+        // Including a value that names a preset: still `Custom`, never `1hr`.
+        let onAPreset = PanelContent.windowOptions(
+            scopes: UnlockPlanner.fullScopes,
+            custom: CustomDuration(amount: 60, unit: .minutes)
+        )
+        XCTAssertEqual(onAPreset.first { $0.kind == .custom }?.label, "Custom")
     }
 
     func testTheLadderOnlyOffersWhatTheRequestAllows() {
@@ -270,11 +280,11 @@ final class UnlockDecisionTests: XCTestCase {
         )
     }
 
-    func testARememberedCustomWindowComesBackSelectedAndShowingItself() {
+    func testARememberedCustomWindowComesBackSelectedWithTheFieldPrimed() {
         // The whole round trip, through the one `defaultDurationMs` path the
-        // preselection already used: a value that names no preset comes back as
-        // the custom rung, selected, wearing its own value, with the field
-        // primed to it.
+        // preselection already used: a value that names no preset comes back on
+        // the custom rung, selected, with the field primed to it. The rung keeps
+        // its name; the value shows in the field it just revealed.
         let plan = UnlockPlanner.plan(requested: [key("dev")], requestedScope: .session, existing: [:])
         let content = UnlockPanelContent.build(
             plan: plan,
@@ -291,7 +301,7 @@ final class UnlockDecisionTests: XCTestCase {
             PanelContent.windowOptionIndex(of: content.defaultWindow, in: content.windowOptions),
             3
         )
-        XCTAssertEqual(content.windowOptions[3].label, "45min")
+        XCTAssertEqual(content.windowOptions[3].label, "Custom")
     }
 
     func testARememberedWindowPastTheCapIsDrawnAtTheCap() {

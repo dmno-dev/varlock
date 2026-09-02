@@ -228,15 +228,16 @@ final class GrantBreadthTests: XCTestCase {
 
     // MARK: - What the panel says
 
-    /// The label says what you get, in vaults, not what it switches off.
-    func testTheCheckboxLabelIsWordedInWhatItCovers() {
+    /// The label says what ticking it does, in the words somebody would use for
+    /// it. The precise work is done by the sentence underneath, not here.
+    func testTheCheckboxLabelSaysWhatTickingItDoes() {
         XCTAssertEqual(
             PanelContent.breadthCheckboxLabel(vaultCount: 1),
-            "Cover anything this vault can open"
+            "Auto-unlock all items in this vault"
         )
         XCTAssertEqual(
             PanelContent.breadthCheckboxLabel(vaultCount: 3),
-            "Cover anything these vaults can open"
+            "Auto-unlock all items in these vaults"
         )
     }
 

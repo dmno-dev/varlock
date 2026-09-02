@@ -702,26 +702,16 @@ final class ApprovalPanel: NSObject {
         perform(effect: flow.apply(.confirmPressed))
     }
 
-    /// Everything the custom rung can ever say, so it can be sized once.
-    ///
-    /// `Custom` before a value is set, and the longest value it can hold in
-    /// either unit afterwards.
-    private static let customRungWidthTemplates: [String] = [
-        PanelContent.customWindowLabel,
-    ] + DurationUnit.allCases.map { CustomDuration(amount: $0.maxAmount, unit: $0).shortLabel }
-
     private func windowChanged() {
         syncSelectionIntoFlow()
         PanelDebug.note("window-chosen", [
             "scope": flow.scope.rawValue,
             "ms": Int(flow.durationMs ?? 0),
         ])
-        // Picking the custom rung is picking the number the field is holding, so
-        // the rung stops saying `Custom` and starts saying the answer, and the
-        // caret goes where the answer is set. Neither approves anything: focus
-        // changes what a keystroke does, never what a scan would grant.
+        // Picking the custom rung is picking a number, so the caret goes where
+        // the number is set. Focus approves nothing: it changes what a keystroke
+        // does, never what a scan would grant.
         if windowControl?.selectedIndex == customOptionIndex {
-            customValueChanged()
             customControl?.focusField()
         }
         // The checkbox and the custom row appear and disappear with the answer,
@@ -732,14 +722,11 @@ final class ApprovalPanel: NSObject {
 
     /// The number changed, by typing or by a unit switch.
     ///
-    /// The rung is relabelled from the LIVE reading rather than from a committed
-    /// one, so the ladder, the sentence underneath it and what a scan would
-    /// grant are the same answer at every keystroke. Nothing relayouts: the rung
-    /// reserved its width up front for exactly this.
+    /// Only the sentence under the controls moves. The rung says `Custom`
+    /// whatever the number is, so nothing in the ladder is relabelled and
+    /// nothing reflows while somebody types under an armed sensor. What a scan
+    /// would grant is still read live from the field; see `selectedWindow`.
     private func customValueChanged() {
-        if let index = customOptionIndex, let value = customControl?.liveValue {
-            windowControl?.setTitle(value.shortLabel, at: index)
-        }
         syncSelectionIntoFlow()
     }
 
@@ -969,11 +956,12 @@ final class ApprovalPanel: NSObject {
         //
         // The rungs are not equal width, deliberately. "This session" is longer
         // than "1hr" and reads better allowed to be; a row padded to the widest
-        // label would spend most of the panel's width on space. The one
-        // exception is the custom rung, which reserves room for the longest
-        // thing it can say: its label changes while somebody types into the
-        // field below, and a rung that resized on each keystroke would slide the
-        // rest of the ladder out from under the pointer.
+        // label would spend most of the panel's width on space.
+        //
+        // Every label here is fixed for the life of the panel, the custom rung
+        // included: it reads `Custom` whatever number is set on it. So the row
+        // is laid out once and never reflows, and nothing slides out from under
+        // a pointer while the sensor is armed.
         customOptionIndex = content.windowOptions.firstIndex { $0.kind == .custom }
         if content.windowOptions.count > 1 {
             let control = PanelSegmentedControl(
@@ -982,7 +970,6 @@ final class ApprovalPanel: NSObject {
                     of: content.defaultWindow,
                     in: content.windowOptions
                 ),
-                widthTemplates: customOptionIndex.map { [$0: Self.customRungWidthTemplates] } ?? [:],
                 onChange: { [weak self] _ in self?.windowChanged() },
                 // Clicking the rung you are already on is not a change, but on
                 // this one it is a request to adjust the number, so it puts the
@@ -1002,9 +989,9 @@ final class ApprovalPanel: NSObject {
             // of the panel and absorbs the difference by moving the window
             // rather than by padding this out. Same arrangement as the breadth
             // checkbox, and for the same reason.
-            if let customOptionIndex {
+            if customOptionIndex != nil {
                 // The unit a value opens in is derived from the value itself, so
-                // a remembered `2h` opens in hours and a remembered `45min` in
+                // a remembered `2hr` opens in hours and a remembered `45min` in
                 // minutes. A preview may override it to photograph what a unit
                 // switch leaves behind, which is otherwise a state only a click
                 // can reach.
@@ -1022,12 +1009,6 @@ final class ApprovalPanel: NSObject {
                 let row = centred(field)
                 customRow = row
                 column.addArrangedSubview(row)
-                // The rung says whatever the field is holding, from the first
-                // frame. Built from the field rather than from the option, so
-                // the two can never open disagreeing.
-                if control.selectedIndex == customOptionIndex {
-                    control.setTitle(field.liveValue.shortLabel, at: customOptionIndex)
-                }
             }
         } else if let only = content.windowOptions.first {
             // One answer is not a choice, so it is stated rather than drawn as a
