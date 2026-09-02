@@ -689,6 +689,10 @@ final class ApprovalPanel: NSObject {
     /// steps to the next window, which keeps every option reachable by clicking.
     private func showDurationMenu(from view: NSView) {
         let menu = NSMenu()
+        // We own every item here and set its target ourselves. Left to validate
+        // them, AppKit walks a responder chain that does not reach us from
+        // inside the panel's modal session, and greys out all four.
+        menu.autoenablesItems = false
         for preset in DurationPreset.allCases {
             let item = NSMenuItem(
                 title: "For \(preset.label)",
