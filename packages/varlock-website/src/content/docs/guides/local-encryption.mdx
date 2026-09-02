@@ -123,11 +123,13 @@ Under the scope control sits one checkbox, **Cover anything this vault can open*
 
 It is always in the same place, whatever the request names. One checkbox governs every key in the request.
 
+Picking `once` hides the checkbox and grants narrow. "Once" already means "just this, right now", and the combination worth keeping under it is the narrow one: if the batch turns out to contain something the panel did not list, being asked again is the right outcome rather than a wrong one. The sentence under the controls still says what the grant covers, so nothing about this is hidden. It also does not teach varlock anything about breadth: `once` is an answer about time, so picking it never records a breadth narrowing, and the checkbox comes back at its own default (or your remembered value) the next time you pick a longer scope.
+
 Unticking it is enforced by the daemon, not filtered by the CLI. The daemon binds the grant to the SHA-256 digests of the exact ciphertexts it was handed, computed on its own side. A later decrypt carrying anything outside that set is refused and raises a fresh panel, the same way a key nobody has unlocked yet does. Names, files and counts sent by the CLI are display only, and none of them can widen what a grant covers.
 
-The two axes are independent, and the sentence under the controls says the combination you have picked. Read that sentence rather than the value list: while the box is ticked, the list is what the grant covers right now, not what defines it, which is why the sentence says "not just the 12 listed above". Unticked, the list is the definition and the sentence says "only".
+Outside `once` the two axes are independent, and the sentence under the controls says the combination you have picked. Read that sentence rather than the value list: while the box is ticked, the list is what the grant covers right now, not what defines it, which is why the sentence says "not just the 12 listed above". Unticked, the list is the definition and the sentence says "only".
 
-The [value cache](/guides/caching/) is not narrowed by unticking, and the panel says so next to the box. Cache entries are written by varlock itself and rewritten whenever a cached value is renewed, so an approval bound to their ciphertexts would refuse the next read of a value that only changed because its TTL came round, and you would answer a panel per refresh. So the cache is always covered as a whole. The daemon checks a cache read against varlock's own cache file at a path it computes itself, rather than believing a caller that says a payload came from the cache.
+The [value cache](/guides/caching/) is never narrowed, whichever way you answer, and the panel says so next to the choice. Cache entries are written by varlock itself and rewritten whenever a cached value is renewed, so an approval bound to their ciphertexts would refuse the next read of a value that only changed because its TTL came round, and you would answer a panel per refresh. So the cache is always covered as a whole. The daemon checks a cache read against varlock's own cache file at a path it computes itself, rather than believing a caller that says a payload came from the cache.
 
 #### The vault boundary
 
@@ -141,7 +143,7 @@ The broad default (anything on this key, for this session) is what an ordinary r
 |-------------|----------|
 | a key approved here before, in its own project, with somebody watching | ticked, this session |
 | a first approval of this key here, an agent session, or somebody else's script driving varlock | unticked, this session |
-| nobody watching the session, a session working outside the project it is unlocking, or code with no signature macOS accepts | unticked, once |
+| nobody watching the session, a session working outside the project it is unlocking, or code with no signature macOS accepts | once, which is narrow and draws no checkbox |
 
 varlock's own JavaScript run by `node` or `bun` is not treated as somebody else's script: that is how most installs run.
 

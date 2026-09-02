@@ -322,15 +322,20 @@ public struct PanelContent: Equatable {
         return "\(what), \(howLong)."
     }
 
-    /// What the panel says when unticking the box does not narrow everything.
+    /// What the panel says when the narrow answer does not narrow everything.
     ///
-    /// The value cache is never item scoped, so the narrow answer means "only
-    /// these FILE values, and the cache as a whole". A person unticking the box
-    /// must not walk away believing they restricted cache access. It is one
-    /// line, next to the control, rather than a footnote under the key rows: a
-    /// caveat about a control belongs beside the control.
+    /// The value cache is never item scoped, so narrow means "only these FILE
+    /// values, and the cache as a whole". Nobody who reads "covers only the 12
+    /// values listed above" should walk away believing they restricted cache
+    /// access, so the exception is stated next to the choice rather than as a
+    /// footnote under the key rows.
+    ///
+    /// Deliberately says nothing about the checkbox. It is true in every state,
+    /// including `once`, where the grant is narrow and no checkbox is drawn at
+    /// all: a caveat that pointed at a control the reader cannot see would send
+    /// them looking for it.
     public static let unlistableSourceNote =
-        "The value cache is always covered as a whole, ticked or not: "
+        "The value cache is always covered as a whole: "
         + "it is machine-written and changes constantly."
 
     /// Human label for a scope button. Plain words, no jargon.
@@ -363,20 +368,35 @@ public struct PanelDecision: Equatable {
     public let approved: Bool
     public let scope: SessionGrantScope
     public let durationMs: Int64?
-    /// How much of each key this answer opens. Defaults to the broad answer, so
-    /// every caller that predates the choice keeps the behaviour it had.
+    /// How much of each vault this answer opens. Defaults to the broad answer,
+    /// so every caller that predates the choice keeps the behaviour it had.
+    ///
+    /// Under `once` this is always `listedItems`, whatever the checkbox last
+    /// said, because the panel draws no checkbox there. See
+    /// `ApprovalFlow.effectiveBreadth` for why.
     public let breadth: SessionGrantBreadth
+    /// The breadth the USER chose, where they were given the choice.
+    ///
+    /// nil under `once`, and the difference is the whole point: `once` is a
+    /// DURATION answer that implies a breadth for that one grant. It is not a
+    /// statement about how broad this person likes their approvals, so it must
+    /// not be written down as one. Somebody who picks "once" today and "this
+    /// session" tomorrow should find the checkbox back at its own default, not
+    /// still tightened by a decision they made about time.
+    public let chosenBreadth: SessionGrantBreadth?
 
     public init(
         approved: Bool,
         scope: SessionGrantScope,
         durationMs: Int64? = nil,
-        breadth: SessionGrantBreadth = .wholeKey
+        breadth: SessionGrantBreadth = .wholeKey,
+        chosenBreadth: SessionGrantBreadth? = nil
     ) {
         self.approved = approved
         self.scope = scope
         self.durationMs = durationMs
         self.breadth = breadth
+        self.chosenBreadth = chosenBreadth
     }
 
     /// The scope and its window as one value, for comparing and remembering.
@@ -386,7 +406,14 @@ public struct PanelDecision: Equatable {
         defaultScope: SessionGrantScope,
         breadth: SessionGrantBreadth = .wholeKey
     ) -> PanelDecision {
-        return PanelDecision(approved: false, scope: defaultScope, durationMs: nil, breadth: breadth)
+        // A refusal teaches the preferences nothing, so it carries no choice.
+        return PanelDecision(
+            approved: false,
+            scope: defaultScope,
+            durationMs: nil,
+            breadth: breadth,
+            chosenBreadth: nil
+        )
     }
 }
 

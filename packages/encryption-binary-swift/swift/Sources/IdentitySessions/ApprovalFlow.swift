@@ -80,6 +80,30 @@ public struct ApprovalFlow {
     /// breadth pill is live right up to the moment the scan lands, so the answer
     /// is what is on screen then rather than what the panel opened on.
     public private(set) var breadth: SessionGrantBreadth
+
+    /// What a yes right now would actually cover.
+    ///
+    /// Under `once` the panel draws no breadth control at all and the grant is
+    /// narrow, whatever the hidden checkbox happens to be set to.
+    ///
+    /// Breadth is not fully moot under `once`. A single batch can still carry a
+    /// ciphertext the panel did not list, through the gaps in what the run can
+    /// declare up front: an `@cache` condition resolved before the graph could
+    /// describe itself, a caller that never went through the graph at all, or a
+    /// fallback branch nobody took on the pass that built the inventory. So
+    /// there is a real distinction here, and this is a decision about which half
+    /// of it to keep.
+    ///
+    /// It keeps the narrow half, for two reasons. "Once" already means "just
+    /// this, right now" to anybody reading it, and a control that let you say
+    /// "once, but also anything else that turns up in this batch" contradicts
+    /// the word it sits under. And the case where the difference bites is
+    /// exactly the case where a prompt is the right answer: the batch contains
+    /// something the panel never showed, which is precisely when the user should
+    /// be asked again rather than quietly served.
+    public var effectiveBreadth: SessionGrantBreadth {
+        return scope == .once ? .listedItems : breadth
+    }
     /// How many presence checks have failed. Reported so the panel can say
     /// something more useful the second time around.
     public private(set) var failedScans = 0
@@ -171,8 +195,19 @@ public struct ApprovalFlow {
     }
 
     /// What a yes right now carries, on both axes at once.
+    ///
+    /// `chosenBreadth` is nil under `once` because the user was shown no
+    /// checkbox and therefore expressed no opinion about breadth. What the grant
+    /// gets and what gets written down are different questions here, and this is
+    /// the one place they are allowed to differ.
     private func approval() -> PanelDecision {
-        return PanelDecision(approved: true, scope: scope, durationMs: durationForAnswer(), breadth: breadth)
+        return PanelDecision(
+            approved: true,
+            scope: scope,
+            durationMs: durationForAnswer(),
+            breadth: effectiveBreadth,
+            chosenBreadth: scope == .once ? nil : breadth
+        )
     }
 
     private func durationForAnswer() -> Int64? {

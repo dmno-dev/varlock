@@ -201,6 +201,7 @@ final class UnlockPreselectionTests: XCTestCase {
 
     func testOnlyANarrowingIsRemembered() {
         let broad = UnlockPreferences.remembering(
+            existing: nil,
             breadth: .wholeKey,
             window: GrantWindow(scope: .session),
             now: 10
@@ -252,6 +253,57 @@ final class UnlockPreselectionTests: XCTestCase {
             rows: [:], rowKey: nil, breadth: .listedItems, window: GrantWindow(scope: .once), now: 1
         )
         XCTAssertTrue(rows.isEmpty, "one nameless bucket shared by every project would be worse than none")
+    }
+
+    // MARK: - "once" says nothing about breadth
+
+    /// The sequence that must not go wrong: tighten by picking `once`, then come
+    /// back and pick `this session`. Breadth has to be back at its own resolved
+    /// value, because `once` was an answer about TIME. A duration choice that
+    /// quietly left the breadth control tightened would be the panel putting
+    /// words in somebody's mouth.
+    func testChoosingOnceLeavesNoBreadthNarrowingBehind() {
+        let key = UnlockPreferences.rowKey(projectPath: "/code/acme", keyId: "varlock-default")
+
+        // First visit: the user picks "once". The panel showed no checkbox, so
+        // there is no breadth choice to record.
+        var rows = UnlockPreferences.apply(
+            rows: [:], rowKey: key, breadth: nil, window: GrantWindow(scope: .once), now: 1
+        )
+        XCTAssertNil(rows[key!]?.breadth, "a duration answer must not write down a breadth opinion")
+        XCTAssertEqual(rows[key!]?.window?.scope, .once)
+
+        // Second visit, a routine one. The window is still remembered, and it is
+        // the only thing narrowing anything.
+        let answer = preselect(UnlockRiskSignals(seenBefore: true), remembered: rows[key!])
+        XCTAssertEqual(answer.window.scope, .once)
+        XCTAssertEqual(answer.breadth, .wholeKey, "breadth is back at its own default, not tightened by time")
+
+        // The user now picks "this session", with the checkbox left ticked.
+        rows = UnlockPreferences.apply(
+            rows: rows, rowKey: key, breadth: .wholeKey, window: GrantWindow(scope: .session), now: 2
+        )
+        XCTAssertTrue(rows[key!] == nil || rows[key!]!.isEmpty || rows[key!]!.window == nil)
+        let after = preselect(UnlockRiskSignals(seenBefore: true), remembered: rows[key!])
+        XCTAssertEqual(after.breadth, .wholeKey)
+        XCTAssertEqual(after.window.scope, .session)
+    }
+
+    /// The other half: a narrowing chosen deliberately is not thrown away by a
+    /// later `once`, because `once` says nothing about breadth in either
+    /// direction.
+    func testChoosingOnceDoesNotForgetABreadthNarrowingEither() {
+        let key = UnlockPreferences.rowKey(projectPath: "/code/acme", keyId: "varlock-default")
+        var rows = UnlockPreferences.apply(
+            rows: [:], rowKey: key, breadth: .listedItems, window: GrantWindow(scope: .session), now: 1
+        )
+        XCTAssertEqual(rows[key!]?.breadth, .listedItems)
+
+        rows = UnlockPreferences.apply(
+            rows: rows, rowKey: key, breadth: nil, window: GrantWindow(scope: .once), now: 2
+        )
+        XCTAssertEqual(rows[key!]?.breadth, .listedItems, "the unticked box survives a later once")
+        XCTAssertEqual(rows[key!]?.window?.scope, .once)
     }
 
     // MARK: - The file

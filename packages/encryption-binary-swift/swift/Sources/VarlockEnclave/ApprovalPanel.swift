@@ -663,6 +663,20 @@ final class ApprovalPanel: NSObject {
         relayout()
     }
 
+    /// Show the breadth checkbox only where there is a breadth to choose.
+    ///
+    /// `once` grants narrow and draws no checkbox: see
+    /// `ApprovalFlow.effectiveBreadth` for why that combination is the one worth
+    /// keeping. Hidden rather than disabled on purpose. A greyed-out control
+    /// asks "why can't I tick that?", and the honest answer is a paragraph
+    /// about how batches are put together, which is not something to make
+    /// somebody read while a sensor is waiting for their finger. The summary
+    /// sentence underneath still says what the grant covers, so nothing about
+    /// this is hidden state.
+    private func syncBreadthVisibility() {
+        breadthControl?.isHidden = selectedScope(fallback: flow.scope) == .once
+    }
+
     private func breadthChanged() {
         syncSelectionIntoFlow()
         relayout()
@@ -722,8 +736,12 @@ final class ApprovalPanel: NSObject {
             durationMs: scope == .duration ? duration.milliseconds : nil,
             breadth: breadth
         )
+        syncBreadthVisibility()
+        // Taken from the flow rather than from the checkbox, so the sentence and
+        // the grant can never disagree: under `once` the checkbox is not the
+        // answer, and this is the line that has to say so.
         selectionSummaryLabel?.stringValue = PanelContent.selectionSummary(
-            breadth: breadth,
+            breadth: flow.effectiveBreadth,
             itemCount: listedItemCount,
             vaultCount: vaultCount,
             scope: scope,
@@ -889,6 +907,11 @@ final class ApprovalPanel: NSObject {
             ) { [weak self] _ in self?.breadthChanged() }
             breadthControl = checkbox
             column.setCustomSpacing(13, after: column.arrangedSubviews.last!)
+            // The checkbox is hidden inside its own holder rather than pulled
+            // out of the stack. A hidden arranged subview collapses and takes
+            // the buttons under it with it, and a panel whose Deny button jumps
+            // as you change your mind about a scope is a panel that gets
+            // mis-clicked. The holder keeps the row's height either way.
             column.addArrangedSubview(centred(checkbox))
         }
 
@@ -902,6 +925,14 @@ final class ApprovalPanel: NSObject {
             summary.maximumNumberOfLines = 2
             summary.preferredMaxLayoutWidth = PanelStyle.contentWidth
             selectionSummaryLabel = summary
+            // Pinned to its two-line height rather than fitting its text. The
+            // sentence is one line for some combinations and two for others, and
+            // a panel that grows and shrinks under the pointer as somebody reads
+            // their options is the same mis-click problem as a collapsing
+            // checkbox row.
+            summary.heightAnchor.constraint(
+                equalToConstant: ceil(summary.font.map { $0.boundingRectForFont.height } ?? 14) * 2
+            ).isActive = true
             column.setCustomSpacing(9, after: column.arrangedSubviews.last!)
             column.addArrangedSubview(centred(summary))
         }

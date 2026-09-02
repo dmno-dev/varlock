@@ -315,9 +315,11 @@ final class GrantBreadthTests: XCTestCase {
         )
         XCTAssertTrue(content.hasUnlistableSource)
         XCTAssertTrue(PanelContent.unlistableSourceNote.contains("value cache"))
-        XCTAssertTrue(
-            PanelContent.unlistableSourceNote.contains("ticked or not"),
-            "the caveat has to hold for both states of the checkbox"
+        // True in every state, including `once`, where the grant is narrow and
+        // there is no checkbox on screen to point at.
+        XCTAssertFalse(
+            PanelContent.unlistableSourceNote.lowercased().contains("tick"),
+            "the caveat must not refer to a control that is sometimes not drawn"
         )
     }
 
@@ -347,6 +349,88 @@ final class GrantBreadthTests: XCTestCase {
             display: display
         )
         XCTAssertEqual(content.listedItemCount, 2)
+    }
+
+    // MARK: - "once" implies narrow
+
+    /// The panel draws no breadth checkbox under `once`, and the grant is narrow
+    /// whatever the hidden control was last set to.
+    func testOnceGrantsNarrowWhateverTheCheckboxSaid() {
+        var flow = ApprovalFlow(defaultScope: .session, presenceMode: .embedded, defaultBreadth: .wholeKey)
+        XCTAssertEqual(flow.effectiveBreadth, .wholeKey)
+
+        flow.select(scope: .once, breadth: .wholeKey)
+        XCTAssertEqual(flow.effectiveBreadth, .listedItems, "once is narrow, ticked box or not")
+
+        // ...and moving back off `once` returns breadth to what it was, rather
+        // than leaving it stuck narrow because of a choice about time.
+        flow.select(scope: .session, breadth: .wholeKey)
+        XCTAssertEqual(flow.effectiveBreadth, .wholeKey)
+    }
+
+    func testAnApprovalUnderOnceRecordsNoBreadthChoice() {
+        var flow = ApprovalFlow(defaultScope: .once, presenceMode: .embedded, defaultBreadth: .wholeKey)
+        guard case .finish(let decision) = flow.apply(.scanSucceeded) else {
+            return XCTFail("a scan should finish the flow")
+        }
+        XCTAssertEqual(decision.breadth, .listedItems, "the grant is narrow")
+        XCTAssertNil(decision.chosenBreadth, "and the user expressed no opinion about breadth")
+    }
+
+    func testAnApprovalUnderASessionRecordsTheChoiceThatWasMade() {
+        var flow = ApprovalFlow(defaultScope: .session, presenceMode: .embedded, defaultBreadth: .wholeKey)
+        flow.select(scope: .session, breadth: .listedItems)
+        guard case .finish(let decision) = flow.apply(.scanSucceeded) else {
+            return XCTFail("a scan should finish the flow")
+        }
+        XCTAssertEqual(decision.breadth, .listedItems)
+        XCTAssertEqual(decision.chosenBreadth, .listedItems)
+    }
+
+    /// The summary has to say what the grant covers even where no control is
+    /// drawn, so `once` is not hidden state.
+    func testTheSummaryStatesTheBreadthEvenWithNoCheckboxOnScreen() {
+        XCTAssertEqual(
+            PanelContent.selectionSummary(
+                breadth: .listedItems, itemCount: 12, scope: .once, durationLabel: nil
+            ),
+            "Covers only the 12 values listed above, for this one read."
+        )
+    }
+
+    /// Narrow never means an empty set. A `once` approval on a key that brought
+    /// no digests still opens the read it was approved for, rather than refusing
+    /// everything on a technicality.
+    func testANarrowGrantWithNothingToNarrowToStillOpensItsRead() throws {
+        let table = SessionGrantTable()
+        // What the manager does for a key with no digests, whatever the breadth.
+        table.grant(ref: ref, identityId: "default", scope: .once, coveredItems: nil)
+        XCTAssertNoThrow(try table.consume(ref: ref, itemDigests: [digest("whatever was in the batch")]))
+    }
+
+    func testOnceIsNarrowEvenWhenThePanelOfferedNoBreadthAtAll() {
+        // A batch where one key brought no digests offers no breadth control,
+        // but `once` still grants narrow: the clamp guards a panel ANSWER, and
+        // under once there was none to clamp.
+        let decision = PanelDecision(approved: true, scope: .once, breadth: .listedItems)
+        let granted = UnlockBreadthSelection.granted(by: decision, offered: [.wholeKey])
+        XCTAssertEqual(granted.breadth(forVault: "local"), .listedItems)
+    }
+
+    func testAnAnswerOnTheOtherScopesIsStillClampedToWhatWasOffered() {
+        let decision = PanelDecision(
+            approved: true, scope: .session, breadth: .listedItems, chosenBreadth: .listedItems
+        )
+        XCTAssertEqual(
+            UnlockBreadthSelection.granted(by: decision, offered: [.wholeKey]).breadth(forVault: "local"),
+            .wholeKey
+        )
+        XCTAssertEqual(
+            UnlockBreadthSelection
+                .granted(by: decision, offered: [.listedItems, .wholeKey])
+                .breadth(forVault: "local"),
+            .listedItems
+        )
     }
 
     // MARK: - The vault boundary

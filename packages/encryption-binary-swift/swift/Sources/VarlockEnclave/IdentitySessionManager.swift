@@ -320,11 +320,7 @@ final class IdentitySessionManager {
             case .approved(let decision, let proof):
                 chosenScope = decision.scope
                 chosenDurationMs = decision.durationMs
-                // A breadth the panel never offered cannot be chosen, whatever
-                // comes back: the answer is clamped to the question that was asked.
-                chosenBreadth = UnlockBreadthSelection
-                    .uniform(decision.breadth)
-                    .clamped(to: plan.offeredBreadths)
+                chosenBreadth = UnlockBreadthSelection.granted(by: decision, offered: plan.offeredBreadths)
                 presenceProof = proof
                 // Remember only a narrowing, and forget one by choosing the
                 // default again. Best effort: a preference that will not write
@@ -332,7 +328,10 @@ final class IdentitySessionManager {
                 UnlockPreferenceStore.record(
                     projectPath: projectPath,
                     keyIds: plan.promptKeys.map { $0.keyId },
-                    breadth: chosenBreadth.narrowest,
+                    // What the user CHOSE, not what the grant got. Under `once`
+                    // these differ: the grant is narrow and the choice is nil,
+                    // so a duration answer writes down nothing about breadth.
+                    breadth: decision.chosenBreadth,
                     window: GrantWindow(scope: chosenScope, durationMs: chosenDurationMs)
                 )
             }

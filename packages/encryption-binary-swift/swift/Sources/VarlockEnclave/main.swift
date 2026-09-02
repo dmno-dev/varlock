@@ -342,17 +342,31 @@ case "panel-preview":
     case "unusual": previewSignals = UnlockRiskSignals(nobodyWatching: true, seenBefore: true)
     default: break
     }
+    var previewSelection = UnlockDefaults.preselect(
+        signals: previewSignals,
+        remembered: previewRemembered,
+        offeredBreadths: previewPlan.offeredBreadths,
+        offeredScopes: previewPlan.offeredScopes
+    )
+    // Force the scope the panel opens on, leaving every other signal alone. This
+    // is what makes "does the layout move when you change scope" answerable from
+    // two pictures: forcing the risk instead would change the advisory line
+    // underneath and the two renders would differ for a second reason.
+    if let forced = SessionGrantScope(wireValue: previewPayload["scope"] as? String) {
+        previewSelection = UnlockPreselection(
+            breadth: forced == .once ? .listedItems : previewSelection.breadth,
+            window: GrantWindow(scope: forced),
+            risk: previewSelection.risk,
+            isRemembered: previewSelection.isRemembered,
+            note: previewSelection.note
+        )
+    }
     let previewContent = UnlockPanelContent.build(
         plan: previewPlan,
         requester: previewRequester,
         display: previewDisplay,
         lockOn: SessionLockPolicy(wireValue: previewPayload["lockOn"] as? String) ?? .builtInDefault,
-        preselection: UnlockDefaults.preselect(
-            signals: previewSignals,
-            remembered: previewRemembered,
-            offeredBreadths: previewPlan.offeredBreadths,
-            offeredScopes: previewPlan.offeredScopes
-        )
+        preselection: previewSelection
     )
     let previewMode: ApprovalPresenceMode
     switch previewPayload["mode"] as? String {

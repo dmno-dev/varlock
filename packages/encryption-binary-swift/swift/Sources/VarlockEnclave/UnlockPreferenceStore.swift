@@ -32,10 +32,12 @@ enum UnlockPreferenceStore {
     /// Best effort. A preference that cannot be written costs the next panel a
     /// slightly broader preselection, which is a nuisance; failing an unlock the
     /// user already approved over it would be worse.
+    /// - Parameter breadth: nil where the user was never offered the choice
+    ///   (`once` draws no checkbox), which leaves that axis exactly as it was.
     static func record(
         projectPath: String?,
         keyIds: [String],
-        breadth: SessionGrantBreadth,
+        breadth: SessionGrantBreadth?,
         window: GrantWindow
     ) {
         guard projectPath != nil, !keyIds.isEmpty else { return }

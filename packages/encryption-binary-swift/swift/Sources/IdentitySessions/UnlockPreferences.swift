@@ -129,13 +129,28 @@ public enum UnlockPreferences {
     /// Only the axes they tightened are written down. An axis they left at the
     /// default clears whatever was remembered for it, which is what makes
     /// choosing the default the way to forget.
+    ///
+    /// A nil `breadth` is a third thing, and it is not "the default". It means
+    /// the user was never asked, which happens under `once`: the panel draws no
+    /// breadth control there because the scope already implies the narrow
+    /// answer. A duration choice must not be able to write down a breadth
+    /// opinion the person never held, in either direction, so nil leaves that
+    /// axis exactly as it was: a narrowing chosen earlier survives, and an
+    /// absent one is not invented.
     public static func remembering(
-        breadth: SessionGrantBreadth,
+        existing: UnlockNarrowing?,
+        breadth: SessionGrantBreadth?,
         window: GrantWindow,
         now: Int64
     ) -> UnlockNarrowing {
+        let rememberedBreadth: SessionGrantBreadth?
+        switch breadth {
+        case .none: rememberedBreadth = existing?.breadth
+        case .some(UnlockDefaults.breadth): rememberedBreadth = nil
+        case .some(let chosen): rememberedBreadth = chosen
+        }
         return UnlockNarrowing(
-            breadth: breadth == UnlockDefaults.breadth ? nil : breadth,
+            breadth: rememberedBreadth,
             window: window.scope == UnlockDefaults.window.scope ? nil : window,
             approvedBefore: true,
             savedAt: now
@@ -146,13 +161,13 @@ public enum UnlockPreferences {
     public static func apply(
         rows: [String: UnlockNarrowing],
         rowKey: String?,
-        breadth: SessionGrantBreadth,
+        breadth: SessionGrantBreadth?,
         window: GrantWindow,
         now: Int64
     ) -> [String: UnlockNarrowing] {
         guard let rowKey else { return rows }
         var next = rows
-        let entry = remembering(breadth: breadth, window: window, now: now)
+        let entry = remembering(existing: rows[rowKey], breadth: breadth, window: window, now: now)
         if entry.isEmpty {
             next.removeValue(forKey: rowKey)
         } else {

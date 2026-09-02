@@ -563,6 +563,22 @@ describe.skipIf(process.platform === 'win32')('lock and sessions over the daemon
       expect(harness.callsOf('decrypt-v2')).toHaveLength(2);
     });
 
+    it('still opens the read it was approved for when nothing was declared', async () => {
+      // The `once` case: the panel draws no breadth control and the grant is
+      // narrow, so the items this request sends are the only thing standing
+      // between the caller and a refusal. The batch is always in them.
+      const localEncrypt = await loadLocalEncrypt();
+      localEncrypt.clearUnlockInventory();
+
+      const opened = await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);
+
+      expect(opened).toEqual(['b']);
+      const items = harness.callsOf('unlock-session')[0].payload.items as Record<string, Array<string>>;
+      expect(items['varlock-default']).toEqual([inBatch]);
+      // one panel, not a refusal followed by a second one
+      expect(harness.callsOf('unlock-session')).toHaveLength(1);
+    });
+
     it('reports the breadth the grant came back with', async () => {
       const localEncrypt = await loadLocalEncrypt();
       await localEncrypt.decryptIdentityPayloads([{ ciphertext: inBatch, keyId: 'varlock-default' }]);

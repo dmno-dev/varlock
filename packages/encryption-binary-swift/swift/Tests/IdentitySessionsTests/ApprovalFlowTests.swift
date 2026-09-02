@@ -21,8 +21,8 @@ final class ApprovalFlowTests: XCTestCase {
 
         // One gesture: no confirm press anywhere in this test.
         let effect = flow.apply(.scanSucceeded)
-        XCTAssertEqual(effect, .finish(PanelDecision(approved: true, scope: .session)))
-        XCTAssertEqual(flow.state, .finished(PanelDecision(approved: true, scope: .session)))
+        XCTAssertEqual(effect, .finish(PanelDecision(approved: true, scope: .session, chosenBreadth: .wholeKey)))
+        XCTAssertEqual(flow.state, .finished(PanelDecision(approved: true, scope: .session, chosenBreadth: .wholeKey)))
     }
 
     func testAScanApprovesWhatIsSelectedWhenItLands() {
@@ -33,7 +33,7 @@ final class ApprovalFlowTests: XCTestCase {
         // while the prompt is armed. The scan must honour that, not the state the
         // panel opened in.
         flow.select(scope: .once)
-        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .once)))
+        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .once, breadth: .listedItems)))
     }
 
     func testADurationSelectionCarriesItsWindow() {
@@ -43,7 +43,12 @@ final class ApprovalFlowTests: XCTestCase {
 
         XCTAssertEqual(
             flow.apply(.scanSucceeded),
-            .finish(PanelDecision(approved: true, scope: .duration, durationMs: DurationPreset.fourHours.milliseconds))
+            .finish(PanelDecision(
+                approved: true,
+                scope: .duration,
+                durationMs: DurationPreset.fourHours.milliseconds,
+                chosenBreadth: .wholeKey
+            ))
         )
     }
 
@@ -54,7 +59,12 @@ final class ApprovalFlowTests: XCTestCase {
 
         XCTAssertEqual(
             flow.apply(.scanSucceeded),
-            .finish(PanelDecision(approved: true, scope: .duration, durationMs: DurationPreset.default.milliseconds))
+            .finish(PanelDecision(
+                approved: true,
+                scope: .duration,
+                durationMs: DurationPreset.default.milliseconds,
+                chosenBreadth: .wholeKey
+            ))
         )
     }
 
@@ -64,7 +74,7 @@ final class ApprovalFlowTests: XCTestCase {
         flow.select(scope: .duration, durationMs: DurationPreset.eightHours.milliseconds)
         flow.select(scope: .session)
 
-        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .session)))
+        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .session, chosenBreadth: .wholeKey)))
     }
 
     // MARK: - A scan that does not land
@@ -97,7 +107,7 @@ final class ApprovalFlowTests: XCTestCase {
         flow.select(scope: .once)
         _ = flow.apply(.confirmPressed)
 
-        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .once)))
+        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .once, breadth: .listedItems)))
     }
 
     func testRepeatedFailuresAreCounted() {
@@ -170,7 +180,7 @@ final class ApprovalFlowTests: XCTestCase {
         XCTAssertEqual(flow.state, .awaitingInput)
 
         flow.select(scope: .once)
-        XCTAssertEqual(flow.apply(.confirmPressed), .finish(PanelDecision(approved: true, scope: .once)))
+        XCTAssertEqual(flow.apply(.confirmPressed), .finish(PanelDecision(approved: true, scope: .once, breadth: .listedItems)))
     }
 
     func testTheSystemDialogFallbackWaitsForTheButton() {
@@ -180,7 +190,7 @@ final class ApprovalFlowTests: XCTestCase {
         // The button raises the dialog rather than answering by itself, so the
         // approval still costs a real presence check.
         XCTAssertEqual(flow.apply(.confirmPressed), .beginScan)
-        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .session)))
+        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .session, chosenBreadth: .wholeKey)))
     }
 
     func testTheFallbackAlsoTreatsAFailedCheckAsNotARefusal() {
@@ -199,6 +209,6 @@ final class ApprovalFlowTests: XCTestCase {
         // approves is already the only thing on offer.
         var flow = embedded(default: .once)
         XCTAssertEqual(flow.start(), .beginScan)
-        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .once)))
+        XCTAssertEqual(flow.apply(.scanSucceeded), .finish(PanelDecision(approved: true, scope: .once, breadth: .listedItems)))
     }
 }

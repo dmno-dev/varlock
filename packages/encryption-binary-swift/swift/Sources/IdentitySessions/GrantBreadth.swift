@@ -94,6 +94,26 @@ public struct UnlockBreadthSelection: Equatable {
         )
     }
 
+    /// What a panel answer actually grants, per vault.
+    ///
+    /// Two rules, and the order matters.
+    ///
+    /// `once` grants narrow, full stop. The panel draws no breadth control
+    /// there, so there is no answer to clamp: `offered` guards an answer the
+    /// panel OFFERED, and under `once` it offered none. The safety `offered`
+    /// normally provides comes from the caller's own item binding instead, which
+    /// never binds a grant to an empty set, so a key that arrived with no
+    /// digests keeps its whole vault and the read still works.
+    ///
+    /// Anything else takes the checkbox, clamped to what was on the panel.
+    public static func granted(
+        by decision: PanelDecision,
+        offered: [SessionGrantBreadth]
+    ) -> UnlockBreadthSelection {
+        if decision.scope == .once { return .uniform(.listedItems) }
+        return .uniform(decision.breadth).clamped(to: offered)
+    }
+
     /// The single answer, for the places that still speak in one (the audit
     /// record's summary line, and remembering a choice). The narrowest of what
     /// was chosen, so a summary can never claim less caution than was applied.
