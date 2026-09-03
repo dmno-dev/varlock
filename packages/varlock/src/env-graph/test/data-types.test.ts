@@ -238,17 +238,32 @@ describe('url data type', () => {
         MY_URL=http://evil.com:3000/api
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
-      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (evil.com) is not in allowed list');
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (evil.com:3000) is not in allowed list');
     });
 
-    it('errors on an allowlist entry that includes a port', async () => {
+    it('pins the port when an entry names one', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains=["localhost:3000"])
         MY_URL=http://localhost:3000/api
       `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects a different port when an entry names one', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:3000"])
+        MY_URL=http://localhost:9999/api
+      `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
-      expect(g.configSchema.MY_URL.errors[0]?.message)
-        .toContain('allowedDomains entries must not include a port - use localhost');
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (localhost:9999) is not in allowed list');
+    });
+
+    it('matches an entry naming the protocol default port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com:443"])
+        MY_URL=https://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
     it('accepts a bare string as a single allowed host', async () => {

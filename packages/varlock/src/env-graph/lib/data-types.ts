@@ -454,17 +454,21 @@ const UrlDataType = createEnvGraphDataType(
           const normalizedDomains = allowedDomains
             .map((allowedDomain) => allowedDomain.trim().toLowerCase())
             .filter(Boolean);
-          // an entry carrying a port could never match a hostname, so it would silently
-          // reject everything. `:\d+$` leaves a bracketed IPv6 host (`[::1]`) alone.
-          const domainsWithPort = normalizedDomains.filter((allowedDomain) => /:\d+$/.test(allowedDomain));
-          if (domainsWithPort.length) {
-            errors.push(new ValidationError(
-              `allowedDomains entries must not include a port - use ${domainsWithPort.map((d) => d.replace(/:\d+$/, '')).join(', ')}`,
-            ));
-          // compared against the hostname, so a port on the value is ignored and
-          // `allowedDomains=[localhost]` still accepts `http://localhost:3000`
-          } else if (!normalizedDomains.includes(url.hostname.toLowerCase())) {
-            errors.push(new ValidationError(`Domain (${url.hostname}) is not in allowed list: ${normalizedDomains.join(',')}`));
+          // An entry without a port matches the hostname, so any port on the value is
+          // allowed (`[localhost]` accepts `http://localhost:3000`). An entry that names
+          // a port pins it, and is normalized through the same parser as the value so a
+          // default port (`:443` on https) is dropped from both sides before comparing.
+          // `:\d+$` leaves a bracketed IPv6 host (`[::1]`) to the hostname branch.
+          const matchesAllowedDomain = (allowedDomain: string) => {
+            if (!/:\d+$/.test(allowedDomain)) return allowedDomain === url.hostname.toLowerCase();
+            try {
+              return new URL(`${url.protocol}//${allowedDomain}`).host === url.host.toLowerCase();
+            } catch {
+              return false;
+            }
+          };
+          if (!normalizedDomains.some(matchesAllowedDomain)) {
+            errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${normalizedDomains.join(',')}`));
           }
         }
       }
