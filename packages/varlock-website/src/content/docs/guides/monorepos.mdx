@@ -52,10 +52,23 @@ You can also **import directly from a sibling package**, which lets you keep a c
 
 :::caution[Avoid circular imports]
 Imports must flow in one direction. If `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock detects the cycle and loading fails with an explicit error naming the chain (e.g. `Circular import detected: web/.env.schema -> api/.env.schema -> web/.env.schema`). Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
+
+This also applies between the root and a package. Pick one direction: either the root schema imports package directories, or packages import the root schema. If the root imports `./packages/web/` and `packages/web/.env.schema` imports `../../.env.schema` back, that is a cycle and fails the same way when varlock is run from the root, even though it works when run from inside `packages/web`.
 :::
 
 :::note[Shared environment flag]
-If several projects share an environment flag like `APP_ENV`, define it in the shared schema and import it. For per-service environment variations, see [Loading environment-specific `.env` files](/guides/environments#loading-environment-specific-env-files).
+If several projects share an environment flag like `APP_ENV`, define it in the shared schema and import it. The simplest option is to put `@currentEnv=$APP_ENV` in the shared schema as well: it carries through any `@import` of that file or directory, including a partial import, as long as `APP_ENV` passes the `pick`/`omit` filter. Alternatively, a package can point its own `@currentEnv` at the imported key:
+
+```env-spec title="packages/web/.env.schema"
+# @currentEnv=$APP_ENV
+# @import(../../.env.schema, pick=[APP_ENV, DATABASE_URL])
+# @import(../api/, pick=[API_PUBLIC_URL])
+# ---
+```
+
+Declare the import that provides the flag before any other imports. Until the flag is known, varlock cannot select `.env.[currentEnv]` files, so a directory imported earlier would be loaded without them, and an earlier import using `enabled=forEnv(...)` has no environment to check. Also note that when the flag arrives via import, this package's own `.env.[currentEnv]` files load after its imports finish, so `@import(enabled=...)` and `@disable` conditions in this schema cannot depend on values set only in those files. If you need that, define the flag locally instead and leave it out of the `pick` list, so the imported default cannot conflict with the locally resolved value.
+
+For per-service environment variations, see [Loading environment-specific `.env` files](/guides/environments#loading-environment-specific-env-files).
 :::
 
 ### Pointing varlock at the right directory

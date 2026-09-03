@@ -166,7 +166,7 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 
 ### `environment flag "..." must be defined within this schema`
 
-If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`) and that variable is only brought in via a **partial** `@import()`, varlock validates the env flag during schema initialization, before imported values are merged. The flag must be **defined in the same `.env.schema` file** that declares `@currentEnv`, not only in an imported file.
+If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`), that item must either be defined in the same file or brought in by `@import`. A partial import must include the flag in `pick=[...]` (or not omit it).
 
 This commonly appears in monorepos when a sub-package imports shared keys from a parent schema:
 
@@ -177,26 +177,24 @@ This commonly appears in monorepos when a sub-package imports shared keys from a
 MY_SERVICE_URL=...
 ```
 
-Running `varlock load` fails with:
+That works: `DEPLOY_ENV` arrives via the import, and varlock uses it to load `.env.<env>` files after this file's imports finish. Two consequences of that ordering:
+
+- Declare the import that provides the flag before other imports. A directory imported earlier cannot select its `.env.<env>` files yet, and an earlier import using `enabled=forEnv(...)` has no environment to check. Both cases fail with an error asking you to reorder.
+- `@import(enabled=...)` and `@disable` conditions in this file cannot depend on values set only in its `.env.<env>` files, because those load after the conditions are evaluated. If you need that, define the flag locally and leave it out of the `pick` list.
+
+If the pick list omits the flag, `varlock load` fails with:
 
 ```txt
-environment flag "DEPLOY_ENV" must be defined within this schema
+environment flag "DEPLOY_ENV" is not defined in this file and was not provided by any @import
 ```
+
+A file with `@currentEnv` and no imports at all still fails with `must be defined within this schema or imported via @import`.
 
 **Fixes:**
 
-- Define the env flag locally in the file that uses `@currentEnv`, even if the value comes from elsewhere:
-
-```env-spec title=".env.schema (sub-package)"
-# @currentEnv=$DEPLOY_ENV
-# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
-# ---
-DEPLOY_ENV=
-MY_SERVICE_URL=...
-```
-
-- Move `@currentEnv` to the shared schema where the flag is already defined
-- Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling
+- Add the flag to the import filter: `pick=[DEPLOY_ENV, ...]`
+- Define the env flag locally in the file that uses `@currentEnv`, and leave it out of the `pick` list so the imported default cannot conflict with the locally resolved value
+- Move `@currentEnv` to the shared schema where the flag is already defined. It carries through any import of that file or directory, including a partial import, as long as the flag passes the `pick`/`omit` filter
 
 ### Circular imports
 

@@ -35,6 +35,22 @@ export function keyPassesImportFilter(
   return keyMatchesFilter(key, importFilter);
 }
 
+/**
+ * True when `item` is declared by a schema or import, not only an auto-loaded
+ * `.env` / `.env.local` / `.env.<env>` value file. A values-only key must not
+ * satisfy `@currentEnv=$FLAG` or trigger `.env.<env>` loading.
+ */
+export function envFlagHasSchemaDeclaration(item: ConfigItem): boolean {
+  return item.defs.some((d) => {
+    if (!d.source) return true;
+    if (d.source.isImport) return true;
+    if (d.source.type === 'schema') return true;
+    if (d.source.isAutoloadedValueSource) return false;
+    if (d.source.isEnvSpecific) return false;
+    return true;
+  });
+}
+
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
     fileSuffixes: ['schema'],
@@ -182,6 +198,44 @@ export abstract class EnvGraphDataSource {
   /** true when the source has a `@disable` decorator whose value is not static */
   _hasConditionalDisable?: boolean;
 
+  /**
+   * set when `@currentEnv=$FLAG` references a key that is not defined in this source, but
+   * this source has `@import`s that may bring it in. Verified once imports have run.
+   */
+  _envFlagPendingImport?: string;
+  /**
+   * true while `_envFlagPendingImport` is set and none of this source's own imports has
+   * declared the key yet. Scoped to this source's import subtree on purpose: a declaration
+   * that reached the graph through another path (multi-path load, an ancestor's schema)
+   * must not satisfy this file's `@currentEnv`, or an omitted pick entry would go unreported.
+   */
+  private get envFlagStillPending(): boolean {
+    if (!this._envFlagPendingImport) return false;
+    return !this._importsDeclareKey(this._envFlagPendingImport);
+  }
+
+  /**
+   * whether `key` is declared somewhere in this source's import subtree and visible through
+   * every import filter between here and that declaration (aliases expand to their original)
+   */
+  private _importsDeclareKey(key: string): boolean {
+    const visit = (node: EnvGraphDataSource): boolean => {
+      for (const child of node.children) {
+        if (child.disabled) continue;
+        const meta = child.importMeta;
+        if (meta && !keyPassesImportFilter(key, meta.importKeys, meta.importFilter)) continue;
+        // eslint-disable-next-line no-use-before-define
+        const real = child instanceof ImportAliasSource ? child.original : child;
+        // the alias itself may be enabled while the original was disabled by its own @disable
+        if (real.disabled) continue;
+        if (real.configItemDefs[key]) return true;
+        if (visit(real)) return true;
+      }
+      return false;
+    };
+    return visit(this);
+  }
+
   /** environment flag key (as set by @envFlag decorator) - only if set within this source */
   _envFlagKey?: string;
   /** environment flag key getter that will follow up the parent chain */
@@ -192,7 +246,8 @@ export abstract class EnvGraphDataSource {
   /** helper to set the current envFlag key, also propogating upwards */
   setEnvFlag(key: string) {
     this._envFlagKey = key;
-    if (this.parent && !this.isPartialImport && !this.parent._envFlagKey) {
+    // propagate through imports as long as the flag item itself is visible through the import chain
+    if (this.parent && this.isKeyImported(key) && !this.parent._envFlagKey) {
       this.parent.setEnvFlag(key);
     }
   }
@@ -317,6 +372,16 @@ export abstract class EnvGraphDataSource {
           // For files, @currentEnv won't take effect and forEnv will fall back to parent's env setting
           if (this.isPartialImport && !this.isKeyImported(envFlagItemKey)) {
             skipCurrentEnvProcessing = true;
+          } else if (
+            // Flag is not defined here but this file has @import(s), so it may arrive from one of
+            // them. Do not process ref() yet (it would SchemaError "invalid dependency" and mark
+            // this source invalid, which skips _processImports). Verified after imports run.
+            !this.configItemDefs[envFlagItemKey]
+            && !isBuiltinVar(envFlagItemKey)
+            && this.getRootDecFns('import').length > 0
+          ) {
+            skipCurrentEnvProcessing = true;
+            this._envFlagPendingImport = envFlagItemKey;
           }
         }
       }
@@ -342,8 +407,14 @@ export abstract class EnvGraphDataSource {
     }
 
     if (envFlagItemKey) {
-      if (!this.configItemDefs[envFlagItemKey] && !isBuiltinVar(envFlagItemKey)) {
-        this._errors.push(new LoadingError(`environment flag "${envFlagItemKey}" must be defined within this schema`));
+      const definedLocally = !!this.configItemDefs[envFlagItemKey] || isBuiltinVar(envFlagItemKey);
+      // Flag may arrive later via @import (checked at the end of _processImports). Allow that
+      // without erroring or early-returning (early return used to skip @defaultSensitive
+      // processing and cascade into a crash).
+      if (!definedLocally && !this._envFlagPendingImport) {
+        this._errors.push(new LoadingError(
+          `environment flag "${envFlagItemKey}" must be defined within this schema or imported via @import`,
+        ));
         return;
       }
 
@@ -353,7 +424,7 @@ export abstract class EnvGraphDataSource {
       }
 
       // Always set the envFlagKey so parent directories can check it
-      // (even if we're skipping processing for a file partial import)
+      // (even if we're skipping processing for a file partial import, or waiting on @import)
       this.setEnvFlag(envFlagItemKey);
     }
 
@@ -415,6 +486,15 @@ export abstract class EnvGraphDataSource {
           }
 
           const importArgs = await importDec.resolve();
+          if (!importArgs) {
+            // resolve() recorded the failure on the decorator (e.g. forEnv() before the env is known)
+            const cause = importDec.errors[0];
+            let message = cause ? `@import could not be resolved: ${cause.message}` : 'expected @import to resolve';
+            if (this.envFlagStillPending) {
+              message += `. Environment flag "${this._envFlagPendingImport}" is still waiting on a later @import - declare that import first`;
+            }
+            throw new LoadingError(message);
+          }
           const importPath = importArgs.arr[0];
           const positionalKeys = importArgs.arr.slice(1);
           if (!positionalKeys.every(_.isString)) {
@@ -506,6 +586,7 @@ export abstract class EnvGraphDataSource {
                 const dirChild = new DirectoryDataSource(fullImportPath);
                 await this.addChild(dirChild, importMeta);
                 this.graph.recordLoadedImportPath(fullImportPath, dirChild);
+                this._checkDirectoryImportedBeforeEnvFlag(importPath);
               } else {
                 const fileExists = this.graph.virtualImports[fullImportPath];
                 if (!fileExists && allowMissing) continue;
@@ -538,6 +619,7 @@ export abstract class EnvGraphDataSource {
                   const dirChild = new DirectoryDataSource(fullImportPath);
                   await this.addChild(dirChild, importMeta);
                   this.graph.recordLoadedImportPath(fullImportPath, dirChild);
+                  this._checkDirectoryImportedBeforeEnvFlag(importPath);
                 } else {
                   this._errors.push(new LoadingError(`Imported path ending with "/" is not a directory: ${fullImportPath}`));
                   return;
@@ -581,6 +663,28 @@ export abstract class EnvGraphDataSource {
     } finally {
       this.graph.endImportProcessing(importStackKey);
     }
+
+    // @currentEnv=$FLAG deferred to imports, but none of them declared FLAG
+    if (this.envFlagStillPending) {
+      this._errors.push(new LoadingError(
+        `environment flag "${this._envFlagPendingImport}" is not defined in this file and was not provided by any @import. `
+        + 'Include it in pick=[...] (or do not omit it), or define it in this file.',
+      ));
+    }
+  }
+
+  /**
+   * A directory import initializes (and picks its `.env.<env>` files) as soon as it is
+   * processed. If the env flag is still waiting on a later @import at that point, the
+   * directory would silently load no env-specific files, so error and ask for a reorder.
+   */
+  private _checkDirectoryImportedBeforeEnvFlag(importPath: string) {
+    if (!this.envFlagStillPending) return;
+    this._errors.push(new LoadingError(
+      `@import(${importPath}) was processed before environment flag "${this._envFlagPendingImport}" was available, `
+      + 'so that directory could not select its .env.<env> files. '
+      + `Declare the @import that provides "${this._envFlagPendingImport}" before importing directories.`,
+    ));
   }
 
   /**
@@ -961,10 +1065,14 @@ export class DirectoryDataSource extends EnvGraphDataSource {
         return { env: undefined, fromFallback: false };
       }
       const envFlagItem = this.graph.configSchema[envFlagKey];
-      if (envFlagItem) {
+      if (envFlagItem && envFlagHasSchemaDeclaration(envFlagItem)) {
         if (!envFlagItem.resolvedValue) await envFlagItem.earlyResolve();
         return { env: envFlagItem.resolvedValue?.toString(), fromFallback: false };
       }
+      // Schema declared @currentEnv=$FLAG but FLAG is not a schema/import declaration yet
+      // (still waiting on @import, or only present in an auto-loaded .env). Do not treat a
+      // values-only key or the CLI fallback as the flag, or we would load the wrong .env.* files.
+      return { env: undefined, fromFallback: false };
     }
     // Fall back to parent chain or fallback value
     const fromEnvFlagItem = !!this.envFlagConfigItem;
@@ -1017,8 +1125,9 @@ export class DirectoryDataSource extends EnvGraphDataSource {
       await child._processImports();
     }
 
-    // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR).
-    // Re-check when we had no value, or only the fallback — a real @currentEnv must win
+    // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR), or
+    // provided the flag item our own @currentEnv=$FLAG was waiting on.
+    // Re-check when we had no value, or only the fallback. A real @currentEnv must win
     // over it, the same way it does when declared in this schema directly.
     if (!currentEnv || fromFallback) {
       const { env: resolvedEnv } = await this._resolveCurrentEnv();
