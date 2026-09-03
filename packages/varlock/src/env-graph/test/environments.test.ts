@@ -16,6 +16,88 @@ describe('@currentEnv and .env.* file loading logic', () => {
     expectError: true,
   }));
 
+  // #428: @currentEnv may reference a flag key brought in via @import
+  test('@currentEnv can reference a key imported via pick=[]', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      '.env.dev': outdent`
+        ITEM1=from-dev
+      `,
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      ITEM1: 'from-dev',
+    },
+  }));
+
+  test('@currentEnv can reference a key imported via pick glob', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[DEPLOY_*])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=staging
+        DEPLOY_REGION=us
+      `,
+      '.env.staging': outdent`
+        ITEM1=from-staging
+      `,
+    },
+    expectValues: {
+      DEPLOY_ENV: 'staging',
+      DEPLOY_REGION: 'us',
+      ITEM1: 'from-staging',
+    },
+  }));
+
+  test('@currentEnv can reference a key imported via deprecated positional keys', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, DEPLOY_ENV)
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      '.env.dev': outdent`
+        ITEM1=from-dev-positional
+      `,
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      ITEM1: 'from-dev-positional',
+    },
+  }));
+
+  test('@currentEnv errors when imported pick list omits the flag key', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[OTHER])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+        OTHER=x
+      `,
+    },
+    expectError: true,
+  }));
+
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
     files: {
       '.env.schema': outdent`

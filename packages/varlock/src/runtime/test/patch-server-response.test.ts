@@ -152,6 +152,13 @@ describe('patched ServerResponse.end', () => {
     const res = makeRes({ 'content-type': 'application/json' });
     expect(() => res.end(Buffer.from(JSON.stringify({ leaked: SECRET })))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
   });
+
+  it('finishes the response so the client does not hang when leak detection throws', () => {
+    const res = makeRes({ 'content-type': 'application/json' });
+    expect(() => res.end(JSON.stringify({ leaked: SECRET }))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    expect(res.writableEnded || res.destroyed).toBe(true);
+    expect(res.statusCode).toBe(500);
+  });
 });
 
 // a scan that only ever sees one chunk at a time misses any value that straddles a boundary,

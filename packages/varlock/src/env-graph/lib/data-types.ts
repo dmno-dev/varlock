@@ -421,12 +421,21 @@ const UrlDataType = createEnvGraphDataType(
           }
         }
       }
-      if (
-        settings?.allowedDomains && !settings.allowedDomains.includes(url.host.toLowerCase())
-      ) {
-        errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${settings.allowedDomains.join(',')}`));
+      // allowedDomains may arrive as a comma-string (`"a.com,b.com"`) from schema
+      // syntax, or as a real array. Normalize before membership checks: string
+      // `.includes` is substring match and would allow e.g. "ample.com" for "example.com",
+      // and `.join` on a string throws when building the rejection message.
+      const allowedDomains = (() => {
+        const raw = settings?.allowedDomains as Array<string> | string | undefined;
+        if (!raw) return [] as Array<string>;
+        const list = Array.isArray(raw) ? raw : String(raw).split(',');
+        return list.map((d) => d.trim().toLowerCase()).filter(Boolean);
+      })();
+      if (allowedDomains.length && !allowedDomains.includes(url.host.toLowerCase())) {
+        errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${allowedDomains.join(',')}`));
       }
-      if (settings?.noTrailingSlash && val.endsWith('/')) {
+      // Docs and vscode exempt root pathname `/` (`https://example.com/` is OK).
+      if (settings?.noTrailingSlash && url.pathname.endsWith('/') && url.pathname !== '/') {
         errors.push(new ValidationError('URL must not have a trailing slash'));
       }
       if (settings?.matches) {
@@ -584,8 +593,21 @@ const EnumDataType = createEnvGraphDataType(
     icon: 'material-symbols-light:category', // a few shapes... not sure about this one
     coercedType: { enum: enumOptions },
     coerce(val) {
-      if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) return val;
-      return new CoercionError('Value must be a string, number, or boolean');
+      if (_.isNumber(val) || _.isBoolean(val)) return val;
+      if (!_.isString(val)) {
+        return new CoercionError('Value must be a string, number, or boolean');
+      }
+      // Exact string member (e.g. enum(dev, prod) + "dev")
+      if (enumOptions.includes(val)) return val;
+      // process.env / overrideValues are always strings. Schema file values like
+      // LEVEL=2 are auto-coerced to numbers by the parser, but CI overrides stay
+      // as "2" / "true" and must still match numeric/boolean members.
+      for (const opt of enumOptions) {
+        if (_.isNumber(opt) && String(opt) === val) return opt;
+        if (opt === true && val === 'true') return true;
+        if (opt === false && val === 'false') return false;
+      }
+      return val;
     },
     validate(val) {
       const possibleValues: Array<any> = enumOptions || [];
@@ -622,7 +644,7 @@ const EmailDataType = createEnvGraphDataType(
   }),
 );
 
-const IP_V6_ADDRESS_REGEX = /^(?:(?:[a-fA-F\d]{1,4}:){7}(?:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){6}(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){5}(?::(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,2}|:)|(?:[a-fA-F\d]{1,4}:){4}(?:(?::[a-fA-F\d]{1,4}){0,1}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,3}|:)|(?:[a-fA-F\d]{1,4}:){3}(?:(?::[a-fA-F\d]{1,4}){0,2}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,4}|:)|(?:[a-fA-F\d]{1,4}:){2}(?:(?::[a-fA-F\d]{1,4}){0,3}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,5}|:)|(?:[a-fA-F\d]{1,4}:){1}(?:(?::[a-fA-F\d]{1,4}){0,4}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,6}|:)|(?::(?:(?::[a-fA-F\d]{1,4}){0,5}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,7}|:)))(?:%[0-9a-zA-Z]{1,})?$/;
+const IP_V6_ADDRESS_REGEX = /^(?:(?:[a-fA-F\d]{1,4}:){7}(?:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){6}(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){5}(?::(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,2}|:)|(?:[a-fA-F\d]{1,4}:){4}(?:(?::[a-fA-F\d]{1,4}){0,1}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,3}|:)|(?:[a-fA-F\d]{1,4}:){3}(?:(?::[a-fA-F\d]{1,4}){0,2}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,4}|:)|(?:[a-fA-F\d]{1,4}:){2}(?:(?::[a-fA-F\d]{1,4}){0,3}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,5}|:)|(?:[a-fA-F\d]{1,4}:){1}(?:(?::[a-fA-F\d]{1,4}){0,4}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,6}|:)|(?::(?:(?::[a-fA-F\d]{1,4}){0,5}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,7}|:)))(?:%[0-9a-zA-Z]{1,})?$/;
 const IpAddressDataType = createEnvGraphDataType(
   (settings?: {
     version?: 4 | 6,
@@ -660,9 +682,18 @@ const PortDataType = createEnvGraphDataType(
         if (rawVal.includes('.')) throw new CoercionError('Port number must be an integer');
         if (rawVal.includes('e')) throw new CoercionError('Port number should be an integer, not in exponential notation');
       }
-      return coerceToNumber(rawVal);
+      const numVal = coerceToNumber(rawVal);
+      // Unquoted schema values like 80.5 are already numbers after parse auto-coerce;
+      // the string '.' check above does not cover that path.
+      if (!Number.isInteger(numVal)) {
+        throw new CoercionError('Port number must be an integer');
+      }
+      return numVal;
     },
     validate(val) {
+      if (!Number.isInteger(val)) {
+        return new ValidationError('Port number must be an integer');
+      }
       if (settings?.min !== undefined && val < settings?.min) {
         return new ValidationError(`Min value is ${settings?.min}`);
       }
@@ -723,12 +754,16 @@ const UuidDataType = createEnvGraphDataType({
   },
 });
 
-const MD5_REGEX = /^[a-f0-9]{32}$/;
+const MD5_REGEX = /^[a-f0-9]{32}$/i;
 const Md5DataType = createEnvGraphDataType({
   name: 'md5',
   typeDescription: 'MD5 hash string',
   // A deterministic, unique, valid 32-hex string derived from the seed.
   generatePlaceholder: (seed) => hexFromSeed(seed).slice(0, 32),
+  coerce(rawVal) {
+    // Accept uppercase hex (common from tools) and normalize like typical hash handling
+    return coerceToString(rawVal).toLowerCase();
+  },
   validate(val) {
     const result = MD5_REGEX.test(val);
     if (result) return true;

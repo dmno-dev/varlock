@@ -10,8 +10,12 @@ import { describe, it, expect } from 'vitest';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph, CoercionError } from '../index';
 
-async function loadAndResolve(envFileContent: string) {
+async function loadAndResolve(
+  envFileContent: string,
+  opts?: { overrideValues?: Record<string, string> },
+) {
   const g = new EnvGraph();
+  if (opts?.overrideValues) g.overrideValues = opts.overrideValues;
   const testDataSource = new DotEnvFileDataSource('.env.schema', {
     overrideContents: outdent`
       # @defaultRequired=false
@@ -44,6 +48,62 @@ describe('number data type - Infinity coercion', () => {
   it('rejects string Infinity and -Infinity', () => {
     expect(() => numberType().coerce('Infinity')).toThrow(CoercionError);
     expect(() => numberType().coerce('-Infinity')).toThrow(CoercionError);
+  });
+});
+
+describe('enum data type - process.env string overrides', () => {
+  it('accepts numeric enum members from schema file values', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(1, 2, 3)
+      LEVEL=2
+    `);
+    expect(g.configSchema.LEVEL.isValid).toBe(true);
+    expect(g.configSchema.LEVEL.resolvedValue).toBe(2);
+  });
+
+  it('accepts numeric enum members from string overrides', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(1, 2, 3)
+      LEVEL=2
+    `, { overrideValues: { LEVEL: '1' } });
+    expect(g.configSchema.LEVEL.isValid).toBe(true);
+    expect(g.configSchema.LEVEL.resolvedValue).toBe(1);
+  });
+
+  it('accepts boolean enum members from string overrides', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(true, false)
+      FLAG=false
+    `, { overrideValues: { FLAG: 'true' } });
+    expect(g.configSchema.FLAG.isValid).toBe(true);
+    expect(g.configSchema.FLAG.resolvedValue).toBe(true);
+  });
+});
+
+describe('port data type', () => {
+  it('accepts integer ports', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=port
+      P=8080
+    `);
+    expect(g.configSchema.P.isValid).toBe(true);
+    expect(g.configSchema.P.resolvedValue).toBe(8080);
+  });
+
+  it('rejects non-integer numeric ports from schema auto-coerce', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=port
+      P=80.5
+    `);
+    expect(g.configSchema.P.isValid).toBe(false);
+  });
+
+  it('rejects non-integer string ports', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=port
+      P="80.5"
+    `);
+    expect(g.configSchema.P.isValid).toBe(false);
   });
 });
 
@@ -121,6 +181,34 @@ describe('url data type', () => {
     });
   });
 
+  describe('allowedDomains', () => {
+    it('accepts a host listed in a comma-string allowlist', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com,api.example.com")
+        MY_URL=https://api.example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects a host that is only a substring of an allowlist entry', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com")
+        MY_URL=https://ample.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toMatch(/not in allowed list/);
+    });
+
+    it('rejects a disallowed host without throwing on the error message', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com")
+        MY_URL=https://evil.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('example.com');
+    });
+  });
+
   describe('noTrailingSlash', () => {
     it('accepts url without trailing slash', async () => {
       const g = await loadAndResolve(outdent`
@@ -138,12 +226,12 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(false);
     });
 
-    it('rejects bare domain with trailing slash', async () => {
+    it('accepts root URL with trailing slash', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(noTrailingSlash=true)
         MY_URL=https://example.com/
       `);
-      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
     it('accepts bare domain without trailing slash', async () => {
@@ -242,6 +330,52 @@ describe('url data type - path values', () => {
       MY_URL=https://other.com/api/v1
     `);
     expect(g.configSchema.MY_URL.isValid).toBe(false);
+  });
+});
+
+describe('ip data type', () => {
+  it('accepts IPv4', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=ip(version=4)
+      IP=192.168.1.1
+    `);
+    expect(g.configSchema.IP.isValid).toBe(true);
+  });
+
+  it('accepts plain IPv6', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=ip(version=6)
+      IP=2001:db8::1
+    `);
+    expect(g.configSchema.IP.isValid).toBe(true);
+  });
+
+  it('accepts IPv4-mapped IPv6 addresses', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=ip(version=6)
+      IP=::ffff:192.168.1.1
+    `);
+    expect(g.configSchema.IP.isValid).toBe(true);
+  });
+});
+
+describe('md5 data type', () => {
+  it('accepts lowercase md5', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=md5
+      H=d41d8cd98f00b204e9800998ecf8427e
+    `);
+    expect(g.configSchema.H.isValid).toBe(true);
+    expect(g.configSchema.H.resolvedValue).toBe('d41d8cd98f00b204e9800998ecf8427e');
+  });
+
+  it('accepts uppercase md5 and normalizes to lowercase', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=md5
+      H=D41D8CD98F00B204E9800998ECF8427E
+    `);
+    expect(g.configSchema.H.isValid).toBe(true);
+    expect(g.configSchema.H.resolvedValue).toBe('d41d8cd98f00b204e9800998ecf8427e');
   });
 });
 

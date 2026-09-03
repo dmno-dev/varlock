@@ -325,8 +325,8 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     optionSnippets: [
       { name: 'prependHttps', insertText: `prependHttps=${booleanChoiceSnippet()}`, documentation: 'Automatically add `https://` when missing.' },
       { name: 'allowedProtocols', insertText: 'allowedProtocols=[${1:http}, ${2:https}]', documentation: 'Restrict the URL to an allowed protocol list.' },
-      { name: 'allowedDomains', insertText: 'allowedDomains=${1:"example.com"}', documentation: 'Restrict the URL host to an allowed domain list.' },
-      { name: 'noTrailingSlash', insertText: `noTrailingSlash=${booleanChoiceSnippet()}`, documentation: 'Disallow a trailing slash on the URL path.' },
+      { name: 'allowedDomains', insertText: 'allowedDomains=${1:"example.com"}', documentation: 'Restrict the URL host to an allowed domain list. A quoted comma-string is treated as a host list.' },
+      { name: 'noTrailingSlash', insertText: `noTrailingSlash=${booleanChoiceSnippet()}`, documentation: 'Disallow a trailing slash on the URL path (root `/` is allowed).' },
       { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the full URL must match.' },
     ],
   },
