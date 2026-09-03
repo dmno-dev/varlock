@@ -224,6 +224,33 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.errors[0]?.message).toContain('allowedDomains must be an array of strings');
     });
 
+    it('ignores a port on the value', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[localhost, example.com])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('still rejects a disallowed host that carries a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[localhost])
+        MY_URL=http://evil.com:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (evil.com) is not in allowed list');
+    });
+
+    it('errors on an allowlist entry that includes a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:3000"])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains entries must not include a port - use localhost');
+    });
+
     it('accepts a bare string as a single allowed host', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains="example.com")
