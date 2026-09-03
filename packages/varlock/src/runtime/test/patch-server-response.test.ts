@@ -152,6 +152,169 @@ describe('patched ServerResponse.end', () => {
     const res = makeRes({ 'content-type': 'application/json' });
     expect(() => res.end(Buffer.from(JSON.stringify({ leaked: SECRET })))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
   });
+
+  // while the headers are still unsent the response can be replaced outright, which is
+  // what a vite dev middleware or an uncompressed node handler hits
+  it('replaces the response with a 500 when the headers have not gone out', () => {
+    const res = makeRes({ 'content-type': 'application/json' });
+    expect(() => res.end(JSON.stringify({ leaked: SECRET }))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    expect(res.statusCode).toBe(500);
+    expect(res.writableEnded).toBe(true);
+  });
+
+  // once the headers are out there is nothing left to rewrite - next.js in production
+  // reaches `end()` through a compression layer that has already emitted them
+  it('kills the connection when the headers have already gone out', () => {
+    const res = makeRes({ 'content-type': 'text/html' });
+    res.write('<html><body>');
+    expect(res.headersSent).toBe(true);
+    expect(() => res.end(`leaked: ${SECRET}`)).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    expect(res.destroyed).toBe(true);
+  });
+
+  // frameworks answer the rethrown leak error by ending the response themselves
+  // (next.js pages router `apiResolver` -> `sendError` -> `res.end('Internal Server Error')`).
+  // Node turns a second end() into an ERR_STREAM_WRITE_AFTER_END `error` event that
+  // nothing listens for, which would crash the process.
+  it('absorbs a second end() from framework error handling', () => {
+    const res = makeRes({ 'content-type': 'application/json' });
+    const errors: Array<Error> = [];
+    res.on('error', (err) => errors.push(err));
+    expect(() => res.end(JSON.stringify({ leaked: SECRET }))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    expect(() => res.end('Internal Server Error')).not.toThrow();
+    expect(() => res.write('more')).not.toThrow();
+    expect(errors).toEqual([]);
+  });
+});
+
+describe('patched ServerResponse.end - over a real connection', () => {
+  let server: http.Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      try {
+        if (req.url === '/leak-json' || req.url === '/leak-json-only-logged') {
+          // everything a route may have set for the body that is being rejected: a
+          // length the client would otherwise wait on, an etag computed from it,
+          // caching directives, cookies, and route-specific headers
+          const leaked = JSON.stringify({ leaked: SECRET });
+          res.setHeader('content-type', 'application/json');
+          res.setHeader('content-length', String(Buffer.byteLength(leaked)));
+          res.setHeader('etag', 'W/"deadbeef"');
+          res.setHeader('cache-control', 's-maxage=3600, stale-while-revalidate');
+          res.setHeader('set-cookie', 'session=abc; Path=/');
+          res.setHeader('x-route-header', 'from-rejected-response');
+          res.end(leaked);
+          return;
+        }
+        if (req.url === '/leak-status-message') {
+          // a route that set its own reason phrase for the body being rejected
+          res.statusMessage = 'Everything Is Fine';
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ leaked: SECRET }));
+          return;
+        }
+        if (req.url === '/leak-gzip') {
+          res.setHeader('content-type', 'text/html');
+          res.setHeader('content-encoding', 'gzip');
+          res.end(zlib.gzipSync(htmlWithSecret));
+          return;
+        }
+        if (req.url === '/leak-streamed') {
+          res.setHeader('content-type', 'text/html');
+          res.write('<html><body>');
+          res.end(`leaked: ${SECRET}`);
+          return;
+        }
+        res.setHeader('content-type', 'text/plain');
+        res.end('ok');
+      } catch {
+        // frameworks that only log the error and never touch the response again
+        if (req.url?.includes('only-logged')) return;
+        // mirror next.js pages router error handling, which ends the response again
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+      }
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, () => resolve());
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('expected address info');
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
+  });
+
+  it('serves a complete 500 the client is not left waiting on', async () => {
+    const resp = await fetch(`${baseUrl}/leak-json`, { signal: AbortSignal.timeout(2000) });
+    expect(resp.status).toBe(500);
+    const body = await resp.text();
+    expect(body).toBe('Internal Server Error');
+    expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  });
+
+  // headers describing the rejected representation must not survive onto the
+  // replacement - a cached 500 (`s-maxage`) is the one that actually bites
+  it('drops every header the rejected response had set', async () => {
+    const resp = await fetch(`${baseUrl}/leak-json`);
+    expect(resp.headers.get('etag')).toBeNull();
+    expect(resp.headers.get('cache-control')).toBeNull();
+    expect(resp.headers.get('set-cookie')).toBeNull();
+    expect(resp.headers.get('x-route-header')).toBeNull();
+    expect(resp.headers.get('content-encoding')).toBeNull();
+    expect(resp.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+  });
+
+  // node keeps a reason phrase set by the route when only `statusCode` changes, so the
+  // replacement would otherwise go out as `500 Everything Is Fine`
+  it('does not keep the rejected response reason phrase', async () => {
+    const resp = await fetch(`${baseUrl}/leak-status-message`, { signal: AbortSignal.timeout(2000) });
+    expect(resp.status).toBe(500);
+    expect(resp.statusText).toBe('Internal Server Error');
+  });
+
+  // #897: the client used to sit waiting on a Content-Length that promised bytes
+  // which were never going to be sent
+  it('answers without waiting on framework error handling', async () => {
+    const resp = await fetch(`${baseUrl}/leak-json-only-logged`, { signal: AbortSignal.timeout(2000) });
+    expect(resp.status).toBe(500);
+    expect(await resp.text()).toBe('Internal Server Error');
+  });
+
+  it('replaces a compressed body with the plaintext 500', async () => {
+    const resp = await fetch(`${baseUrl}/leak-gzip`);
+    expect(resp.status).toBe(500);
+    expect(resp.headers.get('content-encoding')).toBeNull();
+    expect(await resp.text()).toBe('Internal Server Error');
+  });
+
+  // nothing can be rewritten once the first chunk is on the wire
+  it('kills the connection when the leak lands after the headers went out', async () => {
+    let caught: any;
+    try {
+      const resp = await fetch(`${baseUrl}/leak-streamed`, { signal: AbortSignal.timeout(2000) });
+      await resp.text();
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    // a TimeoutError here means the connection was left open and the client hung
+    expect(caught.name).not.toBe('TimeoutError');
+  });
+
+  // the framework's second end() must not take the server down with it
+  it('keeps serving after a leak was caught', async () => {
+    await fetch(`${baseUrl}/leak-json`);
+    const resp = await fetch(`${baseUrl}/clean`);
+    expect(resp.status).toBe(200);
+    expect(await resp.text()).toBe('ok');
+  });
 });
 
 // a scan that only ever sees one chunk at a time misses any value that straddles a boundary,

@@ -175,6 +175,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             'app/page.tsx': 'pages/basic-page.tsx',
             'pages/pages-ssr.tsx': 'pages-router/ssr-page.tsx',
             'pages/leaky-ssr.tsx': 'pages-router/leaky-ssr-page.tsx',
+            'pages/api/leaky.ts': 'pages-router/leaky-api-route.ts',
             'middleware.ts': 'middleware/middleware.ts',
           },
           requests: [
@@ -264,6 +265,19 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               path: '/leaky-ssr',
               allowRequestFailure: true,
               bodyAssertions: {
+                shouldNotContain: ['super-secret-var'],
+              },
+            },
+            {
+              // API route leak: `res.json()` sends the whole body through a single
+              // `end()` with no `write()`, which is the only path where the scanner
+              // sees the body for the first time at `end`. In dev the integration
+              // patches in redact mode, so the response still completes - the secret
+              // just comes out scrubbed, and the client is never left hanging.
+              label: 'runtime leak detection redacts a pages-router API route body',
+              path: '/api/leaky',
+              bodyAssertions: {
+                shouldContain: ['leaked'],
                 shouldNotContain: ['super-secret-var'],
               },
             },
@@ -652,6 +666,9 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                 replacements: { '// OUTPUT-MODE': "output: 'standalone'," },
               },
               'app/page.tsx': 'pages/runtime-boot-page.tsx',
+              // production is the only mode where the response scanner throws rather
+              // than redacts, so this is where an `end()`-only leak has to be handled
+              'pages/api/leaky.ts': 'pages-router/leaky-api-route.ts',
             },
             requests: [
               {
@@ -666,6 +683,38 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                     'runtime var via ENV: undefined',
                   ],
                 },
+              },
+              {
+                // `res.json()` reaches the scanner at `end()` with no preceding
+                // `write()`, but next's compression layer has already emitted the
+                // headers by then, so the response cannot be rewritten and the
+                // connection is killed instead. Before this was handled, the client got
+                // a 200 whose Content-Length promised more bytes than were ever sent,
+                // and hung waiting for them.
+                label: 'leaking pages-router API route does not leave the client hanging',
+                path: '/api/leaky',
+                // a network failure, specifically: accepting any failure would let the
+                // original hang (a client-side timeout) pass this scenario
+                expectedFailure: 'network',
+                bodyAssertions: {
+                  shouldNotContain: ['super-secret-var'],
+                },
+              },
+              {
+                // next answers the rethrown leak error by calling `res.end()` a second
+                // time; the server has to survive that and keep serving.
+                label: 'server still serves after a leaking API route response',
+                path: '/',
+                bodyAssertions: {
+                  shouldContain: ['Varlock Framework Test - runtime boot'],
+                },
+              },
+            ],
+            outputAssertions: [
+              {
+                description: 'leak detection fires for the API route, without logging the secret',
+                shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+                shouldNotContain: ['super-secret-var'],
               },
             ],
           });

@@ -50,6 +50,16 @@ const sleep = (ms: number) => new Promise<void>((r) => {
 });
 
 /**
+ * A client-side abort (`AbortSignal.timeout`) means the server never answered - the
+ * request hung. Anything else is the connection itself failing, which is what a killed
+ * response looks like to the client.
+ */
+function classifyRequestFailure(err: unknown): 'network' | 'timeout' {
+  const name = (err as { name?: string } | undefined)?.name;
+  return name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network';
+}
+
+/**
  * Fetch a URL with retries (server may report ready before accepting connections).
  *
  * A 503 is also retried, since dev servers serve one while (re)building rather than
@@ -70,6 +80,8 @@ async function fetchWithRetry(
   } = {},
 ): Promise<DevServerRequestResult> {
   const {
+    // `retries: 0` means a single attempt with no retry sleeps, for requests whose
+    // expected outcome is a failure
     retries = 3, delayMs = 500, timeoutMs = 15_000,
     retryWhileUnavailable = true, unavailableTimeoutMs = 30_000,
   } = opts;
@@ -364,15 +376,25 @@ export async function runDevServer(
       const url = `${currentUrl}${req.path}`;
       log(`Request ${i + 1}/${scenario.requests.length}: GET ${url}`);
       try {
-        const result = await fetchWithRetry(url, { retryWhileUnavailable: req.expectedStatus !== 503 });
+        const result = await fetchWithRetry(url, {
+          retryWhileUnavailable: req.expectedStatus !== 503,
+          // a request that is expected to fail gets one attempt: retrying it only buys
+          // `delayMs` of sleeping per retry on the path where the test passes, and a
+          // shorter timeout bounds the wait if a hang regression puts one back
+          ...req.expectedFailure ? { timeoutMs: 5_000, retries: 0 } : {},
+        });
         log(`Response: status=${result.status}, body=${result.body.length} bytes`);
         responses.push(result);
       } catch (err) {
-        if (req.allowRequestFailure) {
+        if (req.allowRequestFailure || req.expectedFailure) {
           // e.g. runtime leak detection kills the response mid-stream — record a
-          // synthetic result so scenario/log assertions can still run
-          log(`Request failed (allowed): ${(err as Error).message}`);
-          responses.push({ status: 0, body: '', headers: {} });
+          // synthetic result so scenario/log assertions can still run, keeping the
+          // kind of failure so `expectedFailure` can tell a reset from a hang
+          const failure = classifyRequestFailure(err);
+          log(`Request failed (allowed, ${failure}): ${(err as Error).message}`);
+          responses.push({
+            status: 0, body: '', headers: {}, failure,
+          });
           continue;
         }
         logError(`Request failed: ${(err as Error).message}`);
