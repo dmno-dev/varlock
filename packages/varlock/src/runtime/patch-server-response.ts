@@ -197,6 +197,7 @@ function finishResponseOnLeak(
     res.statusCode = 500;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     try {
+      // @ts-ignore Node's end overloads confuse Function.call
       originalEnd.call(res, 'Internal Server Error');
     } catch {
       res.destroy();
