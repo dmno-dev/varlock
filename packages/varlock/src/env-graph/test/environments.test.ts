@@ -207,6 +207,70 @@ describe('@currentEnv and .env.* file loading logic', () => {
     },
   }));
 
+  // the deferred check is scoped to this file's own imports: a declaration that reached the
+  // graph another way must not satisfy it, or an omitted pick entry would go unreported
+  test('@currentEnv pending on an unrelated import errors even when another load path declares the flag', envFilesTest({
+    files: {
+      'a/.env.schema': outdent`
+        # @currentEnv=$FLAG
+        # ---
+        FLAG=dev
+      `,
+      'b/.env.schema': outdent`
+        # @currentEnv=$FLAG
+        # @import(./.env.other, pick=[OTHER])
+        # ---
+      `,
+      'b/.env.other': 'OTHER=1\nFLAG=prod',
+      'b/.env.dev': 'B=dev',
+    },
+    loadPaths: ['a/', 'b/'],
+    expectError: true,
+  }));
+
+  test('@currentEnv pending on an unrelated import errors even when an ancestor schema declares the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$FLAG
+        # @import(./child/)
+        # ---
+        FLAG=dev
+      `,
+      'child/.env.schema': outdent`
+        # @currentEnv=$FLAG
+        # @import(./.env.other, pick=[OTHER])
+        # ---
+      `,
+      'child/.env.other': 'OTHER=1',
+      'child/.env.dev': 'C=dev',
+    },
+    expectError: true,
+  }));
+
+  test('@currentEnv satisfied through a diamond import alias', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./a/)
+        # @import(./b/)
+        # ---
+      `,
+      '.env.shared': 'DEPLOY_ENV=dev',
+      'a/.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(../.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      'a/.env.dev': 'A_ITEM=a-dev',
+      'b/.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(../.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      'b/.env.dev': 'B_ITEM=b-dev',
+    },
+    expectValues: { DEPLOY_ENV: 'dev', A_ITEM: 'a-dev', B_ITEM: 'b-dev' },
+  }));
+
   // @currentEnv itself can live in the imported file, and propagates through a partial
   // import as long as the flag item passes the import filter
   test('imported @currentEnv propagates through a partial import that includes the flag', envFilesTest({

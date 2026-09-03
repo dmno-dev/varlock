@@ -203,11 +203,35 @@ export abstract class EnvGraphDataSource {
    * this source has `@import`s that may bring it in. Verified once imports have run.
    */
   _envFlagPendingImport?: string;
-  /** true while `_envFlagPendingImport` is set and no schema/import has declared the key yet */
+  /**
+   * true while `_envFlagPendingImport` is set and none of this source's own imports has
+   * declared the key yet. Scoped to this source's import subtree on purpose: a declaration
+   * that reached the graph through another path (multi-path load, an ancestor's schema)
+   * must not satisfy this file's `@currentEnv`, or an omitted pick entry would go unreported.
+   */
   private get envFlagStillPending(): boolean {
     if (!this._envFlagPendingImport) return false;
-    const item = this.graph?.configSchema[this._envFlagPendingImport];
-    return !item || !envFlagHasSchemaDeclaration(item);
+    return !this._importsDeclareKey(this._envFlagPendingImport);
+  }
+
+  /**
+   * whether `key` is declared somewhere in this source's import subtree and visible through
+   * every import filter between here and that declaration (aliases expand to their original)
+   */
+  private _importsDeclareKey(key: string): boolean {
+    const visit = (node: EnvGraphDataSource): boolean => {
+      for (const child of node.children) {
+        if (child.disabled) continue;
+        const meta = child.importMeta;
+        if (meta && !keyPassesImportFilter(key, meta.importKeys, meta.importFilter)) continue;
+        // eslint-disable-next-line no-use-before-define
+        const real = child instanceof ImportAliasSource ? child.original : child;
+        if (real.configItemDefs[key]) return true;
+        if (visit(real)) return true;
+      }
+      return false;
+    };
+    return visit(this);
   }
 
   /** environment flag key (as set by @envFlag decorator) - only if set within this source */
