@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
+import { isBunStandaloneExecutable } from './detect-runtime';
 
 const platform = os.platform();
 const isWindows = platform.match(/^win/i);
@@ -149,10 +150,14 @@ export function execSyncVarlock(
     // This handles monorepo setups where cwd may be an unrelated workspace
     // root while varlock is only installed in a sub-package - the callerDir
     // supplied by auto-load.ts points inside that sub-package's node_modules.
+    // Bun-compiled executables are the exception: callerDir points into Bun's
+    // virtual /$bunfs filesystem, while process.execPath points at the real
+    // executable inside the workspace.
     const cwdStr = opts?.cwd ? String(opts.cwd) : undefined;
     const searchDirs = [
       ...(cwdStr ? [cwdStr] : []),
       ...(opts?.callerDir ? [opts.callerDir] : []),
+      ...(isBunStandaloneExecutable() ? [path.dirname(process.execPath)] : []),
       process.cwd(),
     ];
 

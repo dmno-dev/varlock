@@ -2,6 +2,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
 
 vi.mock('node:child_process', () => ({
@@ -17,6 +18,7 @@ describe('execSyncVarlock integration telemetry', () => {
 
   afterEach(() => {
     delete process.env.__VARLOCK_INTEGRATION;
+    vi.unstubAllGlobals();
   });
 
   it('integrationTelemetryEnv formats __VARLOCK_INTEGRATION', () => {
@@ -91,6 +93,62 @@ describe('execSyncVarlock integration telemetry', () => {
           __VARLOCK_INTEGRATION: '@varlock/nextjs-integration@1.1.3',
         }),
       }),
+    );
+  });
+
+  it('finds a workspace CLI relative to a Bun-compiled executable', () => {
+    const originalExecPath = process.execPath;
+    process.execPath = '/app/apps/server/dist/server';
+    vi.stubGlobal('Bun', { isStandaloneExecutable: true });
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('varlock: not found'), { status: 127 });
+    });
+    const existsSyncSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+      return filePath === '/app/apps/server/node_modules/.bin'
+        || filePath === '/app/apps/server/node_modules/.bin/varlock';
+    });
+
+    try {
+      execSyncVarlock('load', { callerDir: '/$bunfs/root' });
+    } finally {
+      process.execPath = originalExecPath;
+      existsSyncSpy.mockRestore();
+    }
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      '/app/apps/server/node_modules/.bin/varlock',
+      ['load'],
+      expect.objectContaining({ stdio: 'pipe' }),
+    );
+  });
+
+  it('does not search relative to the runtime executable outside a Bun-compiled executable', () => {
+    const originalExecPath = process.execPath;
+    process.execPath = '/runtime/bin/bun';
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/project');
+    vi.stubGlobal('Bun', { isStandaloneExecutable: false });
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('varlock: not found'), { status: 127 });
+    });
+    const existsSyncSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+      return filePath === '/runtime/bin/node_modules/.bin'
+        || filePath === '/runtime/bin/node_modules/.bin/varlock'
+        || filePath === '/project/node_modules/.bin'
+        || filePath === '/project/node_modules/.bin/varlock';
+    });
+
+    try {
+      execSyncVarlock('load');
+    } finally {
+      process.execPath = originalExecPath;
+      cwdSpy.mockRestore();
+      existsSyncSpy.mockRestore();
+    }
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      '/project/node_modules/.bin/varlock',
+      ['load'],
+      expect.objectContaining({ stdio: 'pipe' }),
     );
   });
 });

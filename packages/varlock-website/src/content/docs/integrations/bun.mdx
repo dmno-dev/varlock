@@ -20,6 +20,27 @@ You may also use the `--no-env-file` CLI flag when invoking scripts with `bun`/`
 
 Note that if you are building a standalone executable using `bun build`, you can use the `--no-compile-autoload-dotenv` flag to disable this behavior in the final executable.
 
+### Compiled executables
+
+`bun build --compile` bundles the `varlock/auto-load` runtime code into your executable, but it does not bundle the separate Varlock CLI that resolves your config. If the executable resolves config when it starts, your deployment must also include the installed `varlock` package and its dependencies. The executable looks for `node_modules/.bin/varlock` in its directory and each parent directory.
+
+For example, this monorepo layout keeps the CLI available to the compiled server:
+
+```text
+apps/server/dist/server
+apps/server/node_modules/.bin/varlock
+```
+
+If your deployment platform installs or prunes dependencies, declare `varlock` as a production dependency in a package whose `node_modules` directory is deployed with the executable.
+
+You can also launch the executable through the CLI. This resolves the config before the application starts, so the bundled `varlock/auto-load` code reuses the injected environment instead of looking for the CLI again:
+
+```sh
+varlock run -- ./dist/server
+```
+
+If your deployment otherwise contains only the compiled executable, install the [standalone Varlock binary](/getting-started/installation/#as-a-standalone-binary) in the deployment environment and launch the application through `varlock run`.
+
 
 ### Using a preload script (optional)
 One option we have with bun is to use a [preload script](https://bun.com/docs/runtime/bunfig#preload), configured in `bunfig.toml`. If you do this, you will no longer have to use `bun run varlock run -- yourscript` or use `import 'varlock/auto-load'` in your code!
