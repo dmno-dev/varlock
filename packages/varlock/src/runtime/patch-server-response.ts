@@ -184,33 +184,26 @@ function scanChunk(state: ScanState, chunkStr: string, o: {
 }
 
 /**
- * Leak detection on `end` used to throw before the original `end` ran, which left
- * the HTTP client hanging (Next.js Pages Router `res.json()`). Finish the response
- * first, then rethrow so callers still see the leak error.
+ * Leak detection on `end` used to throw before the original `end` ran, which left the
+ * HTTP client hanging (Next.js Pages Router `res.json()` answered a 200 whose
+ * Content-Length promised more bytes than were ever sent). Kill the connection first,
+ * then rethrow so callers still see the leak error.
+ *
+ * The connection is destroyed rather than rewritten into an error response. By the time
+ * a body reaches `end()` the framework has usually committed to a representation
+ * (next.js in production emits the headers from its compression layer before varlock
+ * sees the body), and a substituted body would inherit headers that describe the
+ * rejected one - `Cache-Control: s-maxage=...` alone would have a CDN cache the error.
+ * This also matches what the `write` path already does mid-stream. The diagnostic that
+ * matters is the leak report on the server log; the client only needs the request to
+ * fail instead of hanging.
+ *
+ * Destroying also absorbs the second `end()` that framework error handling makes in
+ * response to the rethrown error (Next.js Pages Router `apiResolver` catches and calls
+ * `sendError`), which node ignores on a destroyed response.
  */
-function finishResponseOnLeak(
-  res: ServerResponse,
-  originalEnd: typeof ServerResponse.prototype.end,
-  err: unknown,
-): never {
-  if (!res.headersSent) {
-    const body = 'Internal Server Error';
-    res.statusCode = 500;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    // the rejected response may have advertised a different length or a
-    // compression encoding that does not apply to this plaintext body
-    res.removeHeader('Content-Encoding');
-    res.removeHeader('Transfer-Encoding');
-    res.setHeader('Content-Length', Buffer.byteLength(body));
-    try {
-      // @ts-ignore Node's end overloads confuse Function.call
-      originalEnd.call(res, body);
-    } catch {
-      res.destroy();
-    }
-  } else {
-    res.destroy();
-  }
+function finishResponseOnLeak(res: ServerResponse, err: unknown): never {
+  res.destroy();
   throw err;
 }
 
@@ -423,7 +416,7 @@ export function patchGlobalServerResponse(opts?: {
             file: (this as any).req?.url,
           });
         } catch (err) {
-          finishResponseOnLeak(this, serverResponseEnd, err);
+          finishResponseOnLeak(this, err);
         }
       }
       // @ts-ignore
@@ -452,7 +445,7 @@ export function patchGlobalServerResponse(opts?: {
           meta: { method: 'patched ServerResponse.end', file: (this as any).req?.url },
         });
       } catch (err) {
-        finishResponseOnLeak(this, serverResponseEnd, err);
+        finishResponseOnLeak(this, err);
       }
       // for a string (or absent) final chunk, `chunkStr` may carry a flushed decoder tail
       // that the outgoing chunk needs to pick up, so compare against what was actually passed

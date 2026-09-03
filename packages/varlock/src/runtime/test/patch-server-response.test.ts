@@ -153,38 +153,66 @@ describe('patched ServerResponse.end', () => {
     expect(() => res.end(Buffer.from(JSON.stringify({ leaked: SECRET })))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
   });
 
-  it('finishes the response so the client does not hang when leak detection throws', () => {
+  // a leak caught at `end()` kills the connection rather than substituting an error
+  // body: the framework has usually already committed to a representation, and any
+  // replacement would inherit its headers (`Cache-Control: s-maxage=...` alone would
+  // have a CDN cache the error). The leak report on the server log is the diagnostic.
+  it('kills the connection so the client does not hang when leak detection throws', () => {
     const res = makeRes({ 'content-type': 'application/json' });
     expect(() => res.end(JSON.stringify({ leaked: SECRET }))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
-    expect(res.writableEnded || res.destroyed).toBe(true);
-    expect(res.statusCode).toBe(500);
+    expect(res.destroyed).toBe(true);
+  });
+
+  // frameworks answer the rethrown leak error by ending the response themselves
+  // (next.js pages router `apiResolver` -> `sendError` -> `res.end('Internal Server Error')`),
+  // which must not raise on the response varlock just destroyed
+  it('absorbs a second end() from framework error handling', () => {
+    const res = makeRes({ 'content-type': 'application/json' });
+    const errors: Array<Error> = [];
+    res.on('error', (err) => errors.push(err));
+    expect(() => res.end(JSON.stringify({ leaked: SECRET }))).toThrow(/DETECTED LEAKED SENSITIVE CONFIG/);
+    expect(() => res.end('Internal Server Error')).not.toThrow();
+    expect(() => res.write('more')).not.toThrow();
+    expect(errors).toEqual([]);
   });
 });
 
-describe('patched ServerResponse.end - replacement 500 headers', () => {
+describe('patched ServerResponse.end - over a real connection', () => {
   let server: http.Server;
   let baseUrl: string;
 
   beforeAll(async () => {
     server = http.createServer((req, res) => {
       try {
-        if (req.url === '/leak-stale-length') {
+        if (req.url === '/leak-json') {
+          // a length the truncated response would otherwise leave the client waiting on
           const leaked = JSON.stringify({ leaked: SECRET });
           res.setHeader('content-type', 'application/json');
-          res.setHeader('content-length', '9999');
+          res.setHeader('content-length', String(Buffer.byteLength(leaked)));
           res.end(leaked);
           return;
         }
-        if (req.url === '/leak-stale-encoding') {
-          res.setHeader('content-type', 'text/html');
-          res.setHeader('content-encoding', 'gzip');
-          res.setHeader('content-length', String(zlib.gzipSync(htmlWithSecret).length));
-          res.end(JSON.stringify({ leaked: SECRET }));
+        if (req.url === '/leak-json-only-logged') {
+          const leaked = JSON.stringify({ leaked: SECRET });
+          res.setHeader('content-type', 'application/json');
+          res.setHeader('content-length', String(Buffer.byteLength(leaked)));
+          res.end(leaked);
           return;
         }
-        res.end('not found');
+        if (req.url === '/leak-gzip') {
+          res.setHeader('content-type', 'text/html');
+          res.setHeader('content-encoding', 'gzip');
+          res.end(zlib.gzipSync(htmlWithSecret));
+          return;
+        }
+        res.setHeader('content-type', 'text/plain');
+        res.end('ok');
       } catch {
-        // finishResponseOnLeak rethrows after finishing the 500
+        // frameworks that only log the error and never touch the response again
+        if (req.url?.includes('only-logged')) return;
+        // mirror next.js pages router error handling, which ends the response again
+        res.statusCode = 500;
+        res.end('Internal Server Error');
       }
     });
     await new Promise<void>((resolve) => {
@@ -201,21 +229,35 @@ describe('patched ServerResponse.end - replacement 500 headers', () => {
     });
   });
 
-  it('replaces a stale Content-Length so the client receives the full 500 body', async () => {
-    const resp = await fetch(`${baseUrl}/leak-stale-length`);
-    expect(resp.status).toBe(500);
-    const body = await resp.text();
-    expect(body).toBe('Internal Server Error');
-    expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  // the reported bug: the client sat waiting on a body that was never going to arrive
+  it('fails the request instead of leaving the client hanging', async () => {
+    await expect(fetch(`${baseUrl}/leak-json`)).rejects.toThrow();
   });
 
-  it('drops Content-Encoding so the client does not decompress the plaintext 500', async () => {
-    const resp = await fetch(`${baseUrl}/leak-stale-encoding`);
-    expect(resp.status).toBe(500);
-    expect(resp.headers.get('content-encoding')).toBeNull();
-    const body = await resp.text();
-    expect(body).toBe('Internal Server Error');
-    expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  // #897: with nothing else finishing the response, the client used to sit waiting
+  // on a Content-Length that promised bytes which were never going to be sent
+  it('fails the request when nothing else finishes the response', async () => {
+    let caught: any;
+    try {
+      await fetch(`${baseUrl}/leak-json-only-logged`, { signal: AbortSignal.timeout(2000) });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    // a TimeoutError here means the connection was left open and the client hung
+    expect(caught.name).not.toBe('TimeoutError');
+  });
+
+  it('fails the request for a compressed body too', async () => {
+    await expect(fetch(`${baseUrl}/leak-gzip`)).rejects.toThrow();
+  });
+
+  // the framework's second end() must not take the server down with it
+  it('keeps serving after a leak killed a response', async () => {
+    await expect(fetch(`${baseUrl}/leak-json`)).rejects.toThrow();
+    const resp = await fetch(`${baseUrl}/clean`);
+    expect(resp.status).toBe(200);
+    expect(await resp.text()).toBe('ok');
   });
 });
 
