@@ -733,9 +733,6 @@ const PortDataType = createEnvGraphDataType(
       return numVal;
     },
     validate(val) {
-      if (!Number.isInteger(val)) {
-        return new ValidationError('Port number must be an integer');
-      }
       if (settings?.min !== undefined && val < settings?.min) {
         return new ValidationError(`Min value is ${settings?.min}`);
       }
@@ -796,7 +793,8 @@ const UuidDataType = createEnvGraphDataType({
   },
 });
 
-const MD5_REGEX = /^[a-f0-9]{32}$/i;
+// case is normalized by `coerce` below, so this only ever sees lowercase
+const MD5_REGEX = /^[a-f0-9]{32}$/;
 const Md5DataType = createEnvGraphDataType({
   name: 'md5',
   typeDescription: 'MD5 hash string',

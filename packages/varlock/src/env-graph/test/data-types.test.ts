@@ -266,6 +266,81 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
+    it('matches an entry naming a port against a value with no port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:3000"])
+        MY_URL=http://localhost/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('does not let a default-port entry match another protocol', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com:443"])
+        MY_URL=http://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('allows any port when a bare entry sits alongside one naming a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[localhost, "localhost:3000"])
+        MY_URL=http://localhost:5000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('matches a port entry case-insensitively', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["LOCALHOST:3000"])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('matches a bracketed IPv6 entry, which names no port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["[::1]"])
+        MY_URL=http://[::1]:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects rather than throws on an entry with an unparseable port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:99999"])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (localhost:3000) is not in allowed list');
+    });
+
+    it('trims entries and ignores empty ones', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["", " example.com "])
+        MY_URL=https://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('leaves an empty entry out of the rejection message', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["", example.com])
+        MY_URL=https://evil.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('is not in allowed list: example.com');
+    });
+
+    it('errors when allowedDomains is neither an array nor a string', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=true)
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('allowedDomains must be an array of strings');
+    });
+
     it('accepts a bare string as a single allowed host', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains="example.com")
@@ -334,6 +409,22 @@ describe('url data type', () => {
         MY_URL=https://example.com/path/?q=1
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('rejects a trailing slash followed by a hash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL="https://example.com/path/#frag"
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('accepts a hash on a path with no trailing slash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL="https://example.com/path#frag"
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
     it('accepts a query string on a path with no trailing slash', async () => {
