@@ -97,6 +97,22 @@ export function importStaticallyProvidesKey(source: EnvGraphDataSource, key: str
   return false;
 }
 
+/**
+ * True when `item` is declared by a schema or import, not only an auto-loaded
+ * `.env` / `.env.local` / `.env.<env>` value file. A values-only key must not
+ * satisfy `@currentEnv=$FLAG` or trigger `.env.<env>` loading.
+ */
+export function envFlagHasSchemaDeclaration(item: ConfigItem): boolean {
+  return item.defs.some((d) => {
+    if (!d.source) return true;
+    if (d.source.isImport) return true;
+    if (d.source.type === 'schema') return true;
+    if (d.source.isAutoloadedValueSource) return false;
+    if (d.source.isEnvSpecific) return false;
+    return true;
+  });
+}
+
 const DATA_SOURCE_TYPES = Object.freeze({
   schema: {
     fileSuffixes: ['schema'],
@@ -1037,12 +1053,13 @@ export class DirectoryDataSource extends EnvGraphDataSource {
         return { env: undefined, fromFallback: false };
       }
       const envFlagItem = this.graph.configSchema[envFlagKey];
-      if (envFlagItem) {
+      if (envFlagItem && envFlagHasSchemaDeclaration(envFlagItem)) {
         if (!envFlagItem.resolvedValue) await envFlagItem.earlyResolve();
         return { env: envFlagItem.resolvedValue?.toString(), fromFallback: false };
       }
-      // Schema declared @currentEnv=$FLAG but FLAG is not in the graph yet (still waiting on
-      // @import). Do not fall back to parent/CLI env, or we would load the wrong .env.* files.
+      // Schema declared @currentEnv=$FLAG but FLAG is not a schema/import declaration yet
+      // (still waiting on @import, or only present in an auto-loaded .env). Do not treat a
+      // values-only key or the CLI fallback as the flag, or we would load the wrong .env.* files.
       return { env: undefined, fromFallback: false };
     }
     // Fall back to parent chain or fallback value
@@ -1059,6 +1076,35 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     const s2 = await this.addAutoLoadedFile(`.env.${currentEnv}.local`);
     if (s2) sources.push(s2);
     return sources;
+  }
+
+  /** env whose `.env.<env>` files have already been loaded on this directory */
+  private _loadedEnvSpecificFor?: string;
+
+  private async _loadEnvSpecificFilesIfNeeded(currentEnv: string) {
+    if (this._loadedEnvSpecificFor === currentEnv) return;
+    this._loadedEnvSpecificFor = currentEnv;
+    const envSources = await this._loadEnvSpecificFiles(currentEnv);
+    for (const source of envSources) {
+      await source._processImports();
+    }
+  }
+
+  /**
+   * Directory imports run in declaration order. A directory imported before the
+   * file that provides `@currentEnv=$FLAG` finishes init with no env selected.
+   * After the flag is known, load those directories' `.env.<env>` files.
+   */
+  private async _applyCurrentEnvToImportedDirectories(currentEnv: string) {
+    const visit = async (source: EnvGraphDataSource) => {
+      for (const child of source.children) {
+        if (child instanceof DirectoryDataSource && !child.schemaDataSource?._envFlagKey) {
+          await child._loadEnvSpecificFilesIfNeeded(currentEnv);
+        }
+        await visit(child);
+      }
+    };
+    await visit(this);
   }
 
   async _finishInit() {
@@ -1087,6 +1133,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     // known. A resolved @currentEnv is final, so it loads immediately (before imports),
     // which is what lets import conditions read those values.
     if (currentEnv && !fromFallback) {
+      this._loadedEnvSpecificFor = currentEnv;
       await this._loadEnvSpecificFiles(currentEnv);
     }
 
@@ -1097,26 +1144,28 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     }
 
     // An import may have set @currentEnv (e.g. an imported file with @currentEnv=$VAR).
-    // Re-check when we had no value, or only the fallback — a real @currentEnv must win
+    // Re-check when we had no value, or only the fallback. A real @currentEnv must win
     // over it, the same way it does when declared in this schema directly.
     if (!currentEnv || fromFallback) {
       const { env: resolvedEnv } = await this._resolveCurrentEnv();
       if (this.loadingError) return;
       const finalEnv = resolvedEnv || currentEnv;
       if (finalEnv) {
-        const envSources = await this._loadEnvSpecificFiles(finalEnv);
-        for (const source of envSources) {
-          await source._processImports();
-        }
+        await this._loadEnvSpecificFilesIfNeeded(finalEnv);
       } else if (this.schemaDataSource?._envFlagKey) {
         const envFlagKey = this.schemaDataSource._envFlagKey;
-        if (!this.graph.configSchema[envFlagKey]) {
+        const envFlagItem = this.graph.configSchema[envFlagKey];
+        if (!envFlagItem || !envFlagHasSchemaDeclaration(envFlagItem)) {
           this._errors.push(new LoadingError(
             `environment flag "${envFlagKey}" was expected from @import but was not provided. `
             + 'Include it in pick=[...] (or omit filters), or define it in this schema.',
           ));
         }
       }
+    }
+
+    if (this._loadedEnvSpecificFor) {
+      await this._applyCurrentEnvToImportedDirectories(this._loadedEnvSpecificFor);
     }
   }
 }

@@ -98,6 +98,67 @@ describe('@currentEnv and .env.* file loading logic', () => {
     expectError: true,
   }));
 
+  // A dynamic enabled=false import must not let a values-only .env key act as @currentEnv
+  test('@currentEnv errors when a dynamic import is disabled even if .env has the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, enabled=eq($ENABLE, "yes"), pick=[DEPLOY_ENV])
+        # ---
+        ENABLE=no
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=staging
+      `,
+      '.env': 'DEPLOY_ENV=dev',
+      '.env.dev': 'ITEM1=should-not-load',
+    },
+    expectError: true,
+  }));
+
+  test('@currentEnv can use a dynamically enabled import even if .env also has the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, enabled=eq($ENABLE, "yes"), pick=[DEPLOY_ENV])
+        # ---
+        ENABLE=yes
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=staging
+      `,
+      '.env': 'DEPLOY_ENV=dev',
+      '.env.dev': 'ITEM1=from-dev',
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      ITEM1: 'from-dev',
+    },
+  }));
+
+  test('imported directory loads .env.<env> when the flag import is declared after it', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./service/)
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      'service/.env.dev': 'SERVICE_ITEM=from-dev',
+      'service/.env.prod': 'SERVICE_ITEM=from-prod',
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      SERVICE_ITEM: 'from-dev',
+    },
+  }));
+
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
     files: {
       '.env.schema': outdent`

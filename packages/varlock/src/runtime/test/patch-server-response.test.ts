@@ -161,6 +161,64 @@ describe('patched ServerResponse.end', () => {
   });
 });
 
+describe('patched ServerResponse.end - replacement 500 headers', () => {
+  let server: http.Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      try {
+        if (req.url === '/leak-stale-length') {
+          const leaked = JSON.stringify({ leaked: SECRET });
+          res.setHeader('content-type', 'application/json');
+          res.setHeader('content-length', '9999');
+          res.end(leaked);
+          return;
+        }
+        if (req.url === '/leak-stale-encoding') {
+          res.setHeader('content-type', 'text/html');
+          res.setHeader('content-encoding', 'gzip');
+          res.setHeader('content-length', String(zlib.gzipSync(htmlWithSecret).length));
+          res.end(JSON.stringify({ leaked: SECRET }));
+          return;
+        }
+        res.end('not found');
+      } catch {
+        // finishResponseOnLeak rethrows after finishing the 500
+      }
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, () => resolve());
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('expected address info');
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => {
+      server.close(resolve);
+    });
+  });
+
+  it('replaces a stale Content-Length so the client receives the full 500 body', async () => {
+    const resp = await fetch(`${baseUrl}/leak-stale-length`);
+    expect(resp.status).toBe(500);
+    const body = await resp.text();
+    expect(body).toBe('Internal Server Error');
+    expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  });
+
+  it('drops Content-Encoding so the client does not decompress the plaintext 500', async () => {
+    const resp = await fetch(`${baseUrl}/leak-stale-encoding`);
+    expect(resp.status).toBe(500);
+    expect(resp.headers.get('content-encoding')).toBeNull();
+    const body = await resp.text();
+    expect(body).toBe('Internal Server Error');
+    expect(resp.headers.get('content-length')).toBe(String(Buffer.byteLength(body)));
+  });
+});
+
 // a scan that only ever sees one chunk at a time misses any value that straddles a boundary,
 // which is the normal case for streaming SSR (chunks flush at arbitrary points)
 describe('patched ServerResponse - sensitive values split across chunks', () => {

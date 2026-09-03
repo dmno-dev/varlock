@@ -194,11 +194,17 @@ function finishResponseOnLeak(
   err: unknown,
 ): never {
   if (!res.headersSent) {
+    const body = 'Internal Server Error';
     res.statusCode = 500;
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    // the rejected response may have advertised a different length or a
+    // compression encoding that does not apply to this plaintext body
+    res.removeHeader('Content-Encoding');
+    res.removeHeader('Transfer-Encoding');
+    res.setHeader('Content-Length', Buffer.byteLength(body));
     try {
       // @ts-ignore Node's end overloads confuse Function.call
-      originalEnd.call(res, 'Internal Server Error');
+      originalEnd.call(res, body);
     } catch {
       res.destroy();
     }
