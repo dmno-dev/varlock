@@ -80,6 +80,8 @@ async function fetchWithRetry(
   } = {},
 ): Promise<DevServerRequestResult> {
   const {
+    // `retries: 0` means a single attempt with no retry sleeps, for requests whose
+    // expected outcome is a failure
     retries = 3, delayMs = 500, timeoutMs = 15_000,
     retryWhileUnavailable = true, unavailableTimeoutMs = 30_000,
   } = opts;
@@ -376,9 +378,10 @@ export async function runDevServer(
       try {
         const result = await fetchWithRetry(url, {
           retryWhileUnavailable: req.expectedStatus !== 503,
-          // a request that is supposed to fail should fail fast, so don't sit on the
-          // default timeout three times over when a hang regression puts it back
-          ...req.expectedFailure ? { timeoutMs: 5_000 } : {},
+          // a request that is expected to fail gets one attempt: retrying it only buys
+          // `delayMs` of sleeping per retry on the path where the test passes, and a
+          // shorter timeout bounds the wait if a hang regression puts one back
+          ...req.expectedFailure ? { timeoutMs: 5_000, retries: 0 } : {},
         });
         log(`Response: status=${result.status}, body=${result.body.length} bytes`);
         responses.push(result);
