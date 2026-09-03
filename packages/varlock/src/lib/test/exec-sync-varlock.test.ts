@@ -18,6 +18,7 @@ describe('execSyncVarlock integration telemetry', () => {
 
   afterEach(() => {
     delete process.env.__VARLOCK_INTEGRATION;
+    vi.unstubAllGlobals();
   });
 
   it('integrationTelemetryEnv formats __VARLOCK_INTEGRATION', () => {
@@ -98,6 +99,7 @@ describe('execSyncVarlock integration telemetry', () => {
   it('finds a workspace CLI relative to a Bun-compiled executable', () => {
     const originalExecPath = process.execPath;
     process.execPath = '/app/apps/server/dist/server';
+    vi.stubGlobal('Bun', { isStandaloneExecutable: true });
     vi.mocked(execSync).mockImplementationOnce(() => {
       throw Object.assign(new Error('varlock: not found'), { status: 127 });
     });
@@ -115,6 +117,36 @@ describe('execSyncVarlock integration telemetry', () => {
 
     expect(execFileSync).toHaveBeenCalledWith(
       '/app/apps/server/node_modules/.bin/varlock',
+      ['load'],
+      expect.objectContaining({ stdio: 'pipe' }),
+    );
+  });
+
+  it('does not search relative to the runtime executable outside a Bun-compiled executable', () => {
+    const originalExecPath = process.execPath;
+    process.execPath = '/runtime/bin/bun';
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/project');
+    vi.stubGlobal('Bun', { isStandaloneExecutable: false });
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('varlock: not found'), { status: 127 });
+    });
+    const existsSyncSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+      return filePath === '/runtime/bin/node_modules/.bin'
+        || filePath === '/runtime/bin/node_modules/.bin/varlock'
+        || filePath === '/project/node_modules/.bin'
+        || filePath === '/project/node_modules/.bin/varlock';
+    });
+
+    try {
+      execSyncVarlock('load');
+    } finally {
+      process.execPath = originalExecPath;
+      cwdSpy.mockRestore();
+      existsSyncSpy.mockRestore();
+    }
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      '/project/node_modules/.bin/varlock',
       ['load'],
       expect.objectContaining({ stdio: 'pipe' }),
     );
