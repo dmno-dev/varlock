@@ -226,6 +226,87 @@ describe('diagnostics-core', () => {
     ).toBeUndefined();
   });
 
+  it('validates allowedDomains the way the varlock runtime does', () => {
+    const urlType = (allowedDomains: string) => ({ name: 'url', args: [], options: { allowedDomains } });
+
+    // case-insensitive, and a port on the value is ignored
+    expect(validateStaticValue(urlType('[Example.COM]'), 'https://example.com/')).toBeUndefined();
+    expect(validateStaticValue(urlType('[localhost]'), 'http://localhost:3000/')).toBeUndefined();
+    expect(validateStaticValue(urlType('[example.com, api.example.com]'), 'https://api.example.com/v1')).toBeUndefined();
+
+    // an entry naming a port pins it
+    expect(validateStaticValue(urlType('["localhost:3000"]'), 'http://localhost:3000/')).toBeUndefined();
+    expect(validateStaticValue(urlType('["localhost:3000"]'), 'http://localhost:9999/'))
+      .toBe('URL host must be one of: localhost:3000.');
+
+    // a single bare string is one host; a comma string points at the array form
+    expect(validateStaticValue(urlType('"example.com"'), 'https://example.com/')).toBeUndefined();
+    expect(validateStaticValue(urlType('"example.com,api.example.com"'), 'https://example.com/'))
+      .toBe('`allowedDomains` must be an array of strings.');
+
+    // entries are hosts only
+    expect(validateStaticValue(urlType('["example.com/path"]'), 'https://example.com/path'))
+      .toBe('`allowedDomains` entries must be a hostname with an optional port.');
+    expect(validateStaticValue(urlType('["trusted.example:443@evil.example:8443"]'), 'https://evil.example:8443/'))
+      .toBe('`allowedDomains` entries must be a hostname with an optional port.');
+
+    expect(validateStaticValue(urlType('["trusted.example\\path"]'), 'https://trusted.example/'))
+      .toBe('`allowedDomains` entries must be a hostname with an optional port.');
+
+    // an empty list can never match; an empty string means the option is not set
+    expect(validateStaticValue(urlType('[]'), 'https://example.com/'))
+      .toBe('`allowedDomains` must not be empty.');
+    expect(validateStaticValue(urlType('""'), 'https://example.com/')).toBeUndefined();
+
+    // a host outside the list is still reported
+    expect(validateStaticValue(urlType('[example.com]'), 'https://evil.com/'))
+      .toBe('URL host must be one of: example.com.');
+  });
+
+  it('rejects non-string array members the way the varlock runtime does', () => {
+    const urlType = (options: Record<string, string>) => ({ name: 'url', args: [], options });
+
+    // quoting is what decides it: a bare `true` or `42` parses as a boolean/number
+    expect(validateStaticValue(urlType({ allowedDomains: '[example.com, true]' }), 'https://example.com/'))
+      .toBe('`allowedDomains` must be an array of strings.');
+    expect(validateStaticValue(urlType({ allowedDomains: '[example.com, 42]' }), 'https://example.com/'))
+      .toBe('`allowedDomains` must be an array of strings.');
+    expect(validateStaticValue(urlType({ allowedDomains: '[example.com, "true"]' }), 'https://example.com/'))
+      .toBeUndefined();
+
+    expect(validateStaticValue(urlType({ allowedProtocols: '[https, true]' }), 'https://example.com/'))
+      .toBe('`allowedProtocols` must be an array of strings.');
+    expect(validateStaticValue(urlType({ allowedProtocols: '[https, "true"]' }), 'https://example.com/'))
+      .toBeUndefined();
+  });
+
+  it('classifies unquoted members exactly as the parser does', () => {
+    const urlType = (allowedDomains: string) => ({ name: 'url', args: [], options: { allowedDomains } });
+    const memberError = '`allowedDomains` must be an array of strings.';
+
+    // autoCoerce converts these, so runtime rejects them
+    for (const member of ['true', 'false', 'undefined', '42', '-7', '0.5']) {
+      expect(validateStaticValue(urlType(`[example.com, ${member}]`), 'https://example.com/'))
+        .toBe(memberError);
+    }
+
+    // autoCoerce deliberately leaves these as strings - only lowercase literals convert,
+    // and a number that does not round-trip through String() keeps its written form
+    for (const member of ['TRUE', 'True', '00', '1.0', '1e3', '99999999999999999999']) {
+      expect(validateStaticValue(urlType(`[example.com, ${member}]`), 'https://example.com/'))
+        .toBeUndefined();
+    }
+  });
+
+  it('still checks noTrailingSlash when allowedDomains is not set', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { allowedDomains: '""', noTrailingSlash: 'true' } },
+        'https://example.com/api/',
+      ),
+    ).toBe('URL must not have a trailing slash.');
+  });
+
   it('validates noTrailingSlash url option', () => {
     expect(
       validateStaticValue(
@@ -247,6 +328,22 @@ describe('diagnostics-core', () => {
         'https://example.com',
       ),
     ).toBeUndefined();
+
+    // a root slash counts, matching the runtime - the option exists so the value is
+    // safe to concatenate onto
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com/',
+      ),
+    ).toBe('URL must not have a trailing slash.');
+
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { noTrailingSlash: 'true' } },
+        'https://example.com/api/?q=1',
+      ),
+    ).toBe('URL must not have a trailing slash.');
   });
 
   it('validates domain values and options', () => {

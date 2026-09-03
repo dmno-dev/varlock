@@ -10,8 +10,12 @@ import { describe, it, expect } from 'vitest';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph, CoercionError } from '../index';
 
-async function loadAndResolve(envFileContent: string) {
+async function loadAndResolve(
+  envFileContent: string,
+  opts?: { overrideValues?: Record<string, string> },
+) {
   const g = new EnvGraph();
+  if (opts?.overrideValues) g.overrideValues = opts.overrideValues;
   const testDataSource = new DotEnvFileDataSource('.env.schema', {
     overrideContents: outdent`
       # @defaultRequired=false
@@ -44,6 +48,62 @@ describe('number data type - Infinity coercion', () => {
   it('rejects string Infinity and -Infinity', () => {
     expect(() => numberType().coerce('Infinity')).toThrow(CoercionError);
     expect(() => numberType().coerce('-Infinity')).toThrow(CoercionError);
+  });
+});
+
+describe('enum data type - process.env string overrides', () => {
+  it('accepts numeric enum members from schema file values', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(1, 2, 3)
+      LEVEL=2
+    `);
+    expect(g.configSchema.LEVEL.isValid).toBe(true);
+    expect(g.configSchema.LEVEL.resolvedValue).toBe(2);
+  });
+
+  it('accepts numeric enum members from string overrides', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(1, 2, 3)
+      LEVEL=2
+    `, { overrideValues: { LEVEL: '1' } });
+    expect(g.configSchema.LEVEL.isValid).toBe(true);
+    expect(g.configSchema.LEVEL.resolvedValue).toBe(1);
+  });
+
+  it('accepts boolean enum members from string overrides', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=enum(true, false)
+      FLAG=false
+    `, { overrideValues: { FLAG: 'true' } });
+    expect(g.configSchema.FLAG.isValid).toBe(true);
+    expect(g.configSchema.FLAG.resolvedValue).toBe(true);
+  });
+});
+
+describe('port data type', () => {
+  it('accepts integer ports', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=port
+      P=8080
+    `);
+    expect(g.configSchema.P.isValid).toBe(true);
+    expect(g.configSchema.P.resolvedValue).toBe(8080);
+  });
+
+  it('rejects non-integer numeric ports from schema auto-coerce', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=port
+      P=80.5
+    `);
+    expect(g.configSchema.P.isValid).toBe(false);
+  });
+
+  it('rejects non-integer string ports', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=port
+      P="80.5"
+    `);
+    expect(g.configSchema.P.isValid).toBe(false);
   });
 });
 
@@ -121,6 +181,305 @@ describe('url data type', () => {
     });
   });
 
+  describe('allowedDomains', () => {
+    it('accepts a host listed in an array allowlist', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com, api.example.com])
+        MY_URL=https://api.example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects a host missing from an array allowlist', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com, api.example.com])
+        MY_URL=https://evil.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toMatch(/not in allowed list/);
+    });
+
+    it('matches hosts in an array allowlist case-insensitively', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[Example.COM])
+        MY_URL=https://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects a host that is only a substring of an array allowlist entry', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com])
+        MY_URL=https://ample.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('errors when the allowlist array holds non-strings', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com, true])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('allowedDomains must be an array of strings');
+    });
+
+    it('ignores a port on the value', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[localhost, example.com])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('still rejects a disallowed host that carries a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[localhost])
+        MY_URL=http://evil.com:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (evil.com:3000) is not in allowed list');
+    });
+
+    it('pins the port when an entry names one', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:3000"])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects a different port when an entry names one', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:3000"])
+        MY_URL=http://localhost:9999/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (localhost:9999) is not in allowed list');
+    });
+
+    it('matches an entry naming the protocol default port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com:443"])
+        MY_URL=https://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('matches an entry naming a port against a value with no port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:3000"])
+        MY_URL=http://localhost/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('does not let a default-port entry match another protocol', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com:443"])
+        MY_URL=http://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('allows any port when a bare entry sits alongside one naming a port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[localhost, "localhost:3000"])
+        MY_URL=http://localhost:5000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('matches a port entry case-insensitively', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["LOCALHOST:3000"])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('matches a bracketed IPv6 entry, which names no port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["[::1]"])
+        MY_URL=http://[::1]:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects rather than throws on an entry with an unparseable port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["localhost:99999"])
+        MY_URL=http://localhost:3000/api
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('Domain (localhost:3000) is not in allowed list');
+    });
+
+    it('trims entries and ignores empty ones', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["", " example.com "])
+        MY_URL=https://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('leaves an empty entry out of the rejection message', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["", example.com])
+        MY_URL=https://evil.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('is not in allowed list: example.com');
+    });
+
+    it('errors on an entry that includes a path', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com/path"])
+        MY_URL=https://example.com/path
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains entries must be a hostname with an optional port - use example.com');
+    });
+
+    it('errors on an entry that includes a scheme', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["https://example.com"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains entries must be a hostname with an optional port - use example.com');
+    });
+
+    it('errors on a bad entry even when another entry would have matched', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com, "example.com/path"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
+    });
+
+    it('omits the suggestion when a path entry has no host to suggest', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["/"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains entries must be a hostname with an optional port');
+    });
+
+    it('rejects an entry whose credentials hide a different host', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["trusted.example:443@evil.example:8443"])
+        MY_URL=https://evil.example:8443/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      // no suggestion: which host was meant is ambiguous, and the one the entry would
+      // have authorized is the attacker's
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toBe('allowedDomains entries must be a hostname with an optional port');
+    });
+
+    it('rejects an entry with a non-numeric port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com:not-a-port"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
+    });
+
+    it('pins the port on a bracketed IPv6 entry', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["[::1]:3000"])
+        MY_URL=http://[::1]:9999/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('normalizes an internationalized entry to punycode', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["MÜNCHEN.de"])
+        MY_URL=https://xn--mnchen-3ya.de/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('rejects an entry using a backslash as a path separator', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["trusted.example\\path"])
+        MY_URL=https://trusted.example/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
+    });
+
+    it('errors on an empty allowlist rather than rejecting every url', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains must not be empty');
+    });
+
+    it('errors when every entry is empty', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["", "  "])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains must not be empty');
+    });
+
+    it('errors when allowedDomains is neither an array nor a string', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=true)
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('allowedDomains must be an array of strings');
+    });
+
+    it('accepts a bare string as a single allowed host', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com")
+        MY_URL=https://example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('errors on a comma-string, pointing at the array form', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com,api.example.com")
+        MY_URL=https://api.example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains must be an array of strings - use allowedDomains=[example.com, api.example.com]');
+    });
+
+    it('rejects a host that is only a substring of a single-host allowlist', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com")
+        MY_URL=https://ample.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toMatch(/not in allowed list/);
+    });
+
+    it('rejects a disallowed host without throwing on the error message', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com")
+        MY_URL=https://evil.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('example.com');
+    });
+  });
+
   describe('noTrailingSlash', () => {
     it('accepts url without trailing slash', async () => {
       const g = await loadAndResolve(outdent`
@@ -144,6 +503,38 @@ describe('url data type', () => {
         MY_URL=https://example.com/
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('rejects a trailing slash followed by a query string', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL=https://example.com/path/?q=1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('rejects a trailing slash followed by a hash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL="https://example.com/path/#frag"
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('accepts a hash on a path with no trailing slash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL="https://example.com/path#frag"
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
+    });
+
+    it('accepts a query string on a path with no trailing slash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL=https://example.com/path?q=1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
     it('accepts bare domain without trailing slash', async () => {
@@ -242,6 +633,52 @@ describe('url data type - path values', () => {
       MY_URL=https://other.com/api/v1
     `);
     expect(g.configSchema.MY_URL.isValid).toBe(false);
+  });
+});
+
+describe('ip data type', () => {
+  it('accepts IPv4', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=ip(version=4)
+      IP=192.168.1.1
+    `);
+    expect(g.configSchema.IP.isValid).toBe(true);
+  });
+
+  it('accepts plain IPv6', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=ip(version=6)
+      IP=2001:db8::1
+    `);
+    expect(g.configSchema.IP.isValid).toBe(true);
+  });
+
+  it('accepts IPv4-mapped IPv6 addresses', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=ip(version=6)
+      IP=::ffff:192.168.1.1
+    `);
+    expect(g.configSchema.IP.isValid).toBe(true);
+  });
+});
+
+describe('md5 data type', () => {
+  it('accepts lowercase md5', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=md5
+      H=d41d8cd98f00b204e9800998ecf8427e
+    `);
+    expect(g.configSchema.H.isValid).toBe(true);
+    expect(g.configSchema.H.resolvedValue).toBe('d41d8cd98f00b204e9800998ecf8427e');
+  });
+
+  it('accepts uppercase md5 and normalizes to lowercase', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=md5
+      H=D41D8CD98F00B204E9800998ECF8427E
+    `);
+    expect(g.configSchema.H.isValid).toBe(true);
+    expect(g.configSchema.H.resolvedValue).toBe('d41d8cd98f00b204e9800998ecf8427e');
   });
 });
 

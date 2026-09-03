@@ -582,9 +582,11 @@
       "name": "env-spec-language",
       "version": "0.4.0",
       "devDependencies": {
+        "@env-spec/parser": "workspace:*",
         "@types/node": "catalog:",
         "@types/vscode": "^1.99.0",
         "@varlock/1password-plugin": "workspace:*",
+        "@varlock/tsconfig": "workspace:*",
         "@vscode/vsce": "^3.6.2",
         "ovsx": "^0.10.6",
         "tsdown": "catalog:",

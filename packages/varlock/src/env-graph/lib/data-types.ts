@@ -381,7 +381,8 @@ const BooleanDataType = createEnvGraphDataType({
 const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
-    allowedDomains?: Array<string>
+    /** Allowed hosts. A bare string is treated as a single host. */
+    allowedDomains?: Array<string> | string
     allowedProtocols?: Array<string>
     /** Disallow a trailing slash on the URL path. */
     noTrailingSlash?: boolean
@@ -421,12 +422,89 @@ const UrlDataType = createEnvGraphDataType(
           }
         }
       }
-      if (
-        settings?.allowedDomains && !settings.allowedDomains.includes(url.host.toLowerCase())
-      ) {
-        errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${settings.allowedDomains.join(',')}`));
+      if (settings?.allowedDomains) {
+        // an array is the documented form, but a bare string means a single host - the
+        // vscode snippet used to insert one. Either way the host is matched in full;
+        // this was previously a `String.prototype.includes` substring match, which let
+        // "example.com" pass an allowlist of "myexample.com", and threw on `.join`
+        // when building the rejection message for a multi-host string.
+        const rawAllowedDomains = settings.allowedDomains;
+        let allowedDomains: Array<string> | undefined;
+        if (Array.isArray(rawAllowedDomains)) {
+          if (rawAllowedDomains.some((allowedDomain) => !_.isString(allowedDomain))) {
+            errors.push(new ValidationError('allowedDomains must be an array of strings'));
+          } else {
+            allowedDomains = rawAllowedDomains;
+          }
+        } else if (_.isString(rawAllowedDomains)) {
+          if (rawAllowedDomains.includes(',')) {
+            // a comma-string used to match by substring, so it appeared to work. Point at
+            // the array form rather than guessing that commas were meant as separators.
+            const asArray = rawAllowedDomains.split(',').map((d) => d.trim()).filter(Boolean).join(', ');
+            errors.push(new ValidationError(
+              `allowedDomains must be an array of strings - use allowedDomains=[${asArray}]`,
+            ));
+          } else {
+            allowedDomains = [rawAllowedDomains];
+          }
+        } else {
+          errors.push(new ValidationError('allowedDomains must be an array of strings'));
+        }
+        if (allowedDomains) {
+          const normalizedDomains = allowedDomains
+            .map((allowedDomain) => allowedDomain.trim().toLowerCase())
+            .filter(Boolean);
+          // Entries are a hostname with an optional port, and nothing else. Handing a
+          // whole entry to `URL` would let its authority parser read credentials and
+          // silently swap the host: `trusted.example:443@evil.example:8443` parses with a
+          // host of `evil.example:8443`, authorizing that and rejecting trusted.example.
+          // The bracketed alternative keeps IPv6 (`[::1]`, `[::1]:3000`) working.
+          // `\` is excluded alongside `/` because WHATWG treats it as a path separator for
+          // special schemes, so `trusted.example\path` would otherwise parse as a host plus path
+          const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
+          const malformedDomains = normalizedDomains.filter((d) => !HOST_ENTRY_REGEX.test(d));
+          if (!normalizedDomains.length) {
+            // an empty list can never match, so say so rather than rejecting every URL
+            // with an allowlist that has nothing in it to report
+            errors.push(new ValidationError('allowedDomains must not be empty'));
+          } else if (malformedDomains.length) {
+            // credentials make it ambiguous which host was meant, so suggest nothing there
+            // rather than pointing at the one the entry would actually have authorized
+            const suggestions = malformedDomains
+              .map((d) => d.replace(/^[a-z][a-z\d+.-]*:\/\//, ''))
+              .filter((d) => !d.includes('@'))
+              .map((d) => d.split(/[/?#]/)[0])
+              .filter((d) => HOST_ENTRY_REGEX.test(d));
+            const suggestionText = suggestions.length ? ` - use ${suggestions.join(', ')}` : '';
+            errors.push(new ValidationError(
+              `allowedDomains entries must be a hostname with an optional port${suggestionText}`,
+            ));
+          } else {
+            // Both sides go through the same parser, so a protocol default port (`:443`
+            // on https) and an IDN hostname normalize identically before comparing. An
+            // entry naming a port pins it; one without allows any port on the value.
+            const matchesAllowedDomain = (allowedDomain: string) => {
+              try {
+                const parsed = new URL(`${url.protocol}//${allowedDomain}`);
+                return /:\d+$/.test(allowedDomain)
+                  ? parsed.host === url.host.toLowerCase()
+                  : parsed.hostname === url.hostname.toLowerCase();
+              } catch {
+                return false;
+              }
+            };
+            if (!normalizedDomains.some(matchesAllowedDomain)) {
+              errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${normalizedDomains.join(',')}`));
+            }
+          }
+        }
       }
-      if (settings?.noTrailingSlash && val.endsWith('/')) {
+      // Checked against the written value rather than `url.pathname`, which normalizes
+      // `https://example.com` to a `/` path and so cannot tell the two spellings apart.
+      // A root `/` counts: this option exists so `${MY_URL}/path` cannot produce `//path`,
+      // and `https://example.com/` breaks that concatenation like any other trailing slash.
+      // Query and hash are dropped first, so `https://example.com/path/?q=1` is caught too.
+      if (settings?.noTrailingSlash && val.split(/[?#]/)[0].endsWith('/')) {
         errors.push(new ValidationError('URL must not have a trailing slash'));
       }
       if (settings?.matches) {
@@ -584,8 +662,21 @@ const EnumDataType = createEnvGraphDataType(
     icon: 'material-symbols-light:category', // a few shapes... not sure about this one
     coercedType: { enum: enumOptions },
     coerce(val) {
-      if (_.isString(val) || _.isNumber(val) || _.isBoolean(val)) return val;
-      return new CoercionError('Value must be a string, number, or boolean');
+      if (_.isNumber(val) || _.isBoolean(val)) return val;
+      if (!_.isString(val)) {
+        return new CoercionError('Value must be a string, number, or boolean');
+      }
+      // Exact string member (e.g. enum(dev, prod) + "dev")
+      if (enumOptions.includes(val)) return val;
+      // process.env / overrideValues are always strings. Schema file values like
+      // LEVEL=2 are auto-coerced to numbers by the parser, but CI overrides stay
+      // as "2" / "true" and must still match numeric/boolean members.
+      for (const opt of enumOptions) {
+        if (_.isNumber(opt) && String(opt) === val) return opt;
+        if (opt === true && val === 'true') return true;
+        if (opt === false && val === 'false') return false;
+      }
+      return val;
     },
     validate(val) {
       const possibleValues: Array<any> = enumOptions || [];
@@ -622,7 +713,7 @@ const EmailDataType = createEnvGraphDataType(
   }),
 );
 
-const IP_V6_ADDRESS_REGEX = /^(?:(?:[a-fA-F\d]{1,4}:){7}(?:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){6}(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){5}(?::(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,2}|:)|(?:[a-fA-F\d]{1,4}:){4}(?:(?::[a-fA-F\d]{1,4}){0,1}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,3}|:)|(?:[a-fA-F\d]{1,4}:){3}(?:(?::[a-fA-F\d]{1,4}){0,2}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,4}|:)|(?:[a-fA-F\d]{1,4}:){2}(?:(?::[a-fA-F\d]{1,4}){0,3}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,5}|:)|(?:[a-fA-F\d]{1,4}:){1}(?:(?::[a-fA-F\d]{1,4}){0,4}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,6}|:)|(?::(?:(?::[a-fA-F\d]{1,4}){0,5}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,7}|:)))(?:%[0-9a-zA-Z]{1,})?$/;
+const IP_V6_ADDRESS_REGEX = /^(?:(?:[a-fA-F\d]{1,4}:){7}(?:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){6}(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|:[a-fA-F\d]{1,4}|:)|(?:[a-fA-F\d]{1,4}:){5}(?::(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,2}|:)|(?:[a-fA-F\d]{1,4}:){4}(?:(?::[a-fA-F\d]{1,4}){0,1}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,3}|:)|(?:[a-fA-F\d]{1,4}:){3}(?:(?::[a-fA-F\d]{1,4}){0,2}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,4}|:)|(?:[a-fA-F\d]{1,4}:){2}(?:(?::[a-fA-F\d]{1,4}){0,3}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,5}|:)|(?:[a-fA-F\d]{1,4}:){1}(?:(?::[a-fA-F\d]{1,4}){0,4}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,6}|:)|(?::(?:(?::[a-fA-F\d]{1,4}){0,5}:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]\d|\d)){3}|(?::[a-fA-F\d]{1,4}){1,7}|:)))(?:%[0-9a-zA-Z]{1,})?$/;
 const IpAddressDataType = createEnvGraphDataType(
   (settings?: {
     version?: 4 | 6,
@@ -660,7 +751,13 @@ const PortDataType = createEnvGraphDataType(
         if (rawVal.includes('.')) throw new CoercionError('Port number must be an integer');
         if (rawVal.includes('e')) throw new CoercionError('Port number should be an integer, not in exponential notation');
       }
-      return coerceToNumber(rawVal);
+      const numVal = coerceToNumber(rawVal);
+      // Unquoted schema values like 80.5 are already numbers after parse auto-coerce;
+      // the string '.' check above does not cover that path.
+      if (!Number.isInteger(numVal)) {
+        throw new CoercionError('Port number must be an integer');
+      }
+      return numVal;
     },
     validate(val) {
       if (settings?.min !== undefined && val < settings?.min) {
@@ -723,12 +820,17 @@ const UuidDataType = createEnvGraphDataType({
   },
 });
 
+// case is normalized by `coerce` below, so this only ever sees lowercase
 const MD5_REGEX = /^[a-f0-9]{32}$/;
 const Md5DataType = createEnvGraphDataType({
   name: 'md5',
   typeDescription: 'MD5 hash string',
   // A deterministic, unique, valid 32-hex string derived from the seed.
   generatePlaceholder: (seed) => hexFromSeed(seed).slice(0, 32),
+  coerce(rawVal) {
+    // Accept uppercase hex (common from tools) and normalize like typical hash handling
+    return coerceToString(rawVal).toLowerCase();
+  },
   validate(val) {
     const result = MD5_REGEX.test(val);
     if (result) return true;
