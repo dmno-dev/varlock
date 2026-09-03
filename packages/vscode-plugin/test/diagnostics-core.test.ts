@@ -280,6 +280,24 @@ describe('diagnostics-core', () => {
       .toBeUndefined();
   });
 
+  it('classifies unquoted members exactly as the parser does', () => {
+    const urlType = (allowedDomains: string) => ({ name: 'url', args: [], options: { allowedDomains } });
+    const memberError = '`allowedDomains` must be an array of strings.';
+
+    // autoCoerce converts these, so runtime rejects them
+    for (const member of ['true', 'false', 'undefined', '42', '-7', '0.5']) {
+      expect(validateStaticValue(urlType(`[example.com, ${member}]`), 'https://example.com/'))
+        .toBe(memberError);
+    }
+
+    // autoCoerce deliberately leaves these as strings - only lowercase literals convert,
+    // and a number that does not round-trip through String() keeps its written form
+    for (const member of ['TRUE', 'True', '00', '1.0', '1e3', '99999999999999999999']) {
+      expect(validateStaticValue(urlType(`[example.com, ${member}]`), 'https://example.com/'))
+        .toBeUndefined();
+    }
+  });
+
   it('still checks noTrailingSlash when allowedDomains is not set', () => {
     expect(
       validateStaticValue(

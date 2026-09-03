@@ -1,5 +1,7 @@
 import { isIP } from 'node:net';
 
+import { autoCoerce } from '@env-spec/parser';
+
 import type { LineDocument } from './document-lines';
 import { DECORATORS_BY_NAME } from './intellisense-catalog';
 
@@ -134,9 +136,15 @@ export function splitEnumArgs(input: string) {
 }
 
 /**
- * Members of an array literal that the schema parses as a boolean or number rather than a
- * string, which varlock's `allowedDomains` / `allowedProtocols` reject. Quoting is what
- * decides it, so this reads the raw text before `parseListOption` unquotes everything.
+ * Members of an array literal that the schema parses as something other than a string,
+ * which varlock's `allowedDomains` / `allowedProtocols` reject.
+ *
+ * Members are passed to the parser's own `autoCoerce` with their quotes still attached,
+ * which is what `parseListOption` strips: a quoted `"true"` is never seen as the bare
+ * literal, so it stays a string with no separate quoting check. Deferring to `autoCoerce`
+ * rather than reimplementing which scalars convert also keeps the editor from disagreeing
+ * with a load - `undefined` becomes a non-string, while `TRUE`, `00`, `1.0` and unsafe
+ * integers stay strings.
  */
 function findNonStringArrayMembers(rawValue: string | boolean | undefined) {
   if (typeof rawValue !== 'string') return [];
@@ -145,7 +153,7 @@ function findNonStringArrayMembers(rawValue: string | boolean | undefined) {
   return splitCommaSeparatedArgs(trimmedValue.slice(1, -1))
     .map((member) => member.trim())
     .filter(Boolean)
-    .filter((member) => member === unquote(member) && /^(?:true|false|-?\d+(?:\.\d+)?)$/i.test(member));
+    .filter((member) => typeof autoCoerce(member) !== 'string');
 }
 
 /** mirrors HOST_ENTRY_REGEX in varlock's UrlDataType - a hostname with an optional port */
