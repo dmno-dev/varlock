@@ -82,7 +82,7 @@ The serialized env graph (resolved config values plus metadata) injected by [`va
 
 ### `__VARLOCK_RUN`
 
-A marker set so a child process can detect that it is running under `varlock run`.
+A marker set so a child process can detect that it is running under `varlock run`. Scripts that re-exec themselves under `varlock run` should check this first so they do not recurse. On macOS with Homebrew Python, do not pass `sys.executable` into that re-exec: see [Auto-invoking varlock run from Python](/integrations/python/#auto-invoking-varlock-run-from-python).
 
 ### `__VARLOCK_EXECUTION_PHASE`
 
