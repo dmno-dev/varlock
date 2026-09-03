@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
+import { isBunStandaloneExecutable } from './detect-runtime';
 
 const platform = os.platform();
 const isWindows = platform.match(/^win/i);
@@ -153,14 +154,10 @@ export function execSyncVarlock(
     // virtual /$bunfs filesystem, while process.execPath points at the real
     // executable inside the workspace.
     const cwdStr = opts?.cwd ? String(opts.cwd) : undefined;
-    const bunGlobal = (globalThis as typeof globalThis & {
-      Bun?: { isStandaloneExecutable?: boolean },
-    }).Bun;
-    const isBunStandaloneExecutable = Boolean(bunGlobal?.isStandaloneExecutable);
     const searchDirs = [
       ...(cwdStr ? [cwdStr] : []),
       ...(opts?.callerDir ? [opts.callerDir] : []),
-      ...(isBunStandaloneExecutable ? [path.dirname(process.execPath)] : []),
+      ...(isBunStandaloneExecutable() ? [path.dirname(process.execPath)] : []),
       process.cwd(),
     ];
 

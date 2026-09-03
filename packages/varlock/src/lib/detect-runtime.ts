@@ -30,6 +30,14 @@ export const isDeno: boolean = typeof Deno !== 'undefined'
 /** @see {@link https://bun.sh/guides/util/detect-bun} */
 export const isBun = processVersions && processVersions.bun != null;
 
+/** @see {@link https://bun.com/docs/bundler/executables#detecting-standalone-mode} */
+export function isBunStandaloneExecutable(): boolean {
+  const bunGlobal = (globalThis as typeof globalThis & {
+    Bun?: { isStandaloneExecutable?: boolean },
+  }).Bun;
+  return Boolean(bunGlobal?.isStandaloneExecutable);
+}
+
 
 
 export const isBrowser = typeof window !== 'undefined'
