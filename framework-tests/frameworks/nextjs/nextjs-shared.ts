@@ -686,9 +686,11 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               },
               {
                 // `res.json()` reaches the scanner at `end()` with no preceding
-                // `write()`, and the connection is killed. Before this was handled, the
-                // client got a 200 whose Content-Length promised more bytes than were
-                // ever sent, and hung waiting for them.
+                // `write()`, but next's compression layer has already emitted the
+                // headers by then, so the response cannot be rewritten and the
+                // connection is killed instead. Before this was handled, the client got
+                // a 200 whose Content-Length promised more bytes than were ever sent,
+                // and hung waiting for them.
                 label: 'leaking pages-router API route does not leave the client hanging',
                 path: '/api/leaky',
                 // a network failure, specifically: accepting any failure would let the

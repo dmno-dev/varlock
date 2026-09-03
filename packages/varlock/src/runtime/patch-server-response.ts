@@ -183,27 +183,55 @@ function scanChunk(state: ScanState, chunkStr: string, o: {
   return emit;
 }
 
+/** marks a response varlock already finished (or destroyed) because of a detected leak */
+const leakFinalizedKey = '_varlockLeakFinalized';
+
 /**
- * Leak detection on `end` used to throw before the original `end` ran, which left the
- * HTTP client hanging (Next.js Pages Router `res.json()` answered a 200 whose
- * Content-Length promised more bytes than were ever sent). Kill the connection first,
+ * Leak detection on `end` used to throw before the original `end` ran, which left
+ * the HTTP client hanging (Next.js Pages Router `res.json()` answered a 200 whose
+ * Content-Length promised more bytes than were ever sent). Finish the response first,
  * then rethrow so callers still see the leak error.
  *
- * The connection is destroyed rather than rewritten into an error response. By the time
- * a body reaches `end()` the framework has usually committed to a representation
- * (next.js in production emits the headers from its compression layer before varlock
- * sees the body), and a substituted body would inherit headers that describe the
- * rejected one - `Cache-Control: s-maxage=...` alone would have a CDN cache the error.
- * This also matches what the `write` path already does mid-stream. The diagnostic that
- * matters is the leak report on the server log; the client only needs the request to
- * fail instead of hanging.
+ * Which branch runs depends on how much of the response is already committed. A
+ * compression layer in front of `end()` emits the headers before varlock sees the body,
+ * which is what next.js does in production, so an api route there takes the destroy
+ * branch. A vite dev middleware reaches `end()` with the headers still unsent and gets
+ * the 500. Both branches are load-bearing; neither is a fallback for the other.
  *
- * Destroying also absorbs the second `end()` that framework error handling makes in
- * response to the rethrown error (Next.js Pages Router `apiResolver` catches and calls
- * `sendError`), which node ignores on a destroyed response.
+ * The response is flagged as finalized before the rethrow, because framework error
+ * handling generally responds to a thrown error by ending the response itself (Next.js
+ * Pages Router `apiResolver` catches and calls `sendError`, which calls `res.end()`
+ * again). A second `end()` on an already-ended response emits `ERR_STREAM_WRITE_AFTER_END`
+ * on the response, which nothing listens for and takes the whole process down - so
+ * further writes and ends through the patched methods become no-ops.
  */
-function finishResponseOnLeak(res: ServerResponse, err: unknown): never {
-  res.destroy();
+function finishResponseOnLeak(
+  res: ServerResponse,
+  originalEnd: typeof ServerResponse.prototype.end,
+  err: unknown,
+): never {
+  (res as any)[leakFinalizedKey] = true;
+  if (!res.headersSent) {
+    const body = 'Internal Server Error';
+    res.statusCode = 500;
+    // every header on this response describes the representation that was just
+    // rejected, and picking off the ones that are obviously wrong (length, content
+    // encoding, entity tag) leaves the rest: `Cache-Control: s-maxage=...` would have
+    // a CDN cache the error, `Set-Cookie` would still be set, and route-specific
+    // headers would describe a body that is not being sent. Drop them all and
+    // declare only what the replacement body needs.
+    for (const name of res.getHeaderNames()) res.removeHeader(name);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Length', Buffer.byteLength(body));
+    try {
+      // @ts-ignore Node's end overloads confuse Function.call
+      originalEnd.call(res, body);
+    } catch {
+      res.destroy();
+    }
+  } else {
+    res.destroy();
+  }
   throw err;
 }
 
@@ -246,6 +274,13 @@ export function patchGlobalServerResponse(opts?: {
   // @ts-ignore
   ServerResponse.prototype.write = function varlockPatchedServerResponseWrite(...args) {
     // TODO: do we want to filter out some requests here? maybe based on the file type?
+
+    // varlock already finished this response because of a leak - see finishResponseOnLeak
+    if ((this as any)[leakFinalizedKey]) {
+      const cb = args.find((arg: any) => typeof arg === 'function');
+      if (cb) process.nextTick(cb);
+      return true;
+    }
 
     const rawChunk = args[0];
     // console.log('⚡️ patched ServerResponse.write', rawChunk);
@@ -387,6 +422,14 @@ export function patchGlobalServerResponse(opts?: {
   // @ts-ignore
   ServerResponse.prototype.end = function patchedServerResponseEnd(...args) {
     // console.log('⚡️ patched ServerResponse.end');
+
+    // varlock already finished this response because of a leak - see finishResponseOnLeak
+    if ((this as any)[leakFinalizedKey]) {
+      const cb = args.find((arg: any) => typeof arg === 'function');
+      if (cb) process.nextTick(cb);
+      return this;
+    }
+
     const endChunk = args[0];
     const state = getScanState(this);
     clearPendingFlush(state);
@@ -416,7 +459,7 @@ export function patchGlobalServerResponse(opts?: {
             file: (this as any).req?.url,
           });
         } catch (err) {
-          finishResponseOnLeak(this, err);
+          finishResponseOnLeak(this, serverResponseEnd, err);
         }
       }
       // @ts-ignore
@@ -445,7 +488,7 @@ export function patchGlobalServerResponse(opts?: {
           meta: { method: 'patched ServerResponse.end', file: (this as any).req?.url },
         });
       } catch (err) {
-        finishResponseOnLeak(this, err);
+        finishResponseOnLeak(this, serverResponseEnd, err);
       }
       // for a string (or absent) final chunk, `chunkStr` may carry a flushed decoder tail
       // that the outgoing chunk needs to pick up, so compare against what was actually passed
