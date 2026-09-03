@@ -166,7 +166,7 @@ MY_BOOL=true
 **Options:**
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
 - `allowedProtocols` (string[]): List of allowed protocols. Protocol names are case-insensitive and can include the trailing colon. If omitted, any valid URL protocol is allowed
-- `allowedDomains` (string[] or comma-separated string): List of allowed hosts. A quoted comma-string (`allowedDomains="a.com,b.com"`) is treated as a host list, not a substring match
+- `allowedDomains` (string[]): List of allowed hosts, matched in full against the URL host (case-insensitive). A comma-separated string (`allowedDomains="a.com,b.com"`) is also accepted
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL path (except root `/`)
 - `matches` (string|RegExp): Regular expression pattern the full URL must match. Use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 
@@ -176,6 +176,9 @@ MY_URL=example.com/foobar
 
 # @type=url(allowedProtocols=[postgres, postgresql])
 DATABASE_URL=postgres://root:password@localhost:5432/local
+
+# @type=url(allowedDomains=[example.com, api.example.com])
+WEBHOOK_URL=https://api.example.com/hooks
 
 # @type=url(noTrailingSlash=true, matches=/^https:\/\/api\./)
 API_URL=https://api.example.com/v1

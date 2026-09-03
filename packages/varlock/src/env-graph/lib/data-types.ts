@@ -381,7 +381,8 @@ const BooleanDataType = createEnvGraphDataType({
 const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
-    allowedDomains?: Array<string>
+    /** Allowed hosts, as an array or a comma-separated string. */
+    allowedDomains?: Array<string> | string
     allowedProtocols?: Array<string>
     /** Disallow a trailing slash on the URL path. */
     noTrailingSlash?: boolean
@@ -421,18 +422,32 @@ const UrlDataType = createEnvGraphDataType(
           }
         }
       }
-      // allowedDomains may arrive as a comma-string (`"a.com,b.com"`) from schema
-      // syntax, or as a real array. Normalize before membership checks: string
-      // `.includes` is substring match and would allow e.g. "ample.com" for "example.com",
-      // and `.join` on a string throws when building the rejection message.
-      const allowedDomains = (() => {
-        const raw = settings?.allowedDomains as Array<string> | string | undefined;
-        if (!raw) return [] as Array<string>;
-        const list = Array.isArray(raw) ? raw : String(raw).split(',');
-        return list.map((d) => d.trim().toLowerCase()).filter(Boolean);
-      })();
-      if (allowedDomains.length && !allowedDomains.includes(url.host.toLowerCase())) {
-        errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${allowedDomains.join(',')}`));
+      if (settings?.allowedDomains) {
+        // an array is the documented form. A quoted comma-string is also accepted, since
+        // `allowedDomains="a.com,b.com"` reads naturally and was previously run through
+        // `String.prototype.includes` - a substring match that let "ample.com" pass an
+        // allowlist of "example.com", and threw on `.join` building the rejection message.
+        const rawAllowedDomains = settings.allowedDomains;
+        let allowedDomains: Array<string> | undefined;
+        if (Array.isArray(rawAllowedDomains)) {
+          if (rawAllowedDomains.some((allowedDomain) => !_.isString(allowedDomain))) {
+            errors.push(new ValidationError('allowedDomains must be an array of strings'));
+          } else {
+            allowedDomains = rawAllowedDomains;
+          }
+        } else if (_.isString(rawAllowedDomains)) {
+          allowedDomains = rawAllowedDomains.split(',');
+        } else {
+          errors.push(new ValidationError('allowedDomains must be an array of strings'));
+        }
+        if (allowedDomains) {
+          const normalizedDomains = allowedDomains
+            .map((allowedDomain) => allowedDomain.trim().toLowerCase())
+            .filter(Boolean);
+          if (!normalizedDomains.includes(url.host.toLowerCase())) {
+            errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${normalizedDomains.join(',')}`));
+          }
+        }
       }
       // Docs and vscode exempt root pathname `/` (`https://example.com/` is OK).
       if (settings?.noTrailingSlash && url.pathname.endsWith('/') && url.pathname !== '/') {
