@@ -1082,7 +1082,7 @@ export class DirectoryDataSource extends EnvGraphDataSource {
   private _loadedEnvSpecificFor?: string;
 
   private async _loadEnvSpecificFilesIfNeeded(currentEnv: string) {
-    if (this._loadedEnvSpecificFor === currentEnv) return;
+    if (this._loadedEnvSpecificFor) return;
     this._loadedEnvSpecificFor = currentEnv;
     const envSources = await this._loadEnvSpecificFiles(currentEnv);
     for (const source of envSources) {
@@ -1090,15 +1090,22 @@ export class DirectoryDataSource extends EnvGraphDataSource {
     }
   }
 
+  /** true when this directory established its own `@currentEnv`, not an inherited one */
+  private directoryHasOwnCurrentEnv(): boolean {
+    return !!(this._envFlagKey || this.schemaDataSource?._envFlagKey);
+  }
+
   /**
    * Directory imports run in declaration order. A directory imported before the
    * file that provides `@currentEnv=$FLAG` finishes init with no env selected.
    * After the flag is known, load those directories' `.env.<env>` files.
+   * Stop at a directory that set its own `@currentEnv` so descendants keep that env.
    */
   private async _applyCurrentEnvToImportedDirectories(currentEnv: string) {
     const visit = async (source: EnvGraphDataSource) => {
       for (const child of source.children) {
-        if (child instanceof DirectoryDataSource && !child.schemaDataSource?._envFlagKey) {
+        if (child instanceof DirectoryDataSource) {
+          if (child.directoryHasOwnCurrentEnv()) continue;
           await child._loadEnvSpecificFilesIfNeeded(currentEnv);
         }
         await visit(child);

@@ -159,6 +159,37 @@ describe('@currentEnv and .env.* file loading logic', () => {
     },
   }));
 
+  test('ancestor currentEnv does not cross a nested directory with its own currentEnv', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./service/)
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      'service/.env.schema': outdent`
+        # @currentEnv=$SERVICE_ENV
+        # @import(./nested/)
+        # ---
+        SERVICE_ENV=prod
+      `,
+      'service/.env.dev': 'SERVICE_ITEM=service-dev',
+      'service/.env.prod': 'SERVICE_ITEM=service-prod',
+      'service/nested/.env.dev': 'NESTED_ITEM=nested-dev',
+      'service/nested/.env.prod': 'NESTED_ITEM=nested-prod',
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      SERVICE_ENV: 'prod',
+      SERVICE_ITEM: 'service-prod',
+      NESTED_ITEM: 'nested-prod',
+    },
+  }));
+
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
     files: {
       '.env.schema': outdent`
