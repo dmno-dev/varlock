@@ -183,6 +183,37 @@ function scanChunk(state: ScanState, chunkStr: string, o: {
   return emit;
 }
 
+/**
+ * Leak detection on `end` used to throw before the original `end` ran, which left
+ * the HTTP client hanging (Next.js Pages Router `res.json()`). Finish the response
+ * first, then rethrow so callers still see the leak error.
+ */
+function finishResponseOnLeak(
+  res: ServerResponse,
+  originalEnd: typeof ServerResponse.prototype.end,
+  err: unknown,
+): never {
+  if (!res.headersSent) {
+    const body = 'Internal Server Error';
+    res.statusCode = 500;
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    // the rejected response may have advertised a different length or a
+    // compression encoding that does not apply to this plaintext body
+    res.removeHeader('Content-Encoding');
+    res.removeHeader('Transfer-Encoding');
+    res.setHeader('Content-Length', Buffer.byteLength(body));
+    try {
+      // @ts-ignore Node's end overloads confuse Function.call
+      originalEnd.call(res, body);
+    } catch {
+      res.destroy();
+    }
+  } else {
+    res.destroy();
+  }
+  throw err;
+}
+
 export function patchGlobalServerResponse(opts?: {
   ignoreUrlPatterns?: Array<RegExp>,
   redactInsteadOfThrow?: boolean,
@@ -386,10 +417,14 @@ export function patchGlobalServerResponse(opts?: {
       }
       if (decompressed !== undefined) {
         // compressed output can't be scrubbed, so a detected leak always throws (see write above)
-        scanForLeaks(state.carry + decodeDecompressedDelta(state, decompressed, true), {
-          method: 'patched ServerResponse.end',
-          file: (this as any).req?.url,
-        });
+        try {
+          scanForLeaks(state.carry + decodeDecompressedDelta(state, decompressed, true), {
+            method: 'patched ServerResponse.end',
+            file: (this as any).req?.url,
+          });
+        } catch (err) {
+          finishResponseOnLeak(this, serverResponseEnd, err);
+        }
       }
       // @ts-ignore
       return serverResponseEnd.apply(this, args);
@@ -409,11 +444,16 @@ export function patchGlobalServerResponse(opts?: {
 
     if (chunkStr || state.pending) {
       // last chunk, so nothing can be withheld for later - it all goes out now
-      const emit = scanChunk(state, chunkStr, {
-        canHoldBack: false,
-        redactInsteadOfThrow: opts?.redactInsteadOfThrow,
-        meta: { method: 'patched ServerResponse.end', file: (this as any).req?.url },
-      });
+      let emit: string;
+      try {
+        emit = scanChunk(state, chunkStr, {
+          canHoldBack: false,
+          redactInsteadOfThrow: opts?.redactInsteadOfThrow,
+          meta: { method: 'patched ServerResponse.end', file: (this as any).req?.url },
+        });
+      } catch (err) {
+        finishResponseOnLeak(this, serverResponseEnd, err);
+      }
       // for a string (or absent) final chunk, `chunkStr` may carry a flushed decoder tail
       // that the outgoing chunk needs to pick up, so compare against what was actually passed
       let originalStr = '';
