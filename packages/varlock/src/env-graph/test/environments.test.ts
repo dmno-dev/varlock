@@ -138,12 +138,12 @@ describe('@currentEnv and .env.* file loading logic', () => {
     },
   }));
 
-  test('imported directory loads .env.<env> when the flag import is declared after it', envFilesTest({
+  test('imported directory loads .env.<env> when the flag import is declared before it', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @currentEnv=$DEPLOY_ENV
-        # @import(./service/)
         # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # @import(./service/)
         # ---
       `,
       '.env.shared': outdent`
@@ -159,12 +159,29 @@ describe('@currentEnv and .env.* file loading logic', () => {
     },
   }));
 
-  test('ancestor currentEnv does not cross a nested directory with its own currentEnv', envFilesTest({
+  test('directory import declared before the flag import is an error', envFilesTest({
     files: {
       '.env.schema': outdent`
         # @currentEnv=$DEPLOY_ENV
         # @import(./service/)
         # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      'service/.env.dev': 'SERVICE_ITEM=from-dev',
+    },
+    expectError: true,
+  }));
+
+  test('ancestor currentEnv does not cross a nested directory with its own currentEnv', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # @import(./service/)
         # ---
       `,
       '.env.shared': outdent`
@@ -188,6 +205,64 @@ describe('@currentEnv and .env.* file loading logic', () => {
       SERVICE_ITEM: 'service-prod',
       NESTED_ITEM: 'nested-prod',
     },
+  }));
+
+  // @currentEnv itself can live in the imported file, and propagates through a partial
+  // import as long as the flag item passes the import filter
+  test('imported @currentEnv propagates through a partial import that includes the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./shared/.env.schema, pick=[APP_ENV])
+        # ---
+        X=
+      `,
+      'shared/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        SHARED_X=1
+      `,
+      '.env.dev': 'X=from-dev',
+    },
+    expectValues: { APP_ENV: 'dev', X: 'from-dev' },
+    expectNotInSchema: ['SHARED_X'],
+  }));
+
+  test('imported @currentEnv via partial import wins over the --env fallback', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./shared/.env.schema, pick=[APP_ENV])
+        # ---
+        X=
+      `,
+      'shared/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+      `,
+      '.env.dev': 'X=from-dev',
+      '.env.prod': 'X=from-prod',
+    },
+    fallbackEnv: 'prod',
+    expectValues: { APP_ENV: 'dev', X: 'from-dev' },
+  }));
+
+  test('imported @currentEnv does not propagate when the partial import excludes the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./shared/.env.schema, pick=[SHARED_X])
+        # ---
+        X=
+      `,
+      'shared/.env.schema': outdent`
+        # @currentEnv=$APP_ENV
+        # ---
+        APP_ENV=dev
+        SHARED_X=1
+      `,
+      '.env.dev': 'X=from-dev',
+    },
+    expectValues: { X: undefined, SHARED_X: 1 },
   }));
 
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
