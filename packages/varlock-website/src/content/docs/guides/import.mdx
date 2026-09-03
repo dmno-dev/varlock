@@ -166,7 +166,7 @@ Meaning if there was a value for `ITEM` in all 4 files, the final value used wou
 
 ### `environment flag "..." must be defined within this schema`
 
-If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`) and that variable is only brought in via a **partial** `@import()`, varlock validates the env flag during schema initialization, before imported values are merged. The flag must be **defined in the same `.env.schema` file** that declares `@currentEnv`, not only in an imported file.
+If you use [`@currentEnv`](/reference/root-decorators/#currentenv) to point at a variable (e.g. `# @currentEnv=$DEPLOY_ENV`), that item must either be defined in the same file or brought in by `@import`. A partial import must include the flag in `pick=[...]` (or not omit it).
 
 This commonly appears in monorepos when a sub-package imports shared keys from a parent schema:
 
@@ -177,24 +177,18 @@ This commonly appears in monorepos when a sub-package imports shared keys from a
 MY_SERVICE_URL=...
 ```
 
-Running `varlock load` fails with:
+That works: `DEPLOY_ENV` arrives via the import, and varlock uses it to load `.env.<env>` files after imports finish.
+
+If the pick list omits the flag, `varlock load` fails with:
 
 ```txt
-environment flag "DEPLOY_ENV" must be defined within this schema
+environment flag "DEPLOY_ENV" must be defined within this schema or imported via @import
 ```
 
 **Fixes:**
 
-- Define the env flag locally in the file that uses `@currentEnv`, even if the value comes from elsewhere:
-
-```env-spec title=".env.schema (sub-package)"
-# @currentEnv=$DEPLOY_ENV
-# @import(../../../, pick=[DEPLOY_ENV, AWS_REGION])
-# ---
-DEPLOY_ENV=
-MY_SERVICE_URL=...
-```
-
+- Add the flag to the import filter: `pick=[DEPLOY_ENV, ...]`
+- Define the env flag locally in the file that uses `@currentEnv`
 - Move `@currentEnv` to the shared schema where the flag is already defined
 - Import the full directory (omit the key list) if the sub-package should inherit the parent's `@currentEnv` handling
 

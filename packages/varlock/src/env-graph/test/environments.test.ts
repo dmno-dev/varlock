@@ -16,6 +16,180 @@ describe('@currentEnv and .env.* file loading logic', () => {
     expectError: true,
   }));
 
+  // #428: @currentEnv may reference a flag key brought in via @import
+  test('@currentEnv can reference a key imported via pick=[]', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      '.env.dev': outdent`
+        ITEM1=from-dev
+      `,
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      ITEM1: 'from-dev',
+    },
+  }));
+
+  test('@currentEnv can reference a key imported via pick glob', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[DEPLOY_*])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=staging
+        DEPLOY_REGION=us
+      `,
+      '.env.staging': outdent`
+        ITEM1=from-staging
+      `,
+    },
+    expectValues: {
+      DEPLOY_ENV: 'staging',
+      DEPLOY_REGION: 'us',
+      ITEM1: 'from-staging',
+    },
+  }));
+
+  test('@currentEnv can reference a key imported via deprecated positional keys', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, DEPLOY_ENV)
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      '.env.dev': outdent`
+        ITEM1=from-dev-positional
+      `,
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      ITEM1: 'from-dev-positional',
+    },
+  }));
+
+  test('@currentEnv errors when imported pick list omits the flag key', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, pick=[OTHER])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+        OTHER=x
+      `,
+    },
+    expectError: true,
+  }));
+
+  // A dynamic enabled=false import must not let a values-only .env key act as @currentEnv
+  test('@currentEnv errors when a dynamic import is disabled even if .env has the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, enabled=eq($ENABLE, "yes"), pick=[DEPLOY_ENV])
+        # ---
+        ENABLE=no
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=staging
+      `,
+      '.env': 'DEPLOY_ENV=dev',
+      '.env.dev': 'ITEM1=should-not-load',
+    },
+    expectError: true,
+  }));
+
+  test('@currentEnv can use a dynamically enabled import even if .env also has the flag', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./.env.shared, enabled=eq($ENABLE, "yes"), pick=[DEPLOY_ENV])
+        # ---
+        ENABLE=yes
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=staging
+      `,
+      '.env': 'DEPLOY_ENV=dev',
+      '.env.dev': 'ITEM1=from-dev',
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      ITEM1: 'from-dev',
+    },
+  }));
+
+  test('imported directory loads .env.<env> when the flag import is declared after it', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./service/)
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      'service/.env.dev': 'SERVICE_ITEM=from-dev',
+      'service/.env.prod': 'SERVICE_ITEM=from-prod',
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      SERVICE_ITEM: 'from-dev',
+    },
+  }));
+
+  test('ancestor currentEnv does not cross a nested directory with its own currentEnv', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(./service/)
+        # @import(./.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      '.env.shared': outdent`
+        # ---
+        DEPLOY_ENV=dev
+      `,
+      'service/.env.schema': outdent`
+        # @currentEnv=$SERVICE_ENV
+        # @import(./nested/)
+        # ---
+        SERVICE_ENV=prod
+      `,
+      'service/.env.dev': 'SERVICE_ITEM=service-dev',
+      'service/.env.prod': 'SERVICE_ITEM=service-prod',
+      'service/nested/.env.dev': 'NESTED_ITEM=nested-dev',
+      'service/nested/.env.prod': 'NESTED_ITEM=nested-prod',
+    },
+    expectValues: {
+      DEPLOY_ENV: 'dev',
+      SERVICE_ENV: 'prod',
+      SERVICE_ITEM: 'service-prod',
+      NESTED_ITEM: 'nested-prod',
+    },
+  }));
+
   test('all .env.* files are loaded in correct precedence order', envFilesTest({
     files: {
       '.env.schema': outdent`
