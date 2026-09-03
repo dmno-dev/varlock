@@ -166,7 +166,7 @@ MY_BOOL=true
 **Options:**
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
 - `allowedProtocols` (string[]): List of allowed protocols. Protocol names are case-insensitive and can include the trailing colon. If omitted, any valid URL protocol is allowed
-- `allowedDomains` (string[]): List of allowed domains
+- `allowedDomains` (string[] or comma-separated string): List of allowed hosts. A quoted comma-string (`allowedDomains="a.com,b.com"`) is treated as a host list, not a substring match
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL path (except root `/`)
 - `matches` (string|RegExp): Regular expression pattern the full URL must match. Use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 
@@ -207,13 +207,18 @@ DB_HOST=10.0.3.12
 
 <div>
 ### `enum`
-Checks a value is contained in a list of possible values - it must match one exactly. Members can also be sourced from other items (see [Dynamic type options](#dynamic-type-options)).
+Checks a value is contained in a list of possible values. It must match one exactly. Members can also be sourced from other items (see [Dynamic type options](#dynamic-type-options)).
+
+`process.env` and `overrideValues` are always strings. Numeric and boolean members still match those overrides (`LEVEL=1`, `FLAG=true`) after coercion.
 
 **NOTE** - this is the only type that cannot be used without any additional arguments
 
 ```env-spec
 # @type=enum(development, staging, production)
 ENV=development
+
+# @type=enum(1, 2, 3)
+LEVEL=2
 ```
 </div>
 
@@ -230,7 +235,7 @@ MY_EMAIL=User@Example.com
 
 <div>
 ### `port`
-Checks for valid port number. Coerces to a number.
+Checks for a valid integer port number (0-65535). Coerces to a number. Fractional values like `80.5` are rejected.
 
 **Options:**
 - `min` (number): Minimum port number (default: 0)
@@ -244,7 +249,7 @@ MY_PORT=3000
 
 <div>
 ### `ip`
-Checks for a valid [IP address](https://en.wikipedia.org/wiki/IP_address).
+Checks for a valid [IP address](https://en.wikipedia.org/wiki/IP_address). IPv6 accepts IPv4-mapped addresses such as `::ffff:192.168.1.1`.
 
 **Options:**
 - `version` (`4|6`): IPv4 or IPv6
@@ -253,6 +258,9 @@ Checks for a valid [IP address](https://en.wikipedia.org/wiki/IP_address).
 ```env-spec
 # @type=ip(version=4, normalize=true)
 MY_IP=192.168.1.1
+
+# @type=ip(version=6)
+MAPPED=::ffff:192.168.1.1
 ```
 </div>
 
@@ -286,7 +294,8 @@ MY_UUID=123e4567-e89b-12d3-a456-426614174000
 
 <div>
 ### `md5`
-Checks for valid [MD5 hash](https://en.wikipedia.org/wiki/MD5).
+Checks for a valid [MD5 hash](https://en.wikipedia.org/wiki/MD5) (32 hex digits). Uppercase hex is accepted and normalized to lowercase.
+
 ```env-spec
 # @type=md5
 MY_HASH=d41d8cd98f00b204e9800998ecf8427e
