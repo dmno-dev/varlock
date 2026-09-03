@@ -226,6 +226,8 @@ export abstract class EnvGraphDataSource {
         if (meta && !keyPassesImportFilter(key, meta.importKeys, meta.importFilter)) continue;
         // eslint-disable-next-line no-use-before-define
         const real = child instanceof ImportAliasSource ? child.original : child;
+        // the alias itself may be enabled while the original was disabled by its own @disable
+        if (real.disabled) continue;
         if (real.configItemDefs[key]) return true;
         if (visit(real)) return true;
       }

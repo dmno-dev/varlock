@@ -271,6 +271,29 @@ describe('@currentEnv and .env.* file loading logic', () => {
     expectValues: { DEPLOY_ENV: 'dev', A_ITEM: 'a-dev', B_ITEM: 'b-dev' },
   }));
 
+  test('@currentEnv is not satisfied by a diamond alias whose original source is disabled', envFilesTest({
+    files: {
+      '.env.schema': outdent`
+        # @import(./.env.shared, pick=[OTHER])
+        # @import(./b/)
+        # ---
+      `,
+      '.env.shared': outdent`
+        # @disable=true
+        # ---
+        DEPLOY_ENV=dev
+        OTHER=1
+      `,
+      'b/.env.schema': outdent`
+        # @currentEnv=$DEPLOY_ENV
+        # @import(../.env.shared, pick=[DEPLOY_ENV])
+        # ---
+      `,
+      'b/.env.dev': 'B=dev',
+    },
+    expectError: true,
+  }));
+
   // @currentEnv itself can live in the imported file, and propagates through a partial
   // import as long as the flag item passes the import filter
   test('imported @currentEnv propagates through a partial import that includes the flag', envFilesTest({
