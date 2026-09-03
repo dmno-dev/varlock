@@ -691,7 +691,9 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
                 // ever sent, and hung waiting for them.
                 label: 'leaking pages-router API route does not leave the client hanging',
                 path: '/api/leaky',
-                allowRequestFailure: true,
+                // a network failure, specifically: accepting any failure would let the
+                // original hang (a client-side timeout) pass this scenario
+                expectedFailure: 'network',
                 bodyAssertions: {
                   shouldNotContain: ['super-secret-var'],
                 },

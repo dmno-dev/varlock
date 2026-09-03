@@ -167,6 +167,16 @@ export interface DevServerRequest {
    * unless `expectedStatus` is set explicitly.
    */
   allowRequestFailure?: boolean;
+  /**
+   * Assert HOW the request failed, not merely that it did. `allowRequestFailure` on its
+   * own records the same empty synthetic response for every error, so a request that hung
+   * until the client timed out is indistinguishable from one the server killed promptly -
+   * which makes a "does not hang" regression test pass even when the hang comes back.
+   * `network` is a refused/reset connection, `timeout` is the client giving up.
+   * Implies `allowRequestFailure`, and shortens the per-attempt timeout since the failure
+   * is expected to be prompt.
+   */
+  expectedFailure?: 'network' | 'timeout';
 }
 
 /** Result of a single HTTP request to the dev server */
@@ -175,6 +185,8 @@ export interface DevServerRequestResult {
   body: string;
   /** response headers, lowercase keys */
   headers: Record<string, string>;
+  /** set only when the request failed and the scenario allowed it */
+  failure?: 'network' | 'timeout';
 }
 
 /** Configuration for a dev server scenario */

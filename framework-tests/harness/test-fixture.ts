@@ -422,8 +422,15 @@ export class FrameworkTestEnv {
         test(testLabel, () => {
           const resp = ctx.result!.responses[i];
           expect(resp, `No response for request ${i} (GET ${req.path})`).toBeDefined();
+          if (req.expectedFailure) {
+            expect(
+              resp.failure,
+              `Expected GET ${req.path} to fail with a ${req.expectedFailure} error`
+              + `${resp.failure ? `, got ${resp.failure}` : ` but it returned ${resp.status}`}`,
+            ).toBe(req.expectedFailure);
+          }
           // requests marked allowRequestFailure only assert status when explicitly set
-          if (req.expectedStatus !== undefined || !req.allowRequestFailure) {
+          if (req.expectedStatus !== undefined || !(req.allowRequestFailure || req.expectedFailure)) {
             const expectedStatus = req.expectedStatus ?? 200;
             expect(resp.status, `Expected status ${expectedStatus} for GET ${req.path}, got ${resp.status}`).toBe(expectedStatus);
           }
