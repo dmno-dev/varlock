@@ -459,8 +459,12 @@ const UrlDataType = createEnvGraphDataType(
           }
         }
       }
-      // Docs and vscode exempt root pathname `/` (`https://example.com/` is OK).
-      if (settings?.noTrailingSlash && url.pathname.endsWith('/') && url.pathname !== '/') {
+      // Checked against the written value rather than `url.pathname`, which normalizes
+      // `https://example.com` to a `/` path and so cannot tell the two spellings apart.
+      // A root `/` counts: this option exists so `${MY_URL}/path` cannot produce `//path`,
+      // and `https://example.com/` breaks that concatenation like any other trailing slash.
+      // Query and hash are dropped first, so `https://example.com/path/?q=1` is caught too.
+      if (settings?.noTrailingSlash && val.split(/[?#]/)[0].endsWith('/')) {
         errors.push(new ValidationError('URL must not have a trailing slash'));
       }
       if (settings?.matches) {

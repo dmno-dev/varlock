@@ -278,10 +278,26 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(false);
     });
 
-    it('accepts root URL with trailing slash', async () => {
+    it('rejects bare domain with trailing slash', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(noTrailingSlash=true)
         MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('rejects a trailing slash followed by a query string', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL=https://example.com/path/?q=1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('accepts a query string on a path with no trailing slash', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(noTrailingSlash=true)
+        MY_URL=https://example.com/path?q=1
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
