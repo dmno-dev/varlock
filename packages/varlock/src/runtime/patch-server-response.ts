@@ -214,6 +214,9 @@ function finishResponseOnLeak(
   if (!res.headersSent) {
     const body = 'Internal Server Error';
     res.statusCode = 500;
+    // node keeps a reason phrase the route set for the rejected body when only the
+    // status code changes, which would send this out as `500 <their reason>`
+    res.statusMessage = body;
     // every header on this response describes the representation that was just
     // rejected, and picking off the ones that are obviously wrong (length, content
     // encoding, entity tag) leaves the rest: `Cache-Control: s-maxage=...` would have

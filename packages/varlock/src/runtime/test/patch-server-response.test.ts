@@ -208,6 +208,13 @@ describe('patched ServerResponse.end - over a real connection', () => {
           res.end(leaked);
           return;
         }
+        if (req.url === '/leak-status-message') {
+          // a route that set its own reason phrase for the body being rejected
+          res.statusMessage = 'Everything Is Fine';
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ leaked: SECRET }));
+          return;
+        }
         if (req.url === '/leak-gzip') {
           res.setHeader('content-type', 'text/html');
           res.setHeader('content-encoding', 'gzip');
@@ -262,6 +269,14 @@ describe('patched ServerResponse.end - over a real connection', () => {
     expect(resp.headers.get('x-route-header')).toBeNull();
     expect(resp.headers.get('content-encoding')).toBeNull();
     expect(resp.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+  });
+
+  // node keeps a reason phrase set by the route when only `statusCode` changes, so the
+  // replacement would otherwise go out as `500 Everything Is Fine`
+  it('does not keep the rejected response reason phrase', async () => {
+    const resp = await fetch(`${baseUrl}/leak-status-message`, { signal: AbortSignal.timeout(2000) });
+    expect(resp.status).toBe(500);
+    expect(resp.statusText).toBe('Internal Server Error');
   });
 
   // #897: the client used to sit waiting on a Content-Length that promised bytes
