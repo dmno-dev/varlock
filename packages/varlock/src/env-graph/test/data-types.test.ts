@@ -224,15 +224,25 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.errors[0]?.message).toContain('allowedDomains must be an array of strings');
     });
 
-    it('accepts a host listed in a comma-string allowlist', async () => {
+    it('accepts a bare string as a single allowed host', async () => {
       const g = await loadAndResolve(outdent`
-        # @type=url(allowedDomains="example.com,api.example.com")
-        MY_URL=https://api.example.com/v1
+        # @type=url(allowedDomains="example.com")
+        MY_URL=https://example.com/v1
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
-    it('rejects a host that is only a substring of an allowlist entry', async () => {
+    it('errors on a comma-string, pointing at the array form', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains="example.com,api.example.com")
+        MY_URL=https://api.example.com/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains must be an array of strings - use allowedDomains=[example.com, api.example.com]');
+    });
+
+    it('rejects a host that is only a substring of a single-host allowlist', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains="example.com")
         MY_URL=https://ample.com/

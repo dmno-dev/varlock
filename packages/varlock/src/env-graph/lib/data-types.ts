@@ -381,7 +381,7 @@ const BooleanDataType = createEnvGraphDataType({
 const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
-    /** Allowed hosts, as an array or a comma-separated string. */
+    /** Allowed hosts. A bare string is treated as a single host. */
     allowedDomains?: Array<string> | string
     allowedProtocols?: Array<string>
     /** Disallow a trailing slash on the URL path. */
@@ -423,10 +423,11 @@ const UrlDataType = createEnvGraphDataType(
         }
       }
       if (settings?.allowedDomains) {
-        // an array is the documented form. A quoted comma-string is also accepted, since
-        // `allowedDomains="a.com,b.com"` reads naturally and was previously run through
-        // `String.prototype.includes` - a substring match that let "ample.com" pass an
-        // allowlist of "example.com", and threw on `.join` building the rejection message.
+        // an array is the documented form, but a bare string means a single host - the
+        // vscode snippet used to insert one. Either way the host is matched in full;
+        // this was previously a `String.prototype.includes` substring match, which let
+        // "example.com" pass an allowlist of "myexample.com", and threw on `.join`
+        // when building the rejection message for a multi-host string.
         const rawAllowedDomains = settings.allowedDomains;
         let allowedDomains: Array<string> | undefined;
         if (Array.isArray(rawAllowedDomains)) {
@@ -436,7 +437,16 @@ const UrlDataType = createEnvGraphDataType(
             allowedDomains = rawAllowedDomains;
           }
         } else if (_.isString(rawAllowedDomains)) {
-          allowedDomains = rawAllowedDomains.split(',');
+          if (rawAllowedDomains.includes(',')) {
+            // a comma-string used to match by substring, so it appeared to work. Point at
+            // the array form rather than guessing that commas were meant as separators.
+            const asArray = rawAllowedDomains.split(',').map((d) => d.trim()).filter(Boolean).join(', ');
+            errors.push(new ValidationError(
+              `allowedDomains must be an array of strings - use allowedDomains=[${asArray}]`,
+            ));
+          } else {
+            allowedDomains = [rawAllowedDomains];
+          }
         } else {
           errors.push(new ValidationError('allowedDomains must be an array of strings'));
         }
