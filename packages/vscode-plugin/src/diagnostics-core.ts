@@ -133,6 +133,9 @@ export function splitEnumArgs(input: string) {
     .filter(Boolean);
 }
 
+/** mirrors HOST_ENTRY_REGEX in varlock's UrlDataType - a hostname with an optional port */
+const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s/?#@:[\]]+)(?::\d+)?$/i;
+
 function parseListOption(value: string | boolean | undefined) {
   if (typeof value !== 'string') return [];
   const trimmedValue = value.trim();
@@ -381,11 +384,33 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
       }
     }
 
-    if (allowedDomains.length > 0 && !allowedDomains.includes(url.host.toLowerCase())) {
-      return `URL host must be one of: ${allowedDomains.join(', ')}.`;
+    // these mirror `UrlDataType` in packages/varlock/src/env-graph/lib/data-types.ts -
+    // keep the two in step, since a diagnostic that disagrees with a load is worse than none
+    if (options.allowedDomains !== undefined) {
+      const rawAllowedDomains = String(options.allowedDomains).trim();
+      if (!rawAllowedDomains.startsWith('[') && rawAllowedDomains.includes(',')) {
+        return '`allowedDomains` must be an array of strings.';
+      }
+      const normalizedDomains = allowedDomains.map((domain) => domain.trim().toLowerCase()).filter(Boolean);
+      if (normalizedDomains.some((domain) => !HOST_ENTRY_REGEX.test(domain))) {
+        return '`allowedDomains` entries must be a hostname with an optional port.';
+      }
+      const matchesAllowedDomain = (allowedDomain: string) => {
+        try {
+          const parsed = new URL(`${url.protocol}//${allowedDomain}`);
+          return /:\d+$/.test(allowedDomain)
+            ? parsed.host === url.host.toLowerCase()
+            : parsed.hostname === url.hostname.toLowerCase();
+        } catch {
+          return false;
+        }
+      };
+      if (normalizedDomains.length > 0 && !normalizedDomains.some(matchesAllowedDomain)) {
+        return `URL host must be one of: ${normalizedDomains.join(', ')}.`;
+      }
     }
 
-    if (parseBooleanOption(options.noTrailingSlash) && url.pathname.endsWith('/') && url.pathname !== '/') {
+    if (parseBooleanOption(options.noTrailingSlash) && value.split(/[?#]/)[0].endsWith('/')) {
       return 'URL must not have a trailing slash.';
     }
   } catch {

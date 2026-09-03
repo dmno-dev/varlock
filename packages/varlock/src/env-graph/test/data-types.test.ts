@@ -339,7 +339,7 @@ describe('url data type', () => {
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
       expect(g.configSchema.MY_URL.errors[0]?.message)
-        .toContain('allowedDomains entries must not include a path - use example.com');
+        .toContain('allowedDomains entries must be a hostname with an optional port - use example.com');
     });
 
     it('errors on an entry that includes a scheme', async () => {
@@ -349,7 +349,7 @@ describe('url data type', () => {
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
       expect(g.configSchema.MY_URL.errors[0]?.message)
-        .toContain('allowedDomains entries must not include a path - use example.com');
+        .toContain('allowedDomains entries must be a hostname with an optional port - use example.com');
     });
 
     it('errors on a bad entry even when another entry would have matched', async () => {
@@ -358,7 +358,7 @@ describe('url data type', () => {
         MY_URL=https://example.com/
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
-      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must not include a path');
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
     });
 
     it('omits the suggestion when a path entry has no host to suggest', async () => {
@@ -367,7 +367,44 @@ describe('url data type', () => {
         MY_URL=https://example.com/
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
-      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains entries must not include a path');
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains entries must be a hostname with an optional port');
+    });
+
+    it('rejects an entry whose credentials hide a different host', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["trusted.example:443@evil.example:8443"])
+        MY_URL=https://evil.example:8443/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      // no suggestion: which host was meant is ambiguous, and the one the entry would
+      // have authorized is the attacker's
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toBe('allowedDomains entries must be a hostname with an optional port');
+    });
+
+    it('rejects an entry with a non-numeric port', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com:not-a-port"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
+    });
+
+    it('pins the port on a bracketed IPv6 entry', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["[::1]:3000"])
+        MY_URL=http://[::1]:9999/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+    });
+
+    it('normalizes an internationalized entry to punycode', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["MÜNCHEN.de"])
+        MY_URL=https://xn--mnchen-3ya.de/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
     it('errors when allowedDomains is neither an array nor a string', async () => {

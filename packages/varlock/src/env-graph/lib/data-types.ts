@@ -454,32 +454,42 @@ const UrlDataType = createEnvGraphDataType(
           const normalizedDomains = allowedDomains
             .map((allowedDomain) => allowedDomain.trim().toLowerCase())
             .filter(Boolean);
-          // An entry without a port matches the hostname, so any port on the value is
-          // allowed (`[localhost]` accepts `http://localhost:3000`). An entry that names
-          // a port pins it, and is normalized through the same parser as the value so a
-          // default port (`:443` on https) is dropped from both sides before comparing.
-          // `:\d+$` leaves a bracketed IPv6 host (`[::1]`) to the hostname branch.
-          const matchesAllowedDomain = (allowedDomain: string) => {
-            if (!/:\d+$/.test(allowedDomain)) return allowedDomain === url.hostname.toLowerCase();
-            try {
-              return new URL(`${url.protocol}//${allowedDomain}`).host === url.host.toLowerCase();
-            } catch {
-              return false;
-            }
-          };
-          // An entry carrying a path (or a scheme, which brings `//`) is compared against a
-          // host and so could never match, silently rejecting every URL. Say so instead,
-          // and name the host to use. A bracketed IPv6 entry holds no slash.
-          const domainsWithPath = normalizedDomains.filter((allowedDomain) => allowedDomain.includes('/'));
-          if (domainsWithPath.length) {
-            const suggestions = domainsWithPath
-              .map((allowedDomain) => allowedDomain.replace(/^[a-z][a-z\d+.-]*:\/\//, '').split('/')[0])
-              .filter(Boolean);
+          // Entries are a hostname with an optional port, and nothing else. Handing a
+          // whole entry to `URL` would let its authority parser read credentials and
+          // silently swap the host: `trusted.example:443@evil.example:8443` parses with a
+          // host of `evil.example:8443`, authorizing that and rejecting trusted.example.
+          // The bracketed alternative keeps IPv6 (`[::1]`, `[::1]:3000`) working.
+          const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s/?#@:[\]]+)(?::\d+)?$/i;
+          const malformedDomains = normalizedDomains.filter((d) => !HOST_ENTRY_REGEX.test(d));
+          if (malformedDomains.length) {
+            // credentials make it ambiguous which host was meant, so suggest nothing there
+            // rather than pointing at the one the entry would actually have authorized
+            const suggestions = malformedDomains
+              .map((d) => d.replace(/^[a-z][a-z\d+.-]*:\/\//, ''))
+              .filter((d) => !d.includes('@'))
+              .map((d) => d.split(/[/?#]/)[0])
+              .filter((d) => HOST_ENTRY_REGEX.test(d));
+            const suggestionText = suggestions.length ? ` - use ${suggestions.join(', ')}` : '';
             errors.push(new ValidationError(
-              `allowedDomains entries must not include a path${suggestions.length ? ` - use ${suggestions.join(', ')}` : ''}`,
+              `allowedDomains entries must be a hostname with an optional port${suggestionText}`,
             ));
-          } else if (!normalizedDomains.some(matchesAllowedDomain)) {
-            errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${normalizedDomains.join(',')}`));
+          } else {
+            // Both sides go through the same parser, so a protocol default port (`:443`
+            // on https) and an IDN hostname normalize identically before comparing. An
+            // entry naming a port pins it; one without allows any port on the value.
+            const matchesAllowedDomain = (allowedDomain: string) => {
+              try {
+                const parsed = new URL(`${url.protocol}//${allowedDomain}`);
+                return /:\d+$/.test(allowedDomain)
+                  ? parsed.host === url.host.toLowerCase()
+                  : parsed.hostname === url.hostname.toLowerCase();
+              } catch {
+                return false;
+              }
+            };
+            if (!normalizedDomains.some(matchesAllowedDomain)) {
+              errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${normalizedDomains.join(',')}`));
+            }
           }
         }
       }

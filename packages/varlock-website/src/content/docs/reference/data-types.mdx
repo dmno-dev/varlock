@@ -166,7 +166,7 @@ MY_BOOL=true
 **Options:**
 - `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified
 - `allowedProtocols` (string[]): List of allowed protocols. Protocol names are case-insensitive and can include the trailing colon. If omitted, any valid URL protocol is allowed
-- `allowedDomains` (string[]): List of allowed hosts, matched in full and case-insensitively. An entry without a port allows any port, so `[localhost]` accepts `http://localhost:3000`; add a port to pin it (`["localhost:3000"]`). Entries are hosts only: a scheme or path in an entry is an error. A bare string is treated as a single host; list two or more as an array
+- `allowedDomains` (string[]): List of allowed hosts, matched in full and case-insensitively. An entry without a port allows any port, so `[localhost]` accepts `http://localhost:3000`; add a port to pin it (`["localhost:3000"]`). Each entry must be a hostname with an optional port: a scheme, path, or credentials in an entry is an error. A bare string is treated as a single host; list two or more as an array
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL, so the value is safe to concatenate onto. A root `/` counts, so `https://example.com/` is rejected while `https://example.com` passes
 - `matches` (string|RegExp): Regular expression pattern the full URL must match. Use `/pattern/flags` syntax or a quoted string pattern (see [regex-like strings](/reference/functions#regex-like-strings))
 
