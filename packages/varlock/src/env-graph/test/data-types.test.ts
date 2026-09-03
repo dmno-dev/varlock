@@ -332,6 +332,44 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.errors[0]?.message).toContain('is not in allowed list: example.com');
     });
 
+    it('errors on an entry that includes a path', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["example.com/path"])
+        MY_URL=https://example.com/path
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains entries must not include a path - use example.com');
+    });
+
+    it('errors on an entry that includes a scheme', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["https://example.com"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message)
+        .toContain('allowedDomains entries must not include a path - use example.com');
+    });
+
+    it('errors on a bad entry even when another entry would have matched', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com, "example.com/path"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must not include a path');
+    });
+
+    it('omits the suggestion when a path entry has no host to suggest', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["/"])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains entries must not include a path');
+    });
+
     it('errors when allowedDomains is neither an array nor a string', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains=true)

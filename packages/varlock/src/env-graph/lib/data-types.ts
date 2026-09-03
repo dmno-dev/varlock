@@ -467,7 +467,18 @@ const UrlDataType = createEnvGraphDataType(
               return false;
             }
           };
-          if (!normalizedDomains.some(matchesAllowedDomain)) {
+          // An entry carrying a path (or a scheme, which brings `//`) is compared against a
+          // host and so could never match, silently rejecting every URL. Say so instead,
+          // and name the host to use. A bracketed IPv6 entry holds no slash.
+          const domainsWithPath = normalizedDomains.filter((allowedDomain) => allowedDomain.includes('/'));
+          if (domainsWithPath.length) {
+            const suggestions = domainsWithPath
+              .map((allowedDomain) => allowedDomain.replace(/^[a-z][a-z\d+.-]*:\/\//, '').split('/')[0])
+              .filter(Boolean);
+            errors.push(new ValidationError(
+              `allowedDomains entries must not include a path${suggestions.length ? ` - use ${suggestions.join(', ')}` : ''}`,
+            ));
+          } else if (!normalizedDomains.some(matchesAllowedDomain)) {
             errors.push(new ValidationError(`Domain (${url.host}) is not in allowed list: ${normalizedDomains.join(',')}`));
           }
         }
