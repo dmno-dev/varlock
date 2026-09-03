@@ -22,7 +22,16 @@ Note that if you are building a standalone executable using `bun build`, you can
 
 ### Compiled executables
 
-`bun build --compile` bundles the `varlock/auto-load` runtime code into your executable, but it does not bundle the separate Varlock CLI that resolves your config. If the executable resolves config when it starts, keep the `varlock` package and its `node_modules/.bin/varlock` entry in the runtime image. In a monorepo, keep the package-level `node_modules` directory next to the compiled application output.
+`bun build --compile` bundles the `varlock/auto-load` runtime code into your executable, but it does not bundle the separate Varlock CLI that resolves your config. If the executable resolves config when it starts, your deployment must also include the installed `varlock` package and its dependencies. The executable looks for `node_modules/.bin/varlock` in its directory and each parent directory.
+
+For example, this monorepo layout keeps the CLI available to the compiled server:
+
+```text
+apps/server/dist/server
+apps/server/node_modules/.bin/varlock
+```
+
+If your deployment platform installs or prunes dependencies, declare `varlock` as a production dependency in a package whose `node_modules` directory is deployed with the executable.
 
 You can also launch the executable through the CLI. This resolves the config before the application starts, so the bundled `varlock/auto-load` code reuses the injected environment instead of looking for the CLI again:
 
@@ -30,7 +39,7 @@ You can also launch the executable through the CLI. This resolves the config bef
 varlock run -- ./dist/server
 ```
 
-If your deployment otherwise contains only the compiled executable, install the [standalone Varlock binary](/getting-started/installation/#as-a-standalone-binary) in the runtime image and launch the application through `varlock run`.
+If your deployment otherwise contains only the compiled executable, install the [standalone Varlock binary](/getting-started/installation/#as-a-standalone-binary) in the deployment environment and launch the application through `varlock run`.
 
 
 ### Using a preload script (optional)
