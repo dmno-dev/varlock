@@ -250,9 +250,26 @@ describe('diagnostics-core', () => {
     expect(validateStaticValue(urlType('["trusted.example:443@evil.example:8443"]'), 'https://evil.example:8443/'))
       .toBe('`allowedDomains` entries must be a hostname with an optional port.');
 
+    expect(validateStaticValue(urlType('["trusted.example\\path"]'), 'https://trusted.example/'))
+      .toBe('`allowedDomains` entries must be a hostname with an optional port.');
+
+    // an empty list can never match; an empty string means the option is not set
+    expect(validateStaticValue(urlType('[]'), 'https://example.com/'))
+      .toBe('`allowedDomains` must not be empty.');
+    expect(validateStaticValue(urlType('""'), 'https://example.com/')).toBeUndefined();
+
     // a host outside the list is still reported
     expect(validateStaticValue(urlType('[example.com]'), 'https://evil.com/'))
       .toBe('URL host must be one of: example.com.');
+  });
+
+  it('still checks noTrailingSlash when allowedDomains is not set', () => {
+    expect(
+      validateStaticValue(
+        { name: 'url', args: [], options: { allowedDomains: '""', noTrailingSlash: 'true' } },
+        'https://example.com/api/',
+      ),
+    ).toBe('URL must not have a trailing slash.');
   });
 
   it('validates noTrailingSlash url option', () => {

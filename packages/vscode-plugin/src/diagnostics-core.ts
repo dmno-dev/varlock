@@ -134,7 +134,7 @@ export function splitEnumArgs(input: string) {
 }
 
 /** mirrors HOST_ENTRY_REGEX in varlock's UrlDataType - a hostname with an optional port */
-const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s/?#@:[\]]+)(?::\d+)?$/i;
+const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
 
 function parseListOption(value: string | boolean | undefined) {
   if (typeof value !== 'string') return [];
@@ -386,12 +386,20 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
 
     // these mirror `UrlDataType` in packages/varlock/src/env-graph/lib/data-types.ts -
     // keep the two in step, since a diagnostic that disagrees with a load is worse than none
-    if (options.allowedDomains !== undefined) {
-      const rawAllowedDomains = String(options.allowedDomains).trim();
+    const rawAllowedDomains = options.allowedDomains === undefined
+      ? undefined : String(options.allowedDomains).trim();
+    // runtime skips a falsy setting entirely, so an empty quoted string is "not set",
+    // while an explicit empty array is an allowlist that can never match
+    const allowedDomainsIsSet = rawAllowedDomains !== undefined
+      && (rawAllowedDomains.startsWith('[') || unquote(rawAllowedDomains).trim() !== '');
+    if (rawAllowedDomains !== undefined && allowedDomainsIsSet) {
       if (!rawAllowedDomains.startsWith('[') && rawAllowedDomains.includes(',')) {
         return '`allowedDomains` must be an array of strings.';
       }
       const normalizedDomains = allowedDomains.map((domain) => domain.trim().toLowerCase()).filter(Boolean);
+      if (!normalizedDomains.length) {
+        return '`allowedDomains` must not be empty.';
+      }
       if (normalizedDomains.some((domain) => !HOST_ENTRY_REGEX.test(domain))) {
         return '`allowedDomains` entries must be a hostname with an optional port.';
       }
@@ -405,7 +413,7 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
           return false;
         }
       };
-      if (normalizedDomains.length > 0 && !normalizedDomains.some(matchesAllowedDomain)) {
+      if (!normalizedDomains.some(matchesAllowedDomain)) {
         return `URL host must be one of: ${normalizedDomains.join(', ')}.`;
       }
     }

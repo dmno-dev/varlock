@@ -407,6 +407,33 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
+    it('rejects an entry using a backslash as a path separator', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["trusted.example\\path"])
+        MY_URL=https://trusted.example/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
+    });
+
+    it('errors on an empty allowlist rather than rejecting every url', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains must not be empty');
+    });
+
+    it('errors when every entry is empty', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["", "  "])
+        MY_URL=https://example.com/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toBe('allowedDomains must not be empty');
+    });
+
     it('errors when allowedDomains is neither an array nor a string', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains=true)

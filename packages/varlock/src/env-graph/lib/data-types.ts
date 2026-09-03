@@ -459,9 +459,15 @@ const UrlDataType = createEnvGraphDataType(
           // silently swap the host: `trusted.example:443@evil.example:8443` parses with a
           // host of `evil.example:8443`, authorizing that and rejecting trusted.example.
           // The bracketed alternative keeps IPv6 (`[::1]`, `[::1]:3000`) working.
-          const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s/?#@:[\]]+)(?::\d+)?$/i;
+          // `\` is excluded alongside `/` because WHATWG treats it as a path separator for
+          // special schemes, so `trusted.example\path` would otherwise parse as a host plus path
+          const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
           const malformedDomains = normalizedDomains.filter((d) => !HOST_ENTRY_REGEX.test(d));
-          if (malformedDomains.length) {
+          if (!normalizedDomains.length) {
+            // an empty list can never match, so say so rather than rejecting every URL
+            // with an allowlist that has nothing in it to report
+            errors.push(new ValidationError('allowedDomains must not be empty'));
+          } else if (malformedDomains.length) {
             // credentials make it ambiguous which host was meant, so suggest nothing there
             // rather than pointing at the one the entry would actually have authorized
             const suggestions = malformedDomains
