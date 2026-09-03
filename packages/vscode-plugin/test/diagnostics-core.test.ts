@@ -263,6 +263,23 @@ describe('diagnostics-core', () => {
       .toBe('URL host must be one of: example.com.');
   });
 
+  it('rejects non-string array members the way the varlock runtime does', () => {
+    const urlType = (options: Record<string, string>) => ({ name: 'url', args: [], options });
+
+    // quoting is what decides it: a bare `true` or `42` parses as a boolean/number
+    expect(validateStaticValue(urlType({ allowedDomains: '[example.com, true]' }), 'https://example.com/'))
+      .toBe('`allowedDomains` must be an array of strings.');
+    expect(validateStaticValue(urlType({ allowedDomains: '[example.com, 42]' }), 'https://example.com/'))
+      .toBe('`allowedDomains` must be an array of strings.');
+    expect(validateStaticValue(urlType({ allowedDomains: '[example.com, "true"]' }), 'https://example.com/'))
+      .toBeUndefined();
+
+    expect(validateStaticValue(urlType({ allowedProtocols: '[https, true]' }), 'https://example.com/'))
+      .toBe('`allowedProtocols` must be an array of strings.');
+    expect(validateStaticValue(urlType({ allowedProtocols: '[https, "true"]' }), 'https://example.com/'))
+      .toBeUndefined();
+  });
+
   it('still checks noTrailingSlash when allowedDomains is not set', () => {
     expect(
       validateStaticValue(

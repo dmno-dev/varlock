@@ -133,6 +133,21 @@ export function splitEnumArgs(input: string) {
     .filter(Boolean);
 }
 
+/**
+ * Members of an array literal that the schema parses as a boolean or number rather than a
+ * string, which varlock's `allowedDomains` / `allowedProtocols` reject. Quoting is what
+ * decides it, so this reads the raw text before `parseListOption` unquotes everything.
+ */
+function findNonStringArrayMembers(rawValue: string | boolean | undefined) {
+  if (typeof rawValue !== 'string') return [];
+  const trimmedValue = rawValue.trim();
+  if (!trimmedValue.startsWith('[') || !trimmedValue.endsWith(']')) return [];
+  return splitCommaSeparatedArgs(trimmedValue.slice(1, -1))
+    .map((member) => member.trim())
+    .filter(Boolean)
+    .filter((member) => member === unquote(member) && /^(?:true|false|-?\d+(?:\.\d+)?)$/i.test(member));
+}
+
 /** mirrors HOST_ENTRY_REGEX in varlock's UrlDataType - a hostname with an optional port */
 const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
 
@@ -377,6 +392,9 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
 
     if (options.allowedProtocols !== undefined) {
       if (!allowedProtocols) return '`allowedProtocols` must be an array of strings.';
+      if (findNonStringArrayMembers(options.allowedProtocols).length) {
+        return '`allowedProtocols` must be an array of strings.';
+      }
       const normalizedProtocols = allowedProtocols
         .map((protocol) => protocol.replace(/:$/, '').toLowerCase());
       if (!normalizedProtocols.includes(url.protocol.replace(/:$/, '').toLowerCase())) {
@@ -394,6 +412,9 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
       && (rawAllowedDomains.startsWith('[') || unquote(rawAllowedDomains).trim() !== '');
     if (rawAllowedDomains !== undefined && allowedDomainsIsSet) {
       if (!rawAllowedDomains.startsWith('[') && rawAllowedDomains.includes(',')) {
+        return '`allowedDomains` must be an array of strings.';
+      }
+      if (findNonStringArrayMembers(options.allowedDomains).length) {
         return '`allowedDomains` must be an array of strings.';
       }
       const normalizedDomains = allowedDomains.map((domain) => domain.trim().toLowerCase()).filter(Boolean);
