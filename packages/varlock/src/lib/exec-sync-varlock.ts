@@ -145,14 +145,19 @@ export function execSyncVarlock(
 
     // if varlock was not found, it either means it is not installed
     // or we must find the path to node_modules/.bin ourselves.
-    // Search from cwd (if provided), callerDir, then process.cwd().
+    // Search from cwd (if provided), callerDir, the running executable, then
+    // process.cwd().
     // This handles monorepo setups where cwd may be an unrelated workspace
     // root while varlock is only installed in a sub-package - the callerDir
     // supplied by auto-load.ts points inside that sub-package's node_modules.
+    // Bun-compiled executables are the exception: callerDir points into Bun's
+    // virtual /$bunfs filesystem, while process.execPath points at the real
+    // executable inside the workspace.
     const cwdStr = opts?.cwd ? String(opts.cwd) : undefined;
     const searchDirs = [
       ...(cwdStr ? [cwdStr] : []),
       ...(opts?.callerDir ? [opts.callerDir] : []),
+      path.dirname(process.execPath),
       process.cwd(),
     ];
 
