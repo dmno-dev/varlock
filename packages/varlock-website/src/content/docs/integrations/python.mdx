@@ -71,21 +71,20 @@ import os
 import sys
 
 if "__VARLOCK_RUN" not in os.environ:
-    venv = os.environ.get("VIRTUAL_ENV")
-    if venv:
-        python = os.path.join(venv, "bin", "python3")
-    elif sys.prefix != sys.base_prefix:
-        python = os.path.join(sys.prefix, "bin", "python3")
+    if sys.prefix != sys.base_prefix:
+        bin_dir = "Scripts" if os.name == "nt" else "bin"
+        exe = "python.exe" if os.name == "nt" else "python3"
+        python = os.path.join(sys.prefix, bin_dir, exe)
     else:
         python = sys.executable
     os.execvp("varlock", ["varlock", "run", "--", python] + sys.argv)
 ```
 
-On Windows, use `Scripts` and `python.exe` under the venv prefix instead of `bin/python3`.
-
 Use `os.execvp` so the `varlock` binary is resolved from `PATH`. `os.execv` needs an absolute path, so it fails for a normal install.
 
-The interpreter path matters because `varlock run` passes through whatever executable path it is given. On Linux, `sys.executable` is usually the venv interpreter, so passing it works. On macOS with Homebrew Python, `sys.executable` is the fully resolved Cellar binary, not the venv symlink: re-execing that path means PEP 405 never finds `pyvenv.cfg`, the child leaves the venv, and the script fails in ways that look like a varlock problem. Rebuilding the path from `VIRTUAL_ENV` or `sys.prefix` keeps the child inside the venv on both platforms.
+The interpreter path matters because `varlock run` passes through whatever executable path it is given. On Linux, `sys.executable` is usually the venv interpreter, so passing it works. On macOS with Homebrew Python, `sys.executable` is the fully resolved Cellar binary, not the venv symlink: re-execing that path means PEP 405 never finds `pyvenv.cfg`, the child leaves the venv, and the script fails in ways that look like a varlock problem. Rebuilding the path from `sys.prefix` keeps the child inside the venv on both platforms.
+
+Use `sys.prefix`, not `VIRTUAL_ENV`. `sys.prefix != sys.base_prefix` is [Python's own check](https://docs.python.org/3/library/venv.html#how-venvs-work) for whether the *running* interpreter is in a venv, while `VIRTUAL_ENV` only reflects what the shell activated. The two disagree whenever a script is invoked through another venv's interpreter directly, and following `VIRTUAL_ENV` there would re-exec into the wrong environment.
 
 :::caution[Shell expansion]
 Environment variables in the command itself are expanded by your shell **before** varlock runs. Pass overrides on the left (`APP_ENV=production varlock run -- …`) or use [`varlock printenv`](/reference/cli/load-and-run/#printenv) to read resolved values into the shell.
