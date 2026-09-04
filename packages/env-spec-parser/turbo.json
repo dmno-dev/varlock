@@ -4,6 +4,10 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      // PEGGY_TRACE changes the generated parser, so it has to be part of the hash -
+      // otherwise a traced and an untraced build are interchangeable in the cache, and
+      // now that src/grammar.js is a restorable output the wrong one can come back
+      "env": ["PEGGY_TRACE"],
       // grammar.peggy lives at the package root, so the shared `src/**` input does not
       // cover it - without it here, editing the grammar would not invalidate the cache
       "inputs": [
