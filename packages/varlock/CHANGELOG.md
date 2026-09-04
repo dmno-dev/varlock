@@ -28,6 +28,24 @@
 
 
 
+
+## 1.19.0
+<sub>2026-09-04</sub>
+
+- [#1054](https://github.com/dmno-dev/varlock/pull/1054)  *(minor)*
+  Check that a value marked sensitive can actually be protected by redaction, which replaces it wherever it appears. Values under 12 characters warn. Values under 3 characters, booleans, numbers, composites with non-string elements, and the `@currentEnv` item are an error when you wrote `@sensitive` on the item, and a warning when `@defaultSensitive` swept it in, so nothing inherited from the default can fail a load. For a number, make it a string to keep leading zeros and precision. Composite values are checked per element, since redaction registers each element on its own. A non-sensitive value that contains a sensitive one now warns. Acknowledge a legitimately short secret with `@sensitive={allowShortValue=true}`; it does not apply under 3 characters. Also fixes sensitive values that are not strings, and the pre-coercion form of a coerced value, being shown unredacted in CLI output.
+- [#1008](https://github.com/dmno-dev/varlock/pull/1008)  *(minor)*
+  Credential proxy: added request transforms, which let the proxy compute a request's credential itself rather than substituting a placeholder. HMAC signing and Basic auth are built in, and plugins can contribute new transformations.
+- [#1068](https://github.com/dmno-dev/varlock/pull/1068)  *(minor)*
+  Plugin cache: `getOrSet` now accepts a TTL callback, so a plugin can set the cache lifetime from the value it just fetched (an STS session, an OAuth token, a lease). Also fixes plugin caching to respect the cache mode set via the `@cache` root decorator.
+- [#1060](https://github.com/dmno-dev/varlock/pull/1060)  *(patch)* - Find the Varlock CLI next to Bun-compiled workspace executables.
+- [#1064](https://github.com/dmno-dev/varlock/pull/1064)  *(patch)*
+  Data type fixes. `@type=enum` now matches numeric and boolean members against string values from `process.env` and `overrideValues`, so `LEVEL=2` or `FLAG=true` from CI satisfies `enum(1, 2, 3)` / `enum(true, false)`. `@type=url` matches `allowedDomains` in full against the URL host instead of as a substring, which previously let `example.com` pass an allowlist of `myexample.com`; write two or more hosts as an array (`allowedDomains=[a.com, b.com]`), since a comma inside a single string now errors and names the array to use. An `allowedDomains` entry without a port now allows any port, so `allowedDomains=[localhost]` accepts `http://localhost:3000`; add a port to pin it. Each entry must be a hostname with an optional port; an empty list, or a scheme, path, or credentials in an entry, now errors instead of silently matching the wrong host or nothing at all. VS Code diagnostics for `allowedDomains`, `allowedProtocols` and `noTrailingSlash` were reporting different results than an actual load, and now match. `@env-spec/parser` exports `autoCoerce` so tooling can classify unquoted values exactly as the parser does. `@type=url(noTrailingSlash=true)` now also catches a trailing slash that is followed by a query string or hash, such as `https://example.com/path/?q=1`. `@type=ip(version=6)` accepts IPv4-mapped addresses like `::ffff:192.168.1.1`. `@type=md5` accepts uppercase hex and normalizes it to lowercase. `@type=port` rejects non-integers such as `80.5`.
+- [#1065](https://github.com/dmno-dev/varlock/pull/1065)  *(patch)*
+  A leak detected in `ServerResponse.end` no longer leaves the HTTP client hanging. The response is finished before the leak error is rethrown (a plaintext 500 if the headers have not gone out yet, otherwise the connection is closed), so a Next.js Pages Router `res.json()` that would have leaked a sensitive value fails the request instead of stalling the client on a body that never arrives.
+- [#1066](https://github.com/dmno-dev/varlock/pull/1066)  *(patch)*
+  `@currentEnv=$FLAG` can now reference a key brought in by `@import`, including a partial import that lists the flag in `pick=[...]`. Previously the flag had to be defined in the same file, which broke monorepo schemas that import a shared `DEPLOY_ENV`. A missing flag still errors, now naming the import as a way to provide it. An auto-loaded `.env` value on its own does not satisfy the flag or trigger `.env.<env>` loading. A `@currentEnv` declared in an imported file now also carries through a partial import when the flag is included in the filter. Directory imports declared before the import that provides the flag are rejected with an error asking you to reorder.
+
 ## 1.18.0
 <sub>2026-09-01</sub>
 

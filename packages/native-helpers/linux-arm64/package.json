@@ -1,6 +1,6 @@
 {
   "name": "@varlock/native-helper-linux-arm64",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "description": "varlock native helper binary for Linux arm64 (TPM2/polkit local encryption). Installed automatically as an optional dependency of varlock.",
   "author": "dmno-dev",
   "license": "MIT",
