@@ -22,7 +22,7 @@ That said, as a first step to adopting `varlock`, you could rely entirely on pro
 
 ### Loading environment-specific `.env` files
 
-Any environment-specific files (e.g., `.env.development`) will automatically be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentenv) root decorator in your `.env.schema` file.
+Any environment-specific files (e.g., `.env.development`) will automatically be loaded if they match the value of the _current environment_ as set by the [`@currentEnv`](/reference/root-decorators/#currentenv) root decorator in your `.env.schema` file. The referenced flag item can be defined in that same file or brought in by [`@import`](/guides/import/).
 
 The files are applied with a specific precedence (increasing):
 - `.env.schema` - your schema file, which can also contain default values
