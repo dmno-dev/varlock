@@ -1,6 +1,6 @@
 {
   "name": "varlock",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "description": "AI-safe .env files: Schemas for agents, Secrets for humans.",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",

@@ -1,6 +1,6 @@
 {
   "name": "@varlock/native-helper-win32-x64",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "description": "varlock native helper binary for Windows x64 (TPM/DPAPI + Windows Hello local encryption). Also installs on Linux so WSL can use the Windows helper via interop. Installed automatically as an optional dependency of varlock.",
   "author": "dmno-dev",
   "license": "MIT",
