@@ -658,6 +658,13 @@ export class EnvGraph {
       this._cacheStore = undefined;
     }
 
+    // re-propagate the final store to plugins (their accessors read it lazily) -
+    // they were installed during finishInit, before the @cache policy above was
+    // applied, so without this they would keep using the loader's initial store
+    for (const plugin of this.plugins) {
+      plugin._cacheStore = this._cacheStore;
+    }
+
     // check declared standardVars against the environment
     // (runs after root decorator processing so decValueResolver.deps is available)
     for (const plugin of this.plugins) {

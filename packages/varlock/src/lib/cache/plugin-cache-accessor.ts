@@ -1,5 +1,15 @@
-import type { CacheStoreLike } from './cache-store';
+import type { CacheStoreLike, CacheTtlMs } from './cache-store';
 import { parseTtl } from './ttl-parser';
+
+/**
+ * A TTL for {@link PluginCacheAccessor.getOrSet}: a duration string, a number of ms, or
+ * a callback given the produced value, for lifetimes only the source can tell you.
+ */
+export type PluginCacheTtl = string | number | ((value: any) => string | number);
+
+function normalizeTtl(ttl: string | number): number {
+  return typeof ttl === 'string' ? parseTtl(ttl) : ttl;
+}
 
 /**
  * Scoped cache accessor for plugin authors.
@@ -48,13 +58,28 @@ export class PluginCacheAccessor {
     return result?.value;
   }
 
+  /**
+   * Read `key`, or run `producer` and store what it returns.
+   *
+   * `ttl` may be a callback receiving the produced value, for values whose lifetime the
+   * source decides rather than the caller (an STS session, an OAuth token, a lease).
+   * Return zero or less from it to skip caching that particular value.
+   *
+   * On a store that supports it this holds a cross-process lock around the producer, so
+   * concurrent varlock runs share one result instead of each doing the work. That sharing
+   * covers persisted results only: when the write is skipped (non-positive TTL) or fails,
+   * later processes run the producer themselves. Callers guarding single-use work (a
+   * one-time code, a metered call) must return a positive TTL for anything others reuse.
+   */
   async getOrSet(
     key: string,
-    ttl: string | number,
+    ttl: PluginCacheTtl,
     producer: () => Promise<any> | any,
   ): Promise<any | undefined> {
     const cacheKey = this.buildKey(key);
-    const ttlMs = typeof ttl === 'string' ? parseTtl(ttl) : ttl;
+    const ttlMs: CacheTtlMs = typeof ttl === 'function'
+      ? (value: any) => normalizeTtl(ttl(value))
+      : normalizeTtl(ttl);
     const result = await this.cacheStore.getOrSet(cacheKey, ttlMs, producer);
     if (result?.cacheHit) {
       await this.recordCacheHit(cacheKey, result.cachedAt, result.expiresAt);

@@ -1,4 +1,6 @@
-import { expiryFromTtl, type CacheStoreLike } from './cache-store';
+import {
+  expiryFromTtl, resolveTtlMs, type CacheStoreLike, type CacheTtlMs,
+} from './cache-store';
 
 /**
  * No-op store used when caching is unavailable (e.g. `--skip-cache`,
@@ -12,14 +14,14 @@ export class NoopCacheStore implements CacheStoreLike {
 
   async getOrSet(
     cacheKey: string,
-    ttlMs: number,
+    ttlMs: CacheTtlMs,
     producer: () => Promise<any> | any,
   ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined> {
     const value = await producer();
     if (value === undefined) return undefined;
     const now = Date.now();
     return {
-      value, cachedAt: now, expiresAt: expiryFromTtl(now, ttlMs), cacheHit: false,
+      value, cachedAt: now, expiresAt: expiryFromTtl(now, resolveTtlMs(ttlMs, value)), cacheHit: false,
     };
   }
 

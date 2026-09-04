@@ -6,7 +6,7 @@ export type { PluginTelemetryAttributes, PluginTelemetryAttributeValue } from '.
 export type {
   CodeGeneratorDef, CodeGenContext, ResolvedFieldType, CoercedType,
 } from './env-graph/lib/type-generation';
-export type { PluginCacheAccessor } from './lib/cache/plugin-cache-accessor';
+export type { PluginCacheAccessor, PluginCacheTtl } from './lib/cache/plugin-cache-accessor';
 export type {
   ProxyTransformSchemeDef, ProxyTransformOptionSpec, ProxyTransformFn,
   ProxyTransformInput, ProxyTransformResult, ProxyRuleTransform,
