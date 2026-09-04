@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/test-plugin-with-cache",
+  "private": true,
+  "description": "plugin used in automated tests - exercises plugin.cache",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  }
+}

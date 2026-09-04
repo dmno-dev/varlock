@@ -237,9 +237,19 @@ export class VarlockPlugin {
    * Keys are automatically namespaced to prevent collisions between plugins.
    */
   get cache(): PluginCacheAccessor {
-    // when caching is unavailable (--skip-cache / @cache=disabled), hand out a
-    // no-op-backed accessor so plugin code doesn't need to special-case it
-    this._cacheAccessor ||= new PluginCacheAccessor(this.name, this._cacheStore ?? new NoopCacheStore());
+    // the backing store is looked up per call rather than bound once - plugin modules
+    // capture this accessor during module execution, but the graph's cache store can
+    // still change afterwards (a `@cache` root decorator is applied in finishLoad).
+    // when caching is unavailable (--skip-cache / @cache=disabled), calls fall through
+    // to a no-op store so plugin code doesn't need to special-case it
+    const noopStore = new NoopCacheStore();
+    this._cacheAccessor ||= new PluginCacheAccessor(this.name, {
+      get: (key) => (this._cacheStore ?? noopStore).get(key),
+      getOrSet: (key, ttlMs, producer) => (this._cacheStore ?? noopStore).getOrSet(key, ttlMs, producer),
+      set: (key, value, ttlMs) => (this._cacheStore ?? noopStore).set(key, value, ttlMs),
+      delete: (key) => (this._cacheStore ?? noopStore).delete(key),
+      clearAll: () => (this._cacheStore ?? noopStore).clearAll(),
+    });
     return this._cacheAccessor;
   }
 

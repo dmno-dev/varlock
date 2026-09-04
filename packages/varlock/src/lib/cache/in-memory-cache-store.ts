@@ -1,4 +1,4 @@
-import { expiryFromTtl } from './cache-store';
+import { expiryFromTtl, resolveTtlMs, type CacheTtlMs } from './cache-store';
 
 type InMemoryCacheEntry = {
   value: any;
@@ -40,7 +40,7 @@ export class InMemoryCacheStore {
 
   async getOrSet(
     cacheKey: string,
-    ttlMs: number,
+    ttlMs: CacheTtlMs,
     producer: () => Promise<any> | any,
   ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined> {
     const existing = await this.get(cacheKey);
@@ -58,7 +58,15 @@ export class InMemoryCacheStore {
       const value = await producer();
       if (value === undefined) return undefined;
 
-      const stored = await this.set(cacheKey, value, ttlMs);
+      const resolvedTtlMs = resolveTtlMs(ttlMs, value);
+      if (resolvedTtlMs <= 0) {
+        // not worth storing, but everyone coalesced onto this producer still gets it
+        const now = Date.now();
+        return {
+          value, cachedAt: now, expiresAt: now, cacheHit: false,
+        };
+      }
+      const stored = await this.set(cacheKey, value, resolvedTtlMs);
       return { value, ...stored, cacheHit: false };
     })();
 

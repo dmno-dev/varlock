@@ -278,11 +278,27 @@ export type CacheValueCodec = {
   decrypt(ciphertext: string): Promise<string> | string;
 };
 
+/**
+ * TTL for a `getOrSet` write, either fixed or derived from the produced value.
+ *
+ * The callback form exists for values whose lifetime the source decides rather than
+ * the caller: an STS session, an OAuth token, a Vault lease. You cannot know the TTL
+ * until the producer has run, and guessing then correcting leaves a window where the
+ * entry outlives what it describes. It is called once, only when the producer actually
+ * produced, and a result of zero or less means "do not cache this".
+ */
+export type CacheTtlMs = number | ((value: any) => number);
+
+/** Resolve a {@link CacheTtlMs} against a produced value. */
+export function resolveTtlMs(ttlMs: CacheTtlMs, value: any): number {
+  return typeof ttlMs === 'function' ? ttlMs(value) : ttlMs;
+}
+
 export type CacheStoreLike = {
   get(cacheKey: string): Promise<{ value: any; cachedAt: number; expiresAt: number } | undefined>;
   getOrSet(
     cacheKey: string,
-    ttlMs: number,
+    ttlMs: CacheTtlMs,
     producer: () => Promise<any> | any,
   ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined>;
   set(cacheKey: string, value: any, ttlMs: number): Promise<{ cachedAt: number; expiresAt: number } | undefined>;
@@ -398,7 +414,7 @@ export class CacheStore {
    */
   async getOrSet(
     cacheKey: string,
-    ttlMs: number,
+    ttlMs: CacheTtlMs,
     producer: () => Promise<any> | any,
   ): Promise<{ value: any; cachedAt: number; expiresAt: number; cacheHit: boolean } | undefined> {
     assertValidCacheKey(cacheKey);
@@ -420,15 +436,21 @@ export class CacheStore {
       const value = await producer();
       if (value === undefined) return undefined;
 
-      const stored = await this.set(cacheKey, value, ttlMs);
+      const resolvedTtlMs = resolveTtlMs(ttlMs, value);
+      // a non-positive TTL means the value is not worth sharing (already spent, or so
+      // short-lived it would be stale before another run could pick it up)
+      const stored = resolvedTtlMs > 0 ? await this.set(cacheKey, value, resolvedTtlMs) : undefined;
       if (stored) {
         return { value, ...stored, cacheHit: false };
       }
 
-      // cache write failed (e.g. encryption unavailable) — still return the computed value
+      // nothing persisted (skipped as not worth caching, or the write failed with
+      // encryption unavailable). the producing caller still gets its value, but a process
+      // waiting on the lock finds the cache empty and runs its own producer - so a caller
+      // guarding single-use work has to keep the TTL positive for others to reuse it
       const now = Date.now();
       return {
-        value, cachedAt: now, expiresAt: expiryFromTtl(now, ttlMs), cacheHit: false,
+        value, cachedAt: now, expiresAt: expiryFromTtl(now, resolvedTtlMs), cacheHit: false,
       };
     });
   }

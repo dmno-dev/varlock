@@ -42,6 +42,68 @@ describe('PluginCacheAccessor', () => {
   });
 });
 
+describe('PluginCacheAccessor getOrSet with a TTL callback', () => {
+  it('derives the TTL from the produced value', async () => {
+    const store = new InMemoryCacheStore();
+    const accessor = new PluginCacheAccessor('my-plugin', store);
+    // the kind of value whose lifetime the source decides, not the caller
+    const session = { token: 'abc', expiresAt: Date.now() + 3600_000 };
+
+    const value = await accessor.getOrSet('session', (v: any) => v.expiresAt - Date.now(), () => session);
+    expect(value).toEqual(session);
+
+    const entry = await store.get('plugin:my-plugin:session');
+    expect(entry!.expiresAt).toBeGreaterThan(Date.now() + 3500_000);
+    expect(entry!.expiresAt).toBeLessThanOrEqual(Date.now() + 3600_000);
+  });
+
+  it('accepts a duration string from the callback', async () => {
+    const store = new InMemoryCacheStore();
+    const accessor = new PluginCacheAccessor('my-plugin', store);
+    await accessor.getOrSet('k', () => '1h', () => 'v');
+    const entry = await store.get('plugin:my-plugin:k');
+    expect(entry!.expiresAt).toBeGreaterThan(Date.now() + 3500_000);
+  });
+
+  it('does not call the callback when the value came from cache', async () => {
+    const store = new InMemoryCacheStore();
+    const accessor = new PluginCacheAccessor('my-plugin', store);
+    const ttlFn = vi.fn(() => 3600_000);
+    await accessor.getOrSet('k', ttlFn, () => 'v');
+    await accessor.getOrSet('k', ttlFn, () => 'v');
+    expect(ttlFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips caching when the callback returns a non-positive TTL, still returning the value', async () => {
+    const store = new InMemoryCacheStore();
+    const accessor = new PluginCacheAccessor('my-plugin', store);
+    // e.g. a session that is already too close to expiry to be worth sharing
+    expect(await accessor.getOrSet('k', () => -1, () => 'expiring')).toBe('expiring');
+    expect(await store.get('plugin:my-plugin:k')).toBeUndefined();
+  });
+
+  it('hands the produced value to everyone coalesced onto one producer', async () => {
+    const store = new InMemoryCacheStore();
+    const accessor = new PluginCacheAccessor('my-plugin', store);
+    const producer = vi.fn(async () => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10);
+      });
+      return { token: 'once' };
+    });
+
+    // concurrent callers must share the single result - if a waiter got undefined it
+    // would go off and produce again, which for a single-use credential means failure
+    const results = await Promise.all([
+      accessor.getOrSet('k', () => 3600_000, producer),
+      accessor.getOrSet('k', () => 3600_000, producer),
+      accessor.getOrSet('k', () => 3600_000, producer),
+    ]);
+    expect(producer).toHaveBeenCalledTimes(1);
+    for (const r of results) expect(r).toEqual({ token: 'once' });
+  });
+});
+
 describe('resolveCacheTtl', () => {
   const resolverFor = (value: any) => ({ resolve: async () => value });
 

@@ -16,6 +16,21 @@ describe('plugins ', () => {
     expectValues: { PLUGIN_RESOLVER_TEST: 'foo' },
   }));
 
+  // plugins install during finishInit, before the @cache root decorator is applied, so
+  // an accessor bound to whatever store existed at install time silently ignored the
+  // policy - every plugin cacheTtl fell through to a no-op store
+  test('plugin cache follows the @cache policy applied after plugins install', envFilesTest({
+    envFile: outdent`
+      # @plugin(./plugins/test-plugin-with-cache/)
+      # @cache=memory
+      # ---
+      FIRST=cachedRun()
+      SECOND=cachedRun()
+    `,
+    // both share one cache key, so a live store means one producer run and one value
+    expectValues: { FIRST: 'run-1', SECOND: 'run-1' },
+  }));
+
   test('bad semver range', envFilesTest({
     envFile: outdent`
       # @plugin(@varlock/test-plugin@xxx)
