@@ -13,6 +13,14 @@ This is a monorepo managed with bun workspaces and Turborepo:
 - `packages/utils`, `packages/plugins` — shared internals
 - `packages/varlock-docs-mcp` — docs MCP server for external varlock users; do **not** use it to look things up while working on this repo — read the docs source directly
 
+## Design principles
+
+These shape how validation and inference behave. Follow them when adding or changing checks.
+
+- **The schema says what it means.** A reader, or an agent editing the file, should be able to tell what varlock will do from `.env.schema` alone, without knowing varlock's inference rules. When a value cannot do what its decorators claim (a "sensitive" number that redaction can never match), error and ask for an explicit decorator. Do not silently reinterpret it, even when the reinterpretation is obviously right, because the file then lies about itself.
+- **Prefer an error with a one-line fix over silent correction.** Most edits to a schema are made by agents. An actionable error is the best interface an agent can be given; a quiet demotion is the worst, since there is nothing to react to. Reserve warnings for things that are genuinely advisory, and make every error message name the fix.
+- **New checks warn in a minor and error in a major.** A check that can fail a load which works today is a breaking change, however correct it is. Ship it as a warning first, note in the code and docs that it escalates in the next major, and escalate it there. The one exception is an explicit decorator that is simply wrong (`@sensitive` on a boolean): the user wrote a claim that is not being honored, and that can fail immediately.
+
 ## Package manager
 
 - This repo uses **Bun** as the package manager (`bun install`, `bun run`, etc.)
