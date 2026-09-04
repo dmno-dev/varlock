@@ -28,6 +28,7 @@ import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
+import { VARLOCK_VERSION } from '../../lib/varlock-version';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
@@ -74,6 +75,13 @@ export type DefinitionSourceEntry = {
 };
 
 export type SerializedEnvGraph = {
+  /**
+   * Version of the varlock package that produced this blob. Consumers can be at a
+   * different version (runtime glue bundled into an integration, a parent `varlock run`,
+   * a global CLI), so changes to this serialized format must stay backward compatible
+   * within a major. Absent on blobs from producers older than this field.
+   */
+  varlockVersion?: string;
   basePath?: string;
   sources: Array<{
     type: string;
@@ -1050,6 +1058,7 @@ export class EnvGraph {
 
   getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
+      varlockVersion: VARLOCK_VERSION,
       basePath: this.basePath,
       sources: [],
       config: {},
