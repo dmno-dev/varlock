@@ -18,6 +18,7 @@
     "dev": "tsdown --watch",
     "build": "tsdown",
     "test": "vitest",
+    "test:ci": "vitest --run",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -50,6 +51,7 @@
     "@aws-sdk/credential-providers": "^3.700.0",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
+    "outdent": "catalog:",
     "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

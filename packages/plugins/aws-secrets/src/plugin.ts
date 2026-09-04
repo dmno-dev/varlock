@@ -44,6 +44,13 @@ plugin.standardVars = {
   },
 };
 
+const MFA_TIP = [
+  'This AWS profile requires multi-factor authentication (mfa_serial in ~/.aws/config).',
+  'Pass an MFA code via the mfaToken param, e.g.:',
+  '  @initAws(region=..., profile=..., mfaToken=generateOtp($MFA_SECRET))',
+  'If you already passed mfaToken, verify the code is current - AWS MFA codes are single-use.',
+].join('\n');
+
 const FIX_AUTH_TIP = [
   'Verify your AWS credentials are configured correctly. Use one of the following options:',
   '  1. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables',
@@ -60,6 +67,64 @@ interface OidcCredentials {
   expiration: number;
 }
 
+interface StsSessionCredentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+  expiration?: Date;
+}
+
+/** how a session is held in the plugin cache - Date does not survive JSON */
+interface StoredSession {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+  /** absent for credentials that do not expire */
+  expiration?: number;
+}
+
+function toStoredSession(creds: StsSessionCredentials): StoredSession {
+  return {
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    sessionToken: creds.sessionToken,
+    expiration: creds.expiration?.getTime(),
+  };
+}
+
+function fromStoredSession(stored: StoredSession): StsSessionCredentials {
+  return {
+    accessKeyId: stored.accessKeyId,
+    secretAccessKey: stored.secretAccessKey,
+    sessionToken: stored.sessionToken,
+    expiration: stored.expiration === undefined ? undefined : new Date(stored.expiration),
+  };
+}
+
+/** how long to share credentials that carry no expiry of their own */
+const SESSION_NO_EXPIRY_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Don't reuse session creds that are about to expire. Matches the AWS SDK's own
+ * refresh threshold (`EXPIRATION_MS` in @smithy/core), so we stop serving a session
+ * at the same point the SDK starts asking for a new one.
+ */
+const SESSION_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+
+function isSessionUsable(creds: { expiration?: Date }): boolean {
+  // no expiration means non-expiring creds (e.g. a plain IAM user via the chain)
+  if (!creds.expiration) return true;
+  return creds.expiration.getTime() > Date.now() + SESSION_EXPIRY_BUFFER_MS;
+}
+
+/**
+ * Minimum spacing between role assumptions. A TOTP code is single-use and only rotates
+ * once per window, so re-assuming any faster would just replay a spent code and fail.
+ * The SDK asks its credential provider several times per request once creds are inside
+ * its refresh threshold, so without this a near-expiry session triggers a burst of them.
+ */
+const MFA_REASSUME_COOLDOWN_MS = 30 * 1000;
+
 class AwsPluginInstance {
   private region?: string;
   private accessKeyId?: string;
@@ -70,6 +135,11 @@ class AwsPluginInstance {
   private oidcRoleArn?: string;
   private oidcSessionName?: string;
   private oidcToken?: string;
+  /**
+   * kept as an unresolved resolver so the MFA code is only generated when the SDK
+   * actually asks for one (cached session creds should not burn a single-use TOTP code)
+   */
+  private mfaTokenResolver?: Resolver;
   private cachedOidcCredentials?: OidcCredentials;
   /** optional cache TTL - when set, resolved values are cached */
   cacheTtl?: string | number;
@@ -90,6 +160,11 @@ class AwsPluginInstance {
     return 'default_chain';
   }
 
+  /** @internal telemetry: whether this instance is configured with an mfaToken */
+  get telemetryUsesMfa(): boolean {
+    return !!this.mfaTokenResolver;
+  }
+
   private _cacheKeyIdentity?: string;
   /** short hash identifying which AWS account/region is being read, used to namespace cache keys */
   get cacheKeyIdentity() {
@@ -100,7 +175,7 @@ class AwsPluginInstance {
     return this._cacheKeyIdentity;
   }
 
-  setAuth(
+  setAuth(opts: {
     region?: any,
     accessKeyId?: any,
     secretAccessKey?: any,
@@ -110,7 +185,12 @@ class AwsPluginInstance {
     oidcRoleArn?: any,
     oidcSessionName?: any,
     oidcToken?: any,
-  ) {
+    mfaTokenResolver?: Resolver,
+  }) {
+    const {
+      region, accessKeyId, secretAccessKey, sessionToken, profile,
+      namePrefix, oidcRoleArn, oidcSessionName, oidcToken, mfaTokenResolver,
+    } = opts;
     this.region = region ? String(region) : undefined;
     this.accessKeyId = accessKeyId ? String(accessKeyId) : undefined;
     this.secretAccessKey = secretAccessKey ? String(secretAccessKey) : undefined;
@@ -120,6 +200,7 @@ class AwsPluginInstance {
     this.oidcRoleArn = oidcRoleArn ? String(oidcRoleArn) : undefined;
     this.oidcSessionName = oidcSessionName ? String(oidcSessionName) : undefined;
     this.oidcToken = oidcToken ? String(oidcToken) : undefined;
+    this.mfaTokenResolver = mfaTokenResolver;
     debug(
       'aws instance',
       this.id,
@@ -135,6 +216,8 @@ class AwsPluginInstance {
       this.oidcRoleArn,
       'namePrefix:',
       this.namePrefix,
+      'hasMfaToken:',
+      !!this.mfaTokenResolver,
     );
   }
 
@@ -184,6 +267,114 @@ class AwsPluginInstance {
     return this.cachedOidcCredentials;
   }
 
+  /**
+   * memoized so the SecretsManager and SSM clients (and any concurrent resolves)
+   * share a single credential lookup, since each STS call may consume a single-use MFA code
+   */
+  private mfaSessionCredsPromise?: Promise<StsSessionCredentials>;
+  private mfaSessionCreds?: StsSessionCredentials;
+  /** when the last role assumption was attempted, used to space out MFA code use */
+  private lastAssumeAt?: number;
+  private withinReassumeCooldown(): boolean {
+    return Date.now() - (this.lastAssumeAt ?? 0) < MFA_REASSUME_COOLDOWN_MS;
+  }
+
+  /**
+   * Refuse to assume the role again while the code for this TOTP window is spent.
+   * A failed assume may still have consumed its code, and the SDK asks its credential
+   * provider several times per request, so without this one failure turns into a burst
+   * of retries that all replay a code AWS has already rejected.
+   */
+  private assertCanAssume() {
+    if (!this.withinReassumeCooldown()) return;
+    throw new ResolutionError('Cannot assume the AWS role again yet - the current MFA code has been used', {
+      tip: [
+        'AWS MFA codes are single-use and only change once per TOTP window.',
+        'Wait for the next code, then run again.',
+      ].join('\n'),
+    });
+  }
+
+  private async getMfaSessionCredentials(): Promise<StsSessionCredentials> {
+    // every concurrent caller shares one in-flight fetch (both AWS clients, plus the
+    // SDK's repeated provider calls), so a single MFA code covers all of them
+    if (this.mfaSessionCredsPromise) return await this.mfaSessionCredsPromise;
+
+    if (this.mfaSessionCreds) {
+      if (isSessionUsable(this.mfaSessionCreds)) return this.mfaSessionCreds;
+      // near expiry. long-lived processes (dev servers, watch mode) refresh here rather
+      // than keep signing with a session the SDK already considers spent
+      const expiration = this.mfaSessionCreds.expiration?.getTime();
+      const hasExpired = expiration !== undefined && expiration <= Date.now();
+      if (!hasExpired && this.withinReassumeCooldown()) {
+        // still valid, and we cannot get a fresh code yet - better than a doomed retry
+        debug('MFA session nearing expiry but within re-assume cooldown, reusing it');
+        return this.mfaSessionCreds;
+      }
+      debug('MFA session nearing expiry, refreshing');
+      this.mfaSessionCreds = undefined;
+    }
+
+    // a failed attempt also lands here, with no session left to fall back on
+    this.assertCanAssume();
+
+    this.mfaSessionCredsPromise = this.fetchMfaSessionCredentials();
+    try {
+      this.mfaSessionCreds = await this.mfaSessionCredsPromise;
+      return this.mfaSessionCreds;
+    } finally {
+      // cleared either way - on success the session itself is the memo, and on failure
+      // the cooldown above is what holds off the next attempt
+      this.mfaSessionCredsPromise = undefined;
+    }
+  }
+
+  private async fetchMfaSessionCredentials(): Promise<StsSessionCredentials> {
+    if (!pluginCache) return await this.assumeRoleWithMfa();
+    const cacheKey = `stsSession:${this.cacheKeyIdentity}`;
+
+    // getOrSet holds a cross-process lock around the producer and re-checks the cache
+    // inside it. That matters here because parallel varlock runs (turborepo, several
+    // dev servers) are separate processes: without it they would each assume the role
+    // with the same TOTP code, and AWS rejects a code that has already been spent.
+    // One process assumes, the rest wake up and read the session it cached.
+    const stored: StoredSession | undefined = await pluginCache.getOrSet(
+      cacheKey,
+      // STS decides how long the session lasts, so the TTL comes from the answer. The
+      // entry runs out exactly when the session stops being usable, which is what lets
+      // a reader trust whatever it finds. A non-positive result skips the write, and
+      // with it the cross-process sharing - only reachable for a session shorter than
+      // the buffer, which AssumeRole will not issue (its minimum is 15 minutes)
+      (session: StoredSession) => (
+        session.expiration === undefined
+          ? SESSION_NO_EXPIRY_TTL_MS
+          : session.expiration - Date.now() - SESSION_EXPIRY_BUFFER_MS
+      ),
+      async () => toStoredSession(await this.assumeRoleWithMfa()),
+    );
+
+    if (!stored) throw new ResolutionError('AWS role assumption returned no credentials');
+    debug('STS session ready, expires:', stored.expiration ? new Date(stored.expiration).toISOString() : 'never');
+    return fromStoredSession(stored);
+  }
+
+  private async assumeRoleWithMfa(): Promise<StsSessionCredentials> {
+    // stamped before the attempt, since a failed assume may still have spent the code
+    this.lastAssumeAt = Date.now();
+    const provider = fromNodeProviderChain({
+      ...(this.profile && { profile: this.profile }),
+      mfaCodeProvider: async (mfaSerial: string) => {
+        debug('MFA code requested for serial:', mfaSerial);
+        const code = await this.mfaTokenResolver!.resolve();
+        if (typeof code !== 'string' || !code) {
+          throw new SchemaError('mfaToken must resolve to a non-empty string');
+        }
+        return code;
+      },
+    });
+    return await provider();
+  }
+
   private async getCredentials(): Promise<{ credentials?: any; credentialDescription: string }> {
     if (this.accessKeyId && this.secretAccessKey) {
       return {
@@ -208,6 +399,17 @@ class AwsPluginInstance {
           credentialDescription: 'OIDC credentials',
         };
       }
+    }
+
+    // MFA-protected profiles (mfa_serial in ~/.aws/config) - the provider chain handles
+    // the role assumption, we supply the code lazily and cache the resulting session creds
+    if (this.mfaTokenResolver) {
+      return {
+        credentials: () => this.getMfaSessionCredentials(),
+        credentialDescription: this.profile
+          ? `AWS profile: ${this.profile} (with MFA)`
+          : 'default AWS credential chain (with MFA)',
+      };
     }
 
     if (this.profile) {
@@ -318,7 +520,10 @@ class AwsPluginInstance {
       const errorName = err.name || err.__type || '';
       const errorCode = err.$metadata?.httpStatusCode;
 
-      if (errorName === 'ResourceNotFoundException' || errorCode === 404) {
+      if (/multi-factor authentication|MultiFactorAuthentication/i.test(err.message || '')) {
+        errorMessage = 'AWS multi-factor authentication failed';
+        errorTip = MFA_TIP;
+      } else if (errorName === 'ResourceNotFoundException' || errorCode === 404) {
         errorMessage = `Secret "${secretId}" not found`;
         errorTip = [
           'Verify the secret exists in AWS Secrets Manager',
@@ -419,7 +624,10 @@ class AwsPluginInstance {
       const errorName = err.name || err.__type || '';
       const errorCode = err.$metadata?.httpStatusCode;
 
-      if (errorName === 'ParameterInvalidException' || errorName === 'ValidationException') {
+      if (/multi-factor authentication|MultiFactorAuthentication/i.test(err.message || '')) {
+        errorMessage = 'AWS multi-factor authentication failed';
+        errorTip = MFA_TIP;
+      } else if (errorName === 'ParameterInvalidException' || errorName === 'ValidationException') {
         errorMessage = `Invalid AWS SSM parameter name: "${name}"`;
         errorTip = 'Parameter names must start with "/" and can only contain letters, numbers, and the symbols / . - _';
       } else if (errorName === 'ParameterNotFound' || errorCode === 404) {
@@ -543,6 +751,7 @@ plugin.registerRootDecorator({
       oidcRoleArnResolver: objArgs.oidcRoleArn,
       oidcSessionNameResolver: objArgs.oidcSessionName,
       oidcTokenResolver: objArgs.oidcToken,
+      mfaTokenResolver: objArgs.mfaToken,
       cacheTtlResolver: objArgs.cacheTtl,
     };
   },
@@ -557,6 +766,7 @@ plugin.registerRootDecorator({
     oidcRoleArnResolver,
     oidcSessionNameResolver,
     oidcTokenResolver,
+    mfaTokenResolver,
     cacheTtlResolver,
   }) {
     const region = await regionResolver.resolve();
@@ -568,7 +778,7 @@ plugin.registerRootDecorator({
     const oidcRoleArn = await oidcRoleArnResolver?.resolve();
     const oidcSessionName = await oidcSessionNameResolver?.resolve();
     const oidcToken = await oidcTokenResolver?.resolve();
-    pluginInstances[id].setAuth(
+    pluginInstances[id].setAuth({
       region,
       accessKeyId,
       secretAccessKey,
@@ -578,7 +788,10 @@ plugin.registerRootDecorator({
       oidcRoleArn,
       oidcSessionName,
       oidcToken,
-    );
+      // NOT resolved here - the MFA code is generated lazily, only if/when
+      // the SDK actually needs one (see getMfaSessionCredentials)
+      mfaTokenResolver,
+    });
     const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
     if (cacheTtl !== undefined) {
       pluginInstances[id].cacheTtl = cacheTtl;
@@ -911,6 +1124,7 @@ plugin.registerTelemetryAttributes(() => {
     auth_oidc: authMethods.has('oidc'),
     auth_profile: authMethods.has('profile'),
     auth_default_chain: authMethods.has('default_chain'),
+    auth_mfa: instances.some((i) => i.telemetryUsesMfa),
     uses_secrets_manager: usedSecretsManager,
     uses_parameter_store: usedParameterStore,
   };
