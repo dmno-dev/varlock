@@ -1076,7 +1076,19 @@ export class ConfigItem {
     }
 
     const dataType = this.effectiveDataType;
-    if (!dataType) throw new Error('expected dataType to be set');
+    // finishLoad() returns early when any source is invalid or a plugin failed
+    // to load, leaving items unprocessed (dataType unset) and with no schema
+    // error. Resolving such an item — typically because the key is also in
+    // process.env, which varlock treats as an override — used to throw
+    // `expected dataType to be set` from an un-awaited resolveItem(), which
+    // becomes an unhandledRejection while resolveEnvValues() hangs (dead
+    // `_reject`). Record it as a ResolutionError so callers can fail cleanly.
+    if (!dataType) {
+      this.resolutionError = new ResolutionError(
+        'expected dataType to be set — this item was never typed because env-graph loading did not finish. Check .env / .env.schema / .env.local for parse errors, and that plugins loaded.',
+      );
+      return;
+    }
 
     // COERCE VALUE - often will do nothing, but gives us a chance to convert strings to numbers, etc
     try {
