@@ -70,6 +70,9 @@ export const internal = {
 
   // Varlock-specific utilities
   loadVarlockEnvGraph,
+  // must run before resolveEnvValues() - a source that failed to load leaves the graph
+  // half-built, and checkForConfigErrors() alone never reports source-level parse errors
+  checkForSchemaErrors,
   checkForConfigErrors,
   initVarlockEnv,
 };
