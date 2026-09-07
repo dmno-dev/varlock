@@ -11,6 +11,7 @@ import { FileBasedDataSource } from '../../env-graph';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
+import { checkForSchemaErrors } from '../helpers/error-checks';
 import { multiselect, password } from '../helpers/prompts';
 import { gracefulExit } from 'exit-hook';
 import * as localEncrypt from '../../lib/local-encrypt';
@@ -27,6 +28,7 @@ async function encryptFile(keyId: string, filePath: string) {
 
   // Load the full env graph and resolve to get sensitivity info from the schema
   const envGraph = await loadVarlockEnvGraph();
+  checkForSchemaErrors(envGraph);
   await envGraph.resolveEnvValues();
 
   // Find the data source matching the target file

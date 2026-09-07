@@ -1,4 +1,4 @@
-import { checkForConfigErrors } from './cli/helpers/error-checks';
+import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from './cli/helpers/error-checks';
 import { loadVarlockEnvGraph } from './lib/load-graph';
 import { initVarlockEnv } from './runtime/env';
 import { checkBunVersion } from './lib/check-bun-version';
@@ -20,6 +20,11 @@ export async function load() {
   checkBunVersion();
   // TODO: add some options
   const envGraph = await loadVarlockEnvGraph();
+  // report loading/schema errors before resolving - a source that failed to load leaves the
+  // graph half-built, and resolving it produces confusing downstream errors rather than the
+  // parse error that actually caused them (same order the CLI commands use)
+  checkForSchemaErrors(envGraph);
+  checkForNoEnvFiles(envGraph);
   await envGraph.resolveEnvValues();
   checkForConfigErrors(envGraph);
 
@@ -65,6 +70,9 @@ export const internal = {
 
   // Varlock-specific utilities
   loadVarlockEnvGraph,
+  // must run before resolveEnvValues() - a source that failed to load leaves the graph
+  // half-built, and checkForConfigErrors() alone never reports source-level parse errors
+  checkForSchemaErrors,
   checkForConfigErrors,
   initVarlockEnv,
 };
