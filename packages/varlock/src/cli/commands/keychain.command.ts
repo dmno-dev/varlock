@@ -15,6 +15,7 @@ import { writeBackValue } from '../../lib/local-encrypt/write-back';
 import { getDaemonClient } from '../../lib/local-encrypt';
 import { DaemonError } from '../../lib/local-encrypt/daemon-client';
 import { CliExitError } from '../helpers/exit-error';
+import { checkForSchemaErrors } from '../helpers/error-checks';
 import { password } from '../helpers/prompts';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
@@ -346,6 +347,7 @@ async function importPlaintextEnv(opts: {
   // isSensitive=true). Values are read from the file's own parsed defs, never the resolved
   // graph value (which a sibling like .env.local could override).
   const envGraph = await loadVarlockEnvGraph();
+  checkForSchemaErrors(envGraph);
   assertKeychainImportSchemaPresent(envGraph);
   await envGraph.resolveEnvValues();
 

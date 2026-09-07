@@ -156,6 +156,14 @@ export class EnvGraph {
 
   basePath?: string;
 
+  /**
+   * Whether `finishLoad()` got as far as processing config items. It bails before that when a
+   * source failed to load/parse or a plugin failed to install, which leaves every item untyped
+   * (no `dataType`) - a state resolution cannot handle. Callers must surface those errors
+   * instead of resolving (see `checkForSchemaErrors`); `resolveEnvValues()` guards on it.
+   */
+  configItemsProcessed = false;
+
   // -- Cache --
   /** @internal cache store instance, initialized during loading */
   _cacheStore?: import('../../lib/cache/cache-store').CacheStoreLike;
@@ -671,6 +679,7 @@ export class EnvGraph {
       await item.process();
       if (item.errors.some((e) => !e.isWarning)) hasErrors = true;
     }
+    this.configItemsProcessed = true;
 
     if (hasErrors) return;
 
@@ -737,6 +746,14 @@ export class EnvGraph {
   }
 
   async resolveEnvValues(keys?: Array<string>): Promise<void> {
+    // A graph whose load bailed early has untyped items, and resolving them trips invariant
+    // checks deep inside ConfigItem.resolve(). Callers are expected to report the loading
+    // errors and stop before getting here (see checkForSchemaErrors) - this is a guard against
+    // a call site that forgot to, so it fails loudly instead of somewhere far less obvious.
+    if (!this.configItemsProcessed) {
+      throw new Error('cannot resolve values - env graph failed to load (check for schema errors first)');
+    }
+
     const keysToResolve = keys ?? _.keys(this.configSchema);
     if (!keysToResolve.length) return;
 
@@ -759,12 +776,12 @@ export class EnvGraph {
     // code is a bit awkward here because we are resolving items in parallel
     // and need to continue resolving dependent items as each finishes
 
-    const deferred = new Promise<void>((resolve, _reject) => {
+    const deferred = new Promise<void>((resolve, reject) => {
       const markItemCompleted = (itemKey: string) => {
         delete itemsToResolveStatus[itemKey];
         if (reverseAdjList[itemKey]) {
           // eslint-disable-next-line no-use-before-define
-          reverseAdjList[itemKey].forEach(resolveItem);
+          reverseAdjList[itemKey].forEach((depKey) => startResolveItem(depKey));
         }
         if (_.keys(itemsToResolveStatus).length === 0) resolve();
       };
@@ -814,8 +831,16 @@ export class EnvGraph {
         markItemCompleted(itemKey);
       };
 
+      // resolveItem() is deliberately not awaited - items resolve in parallel and each one
+      // completing kicks off its dependents. Route any unexpected throw to reject() so it
+      // surfaces here; otherwise it becomes an unhandledRejection and `deferred` never settles,
+      // hanging the caller forever.
+      function startResolveItem(itemKey: string) {
+        resolveItem(itemKey).catch(reject);
+      }
+
       for (const itemKey in this.configSchema) {
-        resolveItem(itemKey);
+        startResolveItem(itemKey);
       }
     });
     await deferred;

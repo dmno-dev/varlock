@@ -9,6 +9,7 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { redactString } from '../../runtime/lib/redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
+import { checkForSchemaErrors } from '../helpers/error-checks';
 import { fmt, logLines } from '../helpers/pretty-format';
 import { detectJsPackageManager } from '../helpers/js-package-manager-utils';
 import { isBundledSEA } from '../helpers/install-detection';
@@ -424,14 +425,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     entryFilePaths: ctx.values.path,
   });
 
-  // Check for loading/schema errors
-  for (const source of envGraph.sortedDataSources) {
-    if (source.loadingError) {
-      throw new CliExitError(`Error loading config: ${source.loadingError.message}`, {
-        suggestion: 'Make sure your .env.schema file is valid.',
-      });
-    }
-  }
+  // Report loading/schema errors before resolving - a source that failed to load leaves the
+  // graph half-built, so resolution can't run against it
+  checkForSchemaErrors(envGraph);
 
   await envGraph.resolveEnvValues();
 
