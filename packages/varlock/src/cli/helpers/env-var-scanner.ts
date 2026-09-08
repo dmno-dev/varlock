@@ -57,6 +57,7 @@ export type EnvVarSyntax = 'process.env.member'
   | 'ENV.member'
   | 'ENV.bracket'
   | 'ENV.destructure'
+  | 'env.get'
   | 'python.environ'
   | 'python.getenv'
   | 'go.getenv'
@@ -121,6 +122,14 @@ const PATTERNS_BY_LANGUAGE: Record<ScannerLanguage, Array<SimplePattern>> = {
     {
       regex: /\bENV\[\s*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]\s*\]/g,
       syntax: 'ENV.bracket',
+    },
+    // Service-object getter with the conventional `env` receiver, e.g.
+    // AdonisJS `env.get('DB_HOST')`. Deliberately scoped to the `env`
+    // identifier: a generic `\w+\.get(` would false-positive on every
+    // `Map.get()` / router `.get()` call.
+    {
+      regex: /\benv\.get\(\s*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]/g,
+      syntax: 'env.get',
     },
   ],
   python: [

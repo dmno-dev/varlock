@@ -110,6 +110,35 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).not.toContain('IN_RAW_STRING');
   });
 
+  test('detects env.get service-object access (AdonisJS idiom)', async () => {
+    fs.writeFileSync(path.join(tempDir, 'database.ts'), [
+      'const config = {',
+      "  host: env.get('DB_HOST'),",
+      '  port: env.get("DB_PORT", 5432),',
+      '  extra: this.env.get(`DB_EXTRA`),',
+      '};',
+      '// env.get(\'COMMENTED_OUT\');',
+      'const fromString = "env.get(\'IN_STRING\')";',
+      'const notEnv = map.get(\'NOT_ENV\');',
+      'const noLiteral = env.get(dynamicKey);',
+      'router.get(\'/health\');',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toContain('DB_HOST');
+    expect(result.keys).toContain('DB_PORT');
+    expect(result.keys).toContain('DB_EXTRA');
+    expect(result.keys).not.toContain('COMMENTED_OUT');
+    expect(result.keys).not.toContain('IN_STRING');
+    expect(result.keys).not.toContain('NOT_ENV');
+    expect(result.keys).not.toContain('dynamicKey');
+    expect(result.keys).not.toContain('health');
+
+    const dbHost = result.references.find((ref) => ref.key === 'DB_HOST');
+    expect(dbHost).toMatchObject({ syntax: 'env.get' });
+  });
+
   test('respects ignored directories', async () => {
     fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.IGNORED_MOD');
