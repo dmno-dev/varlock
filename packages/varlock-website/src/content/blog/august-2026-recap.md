@@ -52,7 +52,6 @@ August was a consolidation month after July's big release. The headline items: a
 - **New [Modal](/sandboxes/modal/) sandbox guide** - Resolving and validating sandbox env vars, and running the credential proxy so an agent in a Modal sandbox only ever holds placeholders.
 - **varlock.dev is more agent-readable** - Richer `llms.txt`, an MCP server card at `/.well-known/mcp.json`, an `ai-catalog.json`, and a markdown 404 body for agents that hit a dead link. See [machine-readable discovery](/guides/ai-tools/#machine-readable-discovery).
 - **[Discussion #1041](https://github.com/dmno-dev/varlock/discussions/1041)** - A user asked how to use a varlock value inside a `package.json` script. Answer: `$(varlock printenv VAR)`, or `varlock run -- sh -c '...'` so shell expansion happens inside the varlock-managed child process instead of before varlock runs.
-- A community member [demoed varlock at a meetup](https://bsky.app/profile/cognitivebios.bsky.social/post/3mtfst23aik2d) and posted about it on Bluesky.
 
 ## 💬 Community
 
