@@ -37,7 +37,9 @@ describe('audit @auditExtraPatterns end to end', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-audit-extra-'));
     fs.mkdirSync(path.join(tempDir, 'config'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, '.env.schema'), [
-      `# @auditExtraPatterns(regex('config\\.get\\(\\s*'([A-Z_]+)'\\)'))`,
+      // NOTE: inner quotes must be backslash-escaped — a bare '...' inside
+      // would terminate the DSL string and fail parsing outright.
+      `# @auditExtraPatterns(regex('config\\.get\\(\\s*\\'([A-Z_]+)\\'\\)'))`,
       '# ---',
       'APP_ID=',
       '',
