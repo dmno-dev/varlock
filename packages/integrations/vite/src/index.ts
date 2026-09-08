@@ -11,7 +11,7 @@ import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
-import { encryptEnvBlobSync } from 'varlock/encrypt-env';
+import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-replacer';
 
@@ -204,6 +204,28 @@ function reloadConfig(cwd?: string) {
 // we run this right away so the globals get injected into the vite.config file
 reloadConfig();
 
+/**
+ * Ephemeral `_VARLOCK_ENV_KEY` minted for local dev. Minted here, at import
+ * time, and never later: this module is evaluated while `vite.config.ts` loads,
+ * which is before any plugin's `config` hook runs. Frameworks that run the SSR
+ * dev runtime in a separate worker or process (Nitro's env-runner worker, vitest
+ * pools) spawn it during their `config` hook with a snapshot of `process.env`,
+ * so a key minted any later (e.g. in our `load` hook) never reaches them. Only
+ * minted when the schema loaded from cwd asks for `@encryptInjectedEnv`, so
+ * users who never opted into encryption are unaffected. Builds ignore this key
+ * (see `buildVarlockSsrInitCode` and the `config` hook), since a deploy must
+ * fail loudly rather than encrypt with a key the runtime never has.
+ */
+let devMintedKey: string | undefined;
+// read through a function: TS cannot see that `reloadConfig()` above assigns
+// the module-level binding, and flags a direct read as used-before-assigned
+const encryptionRequestedAtImport = () => !!varlockLoadedEnv?.settings?.encryptInjectedEnv;
+if (encryptionRequestedAtImport() && !process.env._VARLOCK_ENV_KEY) {
+  devMintedKey = generateEncryptionKeyHex();
+  process.env._VARLOCK_ENV_KEY = devMintedKey;
+  debug('minted ephemeral _VARLOCK_ENV_KEY for local dev');
+}
+
 
 export interface VarlockVitePluginOptions {
   /** controls if/how varlock init code is injected into the built SSR application code */
@@ -352,18 +374,21 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
 
   const encryptionRequired = varlockLoadedEnv?.settings?.encryptInjectedEnv;
   // Only encrypt when the runtime that evaluates this module can actually read
-  // `_VARLOCK_ENV_KEY`. Two cases where it cannot:
-  // - The CF prerender worker (no bindings, and the artifact is discarded after
-  //   the build), and any dev runtime on a Cloudflare target: workerd populates
-  //   `process.env` from bindings only, never from the host env.
-  // - Dev in general, which is why we never mint a key here anymore. Many dev
-  //   runtimes are workers or child processes spawned with a snapshot of the host
-  //   env before this hook runs (Nitro's env-runner worker, vitest pools,
-  //   miniflare), so a key generated at this point can never reach them. Dev
-  //   output is not deployed, so plaintext is fine. A key exported in the shell
-  //   before `vite dev` still encrypts, since every spawned runtime inherits it.
+  // `_VARLOCK_ENV_KEY`. Two cases where it cannot: the CF prerender worker (no
+  // bindings, and the artifact is discarded after the build), and any dev
+  // runtime on a Cloudflare target (workerd populates `process.env` from
+  // bindings only, never from the host env). In those cases dev output falls
+  // back to plaintext, which is fine since it is never deployed.
+  //
+  // We never mint a key here: this hook runs lazily, after worker-based dev
+  // runtimes have already snapshotted the host env. The ephemeral dev key is
+  // minted at import time instead (see `devMintedKey` above) so those runtimes
+  // inherit it. That key is only ever valid for dev; a build must get a real key
+  // from the environment or fail.
   const runtimeCanReadKey = !isCfPrerenderEnv && !(isDev && isCloudflareTarget);
-  const encryptionKey = runtimeCanReadKey ? process.env._VARLOCK_ENV_KEY : undefined;
+  const envKey = process.env._VARLOCK_ENV_KEY;
+  const keyIsDevMinted = !!devMintedKey && envKey === devMintedKey;
+  const encryptionKey = runtimeCanReadKey && !(keyIsDevMinted && !isDev) ? envKey : undefined;
 
   if (ssrInjectMode === 'auto-load') {
     if (opts.preserveSideEffectImports) {
@@ -415,7 +440,9 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
             + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
           );
         }
-        debug('@encryptInjectedEnv is on but no usable _VARLOCK_ENV_KEY for this runtime - injecting plaintext (dev only)');
+        debug('@encryptInjectedEnv is on but no usable _VARLOCK_ENV_KEY for this runtime, injecting plaintext (dev only)');
+      } else if (encryptionKey && keyIsDevMinted) {
+        debug('encrypting injected env with the ephemeral dev key');
       }
       // `injectedAtBuild` marks the payload as resolved at BUILD time, so `initVarlockEnv`
       // skips its stale-echo cleanup (no resolution happened in the booted process) and
@@ -622,6 +649,11 @@ See https://varlock.dev/integrations/vite/ for more details.
       isDevCommand = env.command === 'serve';
       if (env.command === 'build') {
         process.env.__VARLOCK_EXECUTION_PHASE = 'build';
+        // the import-time dev key must never leak into a build or anything it
+        // spawns (prerender workers, framework build steps)
+        if (devMintedKey && process.env._VARLOCK_ENV_KEY === devMintedKey) {
+          delete process.env._VARLOCK_ENV_KEY;
+        }
       } else {
         delete process.env.__VARLOCK_EXECUTION_PHASE;
       }
