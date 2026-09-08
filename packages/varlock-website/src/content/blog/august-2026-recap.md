@@ -7,7 +7,7 @@ authors:
   - name: "Varlock Team"
 ---
 
-August was a consolidation month after July's big release. The headline items: a new Nuxt integration, native local-encryption helper binaries shipping as per-platform optional dependencies, a `varlock printenv --template` flag, and every package moving to tsdown with corrected `package.json` entry points. Along the way we landed a batch of redaction and CLI fixes. Core shipped [varlock](/reference/cli-commands/) 1.16.1, 1.17.0, and 1.17.1.
+August was a consolidation month after July's big release. The headline items: a new Nuxt integration, native local-encryption helper binaries shipping as per-platform optional dependencies, a `varlock printenv --template` flag, and corrected `package.json` entry points. Along the way we landed a batch of redaction and CLI fixes. Core shipped [varlock](/reference/cli-commands/) 1.16.1, 1.17.0, and 1.17.1.
 
 ## 🔧 Core Improvements
 
@@ -15,7 +15,7 @@ August was a consolidation month after July's big release. The headline items: a
 
 - **Native helpers as per-platform optional deps** - Local-encryption helper binaries now ship as `@varlock/native-helper-darwin`, `-linux-x64`, `-linux-arm64`, and `-win32-x64` optional dependencies, so `npm install` only downloads the binary for your own platform. Linux installs also pull the Windows helper, since WSL needs it. See the [local encryption guide](/guides/local-encryption/#platform-details--setup).
 - **Linux binaries now uncompressed** - UPX packing on the Linux helper binaries was causing antivirus false positives (Windows Defender flagging them as `Wacatac.C!ml`). They now ship uncompressed. See [antivirus false positives](/guides/local-encryption/#antivirus-false-positives).
-- **tsdown everywhere** - All packages now build with tsdown instead of tsup, publish explicit `.mjs`/`.cjs` files, and have corrected `package.json` entry points: references to files that were never built are gone, and import/require conditions are declared explicitly. This is the reason almost every package in the repo, from integrations to plugins to the parser, picked up a patch release on August 25.
+- **tsdown** - All previously `tsup`-built packages now build with `tsdown`, publish explicit `.mjs`/`.cjs` files, and have corrected `package.json` entry points: references to files that were never built are gone, and import/require conditions are declared explicitly. This is the reason almost every package in the repo, from integrations to plugins to the parser, picked up a patch release on August 25.
 
 ### CLI
 
