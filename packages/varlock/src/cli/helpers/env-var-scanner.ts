@@ -126,9 +126,11 @@ const PATTERNS_BY_LANGUAGE: Record<ScannerLanguage, Array<SimplePattern>> = {
     // Service-object getter with the conventional `env` receiver, e.g.
     // AdonisJS `env.get('DB_HOST')`. Deliberately scoped to the `env`
     // identifier: a generic `\w+\.get(` would false-positive on every
-    // `Map.get()` / router `.get()` call.
+    // `Map.get()` / router `.get()` call. The closing quote must be followed
+    // by `,` or `)` so dynamic expressions (`env.get('PREFIX_' + suffix)`,
+    // `env.get('KEY'.toLowerCase())`) do not invent static references.
     {
-      regex: /\benv\.get\(\s*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]/g,
+      regex: /\benv\.get\(\s*['"`]([A-Za-z_][A-Za-z0-9_]*)['"`]\s*[,)]/g,
       syntax: 'env.get',
     },
   ],

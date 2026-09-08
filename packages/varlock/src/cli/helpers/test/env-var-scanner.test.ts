@@ -116,12 +116,15 @@ describe('scanCodeForEnvVars', () => {
       "  host: env.get('DB_HOST'),",
       '  port: env.get("DB_PORT", 5432),',
       '  extra: this.env.get(`DB_EXTRA`),',
+      '  mixed: env.get(\'mixedCase_Key1\'),',
       '};',
       '// env.get(\'COMMENTED_OUT\');',
       'const fromString = "env.get(\'IN_STRING\')";',
       'const notEnv = map.get(\'NOT_ENV\');',
       'const noLiteral = env.get(dynamicKey);',
       'router.get(\'/health\');',
+      'const prefix = env.get(\'DYNAMIC_\' + suffix);',
+      'const lowered = env.get(\'COMPUTED\'.toLowerCase());',
     ].join('\n'));
 
     const result = await scanCodeForEnvVars({ cwd: tempDir });
@@ -129,11 +132,14 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).toContain('DB_HOST');
     expect(result.keys).toContain('DB_PORT');
     expect(result.keys).toContain('DB_EXTRA');
+    expect(result.keys).toContain('mixedCase_Key1');
     expect(result.keys).not.toContain('COMMENTED_OUT');
     expect(result.keys).not.toContain('IN_STRING');
     expect(result.keys).not.toContain('NOT_ENV');
     expect(result.keys).not.toContain('dynamicKey');
     expect(result.keys).not.toContain('health');
+    expect(result.keys).not.toContain('DYNAMIC_');
+    expect(result.keys).not.toContain('COMPUTED');
 
     const dbHost = result.references.find((ref) => ref.key === 'DB_HOST');
     expect(dbHost).toMatchObject({ syntax: 'env.get' });
