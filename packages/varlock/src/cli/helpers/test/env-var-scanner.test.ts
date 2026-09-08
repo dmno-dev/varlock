@@ -110,6 +110,32 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).not.toContain('IN_RAW_STRING');
   });
 
+  test('applies extraPatterns to every scanned file regardless of language', async () => {
+    fs.writeFileSync(path.join(tempDir, 'config.ts'), 'const id = config.get(\'APP_ID\');\n');
+    fs.writeFileSync(path.join(tempDir, 'settings.py'), 'CONFIG["SVC_URL"] = config.get("SVC_URL")\n');
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/config\.get\(\s*'([A-Z_]+)'/, /config\.get\("([A-Z_]+)"\)/],
+    });
+
+    expect(result.keys).toContain('APP_ID');
+    expect(result.keys).toContain('SVC_URL');
+    const appId = result.references.find((ref) => ref.key === 'APP_ID');
+    expect(appId).toMatchObject({ syntax: 'custom' });
+  });
+
+  test('ignores extraPattern matches without a first capture group', async () => {
+    fs.writeFileSync(path.join(tempDir, 'app.ts'), 'config.get("NO_GROUP");\n');
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/config\.get\("[A-Z_]+"\)/],
+    });
+
+    expect(result.keys).not.toContain('NO_GROUP');
+  });
+
   test('respects ignored directories', async () => {
     fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.IGNORED_MOD');

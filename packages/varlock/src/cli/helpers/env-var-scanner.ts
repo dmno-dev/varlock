@@ -57,6 +57,7 @@ export type EnvVarSyntax = 'process.env.member'
   | 'ENV.member'
   | 'ENV.bracket'
   | 'ENV.destructure'
+  | 'custom'
   | 'python.environ'
   | 'python.getenv'
   | 'go.getenv'
@@ -83,6 +84,13 @@ export interface ScanCodeEnvVarsOptions {
   maxFileSizeBytes?: number;
   // legacy option, treated as additional excludes
   ignoredDirs?: Array<string>;
+  /**
+   * Project-supplied patterns (e.g. from the `@auditExtraPatterns` root
+   * decorator), run on every scanned file regardless of language, after the
+   * built-in patterns. The first capture group is the env key; patterns
+   * without one match nothing. The global flag is added when missing.
+   */
+  extraPatterns?: Array<RegExp>;
 }
 
 export interface ScanCodeEnvVarsResult {
@@ -551,6 +559,7 @@ function maskCommentsPreserveLayout(content: string, language: ScannerLanguage):
 async function scanFileForEnvVarReferences(
   filePath: string,
   maxFileSizeBytes: number,
+  extraPatterns: Array<RegExp> = [],
 ): Promise<Array<EnvVarReference>> {
   let fileStat;
   try {
@@ -608,6 +617,17 @@ async function scanFileForEnvVarReferences(
     }
   }
 
+  // Project-supplied escape-hatch patterns run on every scanned file,
+  // whatever its language, over the same masked content as the built-ins.
+  for (const extra of extraPatterns) {
+    const regex = extra.global ? extra : new RegExp(extra.source, `${extra.flags}g`);
+    for (const match of scanContent.matchAll(regex)) {
+      const key = match[1];
+      if (!key) continue;
+      references.push(buildReference(filePath, scanContent, newlineIndices, match.index ?? 0, key, 'custom'));
+    }
+  }
+
   return references;
 }
 
@@ -652,7 +672,7 @@ export async function scanCodeForEnvVars(
 
   const filePaths = await discoverSourceFiles(cwd, excludeDirs);
   const references = await scanFilesWithLimit(filePaths, concurrency, async (filePath) => {
-    return scanFileForEnvVarReferences(filePath, maxFileSizeBytes);
+    return scanFileForEnvVarReferences(filePath, maxFileSizeBytes, options.extraPatterns ?? []);
   });
 
   const flattenedReferences = references.flat();

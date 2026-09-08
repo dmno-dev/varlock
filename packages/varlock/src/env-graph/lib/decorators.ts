@@ -725,6 +725,10 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     isFunction: true,
   },
   {
+    name: 'auditExtraPatterns',
+    isFunction: true,
+  },
+  {
     name: 'setValuesBulk',
     isFunction: true,
     process(argsVal) {

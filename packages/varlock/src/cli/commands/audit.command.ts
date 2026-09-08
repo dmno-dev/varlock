@@ -3,6 +3,7 @@ import path from 'node:path';
 import ansis from 'ansis';
 
 import { FileBasedDataSource } from '../../env-graph';
+import { SchemaError } from '../../env-graph/lib/errors';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -48,6 +49,33 @@ function collectStringArgs(input: unknown, out: Array<string>) {
   const normalized = input.trim().replace(/^\.\//, '').replace(/[/\\]+$/, '');
   if (!normalized) return;
   out.push(normalized);
+}
+
+function collectPatternArgs(input: unknown, out: Array<RegExp>) {
+  if (Array.isArray(input)) {
+    for (const entry of input) collectPatternArgs(entry, out);
+    return;
+  }
+  if (input instanceof RegExp) {
+    out.push(input);
+    return;
+  }
+  throw new SchemaError(
+    '@auditExtraPatterns expects regex literals, e.g. # @auditExtraPatterns(/config\\.get\\(\'([A-Z_]+)\'\\)) — the first capture group is the env key',
+  );
+}
+
+async function getCustomAuditExtraPatterns(envGraph: any): Promise<Array<RegExp>> {
+  const rootDecFns = typeof envGraph?.getRootDecFns === 'function'
+    ? envGraph.getRootDecFns('auditExtraPatterns')
+    : [];
+
+  const patterns: Array<RegExp> = [];
+  for (const dec of rootDecFns || []) {
+    const resolved = await dec.resolve();
+    collectPatternArgs(resolved?.arr, patterns);
+  }
+  return patterns;
 }
 
 /** Collect all config keys that are depended on by other items or root decorators */
@@ -125,6 +153,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(`ℹ️ Skipping ignored paths: ${allIgnoredPaths.join(', ')}`);
   }
 
+  // Project-supplied escape-hatch patterns from # @auditExtraPatterns(...).
+  // Only forwarded when configured, so the default scanner call shape —
+  // and its tests — stay untouched.
+  const customExtraPatterns = await getCustomAuditExtraPatterns(envGraph);
+  const extraPatternsOption =
+    customExtraPatterns.length > 0 ? { extraPatterns: customExtraPatterns } : {};
+
   // If positional scan targets are provided, scan each one individually and merge results
   let scanResult: ScanCodeEnvVarsResult;
   if (scanTargets.length > 0) {
@@ -133,7 +168,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     for (const target of scanTargets) {
       const resolvedTarget = path.resolve(finalScanRoot, target);
       const result = await scanCodeForEnvVars(
-        { cwd: resolvedTarget },
+        { cwd: resolvedTarget, ...extraPatternsOption },
         allIgnoredPaths,
       );
       mergedRefs.push(...result.references);
@@ -143,7 +178,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     scanResult = { keys: uniqueKeys, references: mergedRefs, scannedFilesCount: totalFilesScanned };
   } else {
     scanResult = await scanCodeForEnvVars(
-      { cwd: finalScanRoot },
+      { cwd: finalScanRoot, ...extraPatternsOption },
       allIgnoredPaths,
     );
   }

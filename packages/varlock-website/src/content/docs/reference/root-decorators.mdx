@@ -518,6 +518,29 @@ API_KEY=
 </div>
 
 <div>
+### `@auditExtraPatterns()`
+**Arg types:** `[ ...patterns: RegExp[] ]`
+
+Adds project-specific patterns to the [`varlock audit`](/reference/cli/encryption/#audit) code scanner — the escape hatch for env access idioms the built-in patterns don't cover (e.g. NestJS `configService.get('KEY')`). Each pattern is a JavaScript-style [regex literal](/env-spec/reference/#regex-literals); the **first capture group is the env key**, so patterns without one match nothing. Extra patterns run on every scanned file, whatever its language. _Can be called multiple times; patterns are merged additively._
+
+A pattern that isn't a regex literal (or has no business being one) fails the audit with a schema error instead of silently scanning nothing.
+
+```env-spec
+# @auditExtraPatterns(/config\.get\(\s*'([A-Z_]+)'/)
+# ---
+API_KEY=
+```
+
+```env-spec
+# multiple patterns and calls, all merged
+# @auditExtraPatterns(/config\.get\(\s*'([A-Z_]+)'/)
+# @auditExtraPatterns(/settings\.require\("([A-Z_]+)"\)/)
+# ---
+API_KEY=
+```
+</div>
+
+<div>
 ### `@proxyConfig`
 **Value type:** `{egress?: "permissive" | "strict", reload?: "off" | "manual" | "auto"}`
 

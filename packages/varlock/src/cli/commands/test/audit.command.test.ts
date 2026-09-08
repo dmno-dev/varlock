@@ -282,14 +282,19 @@ describe('audit command', () => {
       },
       graphAdjacencyList: { API_KEY: [] },
       sortedDataSources: [],
-      getRootDecFns: vi.fn().mockReturnValue([
-        {
-          resolve: vi.fn().mockResolvedValue({ arr: ['e2e', './scripts/'], obj: { unused: 'x' } }),
-        },
-        {
-          resolve: vi.fn().mockResolvedValue({ arr: [['mocks']], obj: {} }),
-        },
-      ]),
+      // Name-aware like the real getRootDecFns: @auditExtraPatterns readers
+      // must never see @auditIgnorePaths decorators (and vice versa).
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [
+          {
+            resolve: vi.fn().mockResolvedValue({ arr: ['e2e', './scripts/'], obj: { unused: 'x' } }),
+          },
+          {
+            resolve: vi.fn().mockResolvedValue({ arr: [['mocks']], obj: {} }),
+          },
+        ];
+      }),
       rootDataSource: undefined,
       basePath: '/repo',
     });
@@ -307,5 +312,54 @@ describe('audit command', () => {
       { cwd: '/repo' },
       ['e2e', 'scripts', 'mocks'],
     );
+  });
+
+  test('forwards # @auditExtraPatterns(...) regexes to the scanner', async () => {
+    const pattern = /config\.get\('([A-Z_]+)'\)/;
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [
+          { resolve: vi.fn().mockResolvedValue({ arr: [pattern], obj: {} }) },
+          { resolve: vi.fn().mockResolvedValue({ arr: [[/other\.get\("([A-Z_]+)"\)/]], obj: {} }) },
+        ];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: '/repo', extraPatterns: [pattern, /other\.get\("([A-Z_]+)"\)/] },
+      [],
+    );
+  });
+
+  test('rejects non-regex # @auditExtraPatterns(...) entries', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['not-a-regex'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any)).rejects.toThrow(/@auditExtraPatterns expects regex literals/);
   });
 });

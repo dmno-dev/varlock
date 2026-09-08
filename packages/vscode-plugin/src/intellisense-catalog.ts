@@ -187,6 +187,14 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     insertText: '@auditIgnorePaths(${1:path})',
     isFunction: true,
   },
+  {
+    name: 'auditExtraPatterns',
+    scope: 'root',
+    summary: 'Adds project-specific regex patterns to the audit code scanner.',
+    documentation: 'Each pattern is a /.../ regex literal; the first capture group is the env key. Can be called multiple times — patterns are merged additively.',
+    insertText: '@auditExtraPatterns(${1:/pattern/})',
+    isFunction: true,
+  },
 ];
 
 export const ITEM_DECORATORS: Array<DecoratorInfo> = [
