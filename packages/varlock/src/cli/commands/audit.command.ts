@@ -4,6 +4,7 @@ import ansis from 'ansis';
 
 import { FileBasedDataSource } from '../../env-graph';
 import { SchemaError } from '../../env-graph/lib/errors';
+import { parseRegexLikeString } from '../../env-graph/lib/resolver';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -56,12 +57,25 @@ function collectPatternArgs(input: unknown, out: Array<RegExp>) {
     for (const entry of input) collectPatternArgs(entry, out);
     return;
   }
+  // `regex('...')` calls already resolve to RegExp instances. Quoted
+  // '/.../flags' strings convert via the same rule the DSL uses everywhere;
+  // anything else (bare words, numbers) is a config error, not a pattern.
+  // Note: a bare unquoted literal only survives parsing when it contains no
+  // spaces, commas or parens, so realistic patterns must be quoted or use
+  // regex('...') — both forms land here, never raw.
   if (input instanceof RegExp) {
     out.push(input);
     return;
   }
+  if (typeof input === 'string') {
+    const parsed = parseRegexLikeString(input);
+    if (parsed) {
+      out.push(parsed);
+      return;
+    }
+  }
   throw new SchemaError(
-    '@auditExtraPatterns expects regex literals, e.g. # @auditExtraPatterns(/config\\.get\\(\'([A-Z_]+)\'\\)) — the first capture group is the env key',
+    '@auditExtraPatterns() expects regex patterns — regex() calls or quoted \'/.../\' literals. The first capture group is the env key',
   );
 }
 

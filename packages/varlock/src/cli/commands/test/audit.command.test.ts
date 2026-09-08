@@ -360,6 +360,36 @@ describe('audit command', () => {
       basePath: '/repo',
     });
 
-    await expect(commandFn({ values: {} } as any)).rejects.toThrow(/@auditExtraPatterns expects regex literals/);
+    await expect(commandFn({ values: {} } as any)).rejects.toThrow(/@auditExtraPatterns\(\) expects regex patterns/);
+  });
+
+  test('accepts quoted slash-delimited strings via the DSL string form', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        // What a quoted '/.../ ' decorator arg resolves to after parsing.
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: [`/config\\.get\\('([A-Z_]+)'\\)/`], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: '/repo', extraPatterns: [/config\.get\('([A-Z_]+)'\)/] },
+      [],
+    );
   });
 });
