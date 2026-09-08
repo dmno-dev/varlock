@@ -204,27 +204,7 @@ function reloadConfig(cwd?: string) {
 // we run this right away so the globals get injected into the vite.config file
 reloadConfig();
 
-/**
- * Ephemeral `_VARLOCK_ENV_KEY` minted for local dev. Minted here, at import
- * time, and never later: this module is evaluated while `vite.config.ts` loads,
- * which is before any plugin's `config` hook runs. Frameworks that run the SSR
- * dev runtime in a separate worker or process (Nitro's env-runner worker, vitest
- * pools) spawn it during their `config` hook with a snapshot of `process.env`,
- * so a key minted any later (e.g. in our `load` hook) never reaches them. Only
- * minted when the schema loaded from cwd asks for `@encryptInjectedEnv`, so
- * users who never opted into encryption are unaffected. Builds ignore this key
- * (see `buildVarlockSsrInitCode` and the `config` hook), since a deploy must
- * fail loudly rather than encrypt with a key the runtime never has.
- */
 let devMintedKey: string | undefined;
-// read through a function: TS cannot see that `reloadConfig()` above assigns
-// the module-level binding, and flags a direct read as used-before-assigned
-const encryptionRequestedAtImport = () => !!varlockLoadedEnv?.settings?.encryptInjectedEnv;
-if (encryptionRequestedAtImport() && !process.env._VARLOCK_ENV_KEY) {
-  devMintedKey = generateEncryptionKeyHex();
-  process.env._VARLOCK_ENV_KEY = devMintedKey;
-  debug('minted ephemeral _VARLOCK_ENV_KEY for local dev');
-}
 
 
 export interface VarlockVitePluginOptions {
@@ -381,10 +361,9 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
   // back to plaintext, which is fine since it is never deployed.
   //
   // We never mint a key here: this hook runs lazily, after worker-based dev
-  // runtimes have already snapshotted the host env. The ephemeral dev key is
-  // minted at import time instead (see `devMintedKey` above) so those runtimes
-  // inherit it. That key is only ever valid for dev; a build must get a real key
-  // from the environment or fail.
+  // runtimes have already snapshotted the host env. The pre-enforced lifecycle
+  // plugin mints the ephemeral dev key before normal config hooks run so those
+  // runtimes inherit it. A build must get a real key from the environment or fail.
   const runtimeCanReadKey = !isCfPrerenderEnv && !(isDev && isCloudflareTarget);
   const envKey = process.env._VARLOCK_ENV_KEY;
   const keyIsDevMinted = !!devMintedKey && envKey === devMintedKey;
@@ -598,7 +577,23 @@ export function varlockVitePlugin(
     }
   }
 
-  return {
+  const lifecyclePlugin = {
+    name: 'varlock-dev-key-lifecycle',
+    enforce: 'pre',
+    config(_config, env) {
+      if (
+        env.command === 'serve'
+        && varlockLoadedEnv?.settings?.encryptInjectedEnv
+        && !process.env._VARLOCK_ENV_KEY
+      ) {
+        devMintedKey = generateEncryptionKeyHex();
+        process.env._VARLOCK_ENV_KEY = devMintedKey;
+        debug('minted ephemeral _VARLOCK_ENV_KEY for local dev');
+      }
+    },
+  } satisfies Plugin;
+
+  const mainPlugin = {
     name: 'inject-varlock-config',
     enforce: 'post',
 
@@ -649,11 +644,6 @@ See https://varlock.dev/integrations/vite/ for more details.
       isDevCommand = env.command === 'serve';
       if (env.command === 'build') {
         process.env.__VARLOCK_EXECUTION_PHASE = 'build';
-        // the import-time dev key must never leak into a build or anything it
-        // spawns (prerender workers, framework build steps)
-        if (devMintedKey && process.env._VARLOCK_ENV_KEY === devMintedKey) {
-          delete process.env._VARLOCK_ENV_KEY;
-        }
       } else {
         delete process.env.__VARLOCK_EXECUTION_PHASE;
       }
@@ -870,4 +860,6 @@ See https://varlock.dev/integrations/vite/ for more details.
       return replacedHtml;
     },
   } satisfies Plugin;
+
+  return [lifecyclePlugin, mainPlugin];
 }

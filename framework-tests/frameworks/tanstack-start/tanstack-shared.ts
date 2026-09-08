@@ -331,7 +331,7 @@ export function defineTanstackTests(
         readyPattern: /Local:.*http/,
         readyTimeout: 60_000,
         // surface the plugin's debug line so we can assert the blob was actually
-        // encrypted with the import-time dev key (rather than falling back to plaintext)
+        // encrypted with the early dev key (rather than falling back to plaintext)
         env: { DEBUG: 'varlock:vite-integration' },
         templateFiles: {
           'vite.config.ts': 'configs/vite.config.nitro.ts',
@@ -359,7 +359,7 @@ export function defineTanstackTests(
             shouldNotContain: ['_VARLOCK_ENV_KEY is not set'],
           },
           {
-            description: 'blob is encrypted with the dev key minted at plugin import time',
+            description: 'blob is encrypted with the key minted before normal config hooks',
             shouldContain: [
               'minted ephemeral _VARLOCK_ENV_KEY for local dev',
               'encrypting injected env with the ephemeral dev key',
