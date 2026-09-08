@@ -1,6 +1,7 @@
 /*
 Shared TanStack Start test definitions, parameterized by Vite version.
 */
+import { randomBytes } from 'node:crypto';
 import {
   describe, beforeAll, afterAll,
 } from 'vitest';
@@ -21,9 +22,13 @@ export function defineTanstackTests(
     viteVersion: string;
     reactPluginVersion?: string;
     portBase: number;
+    /** When set, also runs a TanStack Start + Nitro target describe block, pinned to this nitro version */
+    nitroVersion?: string;
   },
 ) {
-  const { viteVersion, reactPluginVersion = '^5', portBase } = opts;
+  const {
+    viteVersion, reactPluginVersion = '^5', portBase, nitroVersion,
+  } = opts;
   let nextPort = portBase;
   const port = () => nextPort++;
 
@@ -281,4 +286,158 @@ export function defineTanstackTests(
       ],
     });
   });
+
+  // ---- Nitro target (regression coverage for the SSR worker-thread env-key bug) ----
+  if (nitroVersion) {
+    describe(`TanStack Start (${label}) - nitro target`, () => {
+      // Each dev-server scenario below gets its own fixture (its own `pnpm install`)
+      // instead of sharing one across the describe block. Nitro v3 beta's dev worker
+      // sets up the SSR module-runner over an IPC transport that only initializes
+      // cleanly for the FIRST `vite dev` process started against a given install: a
+      // second `vite dev` run in the same installed project (even a fresh child
+      // process, even with `.nitro`/`.output`/`node_modules/.vite` wiped first)
+      // reliably hangs with "Vite environment \"ssr\" is unavailable" (HTTP 500) and
+      // never recovers. This reproduces with plain `vite dev` too, independent of
+      // `@encryptInjectedEnv` or `_VARLOCK_ENV_KEY`, so it's a Nitro beta issue, not a
+      // varlock one. The workaround is to make every dev scenario a "first" run.
+      const makeNitroEnv = (suffix: string) => new FrameworkTestEnv({
+        testDir,
+        framework: `tanstack-start-nitro-${label}-${suffix}`,
+        packageManager: 'pnpm',
+        dependencies: {
+          varlock: 'will-be-replaced',
+          '@varlock/vite-integration': 'will-be-replaced',
+          vite: viteVersion,
+          '@vitejs/plugin-react': reactPluginVersion,
+          nitro: nitroVersion,
+          ...TANSTACK_DEPS,
+        },
+        templateFiles: {
+          '.env.schema': 'schemas/.env.schema',
+          '.env.dev': 'schemas/.env.dev',
+          'tsconfig.json': '_base/tsconfig.json',
+          'src/routes/__root.tsx': 'routes/__root.tsx',
+          'src/routes/index.tsx': 'routes/index.tsx',
+          'src/router.tsx': 'routes/router.tsx',
+        },
+      });
+
+      const nitroDevEnvNoKey = makeNitroEnv('dev-no-key');
+      beforeAll(() => nitroDevEnvNoKey.setup(), 180_000);
+      afterAll(() => nitroDevEnvNoKey.teardown());
+
+      nitroDevEnvNoKey.describeDevScenario('dev server with @encryptInjectedEnv', {
+        command: `vite dev --port ${port()}`,
+        readyPattern: /Local:.*http/,
+        readyTimeout: 60_000,
+        templateFiles: {
+          'vite.config.ts': 'configs/vite.config.nitro.ts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        requests: [
+          {
+            path: '/',
+            bodyAssertions: {
+              shouldContain: [
+                'public_var::public-test-value',
+                'api_url::https://api.example.com',
+                'has_sensitive::yes',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'no _VARLOCK_ENV_KEY error on the SSR worker thread',
+            shouldNotContain: ['_VARLOCK_ENV_KEY is not set'],
+          },
+        ],
+      });
+
+      const nitroDevEnvWithKey = makeNitroEnv('dev-with-key');
+      beforeAll(() => nitroDevEnvWithKey.setup(), 180_000);
+      afterAll(() => nitroDevEnvWithKey.teardown());
+
+      nitroDevEnvWithKey.describeDevScenario('dev server with @encryptInjectedEnv and explicit key', {
+        command: `vite dev --port ${port()}`,
+        readyPattern: /Local:.*http/,
+        readyTimeout: 60_000,
+        env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+        templateFiles: {
+          'vite.config.ts': 'configs/vite.config.nitro.ts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        requests: [
+          {
+            path: '/',
+            bodyAssertions: {
+              shouldContain: [
+                'public_var::public-test-value',
+                'api_url::https://api.example.com',
+                'has_sensitive::yes',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'no _VARLOCK_ENV_KEY error on the SSR worker thread',
+            shouldNotContain: ['_VARLOCK_ENV_KEY is not set'],
+          },
+        ],
+      });
+
+      // Build scenarios don't start the long-lived dev worker, so they don't hit the
+      // IPC issue above and can safely share one fixture (and one `pnpm install`).
+      const nitroBuildEnv = makeNitroEnv('build');
+      beforeAll(() => nitroBuildEnv.setup(), 180_000);
+      afterAll(() => nitroBuildEnv.teardown());
+
+      nitroBuildEnv.describeScenario('build with @encryptInjectedEnv and no key fails', {
+        command: 'vite build',
+        expectSuccess: false,
+        templateFiles: {
+          'vite.config.ts': 'configs/vite.config.nitro.ts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        outputAssertions: [
+          {
+            description: 'build fails with a clear missing-key error',
+            shouldContain: ['_VARLOCK_ENV_KEY is not set'],
+          },
+        ],
+      });
+
+      nitroBuildEnv.describeScenario('build with key encrypts the blob', {
+        command: 'vite build',
+        env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+        templateFiles: {
+          'vite.config.ts': 'configs/vite.config.nitro.ts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        fileAssertions: [
+          {
+            description: 'server output contains encrypted blob (varlock:v1: prefix), not plaintext',
+            fileGlob: '.output/server/**/*.mjs',
+            shouldContain: ['varlock:v1:'],
+            shouldNotContain: ['super-secret-value'],
+          },
+        ],
+      });
+    });
+  }
 }

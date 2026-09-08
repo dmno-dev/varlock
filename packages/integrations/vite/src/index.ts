@@ -11,7 +11,7 @@ import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
-import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import { encryptEnvBlobSync } from 'varlock/encrypt-env';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-replacer';
 
@@ -56,6 +56,8 @@ let configHookCalled = false;
 let cfDetectNoticeLogged = false;
 // one-time guard for the Vercel unencrypted resolved-env warning
 let vercelUnencryptedWarningLogged = false;
+// one-time guard for the reserved-vars-in-`define` warning
+let reservedDefineWarningLogged = false;
 let staticReplacements: Record<string, any> = {};
 let publicDynamicKeys: Array<string> = [];
 let replacerFn: ReturnType<typeof createReplacerTransformFn>;
@@ -349,10 +351,19 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
   ];
 
   const encryptionRequired = varlockLoadedEnv?.settings?.encryptInjectedEnv;
-  // Force plaintext for the prerender worker — it can't read _VARLOCK_ENV_KEY
-  // (no bindings) and is discarded after the build, so an encrypted blob would
-  // only fail to decrypt.
-  let encryptionKey: string | undefined = isCfPrerenderEnv ? undefined : process.env._VARLOCK_ENV_KEY;
+  // Only encrypt when the runtime that evaluates this module can actually read
+  // `_VARLOCK_ENV_KEY`. Two cases where it cannot:
+  // - The CF prerender worker (no bindings, and the artifact is discarded after
+  //   the build), and any dev runtime on a Cloudflare target: workerd populates
+  //   `process.env` from bindings only, never from the host env.
+  // - Dev in general, which is why we never mint a key here anymore. Many dev
+  //   runtimes are workers or child processes spawned with a snapshot of the host
+  //   env before this hook runs (Nitro's env-runner worker, vitest pools,
+  //   miniflare), so a key generated at this point can never reach them. Dev
+  //   output is not deployed, so plaintext is fine. A key exported in the shell
+  //   before `vite dev` still encrypts, since every spawned runtime inherits it.
+  const runtimeCanReadKey = !isCfPrerenderEnv && !(isDev && isCloudflareTarget);
+  const encryptionKey = runtimeCanReadKey ? process.env._VARLOCK_ENV_KEY : undefined;
 
   if (ssrInjectMode === 'auto-load') {
     if (opts.preserveSideEffectImports) {
@@ -396,18 +407,15 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
           );
         }
       }
-      if (encryptionRequired && !encryptionKey && !isCfPrerenderEnv) {
-        if (isDev) {
-          // auto-generate a temporary key for local dev
-          encryptionKey = generateEncryptionKeyHex();
-          process.env._VARLOCK_ENV_KEY = encryptionKey;
-        } else {
+      if (encryptionRequired && !encryptionKey) {
+        if (!isDev && !isCfPrerenderEnv) {
           throw new Error(
             '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
             + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
             + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
           );
         }
+        debug('@encryptInjectedEnv is on but no usable _VARLOCK_ENV_KEY for this runtime - injecting plaintext (dev only)');
       }
       // `injectedAtBuild` marks the payload as resolved at BUILD time, so `initVarlockEnv`
       // skips its stale-echo cleanup (no resolution happened in the booted process) and
@@ -468,6 +476,14 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
 // consumer's — causing spurious type errors. Since Vite's `plugins` config
 // is loosely typed, this is functionally equivalent.
 const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
+
+/** varlock-owned vars that must be real env vars, never vite `define` entries */
+const RESERVED_DEFINE_KEYS = [
+  '_VARLOCK_ENV_KEY',
+  'process.env._VARLOCK_ENV_KEY',
+  '__VARLOCK_ENV',
+  'process.env.__VARLOCK_ENV',
+];
 
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
@@ -588,6 +604,19 @@ To load .env files from a custom directory, set \`varlock.loadPath\` in your \`p
 
 See https://varlock.dev/integrations/vite/ for more details.
 `);
+      }
+
+      // These vars must exist as real environment variables at build/run time.
+      // Setting them via vite `define` only inlines a literal into the bundle,
+      // which never reaches the code that reads `process.env` at runtime.
+      const badDefines = Object.keys(config.define ?? {}).filter((k) => RESERVED_DEFINE_KEYS.includes(k));
+      if (badDefines.length && !reservedDefineWarningLogged) {
+        reservedDefineWarningLogged = true;
+        console.warn(
+          `\x1b[33m[varlock] ⚠️  ${badDefines.join(', ')} set via vite \`define\`. These are reserved varlock env vars `
+          + 'and must be set as real environment variables, not `define` entries. The encryption key is never baked '
+          + 'into the build.\nSee https://varlock.dev/guides/encrypted-deployments/\x1b[0m',
+        );
       }
 
       isDevCommand = env.command === 'serve';
