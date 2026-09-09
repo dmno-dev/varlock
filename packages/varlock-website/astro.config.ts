@@ -8,6 +8,8 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
+import { unified } from '@astrojs/markdown-remark';
+import remarkCustomHeaderId from 'remark-custom-header-id';
 import { outdent } from 'outdent';
 
 import varlockAstroIntegration from '@varlock/astro-integration';
@@ -274,4 +276,10 @@ export default defineConfig({
       },
     }),
   ],
+  markdown: {
+    // Astro 7 defaults to the Satteri processor, which does not run remark plugins.
+    // The docs rely on remark-custom-header-id for `## Heading ||custom-id||` anchors,
+    // so keep the unified (remark) pipeline explicitly.
+    processor: unified({ remarkPlugins: [remarkCustomHeaderId] }),
+  },
 });
