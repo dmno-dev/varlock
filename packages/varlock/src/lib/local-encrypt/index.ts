@@ -381,7 +381,30 @@ function detectBackendType(): { type: BackendType; isFileFallback: boolean } {
   }
 }
 
-/** Get information about the active encryption backend. */
+/**
+ * Cheap backend classification: which backend would be used, based only on
+ * filesystem checks (is a native helper installed?) and platform detection.
+ *
+ * Unlike getBackendInfo(), this never spawns the native helper. Use it for
+ * passive decisions like the cache auto-policy, which runs on every load.
+ * Spawning the helper is expensive on WSL2 (a Windows .exe launched through
+ * interop costs several seconds), so it must only happen when crypto actually runs.
+ */
+export function getBackendType(): { type: BackendType; isFileFallback: boolean } {
+  if (cachedBackendInfo) {
+    return { type: cachedBackendInfo.type, isFileFallback: cachedBackendInfo.isFileFallback ?? false };
+  }
+  return detectBackendType();
+}
+
+/**
+ * Get information about the active encryption backend, including the
+ * capabilities reported by the native helper (`status` command).
+ *
+ * This spawns the helper once per process, so it is only called lazily by
+ * operations that actually need it (key management, encrypt/decrypt, prompts,
+ * `varlock encrypt` / `varlock lock`).
+ */
 export function getBackendInfo(): BackendInfo {
   if (cachedBackendInfo) return cachedBackendInfo;
 
@@ -437,8 +460,8 @@ export function getDaemonClient(): DaemonClient {
   return daemonClient;
 }
 
-// getBackendInfo() is called as a passive capability probe on every load (cache
-// auto-policy), so the fallback warning only fires when crypto ops actually run
+// the fallback warning only fires when crypto ops actually run, not from passive
+// backend checks (getBackendType() drives the cache auto-policy on every load)
 let warnedFileFallback = false;
 function warnIfFileFallback(backend: BackendInfo) {
   if (warnedFileFallback || !backend.isFileFallback) return;

@@ -47,6 +47,14 @@ describe('local-encrypt with file fallback', () => {
     expect(info.binaryPath).toBeUndefined();
   });
 
+  it('getBackendType agrees with getBackendInfo without probing the helper', () => {
+    const cheap = localEncrypt.getBackendType();
+    expect(cheap.type).toBe('file');
+    const full = localEncrypt.getBackendInfo();
+    expect(cheap.type).toBe(full.type);
+    expect(cheap.isFileFallback).toBe(full.isFileFallback);
+  });
+
   it('generates a key and reports it exists', async () => {
     expect(localEncrypt.keyExists('test-key')).toBe(false);
     await localEncrypt.generateKey('test-key');

@@ -10,8 +10,16 @@ import { CacheStore, InMemoryCacheStore } from '../../lib/cache';
 
 // switchable local-encrypt backend so tests can simulate native vs file-fallback
 let mockBackendType = 'secure-enclave';
+// getBackendInfo() spawns the native helper (`status`), which costs seconds on
+// WSL2. The loader must only use the filesystem-only getBackendType() (#1078)
+const { mockGetBackendInfo } = vi.hoisted(() => ({
+  mockGetBackendInfo: vi.fn(() => {
+    throw new Error('getBackendInfo() must not be called during load: it spawns the native helper');
+  }),
+}));
 vi.mock('../../lib/local-encrypt', () => ({
-  getBackendInfo: () => ({ type: mockBackendType, isFileFallback: mockBackendType === 'file' }),
+  getBackendType: () => ({ type: mockBackendType, isFileFallback: mockBackendType === 'file' }),
+  getBackendInfo: mockGetBackendInfo,
   keyExists: () => true,
   ensureKey: vi.fn(async () => undefined),
   encryptValue: vi.fn(async (v: string) => `enc:${v}`),
@@ -102,6 +110,15 @@ describe('loadEnvGraph cache auto-policy', () => {
     const graph = await load({ skipCache: true });
     expect(graph._skipCacheMode).toBe(true);
     expect(graph._cacheStore).toBeUndefined();
+  });
+
+  it('never probes the native helper (getBackendInfo) when nothing is encrypted', async () => {
+    mockGetBackendInfo.mockClear();
+    await load();
+    await load({ processEnvOverride: { CI: 'true' } });
+    mockBackendType = 'file';
+    await load();
+    expect(mockGetBackendInfo).not.toHaveBeenCalled();
   });
 });
 
