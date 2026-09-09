@@ -15,6 +15,7 @@ Two things make Nuxt different from a plain vite app, and both are covered here:
    routes are never in vite's module graph at all. The module registers the
    same init as a nitro plugin; the server-route and leak scenarios cover it.
 */
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -138,6 +139,96 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
           description: 'nitro server bundle carries a populated resolved env',
           fileGlob: '.output/server/chunks/nitro/*.mjs',
           shouldContain: ['__varlockLoadedEnv', 'PUBLIC_VAR'],
+        },
+      ],
+    });
+
+    // ---- @encryptInjectedEnv ----
+    // The nuxt module renders the Nitro init template before vite's config hooks
+    // run, so it has to mint the temporary dev key itself; the Nitro dev worker
+    // (spawned later with a copy of the environment) then inherits it.
+    const encryptedDevPort = port();
+    env.describeDevScenario('dev: @encryptInjectedEnv + resolved-env encrypts the dev blob', {
+      command: `nuxt dev --no-fork --port ${encryptedDevPort} < /dev/null`,
+      readyPattern: new RegExp(`localhost:${encryptedDevPort}`),
+      readyTimeout: 120_000,
+      timeout: 300_000,
+      env: { DEBUG: 'varlock:vite-integration' },
+      templateFiles: {
+        'nuxt.config.ts': 'configs/nuxt.config.resolved-env.ts',
+        'server/api/env.get.ts': 'routes/env-endpoint.ts',
+        '.env.schema': {
+          path: 'schemas/.env.schema',
+          prepend: '# @encryptInjectedEnv\n',
+        },
+      },
+      requests: [
+        {
+          path: '/api/env',
+          bodyAssertions: {
+            shouldContain: ['"PUBLIC_VAR": "public-var-value"', '"HAS_SECRET": "yes"'],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: ['public-var-value', 'env-specific-var--dev'],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'blob is encrypted with a minted dev key and decrypts in the nitro worker',
+          shouldContain: [
+            'minted ephemeral _VARLOCK_ENV_KEY for local dev',
+            'encrypting injected env with the ephemeral dev key',
+          ],
+          shouldNotContain: ['_VARLOCK_ENV_KEY is not set', 'injecting plaintext'],
+        },
+      ],
+    });
+
+    env.describeScenario('build: @encryptInjectedEnv + resolved-env without a key fails', {
+      command: 'nuxt build',
+      expectSuccess: false,
+      timeout: 300_000,
+      env: { DEBUG: 'varlock:vite-integration' },
+      templateFiles: {
+        'nuxt.config.ts': 'configs/nuxt.config.resolved-env.ts',
+        '.env.schema': {
+          path: 'schemas/.env.schema',
+          prepend: '# @encryptInjectedEnv\n',
+        },
+      },
+      outputAssertions: [
+        {
+          description: 'build fails with the missing-key error and never mints a dev key',
+          shouldContain: ['_VARLOCK_ENV_KEY is not set'],
+          shouldNotContain: ['minted ephemeral _VARLOCK_ENV_KEY'],
+        },
+      ],
+    });
+
+    env.describeScenario('build: @encryptInjectedEnv + resolved-env with a key encrypts the nitro blob', {
+      command: 'nuxt build',
+      expectSuccess: true,
+      timeout: 300_000,
+      env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+      templateFiles: {
+        'nuxt.config.ts': 'configs/nuxt.config.resolved-env.ts',
+        '.env.schema': {
+          path: 'schemas/.env.schema',
+          prepend: '# @encryptInjectedEnv\n',
+        },
+      },
+      fileAssertions: [
+        {
+          description: 'nitro server bundle carries an encrypted blob, not plaintext',
+          fileGlob: '.output/server/chunks/nitro/*.mjs',
+          shouldContain: ['varlock:v1:'],
+          shouldNotContain: ['super-secret-value'],
         },
       ],
     });

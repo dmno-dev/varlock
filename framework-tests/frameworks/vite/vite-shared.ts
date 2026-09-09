@@ -332,6 +332,53 @@ export function defineViteTests(
       });
     });
 
+    // ---- Encrypted env blob in dev ----
+
+    describe('encrypted env blob (dev server)', () => {
+      // `@encryptInjectedEnv` with no key: the plugin must mint a temporary key
+      // in its early config hook and encrypt the dev blob with it, then decrypt
+      // it in-process when the SSR entry is evaluated.
+      viteEnv.describeDevScenario('dev server with @encryptInjectedEnv and no key', {
+        command: `vite dev --port ${basePort + 8}`,
+        readyPattern: /Local:.*http/,
+        readyTimeout: 30_000,
+        // surface the plugin's debug lines so we can assert the blob was encrypted
+        env: { DEBUG: 'varlock:vite-integration' },
+        templateFiles: {
+          'vite.config.ts': 'vite-configs/vite.config.ssr-resolved-env.ts',
+          'index.html': 'html/basic.html',
+          'src/ssr-entry.ts': 'pages/ssr-entry.ts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        requests: [
+          {
+            path: '/ssr',
+            bodyAssertions: {
+              shouldContain: [
+                'public-test-value',
+                'https://api.example.com',
+                'sensitive-var-available',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'blob is encrypted with a minted dev key, and decrypts',
+            shouldContain: [
+              'minted ephemeral _VARLOCK_ENV_KEY for local dev',
+              'encrypting injected env with the ephemeral dev key',
+            ],
+            shouldNotContain: ['_VARLOCK_ENV_KEY is not set', 'injecting plaintext'],
+          },
+        ],
+      });
+    });
+
     // ---- Undefined injection modes ----
 
     // Build an SSR entry with the resolved env inlined, then execute it with plain node so

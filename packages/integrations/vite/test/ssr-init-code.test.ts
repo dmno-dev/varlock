@@ -182,6 +182,17 @@ describe('config hook - minted dev key', () => {
     expect(process.env._VARLOCK_ENV_KEY).toBeUndefined();
   });
 
+  it('does not mint a key for `vite preview`', async () => {
+    const { varlockVitePlugin } = await importPlugin();
+    // preview serves a finished build that was encrypted with a real key; a
+    // minted key would only turn "key is not set" into a decrypt failure
+    await findPlugin(varlockVitePlugin(), 'varlock-dev-key-lifecycle').config(
+      {},
+      { command: 'serve', mode: 'production', isPreview: true },
+    );
+    expect(process.env._VARLOCK_ENV_KEY).toBeUndefined();
+  });
+
   it('keeps the minted key for dev servers', async () => {
     const { varlockVitePlugin } = await importPlugin();
     const plugins = varlockVitePlugin();

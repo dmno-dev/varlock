@@ -5,7 +5,7 @@ import {
 } from '@nuxt/kit';
 import type { NuxtModule } from '@nuxt/schema';
 import {
-  buildVarlockSsrInitCode, getVarlockEnvSourcePaths, getVarlockLoadedEnv, refreshVarlockEnv,
+  buildVarlockSsrInitCode, ensureDevEncryptionKey, getVarlockEnvSourcePaths, getVarlockLoadedEnv, refreshVarlockEnv,
   varlockVitePlugin, type VarlockVitePluginOptions,
 } from '@varlock/vite-integration';
 
@@ -65,6 +65,11 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
     // manual restart. Nuxt watches absolute `options.watch` entries even when
     // they live outside `srcDir`.
     if (nuxt.options.dev) {
+      // The Nitro init template below is rendered before vite's config hooks
+      // run, so the vite plugin has not minted the temporary dev key yet. Mint
+      // it here so a `@encryptInjectedEnv` + `resolved-env` dev blob is
+      // encrypted (and the Nitro dev worker, spawned later, inherits the key).
+      ensureDevEncryptionKey(nuxt.options.rootDir);
       // `watch` is missing from the resolved options on some older nuxt 3
       // versions - pushing into a fresh array is then a harmless no-op
       nuxt.options.watch ||= [];

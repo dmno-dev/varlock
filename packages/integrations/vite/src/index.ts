@@ -250,6 +250,26 @@ export function getVarlockLoadedEnv(rootDir?: string): SerializedEnvGraph | unde
 }
 
 /**
+ * Mints a temporary `_VARLOCK_ENV_KEY` for local dev when `@encryptInjectedEnv`
+ * is enabled and no key is set, and publishes it on `process.env` so dev
+ * runtimes spawned later (Nitro's worker, vitest pools) inherit it.
+ *
+ * The vite plugin calls this from a pre-enforced `config` hook. Integrations
+ * that generate the init module before vite's config hooks run (the Nuxt module
+ * writes its Nitro init template during module setup) must call it themselves,
+ * or their dev blob falls back to plaintext. Never call this for builds: the
+ * minted key is rejected at build time so a build cannot ship with a throwaway key.
+ */
+export function ensureDevEncryptionKey(rootDir?: string): string | undefined {
+  if (process.env._VARLOCK_ENV_KEY) return process.env._VARLOCK_ENV_KEY;
+  if (!getVarlockLoadedEnv(rootDir)?.settings?.encryptInjectedEnv) return undefined;
+  devMintedKey = generateEncryptionKeyHex();
+  process.env._VARLOCK_ENV_KEY = devMintedKey;
+  debug('minted ephemeral _VARLOCK_ENV_KEY for local dev');
+  return devMintedKey;
+}
+
+/**
  * Force a fresh env resolution and refresh the shared runtime store (ENV proxy
  * values, process.env injection, the auto-load global). Used by the Nuxt module
  * on dev restarts: it runs before the new nuxt instance evaluates nuxt.config,
@@ -581,14 +601,11 @@ export function varlockVitePlugin(
     name: 'varlock-dev-key-lifecycle',
     enforce: 'pre',
     config(_config, env) {
-      if (
-        env.command === 'serve'
-        && varlockLoadedEnv?.settings?.encryptInjectedEnv
-        && !process.env._VARLOCK_ENV_KEY
-      ) {
-        devMintedKey = generateEncryptionKeyHex();
-        process.env._VARLOCK_ENV_KEY = devMintedKey;
-        debug('minted ephemeral _VARLOCK_ENV_KEY for local dev');
+      // `vite preview` also reports `command: 'serve'`, but it runs a finished
+      // build that was encrypted with a real key. Minting there would only turn
+      // the clear "key is not set" runtime error into an opaque decrypt failure.
+      if (env.command === 'serve' && !env.isPreview) {
+        ensureDevEncryptionKey(vitePluginOptions?.rootDir);
       }
     },
   } satisfies Plugin;

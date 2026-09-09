@@ -429,6 +429,32 @@ export function defineTanstackTests(
         ],
       });
 
+      // `vite preview` reports `command: 'serve'` like dev, but it runs the
+      // finished build. The plugin must not mint a key there: the reader needs
+      // the real build key, and a minted one would replace the clear
+      // "key is not set" error with an opaque decrypt failure.
+      nitroBuildEnv.describeScenario('preview without key reports the missing key', {
+        command: `sh -c '_VARLOCK_ENV_KEY=${randomBytes(32).toString('hex')} vite build && vite preview --port ${port()}'`,
+        expectSuccess: false,
+        // safety net in case preview ever starts serving instead of failing
+        killAfterPattern: /Local:.*http/,
+        env: { DEBUG: 'varlock:vite-integration' },
+        templateFiles: {
+          'vite.config.ts': 'configs/vite.config.nitro.ts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        outputAssertions: [
+          {
+            description: 'preview fails with the missing-key error, not a decrypt error',
+            shouldContain: ['_VARLOCK_ENV_KEY is not set'],
+            shouldNotContain: ['unable to authenticate data', 'minted ephemeral _VARLOCK_ENV_KEY'],
+          },
+        ],
+      });
+
       nitroBuildEnv.describeScenario('build with key encrypts the blob', {
         command: 'vite build',
         env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },

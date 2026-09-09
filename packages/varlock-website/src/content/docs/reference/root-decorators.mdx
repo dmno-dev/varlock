@@ -428,7 +428,7 @@ SECRET_KEY= # @sensitive
 
 **Key management:**
 - For **Cloudflare Workers**, the key is auto-generated and uploaded as a secret binding, so no manual setup is needed
-- For **local dev**, a temporary key is minted when the Vite plugin is imported, so dev runtimes spawned by other plugins (for example Nitro's worker) inherit it; Cloudflare dev targets fall back to plaintext (see [Local development](/guides/encrypted-deployments/#local-development))
+- For **local dev**, the Vite plugin mints a temporary key in an early config hook, so dev runtimes spawned by other plugins (for example Nitro's worker) inherit it; Cloudflare dev targets fall back to plaintext (see [Local development](/guides/encrypted-deployments/#local-development))
 - For **production deploys** to other platforms, you must set `_VARLOCK_ENV_KEY` on your platform (see the [encrypted deployments guide](/guides/encrypted-deployments/))
 </div>
 

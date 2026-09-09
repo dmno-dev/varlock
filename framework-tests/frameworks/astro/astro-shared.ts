@@ -211,6 +211,46 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
         ],
       });
 
+      // `@encryptInjectedEnv` with no key: the vite plugin (pushed into astro's
+      // vite config as a plugin array) must still register and mint a temporary
+      // key in its early config hook, and the page must keep serving. Astro's
+      // dev server evaluates pages in-process against the config-time env, so
+      // the resolved-env blob itself is only exercised by `astro build`.
+      astroEnv.describeDevScenario('SSR page with @encryptInjectedEnv and no key', {
+        command: `astro dev --port ${port()}`,
+        readyPattern: /http:\/\/localhost/,
+        readyTimeout: 30_000,
+        env: { DEBUG: 'varlock:vite-integration' },
+        templateFiles: {
+          'src/pages/index.astro': 'pages/server-basic-page.astro',
+          'astro.config.mts': 'configs/astro.config.server.resolved-env.mts',
+          '.env.schema': {
+            path: 'schemas/.env.schema',
+            prepend: '# @encryptInjectedEnv\n',
+          },
+        },
+        requests: [
+          {
+            path: '/',
+            bodyAssertions: {
+              shouldContain: [
+                'public-var-value',
+                'env-specific-var--dev',
+                'sensitive-var-available',
+              ],
+              shouldNotContain: ['super-secret-value'],
+            },
+          },
+        ],
+        outputAssertions: [
+          {
+            description: 'dev key is minted through the plugin array and nothing errors',
+            shouldContain: ['minted ephemeral _VARLOCK_ENV_KEY for local dev'],
+            shouldNotContain: ['_VARLOCK_ENV_KEY is not set', 'unable to authenticate data'],
+          },
+        ],
+      });
+
       astroEnv.describeDevScenario('leaky SSR page', {
         command: `astro dev --port ${port()}`,
         readyPattern: /http:\/\/localhost/,

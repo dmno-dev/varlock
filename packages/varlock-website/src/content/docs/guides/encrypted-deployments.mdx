@@ -42,7 +42,7 @@ The encryption key (`_VARLOCK_ENV_KEY`) is managed differently depending on your
 
 ### Local development
 
-Nothing to set up. When `@encryptInjectedEnv` is enabled, the Vite plugin mints a temporary key in an early dev-server config hook. Frameworks that run the SSR dev runtime in a separate worker or process (Nitro and TanStack Start, vitest) spawn it later with a copy of the environment, so they inherit the key and the blob is encrypted in dev the same way it is in production. The key lives only in memory for that dev session and is never created for builds. If you export `_VARLOCK_ENV_KEY` yourself before starting the dev server, that key is used instead.
+Nothing to set up. When `@encryptInjectedEnv` is enabled, the Vite plugin mints a temporary key in an early dev-server config hook. Frameworks that run the SSR dev runtime in a separate worker or process (Nitro and TanStack Start, Nuxt, vitest) spawn it later with a copy of the environment, so they inherit the key and the blob is encrypted in dev the same way it is in production. The key lives only in memory for that dev session and is never created for builds. If you export `_VARLOCK_ENV_KEY` yourself before starting the dev server, that key is used instead. `vite preview` never mints a key: it serves a finished build, so it needs the same real key the build used.
 
 On Cloudflare targets, the dev blob is always plaintext: the workerd dev runtime reads `process.env` from bindings, so no host env var can reach it. Dev output is never deployed, so this is safe. If you use another runtime that cannot see host env vars, scope the decorator to production with `@encryptInjectedEnv=forEnv(prod)`.
 
