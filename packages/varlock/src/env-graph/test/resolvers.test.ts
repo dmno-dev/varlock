@@ -662,6 +662,113 @@ describe('isEmpty()', functionValueTests({
   },
 }));
 
+describe('domainFromUrl()', functionValueTests({
+  working: {
+    input: outdent`
+      FULL_URL=domainFromUrl("https://api.example.com/v1/users?id=1#top")
+      WITH_PORT=domainFromUrl("https://example.com:8443/path")
+      MIXED_CASE=domainFromUrl("https://Example.COM")
+      BARE_HOST=domainFromUrl("example.com")
+      BARE_HOST_WITH_PORT=domainFromUrl("example.com:8080/path")
+      IPV4=domainFromUrl("http://127.0.0.1:3000/")
+      IPV6=domainFromUrl("http://[::1]:3000/")
+      IDN=domainFromUrl("https://bücher.example/")
+      EMPTY=domainFromUrl("")
+      UNDEF=domainFromUrl(undefined)
+    `,
+    expected: {
+      FULL_URL: 'api.example.com',
+      WITH_PORT: 'example.com',
+      MIXED_CASE: 'example.com',
+      BARE_HOST: 'example.com',
+      BARE_HOST_WITH_PORT: 'example.com',
+      IPV4: '127.0.0.1',
+      IPV6: '[::1]',
+      IDN: 'xn--bcher-kva.example',
+      EMPTY: undefined,
+      UNDEF: undefined,
+    },
+  },
+  'resolves the host a request would actually use': {
+    input: outdent`
+      CREDENTIALS=domainFromUrl("https://trusted.example@evil.example/")
+      BACKSLASH=domainFromUrl("https://evil.example\\@trusted.example/")
+    `,
+    expected: {
+      CREDENTIALS: 'evil.example',
+      BACKSLASH: 'evil.example',
+    },
+  },
+  'with nested resolvers': {
+    input: outdent`
+      API_URL=https://api.example.com/v1
+      API_DOMAIN=domainFromUrl($API_URL)
+      COOKIE_DOMAIN=domainFromUrl(fallback(undefined, "https://www.example.com"))
+    `,
+    expected: {
+      API_URL: 'https://api.example.com/v1',
+      API_DOMAIN: 'api.example.com',
+      COOKIE_DOMAIN: 'www.example.com',
+    },
+  },
+  'hosts an explicit domain type would reject without settings': {
+    // the inferred type is instantiated with allowSingleLabel/allowIp/allowIpV6, since the
+    // input is any url - these all resolve rather than failing validation
+    input: outdent`
+      LOCAL=domainFromUrl("http://localhost:3000")
+      IPV4=domainFromUrl("http://127.0.0.1:3000")
+      IPV6=domainFromUrl("http://[::1]:3000")
+    `,
+    expected: {
+      LOCAL: 'localhost',
+      IPV4: '127.0.0.1',
+      IPV6: '[::1]',
+    },
+  },
+  'error - not a url': {
+    input: 'ITEM=domainFromUrl("not a url")',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - no host in url': {
+    input: 'ITEM=domainFromUrl("mailto:someone@example.com")',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - no args': {
+    input: 'ITEM=domainFromUrl()',
+    expected: { ITEM: SchemaError },
+  },
+  'error - too many args': {
+    input: 'ITEM=domainFromUrl("https://example.com", "extra")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=domainFromUrl(url="https://example.com")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested bad arg': {
+    input: 'ITEM=domainFromUrl(ref(BADKEY))',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('domainFromUrl() type inference', () => {
+  it('infers the domain data type', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false @defaultSensitive=false
+        # ---
+        API_DOMAIN=domainFromUrl("https://api.example.com/v1")
+        PLAIN=concat("a", "b")
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    expect(g.configSchema.API_DOMAIN.dataType?.name).toBe('domain');
+    expect(g.configSchema.PLAIN.dataType?.name).toBe('string');
+  });
+});
+
 // --------
 
 describe('dependency cycles', functionValueTests({

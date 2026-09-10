@@ -268,6 +268,29 @@ API_URL=if(isEmpty($CUSTOM_API_URL), "https://api.default.com", $CUSTOM_API_URL)
 ```
 </div>
 
+<div>
+### `domainFromUrl()`
+
+Extracts the domain (host) from a URL, dropping the protocol, credentials, port, path, query, and fragment. Useful for deriving things like a cookie domain or an allowed origin from a URL you already have.
+
+The value is parsed as a URL, so the result is the host a request would actually be sent to. A value with no scheme (`example.com`, `example.com:8080`) is treated as a bare host. The result is lowercased, and internationalized domains are converted to punycode.
+
+This returns the full host, not the registrable domain: `domainFromUrl("https://api.example.co.uk")` is `api.example.co.uk`, not `example.co.uk`.
+
+The item's type is inferred as `domain` unless you set one explicitly, so `varlock` treats the value as a hostname downstream.
+
+An empty or undefined input resolves to undefined. Anything else that cannot be parsed as a URL, or a URL with no host at all (like `mailto:someone@example.com`), is a resolution error.
+
+```env-spec "domainFromUrl"
+API_URL=https://api.example.com/v1
+# api.example.com
+API_DOMAIN=domainFromUrl($API_URL)
+
+# use it to build another value
+ALLOWED_ORIGIN=concat("https://", domainFromUrl($API_URL))
+```
+</div>
+
 </div>
 
 ## Random value generators

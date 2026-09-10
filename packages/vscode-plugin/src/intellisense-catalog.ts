@@ -339,6 +339,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
       { name: 'allowWildcard', insertText: `allowWildcard=${booleanChoiceSnippet()}`, documentation: 'Allow a leading wildcard label, e.g. `*.example.com`.' },
       { name: 'allowSingleLabel', insertText: `allowSingleLabel=${booleanChoiceSnippet()}`, documentation: 'Allow single-label hostnames like `localhost`.' },
       { name: 'allowIp', insertText: `allowIp=${booleanChoiceSnippet()}`, documentation: 'Also accept an IPv4 address (useful for HOST-style vars like `DB_HOST`).' },
+      { name: 'allowIpV6', insertText: `allowIpV6=${booleanChoiceSnippet()}`, documentation: 'Also accept an IPv6 address, bracketed (`[::1]`) or bare (`::1`).' },
       { name: 'normalize', insertText: `normalize=${booleanChoiceSnippet()}`, documentation: 'Lowercase the domain before validation.' },
       { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the domain must match.' },
     ],
@@ -500,6 +501,12 @@ export const RESOLVERS: Array<ResolverInfo> = [
     summary: 'Checks whether a value is undefined or empty.',
     documentation: 'Useful for conditionals and optional env values.',
     insertText: 'isEmpty(${1:$$OPTIONAL_KEY})',
+  },
+  {
+    name: 'domainFromUrl',
+    summary: 'Extracts the domain (host) from a URL.',
+    documentation: 'Drops the protocol, credentials, port, path, and query - `https://api.example.com/v1` becomes `api.example.com`.',
+    insertText: 'domainFromUrl(${1:$$URL_KEY})',
   },
   {
     name: 'generateOtp',
