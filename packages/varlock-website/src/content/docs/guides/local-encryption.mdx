@@ -154,6 +154,7 @@ Treat this gate as a **consent prompt**, not an at-rest boundary. On Linux the T
 - Windows native and **WSL** workflows are both supported (WSL uses the Windows `varlock-local-encrypt.exe` via `--via-daemon`; Hello + TPM behavior is identical)
 - Automated daemon startup/installation behavior is built in for biometric session flows
 - WSL decrypt flows use a native bridge to the Windows daemon path
+- The Windows helper is only launched when varlock actually needs it: decrypting or encrypting a value, or writing to the encrypted disk cache. Loading a schema with no encrypted values never invokes it, so it adds no startup cost on WSL
 
 ✅ No additional install/setup steps required
 

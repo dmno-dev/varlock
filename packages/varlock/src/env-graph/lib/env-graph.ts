@@ -625,7 +625,7 @@ export class EnvGraph {
           const localEncrypt = await import('../../lib/local-encrypt');
           const { createEnvKeyCacheStore, getCacheEnvKey } = await import('../../lib/cache');
           const envKey = getCacheEnvKey(this.processEnvOverride ?? process.env);
-          const backendIsFile = localEncrypt.getBackendInfo().type === 'file';
+          const backendIsFile = localEncrypt.getBackendType().type === 'file';
 
           let diskStore: import('../../lib/cache/cache-store').CacheStoreLike | undefined;
           if (backendIsFile && envKey) {

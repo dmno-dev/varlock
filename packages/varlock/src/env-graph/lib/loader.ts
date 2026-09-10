@@ -59,9 +59,12 @@ export async function loadEnvGraph(opts?: {
   // initialize cache store (encryption key is ensured lazily on first write)
   // auto policy: native-backend disk > env-key disk > in-process memory
   if (!opts?.skipCache) {
-    const backend = localEncrypt.getBackendInfo();
+    // getBackendType() is a filesystem-only check. It must not spawn the native
+    // helper: that runs on every load, and on WSL2 a single spawn of the Windows
+    // .exe through interop measured ~5s in #1078 (0.7s load -> 5.9s)
     const isCi = graph.ciEnvInfo.isCI;
-    if (backend.type !== 'file' && !isCi) {
+    const hasNativeBackend = !isCi && localEncrypt.getBackendType().type !== 'file';
+    if (hasNativeBackend) {
       graph._cacheMode = 'disk';
       graph._cacheStore = new CacheStore();
     } else if (envKey) {
