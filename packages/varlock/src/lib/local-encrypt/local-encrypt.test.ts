@@ -47,12 +47,20 @@ describe('local-encrypt with file fallback', () => {
     expect(info.binaryPath).toBeUndefined();
   });
 
-  it('getBackendType agrees with getBackendInfo without probing the helper', () => {
-    const cheap = localEncrypt.getBackendType();
-    expect(cheap.type).toBe('file');
+  // that getBackendType() never spawns the helper is enforced by the loader
+  // cache-policy test; this one only pins the two to the same classification
+  it('getBackendType agrees with getBackendInfo, cached or not', () => {
+    // no probe yet, so this falls through to detectBackendType()
+    const beforeProbe = localEncrypt.getBackendType();
+    expect(beforeProbe.type).toBe('file');
+
     const full = localEncrypt.getBackendInfo();
-    expect(cheap.type).toBe(full.type);
-    expect(cheap.isFileFallback).toBe(full.isFileFallback);
+    expect(beforeProbe.type).toBe(full.type);
+    expect(beforeProbe.isFileFallback).toBe(full.isFileFallback);
+
+    // now that the probe has run, it reads back off the cached info
+    const afterProbe = localEncrypt.getBackendType();
+    expect(afterProbe).toEqual(beforeProbe);
   });
 
   it('generates a key and reports it exists', async () => {

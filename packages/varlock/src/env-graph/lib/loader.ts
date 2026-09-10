@@ -60,7 +60,8 @@ export async function loadEnvGraph(opts?: {
   // auto policy: native-backend disk > env-key disk > in-process memory
   if (!opts?.skipCache) {
     // getBackendType() is a filesystem-only check. It must not spawn the native
-    // helper: that happens on every load and costs seconds on WSL2 (see #1078)
+    // helper: that runs on every load, and on WSL2 a single spawn of the Windows
+    // .exe through interop measured ~5s in #1078 (0.7s load -> 5.9s)
     const isCi = graph.ciEnvInfo.isCI;
     const hasNativeBackend = !isCi && localEncrypt.getBackendType().type !== 'file';
     if (hasNativeBackend) {
