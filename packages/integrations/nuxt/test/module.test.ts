@@ -15,6 +15,7 @@ const varlockVitePluginMock = vi.fn(() => ({ name: 'varlock-vite-plugin' }));
 const buildVarlockSsrInitCodeMock = vi.fn(() => 'initVarlockEnv();');
 const getVarlockEnvSourcePathsMock = vi.fn((): Array<string> => []);
 const refreshVarlockEnvMock = vi.fn();
+const ensureDevEncryptionKeyMock = vi.fn();
 type FakeLoadedEnv = {
   basePath: string,
   sources: Array<unknown>,
@@ -44,6 +45,7 @@ vi.mock('@nuxt/kit', () => ({
 
 vi.mock('@varlock/vite-integration', () => ({
   buildVarlockSsrInitCode: buildVarlockSsrInitCodeMock,
+  ensureDevEncryptionKey: ensureDevEncryptionKeyMock,
   getVarlockEnvSourcePaths: getVarlockEnvSourcePathsMock,
   getVarlockLoadedEnv: getVarlockLoadedEnvMock,
   refreshVarlockEnv: refreshVarlockEnvMock,
@@ -182,6 +184,21 @@ describe('@varlock/nuxt-integration module', () => {
       const nuxtModule = await loadModule();
       nuxtModule.setup?.({}, FAKE_NUXT);
       expect(getVarlockEnvSourcePathsMock).not.toHaveBeenCalled();
+    });
+
+    it('mints the dev encryption key before rendering the nitro init template', async () => {
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({}, makeDevNuxt());
+      expect(ensureDevEncryptionKeyMock).toHaveBeenCalledWith('/fake-project');
+      // the template renders after setup, so the key must already be minted
+      expect(ensureDevEncryptionKeyMock.mock.invocationCallOrder[0])
+        .toBeLessThan(addTemplateMock.mock.invocationCallOrder[0]);
+    });
+
+    it('never mints a dev key outside dev', async () => {
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({}, FAKE_NUXT);
+      expect(ensureDevEncryptionKeyMock).not.toHaveBeenCalled();
     });
   });
 
