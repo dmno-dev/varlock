@@ -198,6 +198,45 @@ export function defineCloudflareTests(
       ],
     });
 
+    // `@encryptInjectedEnv` with no key on a Cloudflare dev target: workerd
+    // cannot read host env vars, so the dev blob falls back to plaintext instead
+    // of shipping an encrypted blob the worker could never decrypt. Dev must
+    // keep working and never surface a key or decrypt error.
+    cfEnv.describeDevScenario('@encryptInjectedEnv with no key still serves in dev', {
+      command: `vite dev --port ${basePort + 6}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+        '.env.schema': {
+          path: 'schemas/.env.schema',
+          prepend: '# @encryptInjectedEnv\n',
+        },
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'public_var::public-test-value',
+              'api_url::https://api.example.com',
+              'has_sensitive::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+      outputAssertions: [
+        {
+          description: 'no key or decrypt errors on the workerd side',
+          shouldNotContain: ['_VARLOCK_ENV_KEY is not set', 'unable to authenticate data'],
+        },
+      ],
+    });
+
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,
       readyPattern: /Local:.*http/,

@@ -22,7 +22,9 @@
   "scripts": {
     "dev": "tsdown --watch",
     "build": "tsdown",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:ci": "vitest --run"
   },
   "keywords": [
     "varlock",

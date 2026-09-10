@@ -474,7 +474,7 @@ export class FrameworkTestEnv {
       }
     }
 
-    const artifactDirs = ['out', 'dist', '.turbo', '.wrangler'];
+    const artifactDirs = ['out', 'dist', '.turbo', '.wrangler', '.output', '.nitro'];
     for (const dir of artifactDirs) {
       const fullPath = join(this.dir, dir);
       if (existsSync(fullPath)) {
