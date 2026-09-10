@@ -854,6 +854,14 @@ describe('domain data type', () => {
       expect(g.configSchema.MY_HOST.isValid).toBe(false);
     });
 
+    it('still applies matches to an accepted IPv6 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true, matches="^2001:")
+        MY_HOST=::1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
     it('does not accept an IPv4 address on its own', async () => {
       const g = await loadAndResolve(outdent`
         # @type=domain(allowIpV6=true)

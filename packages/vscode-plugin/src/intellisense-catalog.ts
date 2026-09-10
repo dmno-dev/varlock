@@ -505,7 +505,7 @@ export const RESOLVERS: Array<ResolverInfo> = [
   {
     name: 'domainFromUrl',
     summary: 'Extracts the domain (host) from a URL.',
-    documentation: 'Drops the protocol, credentials, port, path, and query - `https://api.example.com/v1` becomes `api.example.com`.',
+    documentation: 'Drops the protocol, credentials, port, path, and query - `https://api.example.com/v1` becomes `api.example.com`. Pass `registrable=true` to narrow to the registrable domain (`example.com`).',
     insertText: 'domainFromUrl(${1:$$URL_KEY})',
   },
   {

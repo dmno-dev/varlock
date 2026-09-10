@@ -64,7 +64,9 @@
     "node": ">=22.3.0",
     "bun": ">=1.3.3"
   },
-  "dependencies": {},
+  "dependencies": {
+    "tldts": "^7.4.12"
+  },
   "optionalDependencies": {
     "@varlock/native-helper-darwin": "workspace:*",
     "@varlock/native-helper-linux-arm64": "workspace:*",

@@ -277,6 +277,16 @@ The value is parsed as a URL, so the result is the host a request would actually
 
 This returns the full host, not the registrable domain: `domainFromUrl("https://api.example.co.uk")` is `api.example.co.uk`, not `example.co.uk`.
 
+Pass `registrable=true` to narrow the result to the registrable domain (eTLD+1), which is what you usually want for a cookie domain:
+
+```env-spec "registrable"
+APP_URL=https://app.example.co.uk
+# example.co.uk
+COOKIE_DOMAIN=domainFromUrl($APP_URL, registrable=true)
+```
+
+This uses the public suffix list, including its private section, so `foo.github.io` stays whole instead of collapsing to `github.io` (a cookie set on a public suffix is dropped by browsers). Hosts with no registrable domain, like `localhost` and IP addresses, are returned unchanged. A host that is itself a public suffix (`co.uk`) is a resolution error, since there is nothing valid to return.
+
 The item's type is inferred as `domain` unless you set one explicitly, so `varlock` treats the value as a hostname downstream.
 
 An empty or undefined input resolves to undefined. Anything else that cannot be parsed as a URL, or a URL with no host at all (like `mailto:someone@example.com`), is a resolution error.

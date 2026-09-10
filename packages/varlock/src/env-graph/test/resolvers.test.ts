@@ -725,6 +725,49 @@ describe('domainFromUrl()', functionValueTests({
       IPV6: '[::1]',
     },
   },
+  'trailing root dot is dropped': {
+    // `example.com.` names the same host, and the dot would fail every hostname check
+    input: 'ITEM=domainFromUrl("https://example.com./path")',
+    expected: { ITEM: 'example.com' },
+  },
+  'registrable=true narrows to the registrable domain': {
+    input: outdent`
+      SUBDOMAIN=domainFromUrl("https://api.example.com/v1", registrable=true)
+      DEEP=domainFromUrl("https://a.b.c.example.com", registrable=true)
+      MULTI_PART_TLD=domainFromUrl("https://app.example.co.uk", registrable=true)
+      ALREADY_BARE=domainFromUrl("https://example.com", registrable=true)
+      # private suffixes count, so this does not collapse to github.io
+      PRIVATE_SUFFIX=domainFromUrl("https://foo.github.io", registrable=true)
+      # hosts with no registrable domain are passed through unchanged
+      LOCALHOST=domainFromUrl("http://localhost:3000", registrable=true)
+      IPV4=domainFromUrl("http://127.0.0.1:3000", registrable=true)
+      IPV6=domainFromUrl("http://[::1]:3000", registrable=true)
+      OFF_BY_DEFAULT=domainFromUrl("https://api.example.com")
+    `,
+    expected: {
+      SUBDOMAIN: 'example.com',
+      DEEP: 'example.com',
+      MULTI_PART_TLD: 'example.co.uk',
+      ALREADY_BARE: 'example.com',
+      PRIVATE_SUFFIX: 'foo.github.io',
+      LOCALHOST: 'localhost',
+      IPV4: '127.0.0.1',
+      IPV6: '[::1]',
+      OFF_BY_DEFAULT: 'api.example.com',
+    },
+  },
+  'error - registrable=true on a bare public suffix': {
+    input: 'ITEM=domainFromUrl("https://co.uk", registrable=true)',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - registrable is not static': {
+    input: 'ITEM=domainFromUrl("https://api.example.com", registrable=concat("tr", "ue"))',
+    expected: { ITEM: SchemaError },
+  },
+  'error - unknown option': {
+    input: 'ITEM=domainFromUrl("https://api.example.com", dropSubdomains=true)',
+    expected: { ITEM: SchemaError },
+  },
   'error - not a url': {
     input: 'ITEM=domainFromUrl("not a url")',
     expected: { ITEM: ResolutionError },
@@ -748,6 +791,18 @@ describe('domainFromUrl()', functionValueTests({
   'error - nested bad arg': {
     input: 'ITEM=domainFromUrl(ref(BADKEY))',
     expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('domainFromUrl() through type-forwarding resolvers', functionValueTests({
+  // if() and cache() pass a child's inferred type up to the item, so they have to pass the
+  // type's settings along with it - otherwise these fail validation under a stricter `domain`
+  working: {
+    input: outdent`
+      VIA_IF=if(true, domainFromUrl("http://127.0.0.1:3000"))
+      VIA_CACHE=cache(domainFromUrl("http://localhost:3000"))
+    `,
+    expected: { VIA_IF: '127.0.0.1', VIA_CACHE: 'localhost' },
   },
 }));
 

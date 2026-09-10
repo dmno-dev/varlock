@@ -652,6 +652,7 @@ export const IfResolver: typeof Resolver = createResolver({
     // we can infer a type if both true and false cases have a matching inferred type
     } else if (!falseVal || trueVal.inferredType === falseVal.inferredType) {
       this.inferredType = trueVal.inferredType;
+      this.inferredTypeSettings = trueVal.inferredTypeSettings;
     }
     return { condition, trueVal, falseVal };
   },
@@ -747,10 +748,41 @@ function extractDomainFromUrl(url: string): string | undefined {
     const parsed = new URL(isBareHost ? `https://${trimmed}` : trimmed);
     // non-special schemes (`mailto:`, `urn:`, custom protocols) have no host at all
     // `URL` has already lowercased and punycoded the hostname for us
-    return parsed.hostname || undefined;
+    if (!parsed.hostname) return undefined;
+    // a fully qualified host may carry the root label (`example.com.`) - it names the same
+    // host, and the trailing dot would fail every downstream hostname check, so drop it
+    if (parsed.hostname.endsWith('.') && parsed.hostname !== '.') {
+      return parsed.hostname.slice(0, -1);
+    }
+    return parsed.hostname;
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Narrows a host to its registrable domain (eTLD+1) using the public suffix list.
+ * The list is loaded lazily so schemas that never ask for it don't pay for it.
+ *
+ * Private suffixes count, so `foo.github.io` stays whole rather than collapsing to
+ * `github.io` - a cookie set on a public suffix is silently dropped by browsers, which is
+ * exactly the failure this option exists to avoid.
+ */
+async function extractRegistrableDomain(host: string) {
+  const { parse } = await import('tldts');
+  const parsed = parse(host, { allowPrivateDomains: true });
+  if (parsed.domain) return parsed.domain;
+
+  // ip literals and single-label hosts (`localhost`, an internal service name) have no
+  // registrable domain, and they are already the value you'd want for a cookie domain
+  if (parsed.isIp || !host.includes('.')) return host;
+
+  // what's left is a host that is itself a public suffix (`co.uk`, `github.io`) - there is
+  // no registrable domain to return, and guessing one would produce a value that silently
+  // does not work
+  throw new ResolutionError(`"${host}" is a public suffix, so it has no registrable domain`, {
+    tip: 'remove `registrable=true` to use the full host',
+  });
 }
 
 export const DomainFromUrlResolver: typeof Resolver = createResolver({
@@ -761,10 +793,27 @@ export const DomainFromUrlResolver: typeof Resolver = createResolver({
   // or an ip literal - the type is here to describe the value, not to narrow it
   inferredTypeSettings: { allowSingleLabel: true, allowIp: true, allowIpV6: true },
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayExactLength: 1,
   },
-  async resolve() {
+  process() {
+    let registrable = false;
+    const registrableResolver = this.objArgs?.registrable;
+    if (registrableResolver) {
+      if (!registrableResolver.isStatic || typeof registrableResolver.staticValue !== 'boolean') {
+        throw new SchemaError('registrable must be a static boolean');
+      }
+      registrable = registrableResolver.staticValue as boolean;
+    }
+    const unknownOptions = Object.keys(this.objArgs ?? {}).filter((k) => k !== 'registrable');
+    if (unknownOptions.length) {
+      throw new SchemaError(`unknown option(s): ${unknownOptions.join(', ')}`, {
+        tip: 'the only supported option is `registrable`',
+      });
+    }
+    return { registrable };
+  },
+  async resolve({ registrable }) {
     const value = await this.arrArgs![0].resolve();
     // an empty input stays empty rather than becoming an error, so this composes with
     // optional items - fallback()/if() upstream still see undefined
@@ -778,7 +827,11 @@ export const DomainFromUrlResolver: typeof Resolver = createResolver({
         tip: 'expects a url like `https://api.example.com/path` or a bare host like `example.com`',
       });
     }
-    return domain;
+    if (!registrable) return domain;
+    // bracketed ipv6 hosts are passed through as-is, so unwrap before the suffix lookup
+    const unbracketed = domain.startsWith('[') && domain.endsWith(']') ? domain.slice(1, -1) : domain;
+    const registrableDomain = await extractRegistrableDomain(unbracketed);
+    return registrableDomain === unbracketed ? domain : registrableDomain;
   },
 });
 
@@ -1092,6 +1145,9 @@ export const CacheResolver: typeof Resolver = createResolver({
     const childResolver = this.arrArgs?.[0];
     if (childResolver?.inferredType) {
       this.inferredType = childResolver.inferredType;
+      // the settings travel with the type - without them a forwarded `domain` type would be
+      // instantiated with stricter defaults than the child resolver's own value can satisfy
+      this.inferredTypeSettings = childResolver.inferredTypeSettings;
     }
 
     // warn if the child resolver is a static value — caching a literal is pointless

@@ -562,58 +562,60 @@ const DomainDataType = createEnvGraphDataType(
       return val;
     },
     validate(val) {
-      // IPv6 has to be checked before the port/colon guard below, since the address is all colons
-      // both the bracketed form (as it appears in a url or Host header) and the bare form are ok
-      if (settings?.allowIpV6) {
-        const unbracketed = val.startsWith('[') && val.endsWith(']') ? val.slice(1, -1) : val;
-        if (IP_V6_ADDRESS_REGEX.test(unbracketed)) return true;
-      }
+      // IPv6 has to be checked before the port/colon guard below, since the address is all colons.
+      // Both the bracketed form (as it appears in a url or Host header) and the bare form are ok.
+      // Like the IPv4 path this skips only the hostname structure checks - `matches` still applies.
+      const isIpV6 = !!settings?.allowIpV6 && IP_V6_ADDRESS_REGEX.test(
+        val.startsWith('[') && val.endsWith(']') ? val.slice(1, -1) : val,
+      );
 
-      // friendlier errors for the most likely mistakes (pasting a full URL)
-      if (val.includes('://')) {
-        throw new ValidationError('Domain must not include a protocol', { tip: 'use @type=url for full URLs' });
-      }
-      if (val.includes('/')) {
-        throw new ValidationError('Domain must not include a path', { tip: 'use @type=url for full URLs' });
-      }
-      if (val.includes(':')) {
-        throw new ValidationError('Domain must not include a port');
-      }
-      if (val.includes('@')) {
-        throw new ValidationError('Domain must not include credentials or an @ sign');
-      }
+      if (!isIpV6) {
+        // friendlier errors for the most likely mistakes (pasting a full URL)
+        if (val.includes('://')) {
+          throw new ValidationError('Domain must not include a protocol', { tip: 'use @type=url for full URLs' });
+        }
+        if (val.includes('/')) {
+          throw new ValidationError('Domain must not include a path', { tip: 'use @type=url for full URLs' });
+        }
+        if (val.includes(':')) {
+          throw new ValidationError('Domain must not include a port');
+        }
+        if (val.includes('@')) {
+          throw new ValidationError('Domain must not include credentials or an @ sign');
+        }
 
-      // a valid IPv4 address skips the domain structure checks (matches still applies below)
-      if (!(settings?.allowIp && IP_V4_ADDRESS_REGEX.test(val))) {
-        let domain = val;
-        if (domain.startsWith('*.')) {
-          if (!settings?.allowWildcard) {
-            throw new ValidationError('Wildcard domains are not allowed', { tip: 'set allowWildcard=true to allow them' });
+        // a valid IPv4 address skips the domain structure checks (matches still applies below)
+        if (!(settings?.allowIp && IP_V4_ADDRESS_REGEX.test(val))) {
+          let domain = val;
+          if (domain.startsWith('*.')) {
+            if (!settings?.allowWildcard) {
+              throw new ValidationError('Wildcard domains are not allowed', { tip: 'set allowWildcard=true to allow them' });
+            }
+            domain = domain.slice(2);
           }
-          domain = domain.slice(2);
-        }
 
-        // the 253-char total limit (RFC 1035) counts the wildcard label too, so check `val`
-        if (domain.length === 0 || val.length > 253) {
-          throw new ValidationError('Value must be a valid domain name');
-        }
-
-        const labels = domain.split('.');
-        if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
-          throw new ValidationError('Value must be a valid domain name');
-        }
-        // an all-numeric final label means this is really an IP address (or a malformed one)
-        if (/^\d+$/.test(labels[labels.length - 1])) {
-          if (settings?.allowIp) {
-            throw new ValidationError('Value must be a valid domain name or IPv4 address');
+          // the 253-char total limit (RFC 1035) counts the wildcard label too, so check `val`
+          if (domain.length === 0 || val.length > 253) {
+            throw new ValidationError('Value must be a valid domain name');
           }
-          throw new ValidationError('Value must be a domain name, not an IP address', { tip: 'use @type=ip for IP addresses, or set allowIp=true to allow both' });
-        }
-        if (labels.length < 2 && !settings?.allowSingleLabel) {
-          throw new ValidationError(
-            'Domain must include at least two labels (e.g. "example.com")',
-            { tip: 'set allowSingleLabel=true to allow hostnames like "localhost"' },
-          );
+
+          const labels = domain.split('.');
+          if (labels.some((label) => !DOMAIN_LABEL_REGEX.test(label))) {
+            throw new ValidationError('Value must be a valid domain name');
+          }
+          // an all-numeric final label means this is really an IP address (or a malformed one)
+          if (/^\d+$/.test(labels[labels.length - 1])) {
+            if (settings?.allowIp) {
+              throw new ValidationError('Value must be a valid domain name or IPv4 address');
+            }
+            throw new ValidationError('Value must be a domain name, not an IP address', { tip: 'use @type=ip for IP addresses, or set allowIp=true to allow both' });
+          }
+          if (labels.length < 2 && !settings?.allowSingleLabel) {
+            throw new ValidationError(
+              'Domain must include at least two labels (e.g. "example.com")',
+              { tip: 'set allowSingleLabel=true to allow hostnames like "localhost"' },
+            );
+          }
         }
       }
 
