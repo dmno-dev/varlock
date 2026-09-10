@@ -9,7 +9,7 @@ This allows you to keep **everything out of plaintext** - even temporary local o
 
 Sensitive values will be stored _encrypted_, with the key linked to your local device, and requiring no extra configuration. The encryption mechanism varies per platform, but as it is tied to your device, **these values are not meant to be shared or committed to git**.
 
-```diff(lang=env-spec) title=".env.local" del="shh-im-secret" add=/(varlock\\(.*\\))/
+```diff lang="env-spec" title=".env.local" del="shh-im-secret" add=/(varlock\\(.*\\))/
 PLAINTEXT=shh-im-secret            # 🚨 danger
 SECURED=varlock(local:abc123...)  # ✅ secured at rest
 ```

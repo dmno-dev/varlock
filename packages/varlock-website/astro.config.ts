@@ -8,6 +8,7 @@ import sitemap from '@astrojs/sitemap';
 import robotsTxt from 'astro-robots-txt';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import partytown from '@astrojs/partytown';
+import { unified } from '@astrojs/markdown-remark';
 import remarkCustomHeaderId from 'remark-custom-header-id';
 import { outdent } from 'outdent';
 
@@ -21,6 +22,10 @@ import { sidebar } from './src/sidebar';
 // https://astro.build/config
 export default defineConfig({
   site: 'https://varlock.dev',
+  // Astro 7 defaults to JSX whitespace rules ('jsx'), which drop whitespace between
+  // inline elements on separate lines. Keep the HTML-aware behavior we built the
+  // components against.
+  compressHTML: true,
   redirects: {
     '/guides/docker': '/integrations/docker/',
     // sandboxing concepts moved under the proxy section, tool recipes into their own ecosystem group
@@ -32,8 +37,8 @@ export default defineConfig({
     '/guides/sandboxing/bubblewrap': '/sandboxes/bubblewrap/',
     '/guides/sandboxing/mxc': '/sandboxes/mxc/',
     // CLI / VS Code / README still link to the bare /env-spec path
+    // (a trailing-slash variant would be a duplicate static route in Astro 7)
     '/env-spec': '/env-spec/overview/',
-    '/env-spec/': '/env-spec/overview/',
   },
   vite: {
     resolve: {
@@ -272,6 +277,9 @@ export default defineConfig({
     }),
   ],
   markdown: {
-    remarkPlugins: [remarkCustomHeaderId],
+    // Astro 7 defaults to the Satteri processor, which does not run remark plugins.
+    // The docs rely on remark-custom-header-id for `## Heading ||custom-id||` anchors,
+    // so keep the unified (remark) pipeline explicitly.
+    processor: unified({ remarkPlugins: [remarkCustomHeaderId] }),
   },
 });
