@@ -1,6 +1,7 @@
 /*
 Shared Cloudflare Workers test definitions, parameterized by Vite version.
-Covers basic worker dev, leak detection, build + preview, and large env chunking.
+Covers basic worker dev, leak detection, build + preview, auxiliary (multi-)workers,
+and large env chunking.
 */
 import { randomBytes } from 'node:crypto';
 import {
@@ -236,6 +237,72 @@ export function defineCloudflareTests(
         },
       ],
     });
+
+    cfEnv.describeDevScenario('auxiliary workers', {
+      command: `vite dev --port ${basePort + 7}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'src/aux.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'wrangler.aux.jsonc': '_aux-wrangler/wrangler.aux.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'entry_public_var::public-test-value',
+              'entry_has_sensitive::yes',
+              // the auxiliary worker gets its own __VARLOCK_ENV binding + vars
+              'aux_public_var::public-test-value',
+              'aux_api_url::https://api.example.com',
+              'aux_has_sensitive::yes',
+              'aux_native_public_var::public-test-value',
+              'aux_native_has_secret::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
+    cfEnv.describeDevScenario('auxiliary workers (build + preview)', {
+      command: `vite build && vite preview --port ${basePort + 8}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 60_000,
+      timeout: 120_000,
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'src/aux.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'wrangler.aux.jsonc': '_aux-wrangler/wrangler.aux.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'entry_public_var::public-test-value',
+              'entry_has_sensitive::yes',
+              // each worker's build output gets its own .dev.vars injection
+              'aux_public_var::public-test-value',
+              'aux_api_url::https://api.example.com',
+              'aux_has_sensitive::yes',
+              'aux_native_public_var::public-test-value',
+              'aux_native_has_secret::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
 
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,

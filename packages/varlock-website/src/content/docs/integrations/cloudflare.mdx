@@ -355,8 +355,29 @@ For supported providers, varlock can authenticate with **short-lived OIDC tokens
 
 Cloudflare supports running [multiple Workers in one dev session](https://developers.cloudflare.com/workers/development-testing/multi-workers/): a primary Worker plus **auxiliary Workers** reachable via service bindings. The Vite plugin exposes this through [`auxiliaryWorkers`](https://developers.cloudflare.com/workers/development-testing/multi-workers/#vite-plugin-with-auxiliary-workers) in `vite.config.ts`.
 
-:::caution[Single-worker env injection today]
-Varlock currently resolves and uploads env vars for **one Wrangler config per deploy**. `varlock-wrangler deploy` injects vars/secrets into the worker named by the target `wrangler.toml` / `wrangler.json`. It does not automatically propagate env to auxiliary Workers or sibling configs passed to `wrangler dev -c ./a.json -c ./b.json`.
+### Local dev and preview
+
+`varlockCloudflareVitePlugin` supports `auxiliaryWorkers` during `vite dev` and `vite preview`. Pass them through as you would to `cloudflare()`:
+
+```ts title="vite.config.ts"
+import { defineConfig } from 'vite';
+import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
+
+export default defineConfig({
+  plugins: [
+    varlockCloudflareVitePlugin({
+      auxiliaryWorkers: [
+        { configPath: './workers/jobs/wrangler.jsonc' },
+      ],
+    }),
+  ],
+});
+```
+
+Every Worker in the session (the entry Worker and each auxiliary Worker) gets the same resolved env: the `__VARLOCK_ENV` binding plus a binding per env var, so `ENV` and the native `env` object both work inside each Worker. There is one shared `.env.schema` for the project, so all Workers see all vars. Per-worker filtering is not supported yet.
+
+:::caution[Deploys are still one Worker at a time]
+Varlock resolves and uploads env vars for **one Wrangler config per deploy**. `varlock-wrangler deploy` injects vars/secrets into the worker named by the target `wrangler.toml` / `wrangler.json`. It does not automatically propagate env to auxiliary Workers or sibling configs passed to `wrangler dev -c ./a.json -c ./b.json`.
 
 For multi-worker repos today:
 
@@ -364,7 +385,7 @@ For multi-worker repos today:
 - Share a single `.env.schema` and run deploy once per worker script, or
 - Use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved env when invoking a non-wrangler deploy tool (see [non-wrangler deploy tools](#non-wrangler-deploy-tools-alchemysstpulumi) below).
 
-First-class multi-worker / auxiliary-worker support is not implemented yet. If this blocks your setup, join [Discord](https://chat.dmno.dev) and share your wrangler layout and which Workers need which vars.
+If this blocks your setup, join [Discord](https://chat.dmno.dev) and share your wrangler layout and which Workers need which vars.
 :::
 
 ----
