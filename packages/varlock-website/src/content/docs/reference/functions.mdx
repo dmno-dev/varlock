@@ -275,25 +275,9 @@ Extracts the domain (host) from a URL, dropping the protocol, credentials, port,
 
 The value is parsed as a URL, so the result is the host a request would actually be sent to. A value with no scheme (`example.com`, `example.com:8080`) is treated as a bare host. The result is lowercased, and internationalized domains are converted to punycode.
 
-This returns the full host, not the registrable domain: `domainFromUrl("https://api.example.co.uk")` is `api.example.co.uk`, not `example.co.uk`. Narrowing a host to its registrable domain correctly needs the public suffix list, which varlock does not bundle. Use [`remap()`](#remap) if you need to rewrite specific hosts, for example to blank out a local hostname so your app can fall back to a host-only cookie:
+This returns the full host, not the registrable domain: `domainFromUrl("https://api.example.co.uk")` is `api.example.co.uk`, not `example.co.uk`. To rewrite specific hosts, wrap it in [`remap()`](#remap). If you need a parent domain that covers every subdomain, such as a cookie or email domain, set the root domain as its own item and build the URLs from it with [`concat()`](#concat) instead of taking them apart.
 
-```env-spec "remap"
-APP_URL=http://localhost:3000
-# blank for a single-label host or an ip literal, the host itself otherwise
-COOKIE_DOMAIN=remap(domainFromUrl($APP_URL), "/^([^.]+|[\d.]+)$/", "")
-```
-
-If you need a parent domain rather than the host itself, for example a cookie or email domain that must cover every subdomain, set the root domain as its own item and build the URLs from it instead of taking them apart:
-
-```env-spec "ROOT_DOMAIN"
-ROOT_DOMAIN=example.com
-APP_URL=concat("https://app.", $ROOT_DOMAIN)
-COOKIE_DOMAIN=$ROOT_DOMAIN
-```
-
-For a URL you do not control, like a platform-provided preview URL, prefer a host-only cookie (omit the domain attribute) over deriving a parent domain. Many platform hostnames sit directly under a public suffix, such as `vercel.app`, and a cookie set on one of those is dropped by the browser.
-
-The item's type is inferred as `domain` unless you set one explicitly, so `varlock` treats the value as a hostname downstream.
+The item's type is inferred as `domain` unless you set one explicitly.
 
 An empty or undefined input resolves to undefined. Anything else that cannot be parsed as a URL, or a URL with no host at all (like `mailto:someone@example.com`), is a resolution error.
 
