@@ -175,6 +175,12 @@ Code scanning does not descend into nested projects. Any subdirectory that conta
 - Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (e.g., vendored code, generated files) from the code scan.
 :::
 
+:::tip[Keys the scan doesn't find]
+The scan recognizes the conventional ways of reading env vars (`process.env.KEY`, `import.meta.env.KEY`, `os.environ["KEY"]`, and the equivalents in Go, Ruby, PHP, Rust, Java and C#), in files whose extension it knows.
+
+If your code reaches env vars through a wrapper instead, such as `configService.get('KEY')`, those references are invisible to the scan and the keys get reported as unused. Add [`@auditExtraPatterns()`](/reference/root-decorators/#auditextrapatterns) to teach it your own access pattern, and pass `fileTypes=[...]` on the same call to cover file types the scan skips by default, such as Terraform or Helm values.
+:::
+
 </div>
 
 <div>
