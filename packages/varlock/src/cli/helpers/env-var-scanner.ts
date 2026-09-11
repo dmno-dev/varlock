@@ -333,6 +333,34 @@ function buildReference(
   };
 }
 
+/**
+ * Blank a `//` comment through to (but not including) its newline, returning the index
+ * just past it. Layout is preserved so byte offsets stay valid.
+ */
+function maskLineComment(chars: Array<string>, startIndex: number): number {
+  let i = startIndex;
+  while (i < chars.length && chars[i] !== '\n') {
+    chars[i] = ' ';
+    i++;
+  }
+  return i;
+}
+
+/** Blank a `/* *\/` comment including its delimiters, preserving newlines. */
+function maskBlockComment(chars: Array<string>, startIndex: number): number {
+  let i = startIndex;
+  while (i < chars.length) {
+    const isEnd = chars[i] === '*' && chars[i + 1] === '/';
+    if (chars[i] !== '\n') chars[i] = ' ';
+    if (isEnd) {
+      chars[i + 1] = ' ';
+      return i + 2;
+    }
+    i++;
+  }
+  return i;
+}
+
 function skipQuotedWithoutMask(chars: Array<string>, startIndex: number, quoteChar: '\'' | '"'): number {
   let i = startIndex + 1;
   while (i < chars.length) {
@@ -350,6 +378,11 @@ function skipQuotedWithoutMask(chars: Array<string>, startIndex: number, quoteCh
   return i;
 }
 
+/**
+ * Walk a template literal leaving its text alone. "WithoutMask" refers to the template
+ * text only: comments inside `${...}` are still blanked, since those are code comments
+ * like any other.
+ */
 function skipTemplateWithoutMask(chars: Array<string>, startIndex: number): number {
   let i = startIndex + 1;
   while (i < chars.length) {
@@ -368,12 +401,23 @@ function skipTemplateWithoutMask(chars: Array<string>, startIndex: number): numb
       i += 2;
       let depth = 1;
       while (i < chars.length && depth > 0) {
-        if (chars[i] === '\\') {
+        const exprCh = chars[i];
+        const exprNext = chars[i + 1];
+
+        if (exprCh === '\\') {
           i += 2;
           continue;
         }
-        if (chars[i] === '{') depth++;
-        else if (chars[i] === '}') depth--;
+        if (exprCh === '/' && exprNext === '/') {
+          i = maskLineComment(chars, i);
+          continue;
+        }
+        if (exprCh === '/' && exprNext === '*') {
+          i = maskBlockComment(chars, i);
+          continue;
+        }
+        if (exprCh === '{') depth++;
+        else if (exprCh === '}') depth--;
         i++;
       }
       continue;
@@ -462,20 +506,15 @@ function skipAndMaskTemplateLiteral(chars: Array<string>, startIndex: number): n
           break;
         }
 
+        // Comments inside an interpolation are code comments, not template text, so
+        // they're blanked like any other comment - otherwise a commented-out
+        // `process.env.X` inside `${...}` reads as a live reference.
         if (exprCh === '/' && exprNext === '/') {
-          i += 2;
-          while (i < chars.length && chars[i] !== '\n') i++;
+          i = maskLineComment(chars, i);
           continue;
         }
         if (exprCh === '/' && exprNext === '*') {
-          i += 2;
-          while (i < chars.length) {
-            if (chars[i] === '*' && chars[i + 1] === '/') {
-              i += 2;
-              break;
-            }
-            i++;
-          }
+          i = maskBlockComment(chars, i);
           continue;
         }
 

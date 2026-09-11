@@ -245,6 +245,43 @@ describe('scanCodeForEnvVars', () => {
     expect(ref).toMatchObject({ lineNumber: 3, columnNumber: 11 });
   });
 
+  // fixtures below are source text containing real `${...}` interpolations, not
+  // accidental template syntax in a plain string
+  /* eslint-disable no-template-curly-in-string */
+  test('built-in patterns ignore comments inside template interpolations', async () => {
+    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
+      'const x = `${/* process.env.IN_BLOCK */ process.env.BLOCK_LIVE}`;',
+      'const y = `${ // process.env.IN_LINE',
+      '  process.env.LINE_LIVE}`;',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).not.toContain('IN_BLOCK');
+    expect(result.keys).not.toContain('IN_LINE');
+    expect(result.keys).toContain('BLOCK_LIVE');
+    expect(result.keys).toContain('LINE_LIVE');
+  });
+
+  test('extraPatterns ignore comments inside template interpolations', async () => {
+    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
+      'const x = `${/* cfg.get("IN_BLOCK") */ cfg.get("BLOCK_LIVE")}`;',
+      'const y = `${ // cfg.get("IN_LINE")',
+      '  cfg.get("LINE_LIVE")}`;',
+      'const z = `plain ${cfg.get("INTERP_LIVE")} text`;',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/cfg\.get\("([A-Z_0-9]+)"\)/],
+    });
+
+    expect(result.keys).not.toContain('IN_BLOCK');
+    expect(result.keys).not.toContain('IN_LINE');
+    expect(result.keys).toEqual(expect.arrayContaining(['BLOCK_LIVE', 'LINE_LIVE', 'INTERP_LIVE']));
+  });
+  /* eslint-enable no-template-curly-in-string */
+
   test('respects ignored directories', async () => {
     fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.IGNORED_MOD');
