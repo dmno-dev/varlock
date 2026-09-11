@@ -740,6 +740,7 @@ describe('domainFromUrl()', functionValueTests({
       PRIVATE_SUFFIX=domainFromUrl("https://foo.github.io", registrable=true)
       # hosts with no registrable domain are passed through unchanged
       LOCALHOST=domainFromUrl("http://localhost:3000", registrable=true)
+      INTERNAL_NAME=domainFromUrl("http://db-primary:5432", registrable=true)
       IPV4=domainFromUrl("http://127.0.0.1:3000", registrable=true)
       IPV6=domainFromUrl("http://[::1]:3000", registrable=true)
       OFF_BY_DEFAULT=domainFromUrl("https://api.example.com")
@@ -751,14 +752,24 @@ describe('domainFromUrl()', functionValueTests({
       ALREADY_BARE: 'example.com',
       PRIVATE_SUFFIX: 'foo.github.io',
       LOCALHOST: 'localhost',
+      INTERNAL_NAME: 'db-primary',
       IPV4: '127.0.0.1',
       IPV6: '[::1]',
       OFF_BY_DEFAULT: 'api.example.com',
     },
   },
   'error - registrable=true on a bare public suffix': {
-    input: 'ITEM=domainFromUrl("https://co.uk", registrable=true)',
-    expected: { ITEM: ResolutionError },
+    input: outdent`
+      MULTI_LABEL=domainFromUrl("https://co.uk", registrable=true)
+      # a single-label suffix is a suffix too, even though it looks like an internal name
+      SINGLE_LABEL=domainFromUrl("https://com", registrable=true)
+      PRIVATE_SUFFIX=domainFromUrl("https://github.io", registrable=true)
+    `,
+    expected: {
+      MULTI_LABEL: ResolutionError,
+      SINGLE_LABEL: ResolutionError,
+      PRIVATE_SUFFIX: ResolutionError,
+    },
   },
   'error - registrable is not static': {
     input: 'ITEM=domainFromUrl("https://api.example.com", registrable=concat("tr", "ue"))',

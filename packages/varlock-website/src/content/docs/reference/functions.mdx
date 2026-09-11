@@ -285,7 +285,7 @@ APP_URL=https://app.example.co.uk
 COOKIE_DOMAIN=domainFromUrl($APP_URL, registrable=true)
 ```
 
-This uses the public suffix list, including its private section, so `foo.github.io` stays whole instead of collapsing to `github.io` (a cookie set on a public suffix is dropped by browsers). Hosts with no registrable domain, like `localhost` and IP addresses, are returned unchanged. A host that is itself a public suffix (`co.uk`) is a resolution error, since there is nothing valid to return.
+This uses the public suffix list, including its private section, so `foo.github.io` stays whole instead of collapsing to `github.io` (a cookie set on a public suffix is dropped by browsers). Hosts that are not on the list at all, like `localhost`, an internal service name, or an IP address, are returned unchanged. A host that is itself a public suffix (`com`, `co.uk`, `github.io`) is a resolution error, since there is nothing valid to return.
 
 The item's type is inferred as `domain` unless you set one explicitly, so `varlock` treats the value as a hostname downstream.
 

@@ -773,16 +773,18 @@ async function extractRegistrableDomain(host: string) {
   const parsed = parse(host, { allowPrivateDomains: true });
   if (parsed.domain) return parsed.domain;
 
-  // ip literals and single-label hosts (`localhost`, an internal service name) have no
-  // registrable domain, and they are already the value you'd want for a cookie domain
-  if (parsed.isIp || !host.includes('.')) return host;
+  // a host that is itself a public suffix (`com`, `co.uk`, `github.io`) has no registrable
+  // domain to return, and guessing one would produce a value that silently does not work
+  if (parsed.isIcann || parsed.isPrivate) {
+    throw new ResolutionError(`"${host}" is a public suffix, so it has no registrable domain`, {
+      tip: 'remove `registrable=true` to use the full host',
+    });
+  }
 
-  // what's left is a host that is itself a public suffix (`co.uk`, `github.io`) - there is
-  // no registrable domain to return, and guessing one would produce a value that silently
-  // does not work
-  throw new ResolutionError(`"${host}" is a public suffix, so it has no registrable domain`, {
-    tip: 'remove `registrable=true` to use the full host',
-  });
+  // what's left is an ip literal or a name off the public list entirely (`localhost`, an
+  // internal service name) - both are already the value you'd want for a cookie domain.
+  // note the check above is what separates these from single-label suffixes like `com`
+  return host;
 }
 
 export const DomainFromUrlResolver: typeof Resolver = createResolver({
