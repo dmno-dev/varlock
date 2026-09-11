@@ -342,9 +342,86 @@ describe('audit command', () => {
     await commandFn({ values: {} } as any);
 
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
-      { cwd: '/repo', extraPatterns: [pattern, /other\.get\("([A-Z_]+)"\)/] },
+      { cwd: '/repo', extraPatterns: [{ pattern }, { pattern: /other\.get\("([A-Z_]+)"\)/ }] },
       [],
     );
+  });
+
+  test('scopes each call to its own fileTypes=[...] list', async () => {
+    const tfPattern = /cfg\.get\("([A-Z_]+)"\)/;
+    const anyPattern = /env\.([A-Z_]+)/;
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [
+          { resolve: vi.fn().mockResolvedValue({ arr: [tfPattern], obj: { fileTypes: ['tf', 'yaml'] } }) },
+          { resolve: vi.fn().mockResolvedValue({ arr: [anyPattern], obj: {} }) },
+        ];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    // the fileTypes list rides along with the patterns from its own call, and only those
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      {
+        cwd: '/repo',
+        extraPatterns: [
+          { pattern: tfPattern, fileTypes: ['tf', 'yaml'] },
+          { pattern: anyPattern },
+        ],
+      },
+      [],
+    );
+  });
+
+  test('rejects an unknown named option on # @auditExtraPatterns(...)', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: [/x([A-Z]+)/], obj: { extensions: ['tf'] } }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any))
+      .rejects.toThrow(/unknown option "extensions"/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects fileTypes=[...] with no patterns in the same call', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: [], obj: { fileTypes: ['tf'] } }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any))
+      .rejects.toThrow(/no patterns to apply it to/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
   });
 
   test('rejects non-regex # @auditExtraPatterns(...) entries', async () => {
@@ -373,7 +450,7 @@ describe('audit command', () => {
       getRootDecFns: vi.fn().mockImplementation((name: string) => {
         if (name !== 'auditExtraPatterns') return [];
         // What a quoted '/.../ ' decorator arg resolves to after parsing.
-        return [{ resolve: vi.fn().mockResolvedValue({ arr: [`/config\\.get\\('([A-Z_]+)'\\)/`], obj: {} }) }];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['/config\\.get\\(\'([A-Z_]+)\'\\)/'], obj: {} }) }];
       }),
       rootDataSource: undefined,
       basePath: '/repo',
@@ -388,7 +465,7 @@ describe('audit command', () => {
     await commandFn({ values: {} } as any);
 
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
-      { cwd: '/repo', extraPatterns: [/config\.get\('([A-Z_]+)'\)/] },
+      { cwd: '/repo', extraPatterns: [{ pattern: /config\.get\('([A-Z_]+)'\)/ }] },
       [],
     );
   });

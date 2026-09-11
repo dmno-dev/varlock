@@ -78,6 +78,23 @@ export interface EnvVarReference {
   syntax: EnvVarSyntax;
 }
 
+/** A custom scan pattern, optionally restricted to certain file extensions. */
+export interface ExtraScanPattern {
+  pattern: RegExp;
+  /**
+   * File types this pattern applies to, given as extensions with or without a leading
+   * dot and matched case-insensitively (`tf`, `.tf` and `.TF` are the same thing).
+   *
+   * Naming an extension the built-in scanner doesn't handle (`.tf`, `.yaml`, `.sh`)
+   * also brings those files into the scan - they are otherwise never read. Such files
+   * have no known language, so they're matched over their raw contents: the built-in
+   * patterns don't apply, and commented-out lines aren't skipped.
+   *
+   * An empty or omitted list means every file the built-in discovery already picks up.
+   */
+  fileTypes?: Array<string>;
+}
+
 export interface ScanCodeEnvVarsOptions {
   cwd?: string;
   concurrency?: number;
@@ -86,11 +103,19 @@ export interface ScanCodeEnvVarsOptions {
   ignoredDirs?: Array<string>;
   /**
    * Project-supplied patterns (e.g. from the `@auditExtraPatterns` root
-   * decorator), run on every scanned file regardless of language, after the
-   * built-in patterns. The first capture group is the env key; patterns
-   * without one match nothing. The global flag is added when missing.
+   * decorator), run after the built-in patterns. The first capture group is
+   * the env key; patterns without one match nothing. The global flag is
+   * added when missing.
+   *
+   * Unlike the built-ins these run over content where only comments are
+   * masked - string bodies are left intact, so a capture that isn't a bare
+   * env-key identifier (`cfg.get('app.db.url')`) still matches.
+   *
+   * A bare RegExp applies to every file the built-in discovery picks up. Use
+   * the {@link ExtraScanPattern} form to scope a pattern to particular file
+   * types, which also brings in file types the built-ins don't cover.
    */
-  extraPatterns?: Array<RegExp>;
+  extraPatterns?: Array<RegExp | ExtraScanPattern>;
 }
 
 export interface ScanCodeEnvVarsResult {
@@ -206,7 +231,11 @@ const JS_DESTRUCTURE_PATTERNS: Array<{ regex: RegExp, syntax: EnvVarSyntax }> = 
   },
 ];
 
-async function discoverSourceFiles(cwd: string, ignoredDirs: Set<string>): Promise<Array<string>> {
+async function discoverSourceFiles(
+  cwd: string,
+  ignoredDirs: Set<string>,
+  widenedExtensions: Set<string>,
+): Promise<Array<string>> {
   const filePaths: Array<string> = [];
 
   async function walk(dir: string, isRoot: boolean): Promise<void> {
@@ -230,7 +259,7 @@ async function discoverSourceFiles(cwd: string, ignoredDirs: Set<string>): Promi
         subdirWalks.push(walk(path.join(dir, entry.name), false));
       } else if (entry.isFile()) {
         const extension = path.extname(entry.name).toLowerCase();
-        if (!(extension in LANGUAGE_BY_EXTENSION)) continue;
+        if (!(extension in LANGUAGE_BY_EXTENSION) && !widenedExtensions.has(extension)) continue;
         filePaths.push(path.join(dir, entry.name));
       }
     }
@@ -479,7 +508,21 @@ function skipAndMaskTemplateLiteral(chars: Array<string>, startIndex: number): n
   return endExclusive;
 }
 
-function maskCommentsPreserveLayout(content: string, language: ScannerLanguage): string {
+/**
+ * Blank out everything the scanner should not match against, preserving byte offsets
+ * (and therefore line/column) by replacing masked characters with spaces.
+ *
+ * Comments are always masked. String bodies are masked too by default, which keeps the
+ * built-in patterns from matching `process.env.FOO` written inside a raw string - but
+ * that same masking blanks any string that isn't a bare env-key identifier, so custom
+ * patterns opt out via `maskStringBodies: false`.
+ */
+function maskCommentsPreserveLayout(
+  content: string,
+  language: ScannerLanguage,
+  opts: { maskStringBodies?: boolean } = {},
+): string {
+  const maskStringBodies = opts.maskStringBodies ?? true;
   const chars = content.split('');
 
   const supportsHashComments = language === 'python' || language === 'ruby' || language === 'php';
@@ -538,15 +581,21 @@ function maskCommentsPreserveLayout(content: string, language: ScannerLanguage):
     }
 
     if (ch === '\'') {
-      i = skipAndMaskQuotedString(chars, i, '\'');
+      i = maskStringBodies
+        ? skipAndMaskQuotedString(chars, i, '\'')
+        : skipQuotedWithoutMask(chars, i, '\'');
       continue;
     }
     if (ch === '"') {
-      i = skipAndMaskQuotedString(chars, i, '"');
+      i = maskStringBodies
+        ? skipAndMaskQuotedString(chars, i, '"')
+        : skipQuotedWithoutMask(chars, i, '"');
       continue;
     }
     if (ch === '`' && (language === 'js-like' || language === 'go')) {
-      i = skipAndMaskTemplateLiteral(chars, i);
+      i = maskStringBodies
+        ? skipAndMaskTemplateLiteral(chars, i)
+        : skipTemplateWithoutMask(chars, i);
       continue;
     }
 
@@ -556,10 +605,30 @@ function maskCommentsPreserveLayout(content: string, language: ScannerLanguage):
   return chars.join('');
 }
 
+/** Run already-normalized custom patterns over already-prepared content. */
+function matchExtraPatterns(
+  filePath: string,
+  content: string,
+  extraPatterns: Array<NormalizedExtraPattern>,
+  precomputedNewlineIndices?: Array<number>,
+): Array<EnvVarReference> {
+  if (!extraPatterns.length) return [];
+  const newlineIndices = precomputedNewlineIndices ?? getNewlineIndices(content);
+  const references: Array<EnvVarReference> = [];
+  for (const { regex } of extraPatterns) {
+    for (const match of content.matchAll(regex)) {
+      const key = match[1];
+      if (!key) continue;
+      references.push(buildReference(filePath, content, newlineIndices, match.index ?? 0, key, 'custom'));
+    }
+  }
+  return references;
+}
+
 async function scanFileForEnvVarReferences(
   filePath: string,
   maxFileSizeBytes: number,
-  extraPatterns: Array<RegExp> = [],
+  extraPatterns: Array<NormalizedExtraPattern> = [],
 ): Promise<Array<EnvVarReference>> {
   let fileStat;
   try {
@@ -580,10 +649,23 @@ async function scanFileForEnvVarReferences(
 
   const extension = path.extname(filePath).toLowerCase();
   const language = LANGUAGE_BY_EXTENSION[extension];
-  if (!language) return [];
 
+  // An unscoped pattern covers the languages the scanner already knows. Files that are
+  // only in the walk because a pattern named their extension are matched by that
+  // pattern alone, so one rule widening the scan can't silently change another's reach.
+  const applicablePatterns = extraPatterns.filter(({ extensions }) => {
+    if (extensions) return extensions.has(extension);
+    return !!language;
+  });
+
+  // A widened file has no language: no built-in patterns apply, and with no known
+  // comment syntax its raw content is what gets matched.
+  if (!language) return matchExtraPatterns(filePath, rawContent, applicablePatterns);
+
+  // Masking preserves byte offsets, so both variants share the raw file's newline
+  // positions and reference line/columns stay comparable.
   const scanContent = maskCommentsPreserveLayout(rawContent, language);
-  const newlineIndices = getNewlineIndices(scanContent);
+  const newlineIndices = getNewlineIndices(rawContent);
   const references: Array<EnvVarReference> = [];
 
   for (const pattern of PATTERNS_BY_LANGUAGE[language]) {
@@ -617,19 +699,22 @@ async function scanFileForEnvVarReferences(
     }
   }
 
-  // Project-supplied escape-hatch patterns run on every scanned file,
-  // whatever its language, over the same masked content as the built-ins.
-  for (const extra of extraPatterns) {
-    const regex = extra.global ? extra : new RegExp(extra.source, `${extra.flags}g`);
-    for (const match of scanContent.matchAll(regex)) {
-      const key = match[1];
-      if (!key) continue;
-      references.push(buildReference(filePath, scanContent, newlineIndices, match.index ?? 0, key, 'custom'));
-    }
+  // Project-supplied escape-hatch patterns run on every scanned file, whatever its
+  // language. They get comments masked but string bodies intact: the built-ins only
+  // ever capture bare identifiers, but a custom pattern's key often isn't one
+  // (`cfg.get('app.db.url')`), and the default masking would blank it.
+  if (applicablePatterns.length) {
+    references.push(...matchExtraPatterns(
+      filePath,
+      maskCommentsPreserveLayout(rawContent, language, { maskStringBodies: false }),
+      applicablePatterns,
+      newlineIndices,
+    ));
   }
 
   return references;
 }
+
 
 async function scanFilesWithLimit<T, R>(
   items: Array<T>,
@@ -657,6 +742,59 @@ async function scanFilesWithLimit<T, R>(
   return results;
 }
 
+/** A custom pattern prepared for matching: global regex + resolved extension scope. */
+interface NormalizedExtraPattern {
+  regex: RegExp;
+  /** `null` means "every file the built-in discovery picks up". */
+  extensions: Set<string> | null;
+}
+
+/**
+ * Normalize a user-supplied extension to the lowercase dotted form `path.extname()`
+ * returns, so `tf`, `.tf` and `.TF` all mean the same thing.
+ */
+function normalizeExtension(raw: string): string | undefined {
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return undefined;
+  return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
+}
+
+function normalizeExtraPatterns(
+  input: Array<RegExp | ExtraScanPattern> | undefined,
+): Array<NormalizedExtraPattern> {
+  const normalized: Array<NormalizedExtraPattern> = [];
+  for (const entry of input ?? []) {
+    const pattern = entry instanceof RegExp ? entry : entry.pattern;
+    // `matchAll` requires the global flag, and a non-global pattern is what a user
+    // writing `/.../ ` naturally produces.
+    const regex = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+
+    const rawFileTypes = entry instanceof RegExp ? undefined : entry.fileTypes;
+    const extensions = new Set<string>();
+    for (const raw of rawFileTypes ?? []) {
+      const ext = normalizeExtension(raw);
+      if (ext) extensions.add(ext);
+    }
+    normalized.push({ regex, extensions: extensions.size ? extensions : null });
+  }
+  return normalized;
+}
+
+/**
+ * Extensions that are only in the scan because some pattern asked for them. The
+ * built-in discovery would skip these files entirely, and no built-in pattern applies
+ * to them once they're read.
+ */
+function collectWidenedExtensions(patterns: Array<NormalizedExtraPattern>): Set<string> {
+  const widened = new Set<string>();
+  for (const { extensions } of patterns) {
+    for (const ext of extensions ?? []) {
+      if (!(ext in LANGUAGE_BY_EXTENSION)) widened.add(ext);
+    }
+  }
+  return widened;
+}
+
 export async function scanCodeForEnvVars(
   options: ScanCodeEnvVarsOptions = {},
   additionalExcludeDirs: Array<string> = [],
@@ -670,9 +808,12 @@ export async function scanCodeForEnvVars(
     ...additionalExcludeDirs,
   ]);
 
-  const filePaths = await discoverSourceFiles(cwd, excludeDirs);
+  const extraPatterns = normalizeExtraPatterns(options.extraPatterns);
+  const widenedExtensions = collectWidenedExtensions(extraPatterns);
+
+  const filePaths = await discoverSourceFiles(cwd, excludeDirs, widenedExtensions);
   const references = await scanFilesWithLimit(filePaths, concurrency, async (filePath) => {
-    return scanFileForEnvVarReferences(filePath, maxFileSizeBytes, options.extraPatterns ?? []);
+    return scanFileForEnvVarReferences(filePath, maxFileSizeBytes, extraPatterns);
   });
 
   const flattenedReferences = references.flat();

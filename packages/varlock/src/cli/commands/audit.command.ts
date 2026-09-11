@@ -3,7 +3,7 @@ import path from 'node:path';
 import ansis from 'ansis';
 
 import { FileBasedDataSource } from '../../env-graph';
-import { SchemaError } from '../../env-graph/lib/errors';
+import { CliExitError } from '../helpers/exit-error';
 import { parseRegexLikeString } from '../../env-graph/lib/resolver';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
@@ -11,6 +11,7 @@ import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
   scanCodeForEnvVars,
   type EnvVarReference,
+  type ExtraScanPattern,
   type ScanCodeEnvVarsResult,
 } from '../helpers/env-var-scanner';
 import { gracefulExit } from 'exit-hook';
@@ -62,7 +63,7 @@ function collectPatternArgs(input: unknown, out: Array<RegExp>) {
   // anything else (bare words, numbers) is a config error, not a pattern.
   // Note: a bare unquoted literal only survives parsing when it contains no
   // spaces, commas or parens, so realistic patterns must be quoted or use
-  // regex('...') — both forms land here, never raw.
+  // regex('...'); both forms land here, never raw.
   if (input instanceof RegExp) {
     out.push(input);
     return;
@@ -74,22 +75,62 @@ function collectPatternArgs(input: unknown, out: Array<RegExp>) {
       return;
     }
   }
-  throw new SchemaError(
-    '@auditExtraPatterns() expects regex patterns — regex() calls or quoted \'/.../\' literals. The first capture group is the env key',
+  // Uses CliExitError rather than a graph error type: this runs after the graph has
+  // loaded, and the CLI's top-level handler only formats CliExitError/InvalidEnvError -
+  // anything else surfaces as an unhandled stack trace.
+  throw new CliExitError(
+    "@auditExtraPatterns() expects regex patterns - regex() calls or quoted '/.../' literals",
+    {
+      details: 'The first capture group of each pattern is the env key.',
+      suggestion: "e.g. # @auditExtraPatterns(regex('config\\.get\\(\\s*\\'([A-Z_]+)\\''))",
+    },
   );
 }
 
-async function getCustomAuditExtraPatterns(envGraph: any): Promise<Array<RegExp>> {
+/**
+ * Read the `fileTypes=[...]` option off one `@auditExtraPatterns(...)` call. Each call
+ * is its own scope unit: the file types apply to the patterns in that call only.
+ */
+function collectFileTypesArg(objArgs: unknown): Array<string> | undefined {
+  const record = (objArgs ?? {}) as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== 'fileTypes') {
+      throw new CliExitError(`@auditExtraPatterns(): unknown option "${key}"`, {
+        suggestion: 'The only option is fileTypes=[...], a list of file extensions the patterns in this call apply to.',
+      });
+    }
+  }
+  if (!('fileTypes' in record)) return undefined;
+
+  const fileTypes: Array<string> = [];
+  collectStringArgs(record.fileTypes, fileTypes);
+  if (!fileTypes.length) {
+    throw new CliExitError('@auditExtraPatterns(): fileTypes=[...] cannot be empty', {
+      suggestion: 'List the file types the patterns apply to, e.g. fileTypes=[tf, yaml], or drop the option to match every scanned file.',
+    });
+  }
+  return fileTypes;
+}
+
+async function getCustomAuditExtraPatterns(envGraph: any): Promise<Array<ExtraScanPattern>> {
   const rootDecFns = typeof envGraph?.getRootDecFns === 'function'
     ? envGraph.getRootDecFns('auditExtraPatterns')
     : [];
 
-  const patterns: Array<RegExp> = [];
+  const scanPatterns: Array<ExtraScanPattern> = [];
   for (const dec of rootDecFns || []) {
     const resolved = await dec.resolve();
+    const fileTypes = collectFileTypesArg(resolved?.obj);
+    const patterns: Array<RegExp> = [];
     collectPatternArgs(resolved?.arr, patterns);
+    if (!patterns.length && fileTypes) {
+      throw new CliExitError('@auditExtraPatterns(): fileTypes=[...] given with no patterns to apply it to', {
+        suggestion: 'Add at least one regex() pattern to this call.',
+      });
+    }
+    for (const pattern of patterns) scanPatterns.push({ pattern, ...(fileTypes ? { fileTypes } : {}) });
   }
-  return patterns;
+  return scanPatterns;
 }
 
 /** Collect all config keys that are depended on by other items or root decorators */
@@ -167,12 +208,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(`ℹ️ Skipping ignored paths: ${allIgnoredPaths.join(', ')}`);
   }
 
-  // Project-supplied escape-hatch patterns from # @auditExtraPatterns(...).
-  // Only forwarded when configured, so the default scanner call shape —
-  // and its tests — stay untouched.
+  // Project-supplied escape-hatch patterns from # @auditExtraPatterns(...), each
+  // carrying the optional fileTypes=[...] scope from its own call. Only forwarded when
+  // configured, so the default scanner call shape - and its tests - stay untouched.
   const customExtraPatterns = await getCustomAuditExtraPatterns(envGraph);
-  const extraPatternsOption =
-    customExtraPatterns.length > 0 ? { extraPatterns: customExtraPatterns } : {};
+  const extraScanOptions = customExtraPatterns.length > 0
+    ? { extraPatterns: customExtraPatterns }
+    : {};
 
   // If positional scan targets are provided, scan each one individually and merge results
   let scanResult: ScanCodeEnvVarsResult;
@@ -182,7 +224,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     for (const target of scanTargets) {
       const resolvedTarget = path.resolve(finalScanRoot, target);
       const result = await scanCodeForEnvVars(
-        { cwd: resolvedTarget, ...extraPatternsOption },
+        { cwd: resolvedTarget, ...extraScanOptions },
         allIgnoredPaths,
       );
       mergedRefs.push(...result.references);
@@ -192,7 +234,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     scanResult = { keys: uniqueKeys, references: mergedRefs, scannedFilesCount: totalFilesScanned };
   } else {
     scanResult = await scanCodeForEnvVars(
-      { cwd: finalScanRoot, ...extraPatternsOption },
+      { cwd: finalScanRoot, ...extraScanOptions },
       allIgnoredPaths,
     );
   }

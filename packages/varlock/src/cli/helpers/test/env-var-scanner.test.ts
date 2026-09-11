@@ -136,6 +136,115 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).not.toContain('NO_GROUP');
   });
 
+  test('a pattern scoped with fileTypes pulls in files the built-ins skip', async () => {
+    fs.writeFileSync(path.join(tempDir, 'main.tf'), 'value = cfg.get("TF_ONLY_KEY")\n');
+    fs.writeFileSync(path.join(tempDir, 'deploy.yaml'), 'env: cfg.get("YAML_ONLY_KEY")\n');
+
+    const unscoped = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/cfg\.get\("([A-Z_]+)"\)/],
+    });
+    expect(unscoped.keys).not.toContain('TF_ONLY_KEY');
+    expect(unscoped.keys).not.toContain('YAML_ONLY_KEY');
+
+    const scoped = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [
+        {
+          pattern: /cfg\.get\("([A-Z_]+)"\)/,
+          // mixed forms on purpose: bare, dotted and uppercase all normalize the same
+          fileTypes: ['tf', '.YAML'],
+        },
+      ],
+    });
+    expect(scoped.keys).toContain('TF_ONLY_KEY');
+    expect(scoped.keys).toContain('YAML_ONLY_KEY');
+  });
+
+  test('a scoped pattern does not match files outside its file types', async () => {
+    fs.writeFileSync(path.join(tempDir, 'main.tf'), 'value = cfg.get("TF_KEY")\n');
+    fs.writeFileSync(path.join(tempDir, 'app.ts'), 'const a = cfg.get("TS_KEY");\n');
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [{ pattern: /cfg\.get\("([A-Z_]+)"\)/, fileTypes: ['tf'] }],
+    });
+
+    expect(result.keys).toContain('TF_KEY');
+    expect(result.keys).not.toContain('TS_KEY');
+  });
+
+  test('one pattern widening the scan does not extend an unscoped pattern', async () => {
+    fs.writeFileSync(path.join(tempDir, 'main.tf'), 'a = cfg.get("TF_KEY")\nb = other("LEAKED_KEY")\n');
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [
+        { pattern: /cfg\.get\("([A-Z_]+)"\)/, fileTypes: ['tf'] },
+        /other\("([A-Z_]+)"\)/,
+      ],
+    });
+
+    expect(result.keys).toContain('TF_KEY');
+    // the unscoped pattern covers the known languages, not whatever another rule pulled in
+    expect(result.keys).not.toContain('LEAKED_KEY');
+  });
+
+  test('built-in patterns never apply to a widened file', async () => {
+    fs.writeFileSync(path.join(tempDir, 'main.tf'), 'x = process.env.NOT_SCANNED\n');
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [{ pattern: /cfg\.get\("([A-Z_]+)"\)/, fileTypes: ['tf'] }],
+    });
+
+    expect(result.keys).not.toContain('NOT_SCANNED');
+  });
+
+  test('extraPatterns match inside string bodies that are not bare identifiers', async () => {
+    fs.writeFileSync(
+      path.join(tempDir, 'nest.ts'),
+      "const url = cfg.get('app.database.url');\n",
+    );
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/cfg\.get\('([A-Za-z_.]+)'\)/],
+    });
+
+    expect(result.keys).toContain('app.database.url');
+  });
+
+  test('extraPatterns still skip commented-out code', async () => {
+    fs.writeFileSync(
+      path.join(tempDir, 'commented.ts'),
+      "// const x = cfg.get('COMMENTED_KEY');\nconst y = cfg.get('LIVE_KEY');\n",
+    );
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/cfg\.get\('([A-Z_]+)'\)/],
+    });
+
+    expect(result.keys).not.toContain('COMMENTED_KEY');
+    expect(result.keys).toContain('LIVE_KEY');
+  });
+
+  test('extraPatterns report the same line/column as the raw file', async () => {
+    fs.writeFileSync(
+      path.join(tempDir, 'lines.ts'),
+      "const a = 1;\n// filler comment\nconst b = cfg.get('LINE_KEY');\n",
+    );
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/cfg\.get\('([A-Z_]+)'\)/],
+    });
+
+    const ref = result.references.find((r) => r.key === 'LINE_KEY');
+    expect(ref).toMatchObject({ lineNumber: 3, columnNumber: 11 });
+  });
+
   test('respects ignored directories', async () => {
     fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.IGNORED_MOD');
