@@ -499,9 +499,6 @@
       "bin": {
         "varlock": "./bin/cli.js",
       },
-      "dependencies": {
-        "tldts": "^7.4.12",
-      },
       "devDependencies": {
         "@clack/core": "^1.0.0",
         "@clack/prompts": "^1.0.0",
@@ -528,6 +525,7 @@
         "is-wsl": "^3.1.0",
         "outdent": "catalog:",
         "reflect-metadata": "^0.2.2",
+        "tldts": "^7.4.12",
         "tsdown": "catalog:",
         "verkit": "^0.4.0",
         "vitest": "catalog:",
