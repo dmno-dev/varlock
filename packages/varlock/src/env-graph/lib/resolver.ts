@@ -57,6 +57,7 @@ export class Resolver {
     readonly dataSource?: EnvGraphDataSource,
   ) {
     if (this.def.inferredType) this.inferredType = this.def.inferredType;
+    if (this.def.inferredTypeSettings) this.inferredTypeSettings = this.def.inferredTypeSettings;
   }
 
   static get fnName() { return this.def.name; }
@@ -70,6 +71,7 @@ export class Resolver {
   get staticValue(): ResolvedValue { return undefined; }
 
   inferredType?: string;
+  inferredTypeSettings?: Record<string, any>;
   /** reference to the parsed node that created this resolver, used for error location tracking */
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
     | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
@@ -246,6 +248,8 @@ export type ResolverDef<T = any> = {
   label?: string;
   icon?: string;
   inferredType?: string;
+  /** settings passed to the inferred data type when it is instantiated */
+  inferredTypeSettings?: Record<string, any>;
   /** If true, using this resolver implies the item is sensitive (unless explicitly overridden) */
   impliesSensitive?: boolean;
   argsSchema?: {
@@ -648,6 +652,7 @@ export const IfResolver: typeof Resolver = createResolver({
     // we can infer a type if both true and false cases have a matching inferred type
     } else if (!falseVal || trueVal.inferredType === falseVal.inferredType) {
       this.inferredType = trueVal.inferredType;
+      this.inferredTypeSettings = trueVal.inferredTypeSettings;
     }
     return { condition, trueVal, falseVal };
   },
@@ -716,6 +721,71 @@ export const IsEmptyResolver: typeof Resolver = createResolver({
   async resolve() {
     const value = await this.arrArgs![0].resolve();
     return value === undefined || value === '';
+  },
+});
+
+
+/**
+ * Pulls the host out of a URL using the WHATWG parser rather than a regex, so a value that
+ * merely looks like it points somewhere trusted (`https://trusted.example@evil.example/`)
+ * yields the host a request would actually be sent to.
+ */
+function extractDomainFromUrl(url: string): string | undefined {
+  const trimmed = url.trim();
+  if (!trimmed) return undefined;
+
+  // A leading `scheme://` means the value carries its own authority, so parse it as-is.
+  // Anything else without a scheme (`example.com`, `example.com:8080/path`) is a bare host and
+  // gets a protocol prepended - `URL` would otherwise read `example.com:` as a non-special
+  // scheme and find no host at all. `:<digits>` is what separates a bare host with a port from
+  // a genuine scheme-less URL like `mailto:someone@example.com`.
+  const hasAuthority = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed);
+  const isBareHost = !hasAuthority && (
+    !/^[a-z][a-z\d+.-]*:/i.test(trimmed) || /^[^\s:/?#]+:\d+(?:[/?#]|$)/.test(trimmed)
+  );
+
+  try {
+    const parsed = new URL(isBareHost ? `https://${trimmed}` : trimmed);
+    // non-special schemes (`mailto:`, `urn:`, custom protocols) have no host at all
+    // `URL` has already lowercased and punycoded the hostname for us
+    if (!parsed.hostname) return undefined;
+    // a fully qualified host may carry the root label (`example.com.`) - it names the same
+    // host, and the trailing dot would fail every downstream hostname check, so drop it
+    if (parsed.hostname.endsWith('.') && parsed.hostname !== '.') {
+      return parsed.hostname.slice(0, -1);
+    }
+    return parsed.hostname;
+  } catch {
+    return undefined;
+  }
+}
+
+export const DomainFromUrlResolver: typeof Resolver = createResolver({
+  name: 'domainFromUrl',
+  icon: 'mdi:web',
+  inferredType: 'domain',
+  // the input is any url, so the result can legitimately be a single-label host (`localhost`)
+  // or an ip literal - the type is here to describe the value, not to narrow it
+  inferredTypeSettings: { allowSingleLabel: true, allowIp: true, allowIpV6: true },
+  argsSchema: {
+    type: 'array',
+    arrayExactLength: 1,
+  },
+  async resolve() {
+    const value = await this.arrArgs![0].resolve();
+    // an empty input stays empty rather than becoming an error, so this composes with
+    // optional items - fallback()/if() upstream still see undefined
+    if (value === undefined || value === '') return undefined;
+    if (typeof value !== 'string') {
+      throw new ResolutionError('expects a string url');
+    }
+    const domain = extractDomainFromUrl(value);
+    if (domain === undefined) {
+      throw new ResolutionError('unable to extract a domain from the value', {
+        tip: 'expects a url like `https://api.example.com/path` or a bare host like `example.com`',
+      });
+    }
+    return domain;
   },
 });
 
@@ -1029,6 +1099,9 @@ export const CacheResolver: typeof Resolver = createResolver({
     const childResolver = this.arrArgs?.[0];
     if (childResolver?.inferredType) {
       this.inferredType = childResolver.inferredType;
+      // the settings travel with the type - without them a forwarded `domain` type would be
+      // instantiated with stricter defaults than the child resolver's own value can satisfy
+      this.inferredTypeSettings = childResolver.inferredTypeSettings;
     }
 
     // warn if the child resolver is a static value — caching a literal is pointless
@@ -1171,6 +1244,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   IfResolver,
   NotResolver,
   IsEmptyResolver,
+  DomainFromUrlResolver,
   RegexResolver,
   InferFromPrefixResolver,
 ];

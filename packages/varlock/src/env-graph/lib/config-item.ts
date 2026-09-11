@@ -435,12 +435,13 @@ export class ConfigItem {
     // builtin vars declare an authoritative type on their internal resolver
     // (e.g. VARLOCK_IS_CI is boolean), which wins over inference from a
     // user-provided static value so VARLOCK_IS_CI=0 still coerces to false
-    const internalResolverType = this._internalDefs.find(
+    const internalResolver = this._internalDefs.find(
       (d) => d.itemDef.resolver?.inferredType,
-    )?.itemDef.resolver?.inferredType;
-    const inferredTypeName = internalResolverType || resolver.inferredType;
+    )?.itemDef.resolver;
+    const typeSourceResolver = internalResolver ?? resolver;
+    const inferredTypeName = typeSourceResolver.inferredType;
     if (inferredTypeName && inferredTypeName in registry) {
-      return registry[inferredTypeName]();
+      return registry[inferredTypeName](typeSourceResolver.inferredTypeSettings);
     }
     return undefined;
   }

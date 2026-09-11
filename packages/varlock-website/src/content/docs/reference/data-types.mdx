@@ -193,6 +193,7 @@ Checks for a bare domain name (hostname) like `example.com`, with no protocol, p
 - `allowWildcard` (boolean): Allow a leading wildcard label like `*.example.com`
 - `allowSingleLabel` (boolean): Allow single-label hostnames like `localhost` or internal service names
 - `allowIp` (boolean): Also accept an IPv4 address, useful for HOST-style vars that hold a hostname in one environment and an IP in another
+- `allowIpV6` (boolean): Also accept an IPv6 address, either bracketed (`[::1]`) as it appears in a URL, or bare (`::1`)
 - `normalize` (boolean): Convert to lowercase
 - `matches` (string|RegExp): Regular expression pattern the domain must match
 

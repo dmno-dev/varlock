@@ -820,6 +820,57 @@ describe('domain data type', () => {
     });
   });
 
+  describe('allowIpV6', () => {
+    it('accepts a bare IPv6 address when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true)
+        MY_HOST=::1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+      expect(g.configSchema.MY_HOST.resolvedValue).toBe('::1');
+    });
+
+    it('accepts the bracketed form used in urls', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true)
+        MY_HOST=[2001:db8::1]
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+    });
+
+    it('still accepts domains when enabled', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true)
+        MY_HOST=db.internal.example.com
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(true);
+    });
+
+    it('rejects a malformed IPv6 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true)
+        MY_HOST=":::1"
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
+    it('still applies matches to an accepted IPv6 address', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true, matches="^2001:")
+        MY_HOST=::1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+
+    it('does not accept an IPv4 address on its own', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=domain(allowIpV6=true)
+        MY_HOST=192.168.1.1
+      `);
+      expect(g.configSchema.MY_HOST.isValid).toBe(false);
+    });
+  });
+
   describe('normalize', () => {
     it('lowercases the value when enabled', async () => {
       const g = await loadAndResolve(outdent`
