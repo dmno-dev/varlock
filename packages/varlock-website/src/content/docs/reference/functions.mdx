@@ -275,17 +275,13 @@ Extracts the domain (host) from a URL, dropping the protocol, credentials, port,
 
 The value is parsed as a URL, so the result is the host a request would actually be sent to. A value with no scheme (`example.com`, `example.com:8080`) is treated as a bare host. The result is lowercased, and internationalized domains are converted to punycode.
 
-This returns the full host, not the registrable domain: `domainFromUrl("https://api.example.co.uk")` is `api.example.co.uk`, not `example.co.uk`.
+This returns the full host, not the registrable domain: `domainFromUrl("https://api.example.co.uk")` is `api.example.co.uk`, not `example.co.uk`. Narrowing a host to its registrable domain correctly needs the public suffix list, which varlock does not bundle. Use [`remap()`](#remap) if you need to rewrite specific hosts, for example to blank out a local hostname so your app can fall back to a host-only cookie:
 
-Pass `registrable=true` to narrow the result to the registrable domain (eTLD+1), which is what you usually want for a cookie domain:
-
-```env-spec "registrable"
-APP_URL=https://app.example.co.uk
-# example.co.uk
-COOKIE_DOMAIN=domainFromUrl($APP_URL, registrable=true)
+```env-spec "remap"
+APP_URL=http://localhost:3000
+# blank for a single-label host or an ip literal, the host itself otherwise
+COOKIE_DOMAIN=remap(domainFromUrl($APP_URL), "/^([^.]+|[\d.]+)$/", "")
 ```
-
-This uses the public suffix list, including its private section, so `foo.github.io` stays whole instead of collapsing to `github.io` (a cookie set on a public suffix is dropped by browsers). Hosts that are not on the list at all, like `localhost`, an internal service name, or an IP address, are returned unchanged. A host that is itself a public suffix (`com`, `co.uk`, `github.io`) is a resolution error, since there is nothing valid to return.
 
 The item's type is inferred as `domain` unless you set one explicitly, so `varlock` treats the value as a hostname downstream.
 

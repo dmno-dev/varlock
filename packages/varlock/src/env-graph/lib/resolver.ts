@@ -760,33 +760,6 @@ function extractDomainFromUrl(url: string): string | undefined {
   }
 }
 
-/**
- * Narrows a host to its registrable domain (eTLD+1) using the public suffix list.
- * The list is loaded lazily so schemas that never ask for it don't pay for it.
- *
- * Private suffixes count, so `foo.github.io` stays whole rather than collapsing to
- * `github.io` - a cookie set on a public suffix is silently dropped by browsers, which is
- * exactly the failure this option exists to avoid.
- */
-async function extractRegistrableDomain(host: string) {
-  const { parse } = await import('tldts');
-  const parsed = parse(host, { allowPrivateDomains: true });
-  if (parsed.domain) return parsed.domain;
-
-  // a host that is itself a public suffix (`com`, `co.uk`, `github.io`) has no registrable
-  // domain to return, and guessing one would produce a value that silently does not work
-  if (parsed.isIcann || parsed.isPrivate) {
-    throw new ResolutionError(`"${host}" is a public suffix, so it has no registrable domain`, {
-      tip: 'remove `registrable=true` to use the full host',
-    });
-  }
-
-  // what's left is an ip literal or a name off the public list entirely (`localhost`, an
-  // internal service name) - both are already the value you'd want for a cookie domain.
-  // note the check above is what separates these from single-label suffixes like `com`
-  return host;
-}
-
 export const DomainFromUrlResolver: typeof Resolver = createResolver({
   name: 'domainFromUrl',
   icon: 'mdi:web',
@@ -795,27 +768,10 @@ export const DomainFromUrlResolver: typeof Resolver = createResolver({
   // or an ip literal - the type is here to describe the value, not to narrow it
   inferredTypeSettings: { allowSingleLabel: true, allowIp: true, allowIpV6: true },
   argsSchema: {
-    type: 'mixed',
+    type: 'array',
     arrayExactLength: 1,
   },
-  process() {
-    let registrable = false;
-    const registrableResolver = this.objArgs?.registrable;
-    if (registrableResolver) {
-      if (!registrableResolver.isStatic || typeof registrableResolver.staticValue !== 'boolean') {
-        throw new SchemaError('registrable must be a static boolean');
-      }
-      registrable = registrableResolver.staticValue as boolean;
-    }
-    const unknownOptions = Object.keys(this.objArgs ?? {}).filter((k) => k !== 'registrable');
-    if (unknownOptions.length) {
-      throw new SchemaError(`unknown option(s): ${unknownOptions.join(', ')}`, {
-        tip: 'the only supported option is `registrable`',
-      });
-    }
-    return { registrable };
-  },
-  async resolve({ registrable }) {
+  async resolve() {
     const value = await this.arrArgs![0].resolve();
     // an empty input stays empty rather than becoming an error, so this composes with
     // optional items - fallback()/if() upstream still see undefined
@@ -829,11 +785,7 @@ export const DomainFromUrlResolver: typeof Resolver = createResolver({
         tip: 'expects a url like `https://api.example.com/path` or a bare host like `example.com`',
       });
     }
-    if (!registrable) return domain;
-    // bracketed ipv6 hosts are passed through as-is, so unwrap before the suffix lookup
-    const unbracketed = domain.startsWith('[') && domain.endsWith(']') ? domain.slice(1, -1) : domain;
-    const registrableDomain = await extractRegistrableDomain(unbracketed);
-    return registrableDomain === unbracketed ? domain : registrableDomain;
+    return domain;
   },
 });
 
