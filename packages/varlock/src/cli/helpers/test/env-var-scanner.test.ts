@@ -280,6 +280,34 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).not.toContain('IN_LINE');
     expect(result.keys).toEqual(expect.arrayContaining(['BLOCK_LIVE', 'LINE_LIVE', 'INTERP_LIVE']));
   });
+
+  test('comment delimiters inside quoted interpolation text do not blank live code', async () => {
+    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
+      // a `//` in a URL and a `/*` in a string must not start a comment
+      'const u = `${cfg.get("URL_BASE") + "http://example.com" + cfg.get("AFTER_SLASHES")}`;',
+      'const v = `${"/*" + cfg.get("AFTER_BLOCK")}`;',
+      'const w = `${cfg.get("NEXT_LINE_OK")}`;',
+      'const n = `${`${cfg.get("NESTED")}`}`;',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({
+      cwd: tempDir,
+      extraPatterns: [/cfg\.get\("([A-Z_0-9]+)"\)/],
+    });
+
+    expect(result.keys).toEqual(expect.arrayContaining(['URL_BASE', 'AFTER_SLASHES', 'AFTER_BLOCK', 'NEXT_LINE_OK', 'NESTED']));
+  });
+
+  test('built-in patterns survive comment delimiters in quoted interpolation text', async () => {
+    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
+      'const u = `${process.env.URL_BASE + "http://example.com" + process.env.AFTER_SLASHES}`;',
+      'const w = `${process.env.NEXT_LINE_OK}`;',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toEqual(expect.arrayContaining(['URL_BASE', 'AFTER_SLASHES', 'NEXT_LINE_OK']));
+  });
   /* eslint-enable no-template-curly-in-string */
 
   test('respects ignored directories', async () => {

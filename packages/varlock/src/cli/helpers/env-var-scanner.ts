@@ -408,6 +408,16 @@ function skipTemplateWithoutMask(chars: Array<string>, startIndex: number): numb
           i += 2;
           continue;
         }
+        // Quoted text is stepped over before testing for comment delimiters, so a `//`
+        // in a URL or a `/*` in a string doesn't blank the live code that follows it.
+        if (exprCh === '\'' || exprCh === '"') {
+          i = skipQuotedWithoutMask(chars, i, exprCh);
+          continue;
+        }
+        if (exprCh === '`') {
+          i = skipTemplateWithoutMask(chars, i);
+          continue;
+        }
         if (exprCh === '/' && exprNext === '/') {
           i = maskLineComment(chars, i);
           continue;
