@@ -322,6 +322,50 @@ describe('audit command', () => {
     );
   });
 
+  test('rejects a scan target that is itself excluded', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['./apps/docs'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: { targets: ['./apps/docs'] } } as any))
+      .rejects.toThrow(/Scan target "\.\/apps\/docs" is excluded from the audit scan/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('allows a scan target that merely contains an excluded directory', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['./apps/docs'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'], references: [], scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: { targets: ['./apps'] } } as any);
+
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: path.resolve('/repo/apps') },
+      [path.resolve('/repo/apps/docs')],
+    );
+  });
+
   test('rejects an ignored path that is missing its ./', async () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {},

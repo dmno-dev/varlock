@@ -135,7 +135,7 @@ varlock audit [paths...] [options]
 ```
 
 **Positional arguments:**
-- `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root.
+- `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root. Naming a directory that your exclusions cover is an error, since the two instructions contradict each other.
 
 **Options:**
 - [Common options](/reference/cli-commands/#common-options): `--path` / `-p` (here it sets the **schema** entry point, single path only)

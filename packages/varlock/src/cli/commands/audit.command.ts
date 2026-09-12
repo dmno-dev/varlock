@@ -9,6 +9,7 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
+  isDirExcluded,
   normalizeDirExclusions,
   scanCodeForEnvVars,
   type EnvVarReference,
@@ -214,9 +215,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // A path-shaped entry must say so, rather than the rule being inferred from whether a
   // separator happens to be present. Both failure modes below could only ever match
   // nothing, so they're reported instead of silently doing so.
+  const exclusions = await normalizeDirExclusions(allIgnoredPaths, finalScanRoot);
   const {
     names: ignoredNames, absolute: ignoredAbsolutePaths, unrooted, outside,
-  } = await normalizeDirExclusions(allIgnoredPaths, finalScanRoot);
+  } = exclusions;
   if (unrooted.length > 0) {
     const [first] = unrooted;
     throw new CliExitError(
@@ -253,6 +255,20 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // a different cwd, and a `./`-relative entry re-resolved against each one would point
   // somewhere else every time.
   const forwardedIgnores = [...ignoredNames, ...ignoredAbsolutePaths];
+
+  // Asking to scan a directory the schema excludes is contradictory. Scanning it anyway
+  // reintroduces exactly the noise the exclusion exists to prevent, and scanning nothing
+  // would just report zero files with no reason given.
+  for (const target of scanTargets) {
+    const relativeTarget = path.relative(finalScanRoot, path.resolve(finalScanRoot, target))
+      .split(path.sep).join('/');
+    if (isDirExcluded(relativeTarget, exclusions)) {
+      throw new CliExitError(`Scan target "${target}" is excluded from the audit scan`, {
+        details: 'An @auditIgnorePaths() entry, or --ignore, covers this directory.',
+        suggestion: 'Scan a different directory, or drop the exclusion that covers it.',
+      });
+    }
+  }
 
   // If positional scan targets are provided, scan each one individually and merge results
   let scanResult: ScanCodeEnvVarsResult;

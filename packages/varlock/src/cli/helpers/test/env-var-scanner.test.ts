@@ -6,7 +6,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { normalizeDirExclusions, scanCodeForEnvVars } from '../env-var-scanner';
+import { isDirExcluded, normalizeDirExclusions, scanCodeForEnvVars } from '../env-var-scanner';
 
 describe('scanCodeForEnvVars', () => {
   let tempDir: string;
@@ -431,6 +431,33 @@ describe('scanCodeForEnvVars', () => {
         [path.join(tempDir, 'apps', 'docs')],
       );
       expect(result.keys).not.toContain('APPS_DOCS');
+    });
+
+    test('a directory name starting with .. is inside the tree', async () => {
+      fs.mkdirSync(path.join(tempDir, '..cache'), { recursive: true });
+      fs.writeFileSync(path.join(tempDir, '..cache/a.ts'), 'process.env.CACHE_KEY');
+
+      const { outside, paths } = await normalizeDirExclusions(['./..cache'], tempDir);
+      expect(outside).toEqual([]);
+      expect(paths).toEqual(new Set(['..cache']));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['./..cache']);
+      expect(result.keys).not.toContain('CACHE_KEY');
+    });
+
+    test('isDirExcluded covers ancestors, names and non-matches', async () => {
+      const exclusions = await normalizeDirExclusions(['fixtures', './apps/docs'], tempDir);
+
+      expect(isDirExcluded('apps/docs', exclusions)).toBe(true);
+      // below an excluded path, which the walk never reaches
+      expect(isDirExcluded('apps/docs/nested', exclusions)).toBe(true);
+      // name match at any depth
+      expect(isDirExcluded('src/deep/fixtures', exclusions)).toBe(true);
+      expect(isDirExcluded('apps/web', exclusions)).toBe(false);
+      // a same-named directory that the path entry does not cover
+      expect(isDirExcluded('docs', exclusions)).toBe(false);
+      // the scan root itself
+      expect(isDirExcluded('', exclusions)).toBe(false);
     });
 
     test('the scan root itself is not excludable', async () => {

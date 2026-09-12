@@ -813,7 +813,7 @@ interface NormalizedExtraPattern {
  * `fixtures`). `paths` are scan-root-relative with posix separators, matching one
  * directory only.
  */
-interface DirExclusions {
+export interface DirExclusions {
   names: Set<string>;
   paths: Set<string>;
   /**
@@ -876,7 +876,10 @@ export async function normalizeDirExclusions(
 
   const containedRelative = (candidate: string, root: string): string | undefined => {
     const relative = path.relative(root, candidate);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
+    // `..` alone or a `../` segment means outside. A bare startsWith('..') would also
+    // catch legitimate names like `..cache`, which are inside the tree.
+    if (relative === '..' || relative.startsWith(`..${path.sep}`)) return undefined;
+    if (path.isAbsolute(relative)) return undefined;
     return relative;
   };
 
@@ -918,6 +921,27 @@ export async function normalizeDirExclusions(
   return {
     names, paths, absolute, unrooted, outside,
   };
+}
+
+/**
+ * Whether a directory would be skipped by these exclusions, given its path relative to
+ * the scan root the exclusions were built against (posix separators, no leading `./`).
+ *
+ * An ancestor being excluded counts, since the walk never descends into it. The walk
+ * itself gets this for free by testing each entry as it descends; this is for callers
+ * that need to ask about a path up front.
+ */
+export function isDirExcluded(relativePath: string, exclusions: DirExclusions): boolean {
+  const segments = relativePath.split('/').filter((segment) => segment && segment !== '.');
+  if (!segments.length) return false;
+
+  for (const segment of segments) {
+    if (exclusions.names.has(segment)) return true;
+  }
+  for (let i = 1; i <= segments.length; i++) {
+    if (exclusions.paths.has(segments.slice(0, i).join('/'))) return true;
+  }
+  return false;
 }
 
 /**
