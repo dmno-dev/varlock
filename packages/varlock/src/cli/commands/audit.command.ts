@@ -9,6 +9,7 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
+  DEFAULT_IGNORED_DIRS,
   isDirExcluded,
   normalizeDirExclusions,
   scanCodeForEnvVars,
@@ -217,7 +218,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // nothing, so they're reported instead of silently doing so.
   const exclusions = await normalizeDirExclusions(allIgnoredPaths, finalScanRoot);
   const {
-    names: ignoredNames, absolute: ignoredAbsolutePaths, unrooted, outside,
+    names: ignoredNames, absolute: ignoredAbsolutePaths, unrooted, outside, notDirectories,
   } = exclusions;
   if (unrooted.length > 0) {
     const [first] = unrooted;
@@ -239,6 +240,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       },
     );
   }
+  if (notDirectories.length > 0) {
+    const [first] = notDirectories;
+    throw new CliExitError(
+      `Ignored path "${first}" is not a directory`,
+      {
+        details: 'Exclusions prune directories from the scan, so a file would exclude nothing.',
+        suggestion: `Name the directory that contains it, or use @auditIgnore on the schema items only referenced from "${first}".`,
+      },
+    );
+  }
   if (allIgnoredPaths.length > 0) {
     console.log(`ℹ️ Skipping ignored paths: ${allIgnoredPaths.join(', ')}`);
   }
@@ -256,9 +267,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // somewhere else every time.
   const forwardedIgnores = [...ignoredNames, ...ignoredAbsolutePaths];
 
-  // Asking to scan a directory the schema excludes is contradictory. Scanning it anyway
+  // Asking to scan a directory that is excluded is contradictory. Scanning it anyway
   // reintroduces exactly the noise the exclusion exists to prevent, and scanning nothing
-  // would just report zero files with no reason given.
+  // would just report zero files with no reason given. The always-skipped defaults count
+  // too, so `varlock audit ./node_modules` says why instead of quietly scanning it.
+  const defaultExclusions = await normalizeDirExclusions(DEFAULT_IGNORED_DIRS, finalScanRoot);
   for (const target of scanTargets) {
     const relativeTarget = path.relative(finalScanRoot, path.resolve(finalScanRoot, target))
       .split(path.sep).join('/');
@@ -266,6 +279,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       throw new CliExitError(`Scan target "${target}" is excluded from the audit scan`, {
         details: 'An @auditIgnorePaths() entry, or --ignore, covers this directory.',
         suggestion: 'Scan a different directory, or drop the exclusion that covers it.',
+      });
+    }
+    if (isDirExcluded(relativeTarget, defaultExclusions)) {
+      throw new CliExitError(`Scan target "${target}" is never scanned`, {
+        details: `These directories are always skipped: ${DEFAULT_IGNORED_DIRS.join(', ')}.`,
+        suggestion: 'Scan a directory that holds your own source code.',
       });
     }
   }

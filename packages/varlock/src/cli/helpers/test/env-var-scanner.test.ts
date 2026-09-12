@@ -460,6 +460,26 @@ describe('scanCodeForEnvVars', () => {
       expect(isDirExcluded('', exclusions)).toBe(false);
     });
 
+    test('reports a path entry that is a file rather than a directory', async () => {
+      fs.writeFileSync(path.join(tempDir, 'single.ts'), 'process.env.FILE_KEY');
+
+      const { notDirectories, paths } = await normalizeDirExclusions(['./single.ts'], tempDir);
+      expect(notDirectories).toEqual(['./single.ts']);
+      // not offered as a matcher, since it could only ever exclude nothing
+      expect(paths.has('single.ts')).toBe(false);
+    });
+
+    test('a path entry that does not exist is allowed', async () => {
+      const { notDirectories, outside, paths } = await normalizeDirExclusions(
+        ['./not/created/yet'],
+        tempDir,
+      );
+      // schemas are shared across branches, so a missing directory just never matches
+      expect(notDirectories).toEqual([]);
+      expect(outside).toEqual([]);
+      expect(paths).toEqual(new Set(['not/created/yet']));
+    });
+
     test('the scan root itself is not excludable', async () => {
       const { names, paths, outside } = await normalizeDirExclusions(['.', './'], tempDir);
       expect(names.size + paths.size).toBe(0);

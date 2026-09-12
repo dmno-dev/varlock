@@ -834,6 +834,13 @@ export interface DirExclusions {
    * them and not the others; the CLI rejects entries outside the project root entirely.
    */
   outside: Array<string>;
+  /**
+   * Path entries that resolved to something that exists but isn't a directory. Only
+   * directories can be pruned from the walk, so these would exclude nothing. A path
+   * that doesn't exist at all is fine and simply never matches, since a schema is
+   * shared across branches and checkouts.
+   */
+  notDirectories: Array<string>;
 }
 
 /** realpath, falling back to the input when the path doesn't exist yet. */
@@ -870,6 +877,7 @@ export async function normalizeDirExclusions(
   const absolute: Array<string> = [];
   const unrooted: Array<string> = [];
   const outside: Array<string> = [];
+  const notDirectories: Array<string> = [];
 
   const rawRoot = path.resolve(scanRoot);
   const realRoot = await realpathOrSelf(rawRoot);
@@ -896,6 +904,16 @@ export async function normalizeDirExclusions(
     }
     // empty means the scan root itself, which isn't excludable
     if (!relative) return;
+
+    try {
+      if (!(await fs.stat(realCandidate)).isDirectory()) {
+        notDirectories.push(original);
+        return;
+      }
+    } catch {
+      // doesn't exist: allowed, just won't match anything
+    }
+
     paths.add(relative.split(path.sep).join('/'));
   };
 
@@ -919,7 +937,7 @@ export async function normalizeDirExclusions(
   }
 
   return {
-    names, paths, absolute, unrooted, outside,
+    names, paths, absolute, unrooted, outside, notDirectories,
   };
 }
 

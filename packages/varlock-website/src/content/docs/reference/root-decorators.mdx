@@ -509,7 +509,7 @@ An entry is either a directory name or a path, and it says which by how it start
 - A bare name matches **any** directory with that name, wherever it appears. `fixtures` skips both `./fixtures` and `./src/deep/fixtures`.
 - A path matches that one directory. It uses the same prefixes as [`@import()`](#import): `./` or `../` relative to your project root, `~/` for your home directory, or an absolute path. Relative entries resolve against the project root even when you narrow a run with `varlock audit ./some/dir`, so they keep meaning the same directory. `./apps/docs` leaves a `docs` elsewhere in the tree alone, and `./fixtures` skips the top-level one but not `src/deep/fixtures`.
 
-Two mistakes are reported rather than quietly matching nothing: a path written without one of those prefixes (`apps/docs` tells you to write `./apps/docs`), and a path that resolves outside the project. Trailing separators are ignored, and `\` works as a separator so Windows-style entries are fine.
+Entries name directories, not files. Three mistakes are reported rather than quietly matching nothing: a path written without one of those prefixes (`apps/docs` tells you to write `./apps/docs`), a path that resolves outside the project, and a path that points at a file. A path to a directory that doesn't exist is fine, since a schema is shared across branches and checkouts; it simply never matches. Trailing separators are ignored, and `\` works as a separator so Windows-style entries are fine.
 
 Prefer `./` paths in a committed schema. An absolute or `~/` path is specific to one machine, so it will resolve differently, or outside the project entirely, for your teammates and in CI.
 

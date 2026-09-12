@@ -366,6 +366,21 @@ describe('audit command', () => {
     );
   });
 
+  test('rejects a scan target that is never scanned anyway', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: { targets: ['./node_modules'] } } as any))
+      .rejects.toThrow(/Scan target "\.\/node_modules" is never scanned/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
   test('rejects an ignored path that is missing its ./', async () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {},
