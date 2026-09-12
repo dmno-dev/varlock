@@ -208,7 +208,7 @@ export function varlockCloudflareVitePlugin(
   // Error loudly if the user added `@cloudflare/vite-plugin` themselves.
   const conflictGuard: import('vite').Plugin = {
     name: 'varlock-cloudflare-conflict-guard',
-    configResolved(config) {
+    async configResolved(config) {
       const cfPluginCount = config.plugins.filter(
         (p) => typeof p?.name === 'string' && p.name === CLOUDFLARE_PLUGIN_NAME,
       ).length;
@@ -216,6 +216,27 @@ export function varlockCloudflareVitePlugin(
         throw new Error(
           '[varlock] `@cloudflare/vite-plugin` is already present in your Vite plugins. '
           + 'Remove it — `varlockCloudflareVitePlugin` injects (and configures) it for you.',
+        );
+      }
+
+      // Error if a .dev.vars file exists — it conflicts with varlock's env management.
+      // Wrangler reads `.dev.vars` from the directory holding each worker's config,
+      // so check every one of them, not just the vite root: values found there become
+      // `secret_text` bindings that overwrite the vars varlock injects, leaving the
+      // native `env` object disagreeing with varlock's own `ENV`.
+      //
+      // This runs in `configResolved` rather than a `config` hook so `root` is the
+      // final one — a plugin ordered after ours can still change it during `config`,
+      // and the Cloudflare plugin resolves its own worker configs from that final
+      // value. Checking earlier could inspect a directory nobody ends up using.
+      const { root, mode } = config;
+      const cloudflareEnvVars = await loadCloudflareEnvVars(mode, root);
+      for (const devVarsPath of devVarsGuardPaths(root, cloudflareOptions, cloudflareEnvVars)) {
+        if (!existsSync(devVarsPath)) continue;
+        throw new Error(
+          `[varlock] A .dev.vars file was found at ${path.relative(root, devVarsPath) || '.dev.vars'}, `
+          + 'which conflicts with varlock\'s env management.\n'
+          + 'Remove the .dev.vars file — varlock handles env injection automatically.',
         );
       }
     },
@@ -227,24 +248,8 @@ export function varlockCloudflareVitePlugin(
   const modeDetector: import('vite').Plugin = {
     name: 'varlock-cloudflare-mode',
     enforce: 'pre',
-    async config(config, env) {
+    config(config, env) {
       isDevMode = env.command === 'serve';
-
-      // Error if a .dev.vars file exists — it conflicts with varlock's env management.
-      // Wrangler reads `.dev.vars` from the directory holding each worker's config,
-      // so check every one of them, not just the vite root: values found there become
-      // `secret_text` bindings that overwrite the vars varlock injects, leaving the
-      // native `env` object disagreeing with varlock's own `ENV`.
-      const root = config.root ? path.resolve(config.root) : process.cwd();
-      const cloudflareEnvVars = await loadCloudflareEnvVars(env.mode, root);
-      for (const devVarsPath of devVarsGuardPaths(root, cloudflareOptions, cloudflareEnvVars)) {
-        if (!existsSync(devVarsPath)) continue;
-        throw new Error(
-          `[varlock] A .dev.vars file was found at ${path.relative(root, devVarsPath) || '.dev.vars'}, `
-          + 'which conflicts with varlock\'s env management.\n'
-          + 'Remove the .dev.vars file — varlock handles env injection automatically.',
-        );
-      }
     },
   };
 

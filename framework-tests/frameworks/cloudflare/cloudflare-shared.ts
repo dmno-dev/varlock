@@ -397,6 +397,29 @@ export function defineCloudflareTests(
       ],
     });
 
+    // A plugin ordered after ours can still change `root` during `config`, and
+    // Cloudflare resolves its worker configs from that final value. The check
+    // runs in `configResolved` so it inspects the same root Cloudflare will.
+    cfEnv.describeScenario('.dev.vars is found under a root set by a later plugin', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'app/src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.late-root.ts',
+        'app/wrangler.jsonc': '_base-wrangler/wrangler.nested-entry.jsonc',
+        'app/.env.schema': 'schemas/.env.schema',
+        'app/.env.dev': 'schemas/.env.dev',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'app/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the .dev.vars path under the final root',
+          shouldContain: ['.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
+
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,
       readyPattern: /Local:.*http/,
