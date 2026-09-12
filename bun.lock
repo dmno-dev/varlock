@@ -59,7 +59,7 @@
     },
     "packages/env-spec-parser": {
       "name": "@env-spec/parser",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
@@ -71,7 +71,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/cloudflare-integration": "workspace:*",
@@ -82,7 +82,7 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "@varlock/cloudflare-integration": "^1.5.1",
+        "@varlock/cloudflare-integration": "^1.5.2",
         "astro": ">=4",
         "varlock": "workspace:^",
       },
@@ -92,7 +92,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.5.1",
+      "version": "1.5.2",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -101,13 +101,13 @@
         "@varlock/vite-integration": "workspace:^",
         "dotenv": "^16.6.1",
         "tsdown": "catalog:",
-        "varlock": "workspace:^1.18.0",
+        "varlock": "workspace:^1.19.0",
         "vite": "^7.1.0",
         "vitest": "catalog:",
       },
       "peerDependencies": {
         "@cloudflare/vite-plugin": ">=1",
-        "varlock": "workspace:^1.18.0",
+        "varlock": "workspace:^1.19.0",
         "vite": ">=5",
         "wrangler": ">=3",
       },
@@ -150,7 +150,7 @@
     },
     "packages/integrations/nuxt": {
       "name": "@varlock/nuxt-integration",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@nuxt/kit": "^4.0.3",
       },
@@ -170,7 +170,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.5.1",
+      "version": "1.5.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -188,19 +188,19 @@
     },
     "packages/native-helpers/darwin": {
       "name": "@varlock/native-helper-darwin",
-      "version": "1.18.0",
+      "version": "1.19.0",
     },
     "packages/native-helpers/linux-arm64": {
       "name": "@varlock/native-helper-linux-arm64",
-      "version": "1.18.0",
+      "version": "1.19.0",
     },
     "packages/native-helpers/linux-x64": {
       "name": "@varlock/native-helper-linux-x64",
-      "version": "1.18.0",
+      "version": "1.19.0",
     },
     "packages/native-helpers/win32-x64": {
       "name": "@varlock/native-helper-win32-x64",
-      "version": "1.18.0",
+      "version": "1.19.0",
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
@@ -255,7 +255,7 @@
     },
     "packages/plugins/aws-sigv4": {
       "name": "@varlock/aws-sigv4-plugin",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@smithy/protocol-http": "^5.6.0",
         "@smithy/signature-v4": "^5.7.0",
@@ -495,7 +495,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.18.0",
+      "version": "1.19.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -582,7 +582,7 @@
     },
     "packages/vscode-plugin": {
       "name": "env-spec-language",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@env-spec/parser": "workspace:*",
         "@types/node": "catalog:",

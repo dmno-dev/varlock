@@ -18,6 +18,13 @@
 
 
 
+
+## 1.5.2
+<sub>2026-09-12</sub>
+
+- [#1083](https://github.com/dmno-dev/varlock/pull/1083)  *(patch)*
+  Fix `auxiliaryWorkers` support in `varlockCloudflareVitePlugin`. Every worker in a multi-worker dev/preview session now receives varlock's resolved env, instead of auxiliary workers crashing on boot with `initVarlockEnv failed`. The `.dev.vars` conflict check now covers each worker's config directory too, so a stray `.dev.vars` beside an auxiliary worker can no longer silently override varlock's values.
+
 ## 1.5.1
 <sub>2026-09-01</sub>
 
