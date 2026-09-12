@@ -327,6 +327,50 @@ export function defineCloudflareTests(
       ],
     });
 
+    // With CLOUDFLARE_ENV set, wrangler prefers `.dev.vars.<env>` over the
+    // unsuffixed file, so the guard has to cover that name too.
+    cfEnv.describeScenario('.dev.vars.<CLOUDFLARE_ENV> beside an auxiliary worker config is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      env: { CLOUDFLARE_ENV: 'staging' },
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'workers/aux/src/index.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.nested.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'workers/aux/wrangler.jsonc': '_aux-wrangler/wrangler.aux.nested.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'workers/aux/.dev.vars.staging', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the environment-suffixed .dev.vars path',
+          shouldContain: ['workers/aux/.dev.vars.staging', 'conflicts with varlock'],
+        },
+      ],
+    });
+
+    // The entry worker's config can come from CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH
+    // instead of the plugin options, putting its `.dev.vars` outside the vite root.
+    cfEnv.describeScenario('.dev.vars beside a CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH config is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      env: { CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH: 'app/wrangler.jsonc' },
+      templateFiles: {
+        'app/src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'app/wrangler.jsonc': '_base-wrangler/wrangler.nested-entry.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'app/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the entry worker .dev.vars path outside the vite root',
+          shouldContain: ['app/.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
+
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,
       readyPattern: /Local:.*http/,

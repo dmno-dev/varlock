@@ -50,17 +50,28 @@ function findDevVarsPaths(root: string): Array<string> {
  * multi-worker project has one candidate per worker. The vite root is included
  * too — it is where the file usually ends up, and it is the entry worker's
  * config directory whenever `configPath` is left to auto-discovery.
+ *
+ * When `CLOUDFLARE_ENV` is set, wrangler prefers `.dev.vars.<env>` over the
+ * unsuffixed file, so both names are candidates in every directory.
+ *
+ * The entry worker's config path falls back to `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH`,
+ * matching the Cloudflare plugin's own resolution order. It reads that variable
+ * through vite's `loadEnv`, so a value set only in a `.env` file (rather than the
+ * real environment) is not visible here and its directory goes unchecked.
  */
 function devVarsGuardPaths(root: string, opts?: PluginConfig): Array<string> {
   const configPaths = [
-    opts?.configPath,
+    opts?.configPath ?? process.env.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH,
     ...(opts?.auxiliaryWorkers ?? []).map((auxWorker) => auxWorker.configPath),
   ];
   const dirs = new Set<string>([root]);
   for (const configPath of configPaths) {
     if (configPath) dirs.add(path.dirname(path.resolve(root, configPath)));
   }
-  return [...dirs].map((dir) => path.join(dir, '.dev.vars'));
+
+  const cloudflareEnv = process.env.CLOUDFLARE_ENV;
+  const fileNames = cloudflareEnv ? [`.dev.vars.${cloudflareEnv}`, '.dev.vars'] : ['.dev.vars'];
+  return [...dirs].flatMap((dir) => fileNames.map((fileName) => path.join(dir, fileName)));
 }
 
 function cleanupFile(filePath: string) {
