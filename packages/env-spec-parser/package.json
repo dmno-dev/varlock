@@ -1,6 +1,6 @@
 {
   "name": "@env-spec/parser",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "module",
   "description": "Parser for @env-spec enabled dotenv files",
   "homepage": "https://varlock.dev",

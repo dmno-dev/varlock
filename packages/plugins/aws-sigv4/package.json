@@ -1,7 +1,7 @@
 {
   "name": "@varlock/aws-sigv4-plugin",
   "description": "Varlock plugin adding AWS SigV4 request re-signing to the credential proxy (the agent signs with placeholder credentials; the proxy re-signs with the real keys)",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/aws-sigv4/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",
