@@ -806,29 +806,37 @@ interface NormalizedExtraPattern {
 }
 
 /**
- * A directory exclusion, in the two forms `.gitignore` uses.
+ * A directory exclusion, in the two forms the audit scan accepts.
  *
- * `names` match any directory with that name at any depth (`node_modules`, `fixtures`).
- * `paths` are anchored at the scan root, so `apps/docs` excludes only that directory
- * and not some other `docs` deeper in the tree.
+ * `names` match any directory with that name wherever it appears (`node_modules`,
+ * `fixtures`). `paths` are relative to the scan root, so `./apps/docs` excludes only
+ * that directory and not some other `docs` deeper in the tree.
  */
 interface DirExclusions {
   names: Set<string>;
   paths: Set<string>;
+  /**
+   * Entries that look like paths but aren't marked as one (`apps/docs` rather than
+   * `./apps/docs`). They're treated as paths here so library callers get the sane
+   * reading, but the CLI rejects them rather than guessing: the whole point of
+   * requiring `./` is that an entry says which kind of match it wants.
+   */
+  unrooted: Array<string>;
 }
 
 /**
- * Split raw exclusion entries into name and anchored-path matchers, following
- * `.gitignore`: an entry containing a separator, or explicitly rooted with `/` or `./`,
- * is anchored at the scan root; a bare name matches at any depth. Trailing separators
- * are ignored, and `\` is accepted as a separator so Windows-style entries work.
+ * Split raw exclusion entries into name and path matchers. A bare name matches at any
+ * depth; an entry starting with `./` or `/` is a path relative to the scan root.
+ * Trailing separators are ignored, and `\` is accepted as a separator so
+ * Windows-style entries work.
  *
  * This is the single normalizer for both `@auditIgnorePaths()` and `--ignore`, so the
  * two can't drift apart.
  */
-function normalizeDirExclusions(entries: Iterable<string>): DirExclusions {
+export function normalizeDirExclusions(entries: Iterable<string>): DirExclusions {
   const names = new Set<string>();
   const paths = new Set<string>();
+  const unrooted: Array<string> = [];
 
   for (const raw of entries) {
     const trimmed = raw.trim().replace(/[\\/]+$/, '');
@@ -839,11 +847,17 @@ function normalizeDirExclusions(entries: Iterable<string>): DirExclusions {
     const cleaned = unixed.replace(/^\.?\//, '').replace(/^\/+/, '');
     if (!cleaned || cleaned === '.') continue;
 
-    if (rooted || cleaned.includes('/')) paths.add(cleaned);
-    else names.add(cleaned);
+    if (rooted) {
+      paths.add(cleaned);
+    } else if (cleaned.includes('/')) {
+      unrooted.push(trimmed);
+      paths.add(cleaned);
+    } else {
+      names.add(cleaned);
+    }
   }
 
-  return { names, paths };
+  return { names, paths, unrooted };
 }
 
 /**

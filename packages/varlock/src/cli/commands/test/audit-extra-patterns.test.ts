@@ -22,7 +22,12 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 // wiring. This is the seam a mocked dec.resolve() cannot cover, and it is what
 // let the first draft document a form the parser rejects.
 vi.mock('exit-hook', () => ({ gracefulExit: gracefulExitMock }));
-vi.mock('../../helpers/env-var-scanner', () => ({ scanCodeForEnvVars: scanCodeForEnvVarsMock }));
+// only the scan itself is faked; exclusion normalization is pure logic the command
+// should exercise for real
+vi.mock('../../helpers/env-var-scanner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../helpers/env-var-scanner')>()),
+  scanCodeForEnvVars: scanCodeForEnvVarsMock,
+}));
 
 describe('audit @auditExtraPatterns end to end', () => {
   let tempDir: string;

@@ -139,7 +139,7 @@ varlock audit [paths...] [options]
 
 **Options:**
 - [Common options](/reference/cli-commands/#common-options): `--path` / `-p` (here it sets the **schema** entry point, single path only)
-- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times). Accepts the same forms as [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths), which it is merged with: a bare name matches at any depth, an entry with a separator is anchored at the scan root.
+- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times). Accepts the same forms as [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths), which it is merged with: a bare name matches wherever it appears, while a `./` entry is a path relative to the scan root.
 
 **Examples:**
 ```bash
@@ -158,8 +158,8 @@ varlock audit ./src ./lib
 # Exclude every directory named fixtures
 varlock audit --ignore fixtures
 
-# Exclude one specific directory, anchored at the scan root
-varlock audit --ignore apps/docs
+# Exclude one specific directory, as a path from the scan root
+varlock audit --ignore ./apps/docs
 
 # Exclude multiple directories
 varlock audit -i fixtures -i generated

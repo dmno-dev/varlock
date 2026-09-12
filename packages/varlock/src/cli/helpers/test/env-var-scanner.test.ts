@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { scanCodeForEnvVars } from '../env-var-scanner';
+import { normalizeDirExclusions, scanCodeForEnvVars } from '../env-var-scanner';
 
 describe('scanCodeForEnvVars', () => {
   let tempDir: string;
@@ -328,19 +328,19 @@ describe('scanCodeForEnvVars', () => {
       expect(result.keys).not.toContain('DEEP_FIXTURES');
     });
 
-    test('a multi-segment entry is anchored at the scan root', async () => {
-      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['apps/docs']);
+    test('a ./ entry is a path from the scan root', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['./apps/docs']);
       expect(result.keys).not.toContain('APPS_DOCS');
       // a same-named directory elsewhere is untouched
       expect(result.keys).toContain('TOP_DOCS');
     });
 
-    test('a multi-segment entry excludes the whole subtree', async () => {
-      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['generated/config']);
+    test('a ./ entry excludes the whole subtree', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['./generated/config']);
       expect(result.keys).not.toContain('GENERATED_CONFIG');
     });
 
-    test('a rooted single name matches only at the scan root', async () => {
+    test('./ on a single name matches only at the scan root', async () => {
       const result = await scanCodeForEnvVars({ cwd: tempDir }, ['./fixtures']);
       expect(result.keys).not.toContain('TOP_FIXTURES');
       expect(result.keys).toContain('DEEP_FIXTURES');
@@ -354,8 +354,16 @@ describe('scanCodeForEnvVars', () => {
     });
 
     test('windows-style separators are accepted', async () => {
-      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['apps\\docs']);
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['.\\apps\\docs']);
       expect(result.keys).not.toContain('APPS_DOCS');
+    });
+
+    test('reports a path-shaped entry that is missing its ./', () => {
+      const { unrooted, names, paths } = normalizeDirExclusions(['apps/docs', 'fixtures', './ok/here']);
+      expect(unrooted).toEqual(['apps/docs']);
+      expect(names).toEqual(new Set(['fixtures']));
+      // still read as a path, so a direct library caller gets the sane behavior
+      expect(paths).toEqual(new Set(['apps/docs', 'ok/here']));
     });
   });
 

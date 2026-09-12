@@ -9,6 +9,7 @@ import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
+  normalizeDirExclusions,
   scanCodeForEnvVars,
   type EnvVarReference,
   type ExtraScanPattern,
@@ -210,6 +211,19 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const customIgnoredPaths = await getCustomAuditIgnorePaths(envGraph);
   // Merge CLI --ignore dirs with schema @auditIgnorePaths
   const allIgnoredPaths = [...customIgnoredPaths, ...cliIgnoreDirs];
+  // A path-shaped entry must say so with `./`, rather than the rule being inferred from
+  // whether a separator happens to be present.
+  const { unrooted } = normalizeDirExclusions(allIgnoredPaths);
+  if (unrooted.length > 0) {
+    const [first] = unrooted;
+    throw new CliExitError(
+      `Ignored path "${first}" must start with "./" to be treated as a path`,
+      {
+        details: 'Without it, an entry is a directory name matched wherever it appears, and a name can never contain a separator.',
+        suggestion: `Write "./${first.replace(/^\/+/, '')}" for that directory specifically, or name a single directory to skip it everywhere.`,
+      },
+    );
+  }
   if (allIgnoredPaths.length > 0) {
     console.log(`ℹ️ Skipping ignored paths: ${allIgnoredPaths.join(', ')}`);
   }

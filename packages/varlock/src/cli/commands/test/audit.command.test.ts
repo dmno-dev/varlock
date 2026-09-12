@@ -22,7 +22,12 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock('exit-hook', () => ({ gracefulExit: gracefulExitMock }));
 vi.mock('../../../lib/load-graph', () => ({ loadVarlockEnvGraph: loadVarlockEnvGraphMock }));
-vi.mock('../../helpers/env-var-scanner', () => ({ scanCodeForEnvVars: scanCodeForEnvVarsMock }));
+// only the scan itself is faked; exclusion normalization is pure logic the command
+// should exercise for real
+vi.mock('../../helpers/env-var-scanner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../helpers/env-var-scanner')>()),
+  scanCodeForEnvVars: scanCodeForEnvVarsMock,
+}));
 vi.mock('node:fs/promises', () => ({ default: { stat: fsStatMock } }));
 vi.mock('../../helpers/error-checks', () => ({
   checkForNoEnvFiles: vi.fn(),
@@ -307,13 +312,46 @@ describe('audit command', () => {
 
     await commandFn({ values: {} } as any);
 
-    // entries reach the scanner verbatim: `./scripts/` is a rooted path, not the bare
-    // name `scripts`, and only the scanner's normalizer draws that distinction
+    // entries reach the scanner verbatim: `./scripts/` is a path, not the bare name
+    // `scripts`, and only the scanner's normalizer draws that distinction
     expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, ./scripts/, mocks');
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
       { cwd: '/repo' },
       ['e2e', './scripts/', 'mocks'],
     );
+  });
+
+  test('rejects an ignored path that is missing its ./', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['apps/docs'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any))
+      .rejects.toThrow(/"apps\/docs" must start with "\.\/" to be treated as a path/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects an --ignore value that is missing its ./', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: { ignore: ['apps/docs'] } } as any))
+      .rejects.toThrow(/must start with "\.\/" to be treated as a path/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
   });
 
   test('forwards # @auditExtraPatterns(...) regexes to the scanner', async () => {
