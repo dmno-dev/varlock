@@ -312,12 +312,13 @@ describe('audit command', () => {
 
     await commandFn({ values: {} } as any);
 
-    // entries reach the scanner verbatim: `./scripts/` is a path, not the bare name
-    // `scripts`, and only the scanner's normalizer draws that distinction
+    // the message echoes what was written, while the scanner gets canonical entries:
+    // names stay names, and `./scripts/` becomes an absolute path so it still means the
+    // same directory when a positional target changes the scanner's cwd
     expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, ./scripts/, mocks');
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
       { cwd: '/repo' },
-      ['e2e', './scripts/', 'mocks'],
+      ['e2e', 'mocks', path.resolve('/repo/scripts')],
     );
   });
 

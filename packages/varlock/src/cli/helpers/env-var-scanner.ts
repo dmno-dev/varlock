@@ -817,6 +817,12 @@ interface DirExclusions {
   names: Set<string>;
   paths: Set<string>;
   /**
+   * Every path entry as an absolute path. Callers that scan several roots forward these
+   * instead of the raw entries, so a `./`-relative entry keeps meaning the same
+   * directory rather than being re-resolved against each root.
+   */
+  absolute: Array<string>;
+  /**
    * Entries that look like paths but don't say so (`apps/docs` rather than
    * `./apps/docs`). Read as paths here so a direct library caller gets the sane
    * behavior, while the CLI rejects them rather than guessing.
@@ -824,10 +830,19 @@ interface DirExclusions {
   unrooted: Array<string>;
   /**
    * Entries that resolved outside the scanned tree, so they can never match. Ignored
-   * here, since with multiple scan targets an entry may legitimately fall outside one
-   * of them; the CLI rejects entries outside the project's scan root entirely.
+   * here, since a caller scanning several roots will have entries that apply to one of
+   * them and not the others; the CLI rejects entries outside the project root entirely.
    */
   outside: Array<string>;
+}
+
+/** realpath, falling back to the input when the path doesn't exist yet. */
+async function realpathOrSelf(target: string): Promise<string> {
+  try {
+    return await fs.realpath(target);
+  } catch {
+    return target;
+  }
 }
 
 /**
@@ -838,26 +853,46 @@ interface DirExclusions {
  * absolute path. Trailing separators are ignored and `\` works as a separator, so
  * Windows-style entries are fine.
  *
+ * Containment is tested against both the given scan root and its realpath, since a
+ * project reached through a symlink (`/tmp` on macOS, a linked workspace) spells the
+ * same directory two ways and a purely textual compare would call a valid entry
+ * outside the tree.
+ *
  * This is the single normalizer for both `@auditIgnorePaths()` and `--ignore`, so the
  * two can't drift apart.
  */
-export function normalizeDirExclusions(
+export async function normalizeDirExclusions(
   entries: Iterable<string>,
   scanRoot: string,
-): DirExclusions {
+): Promise<DirExclusions> {
   const names = new Set<string>();
   const paths = new Set<string>();
+  const absolute: Array<string> = [];
   const unrooted: Array<string> = [];
   const outside: Array<string> = [];
 
-  const addResolved = (absolutePath: string, original: string) => {
-    const relative = path.relative(scanRoot, absolutePath);
-    // empty means the scan root itself; `..`-prefixed or absolute means outside it
-    if (!relative) return;
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  const rawRoot = path.resolve(scanRoot);
+  const realRoot = await realpathOrSelf(rawRoot);
+
+  const containedRelative = (candidate: string, root: string): string | undefined => {
+    const relative = path.relative(root, candidate);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
+    return relative;
+  };
+
+  const addResolved = async (absolutePath: string, original: string) => {
+    absolute.push(absolutePath);
+    const realCandidate = await realpathOrSelf(absolutePath);
+    const relative = containedRelative(absolutePath, rawRoot)
+      ?? containedRelative(realCandidate, realRoot)
+      ?? containedRelative(realCandidate, rawRoot)
+      ?? containedRelative(absolutePath, realRoot);
+    if (relative === undefined) {
       outside.push(original);
       return;
     }
+    // empty means the scan root itself, which isn't excludable
+    if (!relative) return;
     paths.add(relative.split(path.sep).join('/'));
   };
 
@@ -867,21 +902,21 @@ export function normalizeDirExclusions(
     const unixed = trimmed.replace(/\\/g, '/');
 
     if (unixed === '~' || unixed.startsWith('~/')) {
-      addResolved(path.join(os.homedir(), unixed.slice(1)), trimmed);
+      await addResolved(path.join(os.homedir(), unixed.slice(1)), trimmed);
     } else if (path.isAbsolute(trimmed)) {
-      addResolved(path.resolve(trimmed), trimmed);
+      await addResolved(path.resolve(trimmed), trimmed);
     } else if (unixed === '.' || unixed.startsWith('./') || unixed.startsWith('../')) {
-      addResolved(path.resolve(scanRoot, unixed), trimmed);
+      await addResolved(path.resolve(rawRoot, unixed), trimmed);
     } else if (unixed.includes('/')) {
       unrooted.push(trimmed);
-      addResolved(path.resolve(scanRoot, unixed), trimmed);
+      await addResolved(path.resolve(rawRoot, unixed), trimmed);
     } else {
       names.add(unixed);
     }
   }
 
   return {
-    names, paths, unrooted, outside,
+    names, paths, absolute, unrooted, outside,
   };
 }
 
@@ -938,7 +973,7 @@ export async function scanCodeForEnvVars(
   const cwd = options.cwd || process.cwd();
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const maxFileSizeBytes = options.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES;
-  const exclusions = normalizeDirExclusions([
+  const exclusions = await normalizeDirExclusions([
     ...DEFAULT_IGNORED_DIRS,
     ...(options.ignoredDirs ?? []),
     ...additionalExcludeDirs,

@@ -2,6 +2,7 @@ import {
   afterEach, beforeEach, describe, expect, test,
 } from 'vitest';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -353,10 +354,10 @@ describe('scanCodeForEnvVars', () => {
       }
     });
 
-    test('a leading / is an absolute path, not a scan-root shorthand', () => {
+    test('a leading / is an absolute path, not a scan-root shorthand', async () => {
       // `/fixtures` is the filesystem root's fixtures dir, matching @import's
       // convention rather than gitignore's anchoring
-      const { outside, names, paths } = normalizeDirExclusions(['/fixtures'], tempDir);
+      const { outside, names, paths } = await normalizeDirExclusions(['/fixtures'], tempDir);
       expect(outside).toEqual(['/fixtures']);
       expect(names.size + paths.size).toBe(0);
     });
@@ -366,8 +367,8 @@ describe('scanCodeForEnvVars', () => {
       expect(result.keys).not.toContain('APPS_DOCS');
     });
 
-    test('reports a path-shaped entry that is missing its ./', () => {
-      const { unrooted, names, paths } = normalizeDirExclusions(
+    test('reports a path-shaped entry that is missing its ./', async () => {
+      const { unrooted, names, paths } = await normalizeDirExclusions(
         ['apps/docs', 'fixtures', './ok/here'],
         tempDir,
       );
@@ -386,14 +387,14 @@ describe('scanCodeForEnvVars', () => {
       expect(result.keys).toContain('TOP_DOCS');
     });
 
-    test('a ~ path is expanded against the home directory', () => {
-      const { paths, outside } = normalizeDirExclusions(['~/projects/app/e2e'], os.homedir());
+    test('a ~ path is expanded against the home directory', async () => {
+      const { paths, outside } = await normalizeDirExclusions(['~/projects/app/e2e'], os.homedir());
       expect(paths).toEqual(new Set(['projects/app/e2e']));
       expect(outside).toEqual([]);
     });
 
-    test('reports entries that resolve outside the scan root', () => {
-      const { outside, paths } = normalizeDirExclusions(
+    test('reports entries that resolve outside the scan root', async () => {
+      const { outside, paths } = await normalizeDirExclusions(
         ['../sibling', '/somewhere/else', './inside'],
         path.join(tempDir, 'nested'),
       );
@@ -401,8 +402,39 @@ describe('scanCodeForEnvVars', () => {
       expect(paths).toEqual(new Set(['inside']));
     });
 
-    test('the scan root itself is not excludable', () => {
-      const { names, paths, outside } = normalizeDirExclusions(['.', './'], tempDir);
+    test('an absolute path still matches when the root is reached via a symlink', async () => {
+      // macOS spells os.tmpdir() as /var/folders/... and /tmp as a symlink to it, so a
+      // textual compare would call an in-root path outside the tree
+      const realRoot = await fsp.realpath(tempDir);
+      const { outside, paths } = await normalizeDirExclusions(
+        [path.join(realRoot, 'apps', 'docs')],
+        tempDir,
+      );
+      expect(outside).toEqual([]);
+      expect(paths).toEqual(new Set(['apps/docs']));
+    });
+
+    test('exposes path entries as absolute paths for multi-root callers', async () => {
+      const { absolute, names } = await normalizeDirExclusions(
+        ['./apps/docs', 'fixtures'],
+        tempDir,
+      );
+      expect(absolute).toEqual([path.join(tempDir, 'apps', 'docs')]);
+      expect(names).toEqual(new Set(['fixtures']));
+    });
+
+    test('an absolute entry excludes the right directory under a narrower scan root', async () => {
+      // what the command forwards when `varlock audit ./apps` runs with an
+      // @auditIgnorePaths(./apps/docs) entry resolved against the project root
+      const result = await scanCodeForEnvVars(
+        { cwd: path.join(tempDir, 'apps') },
+        [path.join(tempDir, 'apps', 'docs')],
+      );
+      expect(result.keys).not.toContain('APPS_DOCS');
+    });
+
+    test('the scan root itself is not excludable', async () => {
+      const { names, paths, outside } = await normalizeDirExclusions(['.', './'], tempDir);
       expect(names.size + paths.size).toBe(0);
       expect(outside).toEqual([]);
     });

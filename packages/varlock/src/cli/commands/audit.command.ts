@@ -214,7 +214,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // A path-shaped entry must say so, rather than the rule being inferred from whether a
   // separator happens to be present. Both failure modes below could only ever match
   // nothing, so they're reported instead of silently doing so.
-  const { unrooted, outside } = normalizeDirExclusions(allIgnoredPaths, finalScanRoot);
+  const {
+    names: ignoredNames, absolute: ignoredAbsolutePaths, unrooted, outside,
+  } = await normalizeDirExclusions(allIgnoredPaths, finalScanRoot);
   if (unrooted.length > 0) {
     const [first] = unrooted;
     throw new CliExitError(
@@ -247,6 +249,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     ? { extraPatterns: customExtraPatterns }
     : {};
 
+  // Path entries are forwarded as absolute paths: with positional targets each scan uses
+  // a different cwd, and a `./`-relative entry re-resolved against each one would point
+  // somewhere else every time.
+  const forwardedIgnores = [...ignoredNames, ...ignoredAbsolutePaths];
+
   // If positional scan targets are provided, scan each one individually and merge results
   let scanResult: ScanCodeEnvVarsResult;
   if (scanTargets.length > 0) {
@@ -256,7 +263,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       const resolvedTarget = path.resolve(finalScanRoot, target);
       const result = await scanCodeForEnvVars(
         { cwd: resolvedTarget, ...extraScanOptions },
-        allIgnoredPaths,
+        forwardedIgnores,
       );
       mergedRefs.push(...result.references);
       totalFilesScanned += result.scannedFilesCount;
@@ -266,7 +273,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } else {
     scanResult = await scanCodeForEnvVars(
       { cwd: finalScanRoot, ...extraScanOptions },
-      allIgnoredPaths,
+      forwardedIgnores,
     );
   }
   const schemaKeys = Object.keys(envGraph.configSchema);
