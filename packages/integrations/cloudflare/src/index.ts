@@ -55,13 +55,19 @@ function findDevVarsPaths(root: string): Array<string> {
  * unsuffixed file, so both names are candidates in every directory.
  *
  * The entry worker's config path falls back to `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH`,
- * matching the Cloudflare plugin's own resolution order. It reads that variable
- * through vite's `loadEnv`, so a value set only in a `.env` file (rather than the
- * real environment) is not visible here and its directory goes unchecked.
+ * matching the Cloudflare plugin's own resolution order. Both selectors come from
+ * `cloudflareEnvVars`, which the caller builds with the same `vite.loadEnv()` call
+ * the Cloudflare plugin makes — they can be set in a `.env` file rather than the
+ * real environment, and the plugin only copies them into `process.env` later, after
+ * this guard has already run.
  */
-function devVarsGuardPaths(root: string, opts?: PluginConfig): Array<string> {
+function devVarsGuardPaths(
+  root: string,
+  opts?: PluginConfig,
+  cloudflareEnvVars: Record<string, string> = {},
+): Array<string> {
   const configPaths = [
-    opts?.configPath ?? process.env.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH,
+    opts?.configPath ?? cloudflareEnvVars.CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH,
     ...(opts?.auxiliaryWorkers ?? []).map((auxWorker) => auxWorker.configPath),
   ];
   const dirs = new Set<string>([root]);
@@ -69,9 +75,28 @@ function devVarsGuardPaths(root: string, opts?: PluginConfig): Array<string> {
     if (configPath) dirs.add(path.dirname(path.resolve(root, configPath)));
   }
 
-  const cloudflareEnv = process.env.CLOUDFLARE_ENV;
+  const cloudflareEnv = cloudflareEnvVars.CLOUDFLARE_ENV;
   const fileNames = cloudflareEnv ? [`.dev.vars.${cloudflareEnv}`, '.dev.vars'] : ['.dev.vars'];
   return [...dirs].flatMap((dir) => fileNames.map((fileName) => path.join(dir, fileName)));
+}
+
+/**
+ * The `CLOUDFLARE_*` values the Cloudflare plugin will resolve its config from,
+ * loaded exactly the way it does: `vite.loadEnv()` over the same mode and root,
+ * which merges matching `process.env` entries with any `.env` files.
+ *
+ * Imported dynamically because `vite` is an optional peer dep — it is always
+ * present when this plugin actually runs, but the import should not be hoisted
+ * into module scope for consumers who only import types.
+ */
+async function loadCloudflareEnvVars(mode: string, root: string): Promise<Record<string, string>> {
+  try {
+    const { loadEnv } = await import('vite');
+    return loadEnv(mode, root, ['CLOUDFLARE_']);
+  } catch {
+    // fall back to the real environment if vite cannot be resolved
+    return process.env as Record<string, string>;
+  }
 }
 
 function cleanupFile(filePath: string) {
@@ -202,7 +227,7 @@ export function varlockCloudflareVitePlugin(
   const modeDetector: import('vite').Plugin = {
     name: 'varlock-cloudflare-mode',
     enforce: 'pre',
-    config(config, env) {
+    async config(config, env) {
       isDevMode = env.command === 'serve';
 
       // Error if a .dev.vars file exists — it conflicts with varlock's env management.
@@ -211,7 +236,8 @@ export function varlockCloudflareVitePlugin(
       // `secret_text` bindings that overwrite the vars varlock injects, leaving the
       // native `env` object disagreeing with varlock's own `ENV`.
       const root = config.root ? path.resolve(config.root) : process.cwd();
-      for (const devVarsPath of devVarsGuardPaths(root, cloudflareOptions)) {
+      const cloudflareEnvVars = await loadCloudflareEnvVars(env.mode, root);
+      for (const devVarsPath of devVarsGuardPaths(root, cloudflareOptions, cloudflareEnvVars)) {
         if (!existsSync(devVarsPath)) continue;
         throw new Error(
           `[varlock] A .dev.vars file was found at ${path.relative(root, devVarsPath) || '.dev.vars'}, `

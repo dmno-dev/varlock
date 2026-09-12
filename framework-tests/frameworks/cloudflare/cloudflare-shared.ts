@@ -371,6 +371,32 @@ export function defineCloudflareTests(
       ],
     });
 
+    // The Cloudflare plugin resolves its CLOUDFLARE_* selectors with vite's
+    // `loadEnv`, so they can live in a `.env` file. The guard loads them the same
+    // way rather than relying on varlock's own `.env` loading having already put
+    // them in `process.env` by the time this hook runs.
+    cfEnv.describeScenario('.dev.vars beside a config selected by a .env file is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'app/src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'app/wrangler.jsonc': '_base-wrangler/wrangler.nested-entry.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [
+        // selector lives only here - never passed through the child process env
+        { path: '.env', content: 'CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=app/wrangler.jsonc\n' },
+        { path: 'app/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' },
+      ],
+      outputAssertions: [
+        {
+          description: 'error names the .dev.vars path for the env-file-selected config',
+          shouldContain: ['app/.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
+
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,
       readyPattern: /Local:.*http/,
