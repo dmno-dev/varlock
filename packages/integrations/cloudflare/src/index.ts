@@ -43,6 +43,26 @@ function findDevVarsPaths(root: string): Array<string> {
   return paths;
 }
 
+/**
+ * `.dev.vars` paths that would conflict with varlock's env injection.
+ *
+ * Wrangler looks for `.dev.vars` next to each worker's wrangler config, so a
+ * multi-worker project has one candidate per worker. The vite root is included
+ * too — it is where the file usually ends up, and it is the entry worker's
+ * config directory whenever `configPath` is left to auto-discovery.
+ */
+function devVarsGuardPaths(root: string, opts?: PluginConfig): Array<string> {
+  const configPaths = [
+    opts?.configPath,
+    ...(opts?.auxiliaryWorkers ?? []).map((auxWorker) => auxWorker.configPath),
+  ];
+  const dirs = new Set<string>([root]);
+  for (const configPath of configPaths) {
+    if (configPath) dirs.add(path.dirname(path.resolve(root, configPath)));
+  }
+  return [...dirs].map((dir) => path.join(dir, '.dev.vars'));
+}
+
 function cleanupFile(filePath: string) {
   try {
     unlinkSync(filePath);
@@ -175,11 +195,16 @@ export function varlockCloudflareVitePlugin(
       isDevMode = env.command === 'serve';
 
       // Error if a .dev.vars file exists — it conflicts with varlock's env management.
+      // Wrangler reads `.dev.vars` from the directory holding each worker's config,
+      // so check every one of them, not just the vite root: values found there become
+      // `secret_text` bindings that overwrite the vars varlock injects, leaving the
+      // native `env` object disagreeing with varlock's own `ENV`.
       const root = config.root ? path.resolve(config.root) : process.cwd();
-      const devVarsPath = path.resolve(root, '.dev.vars');
-      if (existsSync(devVarsPath)) {
+      for (const devVarsPath of devVarsGuardPaths(root, cloudflareOptions)) {
+        if (!existsSync(devVarsPath)) continue;
         throw new Error(
-          '[varlock] A .dev.vars file was found in your project root, which conflicts with varlock\'s env management.\n'
+          `[varlock] A .dev.vars file was found at ${path.relative(root, devVarsPath) || '.dev.vars'}, `
+          + 'which conflicts with varlock\'s env management.\n'
           + 'Remove the .dev.vars file — varlock handles env injection automatically.',
         );
       }

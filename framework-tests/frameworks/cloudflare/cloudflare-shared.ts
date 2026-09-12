@@ -146,7 +146,7 @@ export function defineCloudflareTests(
     });
 
     cfEnv.describeDevScenario('build + preview', {
-      command: `vite build && vite preview --port ${basePort + 3}`,
+      command: `vite build && pnpm exec vite preview --port ${basePort + 3}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
@@ -271,7 +271,7 @@ export function defineCloudflareTests(
     });
 
     cfEnv.describeDevScenario('auxiliary workers (build + preview)', {
-      command: `vite build && vite preview --port ${basePort + 8}`,
+      command: `vite build && pnpm exec vite preview --port ${basePort + 8}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
@@ -303,6 +303,29 @@ export function defineCloudflareTests(
       ],
     });
 
+    // Wrangler reads `.dev.vars` from each worker's config directory, and those
+    // values become `secret_text` bindings that overwrite varlock's injected
+    // vars — leaving the native `env` object disagreeing with varlock's `ENV`.
+    // The guard has to cover auxiliary worker directories, not just the root.
+    cfEnv.describeScenario('.dev.vars beside an auxiliary worker config is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'workers/aux/src/index.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.nested.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'workers/aux/wrangler.jsonc': '_aux-wrangler/wrangler.aux.nested.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'workers/aux/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the auxiliary worker .dev.vars path',
+          shouldContain: ['workers/aux/.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
 
     cfEnv.describeDevScenario('large env (chunking)', {
       command: `vite dev --port ${basePort + 4}`,
