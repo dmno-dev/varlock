@@ -41,6 +41,12 @@ async function getScanRootFromEntryPath(providedEntryPath: string): Promise<stri
   return path.dirname(resolved);
 }
 
+/**
+ * Flatten decorator args (which may be nested array literals) into trimmed strings.
+ * Entries are passed through verbatim otherwise: ignore-path entries carry meaning in
+ * their leading `./` and separators, and the scanner owns that normalization so the
+ * decorator and `--ignore` can't interpret them differently.
+ */
 function collectStringArgs(input: unknown, out: Array<string>) {
   if (Array.isArray(input)) {
     for (const entry of input) collectStringArgs(entry, out);
@@ -48,9 +54,9 @@ function collectStringArgs(input: unknown, out: Array<string>) {
   }
   if (typeof input !== 'string') return;
 
-  const normalized = input.trim().replace(/^\.\//, '').replace(/[/\\]+$/, '');
-  if (!normalized) return;
-  out.push(normalized);
+  const trimmed = input.trim();
+  if (!trimmed) return;
+  out.push(trimmed);
 }
 
 function collectPatternArgs(input: unknown, out: Array<RegExp>) {

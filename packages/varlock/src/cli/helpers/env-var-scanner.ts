@@ -99,7 +99,11 @@ export interface ScanCodeEnvVarsOptions {
   cwd?: string;
   concurrency?: number;
   maxFileSizeBytes?: number;
-  // legacy option, treated as additional excludes
+  /**
+   * Directories to exclude, in the same two forms as `additionalExcludeDirs`: a bare
+   * name matches at any depth, an entry with a separator (or rooted with `/` or `./`)
+   * is anchored at the scan root. Legacy option, treated as additional excludes.
+   */
   ignoredDirs?: Array<string>;
   /**
    * Project-supplied patterns (e.g. from the `@auditExtraPatterns` root
@@ -233,12 +237,12 @@ const JS_DESTRUCTURE_PATTERNS: Array<{ regex: RegExp, syntax: EnvVarSyntax }> = 
 
 async function discoverSourceFiles(
   cwd: string,
-  ignoredDirs: Set<string>,
+  exclusions: DirExclusions,
   widenedExtensions: Set<string>,
 ): Promise<Array<string>> {
   const filePaths: Array<string> = [];
 
-  async function walk(dir: string, isRoot: boolean): Promise<void> {
+  async function walk(dir: string, isRoot: boolean, relativeDir: string): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -255,8 +259,11 @@ async function discoverSourceFiles(
     const subdirWalks: Array<Promise<void>> = [];
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (ignoredDirs.has(entry.name)) continue;
-        subdirWalks.push(walk(path.join(dir, entry.name), false));
+        if (exclusions.names.has(entry.name)) continue;
+        // posix-joined regardless of platform, so schema entries stay portable
+        const entryRelativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
+        if (exclusions.paths.has(entryRelativePath)) continue;
+        subdirWalks.push(walk(path.join(dir, entry.name), false, entryRelativePath));
       } else if (entry.isFile()) {
         const extension = path.extname(entry.name).toLowerCase();
         if (!(extension in LANGUAGE_BY_EXTENSION) && !widenedExtensions.has(extension)) continue;
@@ -266,7 +273,7 @@ async function discoverSourceFiles(
     await Promise.all(subdirWalks);
   }
 
-  await walk(cwd, true);
+  await walk(cwd, true, '');
   return filePaths;
 }
 
@@ -799,6 +806,47 @@ interface NormalizedExtraPattern {
 }
 
 /**
+ * A directory exclusion, in the two forms `.gitignore` uses.
+ *
+ * `names` match any directory with that name at any depth (`node_modules`, `fixtures`).
+ * `paths` are anchored at the scan root, so `apps/docs` excludes only that directory
+ * and not some other `docs` deeper in the tree.
+ */
+interface DirExclusions {
+  names: Set<string>;
+  paths: Set<string>;
+}
+
+/**
+ * Split raw exclusion entries into name and anchored-path matchers, following
+ * `.gitignore`: an entry containing a separator, or explicitly rooted with `/` or `./`,
+ * is anchored at the scan root; a bare name matches at any depth. Trailing separators
+ * are ignored, and `\` is accepted as a separator so Windows-style entries work.
+ *
+ * This is the single normalizer for both `@auditIgnorePaths()` and `--ignore`, so the
+ * two can't drift apart.
+ */
+function normalizeDirExclusions(entries: Iterable<string>): DirExclusions {
+  const names = new Set<string>();
+  const paths = new Set<string>();
+
+  for (const raw of entries) {
+    const trimmed = raw.trim().replace(/[\\/]+$/, '');
+    if (!trimmed) continue;
+
+    const unixed = trimmed.replace(/\\/g, '/');
+    const rooted = unixed.startsWith('/') || unixed.startsWith('./');
+    const cleaned = unixed.replace(/^\.?\//, '').replace(/^\/+/, '');
+    if (!cleaned || cleaned === '.') continue;
+
+    if (rooted || cleaned.includes('/')) paths.add(cleaned);
+    else names.add(cleaned);
+  }
+
+  return { names, paths };
+}
+
+/**
  * Normalize a user-supplied extension to the lowercase dotted form `path.extname()`
  * returns, so `tf`, `.tf` and `.TF` all mean the same thing.
  */
@@ -851,7 +899,7 @@ export async function scanCodeForEnvVars(
   const cwd = options.cwd || process.cwd();
   const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const maxFileSizeBytes = options.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES;
-  const excludeDirs = new Set([
+  const exclusions = normalizeDirExclusions([
     ...DEFAULT_IGNORED_DIRS,
     ...(options.ignoredDirs ?? []),
     ...additionalExcludeDirs,
@@ -860,7 +908,7 @@ export async function scanCodeForEnvVars(
   const extraPatterns = normalizeExtraPatterns(options.extraPatterns);
   const widenedExtensions = collectWidenedExtensions(extraPatterns);
 
-  const filePaths = await discoverSourceFiles(cwd, excludeDirs, widenedExtensions);
+  const filePaths = await discoverSourceFiles(cwd, exclusions, widenedExtensions);
   const references = await scanFilesWithLimit(filePaths, concurrency, async (filePath) => {
     return scanFileForEnvVarReferences(filePath, maxFileSizeBytes, extraPatterns);
   });

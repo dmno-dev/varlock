@@ -502,23 +502,30 @@ Excludes directories from the [`varlock audit`](/reference/cli/encryption/#audit
 
 Useful for excluding generated code, vendored dependencies, or directories that contain env var references you don't want to audit.
 
-Entries are matched as directory **names**, so every directory with that name is skipped wherever it appears in the tree. A leading `./` and a trailing slash are ignored, so `fixtures`, `./fixtures` and `./fixtures/` are equivalent. Multi-segment paths like `generated/config` match nothing: name a single directory (`config`) or a parent that contains it (`generated`).
+Entries work like `.gitignore` patterns:
+
+- A bare name matches **any** directory with that name, at any depth. `fixtures` skips both `./fixtures` and `./src/deep/fixtures`.
+- An entry containing a separator is **anchored at the scan root**. `apps/docs` skips only that directory, leaving a `docs` elsewhere in the tree alone.
+- A leading `/` or `./` anchors a single name to the scan root, so `./fixtures` skips the top-level one but not `src/deep/fixtures`.
+
+Trailing separators are ignored, and `\` is accepted as a separator so Windows-style entries work.
 
 ```env-spec
-# @auditIgnorePaths(fixtures, generated)
+# any directory named fixtures, plus the docs app specifically
+# @auditIgnorePaths(fixtures, apps/docs)
 # ---
 API_KEY=
 ```
 
 ```env-spec
-# called multiple times, names are merged
+# called multiple times, entries are merged
 # @auditIgnorePaths(fixtures)
-# @auditIgnorePaths(generated, e2e)
+# @auditIgnorePaths(generated/config, e2e)
 # ---
 API_KEY=
 ```
 
-These are merged with any `--ignore` names passed on the command line. `.git`, `node_modules`, `dist`, `build`, `.next`, `vendor` and `.venv` are always skipped, so they don't need listing.
+These are merged with any [`--ignore`](/reference/cli/encryption/#audit) entries passed on the command line, which accept the same forms. `.git`, `node_modules`, `dist`, `build`, `.next`, `vendor` and `.venv` are always skipped, so they don't need listing.
 </div>
 
 <div>

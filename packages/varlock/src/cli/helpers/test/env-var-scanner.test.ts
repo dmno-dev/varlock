@@ -310,6 +310,55 @@ describe('scanCodeForEnvVars', () => {
   });
   /* eslint-enable no-template-curly-in-string */
 
+  describe('directory exclusions', () => {
+    beforeEach(() => {
+      for (const dir of ['fixtures', 'src/deep/fixtures', 'apps/docs', 'docs', 'generated/config']) {
+        fs.mkdirSync(path.join(tempDir, dir), { recursive: true });
+      }
+      fs.writeFileSync(path.join(tempDir, 'fixtures/a.ts'), 'process.env.TOP_FIXTURES');
+      fs.writeFileSync(path.join(tempDir, 'src/deep/fixtures/b.ts'), 'process.env.DEEP_FIXTURES');
+      fs.writeFileSync(path.join(tempDir, 'apps/docs/c.ts'), 'process.env.APPS_DOCS');
+      fs.writeFileSync(path.join(tempDir, 'docs/d.ts'), 'process.env.TOP_DOCS');
+      fs.writeFileSync(path.join(tempDir, 'generated/config/e.ts'), 'process.env.GENERATED_CONFIG');
+    });
+
+    test('a bare name matches at any depth', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['fixtures']);
+      expect(result.keys).not.toContain('TOP_FIXTURES');
+      expect(result.keys).not.toContain('DEEP_FIXTURES');
+    });
+
+    test('a multi-segment entry is anchored at the scan root', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['apps/docs']);
+      expect(result.keys).not.toContain('APPS_DOCS');
+      // a same-named directory elsewhere is untouched
+      expect(result.keys).toContain('TOP_DOCS');
+    });
+
+    test('a multi-segment entry excludes the whole subtree', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['generated/config']);
+      expect(result.keys).not.toContain('GENERATED_CONFIG');
+    });
+
+    test('a rooted single name matches only at the scan root', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['./fixtures']);
+      expect(result.keys).not.toContain('TOP_FIXTURES');
+      expect(result.keys).toContain('DEEP_FIXTURES');
+    });
+
+    test('trailing and leading separators are ignored', async () => {
+      for (const entry of ['fixtures/', '/fixtures', './fixtures/']) {
+        const result = await scanCodeForEnvVars({ cwd: tempDir }, [entry]);
+        expect(result.keys, entry).not.toContain('TOP_FIXTURES');
+      }
+    });
+
+    test('windows-style separators are accepted', async () => {
+      const result = await scanCodeForEnvVars({ cwd: tempDir }, ['apps\\docs']);
+      expect(result.keys).not.toContain('APPS_DOCS');
+    });
+  });
+
   test('respects ignored directories', async () => {
     fs.mkdirSync(path.join(tempDir, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'node_modules', 'dep.js'), 'process.env.IGNORED_MOD');

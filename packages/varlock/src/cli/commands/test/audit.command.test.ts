@@ -307,10 +307,12 @@ describe('audit command', () => {
 
     await commandFn({ values: {} } as any);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, scripts, mocks');
+    // entries reach the scanner verbatim: `./scripts/` is a rooted path, not the bare
+    // name `scripts`, and only the scanner's normalizer draws that distinction
+    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, ./scripts/, mocks');
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
       { cwd: '/repo' },
-      ['e2e', 'scripts', 'mocks'],
+      ['e2e', './scripts/', 'mocks'],
     );
   });
 

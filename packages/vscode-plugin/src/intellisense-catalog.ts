@@ -183,7 +183,7 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     name: 'auditIgnorePaths',
     scope: 'root',
     summary: 'Excludes directories from the audit code scanner.',
-    documentation: 'Matched as directory names, so every directory with that name is skipped at any depth. Multi-segment paths like generated/config match nothing. Can be called multiple times - names are merged additively.',
+    documentation: 'Gitignore-like: a bare name matches any directory with that name at any depth, while an entry containing a separator (or rooted with / or ./) is anchored at the scan root. Can be called multiple times - entries are merged additively.',
     insertText: '@auditIgnorePaths(${1:path})',
     isFunction: true,
   },
