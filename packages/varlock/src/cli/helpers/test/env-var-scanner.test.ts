@@ -346,11 +346,19 @@ describe('scanCodeForEnvVars', () => {
       expect(result.keys).toContain('DEEP_FIXTURES');
     });
 
-    test('trailing and leading separators are ignored', async () => {
-      for (const entry of ['fixtures/', '/fixtures', './fixtures/']) {
+    test('trailing separators are ignored', async () => {
+      for (const entry of ['fixtures/', './fixtures/']) {
         const result = await scanCodeForEnvVars({ cwd: tempDir }, [entry]);
         expect(result.keys, entry).not.toContain('TOP_FIXTURES');
       }
+    });
+
+    test('a leading / is an absolute path, not a scan-root shorthand', () => {
+      // `/fixtures` is the filesystem root's fixtures dir, matching @import's
+      // convention rather than gitignore's anchoring
+      const { outside, names, paths } = normalizeDirExclusions(['/fixtures'], tempDir);
+      expect(outside).toEqual(['/fixtures']);
+      expect(names.size + paths.size).toBe(0);
     });
 
     test('windows-style separators are accepted', async () => {
@@ -359,11 +367,44 @@ describe('scanCodeForEnvVars', () => {
     });
 
     test('reports a path-shaped entry that is missing its ./', () => {
-      const { unrooted, names, paths } = normalizeDirExclusions(['apps/docs', 'fixtures', './ok/here']);
+      const { unrooted, names, paths } = normalizeDirExclusions(
+        ['apps/docs', 'fixtures', './ok/here'],
+        tempDir,
+      );
       expect(unrooted).toEqual(['apps/docs']);
       expect(names).toEqual(new Set(['fixtures']));
       // still read as a path, so a direct library caller gets the sane behavior
       expect(paths).toEqual(new Set(['apps/docs', 'ok/here']));
+    });
+
+    test('an absolute path inside the scan root is matched', async () => {
+      const result = await scanCodeForEnvVars(
+        { cwd: tempDir },
+        [path.join(tempDir, 'apps', 'docs')],
+      );
+      expect(result.keys).not.toContain('APPS_DOCS');
+      expect(result.keys).toContain('TOP_DOCS');
+    });
+
+    test('a ~ path is expanded against the home directory', () => {
+      const { paths, outside } = normalizeDirExclusions(['~/projects/app/e2e'], os.homedir());
+      expect(paths).toEqual(new Set(['projects/app/e2e']));
+      expect(outside).toEqual([]);
+    });
+
+    test('reports entries that resolve outside the scan root', () => {
+      const { outside, paths } = normalizeDirExclusions(
+        ['../sibling', '/somewhere/else', './inside'],
+        path.join(tempDir, 'nested'),
+      );
+      expect(outside).toEqual(['../sibling', '/somewhere/else']);
+      expect(paths).toEqual(new Set(['inside']));
+    });
+
+    test('the scan root itself is not excludable', () => {
+      const { names, paths, outside } = normalizeDirExclusions(['.', './'], tempDir);
+      expect(names.size + paths.size).toBe(0);
+      expect(outside).toEqual([]);
     });
   });
 

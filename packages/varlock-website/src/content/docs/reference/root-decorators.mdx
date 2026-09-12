@@ -504,12 +504,14 @@ Useful for excluding generated code, vendored dependencies, or directories that 
 
 Entries work like `.gitignore` patterns:
 
-An entry is either a directory name or a path, and it says which by whether it starts with `./`:
+An entry is either a directory name or a path, and it says which by how it starts:
 
 - A bare name matches **any** directory with that name, wherever it appears. `fixtures` skips both `./fixtures` and `./src/deep/fixtures`.
-- A `./` entry is a **path relative to the scan root**, matching that one directory. `./apps/docs` leaves a `docs` elsewhere in the tree alone, and `./fixtures` skips the top-level one but not `src/deep/fixtures`.
+- A path matches that one directory. It uses the same prefixes as [`@import()`](#import): `./` or `../` relative to the scanned directory, `~/` for your home directory, or an absolute path. `./apps/docs` leaves a `docs` elsewhere in the tree alone, and `./fixtures` skips the top-level one but not `src/deep/fixtures`.
 
-A path written without the `./` is an error, rather than being guessed at: `apps/docs` tells you to write `./apps/docs`. Trailing separators are ignored, `/apps/docs` is accepted as equivalent to `./apps/docs`, and `\` works as a separator so Windows-style entries are fine.
+Two mistakes are reported rather than quietly matching nothing: a path written without one of those prefixes (`apps/docs` tells you to write `./apps/docs`), and a path that resolves outside the directory being scanned. Trailing separators are ignored, and `\` works as a separator so Windows-style entries are fine.
+
+Prefer `./` paths in a committed schema. An absolute or `~/` path is specific to one machine, so it will resolve differently, or outside the project entirely, for your teammates and in CI.
 
 ```env-spec
 # any directory named fixtures, plus the docs app specifically

@@ -211,16 +211,27 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const customIgnoredPaths = await getCustomAuditIgnorePaths(envGraph);
   // Merge CLI --ignore dirs with schema @auditIgnorePaths
   const allIgnoredPaths = [...customIgnoredPaths, ...cliIgnoreDirs];
-  // A path-shaped entry must say so with `./`, rather than the rule being inferred from
-  // whether a separator happens to be present.
-  const { unrooted } = normalizeDirExclusions(allIgnoredPaths);
+  // A path-shaped entry must say so, rather than the rule being inferred from whether a
+  // separator happens to be present. Both failure modes below could only ever match
+  // nothing, so they're reported instead of silently doing so.
+  const { unrooted, outside } = normalizeDirExclusions(allIgnoredPaths, finalScanRoot);
   if (unrooted.length > 0) {
     const [first] = unrooted;
     throw new CliExitError(
       `Ignored path "${first}" must start with "./" to be treated as a path`,
       {
         details: 'Without it, an entry is a directory name matched wherever it appears, and a name can never contain a separator.',
-        suggestion: `Write "./${first.replace(/^\/+/, '')}" for that directory specifically, or name a single directory to skip it everywhere.`,
+        suggestion: `Write "./${first}" for that directory specifically, or name a single directory to skip it everywhere.`,
+      },
+    );
+  }
+  if (outside.length > 0) {
+    const [first] = outside;
+    throw new CliExitError(
+      `Ignored path "${first}" is outside the scanned directory`,
+      {
+        details: `Nothing under ${finalScanRoot} matches it, so it would exclude nothing.`,
+        suggestion: 'Point it inside the scanned tree, or name a single directory to skip it wherever it appears.',
       },
     );
   }

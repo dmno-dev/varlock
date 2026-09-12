@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 export const DEFAULT_IGNORED_DIRS = [
@@ -806,58 +807,82 @@ interface NormalizedExtraPattern {
 }
 
 /**
- * A directory exclusion, in the two forms the audit scan accepts.
+ * A directory exclusion, resolved into the two things the walk can match on.
  *
  * `names` match any directory with that name wherever it appears (`node_modules`,
- * `fixtures`). `paths` are relative to the scan root, so `./apps/docs` excludes only
- * that directory and not some other `docs` deeper in the tree.
+ * `fixtures`). `paths` are scan-root-relative with posix separators, matching one
+ * directory only.
  */
 interface DirExclusions {
   names: Set<string>;
   paths: Set<string>;
   /**
-   * Entries that look like paths but aren't marked as one (`apps/docs` rather than
-   * `./apps/docs`). They're treated as paths here so library callers get the sane
-   * reading, but the CLI rejects them rather than guessing: the whole point of
-   * requiring `./` is that an entry says which kind of match it wants.
+   * Entries that look like paths but don't say so (`apps/docs` rather than
+   * `./apps/docs`). Read as paths here so a direct library caller gets the sane
+   * behavior, while the CLI rejects them rather than guessing.
    */
   unrooted: Array<string>;
+  /**
+   * Entries that resolved outside the scanned tree, so they can never match. Ignored
+   * here, since with multiple scan targets an entry may legitimately fall outside one
+   * of them; the CLI rejects entries outside the project's scan root entirely.
+   */
+  outside: Array<string>;
 }
 
 /**
- * Split raw exclusion entries into name and path matchers. A bare name matches at any
- * depth; an entry starting with `./` or `/` is a path relative to the scan root.
- * Trailing separators are ignored, and `\` is accepted as a separator so
- * Windows-style entries work.
+ * Split raw exclusion entries into name and path matchers.
+ *
+ * A bare name matches at any depth. Anything path-shaped must say so, using the same
+ * prefixes as `@import`: `./` or `../` relative to the scan root, `~/` for home, or an
+ * absolute path. Trailing separators are ignored and `\` works as a separator, so
+ * Windows-style entries are fine.
  *
  * This is the single normalizer for both `@auditIgnorePaths()` and `--ignore`, so the
  * two can't drift apart.
  */
-export function normalizeDirExclusions(entries: Iterable<string>): DirExclusions {
+export function normalizeDirExclusions(
+  entries: Iterable<string>,
+  scanRoot: string,
+): DirExclusions {
   const names = new Set<string>();
   const paths = new Set<string>();
   const unrooted: Array<string> = [];
+  const outside: Array<string> = [];
+
+  const addResolved = (absolutePath: string, original: string) => {
+    const relative = path.relative(scanRoot, absolutePath);
+    // empty means the scan root itself; `..`-prefixed or absolute means outside it
+    if (!relative) return;
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      outside.push(original);
+      return;
+    }
+    paths.add(relative.split(path.sep).join('/'));
+  };
 
   for (const raw of entries) {
     const trimmed = raw.trim().replace(/[\\/]+$/, '');
     if (!trimmed) continue;
-
     const unixed = trimmed.replace(/\\/g, '/');
-    const rooted = unixed.startsWith('/') || unixed.startsWith('./');
-    const cleaned = unixed.replace(/^\.?\//, '').replace(/^\/+/, '');
-    if (!cleaned || cleaned === '.') continue;
 
-    if (rooted) {
-      paths.add(cleaned);
-    } else if (cleaned.includes('/')) {
+    if (unixed === '~' || unixed.startsWith('~/')) {
+      addResolved(path.join(os.homedir(), unixed.slice(1)), trimmed);
+    } else if (path.isAbsolute(trimmed)) {
+      addResolved(path.resolve(trimmed), trimmed);
+    } else if (unixed === '.' || unixed.startsWith('./') || unixed.startsWith('../')) {
+      addResolved(path.resolve(scanRoot, unixed), trimmed);
+    } else if (unixed.includes('/')) {
       unrooted.push(trimmed);
-      paths.add(cleaned);
+      addResolved(path.resolve(scanRoot, unixed), trimmed);
     } else {
-      names.add(cleaned);
+      names.add(unixed);
     }
   }
 
-  return { names, paths, unrooted };
+  return {
+    names, paths, unrooted, outside,
+  };
 }
 
 /**
@@ -917,7 +942,7 @@ export async function scanCodeForEnvVars(
     ...DEFAULT_IGNORED_DIRS,
     ...(options.ignoredDirs ?? []),
     ...additionalExcludeDirs,
-  ]);
+  ], cwd);
 
   const extraPatterns = normalizeExtraPatterns(options.extraPatterns);
   const widenedExtensions = collectWidenedExtensions(extraPatterns);

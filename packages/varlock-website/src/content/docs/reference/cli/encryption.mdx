@@ -139,7 +139,7 @@ varlock audit [paths...] [options]
 
 **Options:**
 - [Common options](/reference/cli-commands/#common-options): `--path` / `-p` (here it sets the **schema** entry point, single path only)
-- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times). Accepts the same forms as [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths), which it is merged with: a bare name matches wherever it appears, while a `./` entry is a path relative to the scan root.
+- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times). Accepts the same forms as [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths), which it is merged with: a bare name matches wherever it appears, while `./`, `../`, `~/` and absolute entries are paths to one specific directory.
 
 **Examples:**
 ```bash
