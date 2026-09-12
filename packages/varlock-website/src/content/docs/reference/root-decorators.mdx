@@ -498,23 +498,27 @@ The `ENV` proxy is unaffected: `ENV.OPTIONAL_VAR` always returns the real resolv
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
 
-Excludes directories from the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. Paths are relative to the file containing the decorator. _Can be called multiple times; paths are merged additively._
+Excludes directories from the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. _Can be called multiple times; paths are merged additively._
 
 Useful for excluding generated code, vendored dependencies, or directories that contain env var references you don't want to audit.
 
+Entries are matched as directory **names**, so every directory with that name is skipped wherever it appears in the tree. A leading `./` and a trailing slash are ignored, so `fixtures`, `./fixtures` and `./fixtures/` are equivalent. Multi-segment paths like `generated/config` match nothing: name a single directory (`config`) or a parent that contains it (`generated`).
+
 ```env-spec
-# @auditIgnorePaths(vendor, generated/config)
+# @auditIgnorePaths(fixtures, generated)
 # ---
 API_KEY=
 ```
 
 ```env-spec
-# called multiple times, paths are merged
-# @auditIgnorePaths(vendor)
-# @auditIgnorePaths(generated/config, scripts/setup)
+# called multiple times, names are merged
+# @auditIgnorePaths(fixtures)
+# @auditIgnorePaths(generated, e2e)
 # ---
 API_KEY=
 ```
+
+These are merged with any `--ignore` names passed on the command line. `.git`, `node_modules`, `dist`, `build`, `.next`, `vendor` and `.venv` are always skipped, so they don't need listing.
 </div>
 
 <div>

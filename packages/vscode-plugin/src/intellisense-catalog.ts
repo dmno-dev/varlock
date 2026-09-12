@@ -183,7 +183,7 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     name: 'auditIgnorePaths',
     scope: 'root',
     summary: 'Excludes directories from the audit code scanner.',
-    documentation: 'Paths are relative to the file. Can be called multiple times — paths are merged additively.',
+    documentation: 'Matched as directory names, so every directory with that name is skipped at any depth. Multi-segment paths like generated/config match nothing. Can be called multiple times - names are merged additively.',
     insertText: '@auditIgnorePaths(${1:path})',
     isFunction: true,
   },
