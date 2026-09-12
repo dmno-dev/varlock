@@ -135,11 +135,11 @@ varlock audit [paths...] [options]
 ```
 
 **Positional arguments:**
-- `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root.
+- `[paths...]`: Optional list of directories to scan. When provided, only these directories are scanned instead of the auto-detected scan root. Naming a directory that your exclusions cover is an error, since the two instructions contradict each other.
 
 **Options:**
 - [Common options](/reference/cli-commands/#common-options): `--path` / `-p` (here it sets the **schema** entry point, single path only)
-- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times)
+- `--ignore` / `-i`: Directory to exclude from code scanning (can be specified multiple times). Accepts the same forms as [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths), which it is merged with: a bare name matches wherever it appears, while `./`, `../`, `~/` and absolute entries are paths to one specific directory.
 
 **Examples:**
 ```bash
@@ -155,11 +155,14 @@ varlock audit --path ./config
 # Only scan specific directories
 varlock audit ./src ./lib
 
-# Exclude directories from scanning
-varlock audit --ignore vendor
+# Exclude every directory named fixtures
+varlock audit --ignore fixtures
+
+# Exclude one specific directory, as a path from the scan root
+varlock audit --ignore ./apps/docs
 
 # Exclude multiple directories
-varlock audit -i vendor -i generated
+varlock audit -i fixtures -i generated
 ```
 
 :::note
@@ -173,6 +176,18 @@ Code scanning does not descend into nested projects. Any subdirectory that conta
 :::tip[Suppressing false positives]
 - Use [`@auditIgnore`](/reference/item-decorators/#auditignore) on individual schema items that are only consumed by external tools and won't appear in your application code.
 - Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (e.g., vendored code, generated files) from the code scan.
+:::
+
+### What gets scanned
+
+Files with these extensions: `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.mts`, `.cts`, `.tsx`, `.vue`, `.svelte`, `.astro`, `.mdx`, `.py`, `.go`, `.rb`, `.php`, `.rs`, `.java`, `.cs`. Anything else is skipped, as are files over 1MB.
+
+`.git`, `node_modules`, `dist`, `build`, `.next`, `vendor` and `.venv` are always skipped, on top of anything you exclude yourself.
+
+Within those files the scan recognizes the conventional ways of reading env vars: `process.env.KEY`, `import.meta.env.KEY`, `ENV.KEY` and destructuring for JS-likes, plus `os.environ["KEY"]` / `os.getenv()` and the equivalents in Go, Ruby, PHP, Rust, Java and C#. Code inside comments and inside unrelated string literals is ignored.
+
+:::tip[Keys the scan doesn't find]
+If your code reaches env vars through a wrapper instead, such as `configService.get('KEY')`, those references are invisible to the scan and the keys get reported as unused. Add [`@auditExtraPatterns()`](/reference/root-decorators/#auditextrapatterns) to teach it your own access pattern, and pass `fileTypes=[...]` on the same call to cover file types the scan skips by default, such as Terraform or Helm values.
 :::
 
 </div>

@@ -22,7 +22,12 @@ let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock('exit-hook', () => ({ gracefulExit: gracefulExitMock }));
 vi.mock('../../../lib/load-graph', () => ({ loadVarlockEnvGraph: loadVarlockEnvGraphMock }));
-vi.mock('../../helpers/env-var-scanner', () => ({ scanCodeForEnvVars: scanCodeForEnvVarsMock }));
+// only the scan itself is faked; exclusion normalization is pure logic the command
+// should exercise for real
+vi.mock('../../helpers/env-var-scanner', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../helpers/env-var-scanner')>()),
+  scanCodeForEnvVars: scanCodeForEnvVarsMock,
+}));
 vi.mock('node:fs/promises', () => ({ default: { stat: fsStatMock } }));
 vi.mock('../../helpers/error-checks', () => ({
   checkForNoEnvFiles: vi.fn(),
@@ -282,14 +287,19 @@ describe('audit command', () => {
       },
       graphAdjacencyList: { API_KEY: [] },
       sortedDataSources: [],
-      getRootDecFns: vi.fn().mockReturnValue([
-        {
-          resolve: vi.fn().mockResolvedValue({ arr: ['e2e', './scripts/'], obj: { unused: 'x' } }),
-        },
-        {
-          resolve: vi.fn().mockResolvedValue({ arr: [['mocks']], obj: {} }),
-        },
-      ]),
+      // Name-aware like the real getRootDecFns: @auditExtraPatterns readers
+      // must never see @auditIgnorePaths decorators (and vice versa).
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [
+          {
+            resolve: vi.fn().mockResolvedValue({ arr: ['e2e', './scripts/'], obj: { unused: 'x' } }),
+          },
+          {
+            resolve: vi.fn().mockResolvedValue({ arr: [['mocks']], obj: {} }),
+          },
+        ];
+      }),
       rootDataSource: undefined,
       basePath: '/repo',
     });
@@ -302,10 +312,261 @@ describe('audit command', () => {
 
     await commandFn({ values: {} } as any);
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, scripts, mocks');
+    // the message echoes what was written, while the scanner gets canonical entries:
+    // names stay names, and `./scripts/` becomes an absolute path so it still means the
+    // same directory when a positional target changes the scanner's cwd
+    expect(consoleLogSpy).toHaveBeenCalledWith('ℹ️ Skipping ignored paths: e2e, ./scripts/, mocks');
     expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
       { cwd: '/repo' },
-      ['e2e', 'scripts', 'mocks'],
+      ['e2e', 'mocks', path.resolve('/repo/scripts')],
+    );
+  });
+
+  test('rejects a scan target that is itself excluded', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['./apps/docs'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: { targets: ['./apps/docs'] } } as any))
+      .rejects.toThrow(/Scan target "\.\/apps\/docs" is excluded from the audit scan/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('allows a scan target that merely contains an excluded directory', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['./apps/docs'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'], references: [], scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: { targets: ['./apps'] } } as any);
+
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: path.resolve('/repo/apps') },
+      [path.resolve('/repo/apps/docs')],
+    );
+  });
+
+  test('rejects a scan target that is never scanned anyway', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: { targets: ['./node_modules'] } } as any))
+      .rejects.toThrow(/Scan target "\.\/node_modules" is never scanned/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects an ignored path that is missing its ./', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnorePaths') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['apps/docs'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any))
+      .rejects.toThrow(/"apps\/docs" must start with "\.\/" to be treated as a path/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects an --ignore value that is missing its ./', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: { ignore: ['apps/docs'] } } as any))
+      .rejects.toThrow(/must start with "\.\/" to be treated as a path/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('forwards # @auditExtraPatterns(...) regexes to the scanner', async () => {
+    const pattern = /config\.get\('([A-Z_]+)'\)/;
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [
+          { resolve: vi.fn().mockResolvedValue({ arr: [pattern], obj: {} }) },
+          { resolve: vi.fn().mockResolvedValue({ arr: [[/other\.get\("([A-Z_]+)"\)/]], obj: {} }) },
+        ];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: '/repo', extraPatterns: [{ pattern }, { pattern: /other\.get\("([A-Z_]+)"\)/ }] },
+      [],
+    );
+  });
+
+  test('scopes each call to its own fileTypes=[...] list', async () => {
+    const tfPattern = /cfg\.get\("([A-Z_]+)"\)/;
+    const anyPattern = /env\.([A-Z_]+)/;
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [
+          { resolve: vi.fn().mockResolvedValue({ arr: [tfPattern], obj: { fileTypes: ['tf', 'yaml'] } }) },
+          { resolve: vi.fn().mockResolvedValue({ arr: [anyPattern], obj: {} }) },
+        ];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    // the fileTypes list rides along with the patterns from its own call, and only those
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      {
+        cwd: '/repo',
+        extraPatterns: [
+          { pattern: tfPattern, fileTypes: ['tf', 'yaml'] },
+          { pattern: anyPattern },
+        ],
+      },
+      [],
+    );
+  });
+
+  test('rejects an unknown named option on # @auditExtraPatterns(...)', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: [/x([A-Z]+)/], obj: { extensions: ['tf'] } }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any))
+      .rejects.toThrow(/unknown option "extensions"/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects fileTypes=[...] with no patterns in the same call', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: [], obj: { fileTypes: ['tf'] } }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any))
+      .rejects.toThrow(/no patterns to apply it to/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects non-regex # @auditExtraPatterns(...) entries', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {},
+      graphAdjacencyList: {},
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['not-a-regex'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    await expect(commandFn({ values: {} } as any)).rejects.toThrow(/@auditExtraPatterns\(\) expects regex patterns/);
+  });
+
+  test('accepts quoted slash-delimited strings via the DSL string form', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditExtraPatterns') return [];
+        // What a quoted '/.../ ' decorator arg resolves to after parsing.
+        return [{ resolve: vi.fn().mockResolvedValue({ arr: ['/config\\.get\\(\'([A-Z_]+)\'\\)/'], obj: {} }) }];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
+      { cwd: '/repo', extraPatterns: [{ pattern: /config\.get\('([A-Z_]+)'\)/ }] },
+      [],
     );
   });
 });

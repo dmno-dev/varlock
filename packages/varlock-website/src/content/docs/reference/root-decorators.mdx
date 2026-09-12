@@ -498,23 +498,81 @@ The `ENV` proxy is unaffected: `ENV.OPTIONAL_VAR` always returns the real resolv
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
 
-Excludes directories from the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. Paths are relative to the file containing the decorator. _Can be called multiple times; paths are merged additively._
+Excludes directories from the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. _Can be called multiple times; paths are merged additively._
 
 Useful for excluding generated code, vendored dependencies, or directories that contain env var references you don't want to audit.
 
+Entries work like `.gitignore` patterns:
+
+An entry is either a directory name or a path, and it says which by how it starts:
+
+- A bare name matches **any** directory with that name, wherever it appears. `fixtures` skips both `./fixtures` and `./src/deep/fixtures`.
+- A path matches that one directory. It uses the same prefixes as [`@import()`](#import): `./` or `../` relative to your project root, `~/` for your home directory, or an absolute path. Relative entries resolve against the project root even when you narrow a run with `varlock audit ./some/dir`, so they keep meaning the same directory. `./apps/docs` leaves a `docs` elsewhere in the tree alone, and `./fixtures` skips the top-level one but not `src/deep/fixtures`.
+
+Entries name directories, not files. Three mistakes are reported rather than quietly matching nothing: a path written without one of those prefixes (`apps/docs` tells you to write `./apps/docs`), a path that resolves outside the project, and a path that points at a file. A path to a directory that doesn't exist is fine, since a schema is shared across branches and checkouts; it simply never matches. Trailing separators are ignored, and `\` works as a separator so Windows-style entries are fine.
+
+Prefer `./` paths in a committed schema. An absolute or `~/` path is specific to one machine, so it will resolve differently, or outside the project entirely, for your teammates and in CI.
+
 ```env-spec
-# @auditIgnorePaths(vendor, generated/config)
+# any directory named fixtures, plus the docs app specifically
+# @auditIgnorePaths(fixtures, ./apps/docs)
 # ---
 API_KEY=
 ```
 
 ```env-spec
-# called multiple times, paths are merged
-# @auditIgnorePaths(vendor)
-# @auditIgnorePaths(generated/config, scripts/setup)
+# called multiple times, entries are merged
+# @auditIgnorePaths(fixtures)
+# @auditIgnorePaths(./generated/config, e2e)
 # ---
 API_KEY=
 ```
+
+These are merged with any [`--ignore`](/reference/cli/encryption/#audit) entries passed on the command line, which accept the same forms. `.git`, `node_modules`, `dist`, `build`, `.next`, `vendor` and `.venv` are always skipped, so they don't need listing.
+</div>
+
+<div>
+### `@auditExtraPatterns()`
+**Arg types:** `[ ...patterns: RegExp[], fileTypes?: string[] ]`
+
+Adds project-specific patterns to the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. This is the escape hatch for env access idioms the built-in patterns don't cover (e.g. NestJS `configService.get('KEY')`). Each pattern is a regex (a `regex('...')` call or a quoted `'/.../flags'` literal); the **first capture group is the env key**, so patterns without one match nothing. _Can be called multiple times; patterns are merged additively._
+
+Use the `regex('...')` form (or a quoted slash-delimited literal) rather than a bare `/.../ ` literal: bare decorator args cannot contain spaces, commas or parentheses, so realistic patterns would not survive parsing. Anything that is neither is rejected as an error instead of silently scanning nothing.
+
+```env-spec
+# @auditExtraPatterns(regex('config\.get\(\s*\'([A-Z_]+)\'\)'))
+# ---
+API_KEY=
+```
+
+Unlike the built-in patterns, these see string contents as written, so a key that isn't a bare identifier (`config.get('app.database.url')`) still matches. Code inside comments is skipped for both.
+
+#### Scoping patterns to file types
+
+By default a pattern is applied to every file the scanner reads, which is every file whose extension it recognizes: `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.mts`, `.cts`, `.tsx`, `.vue`, `.svelte`, `.astro`, `.mdx`, `.py`, `.go`, `.rb`, `.php`, `.rs`, `.java`, `.cs`.
+
+Pass `fileTypes=[...]` to restrict the patterns in that call to certain file extensions. Naming an extension the scanner doesn't already handle (`tf`, `yaml`, `sh`) also brings those files into the scan, so this is how you cover env references in Terraform, Helm values, CI configs or shell scripts. Extensions are written with or without a leading dot and matched case-insensitively.
+
+```env-spec
+# a NestJS idiom, TypeScript only
+# @auditExtraPatterns(regex('config\.get\(\s*\'([A-Z_]+)\'\)'), fileTypes=[ts, tsx])
+# terraform and helm, which the scanner would not otherwise read
+# @auditExtraPatterns(regex('cfg\.get\(\s*"([A-Z_]+)"\)'), fileTypes=[tf, yaml])
+# no fileTypes: applies to every recognized source file
+# @auditExtraPatterns('/metrics\.inc\("([A-Z_]+)"\)/')
+# ---
+API_KEY=
+```
+
+Each call is its own scope: `fileTypes=[...]` applies to the patterns listed alongside it and to nothing else. A pattern with no `fileTypes` covers the recognized source extensions above, and is **not** extended to file types another call pulled in, so adding a Terraform rule can't quietly change what your other rules match.
+
+Files brought in this way have no known language. The built-in patterns are never applied to them, and with no comment syntax to go on, their raw contents are scanned (commented-out lines are not skipped).
+
+:::caution
+Every extension you name is walked and read on each audit. Extensions covering large generated or vendored trees will slow the scan; pair them with [`@auditIgnorePaths()`](#auditignorepaths).
+:::
+
+Files with no extension at all (`Dockerfile`, `Makefile`) can't be selected this way.
 </div>
 
 <div>

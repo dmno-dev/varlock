@@ -183,8 +183,16 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     name: 'auditIgnorePaths',
     scope: 'root',
     summary: 'Excludes directories from the audit code scanner.',
-    documentation: 'Paths are relative to the file. Can be called multiple times — paths are merged additively.',
+    documentation: 'A bare name matches any directory with that name wherever it appears; ./ ../ ~/ and absolute entries are paths to one specific directory. A path written without such a prefix, or resolving outside the scanned directory, is an error. Prefer ./ paths in a committed schema. Can be called multiple times - entries are merged additively.',
     insertText: '@auditIgnorePaths(${1:path})',
+    isFunction: true,
+  },
+  {
+    name: 'auditExtraPatterns',
+    scope: 'root',
+    summary: 'Adds project-specific regex patterns to the audit code scanner.',
+    documentation: 'Each pattern is a regex() call or quoted /.../ literal; the first capture group is the env key. Add fileTypes=[tf, yaml] to apply the patterns in that call only to those file extensions (and to scan file types the built-in scanner skips). Can be called multiple times - patterns are merged additively.',
+    insertText: '@auditExtraPatterns(${1:regex(\'\')})',
     isFunction: true,
   },
 ];
