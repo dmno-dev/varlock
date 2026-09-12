@@ -1,6 +1,7 @@
 /*
 Shared Cloudflare Workers test definitions, parameterized by Vite version.
-Covers basic worker dev, leak detection, build + preview, and large env chunking.
+Covers basic worker dev, leak detection, build + preview, auxiliary (multi-)workers,
+and large env chunking.
 */
 import { randomBytes } from 'node:crypto';
 import {
@@ -145,7 +146,7 @@ export function defineCloudflareTests(
     });
 
     cfEnv.describeDevScenario('build + preview', {
-      command: `vite build && vite preview --port ${basePort + 3}`,
+      command: `vite build && pnpm exec vite preview --port ${basePort + 3}`,
       readyPattern: /Local:.*http/,
       readyTimeout: 60_000,
       timeout: 120_000,
@@ -233,6 +234,188 @@ export function defineCloudflareTests(
         {
           description: 'no key or decrypt errors on the workerd side',
           shouldNotContain: ['_VARLOCK_ENV_KEY is not set', 'unable to authenticate data'],
+        },
+      ],
+    });
+
+    cfEnv.describeDevScenario('auxiliary workers', {
+      command: `vite dev --port ${basePort + 7}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'src/aux.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'wrangler.aux.jsonc': '_aux-wrangler/wrangler.aux.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'entry_public_var::public-test-value',
+              'entry_has_sensitive::yes',
+              // the auxiliary worker gets its own __VARLOCK_ENV binding + vars
+              'aux_public_var::public-test-value',
+              'aux_api_url::https://api.example.com',
+              'aux_has_sensitive::yes',
+              'aux_native_public_var::public-test-value',
+              'aux_native_has_secret::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
+    cfEnv.describeDevScenario('auxiliary workers (build + preview)', {
+      command: `vite build && pnpm exec vite preview --port ${basePort + 8}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 60_000,
+      timeout: 120_000,
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'src/aux.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'wrangler.aux.jsonc': '_aux-wrangler/wrangler.aux.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'entry_public_var::public-test-value',
+              'entry_has_sensitive::yes',
+              // each worker's build output gets its own .dev.vars injection
+              'aux_public_var::public-test-value',
+              'aux_api_url::https://api.example.com',
+              'aux_has_sensitive::yes',
+              'aux_native_public_var::public-test-value',
+              'aux_native_has_secret::yes',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
+    // Wrangler reads `.dev.vars` from each worker's config directory, and those
+    // values become `secret_text` bindings that overwrite varlock's injected
+    // vars — leaving the native `env` object disagreeing with varlock's `ENV`.
+    // The guard has to cover auxiliary worker directories, not just the root.
+    cfEnv.describeScenario('.dev.vars beside an auxiliary worker config is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'workers/aux/src/index.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.nested.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'workers/aux/wrangler.jsonc': '_aux-wrangler/wrangler.aux.nested.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'workers/aux/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the auxiliary worker .dev.vars path',
+          shouldContain: ['workers/aux/.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
+
+    // With CLOUDFLARE_ENV set, wrangler prefers `.dev.vars.<env>` over the
+    // unsuffixed file, so the guard has to cover that name too.
+    cfEnv.describeScenario('.dev.vars.<CLOUDFLARE_ENV> beside an auxiliary worker config is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      env: { CLOUDFLARE_ENV: 'staging' },
+      templateFiles: {
+        'src/index.ts': 'workers/service-binding-worker.ts',
+        'workers/aux/src/index.ts': 'workers/aux-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.auxiliary.nested.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.service-binding.jsonc',
+        'workers/aux/wrangler.jsonc': '_aux-wrangler/wrangler.aux.nested.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'workers/aux/.dev.vars.staging', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the environment-suffixed .dev.vars path',
+          shouldContain: ['workers/aux/.dev.vars.staging', 'conflicts with varlock'],
+        },
+      ],
+    });
+
+    // The entry worker's config can come from CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH
+    // instead of the plugin options, putting its `.dev.vars` outside the vite root.
+    cfEnv.describeScenario('.dev.vars beside a CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH config is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      env: { CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH: 'app/wrangler.jsonc' },
+      templateFiles: {
+        'app/src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'app/wrangler.jsonc': '_base-wrangler/wrangler.nested-entry.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'app/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the entry worker .dev.vars path outside the vite root',
+          shouldContain: ['app/.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
+
+    // The Cloudflare plugin resolves its CLOUDFLARE_* selectors with vite's
+    // `loadEnv`, so they can live in a `.env` file. The guard loads them the same
+    // way rather than relying on varlock's own `.env` loading having already put
+    // them in `process.env` by the time this hook runs.
+    cfEnv.describeScenario('.dev.vars beside a config selected by a .env file is rejected', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'app/src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'app/wrangler.jsonc': '_base-wrangler/wrangler.nested-entry.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [
+        // selector lives only here - never passed through the child process env
+        { path: '.env', content: 'CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=app/wrangler.jsonc\n' },
+        { path: 'app/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' },
+      ],
+      outputAssertions: [
+        {
+          description: 'error names the .dev.vars path for the env-file-selected config',
+          shouldContain: ['app/.dev.vars', 'conflicts with varlock'],
+        },
+      ],
+    });
+
+    // A plugin ordered after ours can still change `root` during `config`, and
+    // Cloudflare resolves its worker configs from that final value. The check
+    // runs in `configResolved` so it inspects the same root Cloudflare will.
+    cfEnv.describeScenario('.dev.vars is found under a root set by a later plugin', {
+      command: 'vite build',
+      expectSuccess: false,
+      templateFiles: {
+        'app/src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.late-root.ts',
+        'app/wrangler.jsonc': '_base-wrangler/wrangler.nested-entry.jsonc',
+        'app/.env.schema': 'schemas/.env.schema',
+        'app/.env.dev': 'schemas/.env.dev',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      files: [{ path: 'app/.dev.vars', content: 'PUBLIC_VAR=shadowed-by-dev-vars\n' }],
+      outputAssertions: [
+        {
+          description: 'error names the .dev.vars path under the final root',
+          shouldContain: ['.dev.vars', 'conflicts with varlock'],
         },
       ],
     });
