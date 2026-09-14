@@ -1522,6 +1522,42 @@ describe('type generation', () => {
       expect(found).toBeUndefined();
     });
 
+    // comments and literals have to be consumed in source order: stripping either class first
+    // lets the other be spoofed, hiding a real declaration that follows
+    test.each([
+      // a line comment delimiter inside a literal, with the declaration on the same line
+      ['a line comment delimiter', "type Marker = '//'; interface ProcessEnv extends Something {}"],
+      // a block comment delimiter inside a literal, closed by a `*/` in a later literal
+      [
+        'a block comment delimiter', outdent`
+        type Open = '/*';
+        interface ProcessEnv extends Something {}
+        type Close = '*/';
+      `,
+      ],
+    ])('a declaration is still found past a string literal containing %s', async (_label, body) => {
+      await writeFile('other.d.ts', `declare namespace NodeJS {\n${body}\n}`);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
+    });
+
+    test('an apostrophe in a comment does not hide a declaration below it', async () => {
+      await writeFile('other.d.ts', outdent`
+        declare namespace NodeJS {
+          // don't let this comment's apostrophe open a literal
+          interface ProcessEnv extends Something {}
+        }
+      `);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
+    });
+
     test('a `}` inside a string literal does not end the namespace early', async () => {
       await writeFile('other.d.ts', outdent`
         declare namespace NodeJS {

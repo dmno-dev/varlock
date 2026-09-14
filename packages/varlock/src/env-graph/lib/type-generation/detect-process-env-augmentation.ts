@@ -41,21 +41,23 @@ async function readFileHead(filePath: string, maxBytes = MAX_SCAN_BYTES): Promis
   }
 }
 
-// string and template literal types are legal in a `.d.ts`, and their contents are not syntax: a
-// `'}'` would otherwise close a namespace early (missing a real conflict) and a literal spelled
-// `'interface ProcessEnv'` would fake one. Matched in a single left-to-right pass so whichever
-// quote opens first wins, and replaced with a space so neighbouring tokens don't fuse.
-const LITERALS = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
+// Neither comments nor string/template literals are declaration syntax: a `'}'` literal would
+// close a namespace early (missing a real conflict), while `'interface ProcessEnv'` in a comment
+// or a literal would fake one. Both token classes are alternatives of ONE regex so a single
+// left-to-right pass consumes whichever opens first: stripping either class ahead of the other
+// lets it be spoofed (`// don't` eating real code, or `type M = '//'` hiding the rest of a line).
+const COMMENTS_AND_LITERALS = new RegExp([
+  /\/\*[\s\S]*?\*\//, // block comment
+  /\/\/[^\n]*/, // line comment
+  /'(?:[^'\\\n]|\\.)*'/, // single-quoted
+  /"(?:[^"\\\n]|\\.)*"/, // double-quoted
+  /`(?:[^`\\]|\\.)*`/, // template literal
+].map((r) => r.source).join('|'), 'g');
 
-/**
- * Reduce a source file to just the parts that can be declaration syntax. Comments go first, so an
- * apostrophe in prose can't open a "literal" that swallows real code after it.
- */
+/** Reduce a source file to just the parts that can be declaration syntax. */
 function stripNonSyntax(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/\/\/[^\n]*/g, ' ')
-    .replace(LITERALS, ' ');
+  // replaced with a space rather than removed, so neighbouring tokens can't fuse
+  return src.replace(COMMENTS_AND_LITERALS, ' ');
 }
 
 const NODEJS_NAMESPACE_OPEN = /\bnamespace\s+NodeJS\s*\{/g;
