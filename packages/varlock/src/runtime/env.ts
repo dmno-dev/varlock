@@ -2,6 +2,7 @@ import { redactString } from './lib/redaction';
 
 import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
+import { VARLOCK_VERSION } from '../lib/varlock-version';
 import { debug } from './lib/debug';
 
 // TODO: would like to move all of the redaction utils out of this file
@@ -496,6 +497,30 @@ export function getPreInjectionProcessEnv(): Record<string, string | undefined> 
   return getEnvState().originalProcessEnv;
 }
 
+/**
+ * Surface producer/consumer version skew on the env blob. This runtime code can be a
+ * different build than the varlock that resolved the env - e.g. runtime glue bundled into
+ * an integration package, or a parent `varlock run` from before an upgrade. The serialized
+ * format must stay backward compatible within a major, so patch skew is only debug-logged;
+ * a minor/major difference gets one loud warning per process (flag on globalThis since
+ * multiple module instances share the blob).
+ */
+function checkBlobVersionSkew(blobVersion: string | undefined) {
+  if (blobVersion === VARLOCK_VERSION) return;
+  debug(`env blob produced by varlock ${blobVersion ?? '(unversioned)'}, this runtime code is from ${VARLOCK_VERSION}`);
+  if (!blobVersion) return; // pre-stamp producer - nothing more specific to say
+  const [blobMajor, blobMinor] = blobVersion.split('.');
+  const [selfMajor, selfMinor] = VARLOCK_VERSION.split('.');
+  if (blobMajor === selfMajor && blobMinor === selfMinor) return;
+  if ((globalThis as any).__varlockVersionSkewWarned) return;
+  (globalThis as any).__varlockVersionSkewWarned = true;
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[varlock] env was resolved by varlock ${blobVersion}, but this runtime code is from varlock ${VARLOCK_VERSION}.`
+    + ' Update your varlock and integration packages together to keep versions aligned.',
+  );
+}
+
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
@@ -550,6 +575,7 @@ export function initVarlockEnv(opts?: {
     ].join('\n'));
     throw new Error('initVarlockEnv failed');
   }
+  checkBlobVersionSkew(serializedEnvData.varlockVersion);
   Object.assign(varlockSettings, serializedEnvData.settings);
   envState.configHasErrors = !!(serializedEnvData as any).errors;
   resetRedactionMap(serializedEnvData);

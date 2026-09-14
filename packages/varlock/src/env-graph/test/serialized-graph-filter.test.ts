@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import { EnvGraph } from '../index';
 import { DotEnvFileDataSource } from '../lib/data-source';
+import { VARLOCK_VERSION } from '../../lib/varlock-version';
 
 async function loadSchema(contents: string, overrideValues?: Record<string, string>) {
   const g = new EnvGraph();
@@ -11,6 +12,15 @@ async function loadSchema(contents: string, overrideValues?: Record<string, stri
   await g.resolveEnvValues();
   return g;
 }
+
+describe('getSerializedGraph version stamp', () => {
+  it('records the producing varlock version so consumers can detect skew', async () => {
+    const g = await loadSchema('FOO=bar');
+    const blob = g.getSerializedGraph();
+    expect(blob.varlockVersion).toBe(VARLOCK_VERSION);
+    expect(VARLOCK_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
 
 describe('getSerializedGraph filterKeys', () => {
   it('excludes filtered-out items from config but keeps selected ones', async () => {

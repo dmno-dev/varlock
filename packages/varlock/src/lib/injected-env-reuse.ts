@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { SerializedEnvGraph } from '../env-graph';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
+import { VARLOCK_VERSION } from './varlock-version';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
 
@@ -177,7 +178,9 @@ export function evaluateInjectedEnvReuse(opts: {
   if (strippedInternalKeys.length) blobJson = JSON.stringify(parsedEnv);
 
   // explicit trust - the sandbox path. The blob is authoritative regardless of where it
-  // was resolved; directory/drift checks make no sense for a blob from another machine.
+  // was resolved; directory/drift checks make no sense for a blob from another machine,
+  // and neither does the producer-version check below (there is nothing to re-resolve
+  // from). Version skew there is surfaced by the runtime instead (see initVarlockEnv).
   if (mode === 'force') {
     return {
       reuse: true, parsedEnv, blobJson, strippedInternalKeys,
@@ -189,6 +192,17 @@ export function evaluateInjectedEnvReuse(opts: {
   // a blob carrying errors means the producer's load failed - let the CLI re-run and
   // surface a proper failure rather than booting the app on known-bad values
   if (parsedEnv.errors) return { reuse: false, reason: 'blob contains resolution errors' };
+
+  // Producer version skew: the blob format is only guaranteed to match between identical
+  // versions (global CLI vs local package, or a parent `varlock run` from before an
+  // upgrade). Re-resolving through the current CLI is always correct, so don't risk it.
+  // Older producers didn't stamp a version, which is itself a mismatch.
+  if (parsedEnv.varlockVersion !== VARLOCK_VERSION) {
+    return {
+      reuse: false,
+      reason: `blob was produced by varlock ${parsedEnv.varlockVersion ?? '(unversioned)'}, current is ${VARLOCK_VERSION}`,
+    };
+  }
 
   // older producers may not have recorded basePath - we can't verify locality, so re-resolve
   if (!parsedEnv.basePath) return { reuse: false, reason: 'blob has no basePath recorded' };
