@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { EnvGraph } from '../env-graph';
 import type { TypeGenItemInfo } from '../config-item';
 import { isVarlockReservedKey } from '../reserved-vars';
@@ -8,6 +9,7 @@ import { generatePhpEnvSrc } from './emitters/php';
 import { generatePythonEnvSrc } from './emitters/python';
 import { generateRustEnvSrc } from './emitters/rust';
 import { generateTsTypesSrc } from './emitters/ts';
+import { findConflictingProcessEnvAugmentation } from './detect-process-env-augmentation';
 import { type ResolvedFieldType } from './shared';
 
 /** Everything a code generator needs to produce a single output file. */
@@ -67,7 +69,7 @@ const LANG_TO_DECORATOR: Record<string, string> = {
   csharp: 'generateCsharpEnv',
 };
 
-function generateTsFile(ctx: CodeGenContext): Promise<string> {
+async function generateTsFile(ctx: CodeGenContext): Promise<string> {
   // local mode emits a runtime re-export (TypeScript syntax) — a `.d.ts` has no runtime binding,
   // and anything else (`.js`, ...) would not parse, so require a real `.ts` module
   if (ctx.options.exposeEnv === 'local'
@@ -82,6 +84,25 @@ function generateTsFile(ctx: CodeGenContext): Promise<string> {
   // type it as populated. This only sets the default — an explicit `processEnv=` still wins.
   if (options.processEnv === undefined && ctx.graph.isProcessEnvInjectionDisabled) {
     options.processEnv = 'none';
+  }
+  // `NodeJS.ProcessEnv` is a single global interface, and merged declarations of it must have
+  // identical members for every shared key, so ours cannot coexist with another tool's (see
+  // detect-process-env-augmentation). When something else already declares it, defer rather than
+  // emit a guaranteed TS2320 - an explicit `processEnv=` still wins. `exposeEnv=local` already
+  // defaults to `none`, so there is nothing to defer there.
+  if (options.processEnv === undefined && options.exposeEnv !== 'local') {
+    const conflictPath = await findConflictingProcessEnvAugmentation({
+      dirs: [ctx.sourceDir, path.dirname(ctx.outputPath)],
+      outputPath: ctx.outputPath,
+    });
+    if (conflictPath) {
+      options.processEnv = 'none';
+      options.processEnvSkipNote = [
+        `NOTE: the \`process.env\` augmentation was skipped because ${path.basename(conflictPath)}`,
+        'already declares NodeJS.ProcessEnv, and two declarations of it cannot both apply.',
+        'Use `ENV` for the full types, or set `processEnv=strict` on @generateTsTypes to override.',
+      ].join('\n');
+    }
   }
   // `@injectUndefinedAsEmpty` means unset items land on process.env as empty strings, so the
   // process.env augmentation drops its optionality (graph-level flag, not a decorator arg)

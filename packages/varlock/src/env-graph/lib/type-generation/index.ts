@@ -11,6 +11,7 @@ export {
   type CoercedType,
   type ResolvedFieldType,
 } from './shared';
+export { findConflictingProcessEnvAugmentation } from './detect-process-env-augmentation';
 export {
   builtInCodeGenerators,
   collectTypeGenItems,
