@@ -1495,13 +1495,44 @@ describe('type generation', () => {
       expect(found).toBeUndefined();
     });
 
-    test('a file naming only one of the two markers is not a match', async () => {
-      await writeFile('partial.d.ts', 'declare namespace NodeJS { interface Process { foo: string } }');
+    test.each([
+      ['only one of the two names is present', 'declare namespace NodeJS { interface Process { foo: string } }'],
+      // both names appear, but ProcessEnv is not declared inside the NodeJS namespace
+      [
+        'ProcessEnv is declared outside the namespace', outdent`
+        declare namespace NodeJS { interface Process { foo: string } }
+        interface ProcessEnv { UNRELATED: string }
+      `,
+      ],
+      ['the interface name only starts with ProcessEnv', 'declare namespace NodeJS { interface ProcessEnvExtra { foo: string } }'],
+      [
+        'the declaration is inside a comment', outdent`
+        // declare namespace NodeJS { interface ProcessEnv {} }
+        export {};
+      `,
+      ],
+    ])('not a conflict when %s', async (_label, contents) => {
+      await writeFile('other.d.ts', contents);
       const found = await findConflictingProcessEnvAugmentation({
         dirs: [tempDir],
         outputPath: path.join(tempDir, 'env.d.ts'),
       });
       expect(found).toBeUndefined();
+    });
+
+    test('matches the nested `declare global` form we emit ourselves', async () => {
+      await writeFile('other.d.ts', outdent`
+        declare global {
+          namespace NodeJS {
+            interface ProcessEnv extends Something {}
+          }
+        }
+      `);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
     });
 
     test('defaults processEnv to none, and says why in the generated file', async () => {

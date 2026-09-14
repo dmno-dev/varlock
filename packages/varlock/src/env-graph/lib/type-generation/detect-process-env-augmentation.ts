@@ -41,12 +41,43 @@ async function readFileHead(filePath: string, maxBytes = MAX_SCAN_BYTES): Promis
   }
 }
 
+/** strip comments so a mention of these declarations in prose never counts as one */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+}
+
+const NODEJS_NAMESPACE_OPEN = /\bnamespace\s+NodeJS\s*\{/g;
+const PROCESS_ENV_INTERFACE = /\binterface\s+ProcessEnv\b/;
+
 /**
- * Both signals must be present. Checking for the two names rather than matching a specific shape
- * keeps this from coupling to any one tool's output, which we don't control and which changes.
+ * True when the source declares `interface ProcessEnv` *within* a `namespace NodeJS` block. Both
+ * names have to be checked together: `interface ProcessEnvExtra` next to an unrelated
+ * `namespace NodeJS { interface Process {} }` isn't a conflict, and wrongly treating it as one
+ * would silently drop typing that was fine.
+ *
+ * Deliberately matched by structure rather than by any one tool's output shape, which we don't
+ * control and which changes: this covers both `declare namespace NodeJS { ... }` (what wrangler
+ * writes) and the `declare global { namespace NodeJS { ... } }` form we emit ourselves.
  */
-function declaresProcessEnv(src: string): boolean {
-  return src.includes('namespace NodeJS') && src.includes('interface ProcessEnv');
+function declaresProcessEnv(rawSrc: string): boolean {
+  const src = stripComments(rawSrc);
+  NODEJS_NAMESPACE_OPEN.lastIndex = 0;
+  let match = NODEJS_NAMESPACE_OPEN.exec(src);
+  while (match) {
+    // walk from the namespace's opening brace to its matching close, so a `ProcessEnv` declared
+    // after the block (or in a sibling one) doesn't count as being inside it
+    let depth = 1;
+    let i = match.index + match[0].length;
+    const bodyStart = i;
+    while (i < src.length && depth > 0) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') depth--;
+      i++;
+    }
+    if (PROCESS_ENV_INTERFACE.test(src.slice(bodyStart, depth === 0 ? i - 1 : undefined))) return true;
+    match = NODEJS_NAMESPACE_OPEN.exec(src);
+  }
+  return false;
 }
 
 /**
