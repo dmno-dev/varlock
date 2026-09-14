@@ -72,10 +72,10 @@ Sets the current _environment flag_ by name.
 Sets the default behavior of each item being _required_. Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required)/[`@optional`](/reference/item-decorators/#optional).
 
 - `infer`: Items with a value set in the same file will be required; items with an empty string or no value are optional.
-- `true`: All items are required unless marked optional.
+- `true` (default): All items are required unless marked optional.
 - `false`: All items are optional unless marked required.
 
-If no `@defaultRequired` applies to an item, it is required. This includes items defined in a file that does not set `@defaultRequired` itself, such as a `.env.local` or an [imported](/guides/import/) file, even when the root schema sets one. Mark those items with `@optional`, or set `@defaultRequired` in that file.
+The default applies per file, so an item defined only in a file that does not set `@defaultRequired` itself, such as a `.env.local` or an [imported](/guides/import/) file, is required even when the root schema sets one. Mark those items with `@optional`, or set `@defaultRequired` in that file.
 
 ```env-spec
 # @defaultRequired=infer
