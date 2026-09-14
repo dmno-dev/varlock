@@ -50,9 +50,11 @@ async function readFileHead(filePath: string, maxBytes = MAX_SCAN_BYTES): Promis
 const COMMENTS_AND_LITERALS = new RegExp([
   /\/\*[\s\S]*?\*\//, // block comment
   /\/\/[^\n]*/, // line comment
-  /'(?:[^'\\\n]|\\.)*'/, // single-quoted
-  /"(?:[^"\\\n]|\\.)*"/, // double-quoted
-  /`(?:[^`\\]|\\.)*`/, // template literal
+  // the escape alternative takes any character, newline included, so a backslash-newline line
+  // continuation stays inside the literal instead of ending the match and exposing its contents
+  /'(?:[^'\\\n]|\\[\s\S])*'/, // single-quoted
+  /"(?:[^"\\\n]|\\[\s\S])*"/, // double-quoted
+  /`(?:[^`\\]|\\[\s\S])*`/, // template literal
 ].map((r) => r.source).join('|'), 'g');
 
 /**
