@@ -188,7 +188,7 @@ varlock freeze [options]
 ```
 
 **Options:**
-- `--out <path>`, `-o`: Output file path, relative to the current directory unless absolute (default `.varlock-frozen-env`)
+- `--out <path>`, `-o`: Output file path, relative to the current directory unless absolute (default `.varlock-frozen-env`). Pass `-` to write the payload to stdout instead of a file
 - `--env <env>`: Environment to resolve for (e.g. `production`). Overridden by [`@currentEnv`](/reference/root-decorators/#currentenv) if the schema sets it
 - `--path <path>`, `-p`: Entry `.env` file or directory, can be passed multiple times
 - `--allow-plaintext`: Write the file unencrypted when `_VARLOCK_ENV_KEY` is not set
@@ -205,9 +205,14 @@ varlock freeze --env production
 
 # Custom output location, bypassing the cache
 varlock freeze --out dist/env.frozen --skip-cache
+
+# Write the payload to stdout, to carry in an env var instead of a file
+export __VARLOCK_ENV=$(varlock freeze --out -)
 ```
 
 The output file is a generated artifact holding resolved values: add it to `.gitignore`, and rerun `freeze` whenever your env values change.
+
+With `--out -` the payload goes to stdout and the summary to stderr, so a `$(...)` capture gets the payload and nothing else. Set it as `__VARLOCK_ENV` on your platform, along with [`_VARLOCK_USE_INJECTED_ENV=1`](/reference/reserved-variables/#_varlock_use_injected_env) and `_VARLOCK_ENV_KEY`. This is a weaker seal than a file, since the payload then lives in platform config rather than inside the release: see [carrying the payload in an env var](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead).
 
 </div>
 
