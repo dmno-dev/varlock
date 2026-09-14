@@ -60,10 +60,27 @@ DB_NAME=myapp
 DB_URL="postgres://$DB_HOST/$DB_NAME"
 ```
 
+If you already have your own flag and want to keep the name, derive its value from `$VARLOCK_ENV` instead of setting it yourself at runtime:
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# ---
+# @type=enum(development, preview, staging, production, test)
+APP_ENV=$VARLOCK_ENV
+```
+
+An explicit `APP_ENV=staging` passed into the process still takes precedence, and test runs are detected without passing anything. Your enum needs to cover every value `$VARLOCK_ENV` can produce. We do not recommend using `NODE_ENV` itself as your environment flag; see [`@currentEnv`](/reference/root-decorators/#currentenv).
+
 #### Test environment caveat
 
-:::caution[Test runners and `VARLOCK_ENV`]
-Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started, often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
+Test detection reads signals your test runner sets during its own startup. Importing `varlock/auto-load` from a test config file, a setup file, or app code under test all happen after that point, so `test` is detected correctly in those positions. Two setups resolve before, or without, a usable signal.
+
+:::caution[Varlock must load after your test runner starts]
+**Preloading varlock ahead of the runner.** With `node --import varlock/auto-load` or `NODE_OPTIONS`, varlock resolves in the parent process before the runner has set anything, so no test signal exists yet.
+
+**Jest with an inherited `NODE_ENV`.** Test runners only set `NODE_ENV=test` when it is unset, and Jest sets no `JEST_*` variable in the parent process where config files are loaded (`JEST_WORKER_ID` exists only in workers). So a `NODE_ENV` inherited from your shell or CI leaves the parent with no test signal at all. Vitest sets `VITEST=true` in the parent and is not affected.
+
+In both cases the parent's resolved values are injected as `__VARLOCK_ENV` and reused by the worker processes, so the wrong environment propagates even though the workers would have detected `test` on their own.
 
 If you depend on `VARLOCK_ENV=test` to load `.env.test` or toggle behavior via `forEnv(test)`, **explicitly pass it** when running tests:
 
