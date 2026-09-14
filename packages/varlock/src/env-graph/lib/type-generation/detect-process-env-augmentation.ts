@@ -41,11 +41,12 @@ async function readFileHead(filePath: string, maxBytes = MAX_SCAN_BYTES): Promis
   }
 }
 
-// Neither comments nor string/template literals are declaration syntax: a `'}'` literal would
-// close a namespace early (missing a real conflict), while `'interface ProcessEnv'` in a comment
-// or a literal would fake one. Both token classes are alternatives of ONE regex so a single
-// left-to-right pass consumes whichever opens first: stripping either class ahead of the other
-// lets it be spoofed (`// don't` eating real code, or `type M = '//'` hiding the rest of a line).
+// Comments and string/template literals are not declaration syntax, and either can spoof the
+// match in both directions (prose that reads like a declaration, or a stray `}` that hides one).
+// Both classes are alternatives of ONE regex, so a single left-to-right pass takes whichever
+// opens first: stripping either class ahead of the other lets it be spoofed (`// don't` eating
+// real code, or `type M = '//'` hiding the rest of a line). Replaced with a space, not removed,
+// so neighbouring tokens can't fuse.
 const COMMENTS_AND_LITERALS = new RegExp([
   /\/\*[\s\S]*?\*\//, // block comment
   /\/\/[^\n]*/, // line comment
@@ -54,50 +55,34 @@ const COMMENTS_AND_LITERALS = new RegExp([
   /`(?:[^`\\]|\\.)*`/, // template literal
 ].map((r) => r.source).join('|'), 'g');
 
-/** Reduce a source file to just the parts that can be declaration syntax. */
-function stripNonSyntax(src: string): string {
-  // replaced with a space rather than removed, so neighbouring tokens can't fuse
-  return src.replace(COMMENTS_AND_LITERALS, ' ');
-}
-
-const NODEJS_NAMESPACE_OPEN = /\bnamespace\s+NodeJS\s*\{/g;
-const PROCESS_ENV_INTERFACE = /\binterface\s+ProcessEnv\b/;
+/**
+ * `interface ProcessEnv` opening a `namespace NodeJS` block. The two tokens must be adjacent
+ * (nothing but whitespace, modifiers, or `}`-free text between them), which is what every
+ * generator that writes one of these actually emits, ours included:
+ *
+ *     declare namespace NodeJS { interface ProcessEnv extends ... {} }     // wrangler
+ *     declare global { namespace NodeJS { interface ProcessEnv ... } }     // varlock
+ *
+ * Requiring adjacency is what keeps this honest without a parser. `[^}]` can't run past the end
+ * of the first member, so a `ProcessEnv` declared *after* the namespace closes can't match, and
+ * `\b` keeps `interface ProcessEnvExtra` out.
+ */
+const NODEJS_PROCESS_ENV = /\bnamespace\s+NodeJS\s*\{[^}]{0,400}?\binterface\s+ProcessEnv\b/;
 
 /**
- * True when the source declares `interface ProcessEnv` *within* a `namespace NodeJS` block. Both
- * names have to be checked together: `interface ProcessEnvExtra` next to an unrelated
- * `namespace NodeJS { interface Process {} }` isn't a conflict, and wrongly treating it as one
- * would silently drop typing that was fine.
+ * True when the source looks like it declares `NodeJS.ProcessEnv`.
  *
- * Deliberately matched by structure rather than by any one tool's output shape, which we don't
- * control and which changes: this covers both `declare namespace NodeJS { ... }` (what wrangler
- * writes) and the `declare global { namespace NodeJS { ... } }` form we emit ourselves.
- *
- * This is a scan, not a parser, so pathological input can still fool it. That is an acceptable
- * trade here: a missed declaration just leaves today's behaviour in place (and the conflict it
- * would have caused is a loud `TS2320` with a documented one-arg fix), while the false-positive
- * direction, which silently drops typing, needs the literal text of a declaration to appear
- * outside comments and strings.
+ * A heuristic on purpose. It is deliberately biased to miss rather than over-match, because the
+ * two failure directions are not symmetric: a miss just leaves today's behaviour in place, and
+ * the conflict it would have avoided shows up as a loud `TS2320` with a documented one-arg fix
+ * (`processEnv=none`), whereas a false positive silently drops typing that was fine. So anything
+ * it can't read confidently (a declaration that isn't the first member of its namespace, or one
+ * buried in an exotic literal the strip above doesn't recognize) simply doesn't match, and lands
+ * the user on the error and the documented fix. Matching by structure rather than by any one tool's output shape also keeps
+ * it from rotting when that output changes.
  */
 function declaresProcessEnv(rawSrc: string): boolean {
-  const src = stripNonSyntax(rawSrc);
-  NODEJS_NAMESPACE_OPEN.lastIndex = 0;
-  let match = NODEJS_NAMESPACE_OPEN.exec(src);
-  while (match) {
-    // walk from the namespace's opening brace to its matching close, so a `ProcessEnv` declared
-    // after the block (or in a sibling one) doesn't count as being inside it
-    let depth = 1;
-    let i = match.index + match[0].length;
-    const bodyStart = i;
-    while (i < src.length && depth > 0) {
-      if (src[i] === '{') depth++;
-      else if (src[i] === '}') depth--;
-      i++;
-    }
-    if (PROCESS_ENV_INTERFACE.test(src.slice(bodyStart, depth === 0 ? i - 1 : undefined))) return true;
-    match = NODEJS_NAMESPACE_OPEN.exec(src);
-  }
-  return false;
+  return NODEJS_PROCESS_ENV.test(rawSrc.replace(COMMENTS_AND_LITERALS, ' '));
 }
 
 /**

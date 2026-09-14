@@ -1505,6 +1505,15 @@ describe('type generation', () => {
       `,
       ],
       ['the interface name only starts with ProcessEnv', 'declare namespace NodeJS { interface ProcessEnvExtra { foo: string } }'],
+      // the match requires ProcessEnv to open the namespace, so a later member is a (fail-safe) miss
+      [
+        'ProcessEnv is not the first member of the namespace', outdent`
+        declare namespace NodeJS {
+          interface Process { foo: string }
+          interface ProcessEnv { BAR: string }
+        }
+      `,
+      ],
       [
         'the declaration is inside a comment', outdent`
         // declare namespace NodeJS { interface ProcessEnv {} }
