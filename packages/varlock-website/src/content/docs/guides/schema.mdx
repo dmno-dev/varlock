@@ -14,7 +14,7 @@ Running [`varlock init`](/reference/cli/project/#init) will attempt to convert a
 
 
 ## Root Decorators
-The _header_ section of a `.env` file is any comment block(s) at the beginning of the file, before the first config item. Within this header, you can use [root decorators](/reference/root-decorators/) to specify global settings and default behavior for all config items.
+The _header_ section of a `.env` file is any comment block(s) at the beginning of the file, before the first config item. Within this header, you can use [root decorators](/reference/root-decorators/) to specify global settings and default behavior for the config items defined in that file. The ones that set item defaults (`@defaultRequired`, `@defaultSensitive`, `@defaultDynamic`) do not carry into other files, including imported files and higher-precedence files like `.env.local`.
 
 ```env-spec title=".env.schema"
 # This is the header, and may contain root decorators
@@ -48,6 +48,7 @@ Values may be static, or set using [functions](/reference/functions/), which can
 - Multiline values can be wrapped in <code>```</code>, `"""`. Also supported is `"` and `'` but not recommended.
 - Unquoted values will be parsed as a number/boolean/undefined where possible (`ITEM=foo` -> `"foo"`, while `ITEM=true` -> `true`), however data-types may further coerce values
 - No value (undefined) and empty string ("") are distinct
+  - `ITEM=` sets no value at all, so in a higher-precedence file it does not override a value from a lower-precedence one. Use `ITEM=""` to override with an empty string
   - this holds through injection too: an item that resolves to undefined is left out of `process.env` entirely (so `process.env.MY_VAR ?? 'fallback'` works), while an explicit `""` is injected as an empty string. See [`@injectUndefinedAsEmpty`](/reference/root-decorators/#injectundefinedasempty) if you want dotenv-style empty-string injection instead.
 
 ```env-spec title=".env.schema"

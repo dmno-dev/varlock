@@ -107,16 +107,18 @@ When `@currentEnv` is set in `.env.schema` (e.g., `@currentEnv=$APP_ENV`), varlo
 
 For example, if `APP_ENV=staging`, then `.env.staging` and `.env.staging.local` will be loaded automatically if they exist. A value in `.env.local` overrides one in `.env.schema`, and `process.env` always wins.
 
+A bare `KEY=` sets no value at all, so it does not override a value from a lower-precedence file. Use `KEY=""` to override with an empty string.
+
 ## Schema syntax
 
 ### Root decorators (file header)
 
 Root decorators go in comment blocks at the top of the file, before the first item. A `# ---` divider usually separates the header from items.
 
-| Decorator | Purpose | Default |
-|-----------|---------|---------|
+| Decorator | Purpose | If absent |
+|-----------|---------|-----------|
 | `@currentEnv=$VAR` | Sets which item determines the active environment | — |
-| `@defaultRequired=bool\|infer` | Default required state for items in this file | `infer` |
+| `@defaultRequired=bool\|infer` | Default required state for items in this file | `true` |
 | `@defaultSensitive=bool\|inferFromPrefix(PREFIX)` | Default sensitive state for items in this file | `true` |
 | `@generateTsTypes(path=./env.d.ts)` | Auto-generate TypeScript env declarations (deprecated alias: `@generateTypes(lang=ts)`) | — |
 | `@generatePythonEnv` / `@generateRustEnv` / `@generateGoEnv` / `@generatePhpEnv` / `@generateJavaEnv` / `@generateCsharpEnv` `(path=...)` | Generate a typed env module for that language | — |
@@ -126,7 +128,9 @@ Root decorators go in comment blocks at the top of the file, before the first it
 | `@disable` | Disable loading this file (can use `=forEnv(test)`) | `false` |
 
 - `@defaultSensitive` defaults to `true` — all items are sensitive unless explicitly marked `@public` or `@sensitive=false`. Set `@defaultSensitive=false` to flip the default.
-- `@defaultRequired=infer` (the default): items with a value in the schema are required, items without are optional
+- `@defaultRequired=infer`: items with a value in the schema are required, items without are optional. Without this decorator, items default to required
+- `varlock init` writes `@defaultRequired=infer` and `@defaultSensitive=false` into the schema it generates, so most existing projects run with those rather than the absent-decorator behavior. Read the file header before assuming either
+- Item defaults (`@defaultRequired`, `@defaultSensitive`) only apply to items defined in the same file. An item defined only in a `.env.local` or an imported file falls back to the built-in defaults (required, sensitive), no matter what the root schema sets
 - `@defaultSensitive=inferFromPrefix(PUBLIC_)`: items with keys starting with `PUBLIC_` are not sensitive, all others are
 - `@import()` accepts `enabled=expr` for conditional imports and `allowMissing=true` for optional imports
 

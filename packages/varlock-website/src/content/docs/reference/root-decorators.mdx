@@ -13,6 +13,8 @@ Root decorators appear in the _header_ section of a .env file - which is any com
 # @generateTsTypes(path=./env.d.ts)
 ```
 
+Two different notions of "default" are at play below, so it is worth separating them. Each decorator lists the behavior you get when that decorator is **absent** from a file. Separately, [`varlock init`](/reference/cli/project/#init) writes `@defaultRequired=infer` and `@defaultSensitive=false` into the schema it generates, as shown above, because those suit a typical project better than the built-in behavior. So most projects run with `infer` and non-sensitive-by-default even though an unmarked file behaves as `@defaultRequired=true @defaultSensitive=true`. Check your own file header rather than assuming either one.
+
 
 More details of the minutiae of decorator handling can be found in the [@env-spec reference](/env-spec/reference/#comments-and-decorators).
 
@@ -71,9 +73,11 @@ Sets the current _environment flag_ by name.
 
 Sets the default behavior of each item being _required_. Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@required`](/reference/item-decorators/#required)/[`@optional`](/reference/item-decorators/#optional).
 
-- `infer` (default): Items with a value set in the same file will be required; items with an empty string or no value are optional.
-- `true`: All items are required unless marked optional.
+- `infer`: Items with a value set in the same file will be required; items with an empty string or no value are optional.
+- `true` (behavior when this decorator is absent): All items are required unless marked optional.
 - `false`: All items are optional unless marked required.
+
+This setting applies per file, so an item defined only in a file that does not set `@defaultRequired` itself, such as a `.env.local` or an [imported](/guides/import/) file, falls back to being required even when the root schema sets `infer` or `false`. Mark those items with `@optional`, or set `@defaultRequired` in that file.
 
 ```env-spec
 # @defaultRequired=infer
@@ -98,7 +102,7 @@ REQUIRED_ITEM= # required (explicit)
 
 Sets the default state of each item being treated as [_sensitive_](/guides/secrets/). Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@sensitive`](/reference/item-decorators/#sensitive).
 
-- `true` (default): All items are sensitive unless marked otherwise.
+- `true` (behavior when this decorator is absent): All items are sensitive unless marked otherwise.
 - `false`: All items are not sensitive unless marked otherwise.
 - `inferFromPrefix(PREFIX)`: Item is marked not sensitive if key starts with the given `PREFIX`; all others are sensitive. Useful for marking e.g. `PUBLIC_` keys as non-sensitive by default.
 
@@ -124,7 +128,7 @@ OTHER_BAR=  # not sensitive (explicit)
 
 Sets the default state of each item being treated as _dynamic_ (runtime-resolved) vs _static_ (eligible for build-time replacement). Only applied to items that have a definition within the same file. Can be overridden on individual items using [`@dynamic`](/reference/item-decorators/#dynamic)/[`@static`](/reference/item-decorators/#static).
 
-- `inferFromSensitive` (default): Dynamic behavior follows sensitivity.
+- `inferFromSensitive` (behavior when this decorator is absent): Dynamic behavior follows sensitivity.
 - `true`: All items are dynamic unless explicitly marked static.
 - `false`: All items are static unless explicitly marked dynamic.
 
