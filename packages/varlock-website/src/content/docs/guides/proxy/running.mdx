@@ -45,6 +45,58 @@ The workload does not have to be on the same machine. `proxy start --expose` mak
 
 When the guest's only egress is an explicit HTTP proxy (a corporate proxy, or a sandbox gateway like [Docker Sandboxes](/sandboxes/docker-sandboxes/)), `proxy run --url` dials the tunnel through it automatically: it honors `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` and `NO_PROXY` (a loopback or `NO_PROXY`-matched broker still dials direct). Only a plaintext `http://` `CONNECT` proxy is supported (an `https://` proxy, meaning TLS to the proxy itself, and SOCKS are not); a `wss://` broker still works through it, since the tunnel's own TLS runs end to end inside the `CONNECT`. That end-to-end TLS also means a proxy that terminates TLS only ever sees the encrypted tunnel.
 
+### HTTP approvals
+
+Use `--approval-url` on the machine that owns the proxy to replace its terminal prompt with an HTTP approval service:
+
+```bash
+VARLOCK_APPROVAL_TOKEN='broker-to-service-token' \
+VARLOCK_APPROVAL_PUBLIC_KEY='key-id=base64-spki-ed25519-public-key' \
+  varlock proxy start --expose --approval-url https://approvals.example.com/requests
+```
+
+`VARLOCK_APPROVAL_URL` can be used instead of the flag, and `--approval-public-key` can be used instead of `VARLOCK_APPROVAL_PUBLIC_KEY`. These settings belong on the broker, not on `proxy run --url`. `VARLOCK_APPROVAL_TOKEN` is required and must contain at least 32 characters. Varlock removes the approval configuration and `VARLOCK_PROXY_TOKEN` from a proxied child before starting it.
+
+For each request that matches `require-approval`, Varlock sends an `ApprovalRequest` as JSON in a `POST` to the configured URL. It contains the method, verified host, path, placeholder-form body hash, nonce, expiry, rule and names of secrets that would be injected. It never contains secret values. Requests use `Authorization: Bearer <token>`.
+
+The service creates a pending request and returns:
+
+```json
+{
+  "approvalUrl": "https://approvals.example.com/a/opaque-request-link",
+  "statusUrl": "https://approvals.example.com/requests/opaque-id",
+  "pollIntervalMs": 1000
+}
+```
+
+The configured endpoint and returned URLs must use HTTPS; plain HTTP is accepted only on loopback for local development. `statusUrl` must have the same origin as the configured endpoint. Varlock polls it with `GET` until it returns one of these objects:
+
+```json
+{ "status": "pending" }
+{
+  "status": "approved",
+  "nonce": "the-request-nonce",
+  "lifetime": { "kind": "once" },
+  "proof": {
+    "algorithm": "ed25519",
+    "keyId": "approval-key-1",
+    "signature": "base64url-ed25519-signature-without-padding"
+  }
+}
+{ "status": "denied", "reason": "Denied by operator" }
+{ "status": "expired" }
+```
+
+The approval service must authenticate the operator separately; possession of `approvalUrl` must not be sufficient to approve. This makes it safe to display the link beside an untrusted agent. The service signs an approved decision with the Ed25519 private key corresponding to the public key pinned by the broker. The Bearer token authenticates service requests only and is not a decision-signing key. The signed bytes are the UTF-8 encoding of this compact JSON array, in exactly this order:
+
+```json
+["varlock-approval-decision-v1", method, host, path, bodyHash, nonce, expiresAt, ruleIdOrNull, grantKeyOrNull, maxDurationMsOrNull, injectedKeysOrEmptyArray, lifetimeKind, durationMsOrNull]
+```
+
+An approval is accepted only before the request expiry, when the returned nonce matches, and when this proof verifies. The `lifetime.kind` may be `once`, `session`, or `duration`; a duration also includes `durationMs`. The proxy clamps it to the rule's `maxDuration`. Errors, redirects, malformed responses, missing or invalid proofs, mismatched nonces and timeouts deny the request.
+
+The approval URL and request metadata appear in the broker terminal. For a remote `proxy run --url`, the broker also forwards them over an authenticated tunnel event channel, so the same non-authorizing link appears beside the remote agent. Decisions still travel directly between the broker and the approval service; the remote client cannot approve a request through the tunnel.
+
 ## Sessions
 
 Every `varlock proxy` command operates on a **session**: one running proxy with its own short id (printed by `proxy start`, listed by `proxy status`). You target a session in one of two ways:
@@ -160,4 +212,3 @@ varlock proxy run --sandbox -- claude
 ```
 
 Bare `--sandbox` is a built-in macOS jail (loopback-only egress + credential-path and keychain denials). Use `--sandbox=docker` (or `=podman`) for a container whose only egress is the host proxy. Details, flags, and third-party recipes: [Sandboxing](/guides/proxy/sandboxing/).
-
