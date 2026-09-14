@@ -106,12 +106,56 @@ Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_E
 
 | Flag | Description |
 | --- | --- |
-| `--out`, `-o` | Output path (default `.varlock-frozen-env`) |
+| `--out`, `-o` | Output path (default `.varlock-frozen-env`), or `-` to write the payload to stdout |
 | `--env` | Environment to resolve for (e.g. `production`) |
 | `--path`, `-p` | Entry .env file or directory, repeatable |
 | `--allow-plaintext` | Write unencrypted when `_VARLOCK_ENV_KEY` is not set |
 | `--clear-cache` | Clear the cache and re-resolve everything |
 | `--skip-cache` | Skip the cache for this invocation |
+
+## Carrying the payload in an env var instead
+
+Some platforms take environment variables but give you no way to get a file into the deploy unit: a Compose file that pulls an image tag it does not rebuild, an ECS task definition, Heroku config vars. `--out -` writes the same payload to stdout so you can carry it in one variable.
+
+```bash
+# at deploy time, where your .env files and resolver credentials are
+export __VARLOCK_ENV=$(APP_ENV=production varlock freeze --out -)
+```
+
+Set three things in the runtime environment:
+
+| Variable | Value |
+| --- | --- |
+| `__VARLOCK_ENV` | the payload |
+| `_VARLOCK_USE_INJECTED_ENV` | `1` |
+| `_VARLOCK_ENV_KEY` | the same key you froze with |
+
+`_VARLOCK_USE_INJECTED_ENV=1` is required, not optional. Without it varlock checks the payload against the .env files it was resolved from, which a deploy does not carry, and falls back to running the CLI instead.
+
+```yaml title="compose.yaml"
+services:
+  app:
+    environment:
+      __VARLOCK_ENV: ${__VARLOCK_ENV:?run `varlock freeze --out -` first}
+      _VARLOCK_USE_INJECTED_ENV: "1"
+      _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
+```
+
+Your app boots exactly as it does with a file: `import 'varlock/auto-load'` and read `ENV`.
+
+The summary goes to stderr in this mode, so stdout carries the payload and nothing else. Everything else is identical to writing a file: the same resolution, the same encryption, the same refusal to emit a payload built from a failed resolution.
+
+### What you give up
+
+This is a weaker seal than a file, and it is worth being clear about why. The payload lives in platform config rather than inside the release, so it does not roll back when you roll back code, and it is a second operation on deploy rather than part of the artifact. That is the split a frozen file exists to close, and the env var transport reopens part of it.
+
+What you still get over a set of individual environment variables: it resolved and validated once, as a unit; types and sensitivity survive, so `ENV.PORT` is a number and log redaction still knows what is secret; and the runtime needs no .env files, no resolver credentials, and no varlock CLI.
+
+Prefer a file whenever you can ship one. Reach for `--out -` when you cannot.
+
+:::caution[Size limits]
+The payload holds every resolved value, so it can outgrow what a platform accepts in a single variable. Linux caps one variable at 128KB, and some platforms are far stricter (AWS Lambda allows 4KB for the entire environment). If you are near a limit, ship a file instead.
+:::
 
 ## Encryption is required
 
@@ -157,6 +201,7 @@ In particular, marking such a key `@optional` so that `varlock freeze` stops ref
 | Approach | When it fits |
 | --- | --- |
 | `varlock freeze` | You control the boot command, have no build step, and want config pinned to the release |
+| [`varlock freeze --out -`](#carrying-the-payload-in-an-env-var-instead) | Same, but the platform takes env vars and you cannot ship a file into the deploy unit |
 | [`varlock run`](/reference/cli-commands/#run) | The CLI, .env files, and resolver credentials are all available in the runtime environment |
 | [`ssrInjectMode: 'resolved-env'`](/guides/encrypted-deployments/) | You use a framework integration that injects the resolved env into build output |
 | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Cloudflare Workers, where the resolved env is uploaded as a versioned secret binding |

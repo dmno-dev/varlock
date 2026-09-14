@@ -5,6 +5,7 @@ import ansis from 'ansis';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { encryptEnvBlobSync } from '../../runtime/crypto';
 import { USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
@@ -21,7 +22,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // Check the key before doing any resolution work - a missing key is a setup problem, and
   // failing fast avoids hitting every resolver (and any biometric/OAuth prompts) first.
   if (!encryptionKey && !allowPlaintext) {
-    throw new CliExitError('_VARLOCK_ENV_KEY is not set, so the frozen env file cannot be encrypted', {
+    throw new CliExitError(`_VARLOCK_ENV_KEY is not set, so the frozen env ${ctx.values.out === '-' ? 'payload' : 'file'} cannot be encrypted`, {
       suggestion: 'Generate one with `varlock generate-key`, then set it both here and on your deployment platform '
         + '(the same key must be present at runtime to decrypt). Use --allow-plaintext only if you accept every '
         + 'resolved secret sitting unencrypted inside your deploy artifact.',
@@ -71,9 +72,48 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // pin this file exists to create. A frozen file has no parent invocation, so: no overrides.
   serialized.overrideKeys = [];
 
-  const outPath = path.resolve(process.cwd(), String(ctx.values.out));
   const serializedJson = JSON.stringify(serialized);
   const contents = encryptionKey ? encryptEnvBlobSync(serializedJson, encryptionKey) : serializedJson;
+  const itemCount = Object.keys(serialized.config).length;
+
+  // `--out -` emits the payload on stdout instead of writing a file, for platforms that
+  // accept env vars but give you no way to get a file into the deploy unit (a compose file
+  // pulling an image tag it does not rebuild, an ECS task definition, Heroku config vars).
+  // Same payload, different transport: capture it into `__VARLOCK_ENV` and set
+  // `_VARLOCK_USE_INJECTED_ENV=1` at runtime. The seal is weaker than a file's, because the
+  // blob then lives in platform config rather than inside the release, so it does not roll
+  // back with the code - but it is still resolved and validated once, as one unit.
+  if (String(ctx.values.out) === '-') {
+    // the payload owns stdout so `$(varlock freeze --out -)` captures it and nothing else -
+    // every human-facing line goes to stderr
+    process.stdout.write(`${contents}\n`);
+    console.error(`Froze ${itemCount} env var${itemCount === 1 ? '' : 's'} to stdout`);
+    if (frozenEnv !== undefined) console.error(ansis.gray(`  environment: ${ansis.bold(String(frozenEnv))}`));
+    console.error(ansis.gray(`  ${encryptionKey ? 'encrypted with _VARLOCK_ENV_KEY' : 'UNENCRYPTED'}`));
+    console.error('');
+    if (!encryptionKey) {
+      console.error(`${ansis.yellow('⚠')} This payload holds every resolved value in plaintext, including secrets.`);
+      console.error(ansis.gray('  Anywhere you put it - a compose file, a task definition, `docker inspect`,'));
+      console.error(ansis.gray('  /proc/<pid>/environ - it is readable as-is.'));
+      console.error('');
+    }
+    console.error('Next steps:');
+    console.error(ansis.gray('  1. Capture it into __VARLOCK_ENV on your platform, e.g.'));
+    console.error(ansis.gray('     export __VARLOCK_ENV=$(varlock freeze --out -)'));
+    console.error(ansis.gray(`  2. Set ${USE_INJECTED_ENV_VAR}=1 in the runtime environment, so the blob is`));
+    console.error(ansis.gray('     trusted as-is rather than checked against .env files that are not there.'));
+    if (encryptionKey) {
+      console.error(ansis.gray('  3. Set _VARLOCK_ENV_KEY in the runtime environment so it can be decrypted.'));
+      console.error(ansis.gray('  4. Boot your app as usual - `varlock/auto-load` hydrates from the blob.'));
+    } else {
+      console.error(ansis.gray('  3. Boot your app as usual - `varlock/auto-load` hydrates from the blob.'));
+    }
+    console.error('');
+    console.error(ansis.gray('Values are now pinned: rotating a secret takes effect on your next deploy, not on restart.'));
+    return;
+  }
+
+  const outPath = path.resolve(process.cwd(), String(ctx.values.out));
 
   try {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
@@ -83,7 +123,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new CliExitError(`Failed to write frozen env file to ${outPath}: ${(err as Error).message}`);
   }
 
-  const itemCount = Object.keys(serialized.config).length;
   const relOutPath = path.relative(process.cwd(), outPath) || outPath;
 
   console.log(`Froze ${itemCount} env var${itemCount === 1 ? '' : 's'} into ${ansis.bold(relOutPath)}`);
