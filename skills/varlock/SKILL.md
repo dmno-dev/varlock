@@ -116,7 +116,7 @@ Root decorators go in comment blocks at the top of the file, before the first it
 | Decorator | Purpose | Default |
 |-----------|---------|---------|
 | `@currentEnv=$VAR` | Sets which item determines the active environment | — |
-| `@defaultRequired=bool\|infer` | Default required state for items in this file | `infer` |
+| `@defaultRequired=bool\|infer` | Default required state for items in this file | `true` |
 | `@defaultSensitive=bool\|inferFromPrefix(PREFIX)` | Default sensitive state for items in this file | `true` |
 | `@generateTsTypes(path=./env.d.ts)` | Auto-generate TypeScript env declarations (deprecated alias: `@generateTypes(lang=ts)`) | — |
 | `@generatePythonEnv` / `@generateRustEnv` / `@generateGoEnv` / `@generatePhpEnv` / `@generateJavaEnv` / `@generateCsharpEnv` `(path=...)` | Generate a typed env module for that language | — |
@@ -126,7 +126,8 @@ Root decorators go in comment blocks at the top of the file, before the first it
 | `@disable` | Disable loading this file (can use `=forEnv(test)`) | `false` |
 
 - `@defaultSensitive` defaults to `true` — all items are sensitive unless explicitly marked `@public` or `@sensitive=false`. Set `@defaultSensitive=false` to flip the default.
-- `@defaultRequired=infer` (the default): items with a value in the schema are required, items without are optional
+- `@defaultRequired=infer`: items with a value in the schema are required, items without are optional. Without this decorator, items default to required
+- Item defaults (`@defaultRequired`, `@defaultSensitive`) only apply to items defined in the same file. An item defined only in a `.env.local` or an imported file falls back to the built-in defaults (required, sensitive), no matter what the root schema sets
 - `@defaultSensitive=inferFromPrefix(PUBLIC_)`: items with keys starting with `PUBLIC_` are not sensitive, all others are
 - `@import()` accepts `enabled=expr` for conditional imports and `allowMissing=true` for optional imports
 

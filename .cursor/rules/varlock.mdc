@@ -42,8 +42,8 @@ actions:
 
       3. Root Level Decorators:
          - @currentEnv - Sets current environment env var (e.g., `@currentEnv=$APP_ENV`)
-         - @defaultRequired - Sets default required state for all items
-         - @defaultSensitive - Sets default sensitive state for all items
+         - @defaultRequired - Sets default required state for the items defined in that file
+         - @defaultSensitive - Sets default sensitive state for the items defined in that file
          
          Note: When using default decorators, you only need to specify item-level decorators
          when you want to override the default value. For example, if @defaultRequired=true,
