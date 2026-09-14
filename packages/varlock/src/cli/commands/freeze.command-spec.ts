@@ -8,7 +8,7 @@ export const commandSpec = define({
     out: {
       type: 'string',
       short: 'o',
-      description: 'Output file path (relative to cwd unless absolute)',
+      description: 'Output file path (relative to cwd unless absolute), or `-` to write the payload to stdout',
       default: FROZEN_ENV_FILE_NAME,
     },
     env: {
@@ -56,6 +56,7 @@ Examples:
   varlock freeze                        # write ${FROZEN_ENV_FILE_NAME} in the current directory
   varlock freeze --env production       # resolve for a specific environment
   varlock freeze --out dist/env.frozen  # custom output location
+  varlock freeze --out -                # write the payload to stdout instead of a file
   varlock freeze --skip-cache           # bypass the cache so values are freshly resolved
 
 Typical CI usage:
@@ -64,5 +65,13 @@ Typical CI usage:
   docker build .                        # the file is copied into the image
 
 Then boot the app normally (\`bun server.js\`) with _VARLOCK_ENV_KEY set in the runtime env.
+
+If your platform takes env vars but gives you no way to get a file into the deploy unit,
+--out - writes the same payload to stdout so you can carry it in one variable instead:
+
+  export __VARLOCK_ENV=$(varlock freeze --out -)   # at deploy time
+  _VARLOCK_USE_INJECTED_ENV=1                      # in the runtime environment
+
+The summary goes to stderr in that mode, so the payload is all that stdout carries.
 `.trim(),
 });

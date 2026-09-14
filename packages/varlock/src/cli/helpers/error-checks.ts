@@ -75,7 +75,10 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
 
     if (source instanceof FileBasedDataSource) {
       console.error('📁', ansis.dim(`${source.fullPath}`));
-      console.log('');
+      // spacer for the diagnostic block above, not output - a stray newline on stdout
+      // corrupts a captured payload (`$(varlock freeze --out -)`, `load --format json-full`),
+      // and for an encrypted blob the leading byte is load-bearing
+      console.error('');
     }
 
     for (const warning of warnings) {

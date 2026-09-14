@@ -115,6 +115,91 @@ describe('varlock freeze', () => {
   });
 });
 
+// `--out -` is the same payload carried in an env var instead of a file, for platforms that
+// take env vars but give you no way to get a file into the deploy unit. The seal is weaker
+// (the blob lives in platform config rather than inside the release), but it is still
+// resolved and validated once, as one unit.
+describe('varlock freeze --out -', () => {
+  /** a deploy-like dir with the app and NO frozen artifact - the blob is the only input */
+  let blobDeployDir: string;
+
+  beforeAll(() => {
+    blobDeployDir = fs.mkdtempSync(join(os.tmpdir(), 'varlock-frozen-blob-deploy-'));
+    fs.copyFileSync(join(SCENARIO_DIR, 'app.mjs'), join(blobDeployDir, 'app.mjs'));
+    fs.symlinkSync(
+      join(import.meta.dirname, '..', 'node_modules'),
+      join(blobDeployDir, 'node_modules'),
+      'dir',
+    );
+  });
+
+  afterAll(() => {
+    if (blobDeployDir) fs.rmSync(blobDeployDir, { recursive: true, force: true });
+  });
+
+  test('writes only the payload to stdout, and the summary to stderr', () => {
+    const result = freeze({ args: ['--out', '-'] });
+    expect(result.exitCode, result.output).toBe(0);
+    // a `$(...)` capture gets the payload and nothing else - for an encrypted blob the
+    // leading byte is load-bearing, so a stray banner line would break consumption
+    expect(result.stdout.trim().startsWith('varlock:v1:')).toBe(true);
+    expect(result.stdout.trim().split('\n')).toHaveLength(1);
+    expect(result.stdout).not.toContain('prod-token');
+    expect(result.stderr).toContain('environment: production');
+    expect(result.stderr).toContain('_VARLOCK_USE_INJECTED_ENV=1');
+    // no file written as a side effect
+    expect(fs.existsSync(join(SCENARIO_DIR, '-'))).toBe(false);
+  });
+
+  test('the payload boots an app with no .env files, no CLI, and no artifact on disk', () => {
+    const blob = freeze({ args: ['--out', '-'] }).stdout.trim();
+    const result = runApp({
+      cwd: blobDeployDir,
+      env: {
+        __VARLOCK_ENV: blob,
+        _VARLOCK_USE_INJECTED_ENV: '1',
+        _VARLOCK_ENV_KEY: encryptionKey,
+      },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).toContain('PUBLIC_VAR=public-value-prod');
+    expect(result.output).toContain('SECRET_OK=true');
+    expect(result.output).toContain('COERCED_FLAG_IS_BOOL=true');
+  });
+
+  test('refuses to emit an unencrypted payload without a key', () => {
+    const result = runVarlock(['freeze', '--out', '-'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('_VARLOCK_ENV_KEY is not set');
+    expect(result.stdout).not.toContain('prod-token');
+  });
+
+  test('--allow-plaintext emits the raw graph', () => {
+    const result = runVarlock(['freeze', '--out', '-', '--allow-plaintext'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(JSON.parse(result.stdout).config.PUBLIC_VAR.value).toBe('public-value-prod');
+    expect(result.stderr).toContain('UNENCRYPTED');
+  });
+
+  // Override provenance is cleared for the same reason it is in the file: it would make any
+  // schema key that happened to be set in CI a key the platform can override at runtime.
+  test('carries no override provenance', () => {
+    const result = runVarlock(['freeze', '--out', '-', '--allow-plaintext'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '', PUBLIC_VAR: 'from-ci' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(JSON.parse(result.stdout).overrideKeys).toEqual([]);
+  });
+});
+
 describe('booting from a frozen env file', () => {
   test('hydrates everything with no .env files and no CLI present', () => {
     const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey } });

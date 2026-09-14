@@ -130,6 +130,27 @@ APP_ENV=production varlock freeze
 
 `--no-compile-autoload-dotenv` stops the compiled binary from doing Bun's own `.env` loading, matching the `bunfig.toml` setting above.
 
+`import 'varlock/auto-load'` is what the binary needs, and it bundles cleanly. It never shells out to the varlock CLI when it has a frozen file or a trusted blob to boot from, so a distroless image with no shell and no `node_modules` works. Keep the import first in your entrypoint.
+
+### Passing the payload as an env var
+
+If you cannot get a file into the image (a Compose file that pulls a tag it does not rebuild, for instance), `varlock freeze --out -` writes the same payload to stdout and you carry it in one variable:
+
+```bash
+export __VARLOCK_ENV=$(APP_ENV=production varlock freeze --out -)
+```
+
+```yaml title="compose.yaml"
+services:
+  app:
+    environment:
+      __VARLOCK_ENV: ${__VARLOCK_ENV:?run `varlock freeze --out -` first}
+      _VARLOCK_USE_INJECTED_ENV: "1"
+      _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
+```
+
+`_VARLOCK_USE_INJECTED_ENV=1` is required: without it varlock tries to verify the payload against .env files the image does not have, and falls back to running the CLI. See [carrying the payload in an env var](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead) for what this trades away versus shipping a file.
+
 ### Choosing an environment
 
 If your schema sets [`@currentEnv`](/reference/root-decorators/#currentenv), the `--env` flag does not apply, and `varlock freeze` errors rather than silently capturing the wrong environment. Set the flag item instead:

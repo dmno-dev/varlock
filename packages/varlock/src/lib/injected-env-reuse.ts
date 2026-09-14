@@ -228,6 +228,21 @@ export function evaluateInjectedEnvReuse(opts: {
   const { parsedEnv, strippedInternalKeys } = sanitized;
   blobJson = sanitized.blobJson;
 
+  // A blob carrying errors means the producer's load failed. On the automatic path below
+  // that just means re-resolving, but this check has to come BEFORE the force return too:
+  // explicit trust is about *where* the blob was resolved, not whether it resolved. Without
+  // it, a capture that ignored the producer's non-zero exit (`load --format json-full`
+  // prints its JSON either way) boots the app on known-bad values, and the only signal is a
+  // warning on each ENV access. Matches how a frozen file refuses the same payload.
+  if (parsedEnv.errors) {
+    if (mode === 'force') {
+      throw new Error(
+        `[varlock] ${USE_INJECTED_ENV_VAR} is enabled but the __VARLOCK_ENV blob was created from a failed resolution and contains errors`,
+      );
+    }
+    return { reuse: false, reason: 'blob contains resolution errors' };
+  }
+
   // explicit trust - the sandbox path. The blob is authoritative regardless of where it
   // was resolved; directory/drift checks make no sense for a blob from another machine.
   if (mode === 'force') {
@@ -237,10 +252,7 @@ export function evaluateInjectedEnvReuse(opts: {
   }
 
   // -- automatic path: reuse only when a fresh resolution would clearly produce the same result
-
-  // a blob carrying errors means the producer's load failed - let the CLI re-run and
-  // surface a proper failure rather than booting the app on known-bad values
-  if (parsedEnv.errors) return { reuse: false, reason: 'blob contains resolution errors' };
+  // (a blob carrying errors was already rejected above, in every mode)
 
   // older producers may not have recorded basePath - we can't verify locality, so re-resolve
   if (!parsedEnv.basePath) return { reuse: false, reason: 'blob has no basePath recorded' };
