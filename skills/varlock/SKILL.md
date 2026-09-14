@@ -107,6 +107,8 @@ When `@currentEnv` is set in `.env.schema` (e.g., `@currentEnv=$APP_ENV`), varlo
 
 For example, if `APP_ENV=staging`, then `.env.staging` and `.env.staging.local` will be loaded automatically if they exist. A value in `.env.local` overrides one in `.env.schema`, and `process.env` always wins.
 
+A bare `KEY=` sets no value at all, so it does not override a value from a lower-precedence file. Use `KEY=""` to override with an empty string.
+
 ## Schema syntax
 
 ### Root decorators (file header)
