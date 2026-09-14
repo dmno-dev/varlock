@@ -41,9 +41,21 @@ async function readFileHead(filePath: string, maxBytes = MAX_SCAN_BYTES): Promis
   }
 }
 
-/** strip comments so a mention of these declarations in prose never counts as one */
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+// string and template literal types are legal in a `.d.ts`, and their contents are not syntax: a
+// `'}'` would otherwise close a namespace early (missing a real conflict) and a literal spelled
+// `'interface ProcessEnv'` would fake one. Matched in a single left-to-right pass so whichever
+// quote opens first wins, and replaced with a space so neighbouring tokens don't fuse.
+const LITERALS = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
+
+/**
+ * Reduce a source file to just the parts that can be declaration syntax. Comments go first, so an
+ * apostrophe in prose can't open a "literal" that swallows real code after it.
+ */
+function stripNonSyntax(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ')
+    .replace(LITERALS, ' ');
 }
 
 const NODEJS_NAMESPACE_OPEN = /\bnamespace\s+NodeJS\s*\{/g;
@@ -58,9 +70,15 @@ const PROCESS_ENV_INTERFACE = /\binterface\s+ProcessEnv\b/;
  * Deliberately matched by structure rather than by any one tool's output shape, which we don't
  * control and which changes: this covers both `declare namespace NodeJS { ... }` (what wrangler
  * writes) and the `declare global { namespace NodeJS { ... } }` form we emit ourselves.
+ *
+ * This is a scan, not a parser, so pathological input can still fool it. That is an acceptable
+ * trade here: a missed declaration just leaves today's behaviour in place (and the conflict it
+ * would have caused is a loud `TS2320` with a documented one-arg fix), while the false-positive
+ * direction, which silently drops typing, needs the literal text of a declaration to appear
+ * outside comments and strings.
  */
 function declaresProcessEnv(rawSrc: string): boolean {
-  const src = stripComments(rawSrc);
+  const src = stripNonSyntax(rawSrc);
   NODEJS_NAMESPACE_OPEN.lastIndex = 0;
   let match = NODEJS_NAMESPACE_OPEN.exec(src);
   while (match) {

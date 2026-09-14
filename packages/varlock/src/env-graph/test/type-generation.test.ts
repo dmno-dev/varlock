@@ -1511,6 +1511,8 @@ describe('type generation', () => {
         export {};
       `,
       ],
+      // literal contents are not syntax either
+      ['the declaration text is inside a string literal', "declare namespace NodeJS { const marker: 'interface ProcessEnv'; }"],
     ])('not a conflict when %s', async (_label, contents) => {
       await writeFile('other.d.ts', contents);
       const found = await findConflictingProcessEnvAugmentation({
@@ -1518,6 +1520,20 @@ describe('type generation', () => {
         outputPath: path.join(tempDir, 'env.d.ts'),
       });
       expect(found).toBeUndefined();
+    });
+
+    test('a `}` inside a string literal does not end the namespace early', async () => {
+      await writeFile('other.d.ts', outdent`
+        declare namespace NodeJS {
+          type Brace = '}';
+          interface ProcessEnv extends Something {}
+        }
+      `);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
     });
 
     test('matches the nested `declare global` form we emit ourselves', async () => {
