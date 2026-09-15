@@ -13,13 +13,9 @@ Most of this guide describes the file, which is the form to prefer. If your plat
 
 ## The problem
 
-Setting environment variables on a platform and shipping code are two separate operations. There is no way to make them one, which causes three things:
+Values re-resolved on every boot are only as stable as the last restart. A replica that autoscales up at 3am can resolve differently from the one that booted at deploy time, with no signal that it happened, and rolling back code does not roll back config that lives in your platform's settings rather than in the release.
 
-- **No atomic change.** A release that changes both code and config is two operations with a window in between, where one is live and the other is not.
-- **No rollback.** Config lives in the platform's store, not in the release, so rolling back code leaves the new config in place.
-- **No guarantee across replicas.** Values are re-resolved on every boot, so a replica that autoscales up at 3am can resolve differently from the one that booted at deploy time, with no signal that it happened.
-
-A frozen env file makes config part of the deploy unit, so all three go away. It also means boot no longer depends on your secret backend being reachable, which removes a source of cold-start latency and rate limits when many replicas start at once.
+A frozen env file makes config part of the deploy unit, which is the shape most platforms already use for their own env vars. [Deploy-time config](/guides/deploy-time-config/) covers why, what the failure looks like under autoscaling, and when boot resolution is still the right answer. This guide is the mechanics.
 
 ## Setup
 
