@@ -207,7 +207,7 @@ A path only runs into any of this when it both starts and ends with a slash, so 
 :::
 
 :::note[`regex()` function]
-`regex("pattern")` takes the pattern source, with optional flags as a second argument. It is written **without** the surrounding slashes -- `regex("/^abc$/")` would match the slashes themselves, so it is rejected with an error.
+`regex("pattern")` takes the pattern source, with optional flags as a second argument. It is written **without** the surrounding slashes. `regex("/^abc$/")` would match the slashes themselves, so it is rejected with an error.
 
 Prefer a `/pattern/` literal when it fits, quoted if it contains a `,`, a space, or a `)`. Reach for `regex()` when the pattern has enough `/` in it that escaping each one hurts readability.
 

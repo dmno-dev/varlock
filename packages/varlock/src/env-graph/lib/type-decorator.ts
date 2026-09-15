@@ -425,9 +425,9 @@ function splitRegexLiteralTip(fnCall: ParsedEnvSpecFunctionCall): string | undef
   });
   if (!hasTail) return undefined;
   return 'this looks like a regex pattern that was split by a comma inside it - an unquoted '
-    + '`/pattern/` follows the ordinary value rules, so quote the whole literal, slashes and '
-    + 'flags included: matches="/^[0-9a-f]{7,40}$/i". regex("pattern", "flags") also works, '
-    + 'and takes the pattern without the slashes';
+    + '`/pattern/` follows the ordinary value rules, so quote the whole literal, slashes '
+    + 'included: matches="/^[0-9a-f]{7,40}$/" (any flags stay inside the quotes too). '
+    + 'regex("pattern", "flags") also works, and takes the pattern without the slashes';
 }
 
 /**

@@ -178,7 +178,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 A `/pattern/flags` value is not a distinct kind of token. It is an ordinary unquoted value that certain consumers (the `matches` type option, `remap()` match values) reinterpret as a regex. That keeps the language free of path-versus-regex ambiguity, and it means the [normal unquoted value rules](#unquoted-values) apply to the pattern:
 
 - The pattern is delimited by `/` characters
-- Forward slashes within the pattern must be escaped as `\/`
+- Forward slashes within the pattern may be escaped as `\/` (the JavaScript convention), but it is not required: the pattern runs to the last `/`
 - Optional flags (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`) may follow the closing `/`
 - The pattern may not contain a `,`, a space, or a `)`, since each of those ends an unquoted value. Wrap the whole literal in quotes when it does, slashes and flags included: quoting is only about getting those characters past the value rules, and does not change what the value means
 

@@ -383,7 +383,8 @@ describe('decorator parsing', () => {
   describe('regex-like values follow the ordinary value rules', basicDecoratorTests([
     ['# @dec=decFn(matches=/^[A-Z]+$/)', { dec: { fnName: 'decFn', fnArgs: { matches: '/^[A-Z]+$/' } } }],
     ['# @dec=decFn(matches=/^abc$/i)', { dec: { fnName: 'decFn', fnArgs: { matches: '/^abc$/i' } } }],
-    // a comma splits the args, as it does for any unquoted value - quote the pattern
+    // a comma splits the args, as it does for any unquoted value - quote the literal whole
+    ['# @dec=decFn(matches="/^[0-9a-f]{7,40}$/i")', { dec: { fnName: 'decFn', fnArgs: { matches: '/^[0-9a-f]{7,40}$/i' } } }],
     ['# @dec=decFn(matches="^[0-9a-f]{7,40}$")', { dec: { fnName: 'decFn', fnArgs: { matches: '^[0-9a-f]{7,40}$' } } }],
     // paths stay intact in every position (#620)
     ['# @dec=/folder/foo/bar', { dec: '/folder/foo/bar' }],

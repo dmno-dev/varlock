@@ -1919,7 +1919,7 @@ describe('@type option validation error paths', () => {
     expect(g.configSchema.ITEM.errors[0].message).toContain('unknown data type: notARealThing');
   });
 
-  it('supports the deprecated regex() option form', async () => {
+  it('supports the regex() option form', async () => {
     const g = await loadAndResolve(outdent`
       # @type=string(matches=regex("^[A-Z]+$"))
       GOOD=ABC
