@@ -60,10 +60,50 @@ DB_NAME=myapp
 DB_URL="postgres://$DB_HOST/$DB_NAME"
 ```
 
+If you already have your own flag and want to keep the name, derive its value from `$VARLOCK_ENV` instead of setting it yourself at runtime:
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# ---
+# @type=enum(development, preview, staging, production, test)
+APP_ENV=$VARLOCK_ENV
+```
+
+An explicit `APP_ENV=staging` passed into the process still takes precedence, and test runs are detected without passing anything.
+
+Your enum needs to cover every value `$VARLOCK_ENV` can produce. If your environments do not line up, use [`remap()`](/reference/functions#remap) to translate them. Unmatched values pass through unchanged, so you only list what differs:
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# ---
+# @type=enum(development, staging, production, test)
+APP_ENV=remap($VARLOCK_ENV, preview, staging)
+```
+
+We do not recommend using `NODE_ENV` itself as your environment flag; see [`@currentEnv`](/reference/root-decorators/#currentenv).
+
 #### Test environment caveat
 
-:::caution[Test runners and `VARLOCK_ENV`]
-Many test runners (Vitest, Jest, etc.) set `NODE_ENV=test` **after** the process has started, often after varlock has already loaded and resolved your env vars. This means `VARLOCK_ENV` may not detect `test` automatically in all setups.
+Test detection reads `NODE_ENV=test`, `VITEST`, `VITEST_POOL_ID`, and `JEST_WORKER_ID`. Which of those exist, and where, depends on your runner:
+
+| Runner | Signals available |
+| --- | --- |
+| Vitest, parent and workers | `VITEST` and `NODE_ENV=test` (workers also get `VITEST_POOL_ID`) |
+| Jest, worker-scoped code (`setupFiles`, `setupFilesAfterEnv`, test files, app code under test) | `JEST_WORKER_ID` and `NODE_ENV=test` |
+| Jest, parent-scoped code (`jest.config.*`, `globalSetup`) | `NODE_ENV=test` only |
+| `bun test`, AVA | `NODE_ENV=test` only |
+| `node --test`, Mocha | none |
+
+Both Vitest and Jest set their signals during their own startup, before config files are loaded, so importing `varlock/auto-load` from a config file, a setup file, or app code under test is late enough to see them. Verified against Vitest 4.1.5 and Jest 30.5.1; if you rely on this, confirm it for the runner and version you use.
+
+:::caution[When detection does not fire]
+**Runners that set no signal.** `node --test` and Mocha set nothing varlock can read, so `VARLOCK_ENV` never resolves to `test` under them.
+
+**An inherited `NODE_ENV`.** Test runners set `NODE_ENV=test` only when it is unset, so a value already present in your shell or CI survives. Anything in a `NODE_ENV=test` only row above is then left with no signal.
+
+**Preloading varlock ahead of the runner.** With `node --import varlock/auto-load` or `NODE_OPTIONS`, varlock resolves in the parent process before the runner has set anything.
+
+Whenever varlock resolves in a parent process, its values are injected as `__VARLOCK_ENV` and reused by the worker processes. A wrong result there propagates to every worker, even ones that would have detected `test` on their own.
 
 If you depend on `VARLOCK_ENV=test` to load `.env.test` or toggle behavior via `forEnv(test)`, **explicitly pass it** when running tests:
 
