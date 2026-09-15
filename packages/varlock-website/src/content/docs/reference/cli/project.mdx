@@ -1,6 +1,6 @@
 ---
 title: Project commands
-description: CLI reference for init, scan, install-plugin, flatten, telemetry, and help
+description: CLI reference for init, scan, install-plugin, flatten, freeze, telemetry, and help
 ---
 
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
@@ -166,6 +166,48 @@ varlock flatten --vendor-plugins
 ```
 
 The output directory is a generated artifact: add it to `.gitignore`, and rerun `flatten` whenever your env files change.
+
+</div>
+
+<div>
+
+## `varlock freeze` ||freeze||
+
+Resolves every value once and writes the result to an encrypted file, so your app can boot from those exact values without re-resolving. Run it at deploy time, and ship the file inside your deploy artifact so config and code travel and roll back as one unit. See [the frozen env guide](/guides/frozen-env/) for the full workflow.
+
+This is aimed at apps where you control the boot command but have no build step that would inline values (Elysia, Hono, Fastify, Express on Bun or Node, distroless images). Framework integrations already do the equivalent, so you do not need this with Next.js, Vite, Astro, Nuxt, or Cloudflare Workers.
+
+At boot, varlock uses `.varlock-frozen-env` automatically when it is present in the working directory. Nothing else is needed in the runtime image: no varlock CLI, no `.env` files, and no resolver credentials. `_VARLOCK_ENV_KEY` must be set in the runtime environment so the file can be decrypted. See [`_VARLOCK_USE_FROZEN_ENV`](/reference/reserved-variables/#_varlock_use_frozen_env) to require the file or point at a different path.
+
+Encryption is required: `freeze` errors when `_VARLOCK_ENV_KEY` is not set, since the file holds every resolved value and travels through image layers, registries, and CI artifacts. `--allow-plaintext` opts out for schemas with nothing sensitive in them.
+
+Values are pinned once frozen. Rotating a secret takes effect on your next deploy, not on the next restart.
+
+```bash
+varlock freeze [options]
+```
+
+**Options:**
+- `--out <path>`, `-o`: Output file path, relative to the current directory unless absolute (default `.varlock-frozen-env`)
+- `--env <env>`: Environment to resolve for (e.g. `production`). Overridden by [`@currentEnv`](/reference/root-decorators/#currentenv) if the schema sets it
+- `--path <path>`, `-p`: Entry `.env` file or directory, can be passed multiple times
+- `--allow-plaintext`: Write the file unencrypted when `_VARLOCK_ENV_KEY` is not set
+- `--clear-cache`: Clear the cache and re-resolve all values
+- `--skip-cache`: Skip the cache entirely for this invocation
+
+**Examples:**
+```bash
+# Write .varlock-frozen-env in the current directory
+varlock freeze
+
+# Resolve for a specific environment
+varlock freeze --env production
+
+# Custom output location, bypassing the cache
+varlock freeze --out dist/env.frozen --skip-cache
+```
+
+The output file is a generated artifact holding resolved values: add it to `.gitignore`, and rerun `freeze` whenever your env values change.
 
 </div>
 

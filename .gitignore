@@ -14,6 +14,7 @@ vite.config.ts.timestamp*
 env.d.ts
 
 smoke-tests/pnpm-lock.yaml
+smoke-tests/bun.lock
 framework-tests/.packed
 framework-tests/.test-projects
 .magent

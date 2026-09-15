@@ -33,6 +33,7 @@ import { commandSpec as helpCommandSpec } from './commands/help.command-spec';
 import { commandSpec as telemetryCommandSpec } from './commands/telemetry.command-spec';
 import { commandSpec as explainCommandSpec } from './commands/explain.command-spec';
 import { commandSpec as flattenCommandSpec } from './commands/flatten.command-spec';
+import { commandSpec as freezeCommandSpec } from './commands/freeze.command-spec';
 import { commandSpec as scanCommandSpec } from './commands/scan.command-spec';
 import { commandSpec as codegenCommandSpec } from './commands/codegen.command-spec';
 import { commandSpec as typegenCommandSpec } from './commands/typegen.command-spec';
@@ -62,6 +63,7 @@ subCommands.set('reveal', lazy(async () => (await import('./commands/reveal.comm
 // subCommands.set('doctor', lazy(async () => (await import('./commands/doctor.command')).commandFn, doctorCommandSpec));
 subCommands.set('explain', lazy(async () => (await import('./commands/explain.command')).commandFn, explainCommandSpec));
 subCommands.set('flatten', lazy(async () => (await import('./commands/flatten.command')).commandFn, flattenCommandSpec));
+subCommands.set('freeze', lazy(async () => (await import('./commands/freeze.command')).commandFn, freezeCommandSpec));
 subCommands.set('help', lazy(async () => (await import('./commands/help.command')).commandFn, helpCommandSpec));
 subCommands.set('telemetry', lazy(async () => (await import('./commands/telemetry.command')).commandFn, telemetryCommandSpec));
 subCommands.set('scan', lazy(async () => (await import('./commands/scan.command')).commandFn, scanCommandSpec));

@@ -13,7 +13,7 @@ import { varlockRun, runVarlock, VARLOCK_CLI } from '../helpers/run-varlock.js';
 const SCENARIO = 'smoke-test-injected-env';
 const SCENARIO_DIR = join(import.meta.dirname, '..', SCENARIO);
 
-const REUSED_MSG = 'reusing injected env blob';
+const REUSED_MSG = 'reusing pre-resolved env from env-blob';
 const RESOLVED_MSG = 'resolving env via CLI';
 
 function runNodeApp(opts: { cwd?: string; env?: Record<string, string | undefined> } = {}) {
