@@ -658,6 +658,8 @@ TypeScript type declarations. Makes `import { ENV } from 'varlock/env'` typed an
   - `local`: export a package-local typed `ENV` from the generated file (with **no** global augmentation, since `processEnv`/`importMetaEnv` default to `none` too, so nothing merges across packages). Use this in monorepos where multiple packages have different schemas. Requires a `.ts` output path (not `.d.ts`, since it contains a runtime re-export), and you import from the generated file (e.g. `import { ENV } from './env'`).
   - `none`: emit only the type definitions, no `ENV` binding.
 - `processEnv`: how `process.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`, or when [`@disableProcessEnvInjection`](#disableprocessenvinjection) is set, since values aren't put on `process.env` then). Note that `@types/node` declares a base string index signature that can't be removed, so extra keys remain allowed on `process.env` regardless.
+
+  It also defaults to `none` when another `.d.ts` sitting next to your schema (or next to the generated file) already declares `NodeJS.ProcessEnv`. The common case is `worker-configuration.d.ts`, written by [`wrangler types`](/integrations/cloudflare/#type-safety-and-intellisense). TypeScript merges every declaration of that one interface and requires each shared key to be identical, so two of them can't coexist: an optional item alone (`FOO?: string` vs `FOO: string`) is enough to fail with `TS2320`. The generated file names the file that triggered the skip. Set `processEnv=strict` to emit ours anyway.
 - `importMetaEnv`: how `import.meta.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`).
 
 ```env-spec

@@ -169,6 +169,12 @@ export type TsGenOptions = {
    * through it, so a schema key may be absent there regardless of injection mode.
    */
   injectUndefinedAsEmpty?: boolean;
+  /**
+   * Set when `processEnv` was defaulted to `none` because another `.d.ts` already declares
+   * `NodeJS.ProcessEnv` (not a decorator arg). Emitted as a comment in the generated file, so the
+   * skip is visible where someone would notice it, naming the file found and how to override.
+   */
+  processEnvSkipNote?: string;
 };
 
 // defaults preserve the historical output: globally augment `varlock/env`, and augment both globals
@@ -181,6 +187,7 @@ const DEFAULT_TS_GEN_OPTIONS = {
   processEnv: 'strict',
   importMetaEnv: 'strict',
   injectUndefinedAsEmpty: false,
+  processEnvSkipNote: '',
 } satisfies Required<TsGenOptions>;
 
 const TS_ENV_EXPOSURE_VALUES: ReadonlyArray<TsEnvExposure> = ['global', 'local', 'none'];
@@ -207,6 +214,7 @@ function resolveTsGenOptions(options: Record<string, any> = {}): Required<TsGenO
     processEnv: coerceOption(options.processEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.processEnv, 'processEnv'),
     importMetaEnv: coerceOption(options.importMetaEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.importMetaEnv, 'importMetaEnv'),
     injectUndefinedAsEmpty: !!options.injectUndefinedAsEmpty,
+    processEnvSkipNote: options.processEnvSkipNote || '',
   };
 }
 
@@ -224,6 +232,10 @@ export async function generateTsTypesSrc(fields: Array<ResolvedFieldType>, optio
     '// @ts-nocheck',
     '/* eslint-disable */',
   ];
+
+  if (opts.processEnvSkipNote) {
+    tsSrc.push('', ..._.map(opts.processEnvSkipNote.split('\n'), (line) => `// ${line}`));
+  }
 
   // `local` exposure re-exports the runtime ENV proxy, so we need to import it
   if (opts.exposeEnv === 'local') {

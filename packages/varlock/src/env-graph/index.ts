@@ -17,6 +17,7 @@ export {
 export {
   builtInCodeGenerators,
   collectTypeGenItems,
+  findConflictingProcessEnvAugmentation,
   generateCsharpEnvSrc,
   generateGoEnvSrc,
   generateJavaEnvSrc,

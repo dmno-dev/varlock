@@ -254,6 +254,18 @@ Some framework templates split their TypeScript setup into multiple referenced c
 
 This types the `ENV` object. For the native `env` parameter in your fetch handler, use [`varlock-wrangler types`](#varlock-wrangler-types) to generate an `Env` interface that includes your varlock-managed vars alongside your other Cloudflare bindings.
 
+### `process.env` is typed by wrangler, not varlock
+
+`wrangler types` writes its own `NodeJS.ProcessEnv` augmentation into `worker-configuration.d.ts`, covering every var and secret it knows about. TypeScript merges all declarations of that interface and requires every shared key to be identical across them, so varlock's augmentation and wrangler's cannot both apply: a single optional item (`FOO?: string` against wrangler's `FOO: string`) fails with `TS2320`, as do enums and booleans, which varlock types as literal unions.
+
+When varlock sees an existing `NodeJS.ProcessEnv` declaration next to your schema, it defers and skips its own, noting why at the top of the generated file. Nothing is lost if you generate types with [`varlock-wrangler types`](#varlock-wrangler-types): it feeds your schema's keys to wrangler, so all of them are typed on `process.env` as strings. Use `ENV` where you want the coerced types (enums, booleans, numbers) and the docs from your schema.
+
+Setting `processEnv=strict` on [`@generateTsTypes`](/reference/root-decorators/#generatetstypes) opts back in, but only do that if nothing else is declaring `NodeJS.ProcessEnv`: with wrangler's block present, the two conflict and TypeScript reports `TS2320`.
+
+:::caution[With `skipLibCheck: true` the conflict is silent]
+Most Worker templates enable `skipLibCheck`, which suppresses `TS2320` in `.d.ts` files entirely. The two declarations still clash, and whichever file TypeScript reaches first wins, so a key can silently take wrangler's literal type from `wrangler.jsonc` instead of your schema's. Deferring avoids that as well.
+:::
+
 ----
 
 ## Log redaction and leak prevention

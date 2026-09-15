@@ -1,5 +1,5 @@
 import {
-  afterEach, describe, expect, test, vi,
+  afterEach, beforeEach, describe, expect, test, vi,
 } from 'vitest';
 import outdent from 'outdent';
 import path from 'node:path';
@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   EnvGraph, DotEnvFileDataSource,
   collectTypeGenItems,
+  findConflictingProcessEnvAugmentation,
   generateTsTypesSrc,
   resolveFieldType,
   resolveFieldTypes,
@@ -1426,6 +1427,200 @@ describe('type generation', () => {
       } finally {
         await import('node:fs').then((fs) => fs.promises.rm(outputPath, { force: true }));
       }
+    });
+  });
+  describe('existing NodeJS.ProcessEnv declarations', () => {
+    // `NodeJS.ProcessEnv` is one global interface, so a second declaration of it (wrangler writes
+    // one into worker-configuration.d.ts) conflicts with ours on any shared key that isn't
+    // *identical*, and an optional item alone is enough. We defer instead of emitting a guaranteed
+    // TS2320. See detect-process-env-augmentation.ts.
+    const FOREIGN_DTS = outdent`
+      declare namespace NodeJS {
+        interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SOME_ITEM">> {}
+      }
+    `;
+
+    let tempDir: string;
+    let cwdSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+      const fs = await import('node:fs');
+      const os = await import('node:os');
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-process-env-augment-'));
+      cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
+    });
+    afterEach(async () => {
+      cwdSpy.mockRestore();
+      await import('node:fs').then((fs) => fs.promises.rm(tempDir, { recursive: true, force: true }));
+    });
+
+    async function writeFile(name: string, contents: string) {
+      const fs = await import('node:fs');
+      await fs.promises.writeFile(path.join(tempDir, name), contents, 'utf-8');
+    }
+    async function generate(decoratorArgs: string) {
+      const g = new EnvGraph();
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultSensitive=false
+          # @generateTsTypes(${decoratorArgs})
+          # ---
+          SOME_ITEM=val   # @optional
+        `,
+      }));
+      await g.finishLoad();
+      await g.runCodeGeneratorsIfNeeded();
+      const fs = await import('node:fs');
+      return fs.promises.readFile(path.join(tempDir, 'env.d.ts'), 'utf-8');
+    }
+
+    test('finds a foreign .d.ts that declares ProcessEnv', async () => {
+      await writeFile('worker-configuration.d.ts', FOREIGN_DTS);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'worker-configuration.d.ts'));
+    });
+
+    test('ignores our own generated files, the output path, and non-.d.ts files', async () => {
+      // a second @generateTsTypes output in the same dir carries our banner, not a foreign decl
+      await writeFile('other-env.d.ts', await generate('path=env.d.ts'));
+      await writeFile('env.d.ts', FOREIGN_DTS);
+      await writeFile('globals.ts', FOREIGN_DTS);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBeUndefined();
+    });
+
+    test.each([
+      ['only one of the two names is present', 'declare namespace NodeJS { interface Process { foo: string } }'],
+      // both names appear, but ProcessEnv is not declared inside the NodeJS namespace
+      [
+        'ProcessEnv is declared outside the namespace', outdent`
+        declare namespace NodeJS { interface Process { foo: string } }
+        interface ProcessEnv { UNRELATED: string }
+      `,
+      ],
+      ['the interface name only starts with ProcessEnv', 'declare namespace NodeJS { interface ProcessEnvExtra { foo: string } }'],
+      // the match requires ProcessEnv to open the namespace, so a later member is a (fail-safe) miss
+      [
+        'ProcessEnv is not the first member of the namespace', outdent`
+        declare namespace NodeJS {
+          interface Process { foo: string }
+          interface ProcessEnv { BAR: string }
+        }
+      `,
+      ],
+      [
+        'the declaration is inside a comment', outdent`
+        // declare namespace NodeJS { interface ProcessEnv {} }
+        export {};
+      `,
+      ],
+      // literal contents are not syntax either
+      ['the declaration text is inside a string literal', "declare namespace NodeJS { const marker: 'interface ProcessEnv'; }"],
+      // a backslash-newline continuation keeps the literal open across lines, either line ending
+      ['the declaration text is inside a continued string literal', "declare namespace NodeJS {\n  type Marker = 'a\\\ninterface ProcessEnv b';\n}"],
+      ['the continued string literal uses CRLF', "declare namespace NodeJS {\r\n  type Marker = 'a\\\r\ninterface ProcessEnv b';\r\n}"],
+    ])('not a conflict when %s', async (_label, contents) => {
+      await writeFile('other.d.ts', contents);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBeUndefined();
+    });
+
+    // comments and literals have to be consumed in source order: stripping either class first
+    // lets the other be spoofed, hiding a real declaration that follows
+    test.each([
+      // a line comment delimiter inside a literal, with the declaration on the same line
+      ['a line comment delimiter', "type Marker = '//'; interface ProcessEnv extends Something {}"],
+      // a block comment delimiter inside a literal, closed by a `*/` in a later literal
+      [
+        'a block comment delimiter', outdent`
+        type Open = '/*';
+        interface ProcessEnv extends Something {}
+        type Close = '*/';
+      `,
+      ],
+    ])('a declaration is still found past a string literal containing %s', async (_label, body) => {
+      await writeFile('other.d.ts', `declare namespace NodeJS {\n${body}\n}`);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
+    });
+
+    test('an apostrophe in a comment does not hide a declaration below it', async () => {
+      await writeFile('other.d.ts', outdent`
+        declare namespace NodeJS {
+          // don't let this comment's apostrophe open a literal
+          interface ProcessEnv extends Something {}
+        }
+      `);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
+    });
+
+    test('a `}` inside a string literal does not end the namespace early', async () => {
+      await writeFile('other.d.ts', outdent`
+        declare namespace NodeJS {
+          type Brace = '}';
+          interface ProcessEnv extends Something {}
+        }
+      `);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
+    });
+
+    test('matches the nested `declare global` form we emit ourselves', async () => {
+      await writeFile('other.d.ts', outdent`
+        declare global {
+          namespace NodeJS {
+            interface ProcessEnv extends Something {}
+          }
+        }
+      `);
+      const found = await findConflictingProcessEnvAugmentation({
+        dirs: [tempDir],
+        outputPath: path.join(tempDir, 'env.d.ts'),
+      });
+      expect(found).toBe(path.join(tempDir, 'other.d.ts'));
+    });
+
+    test('defaults processEnv to none, and says why in the generated file', async () => {
+      await writeFile('worker-configuration.d.ts', FOREIGN_DTS);
+      const src = await generate('path=env.d.ts');
+      expect(src).not.toContain('namespace NodeJS');
+      expect(src).toContain('worker-configuration.d.ts');
+      expect(src).toContain('set `processEnv=strict`');
+      // only process.env defers; import.meta.env and the ENV types are untouched
+      expect(src).toContain('interface ImportMetaEnv');
+      expect(src).toContain("declare module 'varlock/env'");
+    });
+
+    test('explicit processEnv= wins over the deferral', async () => {
+      await writeFile('worker-configuration.d.ts', FOREIGN_DTS);
+      const src = await generate('path=env.d.ts, processEnv=strict');
+      expect(src).toContain('namespace NodeJS');
+      expect(src).not.toContain('was skipped because');
+    });
+
+    test('emits the augmentation normally when nothing else declares ProcessEnv', async () => {
+      const src = await generate('path=env.d.ts');
+      expect(src).toContain('namespace NodeJS');
+      expect(src).not.toContain('was skipped because');
     });
   });
 });
