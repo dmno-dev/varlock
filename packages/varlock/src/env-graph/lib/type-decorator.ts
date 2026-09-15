@@ -8,7 +8,10 @@ import {
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
 import type { CoercedType, EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
-import { assertUnwrappedRegexSource, convertParsedValueToResolvers, type Resolver } from './resolver';
+import {
+  assertUnwrappedRegexSource, convertParsedValueToResolvers, deprecatedRegexStringWarning, isRegexLikeString,
+  type Resolver,
+} from './resolver';
 import type { EnvGraphDataSource } from './data-source';
 import { SchemaError } from './errors';
 
@@ -19,7 +22,14 @@ export type TypeSpecContext = {
   /** resolver function registry - option VALUES may be resolver calls (if, remap, ...) */
   resolverFns: Record<string, any>;
   dataSource?: EnvGraphDataSource;
+  /** advisory findings about the spec (deprecations) - the caller attaches them to the item */
+  warnings?: Array<SchemaError>;
 };
+
+/** Option names whose value is interpreted as a regex (see `parseRegexLikeString`). */
+const REGEX_OPTION_NAMES = ['matches'];
+const COMPLETE_REGEX_LITERAL = /^\/.*\/[dgimsuvy]*$/;
+const REGEX_LITERAL_TAIL = /\/[dgimsuvy]*$/;
 
 /** a node that can describe a type - either a bare name (`email`) or a call (`enum(a, b)`) */
 type TypeSpecNode = ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
@@ -93,7 +103,12 @@ function optionValue(
   context: string,
 ): any {
   const val = kv.value;
-  if (val instanceof ParsedEnvSpecStaticValue) return val.value;
+  if (val instanceof ParsedEnvSpecStaticValue) {
+    if (REGEX_OPTION_NAMES.includes(kv.key) && isRegexLikeString(val.value)) {
+      ctx.warnings?.push(deprecatedRegexStringWarning(`${context} - option "${kv.key}"`));
+    }
+    return val.value;
+  }
   if (val instanceof ParsedEnvSpecObjectLiteral || val instanceof ParsedEnvSpecArrayLiteral) {
     return val.simplifiedValue;
   }
@@ -390,11 +405,6 @@ function buildEnumTypePlan(
   };
 }
 
-/** Option names whose value is interpreted as a regex (see `parseRegexLikeString`). */
-const REGEX_OPTION_NAMES = ['matches'];
-const COMPLETE_REGEX_LITERAL = /^\/.*\/[dgimsuvy]*$/;
-const REGEX_LITERAL_TAIL = /\/[dgimsuvy]*$/;
-
 function staticStringValue(node: unknown): string | undefined {
   if (!(node instanceof ParsedEnvSpecStaticValue)) return undefined;
   return typeof node.value === 'string' ? node.value : undefined;
@@ -404,7 +414,7 @@ function staticStringValue(node: unknown): string | undefined {
  * An unquoted `/pattern/` is a plain value, not a token the grammar knows about, so a
  * comma inside it ends the value: `matches=/^[0-9a-f]{7,40}$/` becomes
  * `matches=/^[0-9a-f]{7` plus a positional `40}$/`, which lands here looking like a
- * positional/named mixup rather than the quoting problem it is.
+ * positional/named mixup rather than the spelling problem it is.
  *
  * This only ever ADDS a tip to a call that is already throwing - a path list like
  * `fn(/usr/local/, /etc/)` has the same shape, so this must never be used to reject a
@@ -424,10 +434,9 @@ function splitRegexLiteralTip(fnCall: ParsedEnvSpecFunctionCall): string | undef
     return !!val && REGEX_LITERAL_TAIL.test(val);
   });
   if (!hasTail) return undefined;
-  return 'this looks like a regex pattern that was split by a comma inside it - an unquoted '
-    + '`/pattern/` follows the ordinary value rules, so quote the whole literal, slashes '
-    + 'included: matches="/^[0-9a-f]{7,40}$/" (any flags stay inside the quotes too). '
-    + 'regex("pattern", "flags") also works, and takes the pattern without the slashes';
+  return 'this looks like a regex pattern that was split by a comma inside it - a bare '
+    + '`/pattern/` follows the ordinary value rules, so write it as regex("pattern", "flags") '
+    + 'instead: matches=regex("^[0-9a-f]{7,40}$")';
 }
 
 /**

@@ -383,11 +383,13 @@ export class ConfigItem {
     const typeDec = this.getDec('type');
     const typeDecParsedValue = typeDec?.parsedDecorator.value;
     if (typeDecParsedValue) {
+      const typeSpecWarnings: Array<SchemaError> = [];
       try {
         this._typeSpecPlan = buildTypeSpecPlan({
           registry: this.envGraph.dataTypesRegistry,
           resolverFns: this.envGraph.registeredResolverFunctions,
           dataSource: typeDec!.dataSource,
+          warnings: typeSpecWarnings,
         }, typeDecParsedValue);
         // dynamic parts (option values / whole type) go through the normal resolver
         // lifecycle - process now (validates args, registers deps), resolve during item
@@ -398,6 +400,7 @@ export class ConfigItem {
         // provisional instance: deterministic (dynamic parts omitted/candidate-substituted),
         // used for type generation and any pre-resolution introspection
         this.dataType = this._typeSpecPlan.build();
+        this._schemaErrors.push(...typeSpecWarnings);
       } catch (err) {
         this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
       }

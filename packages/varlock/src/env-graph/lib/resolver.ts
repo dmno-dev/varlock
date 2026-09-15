@@ -28,6 +28,28 @@ import { isBuiltinVar } from './builtin-vars';
 const execAsync = promisify(exec);
 
 const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
+/** Whether a string has the `/pattern/flags` shape that consumers read as a regex. */
+export function isRegexLikeString(str: unknown): str is string {
+  return typeof str === 'string' && REGEX_LIKE_STRING.test(str);
+}
+/**
+ * Reading a `/pattern/flags` STRING as a regex is deprecated in favour of `regex()`, and
+ * goes away in a future major - at which point the string is compared as-is. Emitted
+ * wherever such a string is still interpreted, so every schema that relies on it hears
+ * about it before the behavior changes.
+ */
+export function deprecatedRegexStringWarning(context?: string) {
+  return new SchemaError(
+    `${context ? `${context} - ` : ''}\`/pattern/\` regex strings are deprecated, use regex() instead`,
+    {
+      isWarning: true,
+      tip: [
+        'regex("pattern", "flags") - for example /^abc$/i becomes regex("^abc$", "i")',
+        'this still works for now, but a future major version will stop reading the string as a regex',
+      ],
+    },
+  );
+}
 /** Try to parse an unquoted string like `/pattern/flags` into a RegExp. Returns null if not regex-like. */
 export function parseRegexLikeString(str: string): RegExp | null {
   if (typeof str !== 'string') return null;
@@ -565,6 +587,14 @@ export const RemapResolver: typeof Resolver = createResolver({
         throw new SchemaError('expects at least 3 arguments: (value, match1, result1, ...)');
       }
     }
+    // match values: every other positional after the source, or the object values in legacy mode
+    const matchResolvers = isLegacyKeyValMode
+      ? Object.values(this.objArgs!)
+      : (this.arrArgs ?? []).filter((_arg, i) => i >= 1 && (i - 1) % 2 === 0);
+    const usesRegexString = matchResolvers.some((r) => (
+      r instanceof StaticValueResolver && isRegexLikeString(r.staticValue)
+    ));
+    if (usesRegexString) this._errors.push(deprecatedRegexStringWarning());
     return { isLegacyKeyValMode };
   },
   async resolve({ isLegacyKeyValMode }) {

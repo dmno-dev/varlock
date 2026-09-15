@@ -302,6 +302,7 @@ describe('remap()', functionValueTests({
       ITEM=remap($REMAP_ME, buz, biz, /fo+/, bar)
     `,
     expected: { ITEM: 'bar' },
+    expectWarnings: true, // deprecated /.../ spelling
   },
   'remaps regex literal with flags': {
     input: outdent`
@@ -309,6 +310,7 @@ describe('remap()', functionValueTests({
       ITEM=remap($REMAP_ME, buz, biz, /foo/i, bar)
     `,
     expected: { ITEM: 'bar' },
+    expectWarnings: true, // deprecated /.../ spelling
   },
   'path-like string in remap is exact match not regex': {
     input: outdent`

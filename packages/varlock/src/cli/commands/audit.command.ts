@@ -62,9 +62,9 @@ function collectStringArgs(input: unknown, out: Array<string>) {
   out.push(trimmed);
 }
 
-function collectPatternArgs(input: unknown, out: Array<RegExp>) {
+function collectPatternArgs(input: unknown, out: Array<RegExp>, stats: { regexStrings: number }) {
   if (Array.isArray(input)) {
-    for (const entry of input) collectPatternArgs(entry, out);
+    for (const entry of input) collectPatternArgs(entry, out, stats);
     return;
   }
   // `regex('...')` calls already resolve to RegExp instances. Quoted
@@ -80,6 +80,8 @@ function collectPatternArgs(input: unknown, out: Array<RegExp>) {
   if (typeof input === 'string') {
     const parsed = parseRegexLikeString(input);
     if (parsed) {
+      // deprecated spelling - still honoured, the caller prints one warning for all of them
+      stats.regexStrings++;
       out.push(parsed);
       return;
     }
@@ -88,7 +90,7 @@ function collectPatternArgs(input: unknown, out: Array<RegExp>) {
   // loaded, and the CLI's top-level handler only formats CliExitError/InvalidEnvError -
   // anything else surfaces as an unhandled stack trace.
   throw new CliExitError(
-    "@auditExtraPatterns() expects regex patterns - regex() calls or quoted '/.../' literals",
+    '@auditExtraPatterns() expects regex patterns - regex() calls',
     {
       details: 'The first capture group of each pattern is the env key.',
       suggestion: "e.g. # @auditExtraPatterns(regex('config\\.get\\(\\s*\\'([A-Z_]+)\\''))",
@@ -127,17 +129,23 @@ async function getCustomAuditExtraPatterns(envGraph: any): Promise<Array<ExtraSc
     : [];
 
   const scanPatterns: Array<ExtraScanPattern> = [];
+  const stats = { regexStrings: 0 };
   for (const dec of rootDecFns || []) {
     const resolved = await dec.resolve();
     const fileTypes = collectFileTypesArg(resolved?.obj);
     const patterns: Array<RegExp> = [];
-    collectPatternArgs(resolved?.arr, patterns);
+    collectPatternArgs(resolved?.arr, patterns, stats);
     if (!patterns.length && fileTypes) {
       throw new CliExitError('@auditExtraPatterns(): fileTypes=[...] given with no patterns to apply it to', {
         suggestion: 'Add at least one regex() pattern to this call.',
       });
     }
     for (const pattern of patterns) scanPatterns.push({ pattern, ...(fileTypes ? { fileTypes } : {}) });
+  }
+  if (stats.regexStrings) {
+    console.warn(ansis.yellow(
+      `⚠️  @auditExtraPatterns(): ${stats.regexStrings} pattern${stats.regexStrings === 1 ? ' is' : 's are'} written as a '/.../' string, which is deprecated - use regex("pattern", "flags") instead`,
+    ));
   }
   return scanPatterns;
 }

@@ -173,30 +173,17 @@ Values are interpreted similarly for config item values, decorator values, and v
   - only available for config item values, not decorators or within function args
 
 
-### Regex literals
+### Regex values
 
-A `/pattern/flags` value is not a distinct kind of token. It is an ordinary unquoted value that certain consumers (the `matches` type option, `remap()` match values) reinterpret as a regex. That keeps the language free of path-versus-regex ambiguity, and it means the [normal unquoted value rules](#unquoted-values) apply to the pattern:
+@env-spec has no regex literal. A value like `/pattern/` is an ordinary string, so it follows the [normal unquoted value rules](#unquoted-values) and can be a path or any other text without special treatment.
 
-- The pattern is delimited by `/` characters
-- Forward slashes within the pattern may be escaped as `\/` (the JavaScript convention), but it is not required: the pattern runs to the last `/`
-- Optional flags (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`) may follow the closing `/`
-- The pattern may not contain a `,`, a space, or a `)`, since each of those ends an unquoted value. Wrap the whole literal in quotes when it does, slashes and flags included: quoting is only about getting those characters past the value rules, and does not change what the value means
+Tools built on @env-spec take a pattern through a function call instead. In varlock that is `regex("pattern", "flags")`: the pattern is a quoted string, so commas, spaces and slashes inside it need no escaping, and flags are an optional second argument. See [`regex()`](/reference/functions#regex).
 
 ```env-spec
-ITEM=fn(/^dev.*/i, dev, "production", prod)
-# @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
+ITEM=fn(regex("^dev.*", "i"), dev, "production", prod)
+# @type=string(matches=regex("^sk-[a-zA-Z0-9]+$"))
 API_KEY=
-
-# a `{n,m}` quantifier holds a comma, so quote the literal
-# @type=string(matches="/^[0-9a-f]{7,40}$/")
-APP_COMMIT_SHA=
-
-# flags stay inside the quotes with it
-# @type=string(matches="/^[0-9A-F]{7,40}$/i")
-APP_COMMIT_SHA_ANY_CASE=
 ```
-
-`regex("pattern", "flags")` is the other spelling. It takes the pattern source rather than a literal, so it is written without the surrounding slashes.
 
 ### Function calls
 
