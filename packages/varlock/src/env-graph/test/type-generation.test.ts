@@ -1522,8 +1522,9 @@ describe('type generation', () => {
       ],
       // literal contents are not syntax either
       ['the declaration text is inside a string literal', "declare namespace NodeJS { const marker: 'interface ProcessEnv'; }"],
-      // a backslash-newline continuation keeps the literal open across lines
+      // a backslash-newline continuation keeps the literal open across lines, either line ending
       ['the declaration text is inside a continued string literal', "declare namespace NodeJS {\n  type Marker = 'a\\\ninterface ProcessEnv b';\n}"],
+      ['the continued string literal uses CRLF', "declare namespace NodeJS {\r\n  type Marker = 'a\\\r\ninterface ProcessEnv b';\r\n}"],
     ])('not a conflict when %s', async (_label, contents) => {
       await writeFile('other.d.ts', contents);
       const found = await findConflictingProcessEnvAugmentation({
