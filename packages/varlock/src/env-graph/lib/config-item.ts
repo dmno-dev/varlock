@@ -286,6 +286,8 @@ export class ConfigItem {
   get effectiveDataType() { return this._resolvedDataType ?? this.dataType; }
   /** parsed @type spec - carries deferred resolvers when parts are dynamic */
   private _typeSpecPlan?: TypeSpecPlan;
+  /** deprecation findings from the type spec - filled at plan time and again at the final build */
+  private _typeSpecWarnings: Array<SchemaError> = [];
 
   _schemaErrors: Array<SchemaError> = [];
   get resolverSchemaErrors() {
@@ -383,13 +385,12 @@ export class ConfigItem {
     const typeDec = this.getDec('type');
     const typeDecParsedValue = typeDec?.parsedDecorator.value;
     if (typeDecParsedValue) {
-      const typeSpecWarnings: Array<SchemaError> = [];
       try {
         this._typeSpecPlan = buildTypeSpecPlan({
           registry: this.envGraph.dataTypesRegistry,
           resolverFns: this.envGraph.registeredResolverFunctions,
           dataSource: typeDec!.dataSource,
-          warnings: typeSpecWarnings,
+          warnings: this._typeSpecWarnings,
         }, typeDecParsedValue);
         // dynamic parts (option values / whole type) go through the normal resolver
         // lifecycle - process now (validates args, registers deps), resolve during item
@@ -400,7 +401,6 @@ export class ConfigItem {
         // provisional instance: deterministic (dynamic parts omitted/candidate-substituted),
         // used for type generation and any pre-resolution introspection
         this.dataType = this._typeSpecPlan.build();
-        this._schemaErrors.push(...typeSpecWarnings);
       } catch (err) {
         this._schemaErrors.push(err instanceof SchemaError ? err : new SchemaError(err as Error));
       }
@@ -865,6 +865,7 @@ export class ConfigItem {
   get errors() {
     return _.compact([
       ...this._schemaErrors || [],
+      ...this._typeSpecWarnings,
       ...this.resolverSchemaErrors || [],
       ...this.decoratorSchemaErrors || [],
       this.resolutionError,

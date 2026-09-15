@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph, CoercionError } from '../index';
+import { createEnvGraphDataType } from '../lib/data-types';
 
 async function loadAndResolve(
   envFileContent: string,
@@ -1048,6 +1049,63 @@ describe('string data type - matches option', () => {
       expect(g.configSchema.R.resolvedValue).toBe('HIT');
       expect(g.configSchema.R.validationState).toBe('warn');
       expect(g.configSchema.R.errors[0].tip).toContain('write it as regex("^dev.*", "i")');
+    });
+
+    it('warns on a resolver-valued matches once it resolves to a string', async () => {
+      const g = await loadAndResolve(outdent`
+        PATTERN=/^[A-Z]+$/
+        # @type=string(matches=$PATTERN)
+        GOOD=ABC
+        # @type=string(matches=$PATTERN)
+        BAD=abc
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[A-Z]+$")');
+      expect(g.configSchema.BAD.isValid).toBe(false);
+    });
+
+    it('does not warn on a resolver-valued matches that resolves to a regex()', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=string(matches=if(true, regex("^[A-Z]+$"), regex("^[a-z]+$")))
+        GOOD=ABC
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('valid');
+    });
+
+    it('warns on a resolver-valued remap() match once it resolves to a /.../ string', async () => {
+      const g = await loadAndResolve(outdent`
+        PAT=/^dev.*/i
+        SRC=dev-branch
+        R=remap($SRC, $PAT, HIT, MISS)
+      `);
+      expect(g.configSchema.R.resolvedValue).toBe('HIT');
+      expect(g.configSchema.R.validationState).toBe('warn');
+      expect(g.configSchema.R.errors[0].tip).toContain('write it as regex("^dev.*", "i")');
+    });
+
+    it('leaves a plugin-defined type with its own `matches` option alone', async () => {
+      const g = new EnvGraph();
+      // a plugin type where `matches` is a plain string setting, not a pattern
+      g.registerDataType(createEnvGraphDataType((settings?: { matches?: string }) => ({
+        name: 'label',
+        validate: (val: any) => (settings?.matches && val !== settings.matches
+          ? [new (Error as any)(`must equal ${settings.matches}`)]
+          : true),
+      })));
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false @defaultSensitive=false
+          # ---
+          # @type=label(matches="exact")
+          L=exact
+        `,
+      }));
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      expect(g.configSchema.L.isValid).toBe(true);
+      expect(g.configSchema.L.validationState).toBe('valid');
     });
 
     it('does not warn on a remap() regex() call or a plain path', async () => {

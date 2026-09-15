@@ -128,6 +128,19 @@ export class Resolver {
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
     | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
   _errors: Array<SchemaError> = [];
+
+  /**
+   * A match value that only turns out to be a `/.../` string once resolved (`$PATTERN`)
+   * gets the same deprecation warning a static one gets at process time. Static ones are
+   * skipped here since they were already warned about; repeat resolves never stack it.
+   */
+  protected warnDynamicRegexString(source: Resolver, str: string) {
+    // eslint-disable-next-line no-use-before-define
+    if (source instanceof StaticValueResolver) return;
+    const warning = deprecatedRegexStringWarning(str);
+    if (this._errors.some((e) => e.message === warning.message && e.tip === warning.tip)) return;
+    this._errors.push(warning);
+  }
   private _depsObj: Record<string, boolean> = {};
 
   get childResolvers(): Array<Resolver> {
@@ -620,6 +633,7 @@ export const RemapResolver: typeof Resolver = createResolver({
         if (typeof matchVal === 'string') {
           const regex = parseRegexLikeString(matchVal);
           if (regex) {
+            this.warnDynamicRegexString(matchValResolver, matchVal);
             if (originalValue !== undefined && regex.test(String(originalValue))) return remappedVal;
             continue;
           }
@@ -642,6 +656,7 @@ export const RemapResolver: typeof Resolver = createResolver({
       if (typeof matchVal === 'string') {
         const regex = parseRegexLikeString(matchVal);
         if (regex) {
+          this.warnDynamicRegexString(remainingArgs[i], matchVal);
           if (originalValue !== undefined && regex.test(String(originalValue))) return remainingArgs[i + 1].resolve();
           continue;
         }
