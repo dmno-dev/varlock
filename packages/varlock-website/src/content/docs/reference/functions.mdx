@@ -195,7 +195,7 @@ Note that as a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-co
 :::
 
 :::note[`regex()` function]
-`regex("pattern")` takes the pattern as a quoted string, with optional flags as a second argument. Prefer the `/pattern/` form when it fits, since it is more concise. Reach for `regex()` when the pattern contains a `,`, a space, or a `)`, or when it has enough `/` in it that escaping each one hurts readability.
+`regex("pattern")` takes the pattern itself as a quoted string, with optional flags as a second argument. Do not wrap it in slashes: `regex("/^abc$/")` would match the slashes too, so it is rejected with an error. Prefer the `/pattern/` form when it fits, since it is more concise. Reach for `regex()` when the pattern contains a `,`, a space, or a `)`, or when it has enough `/` in it that escaping each one hurts readability.
 
 ```env-spec
 # quoted pattern, so a comma inside it is fine

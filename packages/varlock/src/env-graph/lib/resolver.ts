@@ -40,6 +40,28 @@ export function parseRegexLikeString(str: string): RegExp | null {
   }
 }
 
+/**
+ * `regex()` takes the pattern SOURCE, so a `/.../`-wrapped argument is almost always a JS
+ * literal pasted in whole - and it would quietly compile to a pattern matching the slashes
+ * themselves. Flags have their own argument here, so there is no reason to carry them
+ * inside the string either.
+ *
+ * Rejected rather than stripped on purpose: `regex("/usr/lib/")` could legitimately be a
+ * pattern for a path, and silently guessing which was meant is the thing this avoids.
+ */
+export function assertUnwrappedRegexSource(pattern: string, context?: string) {
+  if (!/^\/.*\/[dgimsuvy]*$/s.test(pattern)) return;
+  throw new SchemaError(
+    `${context ? `${context} - ` : ''}expects the pattern itself, not a /.../ literal`,
+    {
+      tip: [
+        'drop the surrounding slashes - regex("^abc$") - and pass any flags as a second argument',
+        'if the pattern really should match a slash at each end, escape them: regex("\\/usr\\/lib\\/")',
+      ],
+    },
+  );
+}
+
 export type ResolvedValue = undefined
   | string | number | boolean
   | RegExp // regex is only used internally as function args, not as a final resolved value
@@ -492,6 +514,7 @@ export const RegexResolver: typeof Resolver = createResolver({
     if (typeof regexStr !== 'string') {
       throw new SchemaError('expects a string');
     }
+    assertUnwrappedRegexSource(regexStr);
     let flags: string | undefined;
     if (this.arrArgs[1] !== undefined) {
       if (!(this.arrArgs[1] instanceof StaticValueResolver)) {

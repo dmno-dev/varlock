@@ -968,6 +968,27 @@ describe('string data type - matches option', () => {
     expect(g.configSchema.BAD_SHA.isValid).toBe(false);
   });
 
+  it('rejects a /.../ literal passed to regex()', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("/^abc$/"))
+      MY_VAR=abc
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('regex() in option "matches" - expects the pattern itself');
+    expect(err.tip).toContain('drop the surrounding slashes');
+  });
+
+  it('still allows a pattern that matches a slash at each end, escaped', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("\\/usr\\/lib\\/"))
+      GOOD=/usr/lib/
+      # @type=string(matches=regex("\\/usr\\/lib\\/"))
+      BAD=nope
+    `);
+    expect(g.configSchema.GOOD.isValid).toBe(true);
+    expect(g.configSchema.BAD.isValid).toBe(false);
+  });
+
   it('rejects invalid regex() flags', async () => {
     const g = await loadAndResolve(outdent`
       # @type=string(matches=regex("^abc$", "zz"))

@@ -8,7 +8,7 @@ import {
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
 import type { CoercedType, EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
-import { convertParsedValueToResolvers, type Resolver } from './resolver';
+import { assertUnwrappedRegexSource, convertParsedValueToResolvers, type Resolver } from './resolver';
 import type { EnvGraphDataSource } from './data-source';
 import { SchemaError } from './errors';
 
@@ -103,6 +103,7 @@ function optionValue(
       // cannot be written as an unquoted `/.../` (one containing a comma, say)
       const regexArgs = val.simplifiedArgs;
       if (Array.isArray(regexArgs) && typeof regexArgs[0] === 'string') {
+        assertUnwrappedRegexSource(regexArgs[0], `${context} - regex() in option "${kv.key}"`);
         const flags = regexArgs[1];
         if (flags !== undefined && typeof flags !== 'string') {
           throw new SchemaError(`${context} - regex() flags must be a string in option "${kv.key}"`);
