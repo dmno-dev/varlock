@@ -193,9 +193,17 @@ ITEM=remap($VAR, /usr/lib/, matched)
 ITEM=remap($VAR, "/usr/lib/", matched)
 ```
 
-There is currently no way to match such a string literally in a `remap()` match slot. This is tracked in [#1089](https://github.com/dmno-dev/varlock/issues/1089), which will let a leading `\/` escape mark the value as literal.
+To match such a value exactly, write it as a regex with the inner slashes escaped and the pattern anchored:
 
-A path only runs into this when it both starts and ends with a slash, so most paths are unaffected. As a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always plain strings.
+```env-spec
+SRC=/usr/lib/
+# matches only the exact value
+ITEM=remap($SRC, "/^\/usr\/lib\/$/", matched)
+```
+
+Escaping without the wrapping slashes (`"\/usr\/lib\/"`) does not do this. It opts out of regex detection, but the value is then compared as the literal string `\/usr\/lib\/`, backslashes and all, so it never matches.
+
+A path only runs into any of this when it both starts and ends with a slash, so most paths are unaffected. As a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always plain strings.
 :::
 
 :::note[`regex()` function]

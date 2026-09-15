@@ -1027,6 +1027,19 @@ describe('string data type - matches option', () => {
     expect(err.tip).toContain('quote the whole literal');
   });
 
+  // a value that both starts and ends with `/` is read as a regex wherever regexes are
+  // accepted, so matching one exactly means escaping the inner slashes and anchoring
+  it('matches a slash-wrapped value exactly via an escaped, anchored pattern', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches="/^\\/usr\\/lib\\/$/")
+      EXACT=/usr/lib/
+      # @type=string(matches="/^\\/usr\\/lib\\/$/")
+      LOOSE=xxx/usr/lib/xxx
+    `);
+    expect(g.configSchema.EXACT.isValid).toBe(true);
+    expect(g.configSchema.LOOSE.isValid).toBe(false);
+  });
+
   it('does not tip when the mixup has nothing to do with a regex', async () => {
     const g = await loadAndResolve(outdent`
       # @type=string(somePositional, minLength=2)
