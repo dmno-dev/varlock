@@ -296,21 +296,27 @@ describe('remap()', functionValueTests({
     `,
     expected: { ITEM: 'bar' },
   },
-  'remaps regex literal match': {
+  // a /.../ string is a string - it used to be read as a regex by shape, and no longer is
+  'a slash-wrapped string in remap is compared exactly, not as a regex': {
     input: outdent`
       REMAP_ME=foo
       ITEM=remap($REMAP_ME, buz, biz, /fo+/, bar)
     `,
-    expected: { ITEM: 'bar' },
-    expectWarnings: true, // deprecated /.../ spelling
+    expected: { ITEM: 'foo' },
   },
-  'remaps regex literal with flags': {
+  'a slash-wrapped string with flag-like suffix is compared exactly too': {
     input: outdent`
       REMAP_ME=FOO
       ITEM=remap($REMAP_ME, buz, biz, /foo/i, bar)
     `,
-    expected: { ITEM: 'bar' },
-    expectWarnings: true, // deprecated /.../ spelling
+    expected: { ITEM: 'FOO' },
+  },
+  'a slash-wrapped value matches itself exactly': {
+    input: outdent`
+      REMAP_ME=/usr/lib/
+      ITEM=remap($REMAP_ME, /usr/lib/, found, default)
+    `,
+    expected: { ITEM: 'found' },
   },
   'path-like string in remap is exact match not regex': {
     input: outdent`

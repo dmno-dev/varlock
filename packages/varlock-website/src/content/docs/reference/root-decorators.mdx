@@ -541,7 +541,7 @@ These are merged with any [`--ignore`](/reference/cli/encryption/#audit) entries
 
 Adds project-specific patterns to the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. This is the escape hatch for env access idioms the built-in patterns don't cover (e.g. NestJS `configService.get('KEY')`). Each pattern is a [`regex()`](/reference/functions#regex) call; the **first capture group is the env key**, so patterns without one match nothing. _Can be called multiple times; patterns are merged additively._
 
-Anything that is not a `regex()` call is rejected as an error instead of silently scanning nothing. (A quoted `'/.../flags'` string is still accepted with a deprecation warning.)
+Anything that is not a `regex()` call is rejected as an error instead of silently scanning nothing.
 
 ```env-spec
 # @auditExtraPatterns(regex('config\.get\(\s*\'([A-Z_]+)\'\)'))

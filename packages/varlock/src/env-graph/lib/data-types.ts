@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
-import { parseRegexLikeString } from './resolver';
 import {
   parseDuration, convertDurationFromMs, type DurationUnit,
 } from '../../lib/duration';
@@ -268,7 +267,7 @@ const StringDataType = createEnvGraphDataType(
       if (settings?.matches) {
         let regex: RegExp;
         if (_.isString(settings.matches)) {
-          regex = parseRegexLikeString(settings.matches) ?? new RegExp(settings.matches);
+          regex = new RegExp(settings.matches); // a string is the source - only programmatic use passes one
         } else {
           regex = settings.matches;
         }
@@ -510,7 +509,7 @@ const UrlDataType = createEnvGraphDataType(
       if (settings?.matches) {
         let regex: RegExp;
         if (_.isString(settings.matches)) {
-          regex = parseRegexLikeString(settings.matches) ?? new RegExp(settings.matches);
+          regex = new RegExp(settings.matches); // a string is the source - only programmatic use passes one
         } else {
           regex = settings.matches;
         }
@@ -622,7 +621,7 @@ const DomainDataType = createEnvGraphDataType(
       if (settings?.matches) {
         let regex: RegExp;
         if (_.isString(settings.matches)) {
-          regex = parseRegexLikeString(settings.matches) ?? new RegExp(settings.matches);
+          regex = new RegExp(settings.matches); // a string is the source - only programmatic use passes one
         } else {
           regex = settings.matches;
         }
