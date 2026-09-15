@@ -935,7 +935,27 @@ describe('string data type - matches option', () => {
     expect(g.configSchema.MY_VAR.isValid).toBe(true);
   });
 
-  it('requires a quoted pattern when it contains a comma', async () => {
+  // quoting is transport - it gets the comma past the value rules without changing what
+  // the value means, so the slashes and any flags stay where they were
+  it('takes a comma-containing pattern as a quoted literal', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches="/^[0-9a-f]{7,40}$/")
+      GOOD_SHA=abc1234
+      # @type=string(matches="/^[0-9a-f]{7,40}$/")
+      BAD_SHA=nope
+      # flags survive inside the quotes
+      # @type=string(matches="/^[0-9A-F]{7,40}$/i")
+      GOOD_UPPER=abc1234
+      # @type=string(matches="/^[0-9A-F]{7,40}$/i")
+      BAD_UPPER=nope
+    `);
+    expect(g.configSchema.GOOD_SHA.isValid).toBe(true);
+    expect(g.configSchema.BAD_SHA.isValid).toBe(false);
+    expect(g.configSchema.GOOD_UPPER.isValid).toBe(true);
+    expect(g.configSchema.BAD_UPPER.isValid).toBe(false);
+  });
+
+  it('also takes a bare quoted pattern with no slashes', async () => {
     const g = await loadAndResolve(outdent`
       # @type=string(matches="^[0-9a-f]{7,40}$")
       GOOD_SHA=abc1234
@@ -1004,7 +1024,7 @@ describe('string data type - matches option', () => {
     `);
     const err = g.configSchema.MY_VAR.errors[0];
     expect(err.message).toContain('cannot mix positional args and named options');
-    expect(err.tip).toContain('regex(');
+    expect(err.tip).toContain('quote the whole literal');
   });
 
   it('does not tip when the mixup has nothing to do with a regex', async () => {

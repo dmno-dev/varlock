@@ -180,17 +180,23 @@ A `/pattern/flags` value is not a distinct kind of token. It is an ordinary unqu
 - The pattern is delimited by `/` characters
 - Forward slashes within the pattern must be escaped as `\/`
 - Optional flags (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`) may follow the closing `/`
-- The pattern may not contain a `,`, a space, or a `)`, since each of those ends a value. A pattern containing any of them must use `regex("pattern", "flags")` instead
+- The pattern may not contain a `,`, a space, or a `)`, since each of those ends an unquoted value. Wrap the whole literal in quotes when it does, slashes and flags included: quoting is only about getting those characters past the value rules, and does not change what the value means
 
 ```env-spec
 ITEM=fn(/^dev.*/i, dev, "production", prod)
 # @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
 API_KEY=
 
-# a `{n,m}` quantifier holds a comma, so this pattern needs regex()
-# @type=string(matches=regex("^[0-9a-f]{7,40}$"))
+# a `{n,m}` quantifier holds a comma, so quote the literal
+# @type=string(matches="/^[0-9a-f]{7,40}$/")
 APP_COMMIT_SHA=
+
+# flags stay inside the quotes with it
+# @type=string(matches="/^[0-9A-F]{7,40}$/i")
+APP_COMMIT_SHA_ANY_CASE=
 ```
+
+`regex("pattern", "flags")` is the other spelling. It takes the pattern source rather than a literal, so it is written without the surrounding slashes.
 
 ### Function calls
 

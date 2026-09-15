@@ -4,4 +4,4 @@ varlock: minor
 env-spec-language: patch
 ---
 
-`regex()` now takes optional flags as a second argument: `matches=regex("^[0-9a-f]{7,40}$", "i")`. An unquoted `/pattern/` is an ordinary value, so a pattern containing a `,` (a `{7,40}` quantifier, say), a space, or a `)` has to use `regex()` - the error you get when it splits now says so. Passing a `/.../` literal to `regex()` is now an error rather than silently compiling a pattern that matches the slashes.
+A regex pattern containing a comma, space, or `)` can be written as a quoted literal, slashes and flags included: `matches="/^[0-9a-f]{7,40}$/i"`. Unquoted, those characters end the value, and the error you get now says so. `regex()` also takes optional flags as a second argument now, and rejects a `/.../` literal rather than silently compiling a pattern that matches the slashes.
