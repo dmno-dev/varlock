@@ -1,39 +1,35 @@
 ---
 title: Deploy-time config
-description: Why config should be resolved once per release rather than on every boot, and how to get that shape on any platform
+description: Resolve env values once per release instead of on every boot, and ship the result alongside your code
 ---
+import { Steps } from '@astrojs/starlight/components';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
-Most deployment platforms already treat configuration as part of an immutable, versioned release. If you deploy to Vercel, Heroku, AWS Lambda, or Cloud Run, you are probably relying on this without having thought about it.
+Most deployment platforms already treat configuration as part of an immutable, versioned release. If you deploy to Vercel, Heroku, AWS Lambda, or Cloud Run, you are relying on this whether or not you have thought about it.
 
-Varlock's resolvers are the exception. A schema that pulls a value from 1Password, Vault, or AWS Secrets Manager resolves it every time a process starts, which puts you back in the shape those platforms moved away from. This guide explains what that shape costs and how to get out of it.
+Varlock's resolvers are the exception. A schema that pulls a value from 1Password, Vault, or AWS Secrets Manager resolves it every time a process starts, which puts you back in the shape those platforms moved away from. This guide covers why that matters, and how [`varlock freeze`](#freezing-with-varlock-freeze) gets you out of it on platforms that cannot do it for you.
 
-## What the platforms already do
+## Config belongs to the release
 
-The mechanism differs, but the property is the same: the config a running instance sees was fixed when the release was created, not when the instance started.
+The mechanism differs per platform, but the property is the same: the config a running instance sees was fixed when the release was created, not when the instance started.
 
-**Vercel** applies env vars to a deployment when it is built. The docs are explicit that a change "[is] not applied to previous deployments, they only apply to new deployments." To change config you redeploy.
+**Vercel** applies env vars to a deployment when it is built. A change "[is] not applied to previous deployments, they only apply to new deployments." To change config you redeploy.
 
 **Heroku** makes config vars part of the release object, alongside the slug or image and the add-ons. Setting one creates a new release and restarts your dynos, and `heroku rollback` "copies the compiled slug or OCI image and config vars" of the release you roll back to. Code and config move together in both directions.
 
 **AWS Lambda** freezes both when you publish a version: "Lambda creates an immutable snapshot of your function's code and configuration." Environment variables are on the list of changes that qualify a function for a new version.
 
-**Cloud Run** puts env vars in the revision, which is immutable once created.
+**Cloud Run** puts env vars in the revision, which is immutable once created. **Cloudflare Workers** attach secrets to a Worker version, which is what [`varlock-wrangler deploy`](/integrations/cloudflare/) uploads.
 
-**Cloudflare Workers** attach secrets to a Worker version, which is what [`varlock-wrangler deploy`](/integrations/cloudflare/) uploads.
+That is not five independent designs arriving at the same place by accident. Config and code are one artifact because a release that changes both is otherwise two operations that can each succeed alone. What it buys you:
 
-That is not a coincidence of five independent designs. Config and code are one artifact because a release that changes both is otherwise two operations that can each succeed alone.
-
-## What you get from it
-
-**Changes are atomic.** A release that alters code and config is one operation. Without that, there is a window where one is live and the other is not, and you get to find out which combination your app tolerates.
-
-**Rollbacks actually roll back.** If config lives in a store that the release does not reference, rolling back code leaves the new config in place. You roll back to a known-good version and it is not the version you tested, because half of it is still the new one.
-
-**Every replica agrees.** This is the one people notice last and care about most, because it only shows up under load.
+- **Changes are atomic.** Otherwise there is a window where one is live and the other is not, and you find out which combination your app tolerates.
+- **Rollbacks actually roll back.** If config lives in a store the release does not reference, rolling back code leaves the new config in place. You roll back to a known-good version and it is not the version you tested.
+- **Every replica agrees.** People notice this one last and care about it most, because it only shows up under load.
 
 ## The 3am replica
 
-A frozen release fixes atomicity and rollback. Replica agreement has a second failure mode that survives even on a platform that versions its config, and it is the one worth understanding.
+A versioned release fixes atomicity and rollback. Replica agreement has a second failure mode that survives even on a platform that versions its config, and it is the one worth understanding.
 
 If your config is a *reference* to a secret rather than a value, the reference is resolved when the instance starts. Two instances of the same release, started at different times, can see different values.
 
@@ -45,9 +41,9 @@ Now add autoscaling. You scale out at 3am. The new replica resolves config fresh
 
 **A varlock schema that resolves from a secret backend has exactly this property by default.** `varlock run` and `varlock/auto-load` resolve on every boot. That is the right behavior in development, where you want an edited `.env` file to take effect on restart. In production it means your config is only as stable as the last time something restarted.
 
-Boot resolution costs you two other things under scale-out. Every new instance waits on your secret backend before it can serve, which is cold-start latency you pay per instance. And a scale-out event sends a burst of identical requests at that backend, which is where rate limits find you.
+Boot resolution costs two other things under scale-out. Every new instance waits on your secret backend before it can serve, which is cold-start latency paid per instance. And a scale-out event sends a burst of identical requests at that backend, which is where rate limits find you.
 
-## Getting the deploy-time shape
+## Choosing an approach
 
 Resolve once, at deploy time, and hand the result to the runtime. Which mechanism depends on what your deploy produces.
 
@@ -55,27 +51,197 @@ Resolve once, at deploy time, and hand the result to the runtime. Which mechanis
 | --- | --- | --- |
 | Use a framework integration (Next.js, Vite, Astro, Nuxt) | [`ssrInjectMode: 'resolved-env'`](/guides/encrypted-deployments/) | Build |
 | Deploy to Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Deploy, as a versioned secret binding |
-| Have no build step (Elysia, Hono, Fastify, Express) | [`varlock freeze`](/guides/frozen-env/) | Deploy, into a file in your artifact |
-| Have no way to ship a file into the deploy unit | [`varlock freeze --out -`](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead) | Deploy, into one env var |
+| Have no build step (Elysia, Hono, Fastify, Express) | [`varlock freeze`](#freezing-with-varlock-freeze) | Deploy, into a file in your artifact |
+| Cannot ship a file into the deploy unit | [`varlock freeze --out -`](#carrying-the-payload-in-an-env-var-instead) | Deploy, into one env var |
+| Want values resolved fresh on every boot | [`varlock run`](/reference/cli/load-and-run/#run) | Boot |
 
-All four produce the same thing: a resolved, validated snapshot that the runtime consumes without re-resolving. The runtime then needs no `.env` files, no resolver credentials, and no varlock CLI, which is a smaller attack surface as well as a faster boot.
+All but the last produce the same thing: a resolved, validated snapshot the runtime consumes without re-resolving. The runtime then needs no `.env` files, no resolver credentials, and no varlock CLI, which is a smaller attack surface as well as a faster boot.
 
-The framework integrations have done this for a long time. `varlock freeze` generalizes it to apps that have no build step to bake values into.
+The framework integrations have done this for a long time. `varlock freeze` generalizes it to apps with no build step to bake values into. The rest of this guide is about `freeze`; if a row above already covers you, follow that link instead.
 
-## When boot resolution is the right answer
+## Freezing with `varlock freeze`
 
-Deploy-time resolution is not universally correct, and the cases against it are specific.
+`varlock freeze` resolves every value once and writes the result to an encrypted file. Your app boots from that file instead of re-resolving, and the file ships inside your deploy artifact so config and code travel together.
 
-**Short-lived credentials.** If your schema resolves an OIDC-exchanged token or an STS credential, freezing captures something that will expire while the deploy is still running. Resolve those at boot. You can freeze the rest and let the credential resolve normally only if it is genuinely separable, which today means not freezing that service at all.
+<Steps>
 
-**Config that genuinely varies per container.** If an operator needs to set a value on a specific container (`docker run -e DATABASE_URL=...`), a frozen payload will not let them, by design. See the [caveat in the frozen env guide](/guides/frozen-env/#the-frozen-file-wins-over-runtime-env) for why marking the key `@optional` is the wrong way around this.
+1. **Generate an encryption key, once**
 
-**You want rotation to take effect on restart.** This is the real tradeoff, and it is worth stating plainly rather than treating as a footnote. Pinning config to a release means rotating a secret takes effect on your next deploy. If your incident response plan is "rotate the credential and bounce the service", freezing changes that plan, and everyone who might execute it needs to know.
+    <ExecCommandWidget command="varlock generate-key" showBinary={false} />
 
-**Local development.** Nothing here applies. Resolve from your `.env` files on every run, which is what varlock does by default.
+    Set the result as `_VARLOCK_ENV_KEY` in your deploy pipeline and in your runtime environment. It is a long-lived bootstrap value, so it does not need to change per release.
+
+2. **Freeze at deploy time**
+
+    Run this wherever your .env files and resolver credentials are available, usually a CI job:
+
+    ```bash
+    varlock freeze --env production
+    ```
+
+    This writes `.varlock-frozen-env` in the current directory. Add it to your `.gitignore`.
+
+3. **Ship the file inside your deploy artifact**
+
+    It must be present at boot, in the app's working directory. In Docker that means copying it into the image, not mounting it at runtime. Mounting it separately reintroduces the split this is meant to remove.
+
+4. **Boot your app normally**
+
+    ```bash
+    bun server.js
+    ```
+
+    As long as your app imports `varlock/auto-load` (or you launch it with `varlock run`), varlock finds the file and uses it. No varlock CLI, no .env files, and no resolver credentials are needed in the runtime image.
+
+</Steps>
+
+### Example: Bun with Docker
+
+```dockerfile title="Dockerfile"
+FROM oven/bun:1 AS builder
+WORKDIR /app
+COPY . .
+RUN bun install --frozen-lockfile
+RUN bun build ./src/index.ts --target=bun --outdir dist
+# resolver credentials and .env files are only present in this stage
+RUN --mount=type=secret,id=varlock_key \
+    _VARLOCK_ENV_KEY=$(cat /run/secrets/varlock_key) bunx varlock freeze --env production
+
+FROM oven/bun:1
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.varlock-frozen-env ./
+CMD ["bun", "dist/index.js"]
+```
+
+Your entrypoint imports varlock as usual:
+
+```ts title="src/index.ts"
+import 'varlock/auto-load';
+import { ENV } from 'varlock/env';
+import { Elysia } from 'elysia';
+
+new Elysia()
+  .get('/', () => `hello from ${ENV.PUBLIC_APP_NAME}`)
+  .listen(ENV.PORT);
+```
+
+Types and sensitivity travel in the file, so `ENV.PORT` is still a number and log redaction still knows which values are secret.
+
+### Controlling the file
+
+Varlock uses `.varlock-frozen-env` in the working directory automatically when it is present. `_VARLOCK_USE_FROZEN_ENV` changes that:
+
+| Value | Behavior |
+| --- | --- |
+| unset | Use `.varlock-frozen-env` if present, otherwise resolve normally |
+| `1` / `true` | Require `.varlock-frozen-env`. A missing file is an error |
+| `0` / `false` | Never use a frozen env file |
+| any path | Require a frozen env file at that path, relative to the working directory unless absolute |
+
+Setting `_VARLOCK_USE_FROZEN_ENV=1` in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
+
+Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
+
+### Freeze options
+
+| Flag | Description |
+| --- | --- |
+| `--out`, `-o` | Output path (default `.varlock-frozen-env`), or `-` to write the payload to stdout |
+| `--env` | Environment to resolve for (e.g. `production`) |
+| `--path`, `-p` | Entry .env file or directory, repeatable |
+| `--allow-plaintext` | Write unencrypted when `_VARLOCK_ENV_KEY` is not set |
+| `--clear-cache` | Clear the cache and re-resolve everything |
+| `--skip-cache` | Skip the cache for this invocation |
+
+### Encryption is required
+
+`varlock freeze` fails if `_VARLOCK_ENV_KEY` is not set. The file holds every resolved value, including secrets, and it is a portable standalone file: it gets copied between build stages, retained as a CI artifact, and read by anyone with access to your image layers or registry. That is a wider audience than the people who can reach your running container.
+
+Encryption protects against exactly that: image layers, registry access, CI artifact retention, and accidental commits. It does not protect against someone who already has code execution in the running container, since the key is in the environment right next to the file. This is the same tradeoff described in [encrypted deployments](/guides/encrypted-deployments/).
+
+`--allow-plaintext` exists for schemas with nothing sensitive in them. It prints a warning, and there is no config setting for it, so it cannot be turned on once and forgotten.
+
+## The frozen file wins over runtime env
+
+This is the most important thing to understand before you use it.
+
+A frozen file is a complete, already-validated snapshot, and it is **authoritative**. Environment variables set when the container starts do not override it:
+
+```bash
+# the frozen file has DATABASE_URL, so this is ignored
+docker run -e DATABASE_URL=postgres://somewhere-else/db my-image
+```
+
+For a key that resolved to a value at freeze time, the frozen value wins. For a key that resolved to nothing, `process.env` is cleared to match, so `process.env.KEY` and `ENV.KEY` always agree. Nothing silently reads one resolution while something else reads another.
+
+This is deliberate: freezing means the config was resolved and validated as a unit, and a value injected afterwards was part of neither. Accepting it would mean running on config that nothing validated.
+
+:::caution[Config that genuinely varies per container]
+Freezing is all or nothing: there is currently no way to seal most of your config while leaving a few keys to the runtime. If some values must come from the container rather than the deploy (a per-container `DATABASE_URL`, say), freezing is not the right tool for that service yet. Use [`varlock run`](/reference/cli/load-and-run/#run), or let the app resolve at boot, so every value is validated where it is supplied.
+
+In particular, marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**. It gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
+:::
+
+## Carrying the payload in an env var instead
+
+Some platforms take environment variables but give you no way to get a file into the deploy unit: a Compose file that pulls an image tag it does not rebuild, an ECS task definition, Heroku config vars. `--out -` writes the same payload to stdout so you can carry it in one variable.
+
+```bash
+# at deploy time, where your .env files and resolver credentials are
+export __VARLOCK_ENV=$(APP_ENV=production varlock freeze --out -)
+```
+
+Set three things in the runtime environment:
+
+| Variable | Value |
+| --- | --- |
+| `__VARLOCK_ENV` | the payload |
+| `_VARLOCK_USE_INJECTED_ENV` | `1` |
+| `_VARLOCK_ENV_KEY` | the same key you froze with |
+
+`_VARLOCK_USE_INJECTED_ENV=1` is required, not optional. Without it varlock checks the payload against the .env files it was resolved from, which a deploy does not carry, and falls back to running the CLI instead.
+
+```yaml title="compose.yaml"
+services:
+  app:
+    environment:
+      __VARLOCK_ENV: ${__VARLOCK_ENV:?run `varlock freeze --out -` first}
+      _VARLOCK_USE_INJECTED_ENV: "1"
+      _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
+```
+
+Your app boots exactly as it does with a file: `import 'varlock/auto-load'` and read `ENV`.
+
+The summary goes to stderr in this mode, so stdout carries the payload and nothing else. Everything else is identical to writing a file: the same resolution, the same encryption, the same refusal to emit a payload built from a failed resolution.
+
+### What you give up
+
+This is a weaker seal than a file, and it is worth being clear about why. The payload lives in platform config rather than inside the release, so it does not roll back when you roll back code, and it is a second operation on deploy rather than part of the artifact. That is the split a frozen file exists to close, and the env var transport reopens part of it.
+
+What you still get over a set of individual environment variables: it resolved and validated once, as a unit; types and sensitivity survive, so `ENV.PORT` is a number and log redaction still knows what is secret; and the runtime needs no .env files, no resolver credentials, and no varlock CLI.
+
+Prefer a file whenever you can ship one. Reach for `--out -` when you cannot.
+
+:::caution[Size limits]
+The payload holds every resolved value, so it can outgrow what a platform accepts in a single variable. Linux caps one variable at 128KB, and some platforms are far stricter (AWS Lambda allows 4KB for the entire environment). If you are near a limit, ship a file instead.
+:::
+
+## Tradeoffs
+
+**Rotating a secret takes effect on your next deploy, not on the next restart.** This is the entire point, but it inverts what most secret managers do, so everyone touching the deploy should know it. If your incident response plan is "rotate the credential and bounce the service", freezing changes that plan. To pick up a rotated value, re-run `varlock freeze` and redeploy.
+
+**Rotating `_VARLOCK_ENV_KEY` breaks rollback.** Releases frozen under the old key cannot be decrypted with the new one, which is a problem precisely when you want to roll back. Keep the key stable, or plan to re-freeze and redeploy the releases you want to keep rollable.
+
+**A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, it wins over your .env files even after you edit them. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`.
+
+**Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Resolve those at boot instead of freezing them.
+
+**None of this applies to local development.** Resolve from your `.env` files on every run, which is what varlock does by default.
 
 ## Related
 
-- [Frozen env](/guides/frozen-env/) for the mechanics of `varlock freeze`
 - [Encrypted deployments](/guides/encrypted-deployments/) for the framework integration path
 - [Docker](/integrations/docker/) for where each approach fits in a container pipeline
+- [Elysia](/integrations/elysia/) for a worked example on Bun, including `bun build --compile`

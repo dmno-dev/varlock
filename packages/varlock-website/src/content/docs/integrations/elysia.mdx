@@ -72,7 +72,7 @@ Elysia builds responses with the standard `Response` API, which varlock patches,
 
 Locally, varlock resolves your `.env` files on every boot. In a deploy that is usually the wrong default: it means config lives in your platform's settings rather than in the release, so it can't change atomically with your code and doesn't roll back with it. It also makes every boot depend on your secret backend being reachable.
 
-[`varlock freeze`](/guides/frozen-env/) resolves everything once at deploy time and writes an encrypted file that ships inside your deploy artifact. Your app boots from that file.
+[`varlock freeze`](/guides/deploy-time-config/) resolves everything once at deploy time and writes an encrypted file that ships inside your deploy artifact. Your app boots from that file.
 
 <Steps>
 
@@ -116,7 +116,7 @@ That image needs nothing else: no `.env` files, no `node_modules`, and no varloc
 Set `_VARLOCK_USE_FROZEN_ENV=1` in production so a missing frozen file is a hard error instead of a silent fall back to normal resolution.
 
 :::caution[Values are pinned once frozen]
-Rotating a secret takes effect on your next deploy, not on the next restart. Re-run `varlock freeze` and redeploy. See [tradeoffs](/guides/frozen-env/#tradeoffs) for the full list, including how key rotation interacts with rollback.
+Rotating a secret takes effect on your next deploy, not on the next restart. Re-run `varlock freeze` and redeploy. See [tradeoffs](/guides/deploy-time-config/#tradeoffs) for the full list, including how key rotation interacts with rollback.
 :::
 
 ### Standalone binaries
@@ -149,7 +149,7 @@ services:
       _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
 ```
 
-`_VARLOCK_USE_INJECTED_ENV=1` is required: without it varlock tries to verify the payload against .env files the image does not have, and falls back to running the CLI. See [carrying the payload in an env var](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead) for what this trades away versus shipping a file.
+`_VARLOCK_USE_INJECTED_ENV=1` is required: without it varlock tries to verify the payload against .env files the image does not have, and falls back to running the CLI. See [carrying the payload in an env var](/guides/deploy-time-config/#carrying-the-payload-in-an-env-var-instead) for what this trades away versus shipping a file.
 
 ### Choosing an environment
 
@@ -161,4 +161,4 @@ APP_ENV=production varlock freeze
 
 ### Other options
 
-`freeze` is not the only way to deploy. If the varlock CLI, your `.env` files, and your resolver credentials are all available in the runtime environment, `varlock run -- bun server.js` works too and re-resolves on every boot. See [related approaches](/guides/frozen-env/#related-approaches) for the comparison.
+`freeze` is not the only way to deploy. If the varlock CLI, your `.env` files, and your resolver credentials are all available in the runtime environment, `varlock run -- bun server.js` works too and re-resolves on every boot. See [related approaches](/guides/deploy-time-config/#choosing-an-approach) for the comparison.
