@@ -69,7 +69,18 @@ If you already have your own flag and want to keep the name, derive its value fr
 APP_ENV=$VARLOCK_ENV
 ```
 
-An explicit `APP_ENV=staging` passed into the process still takes precedence, and test runs are detected without passing anything. Your enum needs to cover every value `$VARLOCK_ENV` can produce. We do not recommend using `NODE_ENV` itself as your environment flag; see [`@currentEnv`](/reference/root-decorators/#currentenv).
+An explicit `APP_ENV=staging` passed into the process still takes precedence, and test runs are detected without passing anything.
+
+Your enum needs to cover every value `$VARLOCK_ENV` can produce. If your environments do not line up, use [`remap()`](/reference/functions#remap) to translate them. Unmatched values pass through unchanged, so you only list what differs:
+
+```env-spec title=".env.schema"
+# @currentEnv=$APP_ENV
+# ---
+# @type=enum(development, staging, production, test)
+APP_ENV=remap($VARLOCK_ENV, preview, staging)
+```
+
+We do not recommend using `NODE_ENV` itself as your environment flag; see [`@currentEnv`](/reference/root-decorators/#currentenv).
 
 #### Test environment caveat
 
