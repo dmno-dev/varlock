@@ -1,0 +1,81 @@
+---
+title: Deploy-time config
+description: Why config should be resolved once per release rather than on every boot, and how to get that shape on any platform
+---
+
+Most deployment platforms already treat configuration as part of an immutable, versioned release. If you deploy to Vercel, Heroku, AWS Lambda, or Cloud Run, you are probably relying on this without having thought about it.
+
+Varlock's resolvers are the exception. A schema that pulls a value from 1Password, Vault, or AWS Secrets Manager resolves it every time a process starts, which puts you back in the shape those platforms moved away from. This guide explains what that shape costs and how to get out of it.
+
+## What the platforms already do
+
+The mechanism differs, but the property is the same: the config a running instance sees was fixed when the release was created, not when the instance started.
+
+**Vercel** applies env vars to a deployment when it is built. The docs are explicit that a change "[is] not applied to previous deployments, they only apply to new deployments." To change config you redeploy.
+
+**Heroku** makes config vars part of the release object, alongside the slug or image and the add-ons. Setting one creates a new release and restarts your dynos, and `heroku rollback` "copies the compiled slug or OCI image and config vars" of the release you roll back to. Code and config move together in both directions.
+
+**AWS Lambda** freezes both when you publish a version: "Lambda creates an immutable snapshot of your function's code and configuration." Environment variables are on the list of changes that qualify a function for a new version.
+
+**Cloud Run** puts env vars in the revision, which is immutable once created.
+
+**Cloudflare Workers** attach secrets to a Worker version, which is what [`varlock-wrangler deploy`](/integrations/cloudflare/) uploads.
+
+That is not a coincidence of five independent designs. Config and code are one artifact because a release that changes both is otherwise two operations that can each succeed alone.
+
+## What you get from it
+
+**Changes are atomic.** A release that alters code and config is one operation. Without that, there is a window where one is live and the other is not, and you get to find out which combination your app tolerates.
+
+**Rollbacks actually roll back.** If config lives in a store that the release does not reference, rolling back code leaves the new config in place. You roll back to a known-good version and it is not the version you tested, because half of it is still the new one.
+
+**Every replica agrees.** This is the one people notice last and care about most, because it only shows up under load.
+
+## The 3am replica
+
+A frozen release fixes atomicity and rollback. Replica agreement has a second failure mode that survives even on a platform that versions its config, and it is the one worth understanding.
+
+If your config is a *reference* to a secret rather than a value, the reference is resolved when the instance starts. Two instances of the same release, started at different times, can see different values.
+
+Google says this directly in the Cloud Run docs. Secrets exposed as env vars are fetched "prior to starting the instance", and because "environment variables are resolved at instance startup time", Google recommends "that you pin the secret to a particular version instead of using `latest`."
+
+Kubernetes has the same property in a sharper form. A running Pod never sees a ConfigMap or Secret change, because the kubelet reads the data when it launches the container. A Pod created afterwards reads the current value. So a rotation at 2am leaves you with a Deployment whose old Pods hold the old value and whose new Pods hold the new one, indefinitely, with nothing reporting the split.
+
+Now add autoscaling. You scale out at 3am. The new replica resolves config fresh, picks up a value that changed since the deploy, and starts serving on it. Nothing failed, nothing logged, and the only signal is that some fraction of your traffic behaves differently depending on which instance answers. When you scale back in, it disappears.
+
+**A varlock schema that resolves from a secret backend has exactly this property by default.** `varlock run` and `varlock/auto-load` resolve on every boot. That is the right behavior in development, where you want an edited `.env` file to take effect on restart. In production it means your config is only as stable as the last time something restarted.
+
+Boot resolution costs you two other things under scale-out. Every new instance waits on your secret backend before it can serve, which is cold-start latency you pay per instance. And a scale-out event sends a burst of identical requests at that backend, which is where rate limits find you.
+
+## Getting the deploy-time shape
+
+Resolve once, at deploy time, and hand the result to the runtime. Which mechanism depends on what your deploy produces.
+
+| If you | Use | Resolved at |
+| --- | --- | --- |
+| Use a framework integration (Next.js, Vite, Astro, Nuxt) | [`ssrInjectMode: 'resolved-env'`](/guides/encrypted-deployments/) | Build |
+| Deploy to Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Deploy, as a versioned secret binding |
+| Have no build step (Elysia, Hono, Fastify, Express) | [`varlock freeze`](/guides/frozen-env/) | Deploy, into a file in your artifact |
+| Have no way to ship a file into the deploy unit | [`varlock freeze --out -`](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead) | Deploy, into one env var |
+
+All four produce the same thing: a resolved, validated snapshot that the runtime consumes without re-resolving. The runtime then needs no `.env` files, no resolver credentials, and no varlock CLI, which is a smaller attack surface as well as a faster boot.
+
+The framework integrations have done this for a long time. `varlock freeze` generalizes it to apps that have no build step to bake values into.
+
+## When boot resolution is the right answer
+
+Deploy-time resolution is not universally correct, and the cases against it are specific.
+
+**Short-lived credentials.** If your schema resolves an OIDC-exchanged token or an STS credential, freezing captures something that will expire while the deploy is still running. Resolve those at boot. You can freeze the rest and let the credential resolve normally only if it is genuinely separable, which today means not freezing that service at all.
+
+**Config that genuinely varies per container.** If an operator needs to set a value on a specific container (`docker run -e DATABASE_URL=...`), a frozen payload will not let them, by design. See the [caveat in the frozen env guide](/guides/frozen-env/#the-frozen-file-wins-over-runtime-env) for why marking the key `@optional` is the wrong way around this.
+
+**You want rotation to take effect on restart.** This is the real tradeoff, and it is worth stating plainly rather than treating as a footnote. Pinning config to a release means rotating a secret takes effect on your next deploy. If your incident response plan is "rotate the credential and bounce the service", freezing changes that plan, and everyone who might execute it needs to know.
+
+**Local development.** Nothing here applies. Resolve from your `.env` files on every run, which is what varlock does by default.
+
+## Related
+
+- [Frozen env](/guides/frozen-env/) for the mechanics of `varlock freeze`
+- [Encrypted deployments](/guides/encrypted-deployments/) for the framework integration path
+- [Docker](/integrations/docker/) for where each approach fits in a container pipeline
