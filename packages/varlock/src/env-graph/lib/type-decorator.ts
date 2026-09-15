@@ -67,7 +67,11 @@ function pushWarningOnce(sink: Array<SchemaError> | undefined, warning: SchemaEr
 
 /** marker wrapping a deferred (resolver-valued) option in a settings record */
 class DeferredValue {
-  constructor(readonly resolver: Resolver) {}
+  constructor(
+    readonly resolver: Resolver,
+    /** a deprecation for this option was already raised at plan time - do not repeat it on build */
+    readonly warnedAtPlanTime = false,
+  ) {}
 }
 
 /** replace DeferredValue markers with their resolved values (or omit them in provisional mode) */
@@ -152,6 +156,23 @@ function optionValue(
       const resolver = convertParsedValueToResolvers(val, ctx.dataSource, ctx.resolverFns);
       if (!resolver) throw new SchemaError(`${context} - could not build resolver for option "${kv.key}"`);
       deferred.push({ resolver, label: kv.key });
+      // a pattern taken from another variable (`matches=$PATTERN`) can only ever be a
+      // string, so it is known to be affected without waiting for a value - which matters,
+      // since an empty optional item never resolves its type parts at all. Other resolver
+      // calls may yield a regex() and are judged once they resolve (see build below).
+      if (readsOptionAsRegex(typeName, kv.key) && val.name === 'ref') {
+        pushWarningOnce(ctx.warnings, new SchemaError(
+          `${context} - option "${kv.key}" - string patterns are deprecated, use regex() instead`,
+          {
+            isWarning: true,
+            tip: [
+              'a pattern referenced from another variable is a string, and a future major version will stop reading strings as regexes - there is no dynamic form',
+              'write the pattern directly: matches=regex("pattern", "flags")',
+            ],
+          },
+        ));
+        return new DeferredValue(resolver, true);
+      }
       return new DeferredValue(resolver);
     }
     throw new SchemaError(`${context} - option "${kv.key}" is not a static value or a known resolver function`);
@@ -489,7 +510,9 @@ function buildTypeCallPlan(
       // a resolver-valued regex option (`matches=$PATTERN`) is only known to be a string
       // once it resolves - warn then, so the dynamic path is not a silent migration
       for (const [key, val] of Object.entries(materialized)) {
-        if (settings[key] instanceof DeferredValue && readsOptionAsRegex(name, key) && typeof val === 'string') {
+        const setting = settings[key];
+        if (!(setting instanceof DeferredValue) || setting.warnedAtPlanTime) continue;
+        if (readsOptionAsRegex(name, key) && typeof val === 'string') {
           pushWarningOnce(ctx.warnings, deprecatedRegexStringWarning(val, `${context} - option "${key}"`));
         }
       }

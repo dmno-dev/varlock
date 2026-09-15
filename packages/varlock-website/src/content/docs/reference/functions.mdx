@@ -158,7 +158,7 @@ API_URL=ifs(
 
 Creates a regular expression, for use as a [`remap()`](#remap) match value or as the `matches` option of a [data type](/reference/data-types).
 
-- The first argument is the pattern, as a quoted string. Commas, spaces, parentheses and slashes inside it need no escaping.
+- The first argument is the pattern, as a quoted string literal. Commas, spaces, parentheses and slashes inside it need no escaping.
 - The optional second argument is the flags string (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`).
 - Write the pattern without surrounding slashes. `regex("/^abc$/")` would match the slashes themselves, so it is rejected with an error that names the fix.
 
@@ -180,6 +180,8 @@ ENV_TYPE=remap($APP_ENV, regex("^dev.*", "i"), dev, "production", prod)
 Earlier versions also read a string that starts and ends with `/` as a regex in these positions, quoted or not, and `matches` accepted a plain quoted string as the pattern source. Both still work and now produce a warning that shows the exact `regex()` call to use. A future major version will stop interpreting it, and such a string will be compared as-is like any other. Move to `regex()`: `/^abc$/i` becomes `regex("^abc$", "i")`.
 
 Until then, a `remap()` match value that happens to start and end with a slash (`/usr/lib/`) is still read as a pattern rather than compared literally. That ambiguity is one of the reasons for the change.
+
+A pattern taken from another variable (`matches=$PATTERN`) is deprecated the same way and has no replacement: a referenced value is a string, and there is no dynamic form of `regex()`. Write the pattern directly.
 :::
 </div>
 

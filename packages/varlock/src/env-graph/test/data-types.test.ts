@@ -1053,16 +1053,32 @@ describe('string data type - matches option', () => {
 
     it('warns on a resolver-valued matches once it resolves to a string', async () => {
       const g = await loadAndResolve(outdent`
-        PATTERN=/^[A-Z]+$/
-        # @type=string(matches=$PATTERN)
+        # @type=string(matches=if(true, "/^[A-Z]+$/", "/^[a-z]+$/"))
         GOOD=ABC
-        # @type=string(matches=$PATTERN)
+        # @type=string(matches=if(true, "/^[A-Z]+$/", "/^[a-z]+$/"))
         BAD=abc
       `);
       expect(g.configSchema.GOOD.isValid).toBe(true);
       expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors).toHaveLength(1);
       expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[A-Z]+$")');
       expect(g.configSchema.BAD.isValid).toBe(false);
+    });
+
+    it('warns on a pattern referenced from another variable, even when the item is empty', async () => {
+      const g = await loadAndResolve(outdent`
+        PATTERN=/^[A-Z]+$/
+        # @type=string(matches=$PATTERN)
+        SET=ABC
+        # @type=string(matches=$PATTERN)
+        EMPTY=
+      `);
+      for (const key of ['SET', 'EMPTY'] as const) {
+        expect(g.configSchema[key].isValid).toBe(true);
+        expect(g.configSchema[key].validationState).toBe('warn');
+        expect(g.configSchema[key].errors).toHaveLength(1);
+        expect(g.configSchema[key].errors[0].tip).toContain('there is no dynamic form');
+      }
     });
 
     it('does not warn on a resolver-valued matches that resolves to a regex()', async () => {
