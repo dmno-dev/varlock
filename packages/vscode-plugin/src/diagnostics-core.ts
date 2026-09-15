@@ -12,15 +12,18 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
   ['sensitive', 'public'],
 ] as const;
 
-/** Extract a regex pattern string from a plain pattern, `regex("pattern")` wrapper, or `/pattern/flags` literal. */
+/**
+ * Extract a regex pattern from a `regex("pattern", "flags")` call, a deprecated
+ * `/pattern/flags` string (still interpreted at runtime), or a plain pattern.
+ */
 function extractRegexPattern(value: unknown): { pattern: string, flags: string } | undefined {
   if (typeof value !== 'string') return undefined;
-  // regex literal syntax: /pattern/flags
-  const regexLiteral = value.match(/^\/(.*)\/([gimsuy]*)$/s);
+  // regex("pattern") / regex('pattern', 'flags')
+  const wrapped = value.match(/^regex\(\s*(["'])(.*?)\1\s*(?:,\s*(["'])([a-z]*)\3\s*)?\)$/s);
+  if (wrapped) return { pattern: wrapped[2], flags: wrapped[4] ?? '' };
+  // deprecated /pattern/flags string
+  const regexLiteral = value.match(/^\/(.*)\/([dgimsuvy]*)$/s);
   if (regexLiteral) return { pattern: regexLiteral[1].replaceAll('\\/', '/'), flags: regexLiteral[2] };
-  // legacy regex() wrapper: regex("pattern")
-  const wrapped = value.match(/^regex\("(.*)"\)$/s);
-  if (wrapped) return { pattern: wrapped[1], flags: '' };
   return { pattern: value, flags: '' };
 }
 

@@ -173,17 +173,15 @@ Values are interpreted similarly for config item values, decorator values, and v
   - only available for config item values, not decorators or within function args
 
 
-### Regex literals
+### Regex values
 
-Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected, for example as function arguments or decorator option values.
+@env-spec has no regex literal. A value like `/pattern/` is an ordinary string, so it follows the [normal unquoted value rules](#unquoted-values) and can be a path or any other text without special treatment.
 
-- The pattern is delimited by `/` characters
-- Forward slashes within the pattern must be escaped as `\/`
-- Optional flags (`g`, `i`, `m`, `s`, `u`, `y`) may follow the closing `/`
+Tools built on @env-spec take a pattern through a function call instead. In varlock that is `regex("pattern", "flags")`: the pattern is a quoted string, so commas, spaces and slashes inside it need no escaping, and flags are an optional second argument. See [`regex()`](/reference/functions#regex).
 
 ```env-spec
-ITEM=fn(/^dev.*/i, dev, "production", prod)
-# @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
+ITEM=fn(regex("^dev.*", "i"), dev, "production", prod)
+# @type=string(matches=regex("^sk-[a-zA-Z0-9]+$"))
 API_KEY=
 ```
 

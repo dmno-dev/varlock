@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph, CoercionError } from '../index';
+import { createEnvGraphDataType } from '../lib/data-types';
 
 async function loadAndResolve(
   envFileContent: string,
@@ -934,6 +935,226 @@ describe('string data type - matches option', () => {
     `);
     expect(g.configSchema.MY_VAR.isValid).toBe(true);
   });
+
+  it('accepts a comma-containing pattern via regex()', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^[0-9a-f]{7,40}$"))
+      GOOD_SHA=abc1234
+      # @type=string(matches=regex("^[0-9a-f]{7,40}$"))
+      BAD_SHA=nope
+    `);
+    expect(g.configSchema.GOOD_SHA.isValid).toBe(true);
+    expect(g.configSchema.GOOD_SHA.errors).toHaveLength(0);
+    expect(g.configSchema.BAD_SHA.isValid).toBe(false);
+  });
+
+  it('accepts flags as a second regex() arg', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^[0-9A-F]{7,40}$", "i"))
+      GOOD_SHA=abc1234
+      # @type=string(matches=regex("^[0-9A-F]{7,40}$", "i"))
+      BAD_SHA=nope
+    `);
+    expect(g.configSchema.GOOD_SHA.isValid).toBe(true);
+    expect(g.configSchema.BAD_SHA.isValid).toBe(false);
+  });
+
+  it('rejects a /.../ literal passed to regex()', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("/^abc$/"))
+      MY_VAR=abc
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('regex() in option "matches" - expects the pattern itself');
+    expect(err.tip).toContain('drop the surrounding slashes');
+  });
+
+  it('matches a slash at each end when the source escapes them', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^\\/usr\\/lib\\/$"))
+      EXACT=/usr/lib/
+      # @type=string(matches=regex("^\\/usr\\/lib\\/$"))
+      LOOSE=xxx/usr/lib/xxx
+    `);
+    expect(g.configSchema.EXACT.isValid).toBe(true);
+    expect(g.configSchema.LOOSE.isValid).toBe(false);
+  });
+
+  it('rejects invalid regex() flags', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^abc$", "zz"))
+      MY_VAR=abc
+    `);
+    expect(g.configSchema.MY_VAR.isValid).toBe(false);
+  });
+
+  it('tips off a bare pattern split by its own comma', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=/^[0-9a-f]{7,40}$/)
+      MY_VAR=abc1234
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('cannot mix positional args and named options');
+    expect(err.tip).toContain('regex("^[0-9a-f]{7,40}$")');
+  });
+
+  describe('deprecated /.../ regex strings', () => {
+    it('still interprets a bare /.../ string, with a warning', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=string(matches=/^[A-Z]+$/)
+        GOOD=ABC
+        # @type=string(matches=/^[A-Z]+$/)
+        BAD=abc
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors[0].message).toContain('deprecated, use regex()');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[A-Z]+$")');
+      expect(g.configSchema.BAD.isValid).toBe(false);
+    });
+
+    it('a quoted /.../ string is the same thing, and warns the same way', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=string(matches="/^[0-9a-f]{7,40}$/i")
+        GOOD=ABC1234
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[0-9a-f]{7,40}$", "i")');
+    });
+
+    it('reaches a nested element type', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=array(string(matches=/^[a-z]+$/))
+        ITEMS=["abc"]
+      `);
+      expect(g.configSchema.ITEMS.validationState).toBe('warn');
+    });
+
+    it('a plain string pattern on matches warns too', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=string(matches="^[a-z]+$")
+        GOOD=abc
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[a-z]+$")');
+    });
+
+    it('warns on a remap() match value', async () => {
+      const g = await loadAndResolve(outdent`
+        SRC=dev-branch
+        R=remap($SRC, /^dev.*/i, HIT, MISS)
+      `);
+      expect(g.configSchema.R.resolvedValue).toBe('HIT');
+      expect(g.configSchema.R.validationState).toBe('warn');
+      expect(g.configSchema.R.errors[0].tip).toContain('write it as regex("^dev.*", "i")');
+    });
+
+    it('warns on a resolver-valued matches once it resolves to a string', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=string(matches=if(true, "/^[A-Z]+$/", "/^[a-z]+$/"))
+        GOOD=ABC
+        # @type=string(matches=if(true, "/^[A-Z]+$/", "/^[a-z]+$/"))
+        BAD=abc
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors).toHaveLength(1);
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[A-Z]+$")');
+      expect(g.configSchema.BAD.isValid).toBe(false);
+    });
+
+    it('warns on a pattern referenced from another variable, even when the item is empty', async () => {
+      const g = await loadAndResolve(outdent`
+        PATTERN=/^[A-Z]+$/
+        # @type=string(matches=$PATTERN)
+        SET=ABC
+        # @type=string(matches=$PATTERN)
+        EMPTY=
+      `);
+      for (const key of ['SET', 'EMPTY'] as const) {
+        expect(g.configSchema[key].isValid).toBe(true);
+        expect(g.configSchema[key].validationState).toBe('warn');
+        expect(g.configSchema[key].errors).toHaveLength(1);
+        expect(g.configSchema[key].errors[0].tip).toContain('there is no dynamic form');
+      }
+    });
+
+    it('does not warn on a resolver-valued matches that resolves to a regex()', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=string(matches=if(true, regex("^[A-Z]+$"), regex("^[a-z]+$")))
+        GOOD=ABC
+      `);
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('valid');
+    });
+
+    it('warns on a resolver-valued remap() match once it resolves to a /.../ string', async () => {
+      const g = await loadAndResolve(outdent`
+        PAT=/^dev.*/i
+        SRC=dev-branch
+        R=remap($SRC, $PAT, HIT, MISS)
+      `);
+      expect(g.configSchema.R.resolvedValue).toBe('HIT');
+      expect(g.configSchema.R.validationState).toBe('warn');
+      expect(g.configSchema.R.errors[0].tip).toContain('write it as regex("^dev.*", "i")');
+    });
+
+    it('leaves a plugin-defined type with its own `matches` option alone', async () => {
+      const g = new EnvGraph();
+      // a plugin type where `matches` is a plain string setting, not a pattern
+      g.registerDataType(createEnvGraphDataType((settings?: { matches?: string }) => ({
+        name: 'label',
+        validate: (val: any) => (settings?.matches && val !== settings.matches
+          ? [new (Error as any)(`must equal ${settings.matches}`)]
+          : true),
+      })));
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @defaultRequired=false @defaultSensitive=false
+          # ---
+          # @type=label(matches="exact")
+          L=exact
+        `,
+      }));
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      expect(g.configSchema.L.isValid).toBe(true);
+      expect(g.configSchema.L.validationState).toBe('valid');
+    });
+
+    it('does not warn on a remap() regex() call or a plain path', async () => {
+      const g = await loadAndResolve(outdent`
+        SRC=dev-branch
+        R=remap($SRC, regex("^dev.*", "i"), HIT, MISS)
+        P=remap($SRC, /usr/local, HIT, MISS)
+      `);
+      expect(g.configSchema.R.resolvedValue).toBe('HIT');
+      expect(g.configSchema.R.validationState).toBe('valid');
+      expect(g.configSchema.P.validationState).toBe('valid');
+    });
+  });
+
+  it('does not tip when the mixup has nothing to do with a regex', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(somePositional, minLength=2)
+      MY_VAR=hello
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('cannot mix positional args and named options');
+    expect(err.tip).toBeUndefined();
+  });
+
+  it('does not tip on a path-shaped arg list that happens to look similar', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(/usr/local/, matches=/etc/, minLength=2)
+      MY_VAR=hello
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('cannot mix positional args and named options');
+    expect(err.tip).toBeUndefined();
+  });
 });
 
 describe('duration data type', () => {
@@ -1794,7 +2015,7 @@ describe('@type option validation error paths', () => {
     expect(g.configSchema.ITEM.errors[0].message).toContain('unknown data type: notARealThing');
   });
 
-  it('supports the deprecated regex() option form', async () => {
+  it('supports the regex() option form', async () => {
     const g = await loadAndResolve(outdent`
       # @type=string(matches=regex("^[A-Z]+$"))
       GOOD=ABC

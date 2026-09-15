@@ -299,7 +299,7 @@ If you need more control, for example mapping specific branches to specific envi
 # ---
 WORKERS_CI_BRANCH=
 # @type=enum(development, preview, production, test)
-APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, /.*/, preview, undefined, development)
+APP_ENV=remap($WORKERS_CI_BRANCH, "main", production, regex(".*"), preview, undefined, development)
 ```
 
 For more information, see the [environments guide](/guides/environments).

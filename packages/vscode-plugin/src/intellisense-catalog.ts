@@ -299,7 +299,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
       { name: 'isLength', insertText: 'isLength=${1:32}', documentation: 'Exact required string length.' },
       { name: 'startsWith', insertText: 'startsWith=${1:prefix-}', documentation: 'Required starting substring.' },
       { name: 'endsWith', insertText: 'endsWith=${1:-suffix}', documentation: 'Required ending substring.' },
-      { name: 'matches', insertText: 'matches=${1:"^[A-Z0-9_]+$"}', documentation: 'Regex or string pattern to match.' },
+      { name: 'matches', insertText: 'matches=${1:regex("^[A-Z0-9_]+$")}', documentation: 'Regular expression the value must match, as a regex() call.' },
       { name: 'toUpperCase', insertText: `toUpperCase=${booleanChoiceSnippet()}`, documentation: 'Coerce the final value to uppercase.' },
       { name: 'toLowerCase', insertText: `toLowerCase=${booleanChoiceSnippet()}`, documentation: 'Coerce the final value to lowercase.' },
       { name: 'allowEmpty', insertText: `allowEmpty=${booleanChoiceSnippet()}`, documentation: 'Allow empty string values.' },
@@ -335,7 +335,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
       { name: 'allowedProtocols', insertText: 'allowedProtocols=[${1:http}, ${2:https}]', documentation: 'Restrict the URL to an allowed protocol list.' },
       { name: 'allowedDomains', insertText: 'allowedDomains=[${1:example.com}]', documentation: 'Restrict the URL host to an allowed list. Matched in full, not as substrings. An entry without a port allows any port; add one to pin it. Each entry is a hostname with an optional port, with no scheme, path, or credentials. A bare string is a single host.' },
       { name: 'noTrailingSlash', insertText: `noTrailingSlash=${booleanChoiceSnippet()}`, documentation: 'Disallow a trailing slash on the URL, so the value is safe to concatenate onto. A root `/` counts.' },
-      { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the full URL must match.' },
+      { name: 'matches', insertText: 'matches=${1:regex("pattern")}', documentation: 'A regular expression that the full URL must match, as a regex() call.' },
     ],
   },
   {
@@ -349,7 +349,7 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
       { name: 'allowIp', insertText: `allowIp=${booleanChoiceSnippet()}`, documentation: 'Also accept an IPv4 address (useful for HOST-style vars like `DB_HOST`).' },
       { name: 'allowIpV6', insertText: `allowIpV6=${booleanChoiceSnippet()}`, documentation: 'Also accept an IPv6 address, bracketed (`[::1]`) or bare (`::1`).' },
       { name: 'normalize', insertText: `normalize=${booleanChoiceSnippet()}`, documentation: 'Lowercase the domain before validation.' },
-      { name: 'matches', insertText: 'matches=${1:"pattern"}', documentation: 'A regular expression that the domain must match.' },
+      { name: 'matches', insertText: 'matches=${1:regex("pattern")}', documentation: 'A regular expression that the domain must match, as a regex() call.' },
     ],
   },
   {
@@ -470,8 +470,8 @@ export const RESOLVERS: Array<ResolverInfo> = [
   },
   {
     name: 'regex',
-    summary: '*(deprecated)* Creates a regular expression for use inside other functions.',
-    documentation: 'Deprecated — use `/pattern/flags` syntax instead. For example: `remap($VAR, /^dev.*/, result)`.',
+    summary: 'Creates a regular expression for use inside other functions.',
+    documentation: 'The one way to write a pattern: `regex("pattern", "flags")`. The pattern is a quoted string with no surrounding slashes, and flags are an optional second argument - e.g. `matches=regex("^[0-9a-f]{7,40}$", "i")`. Bare `/pattern/` strings are deprecated.',
     insertText: 'regex(${1:"^dev.*"})',
   },
   {

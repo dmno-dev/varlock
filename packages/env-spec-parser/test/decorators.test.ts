@@ -374,6 +374,21 @@ describe('decorator parsing', () => {
     },
   ]));
 
+  // A `/pattern/` is NOT a grammar-level token - it is a plain unquoted value, and the
+  // ordinary value rules apply: a `,` ends it. A grammar rule for this existed once and was
+  // removed in #620 because it mis-lexed paths, and a rule that treats `,` specially only
+  // inside `{}` would make lexing depend on nesting. Patterns are written with regex().
+  describe('regex-like values follow the ordinary value rules', basicDecoratorTests([
+    ['# @dec=decFn(matches=/^[A-Z]+$/)', { dec: { fnName: 'decFn', fnArgs: { matches: '/^[A-Z]+$/' } } }],
+    ['# @dec=decFn(matches=/^abc$/i)', { dec: { fnName: 'decFn', fnArgs: { matches: '/^abc$/i' } } }],
+    // a comma splits the args, as it does for any unquoted value - regex() carries it fine
+    ['# @dec=decFn(matches="^[0-9a-f]{7,40}$")', { dec: { fnName: 'decFn', fnArgs: { matches: '^[0-9a-f]{7,40}$' } } }],
+    // paths stay intact in every position (#620)
+    ['# @dec=/folder/foo/bar', { dec: '/folder/foo/bar' }],
+    ['# @dec=decFn(/folder/foo/bar)', { dec: { fnName: 'decFn', fnArgs: ['/folder/foo/bar'] } }],
+    ['# @dec=decFn(/usr/local/, /etc/)', { dec: { fnName: 'decFn', fnArgs: ['/usr/local/', '/etc/'] } }],
+  ]));
+
   describe('whitespace handling', basicDecoratorTests([
     ['#@dec=1', { dec: 1 }],
     ['#\t@dec=1', { dec: 1 }],

@@ -99,7 +99,7 @@ Maps a value to a new value based on a set of lookup pairs. This is useful for t
 - The first argument is the value to remap (often a `ref()` to another variable).
 - All following arguments are pairs of `(matchValue, resultValue)`.
 - An optional trailing default value can be added as the last argument (when the total number of remaining args is odd).
-- Match values can be a string, `undefined`, or a [regex-like string](/reference/functions#regex-like-strings) (`/pattern/`).
+- Match values can be a string, `undefined`, or a [`regex()`](#regex) call.
 - If no match is found and there is no default, the original value is returned.
 
 ```env-spec "remap"
@@ -107,7 +107,7 @@ Maps a value to a new value based on a set of lookup pairs. This is useful for t
 CI_BRANCH=
 
 # @type=enum(development, preview, production)
-APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, development)
+APP_ENV=remap($CI_BRANCH, "main", production, regex(".*"), preview, undefined, development)
 ```
 
 :::caution[Quoting path-like values]
@@ -154,45 +154,34 @@ API_URL=ifs(
 </div>
 
 <div>
-### Regex-like strings
+### `regex()`
 
-Certain functions like `remap()` and type options like `matches` support regex pattern matching. You can use JavaScript-style regex syntax (`/pattern/flags`) as an unquoted value. These will be automatically detected and treated as regular expressions.
+Creates a regular expression, for use as a [`remap()`](#remap) match value or as the `matches` option of a [data type](/reference/data-types).
 
-A string is treated as a regex when it:
-- Starts and ends with `/` (with optional flags like `i`, `g`, `m`, `s`, `u`, `y` after the closing `/`)
-- Is **not** wrapped in quotes
+- The first argument is the pattern, as a quoted string literal. Commas, spaces, parentheses and slashes inside it need no escaping.
+- The optional second argument is the flags string (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`).
+- Write the pattern without surrounding slashes. `regex("/^abc$/")` would match the slashes themselves, so it is rejected with an error that names the fix.
 
 ```env-spec
-# regex pattern in remap, matches case-insensitively
-ENV_TYPE=remap($APP_ENV, /^dev.*/i, dev, "production", prod)
-
-# regex pattern in type options
-# @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
+# @type=string(matches=regex("^sk-[a-zA-Z0-9]+$"))
 API_KEY=
 
-# @type=url(matches=/^https:\/\/api\./)
+# a {n,m} quantifier, and flags in the second argument
+# @type=string(matches=regex("^[0-9a-f]{7,40}$", "i"))
+APP_COMMIT_SHA=
+
+# @type=url(matches=regex("^https://api\\."))
 API_URL=
+
+ENV_TYPE=remap($APP_ENV, regex("^dev.*", "i"), dev, "production", prod)
 ```
 
-:::caution[Paths vs regex ambiguity]
-Since `/something/` looks like a valid regex, values like `/usr/lib/` will be treated as regex patterns in contexts that support them (like `remap()` match values). To use a literal string containing slashes, wrap it in quotes:
-```env-spec
-# unquoted, treated as regex pattern matching "usr/lib"
-ITEM=remap($VAR, /usr/lib/, matched)
+:::note[Deprecated: bare `/pattern/flags` strings]
+Earlier versions also read a string that starts and ends with `/` as a regex in these positions, quoted or not, and `matches` accepted a plain quoted string as the pattern source. Both still work and now produce a warning that shows the exact `regex()` call to use. A future major version will stop interpreting it, and such a string will be compared as-is like any other. Move to `regex()`: `/^abc$/i` becomes `regex("^abc$", "i")`.
 
-# quoted, treated as the literal string "/usr/lib/"
-ITEM=remap($VAR, "/usr/lib/", matched)
-```
-Note that as a top-level config value (e.g., `MY_PATH=/usr/local/bin`), slash-containing strings are always treated as plain strings.
-:::
+Until then, a `remap()` match value that happens to start and end with a slash (`/usr/lib/`) is still read as a pattern rather than compared literally. That ambiguity is one of the reasons for the change.
 
-:::note[`regex()` function]
-The older `regex("pattern")` function wrapper is still supported but the `/pattern/` literal syntax is preferred, since it's more concise and supports flags.
-
-```env-spec
-# older style - still works
-ENV_TYPE=remap($APP_ENV, regex("^dev.*"), dev, "production", prod)
-```
+A pattern taken from another variable (`matches=$PATTERN`) is deprecated the same way and has no replacement: a referenced value is a string, and there is no dynamic form of `regex()`. Write the pattern directly.
 :::
 </div>
 

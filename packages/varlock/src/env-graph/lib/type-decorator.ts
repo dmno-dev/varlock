@@ -8,7 +8,10 @@ import {
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
 import type { CoercedType, EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
-import { convertParsedValueToResolvers, type Resolver } from './resolver';
+import {
+  assertUnwrappedRegexSource, convertParsedValueToResolvers, deprecatedRegexStringWarning,
+  type Resolver,
+} from './resolver';
 import type { EnvGraphDataSource } from './data-source';
 import { SchemaError } from './errors';
 
@@ -19,7 +22,22 @@ export type TypeSpecContext = {
   /** resolver function registry - option VALUES may be resolver calls (if, remap, ...) */
   resolverFns: Record<string, any>;
   dataSource?: EnvGraphDataSource;
+  /** advisory findings about the spec (deprecations) - the caller attaches them to the item */
+  warnings?: Array<SchemaError>;
 };
+
+/**
+ * Built-in types whose `matches` option is read as a regex (see `parseRegexLikeString`).
+ * Scoped by type name on purpose: a plugin-registered type may use `matches` for
+ * something else entirely, and must not be told to migrate it to regex().
+ */
+const REGEX_MATCHES_TYPES = new Set(['string', 'url', 'domain']);
+const REGEX_OPTION_NAMES = ['matches'];
+const readsOptionAsRegex = (typeName: string, optionName: string) => (
+  REGEX_MATCHES_TYPES.has(typeName) && REGEX_OPTION_NAMES.includes(optionName)
+);
+const COMPLETE_REGEX_LITERAL = /^\/.*\/[dgimsuvy]*$/;
+const REGEX_LITERAL_TAIL = /\/[dgimsuvy]*$/;
 
 /** a node that can describe a type - either a bare name (`email`) or a call (`enum(a, b)`) */
 type TypeSpecNode = ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall;
@@ -40,9 +58,20 @@ export type TypeSpecPlan = {
   build: (resolved?: Map<Resolver, any>) => EnvGraphDataType;
 };
 
+/** a build may run more than once (provisional, then final) - never stack the same warning */
+function pushWarningOnce(sink: Array<SchemaError> | undefined, warning: SchemaError) {
+  if (!sink) return;
+  if (sink.some((w) => w.message === warning.message && w.tip === warning.tip)) return;
+  sink.push(warning);
+}
+
 /** marker wrapping a deferred (resolver-valued) option in a settings record */
 class DeferredValue {
-  constructor(readonly resolver: Resolver) {}
+  constructor(
+    readonly resolver: Resolver,
+    /** a deprecation for this option was already raised at plan time - do not repeat it on build */
+    readonly warnedAtPlanTime = false,
+  ) {}
 }
 
 /** replace DeferredValue markers with their resolved values (or omit them in provisional mode) */
@@ -84,25 +113,42 @@ function coercedTypeFingerprint(type: EnvGraphDataType): string {
 /**
  * Interpret a named-option VALUE: static scalars and literals pass through; a resolver
  * call (if, remap, ref via `$VAR`, ...) becomes a DeferredValue resolved at item
- * resolution time. The deprecated `regex("...")` form converts to a RegExp.
+ * resolution time. The `regex("...")` form converts to a RegExp.
  */
 function optionValue(
   kv: ParsedEnvSpecKeyValuePair,
   ctx: TypeSpecContext,
   deferred: TypeSpecPlan['deferred'],
   context: string,
+  typeName: string,
 ): any {
   const val = kv.value;
-  if (val instanceof ParsedEnvSpecStaticValue) return val.value;
+  if (val instanceof ParsedEnvSpecStaticValue) {
+    // a regex-taking option given a string - `/.../` or plain - rather than a regex() call
+    if (readsOptionAsRegex(typeName, kv.key) && typeof val.value === 'string') {
+      ctx.warnings?.push(deprecatedRegexStringWarning(val.value, `${context} - option "${kv.key}"`));
+    }
+    return val.value;
+  }
   if (val instanceof ParsedEnvSpecObjectLiteral || val instanceof ParsedEnvSpecArrayLiteral) {
     return val.simplifiedValue;
   }
   if (val instanceof ParsedEnvSpecFunctionCall) {
     if (val.name === 'regex') {
-      // deprecated `regex("...")` option form, converted to a RegExp instance
+      // `regex("pattern")` / `regex("pattern", "flags")` - the spelling for a pattern that
+      // cannot be written as an unquoted `/.../` (one containing a comma, say)
       const regexArgs = val.simplifiedArgs;
       if (Array.isArray(regexArgs) && typeof regexArgs[0] === 'string') {
-        return new RegExp(regexArgs[0]);
+        assertUnwrappedRegexSource(regexArgs[0], `${context} - regex() in option "${kv.key}"`);
+        const flags = regexArgs[1];
+        if (flags !== undefined && typeof flags !== 'string') {
+          throw new SchemaError(`${context} - regex() flags must be a string in option "${kv.key}"`);
+        }
+        try {
+          return new RegExp(regexArgs[0], flags);
+        } catch (err) {
+          throw new SchemaError(`${context} - invalid regex() in option "${kv.key}" - ${(err as Error).message}`);
+        }
       }
       throw new SchemaError(`${context} - invalid regex() in option "${kv.key}"`);
     }
@@ -110,6 +156,23 @@ function optionValue(
       const resolver = convertParsedValueToResolvers(val, ctx.dataSource, ctx.resolverFns);
       if (!resolver) throw new SchemaError(`${context} - could not build resolver for option "${kv.key}"`);
       deferred.push({ resolver, label: kv.key });
+      // a pattern taken from another variable (`matches=$PATTERN`) can only ever be a
+      // string, so it is known to be affected without waiting for a value - which matters,
+      // since an empty optional item never resolves its type parts at all. Other resolver
+      // calls may yield a regex() and are judged once they resolve (see build below).
+      if (readsOptionAsRegex(typeName, kv.key) && val.name === 'ref') {
+        pushWarningOnce(ctx.warnings, new SchemaError(
+          `${context} - option "${kv.key}" - string patterns are deprecated, use regex() instead`,
+          {
+            isWarning: true,
+            tip: [
+              'a pattern referenced from another variable is a string, and a future major version will stop reading strings as regexes - there is no dynamic form',
+              'write the pattern directly: matches=regex("pattern", "flags")',
+            ],
+          },
+        ));
+        return new DeferredValue(resolver, true);
+      }
       return new DeferredValue(resolver);
     }
     throw new SchemaError(`${context} - option "${kv.key}" is not a static value or a known resolver function`);
@@ -167,7 +230,7 @@ function buildArrayTypePlan(
           { tip: 'element type options go in a nested call, e.g. array(email(normalize=true))' },
         );
       }
-      settings[arg.key] = optionValue(arg, ctx, deferred, context);
+      settings[arg.key] = optionValue(arg, ctx, deferred, context, fnCall.name);
     } else if (arg instanceof ParsedEnvSpecStaticValue || arg instanceof ParsedEnvSpecFunctionCall) {
       positionals.push(arg);
     } else {
@@ -244,7 +307,7 @@ function buildRecordTypePlan(
           throw new SchemaError(`${context} - keyType must be a type name or type call, e.g. keyType=enum(us, eu)`);
         }
       } else {
-        settings[arg.key] = optionValue(arg, ctx, deferred, context);
+        settings[arg.key] = optionValue(arg, ctx, deferred, context, fnCall.name);
       }
     } else if (arg instanceof ParsedEnvSpecStaticValue || arg instanceof ParsedEnvSpecFunctionCall) {
       positionals.push(arg);
@@ -299,7 +362,7 @@ function extractScalarTypeArgs(
 
   for (const arg of fnCall.data.args.values) {
     if (arg instanceof ParsedEnvSpecKeyValuePair) {
-      settings[arg.key] = optionValue(arg, ctx, deferred, context);
+      settings[arg.key] = optionValue(arg, ctx, deferred, context, fnCall.name);
     } else if (arg instanceof ParsedEnvSpecStaticValue) {
       positionals.push(arg.value);
     } else if (arg instanceof ParsedEnvSpecFunctionCall) {
@@ -380,6 +443,40 @@ function buildEnumTypePlan(
   };
 }
 
+function staticStringValue(node: unknown): string | undefined {
+  if (!(node instanceof ParsedEnvSpecStaticValue)) return undefined;
+  return typeof node.value === 'string' ? node.value : undefined;
+}
+
+/**
+ * An unquoted `/pattern/` is a plain value, not a token the grammar knows about, so a
+ * comma inside it ends the value: `matches=/^[0-9a-f]{7,40}$/` becomes
+ * `matches=/^[0-9a-f]{7` plus a positional `40}$/`, which lands here looking like a
+ * positional/named mixup rather than the spelling problem it is.
+ *
+ * This only ever ADDS a tip to a call that is already throwing - a path list like
+ * `fn(/usr/local/, /etc/)` has the same shape, so this must never be used to reject a
+ * call that otherwise parses.
+ */
+function splitRegexLiteralTip(fnCall: ParsedEnvSpecFunctionCall): string | undefined {
+  const values = fnCall.data.args.values;
+  const headIndex = values.findIndex((v) => {
+    if (!(v instanceof ParsedEnvSpecKeyValuePair)) return false;
+    if (!readsOptionAsRegex(fnCall.name, v.key)) return false;
+    const val = staticStringValue(v.value);
+    return !!val && val.startsWith('/') && !COMPLETE_REGEX_LITERAL.test(val);
+  });
+  if (headIndex === -1) return undefined;
+  const hasTail = values.slice(headIndex + 1).some((v) => {
+    const val = staticStringValue(v);
+    return !!val && REGEX_LITERAL_TAIL.test(val);
+  });
+  if (!hasTail) return undefined;
+  return 'this looks like a regex pattern that was split by a comma inside it - a bare '
+    + '`/pattern/` follows the ordinary value rules, so write it as regex("pattern", "flags") '
+    + 'instead: matches=regex("^[0-9a-f]{7,40}$")';
+}
+
 /**
  * Build a plan from a `@type=...` call node whose name IS a registered data type.
  * The composite types (`array(...)`, `object(...)`) get strict option validation +
@@ -402,13 +499,23 @@ function buildTypeCallPlan(
   const { positionals, settings } = extractScalarTypeArgs(fnCall, ctx, deferred, context);
   const factory = ctx.registry[name];
   if (positionals.length && Object.keys(settings).length) {
-    throw new SchemaError(`${context} - cannot mix positional args and named options`);
+    const tip = splitRegexLiteralTip(fnCall);
+    throw new SchemaError(`${context} - cannot mix positional args and named options`, { ...tip && { tip } });
   }
   return {
     deferred,
     build: (resolved) => {
       if (positionals.length) return factory(...positionals);
       const materialized = materializeSettings(settings, resolved);
+      // a resolver-valued regex option (`matches=$PATTERN`) is only known to be a string
+      // once it resolves - warn then, so the dynamic path is not a silent migration
+      for (const [key, val] of Object.entries(materialized)) {
+        const setting = settings[key];
+        if (!(setting instanceof DeferredValue) || setting.warnedAtPlanTime) continue;
+        if (readsOptionAsRegex(name, key) && typeof val === 'string') {
+          pushWarningOnce(ctx.warnings, deprecatedRegexStringWarning(val, `${context} - option "${key}"`));
+        }
+      }
       if (Object.keys(materialized).length) return factory(materialized);
       return factory();
     },

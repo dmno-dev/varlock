@@ -27,7 +27,37 @@ import { isBuiltinVar } from './builtin-vars';
 
 const execAsync = promisify(exec);
 
-const REGEX_LIKE_STRING = /^\/(.+)\/([gimsuy]*)$/;
+const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
+/** Whether a string has the `/pattern/flags` shape that consumers read as a regex. */
+export function isRegexLikeString(str: unknown): str is string {
+  return typeof str === 'string' && REGEX_LIKE_STRING.test(str);
+}
+/** quote a pattern for an env-spec example - only `"` needs escaping inside a double-quoted value */
+const quoteForExample = (str: string) => `"${str.replaceAll('"', '\\"')}"`;
+
+/**
+ * Passing a pattern as a STRING - a `/pattern/flags` string anywhere a regex is read, or a
+ * plain string on a `matches` option - is deprecated in favour of `regex()`, and goes away
+ * in a future major. Emitted wherever such a string is still interpreted, so every schema
+ * that relies on it hears about it before the behavior changes. The tip shows the exact
+ * `regex()` call for the string it found.
+ */
+export function deprecatedRegexStringWarning(str: string, context?: string) {
+  const literal = str.match(REGEX_LIKE_STRING);
+  const replacement = literal
+    ? `regex(${quoteForExample(literal[1])}${literal[2] ? `, ${quoteForExample(literal[2])}` : ''})`
+    : `regex(${quoteForExample(str)})`;
+  return new SchemaError(
+    `${context ? `${context} - ` : ''}string patterns are deprecated, use regex() instead`,
+    {
+      isWarning: true,
+      tip: [
+        `write it as ${replacement}`,
+        'this still works for now, but a future major version will stop reading a string as a regex',
+      ],
+    },
+  );
+}
 /** Try to parse an unquoted string like `/pattern/flags` into a RegExp. Returns null if not regex-like. */
 export function parseRegexLikeString(str: string): RegExp | null {
   if (typeof str !== 'string') return null;
@@ -38,6 +68,28 @@ export function parseRegexLikeString(str: string): RegExp | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * `regex()` takes the pattern SOURCE, so a `/.../`-wrapped argument is almost always a JS
+ * literal pasted in whole - and it would quietly compile to a pattern matching the slashes
+ * themselves. Flags have their own argument here, so there is no reason to carry them
+ * inside the string either.
+ *
+ * Rejected rather than stripped on purpose: `regex("/usr/lib/")` could legitimately be a
+ * pattern for a path, and silently guessing which was meant is the thing this avoids.
+ */
+export function assertUnwrappedRegexSource(pattern: string, context?: string) {
+  if (!/^\/.*\/[dgimsuvy]*$/s.test(pattern)) return;
+  throw new SchemaError(
+    `${context ? `${context} - ` : ''}expects the pattern itself, not a /.../ literal`,
+    {
+      tip: [
+        'drop the surrounding slashes - regex("^abc$") - and pass any flags as a second argument',
+        'if the pattern really should match a slash at each end, escape them: regex("\\/usr\\/lib\\/")',
+      ],
+    },
+  );
 }
 
 export type ResolvedValue = undefined
@@ -76,6 +128,19 @@ export class Resolver {
   _parsedNode?: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
     | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral;
   _errors: Array<SchemaError> = [];
+
+  /**
+   * A match value that only turns out to be a `/.../` string once resolved (`$PATTERN`)
+   * gets the same deprecation warning a static one gets at process time. Static ones are
+   * skipped here since they were already warned about; repeat resolves never stack it.
+   */
+  protected warnDynamicRegexString(source: Resolver, str: string) {
+    // eslint-disable-next-line no-use-before-define
+    if (source instanceof StaticValueResolver) return;
+    const warning = deprecatedRegexStringWarning(str);
+    if (this._errors.some((e) => e.message === warning.message && e.tip === warning.tip)) return;
+    this._errors.push(warning);
+  }
   private _depsObj: Record<string, boolean> = {};
 
   get childResolvers(): Array<Resolver> {
@@ -481,18 +546,29 @@ export const RegexResolver: typeof Resolver = createResolver({
   icon: 'mdi:regex',
   argsSchema: {
     type: 'array',
-    arrayExactLength: 1,
+    arrayMinLength: 1,
+    arrayMaxLength: 2,
   },
   process() {
     if (!(this.arrArgs?.[0] instanceof StaticValueResolver)) {
-      throw new SchemaError('expects a single static value passed in');
+      throw new SchemaError('expects a static pattern passed in');
     }
     const regexStr = this.arrArgs[0].staticValue;
     if (typeof regexStr !== 'string') {
       throw new SchemaError('expects a string');
     }
+    assertUnwrappedRegexSource(regexStr);
+    let flags: string | undefined;
+    if (this.arrArgs[1] !== undefined) {
+      if (!(this.arrArgs[1] instanceof StaticValueResolver)) {
+        throw new SchemaError('flags must be a static value');
+      }
+      const flagsVal = this.arrArgs[1].staticValue;
+      if (typeof flagsVal !== 'string') throw new SchemaError('flags must be a string');
+      flags = flagsVal;
+    }
     try {
-      return new RegExp(regexStr);
+      return new RegExp(regexStr, flags);
     } catch (err) {
       throw new SchemaError((err as Error).message);
     }
@@ -532,6 +608,14 @@ export const RemapResolver: typeof Resolver = createResolver({
         throw new SchemaError('expects at least 3 arguments: (value, match1, result1, ...)');
       }
     }
+    // match values: every other positional after the source, or the object values in legacy mode
+    const matchResolvers = isLegacyKeyValMode
+      ? Object.values(this.objArgs!)
+      : (this.arrArgs ?? []).filter((_arg, i) => i >= 1 && (i - 1) % 2 === 0);
+    const regexString = matchResolvers.find((r) => (
+      r instanceof StaticValueResolver && isRegexLikeString(r.staticValue)
+    )) as StaticValueResolver | undefined;
+    if (regexString) this._errors.push(deprecatedRegexStringWarning(regexString.staticValue as string));
     return { isLegacyKeyValMode };
   },
   async resolve({ isLegacyKeyValMode }) {
@@ -549,6 +633,7 @@ export const RemapResolver: typeof Resolver = createResolver({
         if (typeof matchVal === 'string') {
           const regex = parseRegexLikeString(matchVal);
           if (regex) {
+            this.warnDynamicRegexString(matchValResolver, matchVal);
             if (originalValue !== undefined && regex.test(String(originalValue))) return remappedVal;
             continue;
           }
@@ -571,6 +656,7 @@ export const RemapResolver: typeof Resolver = createResolver({
       if (typeof matchVal === 'string') {
         const regex = parseRegexLikeString(matchVal);
         if (regex) {
+          this.warnDynamicRegexString(remainingArgs[i], matchVal);
           if (originalValue !== undefined && regex.test(String(originalValue))) return remainingArgs[i + 1].resolve();
           continue;
         }

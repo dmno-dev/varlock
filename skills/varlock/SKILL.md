@@ -152,7 +152,7 @@ Decorator values can use resolver functions: `@required=forEnv(prod)`, `@sensiti
 
 ### Common data types (`@type=`)
 
-`string(startsWith=X)`, `string(matches=/regex/)`, `number`, `boolean`, `url`, `email`, `port`, `enum(a, b, c)`, `ipAddress`, `semver`
+`string(startsWith=X)`, `string(matches=regex("^pattern$"))`, `number`, `boolean`, `url`, `email`, `port`, `enum(a, b, c)`, `ipAddress`, `semver`
 
 Plain `string` is the default — do not add `@type=string`, just omit `@type` entirely. Only use `@type` when you need a specific type or string constraints. See https://varlock.dev/reference/data-types/
 
@@ -174,7 +174,7 @@ API_URL=if(eq($APP_ENV, prod), https://api.example.com, http://localhost:3000)
 FALLBACK_VAR=fallback($PRIMARY, $SECONDARY, "default")
 
 # Map one value to another
-APP_ENV=remap($CI_BRANCH, "main", production, /.*/, preview, undefined, development)
+APP_ENV=remap($CI_BRANCH, "main", production, regex(".*"), preview, undefined, development)
 
 # Check environment (based on @currentEnv)
 # @required=forEnv(prod, staging)

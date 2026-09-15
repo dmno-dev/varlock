@@ -115,10 +115,10 @@ export class ParsedEnvSpecFunctionArgs {
           obj[val.key] = val.value.value;
         // eslint-disable-next-line no-use-before-define
         } else if (val.value instanceof ParsedEnvSpecFunctionCall && val.value.name === 'regex') {
-          // Convert regex("pattern") to a RegExp instance (deprecated)
+          // Convert regex("pattern") / regex("pattern", "flags") to a RegExp instance
           const args = val.value.simplifiedArgs as Array<any>;
           if (typeof args[0] === 'string') {
-            obj[val.key] = new RegExp(args[0]);
+            obj[val.key] = new RegExp(args[0], typeof args[1] === 'string' ? args[1] : undefined);
           }
         }
       });

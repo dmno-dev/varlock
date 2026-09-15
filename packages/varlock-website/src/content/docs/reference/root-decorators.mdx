@@ -539,9 +539,9 @@ These are merged with any [`--ignore`](/reference/cli/encryption/#audit) entries
 ### `@auditExtraPatterns()`
 **Arg types:** `[ ...patterns: RegExp[], fileTypes?: string[] ]`
 
-Adds project-specific patterns to the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. This is the escape hatch for env access idioms the built-in patterns don't cover (e.g. NestJS `configService.get('KEY')`). Each pattern is a regex (a `regex('...')` call or a quoted `'/.../flags'` literal); the **first capture group is the env key**, so patterns without one match nothing. _Can be called multiple times; patterns are merged additively._
+Adds project-specific patterns to the [`varlock audit`](/reference/cli/encryption/#audit) code scanner. This is the escape hatch for env access idioms the built-in patterns don't cover (e.g. NestJS `configService.get('KEY')`). Each pattern is a [`regex()`](/reference/functions#regex) call; the **first capture group is the env key**, so patterns without one match nothing. _Can be called multiple times; patterns are merged additively._
 
-Use the `regex('...')` form (or a quoted slash-delimited literal) rather than a bare `/.../ ` literal: bare decorator args cannot contain spaces, commas or parentheses, so realistic patterns would not survive parsing. Anything that is neither is rejected as an error instead of silently scanning nothing.
+Anything that is not a `regex()` call is rejected as an error instead of silently scanning nothing. (A quoted `'/.../flags'` string is still accepted with a deprecation warning.)
 
 ```env-spec
 # @auditExtraPatterns(regex('config\.get\(\s*\'([A-Z_]+)\'\)'))
@@ -563,7 +563,7 @@ Pass `fileTypes=[...]` to restrict the patterns in that call to certain file ext
 # terraform and helm, which the scanner would not otherwise read
 # @auditExtraPatterns(regex('cfg\.get\(\s*"([A-Z_]+)"\)'), fileTypes=[tf, yaml])
 # no fileTypes: applies to every recognized source file
-# @auditExtraPatterns('/metrics\.inc\("([A-Z_]+)"\)/')
+# @auditExtraPatterns(regex('metrics\.inc\("([A-Z_]+)"\)'))
 # ---
 API_KEY=
 ```
