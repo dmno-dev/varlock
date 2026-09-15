@@ -12,19 +12,12 @@ const INCOMPATIBLE_DECORATOR_PAIRS = [
   ['sensitive', 'public'],
 ] as const;
 
-/**
- * Extract a regex pattern from a `regex("pattern", "flags")` call, a deprecated
- * `/pattern/flags` string (still interpreted at runtime), or a plain pattern.
- */
+/** Extract the pattern and flags from a `regex("pattern", "flags")` call. Anything else is not a pattern. */
 function extractRegexPattern(value: unknown): { pattern: string, flags: string } | undefined {
   if (typeof value !== 'string') return undefined;
-  // regex("pattern") / regex('pattern', 'flags')
   const wrapped = value.match(/^regex\(\s*(["'])(.*?)\1\s*(?:,\s*(["'])([a-z]*)\3\s*)?\)$/s);
   if (wrapped) return { pattern: wrapped[2], flags: wrapped[4] ?? '' };
-  // deprecated /pattern/flags string
-  const regexLiteral = value.match(/^\/(.*)\/([dgimsuvy]*)$/s);
-  if (regexLiteral) return { pattern: regexLiteral[1].replaceAll('\\/', '/'), flags: regexLiteral[2] };
-  return { pattern: value, flags: '' };
+  return undefined;
 }
 
 export type TypeInfo = {

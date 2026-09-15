@@ -471,7 +471,7 @@ export const RESOLVERS: Array<ResolverInfo> = [
   {
     name: 'regex',
     summary: 'Creates a regular expression for use inside other functions.',
-    documentation: 'The one way to write a pattern: `regex("pattern", "flags")`. The pattern is a quoted string with no surrounding slashes, and flags are an optional second argument - e.g. `matches=regex("^[0-9a-f]{7,40}$", "i")`. Bare `/pattern/` strings are deprecated.',
+    documentation: 'The one way to write a pattern: `regex("pattern", "flags")`. The pattern is a quoted string with no surrounding slashes, and flags are an optional second argument - e.g. `matches=regex("^[0-9a-f]{7,40}$", "i")`. A bare `/pattern/` string is just a string.',
     insertText: 'regex(${1:"^dev.*"})',
   },
   {
