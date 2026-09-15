@@ -44,6 +44,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         label: 'Encryption & delivery',
         collapsed: false,
         items: [
+          { label: 'Deploy-time config', slug: 'guides/deploy-time-config', badge: 'new' },
           { label: 'Local encryption', slug: 'guides/local-encryption' },
           { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments' },
           { label: 'Frozen env', slug: 'guides/frozen-env', badge: 'new' },
