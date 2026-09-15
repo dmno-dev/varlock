@@ -177,7 +177,7 @@ ENV_TYPE=remap($APP_ENV, regex("^dev.*", "i"), dev, "production", prod)
 ```
 
 :::note[Deprecated: bare `/pattern/flags` strings]
-Earlier versions also read a string that starts and ends with `/` as a regex in these positions, quoted or not. That still works and now produces a warning. A future major version will stop interpreting it, and such a string will be compared as-is like any other. Move to `regex()`: `/^abc$/i` becomes `regex("^abc$", "i")`.
+Earlier versions also read a string that starts and ends with `/` as a regex in these positions, quoted or not, and `matches` accepted a plain quoted string as the pattern source. Both still work and now produce a warning that shows the exact `regex()` call to use. A future major version will stop interpreting it, and such a string will be compared as-is like any other. Move to `regex()`: `/^abc$/i` becomes `regex("^abc$", "i")`.
 
 Until then, a `remap()` match value that happens to start and end with a slash (`/usr/lib/`) is still read as a pattern rather than compared literally. That ambiguity is one of the reasons for the change.
 :::

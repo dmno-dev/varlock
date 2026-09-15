@@ -1008,7 +1008,7 @@ describe('string data type - matches option', () => {
       expect(g.configSchema.GOOD.isValid).toBe(true);
       expect(g.configSchema.GOOD.validationState).toBe('warn');
       expect(g.configSchema.GOOD.errors[0].message).toContain('deprecated, use regex()');
-      expect(g.configSchema.GOOD.errors[0].tip).toContain('regex("^abc$", "i")');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[A-Z]+$")');
       expect(g.configSchema.BAD.isValid).toBe(false);
     });
 
@@ -1019,6 +1019,7 @@ describe('string data type - matches option', () => {
       `);
       expect(g.configSchema.GOOD.isValid).toBe(true);
       expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[0-9a-f]{7,40}$", "i")');
     });
 
     it('reaches a nested element type', async () => {
@@ -1029,12 +1030,14 @@ describe('string data type - matches option', () => {
       expect(g.configSchema.ITEMS.validationState).toBe('warn');
     });
 
-    it('a quoted plain pattern is not the deprecated shape', async () => {
+    it('a plain string pattern on matches warns too', async () => {
       const g = await loadAndResolve(outdent`
         # @type=string(matches="^[a-z]+$")
         GOOD=abc
       `);
-      expect(g.configSchema.GOOD.validationState).toBe('valid');
+      expect(g.configSchema.GOOD.isValid).toBe(true);
+      expect(g.configSchema.GOOD.validationState).toBe('warn');
+      expect(g.configSchema.GOOD.errors[0].tip).toContain('write it as regex("^[a-z]+$")');
     });
 
     it('warns on a remap() match value', async () => {
@@ -1044,7 +1047,7 @@ describe('string data type - matches option', () => {
       `);
       expect(g.configSchema.R.resolvedValue).toBe('HIT');
       expect(g.configSchema.R.validationState).toBe('warn');
-      expect(g.configSchema.R.errors[0].message).toContain('deprecated, use regex()');
+      expect(g.configSchema.R.errors[0].tip).toContain('write it as regex("^dev.*", "i")');
     });
 
     it('does not warn on a remap() regex() call or a plain path', async () => {

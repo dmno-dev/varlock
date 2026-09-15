@@ -32,20 +32,28 @@ const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
 export function isRegexLikeString(str: unknown): str is string {
   return typeof str === 'string' && REGEX_LIKE_STRING.test(str);
 }
+/** quote a pattern for an env-spec example - only `"` needs escaping inside a double-quoted value */
+const quoteForExample = (str: string) => `"${str.replaceAll('"', '\\"')}"`;
+
 /**
- * Reading a `/pattern/flags` STRING as a regex is deprecated in favour of `regex()`, and
- * goes away in a future major - at which point the string is compared as-is. Emitted
- * wherever such a string is still interpreted, so every schema that relies on it hears
- * about it before the behavior changes.
+ * Passing a pattern as a STRING - a `/pattern/flags` string anywhere a regex is read, or a
+ * plain string on a `matches` option - is deprecated in favour of `regex()`, and goes away
+ * in a future major. Emitted wherever such a string is still interpreted, so every schema
+ * that relies on it hears about it before the behavior changes. The tip shows the exact
+ * `regex()` call for the string it found.
  */
-export function deprecatedRegexStringWarning(context?: string) {
+export function deprecatedRegexStringWarning(str: string, context?: string) {
+  const literal = str.match(REGEX_LIKE_STRING);
+  const replacement = literal
+    ? `regex(${quoteForExample(literal[1])}${literal[2] ? `, ${quoteForExample(literal[2])}` : ''})`
+    : `regex(${quoteForExample(str)})`;
   return new SchemaError(
-    `${context ? `${context} - ` : ''}\`/pattern/\` regex strings are deprecated, use regex() instead`,
+    `${context ? `${context} - ` : ''}string patterns are deprecated, use regex() instead`,
     {
       isWarning: true,
       tip: [
-        'regex("pattern", "flags") - for example /^abc$/i becomes regex("^abc$", "i")',
-        'this still works for now, but a future major version will stop reading the string as a regex',
+        `write it as ${replacement}`,
+        'this still works for now, but a future major version will stop reading a string as a regex',
       ],
     },
   );
@@ -591,10 +599,10 @@ export const RemapResolver: typeof Resolver = createResolver({
     const matchResolvers = isLegacyKeyValMode
       ? Object.values(this.objArgs!)
       : (this.arrArgs ?? []).filter((_arg, i) => i >= 1 && (i - 1) % 2 === 0);
-    const usesRegexString = matchResolvers.some((r) => (
+    const regexString = matchResolvers.find((r) => (
       r instanceof StaticValueResolver && isRegexLikeString(r.staticValue)
-    ));
-    if (usesRegexString) this._errors.push(deprecatedRegexStringWarning());
+    )) as StaticValueResolver | undefined;
+    if (regexString) this._errors.push(deprecatedRegexStringWarning(regexString.staticValue as string));
     return { isLegacyKeyValMode };
   },
   async resolve({ isLegacyKeyValMode }) {

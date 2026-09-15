@@ -9,7 +9,7 @@ import {
 } from '@env-spec/parser';
 import type { CoercedType, EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
 import {
-  assertUnwrappedRegexSource, convertParsedValueToResolvers, deprecatedRegexStringWarning, isRegexLikeString,
+  assertUnwrappedRegexSource, convertParsedValueToResolvers, deprecatedRegexStringWarning,
   type Resolver,
 } from './resolver';
 import type { EnvGraphDataSource } from './data-source';
@@ -104,8 +104,9 @@ function optionValue(
 ): any {
   const val = kv.value;
   if (val instanceof ParsedEnvSpecStaticValue) {
-    if (REGEX_OPTION_NAMES.includes(kv.key) && isRegexLikeString(val.value)) {
-      ctx.warnings?.push(deprecatedRegexStringWarning(`${context} - option "${kv.key}"`));
+    // a regex-taking option given a string - `/.../` or plain - rather than a regex() call
+    if (REGEX_OPTION_NAMES.includes(kv.key) && typeof val.value === 'string') {
+      ctx.warnings?.push(deprecatedRegexStringWarning(val.value, `${context} - option "${kv.key}"`));
     }
     return val.value;
   }
