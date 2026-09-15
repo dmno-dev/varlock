@@ -3,6 +3,12 @@
 
 
 
+
+## 1.20.0
+<sub>2026-09-15</sub>
+
+- *(minor)* Version bump from group with `varlock` v1.20.0
+
 ## 1.19.0
 <sub>2026-09-12</sub>
 
