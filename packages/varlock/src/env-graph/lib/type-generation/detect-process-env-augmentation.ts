@@ -50,12 +50,14 @@ async function readFileHead(filePath: string, maxBytes = MAX_SCAN_BYTES): Promis
 const COMMENTS_AND_LITERALS = new RegExp([
   /\/\*[\s\S]*?\*\//, // block comment
   /\/\/[^\n]*/, // line comment
-  // the escape alternative takes any character (CRLF as one unit, since a lone trailing `\n`
-  // would end the match), so a backslash-newline line continuation stays inside the literal
-  // instead of ending it and exposing its contents as if they were syntax
-  /'(?:[^'\\\n]|\\(?:\r\n|[\s\S]))*'/, // single-quoted
-  /"(?:[^"\\\n]|\\(?:\r\n|[\s\S]))*"/, // double-quoted
-  /`(?:[^`\\]|\\(?:\r\n|[\s\S]))*`/, // template literal
+  // the escape alternative takes any character, newline included, so a backslash-newline line
+  // continuation stays inside the literal instead of ending it and exposing its contents. Line
+  // endings are normalized before this runs, so `\\` + newline is always exactly two characters:
+  // spelling CRLF out here instead would give `\\` + CRLF two ways to match, which backtracks
+  // exponentially on an unterminated literal (js/redos).
+  /'(?:[^'\\\n]|\\[\s\S])*'/, // single-quoted
+  /"(?:[^"\\\n]|\\[\s\S])*"/, // double-quoted
+  /`(?:[^`\\]|\\[\s\S])*`/, // template literal
 ].map((r) => r.source).join('|'), 'g');
 
 /**
@@ -85,7 +87,9 @@ const NODEJS_PROCESS_ENV = /\bnamespace\s+NodeJS\s*\{[^}]{0,400}?\binterface\s+P
  * it from rotting when that output changes.
  */
 function declaresProcessEnv(rawSrc: string): boolean {
-  return NODEJS_PROCESS_ENV.test(rawSrc.replace(COMMENTS_AND_LITERALS, ' '));
+  // normalize line endings first so the patterns above only ever deal with `\n`
+  const src = rawSrc.replace(/\r\n?/g, '\n');
+  return NODEJS_PROCESS_ENV.test(src.replace(COMMENTS_AND_LITERALS, ' '));
 }
 
 /**
