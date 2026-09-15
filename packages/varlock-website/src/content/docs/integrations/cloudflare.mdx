@@ -204,9 +204,11 @@ Wraps `wrangler dev` with automatic env injection. Resolves your environment var
 </div>
 
 <div>
-### `varlock-wrangler deploy` / `versions upload`
+### `varlock-wrangler deploy` / `versions upload` / `preview`
 
 Resolves your environment variables from `.env.schema` + `.env` files, then uploads non-sensitive values as Cloudflare vars (`--var`), sensitive values as Cloudflare secrets (`--secrets-file`), and includes a `__VARLOCK_ENV` secret containing the full resolved env graph for the varlock runtime.
+
+`varlock-wrangler preview` works the same way for [branch preview deployments](https://developers.cloudflare.com/workers/configuration/previews/). Note that `wrangler preview` is currently in beta on Cloudflare's side. Subcommands that manage existing previews (`preview delete`, `preview settings`, `preview secret`, `preview base-config`) are passed through to wrangler unchanged.
 
 :::note[Secure secret handling]
 On Unix, secrets are passed to wrangler commands via a named pipe (FIFO) and never written to disk. On Windows, a temporary file is used and immediately deleted after the deploy completes.
