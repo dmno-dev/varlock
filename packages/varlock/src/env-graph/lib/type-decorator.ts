@@ -84,7 +84,7 @@ function coercedTypeFingerprint(type: EnvGraphDataType): string {
 /**
  * Interpret a named-option VALUE: static scalars and literals pass through; a resolver
  * call (if, remap, ref via `$VAR`, ...) becomes a DeferredValue resolved at item
- * resolution time. The deprecated `regex("...")` form converts to a RegExp.
+ * resolution time. The `regex("...")` form converts to a RegExp.
  */
 function optionValue(
   kv: ParsedEnvSpecKeyValuePair,
@@ -99,10 +99,19 @@ function optionValue(
   }
   if (val instanceof ParsedEnvSpecFunctionCall) {
     if (val.name === 'regex') {
-      // deprecated `regex("...")` option form, converted to a RegExp instance
+      // `regex("pattern")` / `regex("pattern", "flags")` - the spelling for a pattern that
+      // cannot be written as an unquoted `/.../` (one containing a comma, say)
       const regexArgs = val.simplifiedArgs;
       if (Array.isArray(regexArgs) && typeof regexArgs[0] === 'string') {
-        return new RegExp(regexArgs[0]);
+        const flags = regexArgs[1];
+        if (flags !== undefined && typeof flags !== 'string') {
+          throw new SchemaError(`${context} - regex() flags must be a string in option "${kv.key}"`);
+        }
+        try {
+          return new RegExp(regexArgs[0], flags);
+        } catch (err) {
+          throw new SchemaError(`${context} - invalid regex() in option "${kv.key}" - ${(err as Error).message}`);
+        }
       }
       throw new SchemaError(`${context} - invalid regex() in option "${kv.key}"`);
     }
@@ -380,6 +389,45 @@ function buildEnumTypePlan(
   };
 }
 
+/** Option names whose value is interpreted as a regex (see `parseRegexLikeString`). */
+const REGEX_OPTION_NAMES = ['matches'];
+const COMPLETE_REGEX_LITERAL = /^\/.*\/[dgimsuvy]*$/;
+const REGEX_LITERAL_TAIL = /\/[dgimsuvy]*$/;
+
+function staticStringValue(node: unknown): string | undefined {
+  if (!(node instanceof ParsedEnvSpecStaticValue)) return undefined;
+  return typeof node.value === 'string' ? node.value : undefined;
+}
+
+/**
+ * An unquoted `/pattern/` is a plain value, not a token the grammar knows about, so a
+ * comma inside it ends the value: `matches=/^[0-9a-f]{7,40}$/` becomes
+ * `matches=/^[0-9a-f]{7` plus a positional `40}$/`, which lands here looking like a
+ * positional/named mixup rather than the quoting problem it is.
+ *
+ * This only ever ADDS a tip to a call that is already throwing - a path list like
+ * `fn(/usr/local/, /etc/)` has the same shape, so this must never be used to reject a
+ * call that otherwise parses.
+ */
+function splitRegexLiteralTip(fnCall: ParsedEnvSpecFunctionCall): string | undefined {
+  const values = fnCall.data.args.values;
+  const headIndex = values.findIndex((v) => {
+    if (!(v instanceof ParsedEnvSpecKeyValuePair)) return false;
+    if (!REGEX_OPTION_NAMES.includes(v.key)) return false;
+    const val = staticStringValue(v.value);
+    return !!val && val.startsWith('/') && !COMPLETE_REGEX_LITERAL.test(val);
+  });
+  if (headIndex === -1) return undefined;
+  const hasTail = values.slice(headIndex + 1).some((v) => {
+    const val = staticStringValue(v);
+    return !!val && REGEX_LITERAL_TAIL.test(val);
+  });
+  if (!hasTail) return undefined;
+  return 'this looks like a regex pattern that was split by a comma inside it - an unquoted '
+    + '`/pattern/` follows the ordinary value rules, so a pattern containing a comma has to '
+    + 'be quoted: matches=regex("^[0-9a-f]{7,40}$"), with flags as a second arg';
+}
+
 /**
  * Build a plan from a `@type=...` call node whose name IS a registered data type.
  * The composite types (`array(...)`, `object(...)`) get strict option validation +
@@ -402,7 +450,8 @@ function buildTypeCallPlan(
   const { positionals, settings } = extractScalarTypeArgs(fnCall, ctx, deferred, context);
   const factory = ctx.registry[name];
   if (positionals.length && Object.keys(settings).length) {
-    throw new SchemaError(`${context} - cannot mix positional args and named options`);
+    const tip = splitRegexLiteralTip(fnCall);
+    throw new SchemaError(`${context} - cannot mix positional args and named options`, { ...tip && { tip } });
   }
   return {
     deferred,

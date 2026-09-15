@@ -934,6 +934,77 @@ describe('string data type - matches option', () => {
     `);
     expect(g.configSchema.MY_VAR.isValid).toBe(true);
   });
+
+  it('requires a quoted pattern when it contains a comma', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches="^[0-9a-f]{7,40}$")
+      GOOD_SHA=abc1234
+      # @type=string(matches="^[0-9a-f]{7,40}$")
+      BAD_SHA=nope
+    `);
+    expect(g.configSchema.GOOD_SHA.isValid).toBe(true);
+    expect(g.configSchema.BAD_SHA.isValid).toBe(false);
+  });
+
+  it('accepts a comma-containing pattern via regex()', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^[0-9a-f]{7,40}$"))
+      GOOD_SHA=abc1234
+      # @type=string(matches=regex("^[0-9a-f]{7,40}$"))
+      BAD_SHA=nope
+    `);
+    expect(g.configSchema.GOOD_SHA.isValid).toBe(true);
+    expect(g.configSchema.BAD_SHA.isValid).toBe(false);
+  });
+
+  it('accepts flags as a second regex() arg', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^[0-9A-F]{7,40}$", "i"))
+      GOOD_SHA=abc1234
+      # @type=string(matches=regex("^[0-9A-F]{7,40}$", "i"))
+      BAD_SHA=nope
+    `);
+    expect(g.configSchema.GOOD_SHA.isValid).toBe(true);
+    expect(g.configSchema.BAD_SHA.isValid).toBe(false);
+  });
+
+  it('rejects invalid regex() flags', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=regex("^abc$", "zz"))
+      MY_VAR=abc
+    `);
+    expect(g.configSchema.MY_VAR.isValid).toBe(false);
+  });
+
+  it('tips off an unquoted pattern split by its own comma', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(matches=/^[0-9a-f]{7,40}$/)
+      MY_VAR=abc1234
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('cannot mix positional args and named options');
+    expect(err.tip).toContain('regex(');
+  });
+
+  it('does not tip when the mixup has nothing to do with a regex', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(somePositional, minLength=2)
+      MY_VAR=hello
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('cannot mix positional args and named options');
+    expect(err.tip).toBeUndefined();
+  });
+
+  it('does not tip on a path-shaped arg list that happens to look similar', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=string(/usr/local/, matches=/etc/, minLength=2)
+      MY_VAR=hello
+    `);
+    const err = g.configSchema.MY_VAR.errors[0];
+    expect(err.message).toContain('cannot mix positional args and named options');
+    expect(err.tip).toBeUndefined();
+  });
 });
 
 describe('duration data type', () => {

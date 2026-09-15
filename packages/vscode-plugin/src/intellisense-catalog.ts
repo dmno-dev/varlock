@@ -470,8 +470,8 @@ export const RESOLVERS: Array<ResolverInfo> = [
   },
   {
     name: 'regex',
-    summary: '*(deprecated)* Creates a regular expression for use inside other functions.',
-    documentation: 'Deprecated — use `/pattern/flags` syntax instead. For example: `remap($VAR, /^dev.*/, result)`.',
+    summary: 'Creates a regular expression for use inside other functions.',
+    documentation: 'Takes a quoted pattern, with optional flags as a second argument. Prefer `/pattern/flags` when it fits (`remap($VAR, /^dev.*/, result)`), and use this when the pattern contains a `,`, a space, or a `)` - for example a quantifier: `regex("^[0-9a-f]{7,40}$")`.',
     insertText: 'regex(${1:"^dev.*"})',
   },
   {

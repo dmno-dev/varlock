@@ -175,16 +175,21 @@ Values are interpreted similarly for config item values, decorator values, and v
 
 ### Regex literals
 
-Regex literals use JavaScript-style `/pattern/flags` syntax and can be used anywhere a value is expected, for example as function arguments or decorator option values.
+A `/pattern/flags` value is not a distinct kind of token. It is an ordinary unquoted value that certain consumers (the `matches` type option, `remap()` match values) reinterpret as a regex. That keeps the language free of path-versus-regex ambiguity, and it means the [normal unquoted value rules](#unquoted-values) apply to the pattern:
 
 - The pattern is delimited by `/` characters
 - Forward slashes within the pattern must be escaped as `\/`
-- Optional flags (`g`, `i`, `m`, `s`, `u`, `y`) may follow the closing `/`
+- Optional flags (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`) may follow the closing `/`
+- The pattern may not contain a `,`, a space, or a `)`, since each of those ends a value. A pattern containing any of them must use `regex("pattern", "flags")` instead
 
 ```env-spec
 ITEM=fn(/^dev.*/i, dev, "production", prod)
 # @type=string(matches=/^sk-[a-zA-Z0-9]+$/)
 API_KEY=
+
+# a `{n,m}` quantifier holds a comma, so this pattern needs regex()
+# @type=string(matches=regex("^[0-9a-f]{7,40}$"))
+APP_COMMIT_SHA=
 ```
 
 ### Function calls

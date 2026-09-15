@@ -27,7 +27,7 @@ import { isBuiltinVar } from './builtin-vars';
 
 const execAsync = promisify(exec);
 
-const REGEX_LIKE_STRING = /^\/(.+)\/([gimsuy]*)$/;
+const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
 /** Try to parse an unquoted string like `/pattern/flags` into a RegExp. Returns null if not regex-like. */
 export function parseRegexLikeString(str: string): RegExp | null {
   if (typeof str !== 'string') return null;
@@ -481,18 +481,28 @@ export const RegexResolver: typeof Resolver = createResolver({
   icon: 'mdi:regex',
   argsSchema: {
     type: 'array',
-    arrayExactLength: 1,
+    arrayMinLength: 1,
+    arrayMaxLength: 2,
   },
   process() {
     if (!(this.arrArgs?.[0] instanceof StaticValueResolver)) {
-      throw new SchemaError('expects a single static value passed in');
+      throw new SchemaError('expects a static pattern passed in');
     }
     const regexStr = this.arrArgs[0].staticValue;
     if (typeof regexStr !== 'string') {
       throw new SchemaError('expects a string');
     }
+    let flags: string | undefined;
+    if (this.arrArgs[1] !== undefined) {
+      if (!(this.arrArgs[1] instanceof StaticValueResolver)) {
+        throw new SchemaError('flags must be a static value');
+      }
+      const flagsVal = this.arrArgs[1].staticValue;
+      if (typeof flagsVal !== 'string') throw new SchemaError('flags must be a string');
+      flags = flagsVal;
+    }
     try {
-      return new RegExp(regexStr);
+      return new RegExp(regexStr, flags);
     } catch (err) {
       throw new SchemaError((err as Error).message);
     }
