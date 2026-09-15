@@ -77,9 +77,9 @@ Test detection reads `NODE_ENV=test`, `VITEST`, `VITEST_POOL_ID`, and `JEST_WORK
 
 | Runner | Signals available |
 | --- | --- |
-| Vitest, parent and workers | `VITEST` and `NODE_ENV=test` |
+| Vitest, parent and workers | `VITEST` and `NODE_ENV=test` (workers also get `VITEST_POOL_ID`) |
 | Jest, worker-scoped code (`setupFiles`, `setupFilesAfterEnv`, test files, app code under test) | `JEST_WORKER_ID` and `NODE_ENV=test` |
-| Jest, parent-scoped code (`jest.config.*`, `globalSetup`, `globalTeardown`) | `NODE_ENV=test` only |
+| Jest, parent-scoped code (`jest.config.*`, `globalSetup`) | `NODE_ENV=test` only |
 | `bun test`, AVA | `NODE_ENV=test` only |
 | `node --test`, Mocha | none |
 
