@@ -9,6 +9,8 @@ import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
 This is for apps where you control the boot command but have no build step that would inline values for you: Elysia, Hono, Fastify, or Express on Bun or Node, and distroless Docker images. If you use a framework integration (Next.js, Vite, Astro, Nuxt, Cloudflare Workers), you already get equivalent behavior and do not need this. See [encrypted deployments](/guides/encrypted-deployments/).
 
+Most of this guide describes the file, which is the form to prefer. If your platform takes environment variables but gives you no way to ship a file into the deploy unit, [`--out -`](#carrying-the-payload-in-an-env-var-instead) produces the same payload to carry in one variable.
+
 ## The problem
 
 Setting environment variables on a platform and shipping code are two separate operations. There is no way to make them one, which causes three things:
