@@ -1,4 +1,8 @@
+import { dirname, resolve } from 'node:path';
+
 /**
+ * Helpers for reading and reshaping a wrangler invocation's argv.
+ *
  * `wrangler preview` is two commands wearing one name: a deploy-style command
  * (`preview [script]`) that creates a branch preview, and a namespace for management
  * subcommands (`preview delete`, `preview secret put`, ...). Only the former should get
@@ -91,4 +95,26 @@ export async function isPreviewDeployCommand(args: Array<string>, runWrangler: W
   const resolved = resolvedCommandFromHelp(await runWrangler([...parsedArgs, '--help']));
   // if wrangler couldn't tell us, pass the command through and let it report the problem
   return resolved === 'preview';
+}
+
+/**
+ * Appends varlock's own flags to a wrangler invocation. Wrangler reads anything after
+ * `--` as a positional, so they go before it when the user passed one.
+ */
+export function withInjectedArgs(args: Array<string>, injected: Array<string>) {
+  const doubleDashIndex = args.indexOf('--');
+  if (doubleDashIndex === -1) return [...args, ...injected];
+  return [...args.slice(0, doubleDashIndex), ...injected, ...args.slice(doubleDashIndex)];
+}
+
+/**
+ * The directory wrangler treats as the project: where it looks for files it resolves
+ * beside the config, such as `.dev.vars`. Both `--cwd` and `--config` move it.
+ *
+ * Best effort: this follows those flags but not wrangler's upward config discovery or its
+ * dashboard config redirects, so it can still point somewhere wrangler would not.
+ */
+export function wranglerProjectDir(args: Array<string>) {
+  const configPath = wranglerFlagValue(args, '--config') ?? wranglerFlagValue(args, '-c');
+  return resolve(wranglerFlagValue(args, '--cwd') ?? '.', configPath ? dirname(configPath) : '.');
 }

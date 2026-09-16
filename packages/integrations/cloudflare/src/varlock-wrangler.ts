@@ -3,7 +3,7 @@
 import {
   writeFileSync, unlinkSync, watch, existsSync, statSync,
 } from 'node:fs';
-import { join, dirname, resolve as resolvePath } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
@@ -11,7 +11,9 @@ import { spawn, execSync } from 'node:child_process';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
-import { isPreviewDeployCommand, wranglerCommandArgs, wranglerFlagValue } from './wrangler-command-detection';
+import {
+  isPreviewDeployCommand, withInjectedArgs, wranglerCommandArgs, wranglerFlagValue, wranglerProjectDir,
+} from './wrangler-command-detection';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -48,16 +50,6 @@ function spawnWrangler(args: Array<string>): Promise<number> {
       resolve(code ?? (signal ? 1 : 0));
     });
   });
-}
-
-/**
- * Appends varlock's own flags to a wrangler invocation. Wrangler reads anything after
- * `--` as a positional, so they go before it when the user passed one.
- */
-function withInjectedArgs(args: Array<string>, injected: Array<string>) {
-  const doubleDashIndex = args.indexOf('--');
-  if (doubleDashIndex === -1) return [...args, ...injected];
-  return [...args.slice(0, doubleDashIndex), ...injected, ...args.slice(doubleDashIndex)];
 }
 
 /**
@@ -573,13 +565,8 @@ async function handleTypes(args: Array<string>) {
 }
 
 async function handleDev(args: Array<string>) {
-  // .dev.vars would conflict with our env injection via --env-file, so warn about it.
-  // Wrangler looks for it next to the config file, which --cwd and --config both move.
-  // Best effort: we follow those flags but not wrangler's upward config discovery or its
-  // dashboard config redirects, so a .dev.vars found only that way goes unwarned.
-  const configPath = wranglerFlagValue(args, '--config') ?? wranglerFlagValue(args, '-c');
-  const projectDir = resolvePath(wranglerFlagValue(args, '--cwd') ?? '.', configPath ? dirname(configPath) : '.');
-  if (existsSync(join(projectDir, '.dev.vars'))) {
+  // .dev.vars would conflict with our env injection via --env-file, so warn about it
+  if (existsSync(join(wranglerProjectDir(args), '.dev.vars'))) {
     console.error([
       'Error: a .dev.vars file was detected in your project.',
       'This conflicts with varlock-wrangler which manages env vars automatically.',

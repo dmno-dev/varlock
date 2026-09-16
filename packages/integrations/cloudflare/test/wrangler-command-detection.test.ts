@@ -1,8 +1,10 @@
 import {
   describe, expect, it, vi,
 } from 'vitest';
+import { resolve } from 'node:path';
 import {
-  isPreviewDeployCommand, resolvedCommandFromHelp, wranglerCommandArgs, wranglerFlagValue,
+  isPreviewDeployCommand, resolvedCommandFromHelp, withInjectedArgs, wranglerCommandArgs,
+  wranglerFlagValue, wranglerProjectDir,
 } from '../src/wrangler-command-detection';
 
 const ESC = '\u001B';
@@ -141,5 +143,38 @@ describe('wranglerFlagValue', () => {
 
   it('ignores anything after the option terminator', () => {
     expect(wranglerFlagValue(['deploy', '--', '--cwd=/app'], '--cwd')).toBeUndefined();
+  });
+});
+
+describe('withInjectedArgs', () => {
+  it('appends when there is no option terminator', () => {
+    expect(withInjectedArgs(['deploy'], ['--var', 'A:b'])).toEqual(['deploy', '--var', 'A:b']);
+  });
+
+  // wrangler reads post-`--` args as positionals, so injected flags there are silently dropped
+  it('inserts before the option terminator, keeping the user positionals after it', () => {
+    expect(withInjectedArgs(['preview', '--', 'src/index.ts'], ['--secrets-file', '/tmp/s']))
+      .toEqual(['preview', '--secrets-file', '/tmp/s', '--', 'src/index.ts']);
+  });
+
+  it('only splits on the first terminator', () => {
+    expect(withInjectedArgs(['dev', '--', 'a', '--', 'b'], ['--env-file', '/tmp/e']))
+      .toEqual(['dev', '--env-file', '/tmp/e', '--', 'a', '--', 'b']);
+  });
+});
+
+describe('wranglerProjectDir', () => {
+  it('defaults to the current directory', () => {
+    expect(wranglerProjectDir(['dev'])).toBe(resolve('.'));
+  });
+
+  it('follows --cwd', () => {
+    expect(wranglerProjectDir(['dev', '--cwd', '/app'])).toBe(resolve('/app'));
+  });
+
+  it('follows the config file directory, including under --cwd', () => {
+    expect(wranglerProjectDir(['dev', '--config', '/app/configs/wrangler.jsonc'])).toBe(resolve('/app/configs'));
+    expect(wranglerProjectDir(['dev', '--cwd', '/app', '--config', 'configs/wrangler.jsonc'])).toBe(resolve('/app/configs'));
+    expect(wranglerProjectDir(['dev', '-c', '/elsewhere/wrangler.toml', '--cwd', '/app'])).toBe(resolve('/elsewhere'));
   });
 });
