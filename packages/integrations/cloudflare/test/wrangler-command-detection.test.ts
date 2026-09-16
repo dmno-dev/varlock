@@ -1,7 +1,7 @@
 import {
   describe, expect, it, vi,
 } from 'vitest';
-import { isPreviewDeployCommand, resolvedCommandFromHelp } from '../src/wrangler-command-detection';
+import { isPreviewDeployCommand, resolvedCommandFromHelp, wranglerCommandArgs } from '../src/wrangler-command-detection';
 
 const ESC = '\u001B';
 
@@ -70,6 +70,9 @@ describe('isPreviewDeployCommand', () => {
     [['preview']],
     [['preview', '--json']],
     [['preview', '--name=my-branch']],
+    // wrangler accepts global flags before the command
+    [['--cwd=/app', 'preview']],
+    [['--cwd=/app', '--json', 'preview', '--tag=x']],
     // `--` ends option parsing, so nothing after it can be a subcommand
     [['preview', '--', 'delete']],
   ])('routes %j through varlock without asking wrangler', async (args) => {
@@ -88,15 +91,36 @@ describe('isPreviewDeployCommand', () => {
   it.each([
     [['preview', 'src/index.ts'], DEPLOY_HELP, true],
     [['preview', '--config', 'wrangler.jsonc'], DEPLOY_HELP, true],
+    [['--cwd=/app', 'preview', 'src/index.ts'], DEPLOY_HELP, true],
     [['preview', 'settings'], SETTINGS_HELP, false],
     [['preview', '-c', 'wrangler.jsonc', 'settings'], SETTINGS_HELP, false],
     [['preview', 'secret', 'put', 'FOO'], SECRET_PUT_HELP, false],
+    [['--cwd=/app', 'preview', 'delete'], 'wrangler preview delete\n', false],
   ])('resolves %j via wrangler', async (args, help, expected) => {
     expect(await isPreviewDeployCommand(args, helpRunner(help))).toBe(expected);
+  });
+
+  it('probes with the leading global flags included', async () => {
+    const runWrangler = helpRunner(DEPLOY_HELP);
+    await isPreviewDeployCommand(['--cwd=/app', 'preview', 'src/index.ts'], runWrangler);
+    expect(runWrangler).toHaveBeenCalledWith(['--cwd=/app', 'preview', 'src/index.ts', '--help']);
   });
 
   it('passes through when wrangler cannot resolve the command', async () => {
     expect(await isPreviewDeployCommand(['preview', 'huh'], helpRunner(undefined))).toBe(false);
     expect(await isPreviewDeployCommand(['preview', '--nope', 'x'], helpRunner(PARSE_ERROR))).toBe(false);
+  });
+});
+
+describe('wranglerCommandArgs', () => {
+  it('returns the args from the command onwards', () => {
+    expect(wranglerCommandArgs(['deploy', '--var', 'A:b'])).toEqual(['deploy', '--var', 'A:b']);
+    expect(wranglerCommandArgs(['--cwd=/app', 'deploy'])).toEqual(['deploy']);
+    expect(wranglerCommandArgs(['--cwd=/app', '--json', 'versions', 'upload'])).toEqual(['versions', 'upload']);
+  });
+
+  it('returns nothing when there is no command', () => {
+    expect(wranglerCommandArgs([])).toEqual([]);
+    expect(wranglerCommandArgs(['--version'])).toEqual([]);
   });
 });

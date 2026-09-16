@@ -11,7 +11,7 @@ import { spawn, execSync } from 'node:child_process';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
-import { isPreviewDeployCommand } from './wrangler-command-detection';
+import { isPreviewDeployCommand, wranglerCommandArgs } from './wrangler-command-detection';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -48,6 +48,16 @@ function spawnWrangler(args: Array<string>): Promise<number> {
       resolve(code ?? (signal ? 1 : 0));
     });
   });
+}
+
+/**
+ * Appends varlock's own flags to a wrangler invocation. Wrangler reads anything after
+ * `--` as a positional, so they go before it when the user passed one.
+ */
+function withInjectedArgs(args: Array<string>, injected: Array<string>) {
+  const doubleDashIndex = args.indexOf('--');
+  if (doubleDashIndex === -1) return [...args, ...injected];
+  return [...args.slice(0, doubleDashIndex), ...injected, ...args.slice(doubleDashIndex)];
 }
 
 /**
@@ -405,18 +415,23 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
 // --- command detection ---
 
 function isVersionsUploadCommand(args: Array<string>) {
-  return args[0] === 'versions' && args[1] === 'upload';
+  const command = wranglerCommandArgs(args);
+  return command[0] === 'versions' && command[1] === 'upload';
+}
+
+function isPlainDeployCommand(args: Array<string>) {
+  return wranglerCommandArgs(args)[0] === 'deploy';
 }
 
 async function isDeployCommand(args: Array<string>) {
-  if (args[0] === 'deploy') return true;
+  if (isPlainDeployCommand(args)) return true;
   if (isVersionsUploadCommand(args)) return true;
   if (await isPreviewDeployCommand(args, captureWrangler)) return true;
   return false;
 }
 
 function isTypesCommand(args: Array<string>) {
-  return args[0] === 'types';
+  return wranglerCommandArgs(args)[0] === 'types';
 }
 
 // --- command handlers ---
@@ -500,9 +515,10 @@ async function handleDeploy(args: Array<string>) {
   let exitCode = process.exitCode ?? 0;
   try {
     debug('deploy: spawning wrangler');
-    const wranglerArgs = [...args, ...varFlags, '--secrets-file', tmp.filePath];
+    const injectedArgs = [...varFlags, '--secrets-file', tmp.filePath];
     // --keep-vars only applies to `deploy` (not `versions upload` or `preview`)
-    if (args[0] === 'deploy') wranglerArgs.push('--keep-vars=false');
+    if (isPlainDeployCommand(args)) injectedArgs.push('--keep-vars=false');
+    const wranglerArgs = withInjectedArgs(args, injectedArgs);
     exitCode = await spawnWrangler(wranglerArgs);
     debug('deploy: wrangler exited with code', exitCode);
   } finally {
@@ -541,7 +557,7 @@ async function handleTypes(args: Array<string>) {
   let exitCode = process.exitCode ?? 0;
   try {
     debug('types: spawning wrangler');
-    exitCode = await spawnWrangler([...args, '--env-file', tmp.filePath]);
+    exitCode = await spawnWrangler(withInjectedArgs(args, ['--env-file', tmp.filePath]));
     debug('types: wrangler exited with code', exitCode);
   } finally {
     debug('types: cleaning up');
@@ -731,7 +747,7 @@ async function handleDev(args: Array<string>) {
     // with the fresh data (FIFO serves fresh content, Windows file is refreshed)
     while (true) {
       debug('dev: spawning wrangler');
-      wranglerChild = spawn('wrangler', [...args, '--env-file', tmp.filePath], {
+      wranglerChild = spawn('wrangler', withInjectedArgs(args, ['--env-file', tmp.filePath]), {
         stdio: ['inherit', 'pipe', 'pipe'],
         shell: isWindows,
         // force color output since piped stdio loses TTY detection
@@ -821,7 +837,7 @@ async function main() {
     await handleDeploy(args);
   } else if (isTypesCommand(args)) {
     await handleTypes(args);
-  } else if (args[0] === 'dev') {
+  } else if (wranglerCommandArgs(args)[0] === 'dev') {
     await handleDev(args);
   } else {
     // pass through to wrangler unchanged
