@@ -196,7 +196,7 @@ Your secrets will no longer be bundled into the JS artifact. They'll be stored i
 
 `varlock-wrangler` is a thin wrapper around `wrangler`. It enhances the commands below; everything else (`tail`, `secret list`, etc.) is passed through unchanged, so you can use `varlock-wrangler` everywhere or just for these commands.
 
-Your `.env.schema` and `.env` files are resolved from the directory you run the command in, and parent directories are not searched. Wrangler's `--cwd` flag moves both: wrangler and varlock each act as if started in that directory. `--config` does not move them, which lets you keep a single `.env.schema` where you run the command while pointing at a wrangler config elsewhere.
+Your `.env.schema` and `.env` files are resolved from the directory you run the command in (or wherever that directory's `package.json` sets `varlock.loadPath`), not from parent directories. Wrangler's `--cwd` moves that too. `--config` does not.
 
 <div class="reference-docs">
 <div>
