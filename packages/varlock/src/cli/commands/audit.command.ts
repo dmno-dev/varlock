@@ -4,7 +4,6 @@ import ansis from 'ansis';
 
 import { FileBasedDataSource } from '../../env-graph';
 import { CliExitError } from '../helpers/exit-error';
-import { parseRegexLikeString } from '../../env-graph/lib/resolver';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -62,29 +61,15 @@ function collectStringArgs(input: unknown, out: Array<string>) {
   out.push(trimmed);
 }
 
-function collectPatternArgs(input: unknown, out: Array<RegExp>, stats: { regexStrings: number }) {
+function collectPatternArgs(input: unknown, out: Array<RegExp>) {
   if (Array.isArray(input)) {
-    for (const entry of input) collectPatternArgs(entry, out, stats);
+    for (const entry of input) collectPatternArgs(entry, out);
     return;
   }
-  // `regex('...')` calls already resolve to RegExp instances. Quoted
-  // '/.../flags' strings convert via the same rule the DSL uses everywhere;
-  // anything else (bare words, numbers) is a config error, not a pattern.
-  // Note: a bare unquoted literal only survives parsing when it contains no
-  // spaces, commas or parens, so realistic patterns must be quoted or use
-  // regex('...'); both forms land here, never raw.
+  // `regex('...')` calls resolve to RegExp instances; nothing else is a pattern.
   if (input instanceof RegExp) {
     out.push(input);
     return;
-  }
-  if (typeof input === 'string') {
-    const parsed = parseRegexLikeString(input);
-    if (parsed) {
-      // deprecated spelling - still honoured, the caller prints one warning for all of them
-      stats.regexStrings++;
-      out.push(parsed);
-      return;
-    }
   }
   // Uses CliExitError rather than a graph error type: this runs after the graph has
   // loaded, and the CLI's top-level handler only formats CliExitError/InvalidEnvError -
@@ -129,23 +114,17 @@ async function getCustomAuditExtraPatterns(envGraph: any): Promise<Array<ExtraSc
     : [];
 
   const scanPatterns: Array<ExtraScanPattern> = [];
-  const stats = { regexStrings: 0 };
   for (const dec of rootDecFns || []) {
     const resolved = await dec.resolve();
     const fileTypes = collectFileTypesArg(resolved?.obj);
     const patterns: Array<RegExp> = [];
-    collectPatternArgs(resolved?.arr, patterns, stats);
+    collectPatternArgs(resolved?.arr, patterns);
     if (!patterns.length && fileTypes) {
       throw new CliExitError('@auditExtraPatterns(): fileTypes=[...] given with no patterns to apply it to', {
         suggestion: 'Add at least one regex() pattern to this call.',
       });
     }
     for (const pattern of patterns) scanPatterns.push({ pattern, ...(fileTypes ? { fileTypes } : {}) });
-  }
-  if (stats.regexStrings) {
-    console.warn(ansis.yellow(
-      `⚠️  @auditExtraPatterns(): ${stats.regexStrings} pattern${stats.regexStrings === 1 ? ' is' : 's are'} written as a '/.../' string, which is deprecated - use regex("pattern", "flags") instead`,
-    ));
   }
   return scanPatterns;
 }
