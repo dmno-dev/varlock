@@ -3,7 +3,7 @@
 import {
   writeFileSync, unlinkSync, watch, existsSync, statSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname, resolve as resolvePath } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
@@ -573,9 +573,13 @@ async function handleTypes(args: Array<string>) {
 }
 
 async function handleDev(args: Array<string>) {
-  // .dev.vars would conflict with our env injection via --env-file
-  // (look where wrangler will, which --cwd can move)
-  if (existsSync(join(wranglerFlagValue(args, '--cwd') ?? '.', '.dev.vars'))) {
+  // .dev.vars would conflict with our env injection via --env-file, so warn about it.
+  // Wrangler looks for it next to the config file, which --cwd and --config both move.
+  // Best effort: we follow those flags but not wrangler's upward config discovery or its
+  // dashboard config redirects, so a .dev.vars found only that way goes unwarned.
+  const configPath = wranglerFlagValue(args, '--config') ?? wranglerFlagValue(args, '-c');
+  const projectDir = resolvePath(wranglerFlagValue(args, '--cwd') ?? '.', configPath ? dirname(configPath) : '.');
+  if (existsSync(join(projectDir, '.dev.vars'))) {
     console.error([
       'Error: a .dev.vars file was detected in your project.',
       'This conflicts with varlock-wrangler which manages env vars automatically.',
