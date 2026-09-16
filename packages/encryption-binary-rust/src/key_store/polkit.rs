@@ -8,7 +8,7 @@
 //! Requires:
 //!   - polkit installed (`pkcheck` in PATH — present on every desktop distro)
 //!   - Our policy file installed at /usr/share/polkit-1/actions/
-//!     (run `varlock-local-encrypt setup-linux-biometrics` once with sudo)
+//!     (run `varlock-local-encrypt setup --linux-biometrics` once with sudo)
 //!
 //! The pkcheck invocation uses the (PID, start-time, UID) process spec rather
 //! than a bare PID — modern polkit rejects bare PIDs due to reuse risk.
@@ -144,7 +144,7 @@ pub fn get_setup_hint() -> Option<String> {
     if !is_action_registered() {
         return Some(
             "Biometric unlock (fingerprint/face/YubiKey via PAM) is available but not enabled.\n\
-             Run once to enable: sudo varlock-local-encrypt setup-linux-biometrics"
+             Run once to enable: sudo varlock-local-encrypt setup --linux-biometrics"
                 .into(),
         );
     }
