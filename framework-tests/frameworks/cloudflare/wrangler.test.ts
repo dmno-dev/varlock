@@ -255,6 +255,31 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
   });
 
+  // wrangler's --cwd runs it as if started elsewhere, so varlock has to resolve that
+  // project's env files rather than the caller's
+  wranglerEnv.describeDevScenario('--cwd loads env from the target project', {
+    command: 'varlock-wrangler dev --cwd nested --port 0',
+    readyPattern: /Ready on|ready in/i,
+    readyTimeout: 30_000,
+    templateFiles: {
+      // the caller keeps the fixture's own .env.schema (public-test-value)
+      'nested/.env.schema': { path: 'schemas/.env.schema', replacements: { 'public-test-value': 'nested-project-value' } },
+      'nested/.env.dev': 'schemas/.env.dev',
+      'nested/src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
+      'nested/wrangler.jsonc': '_base-wrangler/wrangler.jsonc',
+      'nested/tsconfig.json': '_base-wrangler/tsconfig.json',
+    },
+    requests: [
+      {
+        path: '/',
+        bodyAssertions: {
+          shouldContain: ['public_var::nested-project-value', 'native_public_var::nested-project-value'],
+          shouldNotContain: ['public-test-value'],
+        },
+      },
+    ],
+  });
+
   describe('invalid config', () => {
     // Note: varlock-wrangler dev now boots with invalid config (sets up
     // file watchers for auto-reload), but the workerd runtime still fails
