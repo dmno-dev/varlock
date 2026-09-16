@@ -28,6 +28,7 @@ import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
+import { VARLOCK_VERSION } from '../../lib/varlock-version';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
@@ -73,7 +74,34 @@ export type DefinitionSourceEntry = {
   filterNode?: EnvGraphDataSource;
 };
 
+/**
+ * Current `blobFormatVersion` stamped onto serialized graphs.
+ *
+ * A single counter, not semver: bump it only when a consumer has to behave differently,
+ * meaning a field changed shape or meaning, or a new field's absence became significant
+ * (as with `basePath`/`contentHash`, where an old producer omitting the field is otherwise
+ * indistinguishable from a current one leaving it unset). Adding a field that consumers can
+ * detect by its own presence is not a bump, so there is nothing a minor component could
+ * usefully encode.
+ */
+export const SERIALIZED_ENV_GRAPH_FORMAT_VERSION = 1;
+
 export type SerializedEnvGraph = {
+  /**
+   * Shape of this serialized format (see `SERIALIZED_ENV_GRAPH_FORMAT_VERSION` for when it
+   * moves). Nothing reads it yet: it is recorded now so that a future format change has
+   * something to key off, since blobs produced before a field exists can never be stamped
+   * retroactively. Absent on blobs from producers older than this field.
+   */
+  blobFormatVersion?: number;
+  /**
+   * Version of the varlock package that produced this blob, for diagnostics. Producer and
+   * consumer are legitimately different builds in several flows (runtime glue bundled into
+   * an integration, a parent `varlock run`, a global CLI vs a local package dependency),
+   * so this is not a compatibility signal on its own - see `blobFormatVersion`. Absent on
+   * blobs from producers older than this field.
+   */
+  varlockVersion?: string;
   basePath?: string;
   sources: Array<{
     type: string;
@@ -1075,6 +1103,8 @@ export class EnvGraph {
 
   getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
+      blobFormatVersion: SERIALIZED_ENV_GRAPH_FORMAT_VERSION,
+      varlockVersion: VARLOCK_VERSION,
       basePath: this.basePath,
       sources: [],
       config: {},
