@@ -574,7 +574,8 @@ async function handleTypes(args: Array<string>) {
 
 async function handleDev(args: Array<string>) {
   // .dev.vars would conflict with our env injection via --env-file
-  if (existsSync('.dev.vars')) {
+  // (look where wrangler will, which --cwd can move)
+  if (existsSync(join(wranglerFlagValue(args, '--cwd') ?? '.', '.dev.vars'))) {
     console.error([
       'Error: a .dev.vars file was detected in your project.',
       'This conflicts with varlock-wrangler which manages env vars automatically.',
