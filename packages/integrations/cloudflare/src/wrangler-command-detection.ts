@@ -51,6 +51,21 @@ export function wranglerCommandArgs(args: Array<string>) {
 }
 
 /**
+ * Reads the value of a wrangler flag that takes one, in either the `--flag=value` or
+ * `--flag value` form. Ignores anything after `--`, which wrangler does not parse.
+ */
+export function wranglerFlagValue(args: Array<string>, flag: string) {
+  const doubleDashIndex = args.indexOf('--');
+  const parsedArgs = doubleDashIndex === -1 ? args : args.slice(0, doubleDashIndex);
+  for (let i = 0; i < parsedArgs.length; i++) {
+    const arg = parsedArgs[i];
+    if (arg === flag) return parsedArgs[i + 1];
+    if (arg.startsWith(`${flag}=`)) return arg.slice(flag.length + 1);
+  }
+  return undefined;
+}
+
+/**
  * Whether these args are a preview *deployment* (as opposed to a preview management
  * subcommand, or something else entirely). Asks wrangler to resolve the command when the
  * args are ambiguous.

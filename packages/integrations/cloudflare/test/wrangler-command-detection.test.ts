@@ -1,7 +1,9 @@
 import {
   describe, expect, it, vi,
 } from 'vitest';
-import { isPreviewDeployCommand, resolvedCommandFromHelp, wranglerCommandArgs } from '../src/wrangler-command-detection';
+import {
+  isPreviewDeployCommand, resolvedCommandFromHelp, wranglerCommandArgs, wranglerFlagValue,
+} from '../src/wrangler-command-detection';
 
 const ESC = '\u001B';
 
@@ -122,5 +124,22 @@ describe('wranglerCommandArgs', () => {
   it('returns nothing when there is no command', () => {
     expect(wranglerCommandArgs([])).toEqual([]);
     expect(wranglerCommandArgs(['--version'])).toEqual([]);
+  });
+});
+
+describe('wranglerFlagValue', () => {
+  it('reads both the joined and separated forms', () => {
+    expect(wranglerFlagValue(['--cwd=/app', 'deploy'], '--cwd')).toBe('/app');
+    expect(wranglerFlagValue(['deploy', '--cwd', '/app'], '--cwd')).toBe('/app');
+    expect(wranglerFlagValue(['preview', '--cwd=/app', '--json'], '--cwd')).toBe('/app');
+  });
+
+  it('returns undefined when the flag is absent', () => {
+    expect(wranglerFlagValue(['deploy'], '--cwd')).toBeUndefined();
+    expect(wranglerFlagValue(['deploy', '--cwdx=/app'], '--cwd')).toBeUndefined();
+  });
+
+  it('ignores anything after the option terminator', () => {
+    expect(wranglerFlagValue(['deploy', '--', '--cwd=/app'], '--cwd')).toBeUndefined();
   });
 });

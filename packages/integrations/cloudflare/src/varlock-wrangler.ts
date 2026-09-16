@@ -11,7 +11,7 @@ import { spawn, execSync } from 'node:child_process';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
-import { isPreviewDeployCommand, wranglerCommandArgs } from './wrangler-command-detection';
+import { isPreviewDeployCommand, wranglerCommandArgs, wranglerFlagValue } from './wrangler-command-detection';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -94,9 +94,14 @@ function captureWrangler(args: Array<string>, timeoutMs = 20_000): Promise<strin
   });
 }
 
-function loadSerializedGraph() {
+/**
+ * `cwd` mirrors wrangler's own `--cwd` flag: wrangler runs as if started there, so
+ * varlock has to resolve the same project's .env files rather than the caller's.
+ */
+function loadSerializedGraph(cwd?: string) {
   const { stdout } = execSyncVarlock('load --format json-full --compact', {
     fullResult: true,
+    ...cwd && { cwd },
     integrationTelemetry: {
       name: __VARLOCK_INTEGRATION_NAME__,
       version: __VARLOCK_INTEGRATION_VERSION__,
@@ -446,7 +451,7 @@ async function handleDeploy(args: Array<string>) {
 
   let loaded;
   try {
-    loaded = loadSerializedGraph();
+    loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
     console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
@@ -533,7 +538,7 @@ async function handleTypes(args: Array<string>) {
   debug('types: resolving env');
   let loaded;
   try {
-    loaded = loadSerializedGraph();
+    loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
     console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
@@ -583,7 +588,7 @@ async function handleDev(args: Array<string>) {
   let loaded: ReturnType<typeof loadSerializedGraph> | undefined;
   let configIsValid = false;
   try {
-    loaded = loadSerializedGraph();
+    loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
     configIsValid = true;
   } catch (err) {
     if (err instanceof VarlockExecError) {
@@ -653,7 +658,7 @@ async function handleDev(args: Array<string>) {
       const changedFileList = [...changedFiles];
       changedFiles.clear();
       try {
-        const freshLoaded = loadSerializedGraph();
+        const freshLoaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
         const freshEnvKey = envComparisonKey(freshLoaded.graph);
         if (freshEnvKey === cachedEnvKey) {
           const changedMsg = changedFileList.length
