@@ -12,7 +12,7 @@ import isDocker from 'is-docker';
 import isWSL from 'is-wsl';
 
 
-import packageJson from '../../../package.json';
+import { VARLOCK_VERSION_ID } from '../../lib/varlock-version';
 
 import { CONFIG } from '../../config';
 import { getUserVarlockDir } from '../../lib/user-config-dir';
@@ -476,17 +476,13 @@ function getTelemetryMeta() {
 
   const cpus = os.cpus() || [];
 
-  let versionIdentifier = packageJson.version;
-  // TODO: for preview builds, it would be nice to track which preview it is (PR number or commit hash)
-  if (__VARLOCK_BUILD_TYPE__ !== 'release') versionIdentifier += `-${__VARLOCK_BUILD_TYPE__}`;
-
   cachedTelemetryMetadata = {
     anonymous_project_id: getAnonymousProjectId(),
     anonymous_project_id_v2: getAnonymousProjectIdV2(),
     anonymous_org_id: getAnonymousOrgId(),
     git_host: getGitHost(),
     node_version: process.version.replace(/^v?/, ''),
-    varlock_version: versionIdentifier,
+    varlock_version: VARLOCK_VERSION_ID,
     system_platform: os.platform(),
     system_release: os.release(),
     system_architecture: os.arch(),

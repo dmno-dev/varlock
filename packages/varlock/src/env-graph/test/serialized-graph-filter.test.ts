@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import outdent from 'outdent';
 import { EnvGraph } from '../index';
 import { DotEnvFileDataSource } from '../lib/data-source';
+import { SERIALIZED_ENV_GRAPH_FORMAT_VERSION } from '../lib/env-graph';
+import { VARLOCK_VERSION, VARLOCK_VERSION_ID } from '../../lib/varlock-version';
 
 async function loadSchema(contents: string, overrideValues?: Record<string, string>) {
   const g = new EnvGraph();
@@ -11,6 +13,19 @@ async function loadSchema(contents: string, overrideValues?: Record<string, stri
   await g.resolveEnvValues();
   return g;
 }
+
+describe('getSerializedGraph version stamps', () => {
+  it('records the format version and the producing varlock version', async () => {
+    const g = await loadSchema('FOO=bar');
+    const blob = g.getSerializedGraph();
+    expect(blob.blobFormatVersion).toBe(SERIALIZED_ENV_GRAPH_FORMAT_VERSION);
+    // the build-type suffix is part of the stamp outside release builds, so under vitest
+    // this is the bare version plus `-test`
+    expect(blob.varlockVersion).toBe(VARLOCK_VERSION_ID);
+    expect(VARLOCK_VERSION_ID).toMatch(new RegExp(`^${VARLOCK_VERSION}(-|$)`));
+    expect(VARLOCK_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
 
 describe('getSerializedGraph filterKeys', () => {
   it('excludes filtered-out items from config but keeps selected ones', async () => {

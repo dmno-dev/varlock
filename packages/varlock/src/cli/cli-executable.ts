@@ -13,7 +13,7 @@ import { InvalidEnvError } from './helpers/invalid-env-error';
 import { isArgError, toCliExitError } from './helpers/arg-errors';
 import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
-import packageJson from '../../package.json';
+import { VARLOCK_VERSION, VARLOCK_VERSION_ID } from '../lib/varlock-version';
 import { enforceProxyContextGuards } from './helpers/proxy-context-guard';
 
 // Only the spec (name/description/args/examples) is imported eagerly - each command's
@@ -48,8 +48,6 @@ import { commandSpec as proxyCommandSpec } from './commands/proxy.command-spec';
 // must happen before anything writes to stdio
 handleBrokenPipe();
 
-let versionId = packageJson.version;
-if (__VARLOCK_BUILD_TYPE__ !== 'release') versionId += `-${__VARLOCK_BUILD_TYPE__}`;
 
 const subCommands = new Map();
 subCommands.set('init', lazy(async () => (await import('./commands/init.command')).commandFn, initCommandSpec));
@@ -96,7 +94,7 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
       if (args[0] === '--post-install') {
         await trackInstall(args[1] as 'brew' | 'curl');
         //! this ouput is used by homebrew formula to check installed version is correct
-        console.log(versionId);
+        console.log(VARLOCK_VERSION_ID);
         gracefulExit();
       }
     }
@@ -110,7 +108,7 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
     // warn if standalone binary version differs from local node_modules install
     // skip for --version/--help/complete since those are quick informational commands
     if (__VARLOCK_SEA_BUILD__ && args[0] !== '--version' && args[0] !== '--help' && !isCompletionInvoke) {
-      const versionMismatchWarning = checkLocalVersionMismatch(packageJson.version);
+      const versionMismatchWarning = checkLocalVersionMismatch(VARLOCK_VERSION);
       if (versionMismatchWarning) {
         console.warn(`\n⚠️  ${versionMismatchWarning}\n`);
       }
@@ -124,7 +122,7 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
     }, {
       name: 'varlock',
       description: 'Encrypt and protect your env vars',
-      version: versionId,
+      version: VARLOCK_VERSION_ID,
       subCommands,
       plugins: [completion(), commandTelemetry()],
       // reject unknown/misspelled flags instead of silently dropping them
