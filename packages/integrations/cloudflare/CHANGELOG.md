@@ -19,6 +19,13 @@
 
 
 
+
+## 1.6.0
+<sub>2026-09-17</sub>
+
+- [#1018](https://github.com/dmno-dev/varlock/pull/1018)  *(minor)*
+  varlock-wrangler now supports the new `wrangler preview` command, uploading resolved vars and secrets to branch preview deployments (requires wrangler 4.132.0 or newer)
+
 ## 1.5.2
 <sub>2026-09-12</sub>
 

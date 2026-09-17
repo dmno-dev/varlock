@@ -29,6 +29,18 @@
 
 
 
+
+## 1.20.0
+<sub>2026-09-17</sub>
+
+- [#1087](https://github.com/dmno-dev/varlock/pull/1087)  *(minor)*
+  `regex("pattern", "flags")` is now the one way to write a regex, and takes flags as a second argument: `matches=regex("^[0-9a-f]{7,40}$", "i")`. Passing a pattern as a string still works but is deprecated and produces a warning showing the `regex()` call to use: a bare `/pattern/` string in `matches`, `remap()` match values or `@auditExtraPatterns`, or a plain string in `matches`. A future major version will stop reading strings as regexes, which also means a pattern taken from another variable (`matches=$PATTERN`) will no longer work: write the pattern directly. `regex()` also rejects a `/.../`-wrapped argument instead of silently matching the slashes.
+- [#1086](https://github.com/dmno-dev/varlock/pull/1086)  *(patch)*
+  Skip the process.env type augmentation when another .d.ts (e.g. wrangler's worker-configuration.d.ts) already declares NodeJS.ProcessEnv, which previously caused a TS2320 conflict. Set processEnv=strict on @generateTsTypes to override.
+- [#1097](https://github.com/dmno-dev/varlock/pull/1097)  *(patch)* - Reject `@type=enum` with no members as a schema error instead of accepting a type that no value can satisfy
+- [#1052](https://github.com/dmno-dev/varlock/pull/1052)  *(patch)*
+  Serialized env blobs (`__VARLOCK_ENV`) now record the format version and the varlock version that produced them. Nothing reads these yet: they exist so future version skew between the varlock that resolved the env and the one consuming it can be detected.
+
 ## 1.19.0
 <sub>2026-09-12</sub>
 
