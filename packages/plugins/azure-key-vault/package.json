@@ -1,6 +1,6 @@
 {
   "name": "@varlock/azure-key-vault-plugin",
-  "description": "Varlock plugin to load secrets from Azure Key Vault",
+  "description": "Varlock plugin to load secrets from Azure Key Vault and settings from Azure App Configuration",
   "version": "1.2.3",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/azure-key-vault/",
@@ -27,6 +27,8 @@
     "azure",
     "key-vault",
     "akv",
+    "appconfig",
+    "app-configuration",
     "secrets",
     "env",
     ".env",
@@ -44,11 +46,10 @@
     "varlock": "workspace:^"
   },
   "devDependencies": {
-    "@azure/identity": "^4.13.0",
-    "@azure/keyvault-secrets": "^4.10.0",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
     "ky": "catalog:",
+    "outdent": "catalog:",
     "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

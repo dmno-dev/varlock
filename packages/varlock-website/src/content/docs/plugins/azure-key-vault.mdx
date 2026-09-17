@@ -1,6 +1,6 @@
 ---
-title: Azure Key Vault Plugin
-description: Using Azure Key Vault with Varlock
+title: Azure Key Vault & App Configuration Plugin
+description: Using Azure Key Vault and Azure App Configuration with Varlock
 ---
 
 import { Steps, Icon } from '@astrojs/starlight/components';
@@ -10,9 +10,9 @@ import Badge from '@/components/Badge.astro';
   <Badge npmPackage="@varlock/azure-key-vault-plugin" />
 </div>
 
-Our [Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault) plugin enables secure loading of secrets from Azure Key Vault using declarative instructions within your `.env` files.
+Our Azure plugin loads secrets from [Azure Key Vault](https://azure.microsoft.com/en-us/products/key-vault) and settings from [Azure App Configuration](https://azure.microsoft.com/en-us/products/app-configuration) using declarative instructions within your `.env` files.
 
-The plugin automatically integrates with Azure authentication, including Managed Identity for Azure-hosted applications, Azure CLI credentials for local development, and service principal credentials for non-Azure environments.
+Both services share one `@initAzure()` instance and one authentication chain: Managed Identity for Azure-hosted applications, Azure CLI credentials for local development, and service principal or OIDC federated credentials for non-Azure environments. App Configuration can also be read with an access-key connection string.
 
 ## Features
 
@@ -22,9 +22,11 @@ The plugin automatically integrates with Azure authentication, including Managed
 - **Auto-infer secret names** from environment variable names (e.g., `DATABASE_URL` → `database-url`)
 - Support for service principal credentials (for non-Azure environments)
 - Support for versioned secrets
+- **App Configuration settings** - Read single settings with `azureAppConfig()` or load many at once with `azureAppConfigBulk()`, with label support
+- **Key Vault references** stored in App Configuration are dereferenced automatically
 - Automatic token caching and renewal
 - **[OIDC workload identity](/guides/oidc/)** - Authenticate using platform OIDC tokens (Vercel, GitHub Actions, etc.)
-- Lightweight implementation using REST API (47 KB bundle, no heavy Azure SDK dependencies)
+- Lightweight implementation using the REST APIs (no Azure SDK dependencies)
 
 For global cache mode behavior and CLI cache controls, see the [Caching guide](/guides/caching/).
 
@@ -42,6 +44,16 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
 ```
 
+To read from App Configuration instead of (or in addition to) Key Vault, pass `appConfigEndpoint`. At least one of `vaultUrl`, `appConfigEndpoint`, or `appConfigConnectionString` is required.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(
+#   vaultUrl="https://my-vault.vault.azure.net/",
+#   appConfigEndpoint="https://my-store.azconfig.io"
+# )
+```
+
 ### Authentication options
 
 The plugin tries authentication methods in this priority order:
@@ -49,6 +61,8 @@ The plugin tries authentication methods in this priority order:
 2. **OIDC federated credentials** - If `tenantId` and `clientId` are provided without `clientSecret`, uses [OIDC workload identity federation](/guides/oidc/)
 3. **Managed Identity** - Automatically used when running on Azure infrastructure
 4. **Azure CLI** - Falls back to `az login` for local development
+
+The same chain is used for both services. Only the token scope differs (`https://vault.azure.net` for Key Vault, `https://azconfig.io` for App Configuration), and tokens are cached per scope. App Configuration additionally accepts an access-key connection string via `appConfigConnectionString`, which bypasses this chain for App Configuration requests only (see [Access-key connection string](#access-key-connection-string) below).
 
 ### Automatic authentication (Recommended)
 
@@ -153,6 +167,8 @@ PROD_SECRET=azureSecret(prod, "database-url")
 DEV_SECRET=azureSecret(dev, "database-url")
 ```
 
+The same applies to App Configuration stores: give each instance its own `appConfigEndpoint` and select it with `azureAppConfig(id, "key")`.
+
 ## Loading secrets
 
 Once the plugin is installed and initialized, you can start adding config items that load values using the `azureSecret()` resolver function.
@@ -186,6 +202,102 @@ API_KEY=azureSecret("api-key")
 API_KEY_V1=azureSecret("api-key@abc123def456")
 ```
 
+## Loading App Configuration settings
+
+[Azure App Configuration](https://learn.microsoft.com/en-us/azure/azure-app-configuration/overview) is a central store for key-value settings. It is the Azure counterpart of AWS Parameter Store: settings are plain values (or JSON), organized by key and optional label, and secrets are usually stored as references to Key Vault rather than in the store itself.
+
+### Setup
+
+Point the instance at your store with `appConfigEndpoint`. Authentication uses the same chain as Key Vault, and the identity needs the **App Configuration Data Reader** role on the store (see [Azure Setup](#app-configuration-data-reader-role) below).
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(appConfigEndpoint="https://my-store.azconfig.io")
+```
+
+:::tip[Finding your endpoint]
+Run `az appconfig show --name my-store --query endpoint -o tsv` to get the store endpoint.
+:::
+
+Use `defaultLabel` to select a label for every lookup that does not name one explicitly. This is the usual way to keep one schema across environments:
+
+```env-spec title=".env.schema"
+# @initAzure(appConfigEndpoint="https://my-store.azconfig.io", defaultLabel="${APP_ENV}")
+```
+
+### Access-key connection string
+
+If you cannot use Entra ID authentication for the store, pass an access-key connection string instead of `appConfigEndpoint`. The plugin signs each request with HMAC-SHA256 using the key in the connection string. This only authenticates App Configuration requests; Key Vault (including Key Vault references) still goes through the Entra chain.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(appConfigConnectionString=$AZURE_APPCONFIG_CONNECTION_STRING)
+# ---
+
+# @type=azureAppConfigConnectionString
+AZURE_APPCONFIG_CONNECTION_STRING=
+```
+
+Get a connection string with `az appconfig credential list --name my-store --query "[?name=='Primary Read Only'].connectionString" -o tsv`. Prefer the read-only key.
+
+### Reading a single setting
+
+The `azureAppConfig()` function reads one setting. With no arguments it uses the config item key verbatim (App Configuration allows underscores, so no case conversion happens). Pass `label=` to override `defaultLabel` for one item; with no label configured, the unlabeled setting is read.
+
+```env-spec title=".env.schema"
+# Reads the setting named "DATABASE_URL" (unlabeled, or defaultLabel if set)
+DATABASE_URL=azureAppConfig()
+
+# Explicit key, using App Configuration's usual ":" hierarchy
+API_URL=azureAppConfig("services:api:url")
+
+# Explicit label
+API_URL_PROD=azureAppConfig("services:api:url", label=production)
+
+# Force the unlabeled setting even when defaultLabel is set
+API_URL_BASE=azureAppConfig("services:api:url", label="")
+
+# From a specific instance
+API_URL_STAGING=azureAppConfig(staging, "services:api:url")
+```
+
+### Bulk loading
+
+`azureAppConfigBulk()` returns every matching setting as a JSON object, for use with [`@setValuesBulk()`](/reference/root-decorators/#setvaluesbulk). Filter by key (`*` is a wildcard) and label, and strip a common prefix so the remaining part of each key matches your config item names. Settings whose keys collide after trimming produce an error.
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-key-vault-plugin)
+# @initAzure(appConfigEndpoint="https://my-store.azconfig.io")
+# @setValuesBulk(azureAppConfigBulk(keyFilter="myapp:*", labelFilter=production, trimKeyPrefix="myapp:"), format=json)
+# ---
+
+# Populated from "myapp:DATABASE_URL" and "myapp:API_HOST" with the "production" label
+DATABASE_URL=
+API_HOST=
+```
+
+`keyFilter` defaults to `*`. `labelFilter` defaults to `defaultLabel` if set, otherwise to unlabeled settings only. Results are paged through automatically.
+
+### Key Vault references
+
+App Configuration can store a pointer to a Key Vault secret instead of the value itself (content type `application/vnd.microsoft.appconfig.keyvaultref+json`). Both `azureAppConfig()` and `azureAppConfigBulk()` detect these and fetch the referenced secret, using the instance's Key Vault credentials. The reference can point at any vault the identity can read, not only the one in `vaultUrl`, and `vaultUrl` does not need to be set. The identity needs "Key Vault Secrets User" (or the "Get" access policy) on each referenced vault.
+
+```env-spec title=".env.schema"
+# In App Configuration, "DB_PASSWORD" is a Key Vault reference to
+# https://my-vault.vault.azure.net/secrets/db-password
+# @sensitive
+DB_PASSWORD=azureAppConfig()
+```
+
+### Feature flags
+
+Feature flags are stored as JSON settings (content type `application/vnd.microsoft.appconfig.ff+json`) under keys prefixed with `.appconfig.featureflag/`. They are returned as their JSON string; the plugin does not evaluate them.
+
+```env-spec title=".env.schema"
+# Resolves to the flag's JSON, e.g. {"id":"beta","enabled":true,...}
+BETA_FLAG=azureAppConfig(".appconfig.featureflag/beta")
+```
+
 ---
 
 ## Azure Setup
@@ -196,6 +308,21 @@ Your managed identity, service principal, or user needs one of:
 
 - **Access Policy**: "Get" permission for secrets
 - **RBAC**: "Key Vault Secrets User" role
+
+### App Configuration Data Reader role
+
+To read from App Configuration with Entra ID authentication, the identity (managed identity, service principal, or your `az login` user) needs the **App Configuration Data Reader** role on the store. Access keys (connection strings) do not need a role assignment.
+
+```bash
+STORE_ID=$(az appconfig show --name my-store --query id -o tsv)
+
+az role assignment create \
+  --role "App Configuration Data Reader" \
+  --assignee <principal-id-or-appId> \
+  --scope $STORE_ID
+```
+
+If the store holds Key Vault references, the same identity also needs "Key Vault Secrets User" on each referenced vault.
 
 ### Managed Identity for Azure-hosted apps (Recommended)
 
@@ -304,10 +431,14 @@ Managed Identity is the Azure-native way to authenticate - no credentials needed
 <div>
 #### `@initAzure()`
 
-Initialize an Azure Key Vault plugin instance for accessing secrets.
+Initialize an Azure plugin instance for Key Vault and/or App Configuration. At least one of `vaultUrl`, `appConfigEndpoint`, or `appConfigConnectionString` is required.
 
 **Key/value args:**
-- `vaultUrl` (required): Azure Key Vault URL (e.g., `https://my-vault.vault.azure.net/`)
+- `vaultUrl` (optional): Azure Key Vault URL (e.g., `https://my-vault.vault.azure.net/`). Required for `azureSecret()`.
+- `appConfigEndpoint` (optional): Azure App Configuration store endpoint (e.g., `https://my-store.azconfig.io`). Required for `azureAppConfig()` / `azureAppConfigBulk()` unless `appConfigConnectionString` is set.
+- `appConfigConnectionString` (optional): App Configuration access-key connection string (`Endpoint=...;Id=...;Secret=...`). Alternative to `appConfigEndpoint` plus Entra ID auth; applies to App Configuration requests only.
+- `defaultLabel` (optional): label used by `azureAppConfig()` and `azureAppConfigBulk()` when none is given
+- `authorityHost` (optional): Entra ID authority host for sovereign clouds (defaults to `https://login.microsoftonline.com`)
 - `tenantId` (optional): Azure AD tenant ID (directory ID)
 - `clientId` (optional): Service principal application (client) ID
 - `clientSecret` (optional): Service principal client secret (password)
@@ -317,6 +448,7 @@ Initialize an Azure Key Vault plugin instance for accessing secrets.
 
 ```env-spec "@initAzure"
 # @initAzure(vaultUrl="https://my-vault.vault.azure.net/")
+# @initAzure(id=config, appConfigEndpoint="https://my-store.azconfig.io", defaultLabel=production)
 ```
 </div>
 </div>
@@ -353,6 +485,17 @@ Represents a service principal client secret (password). This type is marked as 
 ```env-spec "azureClientSecret"
 # @type=azureClientSecret
 AZURE_CLIENT_SECRET=
+```
+</div>
+
+<div>
+#### `azureAppConfigConnectionString`
+
+Represents an App Configuration access-key connection string (`Endpoint=...;Id=...;Secret=...`). This type is marked as `@sensitive` and `@internal`.
+
+```env-spec "azureAppConfigConnectionString"
+# @type=azureAppConfigConnectionString
+AZURE_APPCONFIG_CONNECTION_STRING=
 ```
 
 :::tip[Does your app use these credentials too?]
@@ -391,6 +534,48 @@ API_KEY_V1=azureSecret("api-key@abc123def456")
 PROD_SECRET=azureSecret(prod, "database-url")
 ```
 </div>
+
+<div>
+#### `azureAppConfig()`
+
+Fetch a single setting from Azure App Configuration. Key Vault references are dereferenced; feature flags are returned as their JSON string.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+- `key` (optional): setting key. If omitted, uses the config item key verbatim.
+
+**Key/value args:**
+- `label` (optional): setting label. Overrides the instance `defaultLabel`; an empty string selects the unlabeled setting.
+
+```env-spec /azureAppConfig\\(.*\\)/
+# Auto-infer key (DATABASE_URL -> "DATABASE_URL")
+DATABASE_URL=azureAppConfig()
+
+# Explicit key and label
+API_URL=azureAppConfig("services:api:url", label=production)
+
+# With instance ID
+STAGING_API_URL=azureAppConfig(staging, "services:api:url")
+```
+</div>
+
+<div>
+#### `azureAppConfigBulk()`
+
+List settings from Azure App Configuration and return them as a JSON object string, for use with `@setValuesBulk(..., format=json)`.
+
+**Array args:**
+- `instanceId` (optional): instance identifier to use when multiple plugin instances are initialized
+
+**Key/value args:**
+- `keyFilter` (optional): key filter, `*` matches any characters (default `*`)
+- `labelFilter` (optional): label filter (default: `defaultLabel` if set, otherwise unlabeled settings only)
+- `trimKeyPrefix` (optional): prefix removed from each key before it is matched to a config item
+
+```env-spec /azureAppConfigBulk\\(.*\\)/
+# @setValuesBulk(azureAppConfigBulk(keyFilter="myapp:*", labelFilter=production, trimKeyPrefix="myapp:"), format=json)
+```
+</div>
 </div>
 
 ---
@@ -402,10 +587,16 @@ PROD_SECRET=azureSecret(prod, "database-url")
 - Remember: Azure uses hyphens, not underscores (use `database-url` not `database_url`)
 - Check for typos in the secret name
 
+### Setting not found
+- List settings in the store: `az appconfig kv list --endpoint https://my-store.azconfig.io --auth-mode login`
+- Check the label: an unlabeled setting and a labeled one with the same key are different settings. Set `defaultLabel` or pass `label=`
+- App Configuration keys are case-sensitive and used verbatim (no kebab-case conversion)
+
 ### Permission denied
 - Check your RBAC role: `az role assignment list --assignee <your-id> --scope <vault-scope>`
 - Or check access policies: `az keyvault show --name my-vault --query properties.accessPolicies`
 - Ensure your identity has "Get" permission for secrets
+- For App Configuration, ensure the identity has the "App Configuration Data Reader" role on the store
 
 ### Authentication failed
 - **Local dev:** Run `az login` and ensure service principal env vars are empty
@@ -424,3 +615,6 @@ PROD_SECRET=azureSecret(prod, "database-url")
 - [Managed Identity](https://learn.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/overview)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/)
 - [Key Vault Access Policies](https://learn.microsoft.com/en-us/azure/key-vault/general/assign-access-policy)
+- [Azure App Configuration](https://learn.microsoft.com/en-us/azure/azure-app-configuration/overview)
+- [App Configuration Key Vault references](https://learn.microsoft.com/en-us/azure/azure-app-configuration/use-key-vault-references-dotnet-core)
+- [App Configuration RBAC roles](https://learn.microsoft.com/en-us/azure/azure-app-configuration/concept-enable-rbac)
