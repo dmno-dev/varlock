@@ -8,7 +8,10 @@ import { captureUsageContextFromEnvGraph, captureTelemetryGraphLoadFailure } fro
 import { runWithWorkspaceInfo } from './workspace-utils';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { createDebug } from './debug';
-import { selectOverridesFromInjectedEnv } from './injected-env-provenance';
+import { injectedEnvStringForm, selectOverridesFromInjectedEnv } from './injected-env-provenance';
+import { getPinnedBootKeys, type PinnedGraphInfo } from './injected-env-reuse';
+import { USE_FROZEN_ENV_VAR } from './frozen-env-file';
+import { isVarlockReservedKey } from '../env-graph/lib/reserved-vars';
 import { getPreInjectionProcessEnv } from '../runtime/env';
 import { getActiveProxySession, getProxyResolutionViewForEnv } from '../proxy/session-registry';
 import { PROXY_CHILD_ENV_VAR } from '../proxy/env-vars';
@@ -25,6 +28,73 @@ function getGraphEnvOverridesFromRuntimeEnv() {
   // keys plus any env value that diverged from what the parent injected (an
   // override introduced after the parent resolved).
   return selectOverridesFromInjectedEnv(process.env.__VARLOCK_ENV, getPreInjectionProcessEnv());
+}
+
+/**
+ * Override values for a resolution applied on top of a pinned graph (`varlock freeze` output
+ * that leaves `@dynamic=boot` keys to be resolved at boot).
+ *
+ * Every pinned key becomes an override holding its frozen value, which the graph treats
+ * exactly like a process.env override: the item's own resolver never runs (so no resolver
+ * credentials are needed for pinned secrets) while its validators still do. Boot keys are
+ * the only ones that read the live environment, and only from the pre-injection snapshot
+ * for the same reason getGraphEnvOverridesFromRuntimeEnv uses it. Nothing else in the
+ * environment can act as an override: the seal on pinned keys stays total.
+ */
+function getGraphEnvOverridesFromPinnedGraph(pinned: PinnedGraphInfo) {
+  const overrides: Record<string, string | undefined> = {};
+  const runtimeEnv = getPreInjectionProcessEnv();
+  for (const bootKey of getPinnedBootKeys(pinned.graph)) {
+    if (bootKey in runtimeEnv) overrides[bootKey] = runtimeEnv[bootKey];
+  }
+  for (const [itemKey, item] of Object.entries(pinned.graph.config)) {
+    // a key frozen as unset stays unset (undefined, never '' - the item may not even allow
+    // empty), so it still masks any ambient value the way the full-reuse path does
+    overrides[itemKey] = item.value === undefined ? undefined : injectedEnvStringForm(item);
+  }
+  return overrides;
+}
+
+function describePinnedSource(pinned: PinnedGraphInfo) {
+  return pinned.source === 'frozen-file' ? `frozen env file ${pinned.filePath}` : 'frozen __VARLOCK_ENV payload';
+}
+
+/**
+ * A pinned graph is only valid against the schema it was frozen from. Fail closed on any
+ * drift rather than resolving whatever is missing fresh: a key added to the schema since
+ * the freeze would otherwise be silently resolved at boot (needing credentials the runtime
+ * is not supposed to have, or worse, quietly succeeding with a different value), and a
+ * boot-key mismatch means the file and the schema disagree about what is pinned at all.
+ */
+function verifyPinnedGraphMatchesSchema(graph: EnvGraph, pinned: PinnedGraphInfo) {
+  // a schema that failed to load reports its own errors; a drift report on top would be noise
+  if (graph.sortedDataSources.some((s) => !s.isValid)) return;
+
+  const schemaKeys = graph.sortedConfigKeys.filter(
+    (k) => !isVarlockReservedKey(k) && !graph.configSchema[k].isInternal,
+  );
+  const schemaBootKeys = schemaKeys.filter((k) => graph.configSchema[k].isBootDynamic);
+  const pinnedKeys = Object.keys(pinned.graph.config);
+  const pinnedBootKeys = getPinnedBootKeys(pinned.graph);
+
+  const problems: Array<string> = [];
+  const missing = schemaKeys.filter((k) => !pinnedKeys.includes(k) && !pinnedBootKeys.includes(k));
+  if (missing.length) problems.push(`not in the pin: ${missing.join(', ')}`);
+  const extra = pinnedKeys.filter((k) => !schemaKeys.includes(k));
+  if (extra.length) problems.push(`pinned but no longer in the schema: ${extra.join(', ')}`);
+  const bootOnlyInSchema = schemaBootKeys.filter((k) => !pinnedBootKeys.includes(k));
+  const bootOnlyInPin = pinnedBootKeys.filter((k) => !schemaBootKeys.includes(k));
+  if (bootOnlyInSchema.length) problems.push(`@dynamic=boot in the schema but pinned: ${bootOnlyInSchema.join(', ')}`);
+  if (bootOnlyInPin.length) problems.push(`left to boot by the pin but not @dynamic=boot in the schema: ${bootOnlyInPin.join(', ')}`);
+  if (!problems.length) return;
+
+  throw new CliExitError(`The ${describePinnedSource(pinned)} does not match the schema`, {
+    suggestion: [
+      ...problems.map((p) => `- ${p}`),
+      'Re-run `varlock freeze` against the current schema and redeploy, or set '
+        + `${USE_FROZEN_ENV_VAR}=0 to resolve from .env files instead.`,
+    ].join('\n'),
+  });
 }
 
 function normalizePkgLoadPath(pkgLoadPath: string | Array<string>): Array<string> {
@@ -112,8 +182,28 @@ export async function loadVarlockEnvGraph(opts?: {
    * very guard it exists to clear.
    */
   skipProxyFingerprintGuard?: boolean,
+  /**
+   * Resolve on top of a pinned graph (`varlock freeze` output): every pinned key keeps its
+   * frozen value (its resolver never runs, validators still do) and only the pin's
+   * `@dynamic=boot` keys are resolved from the runtime. The schema must match the pin
+   * exactly; any drift is an error.
+   */
+  pinned?: PinnedGraphInfo,
 }) {
-  const runtimeOverrideValues = getGraphEnvOverridesFromRuntimeEnv();
+  const runtimeOverrideValues = opts?.pinned
+    ? getGraphEnvOverridesFromPinnedGraph(opts.pinned)
+    : getGraphEnvOverridesFromRuntimeEnv();
+  // the pin records which environment it froze, so a schema relying on `--env` (no
+  // @currentEnv) selects the same env files at boot without being told again
+  const currentEnvFallback = opts?.currentEnvFallback ?? opts?.pinned?.graph.frozen?.currentEnv;
+  if (opts?.pinned) {
+    debug(
+      'resolving on top of %s (%d pinned, boot keys: %s)',
+      describePinnedSource(opts.pinned),
+      Object.keys(opts.pinned.graph.config).length,
+      getPinnedBootKeys(opts.pinned.graph).join(', ') || 'none',
+    );
+  }
 
   // Fail closed: if this process is a proxy child (the injected `__VARLOCK_PROXY_CHILD`
   // marker is the reliable in-tree signal) but its session record can't be resolved
@@ -143,7 +233,7 @@ export async function loadVarlockEnvGraph(opts?: {
         source: '--path flag',
         errorPrefix: 'The --path value does not exist',
         errorSuggestion: 'Use `--path` to specify a valid file or directory.',
-        currentEnvFallback: opts?.currentEnvFallback,
+        currentEnvFallback,
         overrideValues: runtimeOverrideValues,
         clearCache: opts?.clearCache,
         skipCache: opts?.skipCache,
@@ -160,7 +250,7 @@ export async function loadVarlockEnvGraph(opts?: {
         source: 'package.json varlock.loadPath',
         errorPrefix: 'A path in `varlock.loadPath` configured in package.json does not exist',
         errorSuggestion: 'Update `varlock.loadPath` in your package.json to point to valid files or directories.',
-        currentEnvFallback: opts?.currentEnvFallback,
+        currentEnvFallback,
         overrideValues: runtimeOverrideValues,
         clearCache: opts?.clearCache,
         skipCache: opts?.skipCache,
@@ -171,7 +261,7 @@ export async function loadVarlockEnvGraph(opts?: {
     debug('no path configured, using cwd: %s', process.cwd());
 
     return captureUsageAfterLoad(runWithWorkspaceInfo(() => loadEnvGraph({
-      currentEnvFallback: opts?.currentEnvFallback,
+      currentEnvFallback,
       overrideValues: runtimeOverrideValues,
       processEnvOverride: runtimeOverrideValues,
       clearCache: opts?.clearCache,
@@ -189,6 +279,8 @@ export async function loadVarlockEnvGraph(opts?: {
   if (!opts?.skipProxyFingerprintGuard) {
     await enforceProxySchemaFingerprint(graph);
   }
+
+  if (opts?.pinned) verifyPinnedGraphMatchesSchema(graph, opts.pinned);
 
   return graph;
 }

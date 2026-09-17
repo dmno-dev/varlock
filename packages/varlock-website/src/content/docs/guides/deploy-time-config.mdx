@@ -91,7 +91,7 @@ The framework integrations have done this for a long time. `varlock freeze` gene
     bun server.js
     ```
 
-    As long as your app imports `varlock/auto-load` (or you launch it with `varlock run`), varlock finds the file and uses it. No varlock CLI, no .env files, and no resolver credentials are needed in the runtime image.
+    As long as your app imports `varlock/auto-load` (or you launch it with `varlock run`), varlock finds the file and uses it. No varlock CLI, no .env files, and no resolver credentials are needed in the runtime image, unless the schema has [keys supplied at boot](#keys-supplied-at-boot).
 
 </Steps>
 
@@ -142,6 +142,8 @@ Varlock uses `.varlock-frozen-env` in the working directory automatically when i
 
 Setting `_VARLOCK_USE_FROZEN_ENV=1` in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
 
+`varlock load` only honors the file when told to explicitly (`1` or a path), so a plain `varlock load` in a project directory keeps showing what your .env files resolve to, while `_VARLOCK_USE_FROZEN_ENV=1 varlock load` in the runtime image shows exactly what the app boots with.
+
 Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
 
 ### Freeze options
@@ -178,11 +180,34 @@ For a key that resolved to a value at freeze time, the frozen value wins. For a 
 
 This is deliberate: freezing means the config was resolved and validated as a unit, and a value injected afterwards was part of neither. Accepting it would mean running on config that nothing validated.
 
-:::caution[Config that genuinely varies per container]
-Freezing is all or nothing: there is currently no way to seal most of your config while leaving a few keys to the runtime. If some values must come from the container rather than the deploy (a per-container `DATABASE_URL`, say), freezing is not the right tool for that service yet. Use [`varlock run`](/reference/cli/load-and-run/#run), or let the app resolve at boot, so every value is validated where it is supplied.
+If a value genuinely has to come from the container rather than the deploy, say so in the schema with `@dynamic=boot` (next section). Marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**: it gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
 
-In particular, marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**. It gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
-:::
+## Keys supplied at boot
+
+Some values only exist once each instance starts: a `PORT` the platform assigns, pod or machine identity, or something an operator passes with `docker run -e`. Mark those [`@dynamic=boot`](/reference/item-decorators/#dynamic):
+
+```env-spec title=".env.schema"
+# @type=port @required @dynamic=boot
+PORT=
+
+# @optional @dynamic=boot
+INSTANCE_ID=
+```
+
+`varlock freeze` leaves boot keys out of the pin. Their resolvers never run at freeze time, and a required boot key does not have to be set there. At boot, varlock resolves and validates them against the schema like any other value, with the runtime environment as the override source, while every pinned key keeps its frozen value and its resolver stays off, so no resolver credentials are needed. Validation is exactly what the schema says: a missing required `PORT`, or `PORT=abc` against `@type=port`, fails the boot.
+
+This changes what the runtime image needs. The varlock CLI and your `.env.schema` must be alongside the app, because the schema is what validates the boot keys. Boot with `varlock run -- ...`, or keep the CLI installed where `varlock/auto-load` can find it. A pin with no boot keys still needs neither.
+
+A few rules follow from the fact that a boot value does not exist before boot:
+
+- **Nothing pinned may depend on it.** `PUBLIC_URL=http://localhost:${PORT}` with a boot `PORT` is a schema error on every load, not just under `freeze`. The fix is to mark `PUBLIC_URL` `@dynamic=boot` as well. The reverse is fine: a boot key can be built from pinned values.
+- **The `@currentEnv` item cannot be boot**, since it decides which env files load.
+- **`boot` is per item and written literally.** There is no root default, and a computed value is an error.
+- **The pin must match the schema it was frozen from.** A key added or removed since the freeze, or a key whose boot marking changed, fails the boot with a message naming the drift. Re-run `varlock freeze` and redeploy.
+
+The freeze summary lists what was left out (`left to boot (@dynamic=boot): PORT, INSTANCE_ID`), and `_VARLOCK_USE_FROZEN_ENV=1 varlock load` in the runtime image shows the same pinned-plus-boot view the app gets.
+
+If you find yourself marking more than a handful of keys `boot`, freezing is the wrong tool for that service. Use [`varlock run`](/reference/cli/load-and-run/#run) and resolve everything at boot.
 
 ## Carrying the payload in an env var instead
 
@@ -234,9 +259,9 @@ The payload holds every resolved value, so it can outgrow what a platform accept
 
 **Rotating `_VARLOCK_ENV_KEY` breaks rollback.** Releases frozen under the old key cannot be decrypted with the new one, which is a problem precisely when you want to roll back. Keep the key stable, or plan to re-freeze and redeploy the releases you want to keep rollable.
 
-**A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, it wins over your .env files even after you edit them. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`.
+**A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, `varlock run` and `varlock/auto-load` use it even after you edit your .env files. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`. The one exception is a pin with [boot keys](#keys-supplied-at-boot), which is checked against the schema at boot.
 
-**Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Resolve those at boot instead of freezing them.
+**Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Mark those [`@dynamic=boot`](#keys-supplied-at-boot) so they are resolved at boot, which does mean the runtime needs the credentials that resolver uses.
 
 **None of this applies to local development.** Resolve from your `.env` files on every run, which is what varlock does by default.
 
