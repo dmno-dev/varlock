@@ -5,7 +5,7 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
-import { readFrozenEnvFile } from './frozen-env-file';
+import { readFrozenEnvFile, resolveFrozenEnvFileMode, USE_FROZEN_ENV_VAR } from './frozen-env-file';
 
 /**
  * Decides whether a consumer (`varlock/auto-load`, or a `varlock run` that finds a blob
@@ -44,8 +44,38 @@ export type InjectedEnvReuseDecision = | {
    * these keys before handing env to a child.
    */
   strippedInternalKeys: Array<string>,
+  /** path of the consumed `varlock freeze` file (frozen-file source only) */
+  filePath?: string,
 }
-  | { reuse: false, reason: string };
+  | {
+    reuse: false,
+    reason: string,
+    /**
+     * Set when a pinned graph was found but cannot be consumed as-is because it leaves keys
+     * to boot (`@dynamic=boot`). The consumer must resolve with the schema instead, keeping
+     * every pinned value and resolving/validating only the boot keys - see
+     * `loadVarlockEnvGraph({ pinned })`.
+     */
+    pinned?: PinnedGraphInfo,
+  };
+
+/** A pinned (pre-resolved) graph and where it came from */
+export type PinnedGraphInfo = {
+  graph: SerializedEnvGraph,
+  source: 'env-blob' | 'frozen-file',
+  /** frozen-file source only */
+  filePath?: string,
+};
+
+/** Keys a pinned graph leaves to boot (`@dynamic=boot`), if any */
+export function getPinnedBootKeys(graph: SerializedEnvGraph): Array<string> {
+  const keys = graph.frozen?.bootKeys;
+  return Array.isArray(keys) ? keys.filter((k) => typeof k === 'string') : [];
+}
+
+function describeBootKeys(bootKeys: Array<string>) {
+  return `leaves ${bootKeys.length} key${bootKeys.length === 1 ? '' : 's'} to boot (${bootKeys.join(', ')})`;
+}
 
 type EnvRecord = Record<string, string | undefined>;
 
@@ -169,12 +199,23 @@ export function evaluateInjectedEnvReuse(opts: {
     if (sanitizedFrozen.parsedEnv.errors) {
       throw new Error(`[varlock] frozen env file ${frozen.filePath} was created from a failed resolution and contains errors`);
     }
+    // boot keys were deliberately left out of the pin, so the file alone is not a complete
+    // graph - it has to be applied on top of the schema, with those keys resolved live
+    const frozenBootKeys = getPinnedBootKeys(sanitizedFrozen.parsedEnv);
+    if (frozenBootKeys.length) {
+      return {
+        reuse: false,
+        reason: `frozen env file ${describeBootKeys(frozenBootKeys)}`,
+        pinned: { graph: sanitizedFrozen.parsedEnv, source: 'frozen-file', filePath: frozen.filePath },
+      };
+    }
     return {
       reuse: true,
       parsedEnv: sanitizedFrozen.parsedEnv,
       blobJson: sanitizedFrozen.blobJson,
       strippedInternalKeys: sanitizedFrozen.strippedInternalKeys,
       source: 'frozen-file',
+      filePath: frozen.filePath,
     };
   }
 
@@ -246,6 +287,15 @@ export function evaluateInjectedEnvReuse(opts: {
   // explicit trust - the sandbox path. The blob is authoritative regardless of where it
   // was resolved; directory/drift checks make no sense for a blob from another machine.
   if (mode === 'force') {
+    // a `varlock freeze --out -` payload that leaves keys to boot (same as the file case)
+    const blobBootKeys = getPinnedBootKeys(parsedEnv);
+    if (blobBootKeys.length) {
+      return {
+        reuse: false,
+        reason: `__VARLOCK_ENV frozen payload ${describeBootKeys(blobBootKeys)}`,
+        pinned: { graph: parsedEnv, source: 'env-blob' },
+      };
+    }
     return {
       reuse: true, parsedEnv, blobJson, strippedInternalKeys, source: 'env-blob',
     };
@@ -317,7 +367,58 @@ export function evaluateInjectedEnvReuse(opts: {
     }
   }
 
+  // same as the force path: a frozen payload that leaves keys to boot is never complete
+  const ambientBootKeys = getPinnedBootKeys(parsedEnv);
+  if (ambientBootKeys.length) {
+    return {
+      reuse: false,
+      reason: `__VARLOCK_ENV frozen payload ${describeBootKeys(ambientBootKeys)}`,
+      pinned: { graph: parsedEnv, source: 'env-blob' },
+    };
+  }
+
   return {
     reuse: true, parsedEnv, blobJson, strippedInternalKeys, source: 'env-blob',
   };
+}
+
+/**
+ * The pinned graph a fresh resolution should be applied on top of, if any - for commands
+ * that always load the schema (`varlock load`) rather than deciding between reuse and
+ * resolution. Either a `varlock freeze` file, or a `varlock freeze --out -` payload trusted
+ * via `_VARLOCK_USE_INJECTED_ENV=1`. An ordinary ambient blob (a parent `varlock run`) is
+ * never a pin.
+ *
+ * `explicitFrozenOnly` skips a frozen file that is merely present (auto mode): a plain
+ * `varlock load` in a project directory keeps showing what the .env files resolve to, and
+ * `_VARLOCK_USE_FROZEN_ENV=1` (or a path) opts into the pinned view. This is also how
+ * `varlock/auto-load` hands a frozen file with boot keys to the CLI.
+ *
+ * Throws the same way evaluateInjectedEnvReuse does when a pin is present but unusable.
+ */
+export function findPinnedGraphForResolution(opts: {
+  env: EnvRecord,
+  cwd?: string,
+  explicitFrozenOnly?: boolean,
+}): PinnedGraphInfo | undefined {
+  const { env } = opts;
+  const cwd = opts.cwd ?? process.cwd();
+  const frozenMode = resolveFrozenEnvFileMode(env, cwd);
+  const useFrozen = frozenMode.mode !== 'off' && !(opts.explicitFrozenOnly && frozenMode.mode === 'auto');
+  if (!useFrozen && getUseInjectedEnvMode(env) !== 'force') return undefined;
+
+  const decision = evaluateInjectedEnvReuse({
+    env: useFrozen ? env : { ...env, [USE_FROZEN_ENV_VAR]: '0' },
+    preInjectionEnv: env,
+    cwd,
+  });
+  const pinned = decision.reuse
+    ? { graph: decision.parsedEnv, source: decision.source, filePath: decision.filePath }
+    : decision.pinned;
+  if (!pinned) return undefined;
+  // a blob is a pin only under explicit trust: the automatic same-directory reuse path may
+  // hand back a frozen payload too, but "resolve on top of it" is a stronger claim than
+  // "reuse it", and nothing asked for that
+  if (pinned.source === 'env-blob' && (getUseInjectedEnvMode(env) !== 'force' || !pinned.graph.frozen)) return undefined;
+  return pinned;
 }

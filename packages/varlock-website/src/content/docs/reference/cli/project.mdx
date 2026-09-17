@@ -179,6 +179,8 @@ This is aimed at apps where you control the boot command but have no build step 
 
 At boot, varlock uses `.varlock-frozen-env` automatically when it is present in the working directory. Nothing else is needed in the runtime image: no varlock CLI, no `.env` files, and no resolver credentials. `_VARLOCK_ENV_KEY` must be set in the runtime environment so the file can be decrypted. See [`_VARLOCK_USE_FROZEN_ENV`](/reference/reserved-variables/#_varlock_use_frozen_env) to require the file or point at a different path.
 
+Keys marked [`@dynamic=boot`](/reference/item-decorators/#dynamic) (a platform-assigned `PORT`, say) are the exception: `freeze` leaves them out and lists them in its summary, and at boot they are resolved and validated against the schema, which needs the varlock CLI and `.env.schema` in the runtime image. See [keys supplied at boot](/guides/deploy-time-config/#keys-supplied-at-boot).
+
 Encryption is required: `freeze` errors when `_VARLOCK_ENV_KEY` is not set, since the file holds every resolved value and travels through image layers, registries, and CI artifacts. `--allow-plaintext` opts out for schemas with nothing sensitive in them.
 
 Values are pinned once frozen. Rotating a secret takes effect on your next deploy, not on the next restart.

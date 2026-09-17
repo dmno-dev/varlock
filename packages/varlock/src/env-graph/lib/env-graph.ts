@@ -164,6 +164,14 @@ export type SerializedEnvGraph = {
    * stale-echo cleanup of ambient values, since no resolution happened in this process.
    */
   injectedAtBuild?: boolean;
+  /**
+   * Present only in a payload written by `varlock freeze`, never set by the graph serializer.
+   * `bootKeys` are the schema's `@dynamic=boot` items: left out of `config`, they are resolved
+   * and validated against the schema at boot while every key in `config` stays pinned.
+   * `currentEnv` is the environment that was frozen, so a boot-time resolution selects the
+   * same env files when the schema relies on `--env` rather than `@currentEnv`.
+   */
+  frozen?: { bootKeys: Array<string>, currentEnv?: string };
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
@@ -733,6 +741,7 @@ export class EnvGraph {
         );
       }
     }
+    this.checkBootDynamicDependencies();
 
     // now execute all root decorators
     for (const source of this.sortedDataSources) {
@@ -770,6 +779,44 @@ export class EnvGraph {
     await this.getRootDec('injectUndefinedAsEmpty')?.resolve();
     await this.getRootDec('proxyConfig')?.resolve();
     await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
+  }
+
+  /**
+   * A `@dynamic=boot` value does not exist until each instance starts, so nothing bound
+   * earlier may depend on it: a static value would be inlined at build with whatever the
+   * build machine had, and a frozen value would carry the CI-time result forever. This is a
+   * schema-level inconsistency, so it errors on every load (not just under `varlock freeze`),
+   * and the fix is explicit rather than inferred: mark the dependent item boot too.
+   *
+   * Uses the same dependency list as the cycle check, so decorator-function references
+   * (`@required=eq($PORT, ...)`) count as well as value references. Only structural because
+   * `boot` must be written literally (see ConfigItem.isBootDynamic).
+   */
+  private checkBootDynamicDependencies() {
+    const bootKeys = new Set(_.keys(this.configSchema).filter((k) => this.configSchema[k].isBootDynamic));
+    if (!bootKeys.size) return;
+
+    // the current-env item selects which env files load at all, so it is bound before
+    // anything else and cannot itself wait for boot
+    const envFlagKey = this.rootDataSource?.envFlagKey;
+    if (envFlagKey && bootKeys.has(envFlagKey)) {
+      this.configSchema[envFlagKey]._schemaErrors.push(new SchemaError(
+        `${envFlagKey} selects the current environment (@currentEnv), so it cannot be @dynamic=boot`,
+        { tip: 'The environment must be fixed before boot. Remove @dynamic=boot from this item.' },
+      ));
+    }
+
+    const adjList = this.graphAdjacencyList;
+    for (const itemKey in this.configSchema) {
+      if (bootKeys.has(itemKey)) continue;
+      const bootDeps = getTransitiveDeps(itemKey, adjList).filter((k) => bootKeys.has(k));
+      if (!bootDeps.length) continue;
+      const depList = bootDeps.join(', ');
+      this.configSchema[itemKey]._schemaErrors.push(new SchemaError(
+        `${itemKey} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, so its value cannot be fixed before boot`,
+        { tip: `Mark ${itemKey} @dynamic=boot too, so it is resolved at boot alongside ${depList}` },
+      ));
+    }
   }
 
   get graphAdjacencyList() {

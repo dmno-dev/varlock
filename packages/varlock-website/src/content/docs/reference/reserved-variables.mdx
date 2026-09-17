@@ -75,6 +75,8 @@ Controls whether [`varlock/auto-load`](/integrations/javascript/) and [`varlock 
 
 A frozen env file that is present but unusable (unreadable, encrypted with no `_VARLOCK_ENV_KEY`, or encrypted with a different key) is always an error, never a fallback to fresh resolution. Note that `1`/`true`/`0`/`false` are the only recognized toggles, so a value like `off` is read as a path and fails as a missing file.
 
+[`varlock load`](/reference/cli/load-and-run/#load) honors the file only when this is set explicitly (`1`/`true` or a path), showing the pinned values with any [`@dynamic=boot`](/reference/item-decorators/#dynamic) keys resolved live. A plain `varlock load` next to a frozen file keeps resolving from the .env files.
+
 This takes precedence over an ambient [`__VARLOCK_ENV`](#__varlock_env) blob, and is independent of [`_VARLOCK_USE_INJECTED_ENV`](#_varlock_use_injected_env): setting that to `0` does not disable frozen env files. `varlock run` flags that change what a resolution produces (`--path`, `--filter`, `--clear-cache`, `--skip-cache`, `--include-internal`) are rejected when a frozen env file is in play.
 
 {/*

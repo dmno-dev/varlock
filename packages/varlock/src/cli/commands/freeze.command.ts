@@ -38,9 +38,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);
 
+  // `@dynamic=boot` items are bound at process start on each instance (a platform-assigned
+  // PORT, pod identity), so they are left out of the pin entirely: their resolvers never run
+  // here, and they are resolved and validated against the schema at boot instead. The graph
+  // already guarantees nothing pinned depends on them (see checkBootDynamicDependencies).
+  const bootKeys = envGraph.sortedConfigKeys.filter((k) => envGraph.configSchema[k].isBootDynamic);
+  const pinnedKeys = envGraph.sortedConfigKeys.filter((k) => !envGraph.configSchema[k].isBootDynamic);
+
   // Generate types before resolving values: uses only non-env-specific schema info
   await envGraph.runCodeGeneratorsIfNeeded();
-  await envGraph.resolveEnvValues();
+  await envGraph.resolveEnvValues(bootKeys.length ? pinnedKeys : undefined);
   // a frozen file is consumed without re-resolution, so a partially-broken graph must never
   // be written - there would be no opportunity to surface the failure later
   checkForConfigErrors(envGraph);
@@ -63,7 +70,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     );
   }
 
-  const serialized = envGraph.getSerializedGraph();
+  const serialized = envGraph.getSerializedGraph(bootKeys.length ? { filterKeys: new Set(pinnedKeys) } : undefined);
+  // marks the payload as a freeze (consumers apply it on top of the schema when it leaves
+  // keys to boot) and records what was frozen - see the SerializedEnvGraph type
+  serialized.frozen = {
+    bootKeys,
+    ...(frozenEnv !== undefined ? { currentEnv: String(frozenEnv) } : {}),
+  };
 
   // Override provenance describes process.env overrides at the ORIGINAL invocation, so
   // consumers re-apply exactly those keys from their own environment. That makes sense for a
@@ -75,6 +88,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const serializedJson = JSON.stringify(serialized);
   const contents = encryptionKey ? encryptEnvBlobSync(serializedJson, encryptionKey) : serializedJson;
   const itemCount = Object.keys(serialized.config).length;
+
+  // every summary names what was left out - a key that is not pinned is the one thing a
+  // reader of "Froze N env vars" would otherwise assume is
+  const bootSummaryLine = bootKeys.length
+    ? ansis.gray(`  left to boot (@dynamic=boot): ${ansis.bold(bootKeys.join(', '))}`)
+    : undefined;
+  const bootNextStepLines = bootKeys.length ? [
+    `${bootKeys.join(', ')} ${bootKeys.length === 1 ? 'is' : 'are'} resolved and validated against the schema at boot, so the runtime`,
+    'needs the varlock CLI and your .env.schema alongside the app (boot via `varlock run`, or',
+    '`varlock/auto-load` with the CLI installed). Everything else stays pinned.',
+  ] : [];
 
   // `--out -` emits the payload on stdout instead of writing a file, for platforms that
   // accept env vars but give you no way to get a file into the deploy unit (a compose file
@@ -89,6 +113,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     process.stdout.write(`${contents}\n`);
     console.error(`Froze ${itemCount} env var${itemCount === 1 ? '' : 's'} to stdout`);
     if (frozenEnv !== undefined) console.error(ansis.gray(`  environment: ${ansis.bold(String(frozenEnv))}`));
+    if (bootSummaryLine) console.error(bootSummaryLine);
     console.error(ansis.gray(`  ${encryptionKey ? 'encrypted with _VARLOCK_ENV_KEY' : 'UNENCRYPTED'}`));
     console.error('');
     if (!encryptionKey) {
@@ -109,6 +134,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.error(ansis.gray('  3. Boot your app as usual - `varlock/auto-load` hydrates from the blob.'));
     }
     console.error('');
+    for (const line of bootNextStepLines) console.error(ansis.gray(line));
+    if (bootNextStepLines.length) console.error('');
     console.error(ansis.gray('Values are now pinned: rotating a secret takes effect on your next deploy, not on restart.'));
     return;
   }
@@ -129,6 +156,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // always state the environment - this file gets shipped, and picking the wrong one is
   // the easiest mistake to make and the hardest to notice
   if (frozenEnv !== undefined) console.log(ansis.gray(`  environment: ${ansis.bold(String(frozenEnv))}`));
+  if (bootSummaryLine) console.log(bootSummaryLine);
   console.log(ansis.gray(`  ${encryptionKey ? 'encrypted with _VARLOCK_ENV_KEY' : 'UNENCRYPTED'}`));
   console.log('');
 
@@ -147,6 +175,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(ansis.gray('  2. Boot your app as usual - varlock picks the file up automatically.'));
   }
   console.log('');
+  for (const line of bootNextStepLines) console.log(ansis.gray(line));
+  if (bootNextStepLines.length) console.log('');
   console.log(ansis.gray(`Add ${relOutPath} to your .gitignore - it is a generated artifact holding resolved values.`));
   console.log(ansis.gray('Values are now pinned: rotating a secret takes effect on your next deploy, not on restart.'));
   console.log(ansis.gray(`Set ${USE_FROZEN_ENV_VAR}=1 at runtime to make a missing file a hard error rather than falling back to normal resolution.`));

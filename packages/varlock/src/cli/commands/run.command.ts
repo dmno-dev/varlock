@@ -125,10 +125,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } else {
     debug('resolving env (%s)', reuseDecision.reason);
+    // A pin that leaves `@dynamic=boot` keys to the runtime is applied on top of the schema:
+    // pinned values stay sealed (their resolvers never run) and only the boot keys are
+    // resolved and validated here. The child then gets a complete, fresh blob.
     envGraph = await loadVarlockEnvGraph({
       entryFilePaths: ctx.values.path,
       clearCache: ctx.values['clear-cache'],
       skipCache: ctx.values['skip-cache'],
+      pinned: reuseDecision.pinned,
     });
     checkForSchemaErrors(envGraph);
     checkForNoEnvFiles(envGraph);

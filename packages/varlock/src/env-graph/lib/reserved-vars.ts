@@ -55,7 +55,7 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   },
   {
     name: '_VARLOCK_USE_FROZEN_ENV',
-    description: 'Controls whether `varlock/auto-load` and `varlock run` boot from a frozen env file produced by `varlock freeze`. Unset, `.varlock-frozen-env` is used if present; `1`/`true` requires it; `0`/`false` never uses one; any other value is treated as a required path.',
+    description: 'Controls whether `varlock/auto-load` and `varlock run` boot from a frozen env file produced by `varlock freeze`. Unset, `.varlock-frozen-env` is used if present; `1`/`true` requires it; `0`/`false` never uses one; any other value is treated as a required path. `varlock load` only honors an explicit value (`1` or a path), showing the pinned values with any `@dynamic=boot` keys resolved live.',
   },
   {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
