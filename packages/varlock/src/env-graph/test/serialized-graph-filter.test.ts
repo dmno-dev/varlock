@@ -3,7 +3,7 @@ import outdent from 'outdent';
 import { EnvGraph } from '../index';
 import { DotEnvFileDataSource } from '../lib/data-source';
 import { SERIALIZED_ENV_GRAPH_FORMAT_VERSION } from '../lib/env-graph';
-import { VARLOCK_VERSION } from '../../lib/varlock-version';
+import { VARLOCK_VERSION, VARLOCK_VERSION_ID } from '../../lib/varlock-version';
 
 async function loadSchema(contents: string, overrideValues?: Record<string, string>) {
   const g = new EnvGraph();
@@ -19,8 +19,11 @@ describe('getSerializedGraph version stamps', () => {
     const g = await loadSchema('FOO=bar');
     const blob = g.getSerializedGraph();
     expect(blob.blobFormatVersion).toBe(SERIALIZED_ENV_GRAPH_FORMAT_VERSION);
-    expect(blob.varlockVersion).toBe(VARLOCK_VERSION);
-    expect(VARLOCK_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+    // the build-type suffix is part of the stamp outside release builds, so under vitest
+    // this is the bare version plus `-test`
+    expect(blob.varlockVersion).toBe(VARLOCK_VERSION_ID);
+    expect(VARLOCK_VERSION_ID).toMatch(new RegExp(`^${VARLOCK_VERSION}(-|$)`));
+    expect(VARLOCK_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 });
 

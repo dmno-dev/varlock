@@ -28,7 +28,7 @@ import { getErrorLocation } from './error-location';
 import type { VarlockPlugin } from './plugins';
 import { runWithResolutionContext, getResolutionContext } from './resolution-context';
 import { getCiEnv, type CiEnvInfo } from '@varlock/ci-env-info';
-import { VARLOCK_VERSION } from '../../lib/varlock-version';
+import { VARLOCK_VERSION_ID } from '../../lib/varlock-version';
 import { BUILTIN_VARS, isBuiltinVar } from './builtin-vars';
 import { isVarlockReservedKey } from './reserved-vars';
 import { normalizeOverrideKeys } from '../../lib/injected-env-provenance';
@@ -95,11 +95,12 @@ export type SerializedEnvGraph = {
    */
   blobFormatVersion?: number;
   /**
-   * Version of the varlock package that produced this blob, for diagnostics. Producer and
-   * consumer are legitimately different builds in several flows (runtime glue bundled into
-   * an integration, a parent `varlock run`, a global CLI vs a local package dependency),
-   * so this is not a compatibility signal on its own - see `blobFormatVersion`. Absent on
-   * blobs from producers older than this field.
+   * Build of varlock that produced this blob, for diagnostics: the same identifier
+   * `varlock --version` prints, so it carries a build-type suffix outside releases
+   * (`1.19.0`, `1.19.0-dev`). Producer and consumer are legitimately different builds in
+   * several flows (runtime glue bundled into an integration, a parent `varlock run`, a
+   * global CLI vs a local package dependency), so this is not a compatibility signal on
+   * its own: see `blobFormatVersion`. Absent on blobs from producers older than this field.
    */
   varlockVersion?: string;
   basePath?: string;
@@ -1104,7 +1105,7 @@ export class EnvGraph {
   getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       blobFormatVersion: SERIALIZED_ENV_GRAPH_FORMAT_VERSION,
-      varlockVersion: VARLOCK_VERSION,
+      varlockVersion: VARLOCK_VERSION_ID,
       basePath: this.basePath,
       sources: [],
       config: {},
