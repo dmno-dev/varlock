@@ -12,6 +12,7 @@ import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
+import { FrozenEnvFileError, getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
@@ -132,6 +133,15 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   let reuseDecision: ReturnType<typeof evaluateInjectedEnvReuse>;
   if (resolutionFlags.length) {
+    // A frozen env file is a deploy-time pin, so silently ignoring it and re-resolving would
+    // defeat the point just as much as it would for an explicitly-forced blob.
+    const frozenFilePath = getFrozenEnvFileInPlay(process.env, process.cwd());
+    if (frozenFilePath) {
+      throw new CliExitError(`a frozen env file (${frozenFilePath}) cannot be combined with ${resolutionFlags.join(', ')}`, {
+        suggestion: 'These flags change what a fresh resolution produces, so there is nothing to reuse. Drop them, '
+          + `re-run \`varlock freeze\` with them, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files.`,
+      });
+    }
     if (getUseInjectedEnvMode(process.env) === 'force') {
       throw new CliExitError(`${USE_INJECTED_ENV_VAR} cannot be combined with ${resolutionFlags.join(', ')}`, {
         suggestion: 'These flags change what a fresh resolution produces, so there is nothing to reuse. Drop them, or unset the env var to resolve normally.',
@@ -146,7 +156,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         cwd: process.cwd(),
       });
     } catch (err) {
-      // explicit trust mode with a missing/unusable blob
+      // a frozen env file that is present but unusable, or explicit trust mode with a
+      // missing/unusable blob - neither ever falls back to a fresh resolution
+      if (err instanceof FrozenEnvFileError) {
+        throw new CliExitError((err as Error).message.replace(/^\[varlock\] /, ''), {
+          suggestion: 'Re-create it with `varlock freeze`, make sure _VARLOCK_ENV_KEY matches the key it was frozen with, '
+            + `or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files instead.`,
+        });
+      }
       throw new CliExitError((err as Error).message.replace(/^\[varlock\] /, ''), {
         suggestion: 'Provide a valid __VARLOCK_ENV blob (e.g. captured via `varlock load --format json-full --compact`), '
           + `or unset ${USE_INJECTED_ENV_VAR} to resolve from .env files.`,
@@ -164,7 +181,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   let serializedGraph: SerializedEnvGraph;
 
   if (reuseDecision.reuse) {
-    debug('reusing injected env blob - skipping resolution');
+    debug('reusing pre-resolved env from %s - skipping resolution', reuseDecision.source);
     serializedGraph = reuseDecision.parsedEnv;
     // same shape as getResolvedEnvStringObject: unset items stay undefined, so they still
     // mask any inherited value when the child env is built. The blob never carries
