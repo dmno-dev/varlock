@@ -13,13 +13,50 @@ const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
 const AZURE_ICON = 'skill-icons:azure-dark';
 
-/** Entra token resources (the `/.default` scope is derived from these) */
-const KEY_VAULT_RESOURCE = 'https://vault.azure.net';
-const APP_CONFIG_RESOURCE = 'https://azconfig.io';
+interface AzureCloud {
+  /** Entra ID authority host used to mint tokens */
+  authorityHost: string;
+  /** Entra token resources (the `/.default` scope is derived from these) */
+  keyVaultResource: string;
+  appConfigResource: string;
+  /** DNS suffix of Key Vault hosts; Key Vault references must point at a vault under it */
+  keyVaultDnsSuffix: string;
+}
+
+/**
+ * Per-cloud endpoints. Token audiences differ between clouds, so `authorityHost` alone is not
+ * enough; see https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure
+ */
+const AZURE_CLOUDS: Record<'public' | 'usgov' | 'china', AzureCloud> = {
+  public: {
+    authorityHost: 'https://login.microsoftonline.com',
+    keyVaultResource: 'https://vault.azure.net',
+    appConfigResource: 'https://azconfig.io',
+    keyVaultDnsSuffix: 'vault.azure.net',
+  },
+  usgov: {
+    authorityHost: 'https://login.microsoftonline.us',
+    keyVaultResource: 'https://vault.usgovcloudapi.net',
+    appConfigResource: 'https://azconfig.azure.us',
+    keyVaultDnsSuffix: 'vault.usgovcloudapi.net',
+  },
+  china: {
+    authorityHost: 'https://login.chinacloudapi.cn',
+    keyVaultResource: 'https://vault.azure.cn',
+    appConfigResource: 'https://azconfig.azure.cn',
+    keyVaultDnsSuffix: 'vault.azure.cn',
+  },
+};
+type AzureCloudName = keyof typeof AZURE_CLOUDS;
+/** accept the `az cloud list` names as aliases */
+const AZURE_CLOUD_ALIASES: Record<string, AzureCloudName> = {
+  azurecloud: 'public',
+  azureusgovernment: 'usgov',
+  azurechinacloud: 'china',
+};
 
 const KEY_VAULT_API_VERSION = '7.4';
 const APP_CONFIG_API_VERSION = '2023-11-01';
-const DEFAULT_AUTHORITY_HOST = 'https://login.microsoftonline.com';
 
 /** content type of an App Configuration setting that references a Key Vault secret */
 const KEY_VAULT_REF_CONTENT_TYPE = 'application/vnd.microsoft.appconfig.keyvaultref+json';
@@ -85,6 +122,7 @@ interface AzureInstanceConfig {
   appConfigEndpoint?: unknown;
   appConfigConnectionString?: unknown;
   defaultLabel?: unknown;
+  cloud?: unknown;
   authorityHost?: unknown;
   tenantId?: unknown;
   clientId?: unknown;
@@ -135,6 +173,26 @@ function signAppConfigRequest(conn: AppConfigConnection, method: string, url: UR
   };
 }
 
+/**
+ * Escape a literal value for use in the App Configuration list filter grammar,
+ * where `*`, `\` and `,` are operators.
+ */
+function escapeAppConfigFilter(value: string): string {
+  return value.replace(/([\\*,])/g, '\\$1');
+}
+
+function parseCloudName(raw: string): AzureCloudName {
+  const normalized = raw.trim().toLowerCase();
+  const name = (normalized in AZURE_CLOUDS ? normalized : AZURE_CLOUD_ALIASES[normalized]) as
+    AzureCloudName | undefined;
+  if (!name) {
+    throw new SchemaError(`Unknown Azure cloud "${raw}"`, {
+      tip: `Valid values: ${Object.keys(AZURE_CLOUDS).join(', ')} (or the az CLI names AzureCloud, AzureUSGovernment, AzureChinaCloud)`,
+    });
+  }
+  return name;
+}
+
 function hasContentType(setting: AppConfigSetting, contentType: string): boolean {
   const actual = setting.content_type;
   if (!actual) return false;
@@ -142,7 +200,7 @@ function hasContentType(setting: AppConfigSetting, contentType: string): boolean
 }
 
 /** parse a Key Vault secret identifier, e.g. https://my-vault.vault.azure.net/secrets/my-secret/abc123 */
-function parseKeyVaultSecretUri(uri: string): { vaultUrl: string; secretName: string; version?: string } {
+function parseKeyVaultSecretUri(uri: string): { parsed: URL; secretName: string; version?: string } {
   let parsed: URL;
   try {
     parsed = new URL(uri);
@@ -155,7 +213,7 @@ function parseKeyVaultSecretUri(uri: string): { vaultUrl: string; secretName: st
       tip: 'Expected a URI like https://<vault>.vault.azure.net/secrets/<name>[/<version>]',
     });
   }
-  return { vaultUrl: parsed.origin, secretName: segments[1], version: segments[2] };
+  return { parsed, secretName: segments[1], version: segments[2] };
 }
 
 class AzurePluginInstance {
@@ -163,7 +221,8 @@ class AzurePluginInstance {
   private appConfigEndpoint?: string;
   private appConfigConnection?: AppConfigConnection;
   private defaultLabel?: string;
-  private authorityHost = DEFAULT_AUTHORITY_HOST;
+  private cloudName: AzureCloudName = 'public';
+  private cloud: AzureCloud = AZURE_CLOUDS.public;
   private tenantId?: string;
   private clientId?: string;
   private clientSecret?: string;
@@ -192,8 +251,11 @@ class AzurePluginInstance {
     }
     this.appConfigConnection = connectionString ? parseAppConfigConnectionString(connectionString) : undefined;
     this.defaultLabel = asOptionalString(config.defaultLabel);
+    const cloudName = asOptionalString(config.cloud);
+    this.cloudName = cloudName ? parseCloudName(cloudName) : 'public';
+    this.cloud = { ...AZURE_CLOUDS[this.cloudName] };
     const authorityHost = asOptionalString(config.authorityHost);
-    this.authorityHost = authorityHost ? normalizeEndpoint(authorityHost) : DEFAULT_AUTHORITY_HOST;
+    if (authorityHost) this.cloud.authorityHost = normalizeEndpoint(authorityHost);
     this.tenantId = asOptionalString(config.tenantId);
     this.clientId = asOptionalString(config.clientId);
     this.clientSecret = asOptionalString(config.clientSecret);
@@ -209,6 +271,8 @@ class AzurePluginInstance {
       !!this.appConfigConnection,
       'hasDefaultLabel:',
       !!this.defaultLabel,
+      'cloud:',
+      this.cloudName,
       'hasTenantId:',
       !!this.tenantId,
       'hasClientId:',
@@ -230,6 +294,11 @@ class AzurePluginInstance {
 
   get appConfigDefaultLabel() {
     return this.defaultLabel;
+  }
+
+  /** the instance's defaultLabel as a literal list filter (reserved filter characters escaped) */
+  get appConfigDefaultLabelFilter() {
+    return this.defaultLabel === undefined ? undefined : escapeAppConfigFilter(this.defaultLabel);
   }
 
   get hasAppConfigConnectionString() {
@@ -411,7 +480,7 @@ class AzurePluginInstance {
   }
 
   private get tokenUrl() {
-    return `${this.authorityHost}/${this.tenantId}/oauth2/v2.0/token`;
+    return `${this.cloud.authorityHost}/${this.tenantId}/oauth2/v2.0/token`;
   }
 
   private async getFederatedCredentialToken(resource: string, clientId: string): Promise<string | undefined> {
@@ -496,8 +565,9 @@ class AzurePluginInstance {
       return cliToken;
     }
 
-    const roleName = resource === APP_CONFIG_RESOURCE ? 'App Configuration Data Reader' : 'Key Vault Secrets User';
-    const resourceLabel = resource === APP_CONFIG_RESOURCE ? 'App Configuration store' : 'Key Vault';
+    const isAppConfig = resource === this.cloud.appConfigResource;
+    const roleName = isAppConfig ? 'App Configuration Data Reader' : 'Key Vault Secrets User';
+    const resourceLabel = isAppConfig ? 'App Configuration store' : 'Key Vault';
 
     // No credentials available
     throw new SchemaError('Azure credentials are required', {
@@ -520,7 +590,7 @@ class AzurePluginInstance {
         '  - tenantId: Your Azure AD tenant ID',
         '  - clientId: Your service principal application (client) ID',
         '  - clientSecret: Your service principal client secret',
-        ...(resource === APP_CONFIG_RESOURCE ? [
+        ...(isAppConfig ? [
           '',
           'Option 5: Use an App Configuration access key via @initAzure(appConfigConnectionString=...)',
         ] : []),
@@ -620,7 +690,7 @@ class AzurePluginInstance {
     version?: string,
   ): Promise<string> {
     try {
-      const accessToken = await this.getAccessToken(KEY_VAULT_RESOURCE);
+      const accessToken = await this.getAccessToken(this.cloud.keyVaultResource);
 
       debug(`Fetching secret: ${secretName}${version ? `@${version}` : ''} from ${vaultUrl}`);
 
@@ -727,7 +797,7 @@ class AzurePluginInstance {
     if (this.appConfigConnection) {
       Object.assign(headers, signAppConfigRequest(this.appConfigConnection, 'GET', url));
     } else {
-      headers.Authorization = `Bearer ${await this.getAccessToken(APP_CONFIG_RESOURCE)}`;
+      headers.Authorization = `Bearer ${await this.getAccessToken(this.cloud.appConfigResource)}`;
     }
     return ky.get(url, { headers }).json<T>();
   }
@@ -774,6 +844,33 @@ class AzurePluginInstance {
   }
 
   /**
+   * A Key Vault reference is data written by whoever can edit the App Configuration store,
+   * so its origin must not be trusted blindly: the vault-scoped bearer token is only ever
+   * sent to the explicitly configured vaultUrl or to an https host under the selected
+   * cloud's Key Vault DNS suffix. Anything else would let a store writer exfiltrate the token.
+   */
+  private assertTrustedVaultOrigin(ref: URL, settingKey: string) {
+    const reject = (reason: string): never => {
+      throw new ResolutionError(`Refusing to dereference Key Vault reference for setting "${settingKey}": ${reason}`, {
+        tip: [
+          `Key Vault references must point at https://<vault>.${this.cloud.keyVaultDnsSuffix}/secrets/<name>`,
+          this.vaultUrl ? `or at the configured vaultUrl (${this.vaultUrl})` : '(or at the vaultUrl configured on the instance)',
+          `Reference: ${ref.href}`,
+        ].join('\n'),
+      });
+    };
+    if (ref.username || ref.password) return reject('URI contains credentials');
+    // the explicitly configured vault is trusted as-is
+    if (this.vaultUrl && ref.origin === new URL(`${this.vaultUrl}/`).origin) return;
+    if (ref.protocol !== 'https:') return reject('URI is not https');
+    if (ref.port) return reject('URI uses a non-default port');
+    const host = ref.hostname.toLowerCase();
+    if (!host.endsWith(`.${this.cloud.keyVaultDnsSuffix}`) || host === `.${this.cloud.keyVaultDnsSuffix}`) {
+      return reject(`host "${ref.hostname}" is not a Key Vault in the ${this.cloudName} cloud`);
+    }
+  }
+
+  /**
    * Turn a setting into its final string value. Key Vault references are dereferenced
    * using the instance's Key Vault credentials; everything else (including feature
    * flags, which are JSON) is returned verbatim.
@@ -789,9 +886,10 @@ class AzurePluginInstance {
       if (typeof uri !== 'string' || !uri) {
         throw new ResolutionError(`Setting "${setting.key}" is a Key Vault reference without a "uri"`);
       }
-      const { vaultUrl, secretName, version } = parseKeyVaultSecretUri(uri);
+      const { parsed, secretName, version } = parseKeyVaultSecretUri(uri);
+      this.assertTrustedVaultOrigin(parsed, setting.key);
       debug(`Dereferencing Key Vault reference for setting "${setting.key}" -> ${uri}`);
-      return this.fetchSecretFromVault(vaultUrl, secretName, version);
+      return this.fetchSecretFromVault(parsed.origin, secretName, version);
     }
     return setting.value ?? '';
   }
@@ -893,6 +991,7 @@ plugin.registerRootDecorator({
       appConfigEndpointResolver: objArgs.appConfigEndpoint,
       appConfigConnectionStringResolver: objArgs.appConfigConnectionString,
       defaultLabelResolver: objArgs.defaultLabel,
+      cloudResolver: objArgs.cloud,
       authorityHostResolver: objArgs.authorityHost,
       tenantIdResolver: objArgs.tenantId,
       clientIdResolver: objArgs.clientId,
@@ -907,6 +1006,7 @@ plugin.registerRootDecorator({
     appConfigEndpointResolver,
     appConfigConnectionStringResolver,
     defaultLabelResolver,
+    cloudResolver,
     authorityHostResolver,
     tenantIdResolver,
     clientIdResolver,
@@ -918,6 +1018,7 @@ plugin.registerRootDecorator({
       appConfigEndpoint: await appConfigEndpointResolver?.resolve(),
       appConfigConnectionString: await appConfigConnectionStringResolver?.resolve(),
       defaultLabel: await defaultLabelResolver?.resolve(),
+      cloud: await cloudResolver?.resolve(),
       authorityHost: await authorityHostResolver?.resolve(),
       tenantId: await tenantIdResolver?.resolve(),
       clientId: await clientIdResolver?.resolve(),
@@ -1239,9 +1340,10 @@ plugin.registerResolverFunction({
     const selectedInstance = pluginInstances[instanceId];
 
     const keyFilter = await resolveOptionalString(keyFilterResolver, 'keyFilter') || '*';
-    // default to the instance's defaultLabel, otherwise only unlabeled settings
+    // default to the instance's defaultLabel (as a literal, escaped for the filter grammar),
+    // otherwise only unlabeled settings. An explicit labelFilter is a filter expression as-is.
     const labelFilter = await resolveOptionalString(labelFilterResolver, 'labelFilter')
-      || selectedInstance.appConfigDefaultLabel
+      || selectedInstance.appConfigDefaultLabelFilter
       || NO_LABEL_FILTER;
     const trimKeyPrefix = await resolveOptionalString(trimKeyPrefixResolver, 'trimKeyPrefix') || undefined;
 

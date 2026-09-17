@@ -153,12 +153,22 @@ async function startFakeAzure(opts: {
         const labelFilter = requestUrl.searchParams.get('label');
         const after = Number(requestUrl.searchParams.get('after') || 0);
         const keyPrefix = keyFilter.endsWith('*') ? keyFilter.slice(0, -1) : undefined;
+        // label filter grammar: `*` wildcard, `\` escapes, `,` separates alternatives
+        const labelMatcher = (label: string | undefined): boolean => {
+          if (labelFilter === null || labelFilter === '*') return true;
+          if (labelFilter === '\0') return label === undefined;
+          return labelFilter.split(/(?<!\\),/).some((alt) => {
+            const pattern = alt.replace(/\\(.)|(\*)|([.+?^${}()|[\]])/g, (_m, esc, star, special) => {
+              if (esc !== undefined) return esc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              if (star !== undefined) return '.*';
+              return `\\${special}`;
+            });
+            return label !== undefined && new RegExp(`^${pattern}$`).test(label);
+          });
+        };
         const matching = settings.filter((s) => {
           const keyMatches = keyPrefix !== undefined ? s.key.startsWith(keyPrefix) : s.key === keyFilter;
-          let labelMatches = true;
-          if (labelFilter === '\0') labelMatches = s.label === undefined;
-          else if (labelFilter && labelFilter !== '*') labelMatches = s.label === labelFilter;
-          return keyMatches && labelMatches;
+          return keyMatches && labelMatcher(s.label);
         });
         const page = matching.slice(after, after + pageSize);
         const payload: Record<string, unknown> = { items: page.map(toItem) };
@@ -400,7 +410,7 @@ describe('azureAppConfig()', () => {
     await pluginTest({
       injectValues: spInjectValues,
       schema: outdent`
-        ${servicePrincipalSchema(vault, `,\n#   appConfigEndpoint="${store.url}"`)}
+        ${servicePrincipalSchema(vault, `,\n#   appConfigEndpoint="${store.url}",\n#   vaultUrl="${vault.url}"`)}
         # @sensitive
         DB_PASSWORD=azureAppConfig()
       `,
@@ -410,6 +420,77 @@ describe('azureAppConfig()', () => {
     const scopes = vault.requests.filter((r) => r.scope).map((r) => r.scope).sort();
     expect(scopes).toEqual(['https://azconfig.io/.default', 'https://vault.azure.net/.default']);
     expect(vault.requests.some((r) => r.pathname === '/secrets/db-password' && r.authMode === 'bearer')).toBe(true);
+  });
+
+  test('refuses Key Vault references that point outside the configured vault or cloud suffix', async () => {
+    const vault = await startFakeAzure({ vaultSecrets: { 'db-password': 'super-secret' } });
+    // a second server plays the attacker-controlled origin named by the reference
+    const attacker = await startFakeAzure({ vaultSecrets: { 'db-password': 'stolen' } });
+    const store = await startFakeAzure({
+      settings: [
+        {
+          key: 'OTHER_ORIGIN',
+          value: JSON.stringify({ uri: `${attacker.url}/secrets/db-password` }),
+          contentType: 'application/vnd.microsoft.appconfig.keyvaultref+json',
+        },
+        {
+          key: 'PLAIN_HTTP_PUBLIC',
+          value: JSON.stringify({ uri: 'http://my-vault.vault.azure.net/secrets/db-password' }),
+          contentType: 'application/vnd.microsoft.appconfig.keyvaultref+json',
+        },
+        {
+          key: 'LOOKALIKE_HOST',
+          value: JSON.stringify({ uri: 'https://my-vault.vault.azure.net.evil.example/secrets/db-password' }),
+          contentType: 'application/vnd.microsoft.appconfig.keyvaultref+json',
+        },
+        {
+          key: 'TRUSTED',
+          value: JSON.stringify({ uri: `${vault.url}/secrets/db-password` }),
+          contentType: 'application/vnd.microsoft.appconfig.keyvaultref+json',
+        },
+      ],
+    });
+
+    await pluginTest({
+      injectValues: spInjectValues,
+      schema: outdent`
+        ${servicePrincipalSchema(vault, `,\n#   appConfigEndpoint="${store.url}",\n#   vaultUrl="${vault.url}"`)}
+        OTHER_ORIGIN=azureAppConfig()
+        PLAIN_HTTP_PUBLIC=azureAppConfig()
+        LOOKALIKE_HOST=azureAppConfig()
+        TRUSTED=azureAppConfig()
+      `,
+      expectValues: {
+        OTHER_ORIGIN: Error,
+        PLAIN_HTTP_PUBLIC: Error,
+        LOOKALIKE_HOST: Error,
+        TRUSTED: 'super-secret',
+      },
+    })();
+
+    // the attacker origin never sees a request, let alone a bearer token
+    expect(attacker.requests).toHaveLength(0);
+  });
+
+  test('uses sovereign-cloud token audiences when cloud= is set', async () => {
+    const fake = await startFakeAzure({
+      settings: [{ key: 'API_HOST', value: 'api.example.us' }],
+      vaultSecrets: { 'database-url': 'postgres://gov' },
+    });
+
+    await pluginTest({
+      injectValues: spInjectValues,
+      schema: outdent`
+        ${servicePrincipalSchema(fake, `,\n#   cloud=usgov,\n#   appConfigEndpoint="${fake.url}",\n#   vaultUrl="${fake.url}"`)}
+        API_HOST=azureAppConfig()
+        # @sensitive
+        DATABASE_URL=azureSecret()
+      `,
+      expectValues: { API_HOST: 'api.example.us', DATABASE_URL: 'postgres://gov' },
+    })();
+
+    const scopes = fake.requests.filter((r) => r.scope).map((r) => r.scope).sort();
+    expect(scopes).toEqual(['https://azconfig.azure.us/.default', 'https://vault.usgovcloudapi.net/.default']);
   });
 
   test('errors when the instance has no App Configuration store configured', async () => {
@@ -493,6 +574,34 @@ describe('azureAppConfigBulk()', () => {
     expect(listRequest?.searchParams.get('label')).toBe('\0');
   });
 
+  test('escapes defaultLabel when it becomes the bulk label filter', async () => {
+    const fake = await startFakeAzure({
+      settings: [
+        { key: 'A', label: 'release*candidate', value: 'literal' },
+        { key: 'B', label: 'release-1-candidate', value: 'wildcard-only' },
+      ],
+    });
+
+    await pluginTest({
+      injectValues: { AZURE_APPCONFIG_CONNECTION_STRING: fake.connectionString },
+      schema: outdent`
+        # @plugin(${PLUGIN_PATH})
+        # @initAzure(appConfigConnectionString=$AZURE_APPCONFIG_CONNECTION_STRING, defaultLabel="release*candidate")
+        # @setValuesBulk(azureAppConfigBulk(), format=json)
+        # ---
+        # @type=azureAppConfigConnectionString
+        AZURE_APPCONFIG_CONNECTION_STRING=
+        A=
+        # @optional
+        B=
+      `,
+      expectValues: { A: 'literal', B: undefined },
+    })();
+
+    const listRequest = fake.requests.find((r) => r.pathname === '/kv');
+    expect(listRequest?.searchParams.get('label')).toBe('release\\*candidate');
+  });
+
   test('dereferences Key Vault references in bulk results', async () => {
     const vault = await startFakeAzure({ vaultSecrets: { 'api-key': 'kv-api-key' } });
     const store = await startFakeAzure({
@@ -513,6 +622,7 @@ describe('azureAppConfigBulk()', () => {
         # @initAzure(
         #   authorityHost="${vault.url}",
         #   appConfigEndpoint="${store.url}",
+        #   vaultUrl="${vault.url}",
         #   tenantId=$AZURE_TENANT_ID,
         #   clientId=$AZURE_CLIENT_ID,
         #   clientSecret=$AZURE_CLIENT_SECRET

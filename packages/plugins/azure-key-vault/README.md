@@ -213,7 +213,7 @@ API_HOST=
 
 ### Key Vault references and feature flags
 
-Settings with content type `application/vnd.microsoft.appconfig.keyvaultref+json` point at a Key Vault secret. Both resolvers detect them and fetch the secret using the instance's Key Vault credentials. The reference may point at any vault the identity can read; `vaultUrl` does not need to be set.
+Settings with content type `application/vnd.microsoft.appconfig.keyvaultref+json` point at a Key Vault secret. Both resolvers detect them and fetch the secret using the instance's Key Vault credentials. Since the reference URI is written by whoever can edit the store, it is only followed to an `https://<vault>.vault.azure.net` host (or the selected `cloud`'s Key Vault suffix) or to the configured `vaultUrl`; other origins are rejected and never receive the vault token. `vaultUrl` does not need to be set for references within the same cloud.
 
 Feature flags (`application/vnd.microsoft.appconfig.ff+json`) are returned as their JSON string and are not evaluated.
 
@@ -233,7 +233,8 @@ Initialize an Azure plugin instance. At least one of `vaultUrl`, `appConfigEndpo
 - `appConfigEndpoint?: string` - Azure App Configuration endpoint (e.g., `https://my-store.azconfig.io`); required for `azureAppConfig()` / `azureAppConfigBulk()` unless `appConfigConnectionString` is set
 - `appConfigConnectionString?: string` - App Configuration access-key connection string (`Endpoint=...;Id=...;Secret=...`); alternative to `appConfigEndpoint` plus Entra auth, App Configuration only
 - `defaultLabel?: string` - label used by `azureAppConfig()` / `azureAppConfigBulk()` when none is given
-- `authorityHost?: string` - Entra ID authority host for sovereign clouds (defaults to `https://login.microsoftonline.com`)
+- `cloud?: "public" | "usgov" | "china"` - Azure cloud (default `public`); selects the authority host, token audiences, and the Key Vault DNS suffix trusted for Key Vault references. `az cloud list` names are accepted too
+- `authorityHost?: string` - override the Entra ID authority host chosen by `cloud` (rarely needed)
 - `tenantId?: string` - Azure AD tenant ID (directory ID)
 - `clientId?: string` - Service principal application (client) ID
 - `clientSecret?: string` - Service principal client secret (password)

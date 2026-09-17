@@ -208,7 +208,7 @@ API_KEY_V1=azureSecret("api-key@abc123def456")
 
 ### Setup
 
-Point the instance at your store with `appConfigEndpoint`. Authentication uses the same chain as Key Vault, and the identity needs the **App Configuration Data Reader** role on the store (see [Azure Setup](#app-configuration-data-reader-role) below).
+Point the instance at your store with `appConfigEndpoint`. For Azure Government or Azure China, also set `cloud=usgov` or `cloud=china` so tokens are minted for the right endpoints. Authentication uses the same chain as Key Vault, and the identity needs the **App Configuration Data Reader** role on the store (see [Azure Setup](#app-configuration-data-reader-role) below).
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/azure-key-vault-plugin)
@@ -280,7 +280,9 @@ API_HOST=
 
 ### Key Vault references
 
-App Configuration can store a pointer to a Key Vault secret instead of the value itself (content type `application/vnd.microsoft.appconfig.keyvaultref+json`). Both `azureAppConfig()` and `azureAppConfigBulk()` detect these and fetch the referenced secret, using the instance's Key Vault credentials. The reference can point at any vault the identity can read, not only the one in `vaultUrl`, and `vaultUrl` does not need to be set. The identity needs "Key Vault Secrets User" (or the "Get" access policy) on each referenced vault.
+App Configuration can store a pointer to a Key Vault secret instead of the value itself (content type `application/vnd.microsoft.appconfig.keyvaultref+json`). Both `azureAppConfig()` and `azureAppConfigBulk()` detect these and fetch the referenced secret, using the instance's Key Vault credentials. The identity needs "Key Vault Secrets User" (or the "Get" access policy) on each referenced vault.
+
+The reference URI is data written by whoever can edit the store, so the plugin only follows it to a vault it can trust: an `https://<vault>.vault.azure.net` host (or the equivalent suffix for the selected `cloud`), or the exact `vaultUrl` configured on the instance. Any other origin is rejected with an error and never receives the vault token. Because of this, `vaultUrl` does not need to be set for references within the same cloud.
 
 ```env-spec title=".env.schema"
 # In App Configuration, "DB_PASSWORD" is a Key Vault reference to
@@ -438,7 +440,8 @@ Initialize an Azure plugin instance for Key Vault and/or App Configuration. At l
 - `appConfigEndpoint` (optional): Azure App Configuration store endpoint (e.g., `https://my-store.azconfig.io`). Required for `azureAppConfig()` / `azureAppConfigBulk()` unless `appConfigConnectionString` is set.
 - `appConfigConnectionString` (optional): App Configuration access-key connection string (`Endpoint=...;Id=...;Secret=...`). Alternative to `appConfigEndpoint` plus Entra ID auth; applies to App Configuration requests only.
 - `defaultLabel` (optional): label used by `azureAppConfig()` and `azureAppConfigBulk()` when none is given
-- `authorityHost` (optional): Entra ID authority host for sovereign clouds (defaults to `https://login.microsoftonline.com`)
+- `cloud` (optional): `public` (default), `usgov`, or `china`. Selects the Entra authority host, the token audiences for Key Vault and App Configuration, and the Key Vault DNS suffix trusted for Key Vault references. The `az cloud list` names (`AzureCloud`, `AzureUSGovernment`, `AzureChinaCloud`) are accepted too.
+- `authorityHost` (optional): override the Entra ID authority host chosen by `cloud`. Rarely needed.
 - `tenantId` (optional): Azure AD tenant ID (directory ID)
 - `clientId` (optional): Service principal application (client) ID
 - `clientSecret` (optional): Service principal client secret (password)
