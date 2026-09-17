@@ -1,0 +1,51 @@
+{
+  "name": "@varlock/effect-plugin",
+  "version": "0.0.0",
+  "description": "Generate Effect Config modules from Varlock schemas",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/effect/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/effect"
+  },
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "test": "vitest",
+    "test:ci": "vitest --run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "effect",
+    "environment-variables",
+    "varlock",
+    "varlock-plugin"
+  ],
+  "author": "dan-myles",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.112",
+    "varlock": "^1.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@varlock/tsconfig": "workspace:*",
+    "effect": "4.0.0-rc.112",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "varlock": "workspace:*",
+    "vitest": "catalog:"
+  }
+}
