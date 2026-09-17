@@ -180,6 +180,21 @@ function optionValue(
   throw new SchemaError(`${context} - option "${kv.key}" must be a static value or resolver call`);
 }
 
+function emptyEnumError(context: string) {
+  return new SchemaError(`${context} - enum must have at least one member, e.g. enum(dev, staging, prod)`);
+}
+
+/** `@type=<name>` with no call - every type except enum works with no arguments */
+function buildBareTypePlan(
+  ctx: TypeSpecContext,
+  name: string,
+  context?: string,
+): TypeSpecPlan {
+  if (!(name in ctx.registry)) throw unknownDataTypeError(name, context);
+  if (name === 'enum') throw emptyEnumError(context ?? '@type=enum');
+  return { deferred: [], build: () => ctx.registry[name]() };
+}
+
 /** build a nested type plan (element type of `array(...)`, values/`keys=` of `object(...)`) */
 function buildNestedTypePlan(
   ctx: TypeSpecContext,
@@ -187,9 +202,7 @@ function buildNestedTypePlan(
   context: string,
 ): TypeSpecPlan {
   if (node instanceof ParsedEnvSpecStaticValue) {
-    const name = String(node.value);
-    if (!(name in ctx.registry)) throw unknownDataTypeError(name, context);
-    return { deferred: [], build: () => ctx.registry[name]() };
+    return buildBareTypePlan(ctx, String(node.value), context);
   }
   // mutual recursion - nested composite types (array of objects, etc.) recurse back through here
   // eslint-disable-next-line no-use-before-define
@@ -409,6 +422,8 @@ function buildEnumTypePlan(
     }
   }
 
+  if (!members.length) throw emptyEnumError(context);
+
   return {
     deferred,
     build: (resolved) => {
@@ -586,9 +601,7 @@ export function buildTypeSpecPlan(
   decoratorValue: NonNullable<ParsedEnvSpecDecorator['value']>,
 ): TypeSpecPlan {
   if (decoratorValue instanceof ParsedEnvSpecStaticValue) {
-    const name = String(decoratorValue.value);
-    if (!(name in ctx.registry)) throw unknownDataTypeError(name);
-    return { deferred: [], build: () => ctx.registry[name]() };
+    return buildBareTypePlan(ctx, String(decoratorValue.value));
   }
   if (decoratorValue instanceof ParsedEnvSpecFunctionCall) {
     if (decoratorValue.name in ctx.registry) {

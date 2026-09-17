@@ -215,7 +215,7 @@ Checks a value is contained in a list of possible values. It must match one exac
 
 `process.env` and `overrideValues` are always strings. Numeric and boolean members still match those overrides (`LEVEL=1`, `FLAG=true`) after coercion.
 
-**NOTE** - this is the only type that cannot be used without any additional arguments
+**NOTE** - this is the only type that cannot be used without arguments. `enum` or `enum()` with no members is a schema error, since no value could ever be valid.
 
 ```env-spec
 # @type=enum(development, staging, production)

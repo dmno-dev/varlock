@@ -1731,6 +1731,17 @@ describe('record data type', () => {
 });
 
 describe('@type arg handling (scalar types)', () => {
+  it('rejects enum with no members', async () => {
+    for (const typeSpec of ['enum', 'enum()', 'array(enum)', 'array(enum())', 'record(string, keyType=enum())']) {
+      const g = await loadAndResolve(outdent`
+        # @type=${typeSpec}
+        ITEM=a
+      `);
+      expect(g.configSchema.ITEM.isValid, typeSpec).toBe(false);
+      expect(g.configSchema.ITEM.errors[0].message, typeSpec).toContain('enum must have at least one member');
+    }
+  });
+
   it('rejects named options on enum', async () => {
     const g = await loadAndResolve(outdent`
       # @type=enum(a, b, someOpt=true)
