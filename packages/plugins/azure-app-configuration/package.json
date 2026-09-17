@@ -1,0 +1,56 @@
+{
+  "name": "@varlock/azure-app-configuration-plugin",
+  "description": "Varlock plugin to load values from Azure App Configuration",
+  "version": "0.1.0",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/azure-app-configuration/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/azure-app-configuration"
+  },
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "test": "vitest",
+    "test:ci": "vitest --run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "azure",
+    "app-configuration",
+    "configuration",
+    "feature-flags",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@azure/app-configuration": "^1.10.0",
+    "@azure/identity": "^4.13.0",
+    "@types/node": "catalog:",
+    "outdent": "catalog:",
+    "tsdown": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}

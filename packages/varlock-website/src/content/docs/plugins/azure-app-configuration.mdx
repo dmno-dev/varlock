@@ -1,0 +1,146 @@
+---
+title: Azure App Configuration Plugin
+description: Using Azure App Configuration with Varlock
+---
+
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/azure-app-configuration-plugin" />
+</div>
+
+The Azure App Configuration plugin loads application settings into Varlock by key and label. It supports individual lookups and bulk loading with Azure App Configuration selectors.
+
+## Installation
+
+Install the package in a JS or TS project:
+
+```bash
+npm install @varlock/azure-app-configuration-plugin
+```
+
+Register and initialize it in `.env.schema`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/azure-app-configuration-plugin)
+# @initAzureAppConfiguration(endpoint="https://my-store.azconfig.io")
+```
+
+See the [plugins guide](/guides/plugins/#installation) for loading a versioned package directly from a schema.
+
+## Authentication
+
+When you provide an endpoint, the plugin uses Azure's default credential chain. Run `az login` for local development, or assign a managed identity when the application runs in Azure.
+
+The identity needs the **App Configuration Data Reader** role on the configuration store.
+
+For an explicit service principal, provide all three credentials:
+
+```env-spec title=".env.schema"
+# @initAzureAppConfiguration(
+#   endpoint="https://my-store.azconfig.io",
+#   tenantId=$AZURE_TENANT_ID,
+#   clientId=$AZURE_CLIENT_ID,
+#   clientSecret=$AZURE_CLIENT_SECRET
+# )
+# ---
+AZURE_TENANT_ID=
+AZURE_CLIENT_ID=
+# @sensitive @internal
+AZURE_CLIENT_SECRET=
+```
+
+You can also authenticate with an App Configuration access key connection string:
+
+```env-spec title=".env.schema"
+# @initAzureAppConfiguration(connectionString=$AZURE_APPCONFIG_CONNECTION_STRING)
+# ---
+# @type=azureAppConfigurationConnectionString
+AZURE_APPCONFIG_CONNECTION_STRING=
+```
+
+The connection string data type is sensitive and internal by default.
+
+## Reading settings
+
+`azureAppConfig()` reads an unlabeled setting whose key matches the config item name. Pass a key and optional label to select another setting.
+
+```env-spec title=".env.schema"
+DATABASE_URL=azureAppConfig()
+API_URL=azureAppConfig("services:api:url", label=production)
+```
+
+Use `defaultLabel` when all lookups for an instance should use the same label:
+
+```env-spec title=".env.schema"
+# @initAzureAppConfiguration(
+#   endpoint="https://my-store.azconfig.io",
+#   defaultLabel=production
+# )
+```
+
+## Bulk loading
+
+`azureAppConfigBulk()` returns selected settings as JSON for `@setValuesBulk`. Without a label, it selects only unlabeled settings.
+
+```env-spec title=".env.schema"
+# @initAzureAppConfiguration(endpoint="https://my-store.azconfig.io")
+# @setValuesBulk(
+#   azureAppConfigBulk(keyFilter="app:*", labelFilter=production, trimKeyPrefix="app:"),
+#   format=json
+# )
+# ---
+DATABASE_URL=
+API_HOST=
+```
+
+Set `defaultKeyFilter`, `defaultLabel`, and `trimKeyPrefix` on `@initAzureAppConfiguration()` to reuse selectors across bulk calls.
+
+## Multiple stores
+
+Give each instance an ID, then pass that ID as the first argument to a resolver:
+
+```env-spec title=".env.schema"
+# @initAzureAppConfiguration(id=dev, endpoint="https://dev.azconfig.io")
+# @initAzureAppConfiguration(id=prod, endpoint="https://prod.azconfig.io")
+# ---
+DEV_API_URL=azureAppConfig(dev, "API_URL")
+PROD_API_URL=azureAppConfig(prod, "API_URL")
+```
+
+For bulk loading, use `azureAppConfigBulk(prod, keyFilter="app:*")`.
+
+## Reference
+
+### `@initAzureAppConfiguration()`
+
+| Parameter | Description |
+| --- | --- |
+| `endpoint` | Store endpoint. Required unless `connectionString` is set. |
+| `connectionString` | Access key connection string. Required unless `endpoint` is set. |
+| `tenantId` | Microsoft Entra tenant ID for service principal authentication. |
+| `clientId` | Service principal client ID. |
+| `clientSecret` | Service principal client secret. |
+| `defaultLabel` | Label used when a resolver does not specify one. |
+| `defaultKeyFilter` | Key filter used by bulk loading. Defaults to `*`. |
+| `trimKeyPrefix` | Prefix removed from keys returned by bulk loading. |
+| `cacheTtl` | Cache TTL such as `5m`, `1h`, or `forever`. |
+| `allowInsecureConnection` | Allow HTTP. Use only with local emulators and tests. |
+| `id` | Instance ID for multiple stores. |
+
+### `azureAppConfig()`
+
+- `azureAppConfig()` reads the setting matching the config item key.
+- `azureAppConfig(key)` reads an explicit key.
+- `azureAppConfig(instanceId, key)` reads from a named store.
+- `label=` overrides the instance's default label.
+
+### `azureAppConfigBulk()`
+
+- `azureAppConfigBulk()` reads settings using instance defaults.
+- `azureAppConfigBulk(instanceId)` reads from a named store.
+- `keyFilter=` overrides the key filter.
+- `labelFilter=` overrides the label filter.
+- `trimKeyPrefix=` overrides the prefix removed from returned keys.
+
+Azure Key Vault references and feature flags are returned in their stored App Configuration representation. The plugin does not dereference Key Vault secrets or evaluate feature flags.
