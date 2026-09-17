@@ -1,7 +1,7 @@
 import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex, isEncryptedBlob } from './runtime/crypto';
-import { evaluateInjectedEnvReuse } from './lib/injected-env-reuse';
-import { FrozenEnvFileError } from './lib/frozen-env-file';
+import { evaluateInjectedEnvReuse, getPinnedBootKeys, type PinnedGraphInfo } from './lib/injected-env-reuse';
+import { FrozenEnvFileError, USE_FROZEN_ENV_VAR } from './lib/frozen-env-file';
 import { createDebug } from './lib/debug';
 import { isVarlockCliChild } from './lib/cli-child-marker';
 
@@ -41,6 +41,9 @@ function autoLoad() {
   // `@internal` keys stripped from a reused blob - their ambient env values are scrubbed
   // after init (see the bottom of this module)
   let strippedInternalKeys: Array<string> = [];
+  // a pin that leaves `@dynamic=boot` keys to the runtime - the CLI applies it on top of the
+  // schema, so failing to reach the CLI needs a more specific explanation than usual
+  let pinnedForCli: PinnedGraphInfo | undefined;
 
   try {
     // A pre-resolved env graph can be consumed directly instead of re-resolving via the CLI:
@@ -64,6 +67,7 @@ function autoLoad() {
       strippedInternalKeys = reuseDecision.strippedInternalKeys;
     } else {
       debug('resolving env via CLI (%s)', reuseDecision.reason);
+      pinnedForCli = reuseDecision.pinned;
       const { stdout } = execSyncVarlock('load --format json-full --compact', {
         fullResult: true,
         // Pass the directory of this module so that in monorepos the binary search
@@ -76,7 +80,13 @@ function autoLoad() {
         // parent `varlock run` (e.g. `varlock run -- sh -c 'FOO=x node app.js'`) reaches the
         // CLI already clobbered back to the parent's value, and the nested override handling
         // in load-graph can never see the user's real value.
-        env: getPreInjectionProcessEnv() as NodeJS.ProcessEnv,
+        env: {
+          ...getPreInjectionProcessEnv() as NodeJS.ProcessEnv,
+          // `varlock load` only honors a frozen file when told to explicitly, so name the one
+          // we found: pinned values stay sealed and only the boot keys are resolved live. A
+          // frozen payload in __VARLOCK_ENV needs nothing extra - the trust flag is already set.
+          ...(pinnedForCli?.source === 'frozen-file' ? { [USE_FROZEN_ENV_VAR]: pinnedForCli.filePath } : {}),
+        },
       });
       parsed = JSON.parse(stdout);
       parsedJsonStr = stdout;
@@ -113,6 +123,14 @@ function autoLoad() {
     } else if (err instanceof FrozenEnvFileError) {
       // a setup/config problem, not a crash - a stack trace here is noise
       process.stderr.write(`${err.message}\n`);
+    } else if (pinnedForCli && !(err instanceof VarlockExecError)) {
+      // most likely the CLI is not in the runtime image (e.g. distroless) - a deliberate choice
+      // for a fully pinned deploy, but boot keys need the schema at startup
+      const bootKeys = getPinnedBootKeys(pinnedForCli.graph).join(', ');
+      process.stderr.write(
+        `[varlock] the frozen env leaves ${bootKeys} to boot (@dynamic=boot), which needs the varlock CLI and your .env.schema at startup: ${(err as Error).message}\n`
+        + '[varlock] boot via `varlock run`, install the CLI alongside the app, or remove @dynamic=boot and re-freeze\n',
+      );
     } else {
       // eslint-disable-next-line no-console
       console.error(err);

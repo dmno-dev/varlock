@@ -12,7 +12,7 @@ import {
   readFrozenEnvFile,
   resolveFrozenEnvFileMode,
 } from '../frozen-env-file';
-import { evaluateInjectedEnvReuse, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
+import { evaluateInjectedEnvReuse, findPinnedGraphForResolution, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from '../../runtime/crypto';
 
 let tempDir: string;
@@ -277,5 +277,76 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
     writeFrozenFile({ key: null, contents: graphJson({ errors: { schemaErrors: [{ message: 'bad' }] } }) });
     expect(() => evaluateInjectedEnvReuse({ env: {}, cwd: tempDir }))
       .toThrow(/contains errors/);
+  });
+});
+
+// A pin that leaves `@dynamic=boot` keys to the runtime is not a complete graph: it has to
+// be applied on top of the schema, with those keys resolved live (see loadVarlockEnvGraph)
+describe('a pin with boot keys', () => {
+  const withBootKeys = () => graphJson({ frozen: { bootKeys: ['PORT'], currentEnv: 'production' } });
+
+  test('a frozen file is handed back for schema resolution instead of reused', () => {
+    const { key, filePath } = writeFrozenFile({ contents: withBootKeys() });
+    const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    expect(decision.reuse).toBe(false);
+    if (!decision.reuse) {
+      expect(decision.reason).toContain('leaves 1 key to boot (PORT)');
+      expect(decision.pinned).toMatchObject({ source: 'frozen-file', filePath });
+      expect(decision.pinned?.graph.config.SECRET.value).toBe('secret-val');
+    }
+  });
+
+  test('so is a frozen payload trusted via _VARLOCK_USE_INJECTED_ENV=1', () => {
+    const decision = evaluateInjectedEnvReuse({
+      env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: withBootKeys() },
+      cwd: tempDir,
+    });
+    expect(decision.reuse).toBe(false);
+    if (!decision.reuse) expect(decision.pinned).toMatchObject({ source: 'env-blob' });
+  });
+
+  test('a pin without boot keys is still reused as-is', () => {
+    const { key } = writeFrozenFile({ contents: graphJson({ frozen: { bootKeys: [] } }) });
+    const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    expect(decision.reuse).toBe(true);
+  });
+
+  describe('findPinnedGraphForResolution', () => {
+    test('a merely-present frozen file is skipped when only explicit use is wanted', () => {
+      const { key } = writeFrozenFile({ contents: withBootKeys() });
+      expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir, explicitFrozenOnly: true }))
+        .toBeUndefined();
+      expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
+        .toMatchObject({ source: 'frozen-file' });
+    });
+
+    test('an explicitly named frozen file is returned, with or without boot keys', () => {
+      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: { bootKeys: [] } }), fileName: 'pin.env' });
+      const pinned = findPinnedGraphForResolution({
+        env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: filePath },
+        cwd: tempDir,
+        explicitFrozenOnly: true,
+      });
+      expect(pinned).toMatchObject({ source: 'frozen-file', filePath });
+    });
+
+    test('a trusted __VARLOCK_ENV counts only when it is a freeze payload', () => {
+      const frozenPayload = findPinnedGraphForResolution({
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: { bootKeys: [] } }) },
+        cwd: tempDir,
+      });
+      expect(frozenPayload).toMatchObject({ source: 'env-blob' });
+      // an ordinary sandbox blob is trusted for reuse, but it is not a pin to resolve on top of
+      const plainBlob = findPinnedGraphForResolution({
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson() },
+        cwd: tempDir,
+      });
+      expect(plainBlob).toBeUndefined();
+    });
+
+    test('nothing is a pin without a frozen file or explicit blob trust', () => {
+      expect(findPinnedGraphForResolution({ env: { __VARLOCK_ENV: graphJson({ frozen: { bootKeys: ['PORT'] } }) }, cwd: tempDir }))
+        .toBeUndefined();
+    });
   });
 });

@@ -40,6 +40,8 @@ SET_AT_BOOT=               # explicitly dynamic
 SECRET_BAR=somePluginFn()  # dynamic by default
 ```
 
+There is one level past dynamic. `@dynamic=boot` says the value is bound at process start on each instance (a platform-assigned `PORT`, pod identity), so even a deploy-time pin like [`varlock freeze`](/guides/deploy-time-config/#keys-supplied-at-boot) leaves it to the runtime. It is a subset of dynamic and only changes behavior under freeze, so most schemas never need it.
+
 ## Loading dynamic vars in the client
 
 Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. Use it freely whenever a public value should stay out of client bundles or stay runtime-resolved on the server. 
