@@ -49,9 +49,8 @@ function parseOption(raw: unknown, decoratorName: string): EffectMajor | undefin
 }
 
 /**
- * Pick the Effect major to generate for. The installed `effect` package next to the output file
- * decides by default; `effectVersion=3|4` on the decorator overrides it and is required when
- * no `effect` package can be resolved.
+ * Pick the Effect major to generate for. An explicit `effectVersion=3|4` on the decorator always
+ * wins; otherwise the installed `effect` package next to the output file decides.
  */
 export function resolveEffectVersion(opts: {
   option: unknown;
@@ -60,22 +59,14 @@ export function resolveEffectVersion(opts: {
 }): EffectMajor {
   const { outputDir, decoratorName } = opts;
   const requested = parseOption(opts.option, decoratorName);
-  const installed = findInstalledEffect(outputDir);
+  if (requested) return requested;
 
+  const installed = findInstalledEffect(outputDir);
   if (!installed) {
-    if (requested) return requested;
     throw new Error(
       `@${decoratorName} - could not find an installed \`effect\` package from ${outputDir}. `
       + 'Install effect@3 or effect@4 in that workspace, or set `effectVersion=3` / `effectVersion=4` on the decorator.',
     );
   }
-
-  const detected = majorOf(installed.version, decoratorName);
-  if (requested && requested !== detected) {
-    throw new Error(
-      `@${decoratorName} - \`effectVersion=${requested}\` does not match the installed effect@${installed.version}. `
-      + `Remove the option to use the installed version, or set \`effectVersion=${detected}\`.`,
-    );
-  }
-  return detected;
+  return majorOf(installed.version, decoratorName);
 }

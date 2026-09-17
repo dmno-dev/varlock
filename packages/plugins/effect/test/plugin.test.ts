@@ -102,18 +102,15 @@ describe('loads the built plugin and generates config from a Varlock schema', ()
     expect(await generate(', effectVersion=4')).toContain('Config.Literals(["development", "production"], "APP_ENV")');
   });
 
-  test('accepts effectVersion when it matches the installed release', async () => {
+  test('prefers an explicit effectVersion over the installed release', async () => {
     await installFakeEffect('3.22.2');
+    expect(await generate(', effectVersion=4')).toContain('for Effect 4');
+    await installFakeEffect('4.0.0-rc.112');
     expect(await generate(', effectVersion=3')).toContain('for Effect 3');
   });
 
   test('fails when effect is not installed and effectVersion is not set', async () => {
     await expectGenerateError('', 'could not find an installed `effect` package');
-  });
-
-  test('fails when effectVersion disagrees with the installed release', async () => {
-    await installFakeEffect('3.22.2');
-    await expectGenerateError(', effectVersion=4', '`effectVersion=4` does not match the installed effect@3.22.2');
   });
 
   test('rejects an invalid effectVersion', async () => {

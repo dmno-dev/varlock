@@ -57,7 +57,7 @@ Varlock also regenerates it during `varlock load` and `varlock run` unless the d
 | Option | Description |
 | --- | --- |
 | `path` | Output file, relative to the schema. Required. |
-| `effectVersion` | `3` or `4`. Optional. Required only when no `effect` package can be resolved from the output directory (for example, a monorepo root schema whose apps install Effect themselves). When set, it must match the installed version. |
+| `effectVersion` | `3` or `4`. Optional. When set, it is used as-is. Otherwise the plugin reads the `effect` package installed next to the output file, and fails if it cannot find one (for example, a monorepo root schema whose apps install Effect themselves). |
 | `auto`, `filter`, `executeWhenImported` | Shared code generation options. See the [code generation guide](https://varlock.dev/guides/code-generation/). |
 
 ```dotenv
