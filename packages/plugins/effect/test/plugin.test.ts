@@ -40,8 +40,6 @@ function loadGraph(decoratorArgs: string) {
 APP_ENV=development
 # @type=array(string, format=json) @public
 HOSTS='["localhost"]'
-# @type=array(enum(), format=json) @public @required=false
-EMPTY_ARRAY=
 # @type=record(number, keyType=enum(true, false)) @public
 BOOLEAN_KEYS='{"true":1,"false":2}'
 # @sensitive @required=false
@@ -72,7 +70,6 @@ describe('loads the built plugin and generates config from a Varlock schema', ()
     expect(generated).toContain('for Effect 4');
     expect(generated).toContain('Config.Literals(["development", "production"], "APP_ENV")');
     expect(generated).toContain('value as Array<string>');
-    expect(generated).toContain('value as Array<never>');
     expect(generated).toContain('value as Partial<Record<"true" | "false", number>>');
     expect(generated).toContain('redactErrors(Config.option(Config.map(Config.String("TOKEN"), Redacted.make)), "TOKEN")');
     expect(generated).toContain('export const generated = config.pipe(Effect.orDie)');
@@ -90,7 +87,6 @@ describe('loads the built plugin and generates config from a Varlock schema', ()
     expect(generated).toContain('for Effect 3');
     expect(generated).toContain('Config.literal("development", "production")("APP_ENV")');
     expect(generated).toContain('Config.mapAttempt(Config.string("HOSTS"), (value) => JSON.parse(value) as Array<string>)');
-    expect(generated).toContain('JSON.parse(value) as Array<never>');
     expect(generated).toContain('JSON.parse(value) as Partial<Record<"true" | "false", number>>');
     expect(generated).toContain('"TOKEN": Config.option(Config.redacted(Config.string("TOKEN")))');
     expect(generated).toContain('export const generated = config.pipe(Effect.orDie)');

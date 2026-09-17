@@ -7,6 +7,22 @@ export type GenerateOptions = {
   effectVersion: EffectMajor;
 };
 
+const UNSAFE_CODE_CHARS: Record<string, string> = {
+  '<': '\\u003C',
+  '>': '\\u003E',
+  '\u2028': '\\u2028',
+  '\u2029': '\\u2029',
+};
+
+/**
+ * Emit a value as a JavaScript literal that is safe to splice into generated source.
+ * `JSON.stringify` alone leaves `<`, `>`, and the U+2028/U+2029 line terminators in place,
+ * which can break out of a script tag or terminate a statement inside the generated module.
+ */
+function literal(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>\u2028\u2029]/g, (char) => UNSAFE_CODE_CHARS[char]);
+}
+
 function type(coerced: CoercedType): string {
   if (coerced === 'string') return 'string';
   if (coerced === 'int' || coerced === 'number') return 'number';
@@ -14,7 +30,7 @@ function type(coerced: CoercedType): string {
   if (coerced === 'object') return 'Record<string, unknown>';
 
   if ('enum' in coerced) {
-    return coerced.enum.map((member) => JSON.stringify(member)).join(' | ') || 'never';
+    return coerced.enum.map((member) => literal(member)).join(' | ') || 'never';
   }
 
   if ('arrayOf' in coerced) return `Array<${type(coerced.arrayOf)}>`;
@@ -25,7 +41,7 @@ function type(coerced: CoercedType): string {
   const keys = coerced.recordOf.keys;
 
   if (keys && typeof keys === 'object' && 'enum' in keys) {
-    const key = keys.enum.map((member) => JSON.stringify(String(member))).join(' | ') || 'never';
+    const key = keys.enum.map((member) => literal(String(member))).join(' | ') || 'never';
     return `Partial<Record<${key}, ${recordValue}>>`;
   }
 
@@ -47,7 +63,7 @@ function enumMembers(members: Array<unknown>, name: string): Array<string> {
     throw new Error(`Effect Config generation cannot distinguish enum members with the same environment string for ${name}`);
   }
 
-  return members.map((member) => JSON.stringify(member));
+  return members.map((member) => literal(member));
 }
 
 /**
@@ -55,7 +71,7 @@ function enumMembers(members: Array<unknown>, name: string): Array<string> {
  * integers and JSON, `Redacted.make`, and the `redactErrors` helper to sanitize failures.
  */
 function valueV4(field: ResolvedFieldType): string {
-  const name = JSON.stringify(field.key);
+  const name = literal(field.key);
   const coerced = field.coerced;
 
   let config: string;
@@ -85,7 +101,7 @@ function valueV4(field: ResolvedFieldType): string {
  * which already replaces failure messages with `<redacted>`.
  */
 function valueV3(field: ResolvedFieldType): string {
-  const name = JSON.stringify(field.key);
+  const name = literal(field.key);
   const coerced = field.coerced;
 
   let config: string;
@@ -136,7 +152,7 @@ function property(field: ResolvedFieldType, value: (field: ResolvedFieldType) =>
     ? ''
     : `  /**\n${docs.map((line) => `   * ${line}`).join('\n')}\n   */\n`;
 
-  return `${comment}  ${JSON.stringify(field.key)}: ${value(field)},`;
+  return `${comment}  ${literal(field.key)}: ${value(field)},`;
 }
 
 function headerV4(fields: Array<ResolvedFieldType>): string {

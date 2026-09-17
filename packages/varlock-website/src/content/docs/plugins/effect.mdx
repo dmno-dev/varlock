@@ -141,9 +141,8 @@ The generator maps Varlock values to Effect as follows:
 Scalar enums must have at least one member and distinct environment string representations.
 For example, `enum(1, "1")` and `enum(true, "true")` fail generation because environment strings
 cannot preserve which member Varlock resolved. Repeated identical members are allowed.
-Enums inside JSON composites retain their value types. Empty nested enums emit `never`, so empty
-collections remain representable. Record enum keys use string property names, including numeric
-and boolean members.
+Enums inside JSON composites retain their value types. Record enum keys use string property
+names, including numeric and boolean members.
 
 Composite values are parsed from Varlock's serialized JSON wire format. Varlock remains responsible
 for schema validation before it injects those values.

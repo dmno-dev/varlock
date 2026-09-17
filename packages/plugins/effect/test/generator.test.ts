@@ -171,6 +171,21 @@ describe('generateEffectConfig (Effect 3)', () => {
   });
 });
 
+test.each([3, 4] as const)('escapes characters that could break out of the generated module (Effect %s)', (effectVersion) => {
+  const source = generateEffectConfig([
+    field({ key: '</script>\u2028KEY', coerced: { enum: ['<b>', 'a\u2029b'] } }),
+    field({ key: 'KEYS', coerced: { recordOf: { keys: { enum: ['</script>'] }, values: 'string' } } }),
+  ], { effectVersion });
+
+  expect(source).not.toContain('</script>');
+  expect(source).not.toContain('\u2028');
+  expect(source).not.toContain('\u2029');
+  expect(source).toContain('"\\u003C/script\\u003E\\u2028KEY"');
+  expect(source).toContain('"\\u003Cb\\u003E"');
+  expect(source).toContain('"a\\u2029b"');
+  expect(source).toContain('Partial<Record<"\\u003C/script\\u003E", string>>');
+});
+
 test('rejects unsupported Effect versions', () => {
   expect(() => generateEffectConfig([], { effectVersion: 5 as never })).toThrow('Unsupported Effect major version: 5');
 });
