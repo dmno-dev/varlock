@@ -20,7 +20,7 @@ Supported Effect versions:
 
 | Effect | Requirement |
 | --- | --- |
-| 3 | any `3.x` release |
+| 3 | `3.22.1` or later (earlier releases do not redact secret values in `Config.redacted` failure messages) |
 | 4 | `4.0.0-rc.113` or later (earlier betas and release candidates used a different `Config` API) |
 
 The plugin generates different code for each major. It reads the installed `effect` version
@@ -235,5 +235,5 @@ bun run --filter @varlock/effect-plugin test:ci
 bun run --filter @varlock/effect-plugin typecheck
 ```
 
-Tests run twice, once against `effect@4` and once against the `effect3` alias (`npm:effect@3`),
+Tests run twice, once against `effect@4` and once against the `effect3` alias pinned to the minimum supported Effect 3 release,
 so both generated targets are exercised at runtime and typechecked.

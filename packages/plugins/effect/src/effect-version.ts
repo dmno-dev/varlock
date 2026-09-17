@@ -5,6 +5,8 @@ import type { EffectMajor } from './generator.js';
 
 /** First Effect 4 prerelease with the PascalCase `Config` constructors the v4 emitter targets. */
 const MIN_V4_RC = 113;
+/** First Effect 3 release where `Config.redacted` sanitizes failure messages, which the v3 emitter relies on for secrets. */
+const MIN_V3 = [3, 22, 1] as const;
 
 export type InstalledEffect = { version: string, major: EffectMajor };
 
@@ -23,9 +25,20 @@ function majorOf(version: string, decoratorName: string): EffectMajor {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(version);
   if (!match) throw new Error(`@${decoratorName} - could not parse installed effect version "${version}"`);
   const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
   const prerelease = match[4];
 
-  if (major === 3) return 3;
+  if (major === 3) {
+    const [, minMinor, minPatch] = MIN_V3;
+    if (minor < minMinor || (minor === minMinor && patch < minPatch)) {
+      throw new Error(
+        `@${decoratorName} - effect@${version} is not supported. `
+        + `Upgrade to effect@${MIN_V3.join('.')} or later (earlier releases leak secret values in Config.redacted failure messages), or use effect@4.`,
+      );
+    }
+    return 3;
+  }
   if (major === 4) {
     const rc = prerelease && /^rc\.(\d+)$/.exec(prerelease);
     if (prerelease && (!rc || Number(rc[1]) < MIN_V4_RC)) {

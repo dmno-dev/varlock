@@ -42,14 +42,14 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "effect": "^3.0.0 || >=4.0.0-rc.113 <5",
+    "effect": ">=3.22.1 <4 || >=4.0.0-rc.113 <5",
     "varlock": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@varlock/tsconfig": "workspace:*",
     "effect": "4.0.0-rc.115",
-    "effect3": "npm:effect@^3.22.2",
+    "effect3": "npm:effect@3.22.1",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "varlock": "workspace:*",

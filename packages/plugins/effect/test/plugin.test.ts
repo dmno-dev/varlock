@@ -124,6 +124,18 @@ describe('loads the built plugin and generates config from a Varlock schema', ()
     await expectGenerateError('', 'Upgrade to effect@4.0.0-rc.113 or later');
   });
 
+  test('rejects Effect 3 releases before Config.redacted sanitized failures', async () => {
+    await installFakeEffect('3.22.0');
+    await expectGenerateError('', 'Upgrade to effect@3.22.1 or later');
+    await installFakeEffect('3.11.0');
+    await expectGenerateError('', 'Upgrade to effect@3.22.1 or later');
+  });
+
+  test('accepts the minimum Effect 3 release', async () => {
+    await installFakeEffect('3.22.1');
+    expect(await generate()).toContain('for Effect 3');
+  });
+
   test('rejects unsupported Effect majors', async () => {
     await installFakeEffect('2.4.0');
     await expectGenerateError('', 'effect@2.4.0 is not supported');
