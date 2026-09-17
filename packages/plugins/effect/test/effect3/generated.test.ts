@@ -1,4 +1,6 @@
-import * as Config from 'effect/Config';
+import * as Cause from 'effect/Cause';
+import type * as Config from 'effect/Config';
+import * as ConfigError from 'effect/ConfigError';
 import * as ConfigProvider from 'effect/ConfigProvider';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
@@ -8,8 +10,8 @@ import {
   describe, expect, expectTypeOf, test,
 } from 'vitest';
 
-import { config as emptyConfig, generated as empty } from './fixtures/empty.generated.js';
-import { config, generated } from './fixtures/env.generated.js';
+import { config as emptyConfig, generated as empty } from './empty.generated.js';
+import { config, generated } from './env.generated.js';
 
 const env = {
   NAME: 'service',
@@ -30,15 +32,21 @@ const env = {
   SECRET_DATA: '{"password":"fixture-password"}',
 };
 
-function provider(overrides: Record<string, string | undefined> = {}, preserveEmptyStrings = false) {
-  return ConfigProvider.fromEnvRecord({ ...env, ...overrides }, { preserveEmptyStrings });
+function provider(overrides: Record<string, string | undefined> = {}) {
+  const entries = Object.entries({ ...env, ...overrides })
+    .filter((entry): entry is [string, string] => entry[1] !== undefined);
+  return ConfigProvider.fromMap(new Map(entries));
 }
 
-describe('generated Effect 4 config', () => {
+function load<A, E>(effect: Effect.Effect<A, E>, overrides?: Record<string, string | undefined>) {
+  return Effect.runSyncExit(effect.pipe(Effect.withConfigProvider(provider(overrides))));
+}
+
+describe('generated Effect 3 config', () => {
   test('preserves the inferred value types', () => {
-    expectTypeOf(generated).toEqualTypeOf<Effect.Effect<Config.Success<typeof config>>>();
-    expectTypeOf<Effect.Error<typeof config>>().toEqualTypeOf<Config.ConfigError>();
-    expectTypeOf<Config.Success<typeof config>>().toEqualTypeOf<{
+    expectTypeOf(generated).toEqualTypeOf<Effect.Effect<Config.Config.Success<typeof config>>>();
+    expectTypeOf<Effect.Effect.Error<typeof config>>().toEqualTypeOf<ConfigError.ConfigError>();
+    expectTypeOf<Config.Config.Success<typeof config>>().toEqualTypeOf<{
       NAME: string
       ENABLED: boolean
       PORT: number
@@ -63,12 +71,14 @@ describe('generated Effect 4 config', () => {
     }>();
   });
 
-  test('loads scalars and JSON composites through Effect.gen', async () => {
-    const program = Effect.gen(function* loadGeneratedConfig() {
+  test('loads scalars and JSON composites through Effect.gen', () => {
+    const exit = load(Effect.gen(function* loadGeneratedConfig() {
       return yield* generated;
-    }).pipe(Effect.provideService(ConfigProvider.ConfigProvider, provider()));
+    }));
 
-    const value = await Effect.runPromise(program);
+    expect(Exit.isSuccess(exit)).toBe(true);
+    if (!Exit.isSuccess(exit)) return;
+    const value = exit.value;
 
     expect(value).toMatchObject({
       NAME: 'service',
@@ -96,13 +106,13 @@ describe('generated Effect 4 config', () => {
   });
 
   test('wraps present optional values and redacts sensitive values', () => {
-    const value = Effect.runSync(config.parse(provider({
+    const value = Effect.runSync(config.pipe(Effect.withConfigProvider(provider({
       OPTIONAL: 'present',
       OPTIONAL_PORT: '8080',
       OPTIONAL_DATA: '{"present":true}',
       TOKEN: 'fixture-token',
       SECRET_HOSTS: '["private.example"]',
-    })));
+    }))));
     const token = Option.getOrThrow(value.TOKEN);
     const hosts = Option.getOrThrow(value.SECRET_HOSTS);
 
@@ -123,63 +133,43 @@ describe('generated Effect 4 config', () => {
     ['malformed sensitive JSON', { SECRET_DATA: '{"password":"fixture-password",}' }],
     ['malformed optional sensitive JSON', { SECRET_HOSTS: '["private.example",]' }],
   ] satisfies Array<[string, Record<string, string | undefined>]>)('redacts failures for %s', (_, overrides) => {
-    const result = Effect.runSync(Effect.result(config.parse(provider(overrides))));
-    const exit = Effect.runSyncExit(generated.pipe(
-      Effect.provideService(ConfigProvider.ConfigProvider, provider(overrides)),
-    ));
+    const result = load(Effect.either(config), overrides);
+    const exit = load(generated, overrides);
 
-    expect(Exit.hasDies(exit)).toBe(true);
-    expect(Exit.hasFails(exit)).toBe(false);
+    expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain('<redacted>');
-      expect(String(exit.cause)).toContain(Object.keys(overrides)[0]);
-      expect(String(exit.cause)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
+      expect(Cause.isDie(exit.cause)).toBe(true);
+      expect(Cause.isFailure(exit.cause)).toBe(false);
+      expect(Cause.pretty(exit.cause)).toContain('<redacted>');
+      expect(Cause.pretty(exit.cause)).toContain(Object.keys(overrides)[0]);
+      expect(Cause.pretty(exit.cause)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
       expect(JSON.stringify(exit.cause)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
     }
 
-    expect(result._tag).toBe('Failure');
-    if (result._tag === 'Failure') {
-      expect(result.failure).toBeInstanceOf(Config.ConfigError);
-      expect(String(result.failure)).toContain('<redacted>');
-      expect(String(result.failure)).toContain(Object.keys(overrides)[0]);
-      expect(String(result.failure)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
-      expect(JSON.stringify(result.failure)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
-    }
-  });
-
-  test('redacts provider failures without treating optional secrets as missing', () => {
-    const fallback = provider();
-    const failing = ConfigProvider.make((path) => (path[0] === 'TOKEN'
-      ? Effect.fail(new ConfigProvider.SourceError({
-        message: 'fixture-provider-secret',
-        cause: { token: 'fixture-provider-secret' },
-      }))
-      : fallback.load(path)));
-    const result = Effect.runSync(Effect.result(config.parse(failing)));
-
-    expect(result._tag).toBe('Failure');
-    if (result._tag === 'Failure') {
-      expect(result.failure).toBeInstanceOf(Config.ConfigError);
-      expect(String(result.failure)).toContain('<redacted>');
-      expect(String(result.failure)).toContain('TOKEN');
-      expect(String(result.failure)).not.toContain('fixture-provider-secret');
-      expect(JSON.stringify(result.failure)).not.toContain('fixture-provider-secret');
+    expect(Exit.isSuccess(result)).toBe(true);
+    if (Exit.isSuccess(result) && result.value._tag === 'Left') {
+      const failure = result.value.left;
+      expect(ConfigError.isConfigError(failure)).toBe(true);
+      expect(String(failure)).toContain('<redacted>');
+      expect(String(failure)).toContain(Object.keys(overrides)[0]);
+      expect(String(failure)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
+      expect(JSON.stringify(failure)).not.toMatch(/dev|prod|fixture-private|fixture-password|private\.example/);
+    } else {
+      throw new Error('expected a typed config failure');
     }
   });
 
   test.each([
     Number.MIN_SAFE_INTEGER,
-    Number.MIN_SAFE_INTEGER - 1,
-    -10000000000000000,
     Number.MAX_SAFE_INTEGER,
-    Number.MAX_SAFE_INTEGER + 1,
+    -10000000000000000,
     10000000000000000,
   ])('preserves the accepted integer range for %s', (input) => {
-    const value = Effect.runSync(config.parse(provider({
+    const value = Effect.runSync(config.pipe(Effect.withConfigProvider(provider({
       PORT: String(input),
       OPTIONAL_PORT: String(input),
       SECRET_PORT: String(input),
-    })));
+    }))));
 
     expect(value.PORT).toBe(input);
     expect(value.OPTIONAL_PORT).toEqual(Option.some(input));
@@ -189,12 +179,10 @@ describe('generated Effect 4 config', () => {
   test.each([
     ['missing required string', { NAME: undefined }],
     ['missing required composite', { HOSTS: undefined }],
-    ['empty required string', { NAME: '' }],
     ['invalid boolean', { ENABLED: 'maybe' }],
     ['fractional integer', { PORT: '3.5' }],
     ['NaN integer', { PORT: 'NaN' }],
     ['infinite integer', { PORT: 'Infinity' }],
-    ['negative infinite integer', { PORT: '-Infinity' }],
     ['invalid number', { RATIO: 'invalid' }],
     ['invalid string enum', { STAGE: 'staging' }],
     ['invalid numeric enum', { LEVEL: '3' }],
@@ -205,41 +193,30 @@ describe('generated Effect 4 config', () => {
     ['malformed sensitive JSON', { SECRET_DATA: '{broken' }],
     ['malformed optional sensitive JSON', { SECRET_HOSTS: '{broken' }],
   ] satisfies Array<[string, Record<string, string | undefined>]>)('exposes a typed config failure and a generated defect for %s', (_, overrides) => {
-    const result = Effect.runSync(Effect.result(config.parse(provider(overrides))));
-    const exit = Effect.runSyncExit(generated.pipe(
-      Effect.provideService(ConfigProvider.ConfigProvider, provider(overrides)),
-    ));
+    const result = load(Effect.either(config), overrides);
+    const exit = load(generated, overrides);
 
-    expect(Exit.hasDies(exit)).toBe(true);
-    expect(Exit.hasFails(exit)).toBe(false);
+    expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      expect(exit.cause.reasons).toEqual([expect.objectContaining({ _tag: 'Die', defect: expect.any(Config.ConfigError) })]);
+      expect(Cause.isDie(exit.cause)).toBe(true);
+      expect(Cause.isFailure(exit.cause)).toBe(false);
+      const defect = Option.getOrThrow(Cause.dieOption(exit.cause));
+      expect(ConfigError.isConfigError(defect)).toBe(true);
     }
 
-    expect(result._tag).toBe('Failure');
-    if (result._tag === 'Failure') {
-      expect(result.failure).toBeInstanceOf(Config.ConfigError);
+    expect(Exit.isSuccess(result)).toBe(true);
+    if (Exit.isSuccess(result)) {
+      expect(result.value._tag).toBe('Left');
+      if (result.value._tag === 'Left') expect(ConfigError.isConfigError(result.value.left)).toBe(true);
     }
   });
 
-  test('treats optional empty strings as missing by default', () => {
-    const value = Effect.runSync(config.parse(provider({
+  test('preserves empty strings, unlike the Effect 4 environment provider', () => {
+    const value = Effect.runSync(config.pipe(Effect.withConfigProvider(provider({
+      NAME: '',
       OPTIONAL: '',
-      OPTIONAL_PORT: '',
-      OPTIONAL_DATA: '',
       TOKEN: '',
-      SECRET_HOSTS: '',
-    })));
-
-    expect(value.OPTIONAL).toEqual(Option.none());
-    expect(value.OPTIONAL_PORT).toEqual(Option.none());
-    expect(value.OPTIONAL_DATA).toEqual(Option.none());
-    expect(value.TOKEN).toEqual(Option.none());
-    expect(value.SECRET_HOSTS).toEqual(Option.none());
-  });
-
-  test('lets applications preserve empty strings through the provider', () => {
-    const value = Effect.runSync(config.parse(provider({ NAME: '', OPTIONAL: '', TOKEN: '' }, true)));
+    }))));
 
     expect(value.NAME).toBe('');
     expect(value.OPTIONAL).toEqual(Option.some(''));
@@ -247,15 +224,15 @@ describe('generated Effect 4 config', () => {
   });
 
   test('leaves composite shape validation to Varlock', () => {
-    const value = Effect.runSync(config.parse(provider({ DATA: 'null', HOSTS: '42' })));
+    const value = Effect.runSync(config.pipe(Effect.withConfigProvider(provider({ DATA: 'null', HOSTS: '42' }))));
 
     expect(value.DATA).toBeNull();
     expect(value.HOSTS).toBe(42);
   });
 
   test('loads an empty schema', () => {
-    expectTypeOf<Effect.Success<typeof empty>>().toEqualTypeOf<{}>();
+    expectTypeOf<Effect.Effect.Success<typeof empty>>().toEqualTypeOf<{}>();
     expect(Effect.runSync(empty)).toEqual({});
-    expect(Effect.runSync(emptyConfig.parse(ConfigProvider.fromEnvRecord({})))).toEqual({});
+    expect(Effect.runSync(emptyConfig.pipe(Effect.withConfigProvider(ConfigProvider.fromMap(new Map()))))).toEqual({});
   });
 });

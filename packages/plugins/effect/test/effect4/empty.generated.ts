@@ -1,5 +1,5 @@
 /**
- * Generated from .env.schema by Varlock. Do not edit by hand.
+ * Generated from .env.schema by Varlock for Effect 4. Do not edit by hand.
  */
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"

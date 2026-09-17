@@ -22,7 +22,7 @@
     "build": "tsdown",
     "test": "vitest",
     "test:ci": "vitest --run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.effect3.json"
   },
   "keywords": [
     "effect",
@@ -36,13 +36,14 @@
     "node": ">=22"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.112",
-    "varlock": "^1.18.0"
+    "effect": "^3.0.0 || >=4.0.0-rc.113 <5",
+    "varlock": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@varlock/tsconfig": "workspace:*",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.115",
+    "effect3": "npm:effect@^3.22.2",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "varlock": "workspace:*",

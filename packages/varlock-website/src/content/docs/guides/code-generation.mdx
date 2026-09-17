@@ -35,15 +35,16 @@ See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstyp
 
 ## Effect
 
-The [Effect plugin](/plugins/effect/) generates an Effect 4 Config module with typed values,
-optional fields, and redacted secrets:
+The [Effect plugin](/plugins/effect/) generates an Effect `Config` module with typed values,
+optional fields, and redacted secrets. Effect 3 and Effect 4 are both supported; the plugin
+detects which one is installed:
 
 ```env-spec title=".env.schema"
 # @plugin(@varlock/effect-plugin)
 # @generateEffectConfig(path=./src/env.generated.ts)
 ```
 
-Install `@varlock/effect-plugin` and `effect@4.0.0-rc.112` first. See the
+Install `@varlock/effect-plugin` and `effect` first. See the
 [Effect guide](/plugins/effect/) for setup, usage, and migration from `varlock-effect-plugin`.
 
 ## Other languages

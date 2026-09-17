@@ -1,20 +1,28 @@
 # @varlock/effect-plugin
 
-Generate an [Effect 4 Config](https://github.com/Effect-TS/effect/blob/effect%404.0.0-rc.112/packages/effect/src/Config.ts) module from a
-[Varlock](https://varlock.dev/) environment schema.
+Generate an [Effect](https://effect.website/) `Config` module from a
+[Varlock](https://varlock.dev/) environment schema. Both Effect 3 and Effect 4 are supported.
 
 ## Install
 
 Install the plugin in the workspace that owns `.env.schema`. The generated module imports
 Effect modules, so that workspace must also depend on Effect.
 
-This release requires exactly `effect@4.0.0-rc.112`. Both the peer dependency and development
-dependency are pinned because Effect prereleases can change APIs.
-
 ```sh
 bun add -d @varlock/effect-plugin
-bun add --exact effect@4.0.0-rc.112
+bun add effect
 ```
+
+Supported Effect versions:
+
+| Effect | Requirement |
+| --- | --- |
+| 3 | any `3.x` release |
+| 4 | `4.0.0-rc.113` or later (earlier betas and release candidates used a different `Config` API) |
+
+The plugin generates different code for each major. It reads the installed `effect` version
+from the directory that will contain the generated file and picks the matching target, so
+upgrading Effect from 3 to 4 only requires regenerating the module.
 
 ## Configure
 
@@ -44,6 +52,18 @@ bunx varlock codegen
 Varlock also regenerates it during `varlock load` and `varlock run` unless the decorator uses
 `auto=false`.
 
+### Options
+
+| Option | Description |
+| --- | --- |
+| `path` | Output file, relative to the schema. Required. |
+| `effectVersion` | `3` or `4`. Optional. Required only when no `effect` package can be resolved from the output directory (for example, a monorepo root schema whose apps install Effect themselves). When set, it must match the installed version. |
+| `auto`, `filter`, `executeWhenImported` | Shared code generation options. See the [code generation guide](https://varlock.dev/guides/code-generation/). |
+
+```dotenv
+# @generateEffectConfig(path=./src/env.generated.ts, effectVersion=4)
+```
+
 ## Use
 
 ```ts
@@ -65,8 +85,17 @@ and decoding failures become defects, so consumers do not need to add `Effect.or
 optional values remain `Option.none()`. Each execution reads the config again; yield it during
 startup to fail before starting your application.
 
-The `config` export exposes the underlying Effect Config with typed `Config.ConfigError` failures
-for custom error handling, Config composition, or explicit providers via `config.parse(provider)`.
+The `config` export exposes the underlying Effect `Config` with typed config error failures
+for custom error handling, Config composition, or explicit providers. The provider API differs
+by version:
+
+```ts
+// Effect 4
+Effect.runPromise(config.parse(ConfigProvider.fromEnv()))
+
+// Effect 3
+Effect.runPromise(config.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())))
+```
 
 Applications that want dependency injection can define their own service and layer:
 
@@ -82,6 +111,8 @@ export class Env extends Context.Service<Env, Config.Success<typeof config>>()("
 
 Provide `Env.layer` at the application boundary and use `const env = yield* Env` in consumers.
 Use `Layer.effect(Env, config)` instead to retain typed failures during layer construction.
+On Effect 3, use `Config.Config.Success` and `Context.Tag` in place of `Config.Success` and
+`Context.Service`.
 
 Run the application through Varlock so it validates and injects the environment first:
 
@@ -89,18 +120,20 @@ Run the application through Varlock so it validates and injects the environment 
 bunx varlock run -- bun run src/index.ts
 ```
 
+## Generated code
+
 The generator maps Varlock values to Effect as follows:
 
-| Varlock schema | Generated Effect Config |
-| --- | --- |
-| string-like values | `Config.string` |
-| boolean | `Config.boolean` |
-| int | `Config.schema` with `Schema.Number` checked by `Number.isInteger` |
-| number | `Config.number` |
-| enum | `Config.literals([members], key)` |
-| array, record, object | `Config.schema(Schema.fromJsonString(Schema.Unknown), key)`, mapped to the generated type |
-| `@sensitive` | `Config.map(config, Redacted.make)` with sanitized errors |
-| optional | `Config.option` |
+| Varlock schema | Effect 4 | Effect 3 |
+| --- | --- | --- |
+| string-like values | `Config.String` | `Config.string` |
+| boolean | `Config.Boolean` | `Config.boolean` |
+| int | `Config.schema` with `Schema.Number` checked by `Number.isInteger` | `Config.integer` |
+| number | `Config.Number` | `Config.number` |
+| enum | `Config.Literals([members], key)` | `Config.literal(members)(key)` |
+| array, record, object | `Config.schema(Schema.fromJsonString(Schema.Unknown), key)`, mapped to the generated type | `Config.mapAttempt(Config.string(key), JSON.parse)`, cast to the generated type |
+| `@sensitive` | `Config.map(config, Redacted.make)` with a generated `redactErrors` helper | `Config.redacted` |
+| optional | `Config.option` | `Config.option` |
 
 Scalar enums must have at least one member and distinct environment string representations.
 For example, `enum(1, "1")` and `enum(true, "true")` fail generation because environment strings
@@ -117,58 +150,25 @@ Varlock's default scalar-array format is separator-delimited. Arrays containing 
 and records already serialize as JSON.
 
 Integer configs accept the same values as `Number.isInteger`, including integers outside the safe
-integer range, matching Effect 3 and Varlock. Fractional values, `NaN`, and infinities fail.
+integer range. Fractional values, `NaN`, and infinities fail.
 
 Sensitive values are wrapped after parsing. Optional sensitive values have type
 `Option<Redacted<T>>`. Sensitive failures retain the field name but replace their details with
 `<redacted>`, including enum literals and provider error causes. Missing optional secrets still
 become `Option.none()`.
 
-The `config` export reports loading and decoding failures as `Config.ConfigError` from
-`effect/Config`. The `generated` export converts those failures to defects after sanitizing
-sensitive errors. Invalid supplied values still fail even when the field is optional.
+The `config` export reports loading and decoding failures as a typed config error
+(`Config.ConfigError` on Effect 4, `ConfigError.ConfigError` on Effect 3). The `generated` export
+converts those failures to defects after sanitizing sensitive errors. Invalid supplied values
+still fail even when the field is optional.
 
-## Migrate from varlock-effect-plugin
-
-Replace the community package with the scoped package in the workspace that owns your schema:
-
-```sh
-bun remove varlock-effect-plugin
-bun add -d @varlock/effect-plugin
-bun add --exact effect@4.0.0-rc.112
-```
-
-Change `@plugin(varlock-effect-plugin)` to `@plugin(@varlock/effect-plugin)` in `.env.schema`,
-then run `bunx varlock codegen`. The `@generateEffectConfig` decorator and generated exports
-are unchanged from `varlock-effect-plugin@0.3.0`.
-
-If you are migrating from an earlier version, also follow the export and Effect 3 migration
-instructions below.
-
-## Migrate existing generated modules
-
-Regenerate with `bunx varlock codegen`. The `generated` export is now an Effect with no typed
-failures. Existing `yield* generated` calls keep working, and `.pipe(Effect.orDie)` is redundant.
-Use the new `config` export wherever you previously used `generated.parse(...)`, Config
-combinators, `Config.Success<typeof generated>`, or typed config error handling. Use
-`Effect.Success<typeof generated>` to infer the loaded values from `generated`.
-
-## Migrate from Effect 3
-
-This is a breaking change. Projects using Effect 3 should remain on `varlock-effect-plugin@0.1.0`.
-To migrate, update the plugin, install the pinned Effect 4 release shown above, then regenerate:
-
-```sh
-bunx varlock codegen
-```
-
-The `@generateEffectConfig` decorator and `yield* generated` syntax stay the same. The export and
-error-handling changes described above also apply. Regenerate existing modules before running
-them with Effect 4.
+### Empty strings
 
 Effect 4's default environment provider treats empty strings as missing. A required empty value
-fails, and an optional empty value becomes `Option.none()`. Applications that need to preserve empty
-strings can supply a provider explicitly:
+fails, and an optional empty value becomes `Option.none()`. Effect 3 preserves empty strings: a
+required empty string succeeds with `""` and an optional one becomes `Option.some("")`.
+
+Effect 4 applications that need to preserve empty strings can supply a provider explicitly:
 
 ```ts
 import { ConfigProvider, Effect } from "effect"
@@ -180,6 +180,47 @@ Effect.runPromise(
 )
 ```
 
+## Migrate from varlock-effect-plugin
+
+Replace the community package with the scoped package in the workspace that owns your schema:
+
+```sh
+bun remove varlock-effect-plugin
+bun add -d @varlock/effect-plugin
+```
+
+Change `@plugin(varlock-effect-plugin)` to `@plugin(@varlock/effect-plugin)` in `.env.schema`,
+then run `bunx varlock codegen`. The `@generateEffectConfig` decorator and generated exports
+are unchanged from `varlock-effect-plugin@0.3.0`.
+
+`varlock-effect-plugin@0.3.0` was pinned to `effect@4.0.0-rc.112`. That release candidate is not
+supported here because Effect renamed the `Config` constructors in `rc.113`. Upgrade Effect to
+`4.0.0-rc.113` or later and regenerate.
+
+If you are migrating from `varlock-effect-plugin@0.1.0` (Effect 3), the scoped plugin keeps
+generating Effect 3 code until you upgrade Effect, so nothing changes beyond the plugin name and
+the export changes below.
+
+## Migrate existing generated modules
+
+Regenerate with `bunx varlock codegen`. The `generated` export is now an Effect with no typed
+failures. Existing `yield* generated` calls keep working, and `.pipe(Effect.orDie)` is redundant.
+Use the new `config` export wherever you previously used `generated` as a `Config`, Config
+combinators, `Config.Success<typeof generated>`, or typed config error handling. Use
+`Effect.Success<typeof generated>` to infer the loaded values from `generated`.
+
+## Migrate from Effect 3 to Effect 4
+
+Upgrade `effect` to `4.0.0-rc.113` or later, then regenerate:
+
+```sh
+bunx varlock codegen
+```
+
+The plugin detects the new major and emits Effect 4 code. The `@generateEffectConfig` decorator
+and `yield* generated` syntax stay the same. Regenerate existing modules before running them with
+Effect 4, and review the empty string behavior described above.
+
 ## Local development
 
 From the monorepo root:
@@ -190,6 +231,9 @@ bunx turbo run build --filter=@varlock/effect-plugin
 bun run --filter @varlock/effect-plugin test:ci
 bun run --filter @varlock/effect-plugin typecheck
 ```
+
+Tests run twice, once against `effect@4` and once against the `effect3` alias (`npm:effect@3`),
+so both generated targets are exercised at runtime and typechecked.
 
 ## License
 
