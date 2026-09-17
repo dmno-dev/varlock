@@ -7,7 +7,7 @@ function type(coerced: CoercedType): string {
   if (coerced === 'object') return 'Record<string, unknown>';
 
   if ('enum' in coerced) {
-    return coerced.enum.map((member) => JSON.stringify(member)).join(' | ');
+    return coerced.enum.map((member) => JSON.stringify(member)).join(' | ') || 'never';
   }
 
   if ('arrayOf' in coerced) return `Array<${type(coerced.arrayOf)}>`;
@@ -18,7 +18,7 @@ function type(coerced: CoercedType): string {
   const keys = coerced.recordOf.keys;
 
   if (keys && typeof keys === 'object' && 'enum' in keys) {
-    const key = keys.enum.map((member) => JSON.stringify(member)).join(' | ');
+    const key = keys.enum.map((member) => JSON.stringify(String(member))).join(' | ') || 'never';
     return `Partial<Record<${key}, ${recordValue}>>`;
   }
 
@@ -43,6 +43,11 @@ function value(field: ResolvedFieldType): string {
   else if (typeof coerced === 'object' && 'enum' in coerced) {
     if (coerced.enum.length === 0) {
       throw new Error(`Effect Config generation requires at least one enum value for ${name}`);
+    }
+
+    // Scalar environment values lose their original type; JSON composites do not.
+    if (new Set(coerced.enum.map(String)).size !== new Set(coerced.enum).size) {
+      throw new Error(`Effect Config generation cannot distinguish enum members with the same environment string for ${name}`);
     }
 
     const members = coerced.enum.map((member) => JSON.stringify(member)).join(', ');

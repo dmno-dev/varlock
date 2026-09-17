@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 
 import { generateEffectConfig } from '../src/generator.js';
-import { field, fields } from './fixtures/fields.js';
+import { enumFields, field, fields } from './fixtures/fields.js';
 
 describe('generateEffectConfig', () => {
   test('reproduces the compiled runtime fixture', () => {
@@ -102,5 +102,23 @@ describe('generateEffectConfig', () => {
 
   test('rejects empty enums', () => {
     expect(() => generateEffectConfig([field({ key: 'EMPTY', coerced: { enum: [] } })])).toThrow('requires at least one enum value');
+  });
+
+  test('reproduces the compiled enum fixture', () => {
+    const fixture = readFileSync(new URL('./fixtures/enums.generated.ts', import.meta.url), 'utf8');
+    expect(generateEffectConfig(enumFields)).toBe(fixture);
+  });
+
+  test.each([[1, '1'], ['1', 1], [true, 'true'], ['false', false]])('rejects enum members with the same wire value: %j', (...members) => {
+    expect(() => generateEffectConfig([
+      field({
+        key: 'AMBIGUOUS', coerced: { enum: members }, isRequired: false, isSensitive: true,
+      }),
+    ])).toThrow('Effect Config generation cannot distinguish enum members with the same environment string for "AMBIGUOUS"');
+  });
+
+  test('allows repeated identical enum members', () => {
+    expect(generateEffectConfig([field({ key: 'REPEATED', coerced: { enum: [1, 1] } })]))
+      .toContain('Config.literals([1, 1], "REPEATED")');
   });
 });

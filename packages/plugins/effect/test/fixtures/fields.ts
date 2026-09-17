@@ -38,3 +38,14 @@ export const fields: Array<ResolvedFieldType> = [
     key: 'SECRET_HOSTS', coerced: { arrayOf: 'string' }, isRequired: false, isSensitive: true,
   }),
 ];
+
+export const enumFields: Array<ResolvedFieldType> = [
+  field({ key: 'EMPTY_ARRAY', coerced: { arrayOf: { enum: [] } } }),
+  field({ key: 'EMPTY_VALUES', coerced: { recordOf: { values: { enum: [] } } } }),
+  field({ key: 'EMPTY_KEYS', coerced: { recordOf: { keys: { enum: [] }, values: 'number' } } }),
+  field({ key: 'NESTED', coerced: { arrayOf: { recordOf: { values: { arrayOf: { enum: [] } } } } } }),
+  field({ key: 'BOOLEAN_KEYS', coerced: { recordOf: { keys: { enum: [true, false] }, values: 'number' } } }),
+  field({ key: 'NUMERIC_KEYS', coerced: { recordOf: { keys: { enum: [1, 2] }, values: 'number' } } }),
+  field({ key: 'MIXED_KEYS', coerced: { recordOf: { keys: { enum: [true, 'true', 1, 'one'] }, values: 'number' } } }),
+  field({ key: 'JSON_ENUM', coerced: { arrayOf: { enum: [1, '1', true, 'true'] } } }),
+];
