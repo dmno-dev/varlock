@@ -11,6 +11,9 @@ import { spawn, execSync } from 'node:child_process';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
+import {
+  isPreviewDeployCommand, withInjectedArgs, wranglerCommandArgs, wranglerFlagValue, wranglerProjectDir,
+} from './wrangler-command-detection';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -49,9 +52,48 @@ function spawnWrangler(args: Array<string>): Promise<number> {
   });
 }
 
-function loadSerializedGraph() {
+/**
+ * Runs wrangler and captures its output instead of inheriting stdio.
+ * Used to ask wrangler how it parses a command (see wrangler-command-detection).
+ */
+function captureWrangler(args: Array<string>, timeoutMs = 20_000): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    debug('capture: wrangler', args.join(' '));
+    const child = spawn('wrangler', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: isWindows,
+    });
+    let output = '';
+    const timer = setTimeout(() => {
+      debug('capture: timed out');
+      child.kill();
+      resolve(undefined);
+    }, timeoutMs);
+    timer.unref();
+    const collect = (chunk: Buffer) => {
+      output += chunk.toString();
+    };
+    child.stdout?.on('data', collect);
+    child.stderr?.on('data', collect);
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(output || undefined);
+    });
+  });
+}
+
+/**
+ * `cwd` mirrors wrangler's own `--cwd` flag: wrangler runs as if started there, so
+ * varlock has to resolve the same project's .env files rather than the caller's.
+ */
+function loadSerializedGraph(cwd?: string) {
   const { stdout } = execSyncVarlock('load --format json-full --compact', {
     fullResult: true,
+    ...cwd && { cwd },
     integrationTelemetry: {
       name: __VARLOCK_INTEGRATION_NAME__,
       version: __VARLOCK_INTEGRATION_VERSION__,
@@ -370,17 +412,23 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
 // --- command detection ---
 
 function isVersionsUploadCommand(args: Array<string>) {
-  return args[0] === 'versions' && args[1] === 'upload';
+  const command = wranglerCommandArgs(args);
+  return command[0] === 'versions' && command[1] === 'upload';
 }
 
-function isDeployCommand(args: Array<string>) {
-  if (args[0] === 'deploy') return true;
+function isPlainDeployCommand(args: Array<string>) {
+  return wranglerCommandArgs(args)[0] === 'deploy';
+}
+
+async function isDeployCommand(args: Array<string>) {
+  if (isPlainDeployCommand(args)) return true;
   if (isVersionsUploadCommand(args)) return true;
+  if (await isPreviewDeployCommand(args, captureWrangler)) return true;
   return false;
 }
 
 function isTypesCommand(args: Array<string>) {
-  return args[0] === 'types';
+  return wranglerCommandArgs(args)[0] === 'types';
 }
 
 // --- command handlers ---
@@ -395,7 +443,7 @@ async function handleDeploy(args: Array<string>) {
 
   let loaded;
   try {
-    loaded = loadSerializedGraph();
+    loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
     console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
@@ -464,8 +512,10 @@ async function handleDeploy(args: Array<string>) {
   let exitCode = process.exitCode ?? 0;
   try {
     debug('deploy: spawning wrangler');
-    const wranglerArgs = [...args, ...varFlags, '--secrets-file', tmp.filePath];
-    if (!isVersionsUploadCommand(args)) wranglerArgs.push('--keep-vars=false');
+    const injectedArgs = [...varFlags, '--secrets-file', tmp.filePath];
+    // --keep-vars only applies to `deploy` (not `versions upload` or `preview`)
+    if (isPlainDeployCommand(args)) injectedArgs.push('--keep-vars=false');
+    const wranglerArgs = withInjectedArgs(args, injectedArgs);
     exitCode = await spawnWrangler(wranglerArgs);
     debug('deploy: wrangler exited with code', exitCode);
   } finally {
@@ -480,7 +530,7 @@ async function handleTypes(args: Array<string>) {
   debug('types: resolving env');
   let loaded;
   try {
-    loaded = loadSerializedGraph();
+    loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
     console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
@@ -504,7 +554,7 @@ async function handleTypes(args: Array<string>) {
   let exitCode = process.exitCode ?? 0;
   try {
     debug('types: spawning wrangler');
-    exitCode = await spawnWrangler([...args, '--env-file', tmp.filePath]);
+    exitCode = await spawnWrangler(withInjectedArgs(args, ['--env-file', tmp.filePath]));
     debug('types: wrangler exited with code', exitCode);
   } finally {
     debug('types: cleaning up');
@@ -515,8 +565,8 @@ async function handleTypes(args: Array<string>) {
 }
 
 async function handleDev(args: Array<string>) {
-  // .dev.vars would conflict with our env injection via --env-file
-  if (existsSync('.dev.vars')) {
+  // .dev.vars would conflict with our env injection via --env-file, so warn about it
+  if (existsSync(join(wranglerProjectDir(args), '.dev.vars'))) {
     console.error([
       'Error: a .dev.vars file was detected in your project.',
       'This conflicts with varlock-wrangler which manages env vars automatically.',
@@ -530,7 +580,7 @@ async function handleDev(args: Array<string>) {
   let loaded: ReturnType<typeof loadSerializedGraph> | undefined;
   let configIsValid = false;
   try {
-    loaded = loadSerializedGraph();
+    loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
     configIsValid = true;
   } catch (err) {
     if (err instanceof VarlockExecError) {
@@ -600,7 +650,7 @@ async function handleDev(args: Array<string>) {
       const changedFileList = [...changedFiles];
       changedFiles.clear();
       try {
-        const freshLoaded = loadSerializedGraph();
+        const freshLoaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
         const freshEnvKey = envComparisonKey(freshLoaded.graph);
         if (freshEnvKey === cachedEnvKey) {
           const changedMsg = changedFileList.length
@@ -694,7 +744,7 @@ async function handleDev(args: Array<string>) {
     // with the fresh data (FIFO serves fresh content, Windows file is refreshed)
     while (true) {
       debug('dev: spawning wrangler');
-      wranglerChild = spawn('wrangler', [...args, '--env-file', tmp.filePath], {
+      wranglerChild = spawn('wrangler', withInjectedArgs(args, ['--env-file', tmp.filePath]), {
         stdio: ['inherit', 'pipe', 'pipe'],
         shell: isWindows,
         // force color output since piped stdio loses TTY detection
@@ -773,17 +823,18 @@ async function main() {
     console.log('Enhanced commands:');
     console.log('  dev                      - injects resolved env via named pipe (no secrets on disk)');
     console.log('  deploy / versions upload - uploads env as Cloudflare vars and secrets');
+    console.log('  preview                  - deploys a branch preview with env as vars and secrets');
     console.log('  types                    - generates types including varlock-managed env vars');
     console.log('');
     console.log('All other commands are passed through to wrangler unchanged.');
     return;
   }
 
-  if (isDeployCommand(args)) {
+  if (await isDeployCommand(args)) {
     await handleDeploy(args);
   } else if (isTypesCommand(args)) {
     await handleTypes(args);
-  } else if (args[0] === 'dev') {
+  } else if (wranglerCommandArgs(args)[0] === 'dev') {
     await handleDev(args);
   } else {
     // pass through to wrangler unchanged
