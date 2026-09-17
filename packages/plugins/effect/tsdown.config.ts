@@ -12,7 +12,5 @@ export default defineConfig({
   format: ['cjs'],
   platform: 'node',
   target: 'esnext',
-  deps: {
-    neverBundle: ['varlock'],
-  },
+  external: ['varlock'],
 });

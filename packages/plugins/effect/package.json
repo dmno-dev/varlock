@@ -14,9 +14,6 @@
     "./plugin": "./dist/plugin.cjs"
   },
   "files": ["dist"],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
     "dev": "tsdown --watch",
     "build": "tsdown",
@@ -25,12 +22,21 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.effect3.json"
   },
   "keywords": [
-    "effect",
-    "environment-variables",
     "varlock",
-    "varlock-plugin"
+    "plugin",
+    "varlock-plugin",
+    "effect",
+    "effect-ts",
+    "codegen",
+    "env",
+    ".env",
+    "dotenv",
+    "environment variables",
+    "env vars",
+    "config"
   ],
-  "author": "dan-myles",
+  "author": "dmno-dev",
+  "contributors": ["dan-myles (https://github.com/dan-myles)"],
   "license": "MIT",
   "engines": {
     "node": ">=22"

@@ -1,7 +1,10 @@
 # @varlock/effect-plugin
 
-Generate an [Effect](https://effect.website/) `Config` module from a
-[Varlock](https://varlock.dev/) environment schema. Both Effect 3 and Effect 4 are supported.
+[![npm version](https://img.shields.io/npm/v/@varlock/effect-plugin.svg)](https://npmx.dev/package/@varlock/effect-plugin) [![GitHub stars](https://img.shields.io/github/stars/dmno-dev/varlock.svg?style=social&label=Star)](https://github.com/dmno-dev/varlock) [![license](https://img.shields.io/npm/l/@varlock/effect-plugin.svg)](https://github.com/dmno-dev/varlock/blob/main/LICENSE)
+
+This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/guides/plugins/) that generates an [Effect](https://effect.website/) `Config` module from your environment schema. Both Effect 3 and Effect 4 are supported.
+
+Originally written by [dan-myles](https://github.com/dan-myles) as [varlock-effect-plugin](https://github.com/dan-myles/varlock-effect-plugin) and contributed to the Varlock monorepo.
 
 ## Install
 
@@ -234,7 +237,3 @@ bun run --filter @varlock/effect-plugin typecheck
 
 Tests run twice, once against `effect@4` and once against the `effect3` alias (`npm:effect@3`),
 so both generated targets are exercised at runtime and typechecked.
-
-## License
-
-MIT. Originally contributed by [dan-myles](https://github.com/dan-myles/varlock-effect-plugin).
