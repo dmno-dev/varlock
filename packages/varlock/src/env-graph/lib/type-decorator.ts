@@ -565,6 +565,8 @@ function buildDynamicTypePlan(
       staticVal = arg.value.value;
     }
     if (typeof staticVal === 'string' && staticVal in ctx.registry && !candidates.includes(staticVal)) {
+      // a bare `enum` has no members, so it can never be a valid dynamic candidate
+      if (staticVal === 'enum') throw emptyEnumError(context);
       candidates.push(staticVal);
     }
   }
@@ -587,6 +589,7 @@ function buildDynamicTypePlan(
       if (typeof resolvedName !== 'string' || !(resolvedName in ctx.registry)) {
         throw new SchemaError(`${context} - resolved to invalid data type: ${JSON.stringify(resolvedName)}`);
       }
+      if (resolvedName === 'enum') throw emptyEnumError(context);
       return ctx.registry[resolvedName]();
     },
   };

@@ -1884,6 +1884,27 @@ describe('dynamic @type parts (resolver-valued)', () => {
       expect(messages).toContain('does not generate the same type');
     });
 
+    it('rejects enum as a dynamic type candidate', async () => {
+      const g = await loadAndResolve(outdent`
+        FLAG=true
+        # @type=if($FLAG, enum, string)
+        VAL=x
+      `);
+      expect(g.configSchema.VAL.isValid).toBe(false);
+      expect(g.configSchema.VAL.errors[0].message).toContain('enum must have at least one member');
+    });
+
+    it('errors when an opaque dynamic type resolves to enum', async () => {
+      const g = await loadAndResolve(outdent`
+        TYPE_NAME=enum
+        # @type=fallback($TYPE_NAME, string)
+        VAL=x
+      `);
+      expect(g.configSchema.VAL.isValid).toBe(false);
+      const messages = (g.configSchema.VAL.validationErrors ?? []).map((e) => e.message).join('\n');
+      expect(messages).toContain('enum must have at least one member');
+    });
+
     it('errors when the dynamic type resolves to an unknown type name', async () => {
       const g = await loadAndResolve(outdent`
         TYPE_NAME=not-a-real-type
