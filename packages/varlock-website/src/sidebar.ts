@@ -251,6 +251,11 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
               },
             ],
           },
+          {
+            label: 'Code generation',
+            collapsed: true,
+            items: [{ label: 'Effect', slug: 'plugins/effect', badge: 'new' }],
+          },
         ],
       },
       {

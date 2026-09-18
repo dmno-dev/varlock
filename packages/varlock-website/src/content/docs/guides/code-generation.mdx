@@ -33,6 +33,20 @@ You can control what it emits:
 
 See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstypes) for details. In monorepos where multiple packages have different schemas, prefer `exposeEnv=local` to avoid global augmentation clashes. See [Typed `ENV` across packages](/guides/monorepos/#typed-env-across-packages).
 
+## Effect
+
+The [Effect plugin](/plugins/effect/) generates an Effect `Config` module with typed values,
+optional fields, and redacted secrets. Effect 3 and Effect 4 are both supported; the plugin
+detects which one is installed:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/effect-plugin)
+# @generateEffectConfig(path=./src/env.generated.ts)
+```
+
+Install `@varlock/effect-plugin` and `effect` first. See the
+[Effect guide](/plugins/effect/) for setup, usage, and migration from `varlock-effect-plugin`.
+
 ## Other languages
 
 Varlock ships generators for several languages. Each emits a **self-contained, idiomatic module**: a typed value object, a loader that reads the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant (so you can build your own redaction or leak-scanning). No hand-rolled parsing required:
