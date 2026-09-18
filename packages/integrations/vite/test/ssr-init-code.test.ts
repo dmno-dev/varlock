@@ -26,6 +26,10 @@ vi.mock('varlock/exec-sync-varlock', () => ({
   },
 }));
 
+// warm the module graph (plugin + varlock source) at collection time, so the
+// transform cost is not charged against the first test's timeout
+await import('../src/index');
+
 const TEST_KEY = 'ab'.repeat(32);
 const HEX_KEY_RE = /^[0-9a-f]{64}$/;
 
