@@ -31,8 +31,8 @@ const FOLDER = `${ID}-${VERSION}`;
 const ID_PREFIX = ID.toLowerCase();
 
 // Items symlinked into the install folder (everything the manifest references:
-// `main` → dist, language config + grammar → language, icons → images).
-const LINKS = ['dist', 'language', 'images', 'node_modules'];
+// `main` → dist, grammar → syntaxes, language config, icons → images).
+const LINKS = ['dist', 'syntaxes', 'language-configuration.json', 'images', 'node_modules'];
 
 // Warn early if the extension hasn't been built — it would fail to activate.
 if (!fs.existsSync(path.join(PKG_DIR, 'dist', 'extension.js'))) {

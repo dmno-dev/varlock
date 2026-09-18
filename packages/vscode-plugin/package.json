@@ -37,7 +37,7 @@
           ".env",
           ".env.*"
         ],
-        "configuration": "./language/language-configuration.json",
+        "configuration": "./language-configuration.json",
         "icon": {
           "light": "images/file-icon.png",
           "dark": "images/file-icon.png"
@@ -48,7 +48,7 @@
       {
         "language": "env-spec",
         "scopeName": "source.env-spec",
-        "path": "./language/env-spec.tmLanguage.json"
+        "path": "./syntaxes/env-spec.tmLanguage.json"
       }
     ],
     "commands": [
@@ -84,9 +84,9 @@
     "build": "tsdown",
     "install:local": "bun run build && bun run scripts/install-local.ts",
     "test": "vitest",
-    "test:grammar": "vscode-tmgrammar-test -g ./language/env-spec.tmLanguage.json ./test/grammar.test.txt",
-    "test:snap": "vscode-tmgrammar-snap -s source.env-spec -g ./language/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
-    "test:snap:update": "vscode-tmgrammar-snap -u -s source.env-spec -g ./language/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
+    "test:grammar": "vscode-tmgrammar-test -g ./syntaxes/env-spec.tmLanguage.json ./test/grammar.test.txt",
+    "test:snap": "vscode-tmgrammar-snap -s source.env-spec -g ./syntaxes/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
+    "test:snap:update": "vscode-tmgrammar-snap -u -s source.env-spec -g ./syntaxes/env-spec.tmLanguage.json \"test/fixtures/.env.*\"",
     "test:ci": "vitest --run && bun run test:grammar && bun run test:snap",
     "package": "bun run build && vsce package -o env-spec-language.vsix --no-dependencies",
     "publish:vsce": "vsce publish -i env-spec-language.vsix --azure-credential",
