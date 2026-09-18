@@ -15,6 +15,13 @@
 
 
 
+
+## 0.4.3
+<sub>2026-09-18</sub>
+
+- [#1099](https://github.com/dmno-dev/varlock/pull/1099)  *(patch)*
+  Move the TextMate grammar from `language/` to `syntaxes/` (the standard VS Code extension layout, and the location GitHub Linguist's grammar compiler expects); `language-configuration.json` now lives at the extension root.
+
 ## 0.4.2
 <sub>2026-09-17</sub>
 
