@@ -2,7 +2,13 @@ import { defineConfig } from 'vitest/config';
 import pkg from './package.json';
 
 export default defineConfig({
-  test: { name: '@varlock/vite-integration' },
+  test: {
+    name: '@varlock/vite-integration',
+    // the first test to import the plugin pays for transforming it plus the
+    // varlock source it pulls in (ts-src conditions), and CI runs several
+    // integration packages' tests concurrently; the 5s default was flaky there
+    testTimeout: 20_000,
+  },
   resolve: {
     // resolve `varlock` subpath imports from source, so tests do not depend on
     // the sibling package having been built first
