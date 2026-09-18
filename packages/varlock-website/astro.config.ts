@@ -15,7 +15,7 @@ import { outdent } from 'outdent';
 import varlockAstroIntegration from '@varlock/astro-integration';
 import { ENV } from 'varlock/env';
 
-import envSpecGrammar from '../vscode-plugin/language/env-spec.tmLanguage.json' with { type: 'json' };
+import envSpecGrammar from '../vscode-plugin/syntaxes/env-spec.tmLanguage.json' with { type: 'json' };
 
 import { sidebar } from './src/sidebar';
 
