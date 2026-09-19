@@ -272,11 +272,10 @@
       "name": "@varlock/azure-key-vault-plugin",
       "version": "1.2.3",
       "devDependencies": {
-        "@azure/identity": "^4.13.0",
-        "@azure/keyvault-secrets": "^4.10.0",
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
         "ky": "catalog:",
+        "outdent": "catalog:",
         "tsdown": "catalog:",
         "varlock": "workspace:^",
         "vitest": "catalog:",
