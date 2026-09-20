@@ -163,26 +163,23 @@ Keep dynamic-key usage out of routes that must be prerendered.
 </TabItem>
 <TabItem label="TanStack Start">
 
-```ts title="src/routes/api/public-env.ts"
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { getPublicDynamicEnv } from 'varlock/env';
+```ts title="src/router.tsx"
+export function getRouter() {
+  const router = createTanStackRouter({
+    routeTree,
 
-export const ServerRoute = createServerFileRoute('/api/public-env').methods({
-  GET: async () => Response.json(getPublicDynamicEnv(), {
-    headers: { 'cache-control': 'no-store' },
-  }),
-});
-```
+    ...
 
-```tsx title="src/components/client-widget.tsx"
-import { useEffect } from 'react';
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+    dehydrate: () => ({
+      publicDynamicEnv: getPublicDynamicEnv(),
+    }),
 
-export function ClientWidget() {
-  useEffect(() => {
-    void loadPublicDynamicEnv({ endpoint: '/api/public-env' });
-  }, []);
-  return <p>{ENV.PUBLIC_RUNTIME_FLAG}</p>;
+    hydrate: (dehydrated) => {
+      setPublicDynamicEnv(dehydrated.publicDynamicEnv);
+    },
+  });
+
+  return router;
 }
 ```
 
