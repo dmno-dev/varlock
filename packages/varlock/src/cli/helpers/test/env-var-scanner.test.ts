@@ -311,6 +311,142 @@ describe('scanCodeForEnvVars', () => {
   });
   /* eslint-enable no-template-curly-in-string */
 
+
+  describe('regex literals', () => {
+    test('a quote inside a regex literal does not hide later references', async () => {
+      // the case from issue #1105: `/'/` used to open a string that swallowed the rest of the file
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'export const single = (s: string) => s.replace(/\'/g, "");',
+        'export const a = process.env.AFTER_SINGLE;',
+        'export const double = (s: string) => s.replace(/"/g, "");',
+        'export const b = process.env.AFTER_DOUBLE;',
+        'export const tick = (s: string) => s.replace(/`/g, "");',
+        'export const c = process.env.AFTER_BACKTICK;',
+        'export const posix = (s: string) => s.replace(/\'/g, "\'\\\\\'\'");',
+        'export const d = process.env.AFTER_POSIX;',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['AFTER_BACKTICK', 'AFTER_DOUBLE', 'AFTER_POSIX', 'AFTER_SINGLE']);
+    });
+
+    test('quotes and slashes inside character classes and escapes are part of the regex', async () => {
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'const quoted = /[\'"`]/g;',
+        'const a = process.env.AFTER_CLASS;',
+        'const slashInClass = /[/]\'/;',
+        'const b = process.env.AFTER_SLASH_CLASS;',
+        'const escaped = /\\/\'/;',
+        'const c = process.env.AFTER_ESCAPED_SLASH;',
+        'const unterminatedClassChar = /[\\]\']/;',
+        'const d = process.env.AFTER_ESCAPED_BRACKET;',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['AFTER_CLASS', 'AFTER_ESCAPED_BRACKET', 'AFTER_ESCAPED_SLASH', 'AFTER_SLASH_CLASS']);
+    });
+
+    test('a reference written inside a regex body is not a reference', async () => {
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'const re = /process\\.env\\.IN_REGEX/;',
+        'const a = process.env.REAL;',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['REAL']);
+    });
+
+    test('division operators are not mistaken for regex literals', async () => {
+      // if any of these `/` opened a regex, the quote on the same line would start a string
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'const a = total / count; const s1 = "\'";',
+        'const b = (x + y) / 2; const s2 = "\'";',
+        'const c = arr[0] / 2; const s3 = "\'";',
+        'const d = obj.return / 2; const s4 = "\'";',
+        'const e = 10 / 2 / 5; const s5 = "\'";',
+        'const f = "a" / 1; const s6 = "\'";',
+        'const key = process.env.AFTER_DIVISION;',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['AFTER_DIVISION']);
+    });
+
+    test('a regex literal is recognised after keywords, operators and open brackets', async () => {
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'function f(s: string) { return /\'/.test(s); }',
+        'const a = process.env.AFTER_RETURN;',
+        'const ok = s.length && /\'/.test(s);',
+        'const b = process.env.AFTER_OPERATOR;',
+        'const list = [/\'/, /"/];',
+        'const c = process.env.AFTER_ARRAY;',
+        'const found = list.some((re) => re.test(/\'/.source));',
+        'const d = process.env.AFTER_CALL_ARG;',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['AFTER_ARRAY', 'AFTER_CALL_ARG', 'AFTER_OPERATOR', 'AFTER_RETURN']);
+    });
+
+    test('slashes in JSX text and closing tags are not regex literals', async () => {
+      fs.writeFileSync(path.join(tempDir, 'App.tsx'), [
+        'const a = <p>{done}/{total}</p><p>{process.env.NEXT_PUBLIC_RATIO}</p>;',
+        'const b = <p>{x}</p><p>{process.env.NEXT_PUBLIC_AFTER_CLOSE}</p>;',
+        'const c = <Foo/><Bar>{process.env.NEXT_PUBLIC_SELF_CLOSING}</Bar>;',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['NEXT_PUBLIC_AFTER_CLOSE', 'NEXT_PUBLIC_RATIO', 'NEXT_PUBLIC_SELF_CLOSING']);
+    });
+
+    /* eslint-disable no-template-curly-in-string */
+    test('regex literals inside template interpolations are lexed too', async () => {
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'const s = `${name.replace(/\'/g, "")} ${process.env.IN_TEMPLATE}`;',
+        'const a = process.env.AFTER_TEMPLATE;',
+        // an unlexed `'` above would pair with this one and the masking would blank what follows
+        "const b = 'literal' + process.env.AFTER_LATER_QUOTE;",
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['AFTER_LATER_QUOTE', 'AFTER_TEMPLATE', 'IN_TEMPLATE']);
+    });
+    /* eslint-enable no-template-curly-in-string */
+
+    test('a regex literal body does not swallow custom pattern matches', async () => {
+      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
+        'const clean = (s: string) => s.replace(/\'/g, "");',
+        'const v = cfg.get("app.db.url");',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({
+        cwd: tempDir,
+        extraPatterns: [/cfg\.get\(["']([^"']+)["']\)/],
+      });
+
+      expect(result.keys).toEqual(['app.db.url']);
+    });
+
+    test('ruby regex literals are lexed the same way', async () => {
+      fs.writeFileSync(path.join(tempDir, 'app.rb'), [
+        'clean = s.gsub(/\'/, "")',
+        'key = ENV["AFTER_RUBY_REGEX"]',
+        'half = total / 2 # "',
+        'other = ENV.fetch("AFTER_RUBY_DIVISION")',
+      ].join('\n'));
+
+      const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+      expect(result.keys).toEqual(['AFTER_RUBY_DIVISION', 'AFTER_RUBY_REGEX']);
+    });
+  });
   describe('directory exclusions', () => {
     beforeEach(() => {
       for (const dir of ['fixtures', 'src/deep/fixtures', 'apps/docs', 'docs', 'generated/config']) {

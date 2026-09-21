@@ -341,9 +341,25 @@ function buildReference(
   };
 }
 
+interface LexOptions {
+  language: ScannerLanguage;
+  /**
+   * Blank the bodies of string, template and regex literals. Strings whose whole body
+   * is a bare env-key identifier are kept so `process.env['FOO']` still matches.
+   */
+  maskStringBodies: boolean;
+}
+
+/** Blank `chars[start, endExclusive)` with spaces, keeping newlines so offsets survive. */
+function blankRange(chars: Array<string>, start: number, endExclusive: number): void {
+  for (let idx = start; idx < endExclusive; idx++) {
+    if (chars[idx] !== '\n') chars[idx] = ' ';
+  }
+}
+
 /**
- * Blank a `//` comment through to (but not including) its newline, returning the index
- * just past it. Layout is preserved so byte offsets stay valid.
+ * Blank a `//` (or `#`) comment through to (but not including) its newline, returning
+ * the index just past it. Layout is preserved so byte offsets stay valid.
  */
 function maskLineComment(chars: Array<string>, startIndex: number): number {
   let i = startIndex;
@@ -369,7 +385,16 @@ function maskBlockComment(chars: Array<string>, startIndex: number): number {
   return i;
 }
 
-function skipQuotedWithoutMask(chars: Array<string>, startIndex: number, quoteChar: '\'' | '"'): number {
+/**
+ * Step over a `'` or `"` string starting at `startIndex`, returning the index just past
+ * its closing quote. With `mask` the body is blanked unless it's a bare identifier.
+ */
+function skipQuotedString(
+  chars: Array<string>,
+  startIndex: number,
+  quoteChar: '\'' | '"',
+  mask: boolean,
+): number {
   let i = startIndex + 1;
   while (i < chars.length) {
     const ch = chars[i];
@@ -379,7 +404,41 @@ function skipQuotedWithoutMask(chars: Array<string>, startIndex: number, quoteCh
     }
     if (ch === quoteChar) {
       i++;
-      return i;
+      break;
+    }
+    i++;
+  }
+
+  const endExclusive = i;
+  if (mask) {
+    const inner = chars.slice(startIndex + 1, Math.max(startIndex + 1, endExclusive - 1)).join('');
+    if (!ENV_KEY_IDENTIFIER_REGEX.test(inner)) {
+      blankRange(chars, startIndex + 1, endExclusive - 1);
+    }
+  }
+  return endExclusive;
+}
+
+/**
+ * Walk a `${...}` interpolation body starting just past the `${`, returning the index
+ * just past the matching `}`. The body is code, so comments are blanked and nested
+ * literals are handled like anywhere else.
+ */
+function skipInterpolation(chars: Array<string>, startIndex: number, opts: LexOptions): number {
+  let i = startIndex;
+  let depth = 1;
+  while (i < chars.length) {
+    // mutually recursive: a nested template's interpolation goes through here again
+    const skipped = skipCommentOrLiteral(chars, i, opts); // eslint-disable-line no-use-before-define
+    if (skipped !== undefined) {
+      i = skipped;
+      continue;
+    }
+    const ch = chars[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i + 1;
     }
     i++;
   }
@@ -387,182 +446,196 @@ function skipQuotedWithoutMask(chars: Array<string>, startIndex: number, quoteCh
 }
 
 /**
- * Walk a template literal leaving its text alone. "WithoutMask" refers to the template
- * text only: comments inside `${...}` are still blanked, since those are code comments
- * like any other.
+ * Step over a backtick literal starting at `startIndex`. In JS this is a template
+ * literal with `\` escapes and `${...}` interpolations; in Go it's a raw string with
+ * neither. With `maskStringBodies` the template text is blanked (a template with no
+ * interpolation whose whole body is a bare identifier is kept, like a quoted string).
  */
-function skipTemplateWithoutMask(chars: Array<string>, startIndex: number): number {
-  let i = startIndex + 1;
-  while (i < chars.length) {
-    const ch = chars[i];
-    const next = chars[i + 1];
-
-    if (ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === '`') {
-      i++;
-      return i;
-    }
-    if (ch === '$' && next === '{') {
-      i += 2;
-      let depth = 1;
-      while (i < chars.length && depth > 0) {
-        const exprCh = chars[i];
-        const exprNext = chars[i + 1];
-
-        if (exprCh === '\\') {
-          i += 2;
-          continue;
-        }
-        // Quoted text is stepped over before testing for comment delimiters, so a `//`
-        // in a URL or a `/*` in a string doesn't blank the live code that follows it.
-        if (exprCh === '\'' || exprCh === '"') {
-          i = skipQuotedWithoutMask(chars, i, exprCh);
-          continue;
-        }
-        if (exprCh === '`') {
-          i = skipTemplateWithoutMask(chars, i);
-          continue;
-        }
-        if (exprCh === '/' && exprNext === '/') {
-          i = maskLineComment(chars, i);
-          continue;
-        }
-        if (exprCh === '/' && exprNext === '*') {
-          i = maskBlockComment(chars, i);
-          continue;
-        }
-        if (exprCh === '{') depth++;
-        else if (exprCh === '}') depth--;
-        i++;
-      }
-      continue;
-    }
-    i++;
-  }
-  return i;
-}
-
-function skipAndMaskQuotedString(chars: Array<string>, startIndex: number, quoteChar: '\'' | '"'): number {
-  let i = startIndex + 1;
-  while (i < chars.length) {
-    const ch = chars[i];
-    if (ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === quoteChar) {
-      i++;
-      break;
-    }
-    i++;
-  }
-
-  const endExclusive = i;
-  const inner = chars.slice(startIndex + 1, Math.max(startIndex + 1, endExclusive - 1)).join('');
-  const keepInner = ENV_KEY_IDENTIFIER_REGEX.test(inner);
-  if (!keepInner) {
-    for (let idx = startIndex + 1; idx < endExclusive - 1; idx++) {
-      if (chars[idx] !== '\n') chars[idx] = ' ';
-    }
-  }
-  return endExclusive;
-}
-
-function skipAndMaskTemplateLiteral(chars: Array<string>, startIndex: number): number {
+function skipTemplateLiteral(chars: Array<string>, startIndex: number, opts: LexOptions): number {
+  const isJs = opts.language === 'js-like';
   let i = startIndex + 1;
   let segmentStart = i;
-  const literalSegments: Array<{ start: number, endExclusive: number }> = [];
+  const textSegments: Array<{ start: number, endExclusive: number }> = [];
   let hasInterpolation = false;
+  let closed = false;
 
   while (i < chars.length) {
     const ch = chars[i];
-    const next = chars[i + 1];
-
-    if (ch === '\\') {
+    if (isJs && ch === '\\') {
       i += 2;
       continue;
     }
-
     if (ch === '`') {
-      literalSegments.push({ start: segmentStart, endExclusive: i });
+      textSegments.push({ start: segmentStart, endExclusive: i });
+      closed = true;
       i++;
       break;
     }
-
-    if (ch === '$' && next === '{') {
+    if (isJs && ch === '$' && chars[i + 1] === '{') {
       hasInterpolation = true;
-      literalSegments.push({ start: segmentStart, endExclusive: i });
-      i += 2;
-      let depth = 1;
-      while (i < chars.length && depth > 0) {
-        const exprCh = chars[i];
-        const exprNext = chars[i + 1];
-
-        if (exprCh === '\\') {
-          i += 2;
-          continue;
-        }
-
-        if (exprCh === '\'' || exprCh === '"') {
-          i = skipQuotedWithoutMask(chars, i, exprCh);
-          continue;
-        }
-
-        if (exprCh === '`') {
-          i = skipTemplateWithoutMask(chars, i);
-          continue;
-        }
-
-        if (exprCh === '{') depth++;
-        else if (exprCh === '}') depth--;
-
-        if (depth === 0) {
-          i++;
-          break;
-        }
-
-        // Comments inside an interpolation are code comments, not template text, so
-        // they're blanked like any other comment - otherwise a commented-out
-        // `process.env.X` inside `${...}` reads as a live reference.
-        if (exprCh === '/' && exprNext === '/') {
-          i = maskLineComment(chars, i);
-          continue;
-        }
-        if (exprCh === '/' && exprNext === '*') {
-          i = maskBlockComment(chars, i);
-          continue;
-        }
-
-        i++;
-      }
+      textSegments.push({ start: segmentStart, endExclusive: i });
+      i = skipInterpolation(chars, i + 2, opts);
       segmentStart = i;
       continue;
     }
-
     i++;
   }
+  if (!closed) textSegments.push({ start: segmentStart, endExclusive: i });
 
   const endExclusive = i;
+  if (!opts.maskStringBodies) return endExclusive;
+
   if (!hasInterpolation) {
     const inner = chars.slice(startIndex + 1, Math.max(startIndex + 1, endExclusive - 1)).join('');
     if (!ENV_KEY_IDENTIFIER_REGEX.test(inner)) {
-      for (let idx = startIndex + 1; idx < endExclusive - 1; idx++) {
-        if (chars[idx] !== '\n') chars[idx] = ' ';
-      }
+      blankRange(chars, startIndex + 1, endExclusive - 1);
     }
     return endExclusive;
   }
 
-  for (const segment of literalSegments) {
-    for (let idx = segment.start; idx < segment.endExclusive; idx++) {
-      if (chars[idx] !== '\n') chars[idx] = ' ';
-    }
+  for (const segment of textSegments) {
+    blankRange(chars, segment.start, segment.endExclusive);
   }
-
   return endExclusive;
+}
+
+// A `/` directly after one of these words starts a regex literal rather than dividing
+// by something (`return /x/.test(s)`, `typeof /x/`). Everything else that ends in an
+// identifier character is a value, so a `/` after it is division.
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'throw',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+  // ruby
+  'if',
+  'unless',
+  'while',
+  'until',
+  'when',
+  'and',
+  'or',
+  'not',
+]);
+
+function isIdentifierChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
+}
+
+/**
+ * Decide whether a `/` at `index` can start a regex literal, or must be a division
+ * operator, from the last significant character before it. Comments and string bodies
+ * before `index` have already been blanked, so skipping whitespace is enough.
+ *
+ * `)`, `]` and `}` are treated as ending a value (`(a + b) / 2`, `arr[0] / 2`). A
+ * statement that starts with a regex literal right after a block is rare in real code,
+ * while `}/` shows up in JSX text (`{done}/{total}`) and `}</div>` all the time, and a
+ * false regex there would blank the rest of the line. `</` is likewise a JSX closing
+ * tag, never a regex.
+ */
+function regexAllowedAt(chars: Array<string>, index: number): boolean {
+  if (chars[index - 1] === '<') return false;
+
+  let j = index - 1;
+  while (j >= 0 && /\s/.test(chars[j])) j--;
+  if (j < 0) return true;
+
+  const prev = chars[j];
+  if (prev === ')' || prev === ']' || prev === '}') return false;
+  if (prev === '\'' || prev === '"' || prev === '`') return false;
+  if (!isIdentifierChar(prev)) return true;
+
+  let wordStart = j;
+  while (wordStart > 0 && isIdentifierChar(chars[wordStart - 1])) wordStart--;
+  // `obj.return / 2` is a property, not the keyword
+  if (wordStart > 0 && chars[wordStart - 1] === '.') return false;
+  return REGEX_PRECEDING_KEYWORDS.has(chars.slice(wordStart, j + 1).join(''));
+}
+
+/**
+ * Find the closing `/` of a regex literal whose opening `/` is at `startIndex`. A `/`
+ * inside a `[...]` class or after a `\` doesn't close it. Returns undefined when no
+ * closing `/` appears before the end of the line: regex literals can't span lines, so
+ * the opening `/` was really a division operator.
+ */
+function findRegexLiteralClose(chars: Array<string>, startIndex: number): number | undefined {
+  let i = startIndex + 1;
+  let inClass = false;
+  while (i < chars.length) {
+    const ch = chars[i];
+    if (ch === '\n') return undefined;
+    if (ch === '\\') {
+      if (chars[i + 1] === '\n') return undefined;
+      i += 2;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+    } else if (ch === '[') {
+      inClass = true;
+    } else if (ch === '/') {
+      return i;
+    }
+    i++;
+  }
+  return undefined;
+}
+
+/**
+ * Step over a regex literal starting at `startIndex`, returning the index just past its
+ * flags, or undefined if the `/` there isn't one. With `mask` the body is blanked so
+ * `/process\.env\.FOO/` can't read as a reference; the delimiters and flags stay so
+ * the following `/` is still classified correctly.
+ */
+function skipRegexLiteral(chars: Array<string>, startIndex: number, mask: boolean): number | undefined {
+  if (!regexAllowedAt(chars, startIndex)) return undefined;
+  const closeIndex = findRegexLiteralClose(chars, startIndex);
+  if (closeIndex === undefined) return undefined;
+
+  if (mask) blankRange(chars, startIndex + 1, closeIndex);
+  let i = closeIndex + 1;
+  while (i < chars.length && /[A-Za-z]/.test(chars[i])) i++;
+  return i;
+}
+
+/**
+ * If a comment or literal starts at `i`, step over it (blanking per `opts`) and return
+ * the index just past it. Returns undefined when `chars[i]` is ordinary code, so the
+ * caller advances on its own.
+ *
+ * Literals are lexed rather than pattern-matched so a quote inside one kind of literal
+ * (a regex like `/'/g`, a `//` in a URL string) can't be mistaken for the start of
+ * another and mis-lex the rest of the file.
+ */
+function skipCommentOrLiteral(chars: Array<string>, i: number, opts: LexOptions): number | undefined {
+  const { language, maskStringBodies } = opts;
+  const ch = chars[i];
+  const next = chars[i + 1];
+
+  const supportsHashComments = language === 'python' || language === 'ruby' || language === 'php';
+  const supportsSlashComments = language !== 'python' && language !== 'ruby';
+  const supportsBacktickLiterals = language === 'js-like' || language === 'go';
+  const supportsRegexLiterals = language === 'js-like' || language === 'ruby';
+
+  if (supportsSlashComments && ch === '/' && next === '/') return maskLineComment(chars, i);
+  if (supportsSlashComments && ch === '/' && next === '*') return maskBlockComment(chars, i);
+  if (supportsHashComments && ch === '#') return maskLineComment(chars, i);
+
+  if (ch === '\'' || ch === '"') return skipQuotedString(chars, i, ch, maskStringBodies);
+  if (supportsBacktickLiterals && ch === '`') return skipTemplateLiteral(chars, i, opts);
+  if (supportsRegexLiterals && ch === '/') return skipRegexLiteral(chars, i, maskStringBodies);
+
+  return undefined;
 }
 
 /**
@@ -579,84 +652,12 @@ function maskCommentsPreserveLayout(
   language: ScannerLanguage,
   opts: { maskStringBodies?: boolean } = {},
 ): string {
-  const maskStringBodies = opts.maskStringBodies ?? true;
+  const lexOptions: LexOptions = { language, maskStringBodies: opts.maskStringBodies ?? true };
   const chars = content.split('');
 
-  const supportsHashComments = language === 'python' || language === 'ruby' || language === 'php';
-  const supportsSlashComments = language !== 'python' && language !== 'ruby';
-
   let i = 0;
-  let inLineComment = false;
-  let inBlockComment = false;
-
   while (i < chars.length) {
-    const ch = chars[i];
-    const next = chars[i + 1];
-
-    if (inLineComment) {
-      if (ch === '\n') {
-        inLineComment = false;
-      } else {
-        chars[i] = ' ';
-      }
-      i++;
-      continue;
-    }
-
-    if (inBlockComment) {
-      if (ch === '*' && next === '/') {
-        chars[i] = ' ';
-        chars[i + 1] = ' ';
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      if (ch !== '\n') chars[i] = ' ';
-      i++;
-      continue;
-    }
-
-    if (supportsSlashComments && ch === '/' && next === '/') {
-      chars[i] = ' ';
-      chars[i + 1] = ' ';
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (supportsSlashComments && ch === '/' && next === '*') {
-      chars[i] = ' ';
-      chars[i + 1] = ' ';
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (supportsHashComments && ch === '#') {
-      chars[i] = ' ';
-      inLineComment = true;
-      i++;
-      continue;
-    }
-
-    if (ch === '\'') {
-      i = maskStringBodies
-        ? skipAndMaskQuotedString(chars, i, '\'')
-        : skipQuotedWithoutMask(chars, i, '\'');
-      continue;
-    }
-    if (ch === '"') {
-      i = maskStringBodies
-        ? skipAndMaskQuotedString(chars, i, '"')
-        : skipQuotedWithoutMask(chars, i, '"');
-      continue;
-    }
-    if (ch === '`' && (language === 'js-like' || language === 'go')) {
-      i = maskStringBodies
-        ? skipAndMaskTemplateLiteral(chars, i)
-        : skipTemplateWithoutMask(chars, i);
-      continue;
-    }
-
-    i++;
+    i = skipCommentOrLiteral(chars, i, lexOptions) ?? i + 1;
   }
 
   return chars.join('');
