@@ -3,7 +3,7 @@ import {
 } from 'vitest';
 import { varlockRun, VARLOCK_CLI } from '../helpers/run-varlock.js';
 import {
-  writeFileSync, chmodSync, unlinkSync, mkdtempSync, rmSync, readFileSync, symlinkSync,
+  writeFileSync, chmodSync, unlinkSync, mkdtempSync, rmSync, readFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { execSync, spawnSync } from 'node:child_process';
