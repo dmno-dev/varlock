@@ -9,6 +9,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@nubjs/nub": "0.9.3",
     "@types/node": "^22.0.0",
     "typescript": "^5.9.3",
     "varlock": "link:../packages/varlock",

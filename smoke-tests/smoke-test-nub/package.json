@@ -1,0 +1,8 @@
+{
+  "name": "smoke-test-nub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "print": "node script.js"
+  }
+}
