@@ -102,10 +102,17 @@ type ExecSyncVarlockOpts = Parameters<typeof execSync>[1] & {
 };
 
 /**
- * Small helper to call execSync and call the varlock cli.
+ * Small helper to run the varlock CLI synchronously.
  *
- * When the user runs via a package manager, it will inject node_modules/.bin into PATH
- * but otherwise we may need to try to find that path ourselves.
+ * The CLI must come from the same install as the library that is calling it, otherwise the
+ * runtime and the CLI can be different versions and disagree about resolution behavior
+ * (e.g. a global CLI silently ignoring a feature the imported runtime relies on).
+ * So we always look for a local `node_modules/.bin/varlock` first, walking up from
+ * `opts.cwd`, then `opts.callerDir` (the importing module's directory, passed by auto-load),
+ * then the directory of a Bun standalone executable, then `process.cwd()`.
+ *
+ * Only if no local install is found do we fall back to a shell `varlock ...` PATH lookup,
+ * which keeps the standalone-binary / global-only case working (no npm install at all).
  *
  * @returns stdout as a string by default, or `{ stdout, stderr }` when `fullResult: true`
  */
@@ -125,27 +132,7 @@ export function execSyncVarlock(
     ...childProcessOpts
   } = opts ?? {};
   try {
-    // in most cases, user will be running via their package manager
-    // and a package.json script (ie `pnpm run start`)
-    // which will inject node_modules/.bin into PATH
-    try {
-      const result = execSync(`varlock ${command}`, {
-        env: execEnv,
-        ...opts?.cwd && { cwd: opts.cwd },
-        stdio: 'pipe',
-      });
-      return opts?.fullResult
-        ? { stdout: result.toString(), stderr: '' }
-        : result.toString();
-    } catch (err) {
-      // code 127 means not found (on linux only)
-      // ENOENT from execSync means that a shell was not found
-      if (!isWindows && (err as any).status !== 127 && (err as any).code !== 'ENOENT') throw err;
-      // on windows, we'll just do the extra checks anyway
-    }
-
-    // if varlock was not found, it either means it is not installed
-    // or we must find the path to node_modules/.bin ourselves.
+    // Prefer the CLI installed alongside the imported library so both are the same version.
     // Search from cwd (if provided), callerDir, then process.cwd().
     // This handles monorepo setups where cwd may be an unrelated workspace
     // root while varlock is only installed in a sub-package - the callerDir
@@ -176,6 +163,27 @@ export function execSyncVarlock(
           ? { stdout: result.toString(), stderr: '' }
           : result.toString();
       }
+    }
+
+    // No local install found. Fall back to whatever `varlock` is on PATH, which covers
+    // users of the standalone binary or a global install with no npm install of varlock.
+    try {
+      const result = execSync(`varlock ${command}`, {
+        env: execEnv,
+        ...opts?.cwd && { cwd: opts.cwd },
+        stdio: 'pipe',
+      });
+      return opts?.fullResult
+        ? { stdout: result.toString(), stderr: '' }
+        : result.toString();
+    } catch (err) {
+      // The CLI ran but failed: surface its real error rather than "not found".
+      // - 127 = command not found (sh)
+      // - 9009 = command not recognized (cmd.exe)
+      // - ENOENT = the shell itself was not found
+      const errAny = err as any;
+      const notFound = errAny.status === 127 || errAny.status === 9009 || errAny.code === 'ENOENT';
+      if (!notFound) throw err;
     }
     throw new Error('Unable to find varlock executable');
   } catch (err) {
