@@ -18,9 +18,11 @@ Two different notions of "default" are at play below, so it is worth separating 
 
 More details of the minutiae of decorator handling can be found in the [@env-spec reference](/env-spec/reference/#comments-and-decorators).
 
-## General root decorators
+The root decorators built into Varlock are grouped below by what they control. [Plugins](/guides/plugins/) may introduce more.
 
-These are the root decorators that are built into Varlock. [Plugins](/guides/plugins/) may introduce more.
+## Environments and defaults ||environments-and-defaults||
+
+The environment flag, and the defaults every item in the schema inherits unless it says otherwise.
 
 <div class="reference-docs">
 
@@ -161,6 +163,14 @@ FOO=bar  # will be ignored
 
 </div>
 
+</div>
+
+## Composing schemas ||composing-schemas||
+
+Bring other files, plugins, and externally sourced values into the schema.
+
+<div class="reference-docs">
+
 <div>
 ### `@import()`
 **Arg types:** `[ path: string ]`  
@@ -297,6 +307,13 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 ```
 </div>
 
+</div>
+
+## Loading and runtime protections ||loading-and-runtime-protections||
+
+How resolved values are cached, injected into the process, and protected once your app is running.
+
+<div class="reference-docs">
 
 <div>
 ### `@cache`
@@ -498,6 +515,14 @@ The `ENV` proxy is unaffected: `ENV.OPTIONAL_VAR` always returns the real resolv
 :::
 </div>
 
+</div>
+
+## Audit ||audit||
+
+Tune the [`varlock audit`](/reference/cli/encryption/#audit) code scanner: which directories and keys it skips, and which extra env access patterns it looks for.
+
+<div class="reference-docs">
+
 <div>
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
@@ -597,6 +622,14 @@ Every extension you name is walked and read on each audit. Extensions covering l
 
 Files with no extension at all (`Dockerfile`, `Makefile`) can't be selected this way.
 </div>
+
+</div>
+
+## Proxy rules ||proxy-rules||
+
+Rules for [`varlock proxy`](/reference/cli/proxy/), which keeps secrets out of a process by substituting them into outbound requests instead.
+
+<div class="reference-docs">
 
 <div>
 ### `@proxyConfig`
