@@ -96,6 +96,20 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).toEqual(['KEPT_KEY', 'PY_REAL', 'REAL_ONE']);
   });
 
+  test('code after an inline block comment on the same line is still scanned', async () => {
+    fs.writeFileSync(path.join(tempDir, 'inline.ts'), [
+      '/* generated */ const a = process.env.AFTER_INLINE_BLOCK;',
+      '/** @deprecated */ const b = process.env.AFTER_INLINE_DOC;',
+      ' * still inside a block comment: process.env.IN_BLOCK',
+      ' */ const c = process.env.AFTER_BLOCK_CLOSE;',
+      '/* process.env.IN_INLINE_BLOCK */',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toEqual(['AFTER_BLOCK_CLOSE', 'AFTER_INLINE_BLOCK', 'AFTER_INLINE_DOC']);
+  });
+
   test('a trailing comment on a code line is still scanned', async () => {
     // the comment skip is whole-line only, so this shows up as a (visible) extra reference
     fs.writeFileSync(path.join(tempDir, 'trailing.ts'), 'const a = 1; // process.env.TRAILING\n');

@@ -357,19 +357,28 @@ function maskCommentLines(content: string, language: ScannerLanguage): string {
   const supportsHashComments = language === 'python' || language === 'ruby' || language === 'php';
   const supportsSlashComments = language !== 'python' && language !== 'ruby';
 
-  const isCommentLine = (line: string): boolean => {
+  // Returns how many leading characters of the line are comment, or 0 for a code line.
+  const commentPrefixLength = (line: string): number => {
     const trimmed = line.trimStart();
-    if (supportsHashComments && trimmed.startsWith('#')) return true;
-    if (!supportsSlashComments) return false;
-    if (trimmed.startsWith('//') || trimmed.startsWith('/*')) return true;
-    // the interior / closing lines of a `/** ... */` block. A `*` followed by anything
-    // else (`*count += 1` in rust) is code.
-    return /^\*(?:[\s/]|$)/.test(trimmed);
+    if (supportsHashComments && trimmed.startsWith('#')) return line.length;
+    if (!supportsSlashComments) return 0;
+    if (trimmed.startsWith('//')) return line.length;
+    // a block comment start, or the interior / closing lines of a `/** ... */` block. A
+    // `*` followed by anything else (`*count += 1` in rust) is code.
+    if (trimmed.startsWith('/*') || /^\*(?:[\s/]|$)/.test(trimmed)) {
+      // `/* generated */ const key = process.env.X;` is code after the closing delimiter
+      const closeIndex = line.indexOf('*/');
+      return closeIndex === -1 ? line.length : closeIndex + 2;
+    }
+    return 0;
   };
 
   return content
     .split('\n')
-    .map((line) => (isCommentLine(line) ? ' '.repeat(line.length) : line))
+    .map((line) => {
+      const maskedLength = commentPrefixLength(line);
+      return maskedLength ? ' '.repeat(maskedLength) + line.slice(maskedLength) : line;
+    })
     .join('\n');
 }
 
