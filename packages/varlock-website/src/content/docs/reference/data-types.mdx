@@ -389,7 +389,7 @@ An object (a keyed record) whose values are coerced and validated with a value t
 **Value type** is the first positional argument, same forms as `array`. Bare `@type=record` accepts any object without per-value validation.
 
 **Object options:**
-- `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches="[a-z]+")`
+- `keyType`: a type used to validate every key, e.g. `keyType=enum(us, eu)` or `keyType=string(matches=regex("[a-z]+"))`
 - `entriesMinLength` / `entriesMaxLength` / `entriesIsLength` (number): entry count bounds (or an exact count). `entriesMinLength` defaults to 1, so an explicitly-empty `{}` is invalid unless you set `entriesMinLength=0`
 
 ```env-spec

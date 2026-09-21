@@ -540,7 +540,7 @@ describe('audit command', () => {
     await expect(commandFn({ values: {} } as any)).rejects.toThrow(/@auditExtraPatterns\(\) expects regex patterns/);
   });
 
-  test('accepts quoted slash-delimited strings via the DSL string form', async () => {
+  test('rejects a quoted slash-delimited string - a pattern must be a regex() call', async () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {
         API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
@@ -549,24 +549,15 @@ describe('audit command', () => {
       sortedDataSources: [],
       getRootDecFns: vi.fn().mockImplementation((name: string) => {
         if (name !== 'auditExtraPatterns') return [];
-        // What a quoted '/.../ ' decorator arg resolves to after parsing.
+        // What a quoted '/.../' decorator arg resolves to after parsing: a string, which
+        // used to be read as a regex by shape and no longer is.
         return [{ resolve: vi.fn().mockResolvedValue({ arr: ['/config\\.get\\(\'([A-Z_]+)\'\\)/'], obj: {} }) }];
       }),
       rootDataSource: undefined,
       basePath: '/repo',
     });
 
-    scanCodeForEnvVarsMock.mockResolvedValue({
-      keys: ['API_KEY'],
-      references: [],
-      scannedFilesCount: 1,
-    });
-
-    await commandFn({ values: {} } as any);
-
-    expect(scanCodeForEnvVarsMock).toHaveBeenCalledWith(
-      { cwd: '/repo', extraPatterns: [{ pattern: /config\.get\('([A-Z_]+)'\)/ }] },
-      [],
-    );
+    await expect(commandFn({ values: {} } as any)).rejects.toThrow(/@auditExtraPatterns\(\) expects regex patterns/);
+    expect(scanCodeForEnvVarsMock).not.toHaveBeenCalled();
   });
 });
