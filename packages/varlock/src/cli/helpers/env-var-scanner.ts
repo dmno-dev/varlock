@@ -14,7 +14,6 @@ export const DEFAULT_IGNORED_DIRS = [
 
 const DEFAULT_MAX_FILE_SIZE_BYTES = 1024 * 1024;
 const DEFAULT_CONCURRENCY = 50;
-const ENV_KEY_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 // A subdirectory containing one of these files is treated as a separate project /
 // workspace package, so we don't descend into it while scanning the parent. This keeps
@@ -112,9 +111,8 @@ export interface ScanCodeEnvVarsOptions {
    * the env key; patterns without one match nothing. The global flag is
    * added when missing.
    *
-   * Unlike the built-ins these run over content where only comments are
-   * masked - string bodies are left intact, so a capture that isn't a bare
-   * env-key identifier (`cfg.get('app.db.url')`) still matches.
+   * Like the built-ins these skip commented-out lines, and a capture that
+   * isn't a bare env-key identifier (`cfg.get('app.db.url')`) still matches.
    *
    * A bare RegExp applies to every file the built-in discovery picks up. Use
    * the {@link ExtraScanPattern} form to scope a pattern to particular file
@@ -341,326 +339,38 @@ function buildReference(
   };
 }
 
-interface LexOptions {
-  language: ScannerLanguage;
-  /**
-   * Blank the bodies of string, template and regex literals. Strings whose whole body
-   * is a bare env-key identifier are kept so `process.env['FOO']` still matches.
-   */
-  maskStringBodies: boolean;
-}
-
-/** Blank `chars[start, endExclusive)` with spaces, keeping newlines so offsets survive. */
-function blankRange(chars: Array<string>, start: number, endExclusive: number): void {
-  for (let idx = start; idx < endExclusive; idx++) {
-    if (chars[idx] !== '\n') chars[idx] = ' ';
-  }
-}
-
 /**
- * Blank a `//` (or `#`) comment through to (but not including) its newline, returning
- * the index just past it. Layout is preserved so byte offsets stay valid.
- */
-function maskLineComment(chars: Array<string>, startIndex: number): number {
-  let i = startIndex;
-  while (i < chars.length && chars[i] !== '\n') {
-    chars[i] = ' ';
-    i++;
-  }
-  return i;
-}
-
-/** Blank a `/* *\/` comment including its delimiters, preserving newlines. */
-function maskBlockComment(chars: Array<string>, startIndex: number): number {
-  let i = startIndex;
-  while (i < chars.length) {
-    const isEnd = chars[i] === '*' && chars[i + 1] === '/';
-    if (chars[i] !== '\n') chars[i] = ' ';
-    if (isEnd) {
-      chars[i + 1] = ' ';
-      return i + 2;
-    }
-    i++;
-  }
-  return i;
-}
-
-/**
- * Step over a `'` or `"` string starting at `startIndex`, returning the index just past
- * its closing quote. With `mask` the body is blanked unless it's a bare identifier.
- */
-function skipQuotedString(
-  chars: Array<string>,
-  startIndex: number,
-  quoteChar: '\'' | '"',
-  mask: boolean,
-): number {
-  let i = startIndex + 1;
-  while (i < chars.length) {
-    const ch = chars[i];
-    if (ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === quoteChar) {
-      i++;
-      break;
-    }
-    i++;
-  }
-
-  const endExclusive = i;
-  if (mask) {
-    const inner = chars.slice(startIndex + 1, Math.max(startIndex + 1, endExclusive - 1)).join('');
-    if (!ENV_KEY_IDENTIFIER_REGEX.test(inner)) {
-      blankRange(chars, startIndex + 1, endExclusive - 1);
-    }
-  }
-  return endExclusive;
-}
-
-/**
- * Walk a `${...}` interpolation body starting just past the `${`, returning the index
- * just past the matching `}`. The body is code, so comments are blanked and nested
- * literals are handled like anywhere else.
- */
-function skipInterpolation(chars: Array<string>, startIndex: number, opts: LexOptions): number {
-  let i = startIndex;
-  let depth = 1;
-  while (i < chars.length) {
-    // mutually recursive: a nested template's interpolation goes through here again
-    const skipped = skipCommentOrLiteral(chars, i, opts); // eslint-disable-line no-use-before-define
-    if (skipped !== undefined) {
-      i = skipped;
-      continue;
-    }
-    const ch = chars[i];
-    if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) return i + 1;
-    }
-    i++;
-  }
-  return i;
-}
-
-/**
- * Step over a backtick literal starting at `startIndex`. In JS this is a template
- * literal with `\` escapes and `${...}` interpolations; in Go it's a raw string with
- * neither. With `maskStringBodies` the template text is blanked (a template with no
- * interpolation whose whole body is a bare identifier is kept, like a quoted string).
- */
-function skipTemplateLiteral(chars: Array<string>, startIndex: number, opts: LexOptions): number {
-  const isJs = opts.language === 'js-like';
-  let i = startIndex + 1;
-  let segmentStart = i;
-  const textSegments: Array<{ start: number, endExclusive: number }> = [];
-  let hasInterpolation = false;
-  let closed = false;
-
-  while (i < chars.length) {
-    const ch = chars[i];
-    if (isJs && ch === '\\') {
-      i += 2;
-      continue;
-    }
-    if (ch === '`') {
-      textSegments.push({ start: segmentStart, endExclusive: i });
-      closed = true;
-      i++;
-      break;
-    }
-    if (isJs && ch === '$' && chars[i + 1] === '{') {
-      hasInterpolation = true;
-      textSegments.push({ start: segmentStart, endExclusive: i });
-      i = skipInterpolation(chars, i + 2, opts);
-      segmentStart = i;
-      continue;
-    }
-    i++;
-  }
-  if (!closed) textSegments.push({ start: segmentStart, endExclusive: i });
-
-  const endExclusive = i;
-  if (!opts.maskStringBodies) return endExclusive;
-
-  if (!hasInterpolation) {
-    const inner = chars.slice(startIndex + 1, Math.max(startIndex + 1, endExclusive - 1)).join('');
-    if (!ENV_KEY_IDENTIFIER_REGEX.test(inner)) {
-      blankRange(chars, startIndex + 1, endExclusive - 1);
-    }
-    return endExclusive;
-  }
-
-  for (const segment of textSegments) {
-    blankRange(chars, segment.start, segment.endExclusive);
-  }
-  return endExclusive;
-}
-
-// A `/` directly after one of these words starts a regex literal rather than dividing
-// by something (`return /x/.test(s)`, `typeof /x/`). Everything else that ends in an
-// identifier character is a value, so a `/` after it is division.
-const REGEX_PRECEDING_KEYWORDS = new Set([
-  'return',
-  'typeof',
-  'instanceof',
-  'in',
-  'of',
-  'new',
-  'delete',
-  'void',
-  'throw',
-  'case',
-  'do',
-  'else',
-  'yield',
-  'await',
-  // ruby
-  'if',
-  'unless',
-  'while',
-  'until',
-  'when',
-  'and',
-  'or',
-  'not',
-]);
-
-function isIdentifierChar(ch: string | undefined): boolean {
-  return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
-}
-
-/**
- * Decide whether a `/` at `index` can start a regex literal, or must be a division
- * operator, from the last significant character before it. Comments and string bodies
- * before `index` have already been blanked, so skipping whitespace is enough.
+ * Blank every line that is entirely a comment, preserving byte offsets (and therefore
+ * line/column) by replacing the line's characters with spaces.
  *
- * `)`, `]` and `}` are treated as ending a value (`(a + b) / 2`, `arr[0] / 2`). A
- * statement that starts with a regex literal right after a block is rare in real code,
- * while `}/` shows up in JSX text (`{done}/{total}`) and `}</div>` all the time, and a
- * false regex there would blank the rest of the line. `</` is likewise a JSX closing
- * tag, never a regex.
- */
-function regexAllowedAt(chars: Array<string>, index: number): boolean {
-  if (chars[index - 1] === '<') return false;
-
-  let j = index - 1;
-  while (j >= 0 && /\s/.test(chars[j])) j--;
-  if (j < 0) return true;
-
-  const prev = chars[j];
-  if (prev === ')' || prev === ']' || prev === '}') return false;
-  if (prev === '\'' || prev === '"' || prev === '`') return false;
-  if (!isIdentifierChar(prev)) return true;
-
-  let wordStart = j;
-  while (wordStart > 0 && isIdentifierChar(chars[wordStart - 1])) wordStart--;
-  // `obj.return / 2` is a property, not the keyword
-  if (wordStart > 0 && chars[wordStart - 1] === '.') return false;
-  return REGEX_PRECEDING_KEYWORDS.has(chars.slice(wordStart, j + 1).join(''));
-}
-
-/**
- * Find the closing `/` of a regex literal whose opening `/` is at `startIndex`. A `/`
- * inside a `[...]` class or after a `\` doesn't close it. Returns undefined when no
- * closing `/` appears before the end of the line: regex literals can't span lines, so
- * the opening `/` was really a division operator.
- */
-function findRegexLiteralClose(chars: Array<string>, startIndex: number): number | undefined {
-  let i = startIndex + 1;
-  let inClass = false;
-  while (i < chars.length) {
-    const ch = chars[i];
-    if (ch === '\n') return undefined;
-    if (ch === '\\') {
-      if (chars[i + 1] === '\n') return undefined;
-      i += 2;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']') inClass = false;
-    } else if (ch === '[') {
-      inClass = true;
-    } else if (ch === '/') {
-      return i;
-    }
-    i++;
-  }
-  return undefined;
-}
-
-/**
- * Step over a regex literal starting at `startIndex`, returning the index just past its
- * flags, or undefined if the `/` there isn't one. With `mask` the body is blanked so
- * `/process\.env\.FOO/` can't read as a reference; the delimiters and flags stay so
- * the following `/` is still classified correctly.
- */
-function skipRegexLiteral(chars: Array<string>, startIndex: number, mask: boolean): number | undefined {
-  if (!regexAllowedAt(chars, startIndex)) return undefined;
-  const closeIndex = findRegexLiteralClose(chars, startIndex);
-  if (closeIndex === undefined) return undefined;
-
-  if (mask) blankRange(chars, startIndex + 1, closeIndex);
-  let i = closeIndex + 1;
-  while (i < chars.length && /[A-Za-z]/.test(chars[i])) i++;
-  return i;
-}
-
-/**
- * If a comment or literal starts at `i`, step over it (blanking per `opts`) and return
- * the index just past it. Returns undefined when `chars[i]` is ordinary code, so the
- * caller advances on its own.
+ * This is deliberately line-based rather than a lexer. The scanner used to lex strings,
+ * templates and comments so it could also mask string bodies, but a hand-rolled lexer
+ * over ten languages has too many ways to fall out of sync (a quote inside a regex
+ * literal, JSX text, a docstring with an apostrophe), and when it did, every reference
+ * after that point silently vanished. A whole-line rule can't cascade: the worst case is
+ * one extra reported reference, which is visible and easy to suppress.
  *
- * Literals are lexed rather than pattern-matched so a quote inside one kind of literal
- * (a regex like `/'/g`, a `//` in a URL string) can't be mistaken for the start of
- * another and mis-lex the rest of the file.
+ * Trailing comments (`foo(); // process.env.X`) and mentions inside string literals are
+ * therefore scanned like any other code.
  */
-function skipCommentOrLiteral(chars: Array<string>, i: number, opts: LexOptions): number | undefined {
-  const { language, maskStringBodies } = opts;
-  const ch = chars[i];
-  const next = chars[i + 1];
-
+function maskCommentLines(content: string, language: ScannerLanguage): string {
   const supportsHashComments = language === 'python' || language === 'ruby' || language === 'php';
   const supportsSlashComments = language !== 'python' && language !== 'ruby';
-  const supportsBacktickLiterals = language === 'js-like' || language === 'go';
-  const supportsRegexLiterals = language === 'js-like' || language === 'ruby';
 
-  if (supportsSlashComments && ch === '/' && next === '/') return maskLineComment(chars, i);
-  if (supportsSlashComments && ch === '/' && next === '*') return maskBlockComment(chars, i);
-  if (supportsHashComments && ch === '#') return maskLineComment(chars, i);
+  const isCommentLine = (line: string): boolean => {
+    const trimmed = line.trimStart();
+    if (supportsHashComments && trimmed.startsWith('#')) return true;
+    if (!supportsSlashComments) return false;
+    if (trimmed.startsWith('//') || trimmed.startsWith('/*')) return true;
+    // the interior / closing lines of a `/** ... */` block. A `*` followed by anything
+    // else (`*count += 1` in rust) is code.
+    return /^\*(?:[\s/]|$)/.test(trimmed);
+  };
 
-  if (ch === '\'' || ch === '"') return skipQuotedString(chars, i, ch, maskStringBodies);
-  if (supportsBacktickLiterals && ch === '`') return skipTemplateLiteral(chars, i, opts);
-  if (supportsRegexLiterals && ch === '/') return skipRegexLiteral(chars, i, maskStringBodies);
-
-  return undefined;
-}
-
-/**
- * Blank out everything the scanner should not match against, preserving byte offsets
- * (and therefore line/column) by replacing masked characters with spaces.
- *
- * Comments are always masked. String bodies are masked too by default, which keeps the
- * built-in patterns from matching `process.env.FOO` written inside a raw string - but
- * that same masking blanks any string that isn't a bare env-key identifier, so custom
- * patterns opt out via `maskStringBodies: false`.
- */
-function maskCommentsPreserveLayout(
-  content: string,
-  language: ScannerLanguage,
-  opts: { maskStringBodies?: boolean } = {},
-): string {
-  const lexOptions: LexOptions = { language, maskStringBodies: opts.maskStringBodies ?? true };
-  const chars = content.split('');
-
-  let i = 0;
-  while (i < chars.length) {
-    i = skipCommentOrLiteral(chars, i, lexOptions) ?? i + 1;
-  }
-
-  return chars.join('');
+  return content
+    .split('\n')
+    .map((line) => (isCommentLine(line) ? ' '.repeat(line.length) : line))
+    .join('\n');
 }
 
 /** Run already-normalized custom patterns over already-prepared content. */
@@ -720,9 +430,9 @@ async function scanFileForEnvVarReferences(
   // comment syntax its raw content is what gets matched.
   if (!language) return matchExtraPatterns(filePath, rawContent, applicablePatterns);
 
-  // Masking preserves byte offsets, so both variants share the raw file's newline
-  // positions and reference line/columns stay comparable.
-  const scanContent = maskCommentsPreserveLayout(rawContent, language);
+  // Masking preserves byte offsets, so the raw file's newline positions still give the
+  // right line/column for every match.
+  const scanContent = maskCommentLines(rawContent, language);
   const newlineIndices = getNewlineIndices(rawContent);
   const references: Array<EnvVarReference> = [];
 
@@ -758,16 +468,9 @@ async function scanFileForEnvVarReferences(
   }
 
   // Project-supplied escape-hatch patterns run on every scanned file, whatever its
-  // language. They get comments masked but string bodies intact: the built-ins only
-  // ever capture bare identifiers, but a custom pattern's key often isn't one
-  // (`cfg.get('app.db.url')`), and the default masking would blank it.
+  // language, over the same comment-masked content.
   if (applicablePatterns.length) {
-    references.push(...matchExtraPatterns(
-      filePath,
-      maskCommentsPreserveLayout(rawContent, language, { maskStringBodies: false }),
-      applicablePatterns,
-      newlineIndices,
-    ));
+    references.push(...matchExtraPatterns(filePath, scanContent, applicablePatterns, newlineIndices));
   }
 
   return references;

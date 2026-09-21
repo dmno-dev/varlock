@@ -549,7 +549,7 @@ Anything that is not a `regex()` call is rejected as an error instead of silentl
 API_KEY=
 ```
 
-Unlike the built-in patterns, these see string contents as written, so a key that isn't a bare identifier (`config.get('app.database.url')`) still matches. Code inside comments is skipped for both.
+A key that isn't a bare identifier (`config.get('app.database.url')`) still matches. Commented-out lines are skipped, as they are for the built-in patterns.
 
 #### Scoping patterns to file types
 

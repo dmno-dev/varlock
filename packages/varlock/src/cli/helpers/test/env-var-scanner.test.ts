@@ -75,40 +75,70 @@ describe('scanCodeForEnvVars', () => {
     ]));
   });
 
-  test('ignores commented-out and conversational string references', async () => {
+  test('skips lines that are entirely comments', async () => {
     fs.writeFileSync(path.join(tempDir, 'comments.ts'), [
       '// process.env.COMMENTED_OUT',
       '/* import.meta.env.BLOCKED_OUT */',
-      'const fromString = "process.env.INSIDE_STRING";',
-      'const fromTemplate = `ENV.IN_TEMPLATE`;',
+      '/**',
+      ' * process.env.IN_JSDOC',
+      ' */',
+      '  // process.env.INDENTED_COMMENT',
       'const real = process.env.REAL_ONE;',
       'const fromBracket = process.env["KEPT_KEY"];',
     ].join('\n'));
-
-    const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-    expect(result.keys).toContain('REAL_ONE');
-    expect(result.keys).not.toContain('COMMENTED_OUT');
-    expect(result.keys).not.toContain('BLOCKED_OUT');
-    expect(result.keys).toContain('KEPT_KEY');
-    expect(result.keys).not.toContain('INSIDE_STRING');
-    expect(result.keys).not.toContain('IN_TEMPLATE');
-  });
-
-  test('ignores go raw-string references while keeping real calls', async () => {
-    fs.writeFileSync(path.join(tempDir, 'main.go'), [
-      'package main',
-      'import "os"',
-      'func main() {',
-      '  _ = `os.Getenv("IN_RAW_STRING")`',
-      '  _ = os.Getenv("REAL_GO_KEY")',
-      '}',
+    fs.writeFileSync(path.join(tempDir, 'app.py'), [
+      '# os.getenv("PY_COMMENTED_OUT")',
+      'token = os.getenv("PY_REAL")',
     ].join('\n'));
 
     const result = await scanCodeForEnvVars({ cwd: tempDir });
 
-    expect(result.keys).toContain('REAL_GO_KEY');
-    expect(result.keys).not.toContain('IN_RAW_STRING');
+    expect(result.keys).toEqual(['KEPT_KEY', 'PY_REAL', 'REAL_ONE']);
+  });
+
+  test('a trailing comment on a code line is still scanned', async () => {
+    // the comment skip is whole-line only, so this shows up as a (visible) extra reference
+    fs.writeFileSync(path.join(tempDir, 'trailing.ts'), 'const a = 1; // process.env.TRAILING\n');
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toEqual(['TRAILING']);
+  });
+
+  test('references inside string literals are scanned like code', async () => {
+    // strings aren't parsed, so a mention inside one counts. Over-reporting is the safe
+    // failure for a drift gate: it's visible and can be suppressed with @auditIgnore
+    fs.writeFileSync(path.join(tempDir, 'strings.ts'), [
+      'const fromString = "process.env.INSIDE_STRING";',
+      'const fromTemplate = `ENV.IN_TEMPLATE`;',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toEqual(['IN_TEMPLATE', 'INSIDE_STRING']);
+  });
+
+  test('unbalanced quotes never hide the references that follow them', async () => {
+    // issue #1105: a lexer-based scanner read the quote in the regex as the start of a
+    // string and lost every reference after it
+    fs.writeFileSync(path.join(tempDir, 'regex.ts'), [
+      'export const quote = (s: string) => s.replace(/\'/g, "");',
+      'export const posix = (s: string) => s.replace(/\'/g, "\'\\\\\'\'");',
+      'export const key = process.env.AFTER_REGEX;',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tempDir, 'App.tsx'), [
+      'const a = <p>Don\'t do this</p>;',
+      'const b = process.env.NEXT_PUBLIC_AFTER_JSX_TEXT;',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tempDir, 'doc.py'), [
+      'def f():',
+      '    """Doesn\'t matter."""',
+      '    return os.getenv("AFTER_DOCSTRING")',
+    ].join('\n'));
+
+    const result = await scanCodeForEnvVars({ cwd: tempDir });
+
+    expect(result.keys).toEqual(['AFTER_DOCSTRING', 'AFTER_REGEX', 'NEXT_PUBLIC_AFTER_JSX_TEXT']);
   });
 
   test('applies extraPatterns to every scanned file regardless of language', async () => {
@@ -246,49 +276,11 @@ describe('scanCodeForEnvVars', () => {
     expect(ref).toMatchObject({ lineNumber: 3, columnNumber: 11 });
   });
 
-  // fixtures below are source text containing real `${...}` interpolations, not
-  // accidental template syntax in a plain string
   /* eslint-disable no-template-curly-in-string */
-  test('built-in patterns ignore comments inside template interpolations', async () => {
+  test('comment delimiters inside strings and templates do not blank live code', async () => {
     fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
-      'const x = `${/* process.env.IN_BLOCK */ process.env.BLOCK_LIVE}`;',
-      'const y = `${ // process.env.IN_LINE',
-      '  process.env.LINE_LIVE}`;',
-    ].join('\n'));
-
-    const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-    expect(result.keys).not.toContain('IN_BLOCK');
-    expect(result.keys).not.toContain('IN_LINE');
-    expect(result.keys).toContain('BLOCK_LIVE');
-    expect(result.keys).toContain('LINE_LIVE');
-  });
-
-  test('extraPatterns ignore comments inside template interpolations', async () => {
-    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
-      'const x = `${/* cfg.get("IN_BLOCK") */ cfg.get("BLOCK_LIVE")}`;',
-      'const y = `${ // cfg.get("IN_LINE")',
-      '  cfg.get("LINE_LIVE")}`;',
-      'const z = `plain ${cfg.get("INTERP_LIVE")} text`;',
-    ].join('\n'));
-
-    const result = await scanCodeForEnvVars({
-      cwd: tempDir,
-      extraPatterns: [/cfg\.get\("([A-Z_0-9]+)"\)/],
-    });
-
-    expect(result.keys).not.toContain('IN_BLOCK');
-    expect(result.keys).not.toContain('IN_LINE');
-    expect(result.keys).toEqual(expect.arrayContaining(['BLOCK_LIVE', 'LINE_LIVE', 'INTERP_LIVE']));
-  });
-
-  test('comment delimiters inside quoted interpolation text do not blank live code', async () => {
-    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
-      // a `//` in a URL and a `/*` in a string must not start a comment
       'const u = `${cfg.get("URL_BASE") + "http://example.com" + cfg.get("AFTER_SLASHES")}`;',
-      'const v = `${"/*" + cfg.get("AFTER_BLOCK")}`;',
-      'const w = `${cfg.get("NEXT_LINE_OK")}`;',
-      'const n = `${`${cfg.get("NESTED")}`}`;',
+      'const v = `${"/*" + process.env.AFTER_BLOCK}`;',
     ].join('\n'));
 
     const result = await scanCodeForEnvVars({
@@ -296,157 +288,10 @@ describe('scanCodeForEnvVars', () => {
       extraPatterns: [/cfg\.get\("([A-Z_0-9]+)"\)/],
     });
 
-    expect(result.keys).toEqual(expect.arrayContaining(['URL_BASE', 'AFTER_SLASHES', 'AFTER_BLOCK', 'NEXT_LINE_OK', 'NESTED']));
-  });
-
-  test('built-in patterns survive comment delimiters in quoted interpolation text', async () => {
-    fs.writeFileSync(path.join(tempDir, 'tpl.ts'), [
-      'const u = `${process.env.URL_BASE + "http://example.com" + process.env.AFTER_SLASHES}`;',
-      'const w = `${process.env.NEXT_LINE_OK}`;',
-    ].join('\n'));
-
-    const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-    expect(result.keys).toEqual(expect.arrayContaining(['URL_BASE', 'AFTER_SLASHES', 'NEXT_LINE_OK']));
+    expect(result.keys).toEqual(['AFTER_BLOCK', 'AFTER_SLASHES', 'URL_BASE']);
   });
   /* eslint-enable no-template-curly-in-string */
 
-
-  describe('regex literals', () => {
-    test('a quote inside a regex literal does not hide later references', async () => {
-      // the case from issue #1105: `/'/` used to open a string that swallowed the rest of the file
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'export const single = (s: string) => s.replace(/\'/g, "");',
-        'export const a = process.env.AFTER_SINGLE;',
-        'export const double = (s: string) => s.replace(/"/g, "");',
-        'export const b = process.env.AFTER_DOUBLE;',
-        'export const tick = (s: string) => s.replace(/`/g, "");',
-        'export const c = process.env.AFTER_BACKTICK;',
-        'export const posix = (s: string) => s.replace(/\'/g, "\'\\\\\'\'");',
-        'export const d = process.env.AFTER_POSIX;',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['AFTER_BACKTICK', 'AFTER_DOUBLE', 'AFTER_POSIX', 'AFTER_SINGLE']);
-    });
-
-    test('quotes and slashes inside character classes and escapes are part of the regex', async () => {
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'const quoted = /[\'"`]/g;',
-        'const a = process.env.AFTER_CLASS;',
-        'const slashInClass = /[/]\'/;',
-        'const b = process.env.AFTER_SLASH_CLASS;',
-        'const escaped = /\\/\'/;',
-        'const c = process.env.AFTER_ESCAPED_SLASH;',
-        'const unterminatedClassChar = /[\\]\']/;',
-        'const d = process.env.AFTER_ESCAPED_BRACKET;',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['AFTER_CLASS', 'AFTER_ESCAPED_BRACKET', 'AFTER_ESCAPED_SLASH', 'AFTER_SLASH_CLASS']);
-    });
-
-    test('a reference written inside a regex body is not a reference', async () => {
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'const re = /process\\.env\\.IN_REGEX/;',
-        'const a = process.env.REAL;',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['REAL']);
-    });
-
-    test('division operators are not mistaken for regex literals', async () => {
-      // if any of these `/` opened a regex, the quote on the same line would start a string
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'const a = total / count; const s1 = "\'";',
-        'const b = (x + y) / 2; const s2 = "\'";',
-        'const c = arr[0] / 2; const s3 = "\'";',
-        'const d = obj.return / 2; const s4 = "\'";',
-        'const e = 10 / 2 / 5; const s5 = "\'";',
-        'const f = "a" / 1; const s6 = "\'";',
-        'const key = process.env.AFTER_DIVISION;',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['AFTER_DIVISION']);
-    });
-
-    test('a regex literal is recognised after keywords, operators and open brackets', async () => {
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'function f(s: string) { return /\'/.test(s); }',
-        'const a = process.env.AFTER_RETURN;',
-        'const ok = s.length && /\'/.test(s);',
-        'const b = process.env.AFTER_OPERATOR;',
-        'const list = [/\'/, /"/];',
-        'const c = process.env.AFTER_ARRAY;',
-        'const found = list.some((re) => re.test(/\'/.source));',
-        'const d = process.env.AFTER_CALL_ARG;',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['AFTER_ARRAY', 'AFTER_CALL_ARG', 'AFTER_OPERATOR', 'AFTER_RETURN']);
-    });
-
-    test('slashes in JSX text and closing tags are not regex literals', async () => {
-      fs.writeFileSync(path.join(tempDir, 'App.tsx'), [
-        'const a = <p>{done}/{total}</p><p>{process.env.NEXT_PUBLIC_RATIO}</p>;',
-        'const b = <p>{x}</p><p>{process.env.NEXT_PUBLIC_AFTER_CLOSE}</p>;',
-        'const c = <Foo/><Bar>{process.env.NEXT_PUBLIC_SELF_CLOSING}</Bar>;',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['NEXT_PUBLIC_AFTER_CLOSE', 'NEXT_PUBLIC_RATIO', 'NEXT_PUBLIC_SELF_CLOSING']);
-    });
-
-    /* eslint-disable no-template-curly-in-string */
-    test('regex literals inside template interpolations are lexed too', async () => {
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'const s = `${name.replace(/\'/g, "")} ${process.env.IN_TEMPLATE}`;',
-        'const a = process.env.AFTER_TEMPLATE;',
-        // an unlexed `'` above would pair with this one and the masking would blank what follows
-        "const b = 'literal' + process.env.AFTER_LATER_QUOTE;",
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['AFTER_LATER_QUOTE', 'AFTER_TEMPLATE', 'IN_TEMPLATE']);
-    });
-    /* eslint-enable no-template-curly-in-string */
-
-    test('a regex literal body does not swallow custom pattern matches', async () => {
-      fs.writeFileSync(path.join(tempDir, 'index.ts'), [
-        'const clean = (s: string) => s.replace(/\'/g, "");',
-        'const v = cfg.get("app.db.url");',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({
-        cwd: tempDir,
-        extraPatterns: [/cfg\.get\(["']([^"']+)["']\)/],
-      });
-
-      expect(result.keys).toEqual(['app.db.url']);
-    });
-
-    test('ruby regex literals are lexed the same way', async () => {
-      fs.writeFileSync(path.join(tempDir, 'app.rb'), [
-        'clean = s.gsub(/\'/, "")',
-        'key = ENV["AFTER_RUBY_REGEX"]',
-        'half = total / 2 # "',
-        'other = ENV.fetch("AFTER_RUBY_DIVISION")',
-      ].join('\n'));
-
-      const result = await scanCodeForEnvVars({ cwd: tempDir });
-
-      expect(result.keys).toEqual(['AFTER_RUBY_DIVISION', 'AFTER_RUBY_REGEX']);
-    });
-  });
   describe('directory exclusions', () => {
     beforeEach(() => {
       for (const dir of ['fixtures', 'src/deep/fixtures', 'apps/docs', 'docs', 'generated/config']) {
