@@ -84,6 +84,10 @@ The serialized env graph (resolved config values plus metadata) injected by [`va
 
 A marker set so a child process can detect that it is running under `varlock run`. Scripts that re-exec themselves under `varlock run` should check this first so they do not recurse. On macOS with Homebrew Python, do not pass `sys.executable` into that re-exec: see [Auto-invoking varlock run from Python](/integrations/python/#auto-invoking-varlock-run-from-python).
 
+### `__VARLOCK_CLI_CHILD`
+
+Set on the `varlock` CLI process that `varlock/auto-load` and the framework integrations spawn to resolve your env. If `varlock/auto-load` is preloaded into that CLI process as well (for example via bun's `bunfig.toml` `preload`, where bun also stands in for `node`), it sees this marker and skips resolving instead of spawning another CLI, which would otherwise recurse forever. The CLI removes the marker from its own environment on startup, so processes it spawns (`varlock run` children, `exec()` resolvers, plugins) never inherit it.
+
 ### `__VARLOCK_EXECUTION_PHASE`
 
 Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the runtime can detect app code executing during build/prerender and apply the [public+dynamic access guard](/guides/dynamic-config/#prerenderbuild-guardrails).
