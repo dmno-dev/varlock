@@ -49,6 +49,17 @@ describe('execSyncVarlock integration telemetry', () => {
     );
   });
 
+  it('tags the spawned CLI with __VARLOCK_CLI_CHILD so a preloaded auto-load inside it does not recurse', () => {
+    execSyncVarlock('load');
+
+    expect(execSync).toHaveBeenCalledWith(
+      'varlock load',
+      expect.objectContaining({
+        env: expect.objectContaining({ __VARLOCK_CLI_CHILD: '1' }),
+      }),
+    );
+  });
+
   it('strips NODE_OPTIONS so parent-process preloads cannot corrupt the CLI stdio protocol', () => {
     vi.stubEnv('NODE_OPTIONS', '-r some-logger');
     try {

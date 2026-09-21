@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
 import { isBunStandaloneExecutable } from './detect-runtime';
+import { CLI_CHILD_MARKER } from './cli-child-marker';
 
 const platform = os.platform();
 const isWindows = platform.match(/^win/i);
@@ -70,6 +71,10 @@ function mergeExecEnv(
   for (const key of Object.keys(merged)) {
     if (key.toUpperCase() === 'NODE_OPTIONS') delete merged[key];
   }
+  // Tag the child as a varlock CLI process so that a preloaded `varlock/auto-load` inside it
+  // (bunfig `preload`, with bun standing in for `node`) does not spawn yet another CLI.
+  // The CLI strips this from its own env on startup. See lib/cli-child-marker.ts.
+  merged[CLI_CHILD_MARKER] = '1';
   if (opts?.integrationTelemetry) {
     // __VARLOCK_INTEGRATION is for our internal use only — the integration-provided
     // identity is authoritative and always wins over any inherited/user-set value.

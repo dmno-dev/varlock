@@ -49,6 +49,8 @@ One option we have with bun is to use a [preload script](https://bun.com/docs/ru
 preload = ["varlock/auto-load"]
 ```
 
+Like bun's own `.env` loading, the preload applies to every bun process started from that directory, including `bun test` and `bunx` tools. The difference is that varlock validates: if your env fails validation, those commands fail too, not just your app.
+
 :::caution[Do not use preload with framework integrations]
 Note that you should not do this if using a framework integration, as those integrations watch your `.env` files to trigger live-reloading.
 :::

@@ -73,6 +73,11 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
     internal: true,
   },
   {
+    name: '__VARLOCK_CLI_CHILD',
+    description: 'Set on the `varlock` CLI process that `varlock/auto-load` and framework integrations spawn to resolve env. A `varlock/auto-load` preloaded into that CLI process (e.g. via bunfig `preload`) sees it and skips resolving, which otherwise recurses forever. The CLI removes it from its own env on startup so processes it spawns never inherit it.',
+    internal: true,
+  },
+  {
     name: '__VARLOCK_EXECUTION_PHASE',
     description: 'Set to `build` by build-time integrations (e.g. the Vite plugin during `vite build`) so the ENV proxy can detect app code executing during build/prerender and guard public+dynamic access. An env var (not a global) because prerendering may run in a child process.',
     internal: true,

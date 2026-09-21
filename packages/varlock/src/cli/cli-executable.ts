@@ -1,3 +1,7 @@
+// must be the first import - strips the marker a parent auto-load/integration set on this
+// process before anything else can snapshot process.env or spawn a child
+import './helpers/clear-cli-child-marker';
+
 import { cli, lazy } from 'gunshi';
 import completion from '@gunshi/plugin-completion';
 import { gracefulExit } from 'exit-hook';
