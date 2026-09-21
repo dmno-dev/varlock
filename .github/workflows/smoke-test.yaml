@@ -150,6 +150,11 @@ jobs:
         with:
           version: 10
 
+      # the runtime smoke tests exercise `varlock run -- bun ...` and bun's bunfig preload of
+      # varlock/auto-load (the fork-bomb regression), all of which skip when bun is absent
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       # warm ~/.m2 so the Java lang-module smoke test doesn't re-download from
       # Maven Central on every run (Central rate-limits GitHub runners with 429s)
       - name: Cache Maven repository
