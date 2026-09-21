@@ -322,6 +322,40 @@ describe('audit command', () => {
     );
   });
 
+  test('@auditIgnoreKeys drops matching keys from the missing-in-schema report', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        API_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: { API_KEY: [] },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockImplementation((name: string) => {
+        if (name !== 'auditIgnoreKeys') return [];
+        return [
+          { resolve: vi.fn().mockResolvedValue({ arr: ['IN_A_STRING'], obj: {} }) },
+          { resolve: vi.fn().mockResolvedValue({ arr: [['LEGACY_*']], obj: {} }) },
+        ];
+      }),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['API_KEY', 'IN_A_STRING', 'LEGACY_TOKEN', 'STILL_MISSING'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    expect(errorOutput).toContain('Missing in schema (1)');
+    expect(errorOutput).toContain('STILL_MISSING');
+    expect(errorOutput).not.toContain('IN_A_STRING');
+    expect(errorOutput).not.toContain('LEGACY_TOKEN');
+    expect(gracefulExitMock).toHaveBeenCalledWith(1);
+  });
+
   test('rejects a scan target that is itself excluded', async () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {},

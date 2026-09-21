@@ -188,6 +188,14 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     isFunction: true,
   },
   {
+    name: 'auditIgnoreKeys',
+    scope: 'root',
+    summary: 'Keys the audit code scanner should never report as missing from the schema.',
+    documentation: 'For scanner false positives, such as `process.env.FOO` mentioned inside a string or a trailing comment. Entries are key names or simple globs (`LEGACY_*`). Can be called multiple times - entries are merged additively. To silence "unused in schema" for a declared item, use the @auditIgnore item decorator instead.',
+    insertText: '@auditIgnoreKeys(${1:KEY})',
+    isFunction: true,
+  },
+  {
     name: 'auditExtraPatterns',
     scope: 'root',
     summary: 'Adds project-specific regex patterns to the audit code scanner.',

@@ -536,6 +536,25 @@ These are merged with any [`--ignore`](/reference/cli/encryption/#audit) entries
 </div>
 
 <div>
+### `@auditIgnoreKeys()`
+**Arg types:** `[ ...keys: string[] ]`
+
+Keys that [`varlock audit`](/reference/cli/encryption/#audit) should never report as **missing in schema**, even when the code scanner finds a reference to them. _Can be called multiple times; entries are merged additively._
+
+This is the escape hatch for scanner false positives. The scanner matches patterns over source text and does not parse string literals, so `process.env.FOO` mentioned inside a help message or a trailing comment counts as a reference to `FOO`. It also covers keys your code reads on purpose but you don't want in the schema, such as a well-known variable a library sets.
+
+Entries are exact key names, or simple globs where `*` matches any run of characters and `?` a single one. Matching is case-sensitive.
+
+```env-spec
+# @auditIgnoreKeys(FOO, LEGACY_*)
+# ---
+API_KEY=
+```
+
+To silence the other direction, a declared item that is not referenced in code, use the [`@auditIgnore`](/reference/item-decorators/#auditignore) item decorator instead.
+</div>
+
+<div>
 ### `@auditExtraPatterns()`
 **Arg types:** `[ ...patterns: RegExp[], fileTypes?: string[] ]`
 

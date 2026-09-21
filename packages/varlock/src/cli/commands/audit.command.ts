@@ -5,6 +5,7 @@ import ansis from 'ansis';
 import { FileBasedDataSource } from '../../env-graph';
 import { CliExitError } from '../helpers/exit-error';
 import { parseRegexLikeString } from '../../env-graph/lib/resolver';
+import { globToRegExp } from '../../env-graph/lib/glob';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -176,18 +177,33 @@ function getInternallyReferencedKeys(envGraph: any): Set<string> {
   return referenced;
 }
 
-async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> {
+async function getRootDecStringArgs(envGraph: any, decName: string): Promise<Array<string>> {
   const rootDecFns = typeof envGraph?.getRootDecFns === 'function'
-    ? envGraph.getRootDecFns('auditIgnorePaths')
+    ? envGraph.getRootDecFns(decName)
     : [];
 
-  const mergedPaths: Array<string> = [];
+  const merged: Array<string> = [];
   for (const dec of rootDecFns || []) {
     const resolved = await dec.resolve();
-    collectStringArgs(resolved?.arr, mergedPaths);
+    collectStringArgs(resolved?.arr, merged);
   }
 
-  return [...new Set(mergedPaths)];
+  return [...new Set(merged)];
+}
+
+async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> {
+  return getRootDecStringArgs(envGraph, 'auditIgnorePaths');
+}
+
+/**
+ * Keys (or `*`/`?` globs) from `@auditIgnoreKeys(...)` that must never be reported as
+ * missing from the schema. This is the escape hatch for scanner false positives: the
+ * scanner doesn't parse strings, so `"set process.env.FOO first"` in a help message
+ * counts as a reference to FOO.
+ */
+async function getCustomAuditIgnoreKeys(envGraph: any): Promise<Array<RegExp>> {
+  const patterns = await getRootDecStringArgs(envGraph, 'auditIgnoreKeys');
+  return patterns.map((pattern) => globToRegExp(pattern));
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
@@ -324,7 +340,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const diff = diffSchemaAndCodeKeys(schemaKeys, scanResult.keys);
   // Don't report execution-environment plumbing (PATH, NODE_OPTIONS, npm_*, ...) as
   // missing - it's read from process.env in real code but never declared in a schema.
-  const missingInSchema = diff.missingInSchema.filter((key) => !isWellKnownEnvKey(key));
+  const ignoredKeyPatterns = await getCustomAuditIgnoreKeys(envGraph);
+  const missingInSchema = diff.missingInSchema.filter((key) => (
+    !isWellKnownEnvKey(key) && !ignoredKeyPatterns.some((pattern) => pattern.test(key))
+  ));
   const internallyReferenced = getInternallyReferencedKeys(envGraph);
   const unusedInSchema: Array<string> = [];
   for (const key of diff.unusedInSchema) {
@@ -355,6 +374,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       const refPreview = refs.map((r) => formatReference(finalScanRoot, r)).join(', ');
       console.error(`  - ${ansis.bold(key)}${refPreview ? ansis.dim(` (seen at ${refPreview})`) : ''}`);
     }
+    console.error(ansis.dim('(Hint: If a reference is not real, e.g. text inside a string, add # @auditIgnoreKeys(KEY) to the schema header)'));
     console.error('');
   }
 

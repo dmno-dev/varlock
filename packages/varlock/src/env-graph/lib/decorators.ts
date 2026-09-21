@@ -725,6 +725,10 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
     isFunction: true,
   },
   {
+    name: 'auditIgnoreKeys',
+    isFunction: true,
+  },
+  {
     name: 'auditExtraPatterns',
     isFunction: true,
   },
