@@ -305,7 +305,7 @@ STILL_SUPPORTED=
 ### `@auditIgnore`
 **Value type:** `boolean`
 
-Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli/encryption/#audit) for this item. Useful for items that are only consumed by external tools and won't appear in your application code.
+Suppresses "unused in schema" warnings from [`varlock audit`](/reference/cli/encryption/#audit) for this item. Useful for items that are only consumed by external tools and won't appear in your application code. For the opposite case, a key the scanner finds in code that should not be in the schema, use [`@auditIgnoreKeys()`](/reference/root-decorators/#auditignorekeys).
 
 ```env-spec
 # @auditIgnore

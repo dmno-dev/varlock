@@ -124,7 +124,7 @@ This command reports two drift categories:
 - **Missing in schema**: key is used in code but not declared in schema
 - **Unused in schema**: key is declared in schema but not referenced in code
 
-Pure execution-environment plumbing, meaning variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`), is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnore`](/reference/item-decorators/#auditignore).
+Pure execution-environment plumbing, meaning variables that reflect *where/how* the process runs (e.g. `PATH`, `HOME`, `SHELL`, `NODE_OPTIONS`, `npm_*`), is read from `process.env` in normal code but is never part of your schema, so it is **not** reported as missing. Semantically meaningful variables your app or CI may depend on (e.g. `NODE_ENV`, `CI`, GitHub Actions vars) are still reported, so you can decide whether to declare them or suppress them with [`@auditIgnoreKeys()`](/reference/root-decorators/#auditignorekeys).
 
 Exit codes:
 - `0` when schema and code are in sync
@@ -165,6 +165,10 @@ varlock audit --ignore ./apps/docs
 varlock audit -i fixtures -i generated
 ```
 
+:::note[How scanning works]
+The scanner is a set of regular expressions run over each source file (`process.env.X`, `os.getenv("X")`, and so on), not a parser. Lines that are entirely a comment are skipped. Nothing else is: a reference mentioned inside a string literal or a trailing comment is reported like any other. This is deliberate. A drift gate should over-report rather than silently miss real references, and a stray extra one can be suppressed with [`@auditIgnoreKeys()`](/reference/root-decorators/#auditignorekeys).
+:::
+
 :::note
 When `--path` points to a directory, code scanning is scoped to that directory tree. When it points to a file, scanning is scoped to that file's parent directory.
 :::
@@ -175,6 +179,7 @@ Code scanning does not descend into nested projects. Any subdirectory that conta
 
 :::tip[Suppressing false positives]
 - Use [`@auditIgnore`](/reference/item-decorators/#auditignore) on individual schema items that are only consumed by external tools and won't appear in your application code.
+- Use [`@auditIgnoreKeys()`](/reference/root-decorators/#auditignorekeys) for keys the scanner reports but that don't belong in the schema, such as a mention inside a string.
 - Use [`@auditIgnorePaths()`](/reference/root-decorators/#auditignorepaths) to exclude directories (e.g., vendored code, generated files) from the code scan.
 :::
 

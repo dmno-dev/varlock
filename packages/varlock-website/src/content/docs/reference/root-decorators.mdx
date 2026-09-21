@@ -18,9 +18,11 @@ Two different notions of "default" are at play below, so it is worth separating 
 
 More details of the minutiae of decorator handling can be found in the [@env-spec reference](/env-spec/reference/#comments-and-decorators).
 
-## General root decorators
+The root decorators built into Varlock are grouped below by what they control. [Plugins](/guides/plugins/) may introduce more.
 
-These are the root decorators that are built into Varlock. [Plugins](/guides/plugins/) may introduce more.
+## Environments and defaults ||environments-and-defaults||
+
+The environment flag, and the defaults every item in the schema inherits unless it says otherwise.
 
 <div class="reference-docs">
 
@@ -161,6 +163,14 @@ FOO=bar  # will be ignored
 
 </div>
 
+</div>
+
+## Composing schemas ||composing-schemas||
+
+Bring other files, plugins, and externally sourced values into the schema.
+
+<div class="reference-docs">
+
 <div>
 ### `@import()`
 **Arg types:** `[ path: string ]`  
@@ -297,6 +307,13 @@ XYZ_API_KEY=op(op://api-prod/xyz/api-key) # new resolver
 ```
 </div>
 
+</div>
+
+## Loading and runtime protections ||loading-and-runtime-protections||
+
+How resolved values are cached, injected into the process, and protected once your app is running.
+
+<div class="reference-docs">
 
 <div>
 ### `@cache`
@@ -498,6 +515,14 @@ The `ENV` proxy is unaffected: `ENV.OPTIONAL_VAR` always returns the real resolv
 :::
 </div>
 
+</div>
+
+## Audit ||audit||
+
+Tune the [`varlock audit`](/reference/cli/encryption/#audit) code scanner: which directories and keys it skips, and which extra env access patterns it looks for.
+
+<div class="reference-docs">
+
 <div>
 ### `@auditIgnorePaths()`
 **Arg types:** `[ ...paths: string[] ]`
@@ -536,6 +561,25 @@ These are merged with any [`--ignore`](/reference/cli/encryption/#audit) entries
 </div>
 
 <div>
+### `@auditIgnoreKeys()`
+**Arg types:** `[ ...keys: string[] ]`
+
+Keys that [`varlock audit`](/reference/cli/encryption/#audit) should never report as **missing in schema**, even when the code scanner finds a reference to them. _Can be called multiple times; entries are merged additively._
+
+This is the escape hatch for scanner false positives. The scanner matches patterns over source text and does not parse string literals, so `process.env.FOO` mentioned inside a help message or a trailing comment counts as a reference to `FOO`. It also covers keys your code reads on purpose but you don't want in the schema, such as a well-known variable a library sets.
+
+Entries are exact key names, or simple globs where `*` matches any run of characters and `?` a single one. Matching is case-sensitive.
+
+```env-spec
+# @auditIgnoreKeys(FOO, LEGACY_*)
+# ---
+API_KEY=
+```
+
+To silence the other direction, a declared item that is not referenced in code, use the [`@auditIgnore`](/reference/item-decorators/#auditignore) item decorator instead.
+</div>
+
+<div>
 ### `@auditExtraPatterns()`
 **Arg types:** `[ ...patterns: RegExp[], fileTypes?: string[] ]`
 
@@ -549,7 +593,7 @@ Anything that is not a `regex()` call is rejected as an error instead of silentl
 API_KEY=
 ```
 
-Unlike the built-in patterns, these see string contents as written, so a key that isn't a bare identifier (`config.get('app.database.url')`) still matches. Code inside comments is skipped for both.
+A key that isn't a bare identifier (`config.get('app.database.url')`) still matches. Commented-out lines are skipped, as they are for the built-in patterns.
 
 #### Scoping patterns to file types
 
@@ -578,6 +622,14 @@ Every extension you name is walked and read on each audit. Extensions covering l
 
 Files with no extension at all (`Dockerfile`, `Makefile`) can't be selected this way.
 </div>
+
+</div>
+
+## Proxy rules ||proxy-rules||
+
+Rules for [`varlock proxy`](/reference/cli/proxy/), which keeps secrets out of a process by substituting them into outbound requests instead.
+
+<div class="reference-docs">
 
 <div>
 ### `@proxyConfig`
