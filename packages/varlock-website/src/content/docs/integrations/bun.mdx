@@ -22,7 +22,7 @@ Note that if you are building a standalone executable using `bun build`, you can
 
 ### Compiled executables
 
-`bun build --compile` bundles the `varlock/auto-load` runtime code into your executable, but it does not bundle the separate Varlock CLI that resolves your config. If the executable resolves config when it starts, your deployment must also include the installed `varlock` package and its dependencies. The executable looks for `node_modules/.bin/varlock` in its directory and each parent directory, and only falls back to a `varlock` on `PATH` if no local install is found.
+`bun build --compile` bundles the `varlock/auto-load` runtime code into your executable, but it does not bundle the separate Varlock CLI that resolves your config. If the executable resolves config when it starts, your deployment must also include the installed `varlock` package and its dependencies. The executable looks for `node_modules/.bin/varlock` in its directory and each parent directory (stopping at the git repository root, if there is one), and only falls back to a `varlock` on `PATH` if no local install is found.
 
 For example, this monorepo layout keeps the CLI available to the compiled server:
 

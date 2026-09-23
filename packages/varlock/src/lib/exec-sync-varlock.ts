@@ -10,6 +10,11 @@ const isWindows = /^win/i.test(os.platform());
 /**
  * Walk up the directory tree from startDir looking for a node_modules/.bin/varlock binary.
  * Returns the full path to the binary if found, or null if not found.
+ *
+ * The walk stops after the git repository root (the first directory containing `.git`),
+ * so a stray install above the project (e.g. an accidental `npm i varlock` in $HOME)
+ * cannot shadow a standalone binary on PATH. Outside a git checkout (e.g. inside a
+ * container image) the walk continues to the filesystem root as before.
  */
 function findVarlockBin(startDir: string): string | null {
   // On Windows, npm creates varlock.exe while pnpm only creates varlock.cmd
@@ -30,6 +35,8 @@ function findVarlockBin(startDir: string): string | null {
       // In a monorepo the root node_modules/.bin may exist without varlock,
       // which is installed only in a sub-package.
     }
+    // `.git` is a directory in a normal checkout and a file in worktrees/submodules
+    if (fs.existsSync(path.join(currentDir, '.git'))) break;
     const parentDir = path.dirname(currentDir);
     if (parentDir === currentDir) break;
     currentDir = parentDir;

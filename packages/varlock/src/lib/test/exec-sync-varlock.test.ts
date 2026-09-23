@@ -181,6 +181,36 @@ describe('execSyncVarlock CLI resolution order', () => {
     expect(execSync).not.toHaveBeenCalled();
   });
 
+  it('stops the walk-up at the git root so a stray install above the repo cannot win', () => {
+    existsSyncSpy = stubExistingPaths([
+      '/project/.git',
+      '/node_modules/.bin',
+      '/node_modules/.bin/varlock', // e.g. an accidental install in a parent dir
+    ]);
+
+    execSyncVarlock('load');
+
+    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
+    expect(execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('still finds a bin at the git root itself', () => {
+    existsSyncSpy = stubExistingPaths([
+      '/monorepo/.git',
+      '/monorepo/node_modules/.bin',
+      '/monorepo/node_modules/.bin/varlock',
+    ]);
+    cwdSpy.mockReturnValue('/monorepo/apps/web');
+
+    execSyncVarlock('load');
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      '/monorepo/node_modules/.bin/varlock',
+      ['load'],
+      expect.anything(),
+    );
+  });
+
   it('falls back to the shell PATH lookup only when there is no local install', () => {
     existsSyncSpy = stubExistingPaths([]);
 
