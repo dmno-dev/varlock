@@ -15,4 +15,8 @@ export default defineConfig({
   platform: 'node',
   target: 'esnext',
   external: ['varlock', '@1password/sdk'],
+  // plugins must build to a single file: varlock executes plugin.cjs itself (not via
+  // require), so a split chunk that requires ./plugin.cjs would re-run the entry
+  // outside of the plugin context. see #1113
+  outputOptions: { codeSplitting: false },
 });

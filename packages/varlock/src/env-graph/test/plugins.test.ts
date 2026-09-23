@@ -1,6 +1,7 @@
 import {
-  describe, test, expect, vi,
+  describe, test, expect, vi, beforeAll, afterAll,
 } from 'vitest';
+import fs from 'node:fs';
 import path from 'node:path';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
@@ -30,6 +31,39 @@ describe('plugins ', () => {
     // both share one cache key, so a live store means one producer run and one value
     expectValues: { FIRST: 'run-1', SECOND: 'run-1' },
   }));
+
+  // bundlers can split a CJS plugin into chunks that `require('./plugin.cjs')` back.
+  // the entry must not re-run outside the plugin context when that happens (#1113)
+  test('lazily loaded chunk can require the plugin entry back', envFilesTest({
+    envFile: outdent`
+      # @plugin(./plugins/test-plugin-split-chunks/)
+      # ---
+      CHUNKED=chunked(foo)
+    `,
+    expectValues: { CHUNKED: 'chunk:foo' },
+  }));
+
+  // node resolves the chunk's require to the real path, so a plugin loaded through a
+  // symlink (pnpm, workspaces) must be cached under its real path too
+  describe('split-chunk plugin loaded through a symlink', () => {
+    const symlinkPath = path.join(__dirname, 'plugins/.tmp-symlinked-split-chunks');
+    beforeAll(() => {
+      fs.rmSync(symlinkPath, { force: true, recursive: true });
+      fs.symlinkSync(path.join(__dirname, 'plugins/test-plugin-split-chunks-symlinked'), symlinkPath, 'junction');
+    });
+    afterAll(() => {
+      fs.rmSync(symlinkPath, { force: true, recursive: true });
+    });
+
+    test('lazily loaded chunk can require the plugin entry back', envFilesTest({
+      envFile: outdent`
+        # @plugin(./plugins/.tmp-symlinked-split-chunks/)
+        # ---
+        CHUNKED=chunked(foo)
+      `,
+      expectValues: { CHUNKED: 'chunk:foo' },
+    }));
+  });
 
   test('bad semver range', envFilesTest({
     envFile: outdent`
