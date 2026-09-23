@@ -4,8 +4,7 @@ import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
 import { isBunStandaloneExecutable } from './detect-runtime';
 
-// evaluated per call so tests can simulate other platforms
-const isWindows = () => /^win/i.test(os.platform());
+const isWindows = /^win/i.test(os.platform());
 
 
 /**
@@ -15,7 +14,7 @@ const isWindows = () => /^win/i.test(os.platform());
 function findVarlockBin(startDir: string): string | null {
   // On Windows, npm creates varlock.exe while pnpm only creates varlock.cmd
   // (and a shell script). Check .exe first, then fall back to .cmd.
-  const binNames = isWindows() ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
+  const binNames = isWindows ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
 
   let currentDir = startDir;
   while (currentDir) {
@@ -36,40 +35,6 @@ function findVarlockBin(startDir: string): string | null {
     currentDir = parentDir;
   }
   return null;
-}
-
-
-/**
- * Whether a `varlock` executable exists in any directory on the given env's PATH,
- * resolved the way the shell will resolve it from `cwd`.
- * This is a locale-independent way to tell "not installed" apart from "ran and failed":
- * cmd.exe exits 1 for both and its "not recognized" message is localized, so we cannot
- * classify the failure after the fact. Instead we check PATH before invoking the shell.
- */
-function isVarlockOnPath(env: NodeJS.ProcessEnv, cwd: string | undefined): boolean {
-  // Windows env keys are case-insensitive, so PATH may be stored as "Path"
-  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH');
-  // pick the path flavor explicitly (rather than the platform default) so the
-  // Windows branch is exercisable in tests running on other platforms
-  const pathImpl = isWindows() ? path.win32 : path.posix;
-  // execSync resolves a relative `cwd` against the parent's cwd
-  const shellCwd = cwd ? pathImpl.resolve(process.cwd(), cwd) : process.cwd();
-  // mirror shell lookup rules: an empty PATH entry means the current directory (POSIX),
-  // relative entries are relative to the child's cwd, and cmd.exe always searches the
-  // child's cwd before PATH
-  const pathDirs = (pathKey ? env[pathKey] : '')?.split(pathImpl.delimiter).map((dir) => dir || '.') ?? [];
-  if (isWindows()) pathDirs.unshift('.');
-  // PATHEXT is conventionally uppercase while npm/pnpm shims are `varlock.cmd` / `varlock.exe`;
-  // the Windows filesystem does not care, but lowercase keeps the lookup honest elsewhere
-  const exts = isWindows()
-    ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((ext) => ext.toLowerCase())
-    : [''];
-  for (const dir of pathDirs) {
-    for (const ext of exts) {
-      if (fs.existsSync(pathImpl.resolve(shellCwd, dir, `varlock${ext}`))) return true;
-    }
-  }
-  return false;
 }
 
 
@@ -201,19 +166,25 @@ export function execSyncVarlock(
 
     // No local install found. Fall back to whatever `varlock` is on PATH, which covers
     // users of the standalone binary or a global install with no npm install of varlock.
-    // We check PATH ourselves first so that a failure from the shell below is always a
-    // real CLI failure worth surfacing, rather than a (locale-dependent) "not found".
-    if (!isVarlockOnPath(execEnv, cwdStr)) {
-      throw new Error('Unable to find varlock executable');
+    try {
+      const result = execSync(`varlock ${command}`, {
+        env: execEnv,
+        ...opts?.cwd && { cwd: opts.cwd },
+        stdio: 'pipe',
+      });
+      return opts?.fullResult
+        ? { stdout: result.toString(), stderr: '' }
+        : result.toString();
+    } catch (err) {
+      // sh exits 127 when the command is not found; ENOENT means the shell itself is missing.
+      // cmd.exe exits 1 for both "not found" and a real CLI failure, and its message is
+      // localized, so on Windows a missing varlock surfaces as the raw shell error instead.
+      const errAny = err as any;
+      if (errAny.status === 127 || errAny.code === 'ENOENT') {
+        throw new Error('Unable to find varlock executable');
+      }
+      throw err;
     }
-    const result = execSync(`varlock ${command}`, {
-      env: execEnv,
-      ...opts?.cwd && { cwd: opts.cwd },
-      stdio: 'pipe',
-    });
-    return opts?.fullResult
-      ? { stdout: result.toString(), stderr: '' }
-      : result.toString();
   } catch (err) {
     // In fullResult mode, wrap the error as VarlockExecError with structured fields
     if (opts?.fullResult) {

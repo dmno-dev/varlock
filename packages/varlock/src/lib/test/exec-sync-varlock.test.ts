@@ -3,17 +3,12 @@ import {
 } from 'vitest';
 import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(() => Buffer.from('ok')),
   execFileSync: vi.fn(() => Buffer.from('ok')),
 }));
-vi.mock('node:os', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:os')>();
-  return { default: { ...actual, platform: vi.fn(() => 'darwin') } };
-});
 
 /** Pretend only the given paths exist on disk (bin dirs and bins) */
 function stubExistingPaths(paths: Array<string>) {
@@ -21,25 +16,19 @@ function stubExistingPaths(paths: Array<string>) {
   return vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => existing.has(String(filePath)));
 }
 
-/** a global varlock, reachable only via PATH */
-const GLOBAL_BIN_DIR = '/global/bin';
-const GLOBAL_VARLOCK = `${GLOBAL_BIN_DIR}/varlock`;
-
 describe('execSyncVarlock integration telemetry', () => {
   let existsSyncSpy: ReturnType<typeof stubExistingPaths>;
 
   beforeEach(() => {
     vi.mocked(execSync).mockClear();
     vi.mocked(execFileSync).mockClear();
-    // no local install anywhere, only a global one on PATH, so these exercise the PATH fallback
-    vi.stubEnv('PATH', GLOBAL_BIN_DIR);
-    existsSyncSpy = stubExistingPaths([GLOBAL_VARLOCK]);
+    // no local install anywhere, so these exercise the PATH fallback
+    existsSyncSpy = stubExistingPaths([]);
   });
 
   afterEach(() => {
     existsSyncSpy.mockRestore();
     delete process.env.__VARLOCK_INTEGRATION;
-    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -151,20 +140,16 @@ describe('execSyncVarlock CLI resolution order', () => {
     vi.mocked(execSync).mockClear();
     vi.mocked(execFileSync).mockClear();
     cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue('/project');
-    vi.stubEnv('PATH', GLOBAL_BIN_DIR);
   });
 
   afterEach(() => {
     cwdSpy.mockRestore();
     existsSyncSpy?.mockRestore();
-    vi.mocked(os.platform).mockReturnValue('darwin');
-    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
-  it('prefers a local node_modules/.bin/varlock over a global one on PATH', () => {
+  it('prefers a local node_modules/.bin/varlock over the PATH lookup', () => {
     existsSyncSpy = stubExistingPaths([
-      GLOBAL_VARLOCK,
       '/project/node_modules/.bin',
       '/project/node_modules/.bin/varlock',
     ]);
@@ -197,7 +182,7 @@ describe('execSyncVarlock CLI resolution order', () => {
   });
 
   it('falls back to the shell PATH lookup only when there is no local install', () => {
-    existsSyncSpy = stubExistingPaths([GLOBAL_VARLOCK]);
+    existsSyncSpy = stubExistingPaths([]);
 
     const result = execSyncVarlock('load --format json');
 
@@ -211,7 +196,6 @@ describe('execSyncVarlock CLI resolution order', () => {
 
   it('uses a local bin found from callerDir even when process.cwd() has none', () => {
     existsSyncSpy = stubExistingPaths([
-      GLOBAL_VARLOCK,
       '/monorepo/packages/app/node_modules/.bin',
       '/monorepo/packages/app/node_modules/.bin/varlock',
     ]);
@@ -243,79 +227,32 @@ describe('execSyncVarlock CLI resolution order', () => {
     );
   });
 
-  it('throws "Unable to find varlock executable" without invoking the shell when PATH has no varlock', () => {
+  it('throws "Unable to find varlock executable" when neither a local bin nor PATH has varlock', () => {
     existsSyncSpy = stubExistingPaths([]);
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('varlock: not found'), { status: 127 });
+    });
 
     expect(() => execSyncVarlock('load')).toThrow('Unable to find varlock executable');
-    expect(execSync).not.toHaveBeenCalled();
     expect(execFileSync).not.toHaveBeenCalled();
   });
 
+  it('throws "Unable to find varlock executable" when the shell itself is missing (ENOENT)', () => {
+    existsSyncSpy = stubExistingPaths([]);
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('spawn /bin/sh ENOENT'), { code: 'ENOENT' });
+    });
+
+    expect(() => execSyncVarlock('load')).toThrow('Unable to find varlock executable');
+  });
+
   it('surfaces the real CLI error when the PATH varlock runs but fails', () => {
-    existsSyncSpy = stubExistingPaths([GLOBAL_VARLOCK]);
+    existsSyncSpy = stubExistingPaths([]);
     vi.mocked(execSync).mockImplementationOnce(() => {
       throw Object.assign(new Error('boom'), { status: 1, stdout: Buffer.from(''), stderr: Buffer.from('bad schema') });
     });
 
     expect(() => execSyncVarlock('load')).toThrow('boom');
-  });
-
-  it('on Windows, finds a global varlock on Path via PATHEXT without depending on cmd.exe error text', () => {
-    vi.mocked(os.platform).mockReturnValue('win32');
-    existsSyncSpy = stubExistingPaths(['C:\\global\\varlock.cmd']);
-
-    execSyncVarlock('load', {
-      env: { Path: 'C:\\global', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
-    });
-
-    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
-  });
-
-  it('on Windows, reports not found when no PATHEXT variant of varlock is on Path', () => {
-    vi.mocked(os.platform).mockReturnValue('win32');
-    existsSyncSpy = stubExistingPaths(['C:\\global\\varlock.txt']);
-
-    expect(() => execSyncVarlock('load', {
-      env: { Path: 'C:\\global', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
-    })).toThrow('Unable to find varlock executable');
-    expect(execSync).not.toHaveBeenCalled();
-  });
-
-  it('resolves relative and empty PATH entries against the child cwd, like the shell does', () => {
-    vi.stubEnv('PATH', 'bin:');
-    existsSyncSpy = stubExistingPaths(['/app/bin/varlock']);
-    execSyncVarlock('load', { cwd: '/app' });
-    expect(execSync).toHaveBeenCalledWith('varlock load', expect.objectContaining({ cwd: '/app' }));
-
-    vi.mocked(execSync).mockClear();
-    existsSyncSpy.mockRestore();
-    existsSyncSpy = stubExistingPaths(['/app/varlock']); // found via the empty entry
-    execSyncVarlock('load', { cwd: '/app' });
-    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
-  });
-
-  it('on Windows, also finds varlock in the child cwd, which cmd.exe searches before Path', () => {
-    vi.mocked(os.platform).mockReturnValue('win32');
-    existsSyncSpy = stubExistingPaths(['C:\\app\\varlock.cmd']);
-
-    execSyncVarlock('load', {
-      cwd: 'C:\\app',
-      env: { Path: 'C:\\global', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
-    });
-
-    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
-  });
-
-  it('on Windows, surfaces the real CLI error when a global varlock exits 1 (same code cmd.exe uses for not found)', () => {
-    vi.mocked(os.platform).mockReturnValue('win32');
-    existsSyncSpy = stubExistingPaths(['C:\\global\\varlock.cmd']);
-    vi.mocked(execSync).mockImplementationOnce(() => {
-      throw Object.assign(new Error('boom'), { status: 1, stdout: Buffer.from(''), stderr: Buffer.from('bad schema') });
-    });
-
-    expect(() => execSyncVarlock('load', {
-      env: { Path: 'C:\\global', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
-    })).toThrow('boom');
   });
 
   it('finds a workspace CLI relative to a Bun-compiled executable', () => {
