@@ -11,6 +11,11 @@ final class IPCServer {
     private let socketPath: String
     private var socketFD: Int32 = -1
     private var lockFD: Int32 = -1
+    /// Identity of the socket and lock files this daemon created. Recorded so
+    /// shutdown only removes files we still own: if another daemon has taken
+    /// over in the meantime, the paths point at its inodes, not ours.
+    private var socketInode: (dev: dev_t, ino: ino_t)?
+    private var lockInode: (dev: dev_t, ino: ino_t)?
     private var clientHandlers: [Int32: DispatchWorkItem] = [:]
     private let queue = DispatchQueue(label: "dev.varlock.ipc", attributes: .concurrent)
     private let handlersQueue = DispatchQueue(label: "dev.varlock.ipc.handlers")
@@ -24,6 +29,70 @@ final class IPCServer {
 
     init(socketPath: String) {
         self.socketPath = socketPath
+    }
+
+    // MARK: - Socket Address Helpers
+
+    /// sockaddr_un.sun_path is a fixed 104-byte buffer. Copying a longer path
+    /// into it silently overruns the struct, so paths are validated up front and
+    /// rejected with a real error instead of crashing the daemon.
+    static func fillSocketAddress(_ addr: inout sockaddr_un, path: String) -> Bool {
+        let capacity = MemoryLayout.size(ofValue: addr.sun_path)
+        let bytes = Array(path.utf8)
+        guard bytes.count < capacity else { return false }
+        addr.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let dest = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(dest, 0, capacity)
+            for (offset, byte) in bytes.enumerated() {
+                dest[offset] = CChar(bitPattern: byte)
+            }
+        }
+        return true
+    }
+
+    /// Inode identity of a path, or nil when it can't be stat'd.
+    private static func inodeIdentity(_ path: String) -> (dev: dev_t, ino: ino_t)? {
+        var st = stat()
+        guard stat(path, &st) == 0 else { return nil }
+        return (st.st_dev, st.st_ino)
+    }
+
+    /// Open the lock file and take an exclusive flock on it. Returns the locked
+    /// fd, or nil when another process holds the lock.
+    ///
+    /// A lock is only meaningful while the path still names the file we locked.
+    /// A daemon shutting down unlinks its lock file, and a stuck-daemon takeover
+    /// replaces it; a process that opened the old file just before either can
+    /// then win a flock on an inode the path no longer points to, alongside a
+    /// daemon holding the real one. So after locking, confirm the path still
+    /// names our file, and start over on the current file if it doesn't.
+    static func acquireLock(path: String) throws -> Int32? {
+        for _ in 0..<5 {
+            let fd = open(path, O_CREAT | O_RDWR, 0o600)
+            guard fd >= 0 else {
+                throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
+            }
+            if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                close(fd)
+                return nil
+            }
+            var locked = stat()
+            var named = stat()
+            if fstat(fd, &locked) == 0, stat(path, &named) == 0,
+               locked.st_dev == named.st_dev, locked.st_ino == named.st_ino {
+                return fd
+            }
+            close(fd)
+        }
+        throw IPCError.socketCreationFailed("Lock file kept changing while acquiring it")
+    }
+
+    /// Unlink a path only if it still resolves to the inode we created.
+    private static func unlinkIfOwned(_ path: String, owned: (dev: dev_t, ino: ino_t)?) {
+        guard let owned, let current = inodeIdentity(path) else { return }
+        guard current == owned else { return }
+        unlink(path)
     }
 
     // MARK: - Stuck-daemon Recovery
@@ -57,12 +126,7 @@ final class IPCServer {
         _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
         var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            socketPath.withCString { cstr in
-                _ = strcpy(UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self), cstr)
-            }
-        }
+        guard fillSocketAddress(&addr, path: socketPath) else { return false }
         let connectResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -93,6 +157,12 @@ final class IPCServer {
     // MARK: - Server Lifecycle
 
     func start() throws {
+        // Fail fast on an unusable socket path rather than part-way through setup
+        var probeAddr = sockaddr_un()
+        guard IPCServer.fillSocketAddress(&probeAddr, path: socketPath) else {
+            throw IPCError.socketPathTooLong(socketPath)
+        }
+
         // Ensure parent directory exists with owner-only access
         let dir = (socketPath as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -113,37 +183,29 @@ final class IPCServer {
         // recovery from genuinely stuck daemons that even the TS-side
         // killDaemonProcess can't bring down.
         let lockPath = socketPath + ".lock"
-        lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
-        guard lockFD >= 0 else {
-            throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
-        }
-        if flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+        if let fd = try IPCServer.acquireLock(path: lockPath) {
+            lockFD = fd
+        } else {
             let lockAgeSeconds = IPCServer.lockFileAgeSeconds(path: lockPath)
             let isFresh = lockAgeSeconds < IPCServer.freshLockThresholdSeconds
 
             if isFresh || IPCServer.existingDaemonResponsive(socketPath: socketPath, timeoutMs: 1500) {
-                close(lockFD)
-                lockFD = -1
                 throw IPCError.lockHeld
             }
 
             // Old + unresponsive: previous daemon is wedged in the kernel and
             // can't be signaled away. Recreate the lock file so we get a fresh
             // inode whose flock is independent of the stuck holder's.
-            close(lockFD)
             unlink(lockPath)
-            lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
-            guard lockFD >= 0 else {
-                throw IPCError.socketCreationFailed("Failed to recreate lock file: \(String(cString: strerror(errno)))")
-            }
-            guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
-                close(lockFD)
-                lockFD = -1
+            guard let fd = try IPCServer.acquireLock(path: lockPath) else {
                 throw IPCError.socketCreationFailed("Failed to take over stuck daemon's lock")
             }
+            lockFD = fd
         }
 
-        // Clean up any stale socket file (safe now — we hold the lock)
+        lockInode = IPCServer.inodeIdentity(lockPath)
+
+        // Clean up any stale socket file (safe now, we hold the lock)
         unlink(socketPath)
 
         // Create socket
@@ -154,11 +216,10 @@ final class IPCServer {
 
         // Bind
         var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            socketPath.withCString { cstr in
-                _ = strcpy(UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self), cstr)
-            }
+        guard IPCServer.fillSocketAddress(&addr, path: socketPath) else {
+            close(socketFD)
+            socketFD = -1
+            throw IPCError.socketPathTooLong(socketPath)
         }
 
         let bindResult = withUnsafePointer(to: &addr) { ptr in
@@ -173,9 +234,12 @@ final class IPCServer {
 
         // Set socket permissions (owner only)
         chmod(socketPath, 0o600)
+        socketInode = IPCServer.inodeIdentity(socketPath)
 
         // Listen
-        guard listen(socketFD, 5) == 0 else {
+        // Backlog sized for apps that launch many varlock processes at once
+        // (an MCP host starting a dozen stdio servers, a parallel task runner).
+        guard listen(socketFD, 128) == 0 else {
             close(socketFD)
             unlink(socketPath)
             throw IPCError.listenFailed(String(cString: strerror(errno)))
@@ -195,15 +259,19 @@ final class IPCServer {
             close(socketFD)
             socketFD = -1
         }
-        unlink(socketPath)
+        IPCServer.unlinkIfOwned(socketPath, owned: socketInode)
+        socketInode = nil
 
-        // Release the startup lock
+        // Remove the lock file while still holding the lock, then release it.
+        // Unlinking after release would leave a window where a new daemon locks
+        // this file and then loses it from under itself.
+        IPCServer.unlinkIfOwned(socketPath + ".lock", owned: lockInode)
+        lockInode = nil
         if lockFD >= 0 {
             flock(lockFD, LOCK_UN)
             close(lockFD)
             lockFD = -1
         }
-        unlink(socketPath + ".lock")
 
         // Cancel all client handlers
         handlersQueue.sync {
@@ -348,6 +416,7 @@ enum IPCError: LocalizedError {
     case bindFailed(String)
     case listenFailed(String)
     case lockHeld
+    case socketPathTooLong(String)
 
     var errorDescription: String? {
         switch self {
@@ -355,6 +424,9 @@ enum IPCError: LocalizedError {
         case .bindFailed(let msg): return "Socket bind failed: \(msg)"
         case .listenFailed(let msg): return "Socket listen failed: \(msg)"
         case .lockHeld: return "Another daemon instance is already running"
+        case .socketPathTooLong(let path):
+            let max = MemoryLayout.size(ofValue: sockaddr_un().sun_path) - 1
+            return "Socket path is too long (\(path.utf8.count) bytes, max \(max)): \(path)"
         }
     }
 }

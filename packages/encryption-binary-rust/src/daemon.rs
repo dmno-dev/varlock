@@ -85,17 +85,30 @@ impl SessionManager {
 
 /// Run the daemon.
 pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), String> {
-    // Write PID file
-    if let Some(pid_path) = pid_path {
-        if let Some(parent) = std::path::Path::new(pid_path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        std::fs::write(pid_path, std::process::id().to_string())
-            .map_err(|e| format!("Failed to write PID file: {e}"))?;
-    }
+    // The PID file is claimed only once we hold the startup lock (see the
+    // listening callback below). Writing it up front lets a daemon that loses
+    // the race overwrite the winner's PID with its own, about-to-be-dead one,
+    // after which every client reads a dead PID and treats the live daemon as
+    // garbage to be cleaned up.
 
     let session_manager = Arc::new(Mutex::new(SessionManager::new()));
     let mut server = IpcServer::new(socket_path);
+
+    // Content hash of our own executable, reported from `ping`. Clients compare
+    // it against the binary they would spawn and replace us only when the code
+    // actually differs. Release builds are cached by source hash, so varlock
+    // versions that didn't touch the daemon ship byte-identical binaries and
+    // switching between them never restarts it.
+    let binary_hash: Option<String> = std::env::current_exe()
+        .and_then(std::fs::read)
+        .ok()
+        .map(|bytes| {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        });
 
     // Activity callback
     let sm_activity = session_manager.clone();
@@ -116,7 +129,7 @@ pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), Strin
         match action {
             "decrypt" => handle_decrypt(&message, &tty_id, &sm_handler),
             "encrypt" => handle_encrypt(&message),
-            "ping" => handle_ping(&tty_id, &sm_handler),
+            "ping" => handle_ping(&tty_id, &sm_handler, binary_hash.as_deref()),
             "invalidate-session" => handle_invalidate(&sm_handler),
             _ => json!({"error": format!("Unknown action: {action}")}),
         }
@@ -156,22 +169,52 @@ pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), Strin
         }
     });
 
-    // Print ready message (matches Swift daemon format)
-    let ready = json!({
-        "ready": true,
-        "pid": std::process::id(),
-        "socketPath": socket_path,
+    // Claim the shared state files and announce readiness once the server owns
+    // the socket, so a daemon that loses the startup race touches neither.
+    let ready_socket_path = socket_path.to_string();
+    let ready_pid_path = pid_path_owned.clone();
+    server.set_listening_callback(move || {
+        if let Some(pp) = &ready_pid_path {
+            if let Some(parent) = std::path::Path::new(pp).parent() {
+                let _ = std::fs::create_dir_all(parent);
+                write_legacy_info_file(&parent.join("daemon.info"));
+            }
+            let _ = std::fs::write(pp, std::process::id().to_string());
+        }
+
+        // Print ready message (matches Swift daemon format)
+        let ready = json!({
+            "ready": true,
+            "pid": std::process::id(),
+            "socketPath": ready_socket_path,
+        });
+        println!("{}", ready);
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
     });
-    println!("{}", ready);
-    use std::io::Write;
-    let _ = std::io::stdout().flush();
 
     // Start server (blocks)
     let result = server.start();
 
-    // Cleanup
+    if let Err(err) = &result {
+        if err == crate::ipc::LOCK_HELD_ERROR {
+            // Another daemon won the race. Emit the marker its launcher knows
+            // and exit cleanly without touching any shared state.
+            println!("{}", json!({"alreadyRunning": true}));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            return Ok(());
+        }
+    }
+
+    // Cleanup: only drop the PID file while it still names this process
     if let Some(pp) = &pid_path_owned {
-        let _ = std::fs::remove_file(pp);
+        let owned = std::fs::read_to_string(pp)
+            .map(|contents| contents.trim() == std::process::id().to_string())
+            .unwrap_or(false);
+        if owned {
+            let _ = std::fs::remove_file(pp);
+        }
     }
 
     result
@@ -268,7 +311,32 @@ fn handle_encrypt(message: &Value) -> Value {
     }
 }
 
-fn handle_ping(tty_id: &Option<String>, sm: &Arc<Mutex<SessionManager>>) -> Value {
+/// daemon.info is only read by varlock releases that predate the hash check.
+/// They compare the path and mtime recorded here against their own binary and
+/// restart the daemon on a mismatch, or when the file is missing. argv[0] is
+/// the exact path the client spawned, and the mtime uses Node's `mtimeMs`
+/// formula so an unchanged binary compares equal.
+fn write_legacy_info_file(info_path: &std::path::Path) {
+    let binary_path = std::env::args().next().unwrap_or_default();
+    let binary_mtime_ms = std::fs::metadata(&binary_path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs() as f64 * 1e3 + since.subsec_nanos() as f64 / 1e6);
+    let info = json!({ "binaryPath": binary_path, "binaryMtimeMs": binary_mtime_ms });
+    let tmp_path = info_path.with_extension(format!("info.tmp.{}", std::process::id()));
+    if std::fs::write(&tmp_path, info.to_string()).is_ok()
+        && std::fs::rename(&tmp_path, info_path).is_err()
+    {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+}
+
+fn handle_ping(
+    tty_id: &Option<String>,
+    sm: &Arc<Mutex<SessionManager>>,
+    binary_hash: Option<&str>,
+) -> Value {
     let session_warm = sm
         .lock()
         .map(|s| s.is_session_warm(tty_id))
@@ -279,6 +347,8 @@ fn handle_ping(tty_id: &Option<String>, sm: &Arc<Mutex<SessionManager>>) -> Valu
             "pong": true,
             "sessionWarm": session_warm,
             "ttyId": tty_id.as_deref().unwrap_or(""),
+            "pid": std::process::id(),
+            "binaryHash": binary_hash,
         }
     })
 }

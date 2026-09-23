@@ -18,6 +18,11 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 const MAX_MESSAGE_SIZE: u32 = 10_000_000; // 10MB safety limit
 
+/// Returned by `start()` when another daemon already holds the startup lock.
+/// The caller reports this to its launcher and exits cleanly, leaving every
+/// shared state file to the daemon that won.
+pub const LOCK_HELD_ERROR: &str = "Another daemon instance holds the lock";
+
 
 
 /// Message handler callback type.
@@ -29,6 +34,12 @@ pub struct IpcServer {
     running: Arc<AtomicBool>,
     message_handler: Option<Arc<MessageHandler>>,
     on_activity: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_listening: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Set once we hold the startup lock and own the socket file. A daemon that
+    /// loses the race must not delete the winner's socket or lock file on its
+    /// way out: that leaves the winner running with no socket, and the next
+    /// client starts a second daemon alongside it.
+    owns_files: Arc<AtomicBool>,
 }
 
 impl IpcServer {
@@ -38,6 +49,8 @@ impl IpcServer {
             running: Arc::new(AtomicBool::new(false)),
             message_handler: None,
             on_activity: None,
+            on_listening: None,
+            owns_files: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -47,6 +60,13 @@ impl IpcServer {
 
     pub fn set_activity_callback(&mut self, callback: impl Fn() + Send + Sync + 'static) {
         self.on_activity = Some(Arc::new(callback));
+    }
+
+    /// Called once the server owns the socket and is about to accept clients.
+    /// Shared state files are claimed here, never before: until this point
+    /// another daemon may hold the lock and own them.
+    pub fn set_listening_callback(&mut self, callback: impl Fn() + Send + Sync + 'static) {
+        self.on_listening = Some(Arc::new(callback));
     }
 
     pub fn running_flag(&self) -> Arc<AtomicBool> {
@@ -73,21 +93,7 @@ impl IpcServer {
         // Prevents a TOCTOU race where a malicious process could create a fake
         // socket between our unlink() and bind(), intercepting client connections.
         let lock_path = format!("{}.lock", self.socket_path);
-        let lock_fd = {
-            use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .mode(0o600)
-                .open(&lock_path)
-                .map_err(|e| format!("Failed to create lock file: {e}"))?
-        };
-        use std::os::unix::io::AsRawFd;
-        let lock_result = unsafe { libc::flock(lock_fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-        if lock_result != 0 {
-            return Err("Another daemon instance holds the lock".into());
-        }
+        let _lock_file = acquire_lock(&lock_path)?;
 
         // Safe to remove stale socket now — we hold the lock
         let _ = std::fs::remove_file(&self.socket_path);
@@ -110,7 +116,11 @@ impl IpcServer {
             .set_nonblocking(true)
             .map_err(|e| format!("Failed to set non-blocking: {e}"))?;
 
+        self.owns_files.store(true, Ordering::SeqCst);
         self.running.store(true, Ordering::SeqCst);
+        if let Some(cb) = &self.on_listening {
+            cb();
+        }
 
         while self.running.load(Ordering::SeqCst) {
             match listener.accept() {
@@ -149,9 +159,7 @@ impl IpcServer {
             }
         }
 
-        // Cleanup socket and lock
-        let _ = std::fs::remove_file(&self.socket_path);
-        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
+        self.cleanup_owned_files();
         Ok(())
     }
 
@@ -161,15 +169,13 @@ impl IpcServer {
     /// the TS daemon client's `socket.connect(pipePath)` just works.
     #[cfg(windows)]
     pub fn start(&self) -> Result<(), String> {
-        use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
         use windows::Win32::System::Pipes::{
             ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-            PIPE_TYPE_BYTE, PIPE_READMODE_BYTE, PIPE_WAIT,
+            PIPE_TYPE_BYTE, PIPE_READMODE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
         };
         use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
         use windows::core::HSTRING;
-
-        self.running.store(true, Ordering::SeqCst);
 
         let pipe_name = HSTRING::from(&self.socket_path);
 
@@ -178,42 +184,67 @@ impl IpcServer {
         let sa = create_current_user_security_attributes()
             .map_err(|e| format!("Failed to create pipe security attributes: {e}"))?;
 
-        while self.running.load(Ordering::SeqCst) {
-            // Create a new named pipe instance for each client
-            let pipe_handle = unsafe {
+        // Instance limit is unlimited: every running varlock process may hold a
+        // connection open (an MCP host can easily run a dozen), and a capped pipe
+        // turns the next client away as if no daemon were running.
+        let create_instance = || -> HANDLE {
+            unsafe {
                 CreateNamedPipeW(
                     &pipe_name,
                     PIPE_ACCESS_DUPLEX,
                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                    10,          // max instances
+                    PIPE_UNLIMITED_INSTANCES,
                     65536,       // out buffer
                     65536,       // in buffer
                     0,           // default timeout
                     Some(&sa),   // restrict to current user
                 )
-            };
-
-            if pipe_handle == INVALID_HANDLE_VALUE {
-                if !self.running.load(Ordering::SeqCst) {
-                    break;
-                }
-                return Err("CreateNamedPipe failed".into());
             }
+        };
 
+        // Named pipes have no lock file, so nothing here stops a second daemon
+        // from adding instances to the same pipe name. FILE_FLAG_FIRST_PIPE_INSTANCE
+        // would, but it also fails while clients of a daemon that just exited still
+        // hold their handles, which would leave no daemon serving at all. Until that
+        // can be tested on Windows, a duplicate daemon is the lesser failure.
+        let mut listening = create_instance();
+        if listening == INVALID_HANDLE_VALUE {
+            return Err("CreateNamedPipe failed".into());
+        }
+
+        self.owns_files.store(true, Ordering::SeqCst);
+        self.running.store(true, Ordering::SeqCst);
+        if let Some(cb) = &self.on_listening {
+            cb();
+        }
+
+        while self.running.load(Ordering::SeqCst) {
             // Wait for a client to connect (blocking)
-            let connected = unsafe { ConnectNamedPipe(pipe_handle, None) };
+            let connected = unsafe { ConnectNamedPipe(listening, None) };
             if connected.is_err() {
                 // ERROR_PIPE_CONNECTED means client connected between Create and Connect — OK
-                // Any other error: close and retry
-                let last_err = unsafe { windows::Win32::Foundation::GetLastError() };
+                // Any other error: reset this instance and keep listening on it
+                let last_err = unsafe { GetLastError() };
                 if last_err != windows::Win32::Foundation::ERROR_PIPE_CONNECTED {
-                    unsafe { let _ = CloseHandle(pipe_handle); }
                     if !self.running.load(Ordering::SeqCst) {
                         break;
                     }
+                    unsafe { let _ = DisconnectNamedPipe(listening); }
                     continue;
                 }
             }
+
+            // Create the next listening instance before handing this one off, so
+            // there is always an instance ready for the next client.
+            let next = create_instance();
+            if next == INVALID_HANDLE_VALUE {
+                unsafe {
+                    let _ = DisconnectNamedPipe(listening);
+                    let _ = CloseHandle(listening);
+                }
+                return Err("CreateNamedPipe failed".into());
+            }
+            let pipe_handle = std::mem::replace(&mut listening, next);
 
             if let Some(cb) = &self.on_activity {
                 cb();
@@ -228,7 +259,6 @@ impl IpcServer {
             // since we transfer exclusive ownership. Pass as raw pointer.
             let raw_handle = pipe_handle.0 as usize; // usize is Send
             std::thread::spawn(move || {
-                use windows::Win32::Foundation::HANDLE;
                 let pipe = HANDLE(raw_handle as *mut _);
 
                 // Verify the connecting process is a trusted varlock binary
@@ -249,20 +279,64 @@ impl IpcServer {
             });
         }
 
+        unsafe { let _ = CloseHandle(listening); }
         Ok(())
     }
 
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
     }
+
+    /// Remove the socket and lock file, but only if this server created them.
+    fn cleanup_owned_files(&self) {
+        if !self.owns_files.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
+    }
 }
 
 impl Drop for IpcServer {
     fn drop(&mut self) {
         self.stop();
-        let _ = std::fs::remove_file(&self.socket_path);
-        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
+        self.cleanup_owned_files();
     }
+}
+
+/// Open the lock file and take an exclusive flock on it, returning the locked
+/// file (the lock lasts as long as it stays open).
+///
+/// A lock is only meaningful while the path still names the file we locked. A
+/// daemon shutting down unlinks its lock file, and a process that opened the old
+/// file just before that can then win a flock on an inode the path no longer
+/// points to, alongside a daemon holding the real one. So after locking, confirm
+/// the path still names our file, and start over on the current file if not.
+#[cfg(unix)]
+fn acquire_lock(lock_path: &str) -> Result<std::fs::File, String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::io::AsRawFd;
+
+    for _ in 0..5 {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .open(lock_path)
+            .map_err(|e| format!("Failed to create lock file: {e}"))?;
+        let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if lock_result != 0 {
+            return Err(LOCK_HELD_ERROR.into());
+        }
+        let locked = file.metadata().map_err(|e| format!("Failed to stat lock file: {e}"))?;
+        if let Ok(named) = std::fs::metadata(lock_path) {
+            if named.dev() == locked.dev() && named.ino() == locked.ino() {
+                return Ok(file);
+            }
+        }
+    }
+    Err("Lock file kept changing while acquiring it".into())
 }
 
 // ── Client handling ──────────────────────────────────────────────

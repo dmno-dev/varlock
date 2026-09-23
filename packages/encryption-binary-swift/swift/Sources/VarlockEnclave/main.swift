@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 // MARK: - JSON Output Helpers
 
@@ -178,12 +179,56 @@ case "daemon":
     let sessionManager = SessionManager()
     let server = IPCServer(socketPath: socketPath)
 
-    // Write PID file
+    // State files are written only once we hold the startup lock (see below).
+    // Writing them before then would let a daemon that loses the lock race
+    // clobber the winner's PID file with its own, about-to-be-dead PID.
     let pidPath = getArg("--pid-path")
-    if let pidPath = pidPath {
-        let pidDir = (pidPath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
-        try? "\(ProcessInfo.processInfo.processIdentifier)".write(toFile: pidPath, atomically: true, encoding: .utf8)
+
+    // argv[0] is exactly the path the client resolved and spawned.
+    let daemonBinaryPath = CommandLine.arguments[0]
+
+    // Content hash of our own executable, reported from `ping`. Clients compare
+    // it against the binary they would spawn and replace us only when the code
+    // actually differs. Release builds are cached by source hash, so varlock
+    // versions that didn't touch the daemon ship byte-identical binaries and
+    // switching between them never restarts it (or costs a biometric prompt).
+    let daemonBinaryHash: String? = {
+        guard let data = FileManager.default.contents(atPath: daemonBinaryPath) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }()
+
+    // daemon.info is only read by varlock releases that predate the hash check.
+    // They compare the path and mtime recorded here against their own binary
+    // and restart the daemon on a mismatch, or when the file is missing.
+    let infoPath: String? = pidPath.map {
+        (($0 as NSString).deletingLastPathComponent as NSString).appendingPathComponent("daemon.info")
+    }
+    // Same formula as Node's `mtimeMs`, so an unchanged binary compares equal
+    let daemonBinaryMtimeMs: Double? = {
+        var st = stat()
+        guard stat(daemonBinaryPath, &st) == 0 else { return nil }
+        return Double(st.st_mtimespec.tv_sec) * 1e3 + Double(st.st_mtimespec.tv_nsec) / 1e6
+    }()
+
+    /// Write a state file atomically (temp file + rename) so a concurrently
+    /// starting client never reads a half-written file.
+    func writeStateFile(_ path: String, contents: String) {
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let tmpPath = path + ".tmp.\(ProcessInfo.processInfo.processIdentifier)"
+        guard (try? contents.write(toFile: tmpPath, atomically: false, encoding: .utf8)) != nil else { return }
+        if rename(tmpPath, path) != 0 {
+            unlink(tmpPath)
+        }
+    }
+
+    /// Remove a state file only if it still holds the value we wrote, so a
+    /// daemon shutting down after another has taken over doesn't delete the
+    /// new daemon's files.
+    func removeStateFileIfOwned(_ path: String, expected: String) {
+        guard let current = try? String(contentsOfFile: path, encoding: .utf8),
+              current.trimmingCharacters(in: .whitespacesAndNewlines) == expected else { return }
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     // Status bar menu (must be created before run loop starts)
@@ -198,7 +243,7 @@ case "daemon":
         statusBarMenu?.remove()
         server.stop()
         if let pidPath = pidPath {
-            try? FileManager.default.removeItem(atPath: pidPath)
+            removeStateFileIfOwned(pidPath, expected: "\(ProcessInfo.processInfo.processIdentifier)")
         }
         // Use _exit to skip framework cleanup — LocalAuthentication teardown
         // can hang in the kernel (UE state) if Secure Enclave is unresponsive.
@@ -251,6 +296,8 @@ case "daemon":
                     "pong": true,
                     "sessionWarm": sessionManager.isSessionWarm(sessionId: sessionId),
                     "sessionId": sessionId as Any,
+                    "pid": ProcessInfo.processInfo.processIdentifier,
+                    "binaryHash": daemonBinaryHash as Any,
                 ],
             ]
 
@@ -431,6 +478,21 @@ case "daemon":
     do {
         try server.start()
 
+        // We hold the startup lock and own the socket, so it's now safe to claim
+        // the shared state files. A daemon that lost the race never gets here,
+        // so it can't overwrite these with a PID that is about to disappear.
+        if let pidPath = pidPath {
+            writeStateFile(pidPath, contents: "\(ProcessInfo.processInfo.processIdentifier)")
+        }
+        if let infoPath = infoPath {
+            var info: [String: Any] = ["binaryPath": daemonBinaryPath]
+            if let daemonBinaryMtimeMs { info["binaryMtimeMs"] = daemonBinaryMtimeMs }
+            if let infoData = try? JSONSerialization.data(withJSONObject: info),
+               let infoJson = String(data: infoData, encoding: .utf8) {
+                writeStateFile(infoPath, contents: infoJson)
+            }
+        }
+
         // Print ready message to stdout so the JS launcher knows we're ready
         jsonOutput(["ready": true, "pid": ProcessInfo.processInfo.processIdentifier, "socketPath": socketPath])
         fflush(stdout)
@@ -462,10 +524,10 @@ case "daemon":
 
         app.run()
     } catch IPCError.lockHeld {
-        // Another daemon won the race (parallel spawn — e.g. turbo tasks).
-        // Emit a marker the JS launcher can recognize and exit cleanly without
-        // touching any shared state. We deliberately skip removing pidPath here
-        // since the existing daemon owns it.
+        // Another daemon won the race (parallel spawn, e.g. turbo tasks, or an
+        // app launching many MCP servers at once). Emit a marker the JS launcher
+        // can recognize and exit cleanly. We never wrote any shared state file,
+        // so there is nothing to undo: the winner owns them all.
         jsonOutput(["alreadyRunning": true])
         fflush(stdout)
         _exit(0)
