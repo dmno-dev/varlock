@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/test-plugin-split-chunks-symlinked",
+  "private": true,
+  "description": "copy of test-plugin-split-chunks, only loaded through a symlink so the real path is not already cached",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.cjs"
+  }
+}

@@ -108,9 +108,12 @@ const varlockPluginLibExports = {
  * C++ lazy property initializers (e.g. for DOMException) assert IsolateData
  * exists on the context, which is not set up for Proxy-based vm contexts.
  */
-function loadPluginModuleCJS(filePath: string): void {
+function loadPluginModuleCJS(pluginFilePath: string): void {
   applyBunCryptoShim();
 
+  // node keys require.cache by real path, so resolve symlinks (pnpm, workspaces)
+  // to match what a chunk's `require('./plugin.cjs')` looks up
+  const filePath = fsSync.realpathSync(pluginFilePath);
   const code = fsSync.readFileSync(filePath, 'utf-8');
   const pluginDir = path.dirname(filePath);
   const baseRequire = createRequire(filePath);
