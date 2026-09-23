@@ -3,12 +3,17 @@ import {
 } from 'vitest';
 import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(() => Buffer.from('ok')),
   execFileSync: vi.fn(() => Buffer.from('ok')),
 }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { default: { ...actual, platform: vi.fn(() => 'darwin') } };
+});
 
 /** Pretend only the given paths exist on disk (bin dirs and bins) */
 function stubExistingPaths(paths: Array<string>) {
@@ -145,6 +150,7 @@ describe('execSyncVarlock CLI resolution order', () => {
   afterEach(() => {
     cwdSpy.mockRestore();
     existsSyncSpy?.mockRestore();
+    vi.mocked(os.platform).mockReturnValue('darwin');
     vi.unstubAllGlobals();
   });
 
@@ -234,6 +240,30 @@ describe('execSyncVarlock CLI resolution order', () => {
     });
 
     expect(() => execSyncVarlock('load')).toThrow('Unable to find varlock executable');
+  });
+
+  it('reports not found on Windows when cmd.exe cannot find varlock (exit status 1)', () => {
+    vi.mocked(os.platform).mockReturnValue('win32');
+    existsSyncSpy = stubExistingPaths([]);
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('Command failed: varlock load'), {
+        status: 1,
+        stdout: Buffer.from(''),
+        stderr: Buffer.from("'varlock' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"),
+      });
+    });
+
+    expect(() => execSyncVarlock('load')).toThrow('Unable to find varlock executable');
+  });
+
+  it('surfaces the real CLI error on Windows when varlock runs but exits 1', () => {
+    vi.mocked(os.platform).mockReturnValue('win32');
+    existsSyncSpy = stubExistingPaths([]);
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('boom'), { status: 1, stdout: Buffer.from(''), stderr: Buffer.from('bad schema') });
+    });
+
+    expect(() => execSyncVarlock('load')).toThrow('boom');
   });
 
   it('surfaces the real CLI error when the PATH varlock runs but fails', () => {

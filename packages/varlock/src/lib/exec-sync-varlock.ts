@@ -4,8 +4,8 @@ import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
 import { isBunStandaloneExecutable } from './detect-runtime';
 
-const platform = os.platform();
-const isWindows = platform.match(/^win/i);
+// evaluated per call so tests can simulate other platforms
+const isWindows = () => /^win/i.test(os.platform());
 
 
 /**
@@ -15,7 +15,7 @@ const isWindows = platform.match(/^win/i);
 function findVarlockBin(startDir: string): string | null {
   // On Windows, npm creates varlock.exe while pnpm only creates varlock.cmd
   // (and a shell script). Check .exe first, then fall back to .cmd.
-  const binNames = isWindows ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
+  const binNames = isWindows() ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
 
   let currentDir = startDir;
   while (currentDir) {
@@ -36,6 +36,26 @@ function findVarlockBin(startDir: string): string | null {
     currentDir = parentDir;
   }
   return null;
+}
+
+
+/**
+ * Whether a failed shell `varlock ...` invocation means the command was not on PATH,
+ * as opposed to varlock running and exiting non-zero.
+ * - sh exits 127 when the command is not found
+ * - the shell itself missing surfaces as ENOENT
+ * - cmd.exe exits 1 (not 9009, which is only the in-shell ERRORLEVEL) and prints
+ *   "'varlock' is not recognized as an internal or external command" to stderr.
+ *   A real varlock failure also exits 1, so on Windows we key off that message.
+ */
+function isShellCommandNotFound(err: unknown): boolean {
+  const errAny = err as any;
+  if (errAny?.status === 127 || errAny?.code === 'ENOENT') return true;
+  if (isWindows()) {
+    const stderr = errAny?.stderr?.toString() ?? '';
+    if (/is not recognized as an internal or external command/i.test(stderr)) return true;
+  }
+  return false;
 }
 
 
@@ -178,12 +198,7 @@ export function execSyncVarlock(
         : result.toString();
     } catch (err) {
       // The CLI ran but failed: surface its real error rather than "not found".
-      // - 127 = command not found (sh)
-      // - 9009 = command not recognized (cmd.exe)
-      // - ENOENT = the shell itself was not found
-      const errAny = err as any;
-      const notFound = errAny.status === 127 || errAny.status === 9009 || errAny.code === 'ENOENT';
-      if (!notFound) throw err;
+      if (!isShellCommandNotFound(err)) throw err;
     }
     throw new Error('Unable to find varlock executable');
   } catch (err) {
