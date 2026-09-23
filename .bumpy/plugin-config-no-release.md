@@ -4,6 +4,7 @@
 "@varlock/azure-key-vault-plugin": none
 "@varlock/bitwarden-plugin": none
 "@varlock/dashlane-plugin": none
+"@varlock/effect-plugin": none
 "@varlock/doppler-plugin": none
 "@varlock/hashicorp-vault-plugin": none
 "@varlock/keepass-plugin": none
