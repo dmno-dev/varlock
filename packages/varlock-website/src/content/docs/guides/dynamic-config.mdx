@@ -191,7 +191,22 @@ function IndexPage() {
 }
 ```
 
-Prerendered routes run `dehydrate()` at build time, so they get a build-time snapshot. For those, serve the values from a server route instead and call `loadPublicDynamicEnv({ endpoint })` in the browser, as in the other recipes.
+Prerendered routes run `dehydrate()` at build time, so their HTML carries a build-time snapshot and `hydrate()` restores it in the browser. A plain `loadPublicDynamicEnv()` call will not fix that: it sees the store as already hydrated and skips the fetch. Either leave these router options out and use the endpoint recipe everywhere, or keep them and have prerendered routes refetch explicitly:
+
+```tsx title="src/routes/prerendered.tsx"
+import { useEffect } from 'react';
+import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+
+function PrerenderedPage() {
+  useEffect(() => {
+    // force: the store already holds the build-time snapshot
+    void loadPublicDynamicEnv({ endpoint: '/api/public-env', force: true });
+  }, []);
+  return <p>{ENV.RUNTIME_FLAG}</p>;
+}
+```
+
+with `/api/public-env` being a server route that returns `getPublicDynamicEnv()`, as in the other recipes.
 
 </TabItem>
 <TabItem label="Expo">
