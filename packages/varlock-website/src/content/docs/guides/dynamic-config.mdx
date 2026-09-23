@@ -191,21 +191,20 @@ function IndexPage() {
 }
 ```
 
-Prerendered routes run `dehydrate()` at build time, so their HTML carries a build-time snapshot and `hydrate()` restores it in the browser. A plain `loadPublicDynamicEnv()` call will not fix that: it sees the store as already hydrated and skips the fetch. Either leave these router options out and use the endpoint recipe everywhere, or keep them and have prerendered routes refetch explicitly:
+Prerendered routes run `dehydrate()` at build time, so their HTML carries a build-time snapshot and `hydrate()` restores it in the browser. Reading `ENV.KEY` while a route prerenders throws (the build-time guard, see above), and a plain `loadPublicDynamicEnv()` call in the browser will not help: it sees the store as already hydrated and skips the fetch. Either leave these router options out and use the endpoint recipe everywhere, or keep them and have prerendered routes fetch explicitly, without reading `ENV` during render:
 
 ```tsx title="src/routes/prerendered.tsx"
 import { useEffect, useState } from 'react';
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+import { loadPublicDynamicEnv } from 'varlock/env';
 
 function PrerenderedPage() {
-  // updating the store does not re-render on its own, so copy the value into state
-  const [runtimeFlag, setRuntimeFlag] = useState(ENV.RUNTIME_FLAG);
+  const [runtimeFlag, setRuntimeFlag] = useState<string>();
   useEffect(() => {
     // force: the store already holds the build-time snapshot
     loadPublicDynamicEnv({ endpoint: '/api/public-env', force: true })
-      .then(() => setRuntimeFlag(ENV.RUNTIME_FLAG));
+      .then((values) => setRuntimeFlag(values.RUNTIME_FLAG));
   }, []);
-  return <p>{runtimeFlag}</p>;
+  return <p>{runtimeFlag ?? 'loading...'}</p>;
 }
 ```
 
