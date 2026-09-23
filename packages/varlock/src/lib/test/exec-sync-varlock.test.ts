@@ -281,6 +281,31 @@ describe('execSyncVarlock CLI resolution order', () => {
     expect(execSync).not.toHaveBeenCalled();
   });
 
+  it('resolves relative and empty PATH entries against the child cwd, like the shell does', () => {
+    vi.stubEnv('PATH', 'bin:');
+    existsSyncSpy = stubExistingPaths(['/app/bin/varlock']);
+    execSyncVarlock('load', { cwd: '/app' });
+    expect(execSync).toHaveBeenCalledWith('varlock load', expect.objectContaining({ cwd: '/app' }));
+
+    vi.mocked(execSync).mockClear();
+    existsSyncSpy.mockRestore();
+    existsSyncSpy = stubExistingPaths(['/app/varlock']); // found via the empty entry
+    execSyncVarlock('load', { cwd: '/app' });
+    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
+  });
+
+  it('on Windows, also finds varlock in the child cwd, which cmd.exe searches before Path', () => {
+    vi.mocked(os.platform).mockReturnValue('win32');
+    existsSyncSpy = stubExistingPaths(['C:\\app\\varlock.cmd']);
+
+    execSyncVarlock('load', {
+      cwd: 'C:\\app',
+      env: { Path: 'C:\\global', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+    });
+
+    expect(execSync).toHaveBeenCalledWith('varlock load', expect.anything());
+  });
+
   it('on Windows, surfaces the real CLI error when a global varlock exits 1 (same code cmd.exe uses for not found)', () => {
     vi.mocked(os.platform).mockReturnValue('win32');
     existsSyncSpy = stubExistingPaths(['C:\\global\\varlock.cmd']);
