@@ -11,7 +11,8 @@
     "packages/*",
     "packages/integrations/*",
     "packages/native-helpers/*",
-    "packages/plugins/*"
+    "packages/plugins/*",
+    "packages/plugins/effect/test/effect3"
   ],
   "scripts": {
     "build": "turbo build --filter=\"!smoke-test-*\"",

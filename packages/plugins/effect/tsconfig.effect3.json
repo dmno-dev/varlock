@@ -1,12 +1,13 @@
 {
-  // Typechecks the Effect 3 fixtures and tests against the `effect3` alias (npm:effect@3),
-  // while `effect` itself stays on the 4.x prerelease for the main tsconfig.
+  // Typechecks the Effect 3 fixtures and tests against Effect 3 (installed by the
+  // test/effect3 workspace package), while `effect` itself stays on the 4.x prerelease
+  // for the main tsconfig.
   "extends": "@varlock/tsconfig/plugin.tsconfig.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "effect": ["./node_modules/effect3"],
-      "effect/*": ["./node_modules/effect3/*"]
+      "effect": ["./test/effect3/node_modules/effect"],
+      "effect/*": ["./test/effect3/node_modules/effect/*"]
     }
   },
   "include": ["test/effect3/**/*.ts", "test/fixtures/fields.ts", "src/generator.ts"]

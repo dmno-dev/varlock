@@ -49,7 +49,6 @@
     "@types/node": "catalog:",
     "@varlock/tsconfig": "workspace:*",
     "effect": "4.0.0-rc.115",
-    "effect3": "npm:effect@3.22.1",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "varlock": "workspace:*",
