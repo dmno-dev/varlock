@@ -1,0 +1,11 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "typecheck": {
+      // tsconfig.effect3.json typechecks test/effect3 against the Effect 3 pinned in
+      // test/effect3/package.json, so those files must bust the typecheck cache
+      "inputs": ["$TURBO_EXTENDS$", "test/**"]
+    }
+  }
+}
