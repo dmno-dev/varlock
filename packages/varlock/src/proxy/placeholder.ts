@@ -112,7 +112,8 @@ export async function generateProxyPlaceholderForItem(
 
   const seed = buildPlaceholderSeed(item.key);
 
-  const generatedByType = item.dataType?.generatePlaceholder(seed);
+  // effectiveDataType reflects resolver-valued type options (e.g. `uuid(version=if(...))`)
+  const generatedByType = item.effectiveDataType?.generatePlaceholder(seed);
   if (_.isString(generatedByType) && generatedByType.length > 0) {
     return { placeholder: ensureUnique(generatedByType, usedPlaceholders), isGenericFallback: false };
   }

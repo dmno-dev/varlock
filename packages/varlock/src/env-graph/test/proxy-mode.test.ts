@@ -349,6 +349,18 @@ describe('proxy decorators', () => {
     expect(errors.some((e) => /must be "passthrough" or "omit"/.test(e.message))).toBe(true);
   });
 
+  test('uuid placeholder honors a resolver-valued version option', async () => {
+    const graph = await loadGraph(outdent`
+      # ---
+      # @proxy(domain="api.example.com")
+      # @type=uuid(version=if(true, 7, 4))
+      ID=01890a5d-ac96-774b-bcce-b302099a8057
+    `);
+
+    const managed = await graph.getProxyManagedItems();
+    expect(managed[0]?.placeholder).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
   test('proxy managed items generate placeholders by priority', async () => {
     const graph = await loadGraph(outdent`
       # ---
