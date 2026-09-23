@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 // MARK: - JSON Output Helpers
 
@@ -182,19 +183,31 @@ case "daemon":
     // Writing them before then would let a daemon that loses the lock race
     // clobber the winner's PID file with its own, about-to-be-dead PID.
     let pidPath = getArg("--pid-path")
-    let infoPath = getArg("--info-path")
-        ?? ((socketPath as NSString).deletingLastPathComponent as NSString)
-            .appendingPathComponent("daemon.info")
 
-    // argv[0] is exactly the path the client resolved and spawned, so recording
-    // it here lets clients detect an upgraded binary without a second source of
-    // truth. Resolved up front so the value is stable for both the info file
-    // and the `ping` response.
+    // argv[0] is exactly the path the client resolved and spawned.
     let daemonBinaryPath = CommandLine.arguments[0]
+
+    // Content hash of our own executable, reported from `ping`. Clients compare
+    // it against the binary they would spawn and replace us only when the code
+    // actually differs. Release builds are cached by source hash, so varlock
+    // versions that didn't touch the daemon ship byte-identical binaries and
+    // switching between them never restarts it (or costs a biometric prompt).
+    let daemonBinaryHash: String? = {
+        guard let data = FileManager.default.contents(atPath: daemonBinaryPath) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }()
+
+    // daemon.info is only read by varlock releases that predate the hash check.
+    // They compare the path and mtime recorded here against their own binary
+    // and restart the daemon on a mismatch, or when the file is missing.
+    let infoPath: String? = pidPath.map {
+        (($0 as NSString).deletingLastPathComponent as NSString).appendingPathComponent("daemon.info")
+    }
+    // Same formula as Node's `mtimeMs`, so an unchanged binary compares equal
     let daemonBinaryMtimeMs: Double? = {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: daemonBinaryPath),
-              let modified = attrs[.modificationDate] as? Date else { return nil }
-        return modified.timeIntervalSince1970 * 1000
+        var st = stat()
+        guard stat(daemonBinaryPath, &st) == 0 else { return nil }
+        return Double(st.st_mtimespec.tv_sec) * 1e3 + Double(st.st_mtimespec.tv_nsec) / 1e6
     }()
 
     /// Write a state file atomically (temp file + rename) so a concurrently
@@ -284,8 +297,7 @@ case "daemon":
                     "sessionWarm": sessionManager.isSessionWarm(sessionId: sessionId),
                     "sessionId": sessionId as Any,
                     "pid": ProcessInfo.processInfo.processIdentifier,
-                    "binaryPath": daemonBinaryPath,
-                    "binaryMtimeMs": daemonBinaryMtimeMs as Any,
+                    "binaryHash": daemonBinaryHash as Any,
                 ],
             ]
 
@@ -472,11 +484,13 @@ case "daemon":
         if let pidPath = pidPath {
             writeStateFile(pidPath, contents: "\(ProcessInfo.processInfo.processIdentifier)")
         }
-        var info: [String: Any] = ["binaryPath": daemonBinaryPath]
-        if let daemonBinaryMtimeMs { info["binaryMtimeMs"] = daemonBinaryMtimeMs }
-        if let infoData = try? JSONSerialization.data(withJSONObject: info),
-           let infoJson = String(data: infoData, encoding: .utf8) {
-            writeStateFile(infoPath, contents: infoJson)
+        if let infoPath = infoPath {
+            var info: [String: Any] = ["binaryPath": daemonBinaryPath]
+            if let daemonBinaryMtimeMs { info["binaryMtimeMs"] = daemonBinaryMtimeMs }
+            if let infoData = try? JSONSerialization.data(withJSONObject: info),
+               let infoJson = String(data: infoData, encoding: .utf8) {
+                writeStateFile(infoPath, contents: infoJson)
+            }
         }
 
         // Print ready message to stdout so the JS launcher knows we're ready

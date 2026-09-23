@@ -23,6 +23,17 @@ vi.mock('../user-config-dir', () => ({
   getUserVarlockDir: () => testDir,
 }));
 
+// Lets a test pretend the client lives in another project, i.e. resolves the
+// daemon binary from a different install location.
+const resolverState = vi.hoisted(() => ({ binaryOverride: undefined as string | undefined }));
+vi.mock('./binary-resolver', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./binary-resolver')>();
+  return {
+    ...actual,
+    resolveNativeBinary: () => resolverState.binaryOverride ?? actual.resolveNativeBinary(),
+  };
+});
+
 const socketDir = path.join(testDir, 'local-encrypt');
 const socketPath = path.join(socketDir, 'daemon.sock');
 const pidPath = path.join(socketDir, 'daemon.pid');
@@ -84,6 +95,37 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<voi
   }
 }
 
+/**
+ * Copy the built app bundle elsewhere, as another project's install would be.
+ * With `resign`, the copy is ad-hoc re-signed, which changes the executable's
+ * bytes: a stand-in for a varlock release that shipped a different daemon.
+ */
+function copyAppBundle(name: string, opts?: { resign?: boolean }): string | undefined {
+  const appDir = binaryPath!.replace(/\/Contents\/MacOS\/[^/]+$/, '');
+  const destDir = path.join(testDir, 'installs', name);
+  fs.mkdirSync(destDir, { recursive: true });
+  const destApp = path.join(destDir, path.basename(appDir));
+  spawnSync('cp', ['-R', appDir, destApp]);
+  if (opts?.resign) {
+    const signed = spawnSync('codesign', ['--force', '--sign', '-', destApp]);
+    if (signed.status !== 0) return undefined;
+  }
+  return path.join(destApp, path.relative(appDir, binaryPath!));
+}
+
+/** Connect a fresh client using the given binary, then return the running daemon PIDs */
+async function connectWith(binary: string | undefined): Promise<Array<number>> {
+  resolverState.binaryOverride = binary;
+  const client = new daemonClient.DaemonClient();
+  try {
+    await client.ensureConnected();
+  } finally {
+    client.cleanup();
+    resolverState.binaryOverride = undefined;
+  }
+  return runningDaemonPids();
+}
+
 function killAllDaemons() {
   for (const pid of runningDaemonPids()) {
     try {
@@ -108,18 +150,21 @@ afterEach(async () => {
   fs.rmSync(socketDir, { recursive: true, force: true });
 });
 
-describe('isDaemonBinaryStale', () => {
-  it('treats an unknown identity as current, rather than killing a daemon it knows nothing about', () => {
-    expect(daemonClient.isDaemonBinaryStale(undefined)).toBe(false);
-    expect(daemonClient.isDaemonBinaryStale({})).toBe(false);
-    expect(daemonClient.isDaemonBinaryStale({ binaryMtimeMs: 123 })).toBe(false);
+describe('shouldReplaceDaemon', () => {
+  it('keeps a daemon running the same binary', () => {
+    expect(daemonClient.shouldReplaceDaemon('abc', 'abc')).toBe(false);
   });
 
-  it('reports a daemon started from a different binary path as stale', () => {
-    expect(daemonClient.isDaemonBinaryStale({
-      binaryPath: '/somewhere/else/varlock-local-encrypt',
-      binaryMtimeMs: 1,
-    })).toBe(true);
+  it('replaces a daemon running a different binary', () => {
+    expect(daemonClient.shouldReplaceDaemon('abc', 'def')).toBe(true);
+  });
+
+  it('replaces a daemon too old to report its binary', () => {
+    expect(daemonClient.shouldReplaceDaemon(undefined, 'def')).toBe(true);
+  });
+
+  it('leaves the daemon alone when we cannot hash our own binary', () => {
+    expect(daemonClient.shouldReplaceDaemon('abc', undefined)).toBe(false);
   });
 });
 
@@ -166,6 +211,38 @@ describe.runIf(process.platform === 'darwin')('daemon lifecycle', () => {
     expect(runningDaemonPids()).toEqual([pid]);
     expect(fs.existsSync(socketPath)).toBe(true);
   });
+
+  it('shares one daemon between installs of an identical binary', async () => {
+    if (!binaryPath) return;
+
+    // e.g. two projects on different varlock versions that didn't change the
+    // daemon: same bytes, different install paths
+    const otherInstall = copyAppBundle('same-binary');
+    const seen = [
+      await connectWith(binaryPath),
+      await connectWith(otherInstall),
+      await connectWith(binaryPath),
+    ];
+
+    expect(seen[0]).toHaveLength(1);
+    expect(seen).toEqual([seen[0], seen[0], seen[0]]);
+  }, 30_000);
+
+  it('swaps in the right daemon when moving between different binaries', async () => {
+    if (!binaryPath) return;
+
+    const otherBuild = copyAppBundle('different-binary', { resign: true });
+    if (!otherBuild) return; // codesign unavailable
+
+    const [first] = await connectWith(binaryPath);
+    const afterOther = await connectWith(otherBuild);
+    const afterBack = await connectWith(binaryPath);
+
+    expect(afterOther).toHaveLength(1);
+    expect(afterOther[0]).not.toBe(first);
+    expect(afterBack).toHaveLength(1);
+    expect(afterBack[0]).not.toBe(afterOther[0]);
+  }, 30_000);
 
   it('converges on a single daemon when many clients connect at once', async () => {
     if (!binaryPath) return;

@@ -94,6 +94,22 @@ pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), Strin
     let session_manager = Arc::new(Mutex::new(SessionManager::new()));
     let mut server = IpcServer::new(socket_path);
 
+    // Content hash of our own executable, reported from `ping`. Clients compare
+    // it against the binary they would spawn and replace us only when the code
+    // actually differs. Release builds are cached by source hash, so varlock
+    // versions that didn't touch the daemon ship byte-identical binaries and
+    // switching between them never restarts it.
+    let binary_hash: Option<String> = std::env::current_exe()
+        .and_then(std::fs::read)
+        .ok()
+        .map(|bytes| {
+            use sha2::{Digest, Sha256};
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        });
+
     // Activity callback
     let sm_activity = session_manager.clone();
     server.set_activity_callback(move || {
@@ -113,7 +129,7 @@ pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), Strin
         match action {
             "decrypt" => handle_decrypt(&message, &tty_id, &sm_handler),
             "encrypt" => handle_encrypt(&message),
-            "ping" => handle_ping(&tty_id, &sm_handler),
+            "ping" => handle_ping(&tty_id, &sm_handler, binary_hash.as_deref()),
             "invalidate-session" => handle_invalidate(&sm_handler),
             _ => json!({"error": format!("Unknown action: {action}")}),
         }
@@ -161,6 +177,7 @@ pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), Strin
         if let Some(pp) = &ready_pid_path {
             if let Some(parent) = std::path::Path::new(pp).parent() {
                 let _ = std::fs::create_dir_all(parent);
+                write_legacy_info_file(&parent.join("daemon.info"));
             }
             let _ = std::fs::write(pp, std::process::id().to_string());
         }
@@ -294,20 +311,36 @@ fn handle_encrypt(message: &Value) -> Value {
     }
 }
 
-fn handle_ping(tty_id: &Option<String>, sm: &Arc<Mutex<SessionManager>>) -> Value {
-    let session_warm = sm
-        .lock()
-        .map(|s| s.is_session_warm(tty_id))
-        .unwrap_or(false);
-
-    // argv[0] is the path the client resolved and spawned, so reporting it here
-    // lets clients detect an upgraded binary by asking the daemon itself.
+/// daemon.info is only read by varlock releases that predate the hash check.
+/// They compare the path and mtime recorded here against their own binary and
+/// restart the daemon on a mismatch, or when the file is missing. argv[0] is
+/// the exact path the client spawned, and the mtime uses Node's `mtimeMs`
+/// formula so an unchanged binary compares equal.
+fn write_legacy_info_file(info_path: &std::path::Path) {
     let binary_path = std::env::args().next().unwrap_or_default();
     let binary_mtime_ms = std::fs::metadata(&binary_path)
         .and_then(|meta| meta.modified())
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|since| since.as_secs_f64() * 1000.0);
+        .map(|since| since.as_secs() as f64 * 1e3 + since.subsec_nanos() as f64 / 1e6);
+    let info = json!({ "binaryPath": binary_path, "binaryMtimeMs": binary_mtime_ms });
+    let tmp_path = info_path.with_extension(format!("info.tmp.{}", std::process::id()));
+    if std::fs::write(&tmp_path, info.to_string()).is_ok()
+        && std::fs::rename(&tmp_path, info_path).is_err()
+    {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+}
+
+fn handle_ping(
+    tty_id: &Option<String>,
+    sm: &Arc<Mutex<SessionManager>>,
+    binary_hash: Option<&str>,
+) -> Value {
+    let session_warm = sm
+        .lock()
+        .map(|s| s.is_session_warm(tty_id))
+        .unwrap_or(false);
 
     json!({
         "result": {
@@ -315,8 +348,7 @@ fn handle_ping(tty_id: &Option<String>, sm: &Arc<Mutex<SessionManager>>) -> Valu
             "sessionWarm": session_warm,
             "ttyId": tty_id.as_deref().unwrap_or(""),
             "pid": std::process::id(),
-            "binaryPath": binary_path,
-            "binaryMtimeMs": binary_mtime_ms,
+            "binaryHash": binary_hash,
         }
     })
 }

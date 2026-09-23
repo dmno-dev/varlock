@@ -183,19 +183,15 @@ impl IpcServer {
     /// the TS daemon client's `socket.connect(pipePath)` just works.
     #[cfg(windows)]
     pub fn start(&self) -> Result<(), String> {
-        use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows::Win32::Foundation::{
+            CloseHandle, GetLastError, ERROR_ACCESS_DENIED, HANDLE, INVALID_HANDLE_VALUE,
+        };
         use windows::Win32::System::Pipes::{
             ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
-            PIPE_TYPE_BYTE, PIPE_READMODE_BYTE, PIPE_WAIT,
+            PIPE_TYPE_BYTE, PIPE_READMODE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
         };
-        use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+        use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
         use windows::core::HSTRING;
-
-        self.owns_files.store(true, Ordering::SeqCst);
-        self.running.store(true, Ordering::SeqCst);
-        if let Some(cb) = &self.on_listening {
-            cb();
-        }
 
         let pipe_name = HSTRING::from(&self.socket_path);
 
@@ -204,42 +200,75 @@ impl IpcServer {
         let sa = create_current_user_security_attributes()
             .map_err(|e| format!("Failed to create pipe security attributes: {e}"))?;
 
-        while self.running.load(Ordering::SeqCst) {
-            // Create a new named pipe instance for each client
-            let pipe_handle = unsafe {
+        // Instance limit is unlimited: every running varlock process may hold a
+        // connection open (an MCP host can easily run a dozen), and a capped pipe
+        // turns the next client away as if no daemon were running.
+        let create_instance = |first: bool| -> HANDLE {
+            let mut open_mode = PIPE_ACCESS_DUPLEX;
+            if first {
+                open_mode |= FILE_FLAG_FIRST_PIPE_INSTANCE;
+            }
+            unsafe {
                 CreateNamedPipeW(
                     &pipe_name,
-                    PIPE_ACCESS_DUPLEX,
+                    open_mode,
                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                    10,          // max instances
+                    PIPE_UNLIMITED_INSTANCES,
                     65536,       // out buffer
                     65536,       // in buffer
                     0,           // default timeout
                     Some(&sa),   // restrict to current user
                 )
-            };
-
-            if pipe_handle == INVALID_HANDLE_VALUE {
-                if !self.running.load(Ordering::SeqCst) {
-                    break;
-                }
-                return Err("CreateNamedPipe failed".into());
             }
+        };
 
+        // Named pipes have no lock file, so the first instance is the lock:
+        // FILE_FLAG_FIRST_PIPE_INSTANCE fails with ERROR_ACCESS_DENIED when
+        // another daemon already serves this name. Without it, a second daemon
+        // silently adds instances to the same pipe, clients are split between
+        // the two, and each daemon asks for Windows Hello on its own.
+        let mut listening = create_instance(true);
+        if listening == INVALID_HANDLE_VALUE {
+            if unsafe { GetLastError() } == ERROR_ACCESS_DENIED {
+                return Err(LOCK_HELD_ERROR.into());
+            }
+            return Err("CreateNamedPipe failed".into());
+        }
+
+        self.owns_files.store(true, Ordering::SeqCst);
+        self.running.store(true, Ordering::SeqCst);
+        if let Some(cb) = &self.on_listening {
+            cb();
+        }
+
+        while self.running.load(Ordering::SeqCst) {
             // Wait for a client to connect (blocking)
-            let connected = unsafe { ConnectNamedPipe(pipe_handle, None) };
+            let connected = unsafe { ConnectNamedPipe(listening, None) };
             if connected.is_err() {
                 // ERROR_PIPE_CONNECTED means client connected between Create and Connect — OK
-                // Any other error: close and retry
-                let last_err = unsafe { windows::Win32::Foundation::GetLastError() };
+                // Any other error: reset this instance and keep listening on it
+                let last_err = unsafe { GetLastError() };
                 if last_err != windows::Win32::Foundation::ERROR_PIPE_CONNECTED {
-                    unsafe { let _ = CloseHandle(pipe_handle); }
                     if !self.running.load(Ordering::SeqCst) {
                         break;
                     }
+                    unsafe { let _ = DisconnectNamedPipe(listening); }
                     continue;
                 }
             }
+
+            // Create the next listening instance before handing this one off, so
+            // the pipe name always has an instance. If it ever had none, another
+            // daemon could claim the name as its own first instance.
+            let next = create_instance(false);
+            if next == INVALID_HANDLE_VALUE {
+                unsafe {
+                    let _ = DisconnectNamedPipe(listening);
+                    let _ = CloseHandle(listening);
+                }
+                return Err("CreateNamedPipe failed".into());
+            }
+            let pipe_handle = std::mem::replace(&mut listening, next);
 
             if let Some(cb) = &self.on_activity {
                 cb();
@@ -254,7 +283,6 @@ impl IpcServer {
             // since we transfer exclusive ownership. Pass as raw pointer.
             let raw_handle = pipe_handle.0 as usize; // usize is Send
             std::thread::spawn(move || {
-                use windows::Win32::Foundation::HANDLE;
                 let pipe = HANDLE(raw_handle as *mut _);
 
                 // Verify the connecting process is a trusted varlock binary
@@ -275,6 +303,7 @@ impl IpcServer {
             });
         }
 
+        unsafe { let _ = CloseHandle(listening); }
         Ok(())
     }
 

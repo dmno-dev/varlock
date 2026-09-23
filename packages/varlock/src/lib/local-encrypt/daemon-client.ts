@@ -172,9 +172,6 @@ function cleanupDaemonFilesFor(pid: number): void {
   cleanupDaemonFiles();
 }
 
-/** Identity of the binary a running daemon was launched from */
-type DaemonBinaryIdentity = { binaryPath?: string; binaryMtimeMs?: number };
-
 /** Read the PID recorded by the running daemon, if it points at a live process */
 function readLiveDaemonPid(): number | undefined {
   const pid = readRecordedDaemonPid();
@@ -187,66 +184,38 @@ function readLiveDaemonPid(): number | undefined {
   }
 }
 
+const binaryHashCache = new Map<string, string | undefined>();
+
+/** SHA-256 of a binary's contents, cached per process (hashing takes well under 1ms) */
+function hashBinary(binaryPath: string): string | undefined {
+  if (!binaryHashCache.has(binaryPath)) {
+    let hash: string | undefined;
+    try {
+      hash = crypto.createHash('sha256').update(fs.readFileSync(binaryPath)).digest('hex');
+    } catch {
+      hash = undefined;
+    }
+    binaryHashCache.set(binaryPath, hash);
+  }
+  return binaryHashCache.get(binaryPath);
+}
+
 /**
- * Compare the binary a running daemon reports against the one we would spawn now.
+ * Whether a running daemon should be replaced by the binary we would spawn.
  *
- * Returns true only on a definite mismatch. An identity we cannot establish (an
- * older daemon that does not report its binary, an unreadable file) counts as
- * current: restarting a daemon we know nothing about costs the user an extra
- * biometric prompt, while leaving it alone costs nothing until it idles out.
+ * Identity is the binary's content hash, not its install path or version:
+ * release builds are cached by source hash, so varlock versions that didn't
+ * change the daemon ship byte-identical binaries, and each project's copy lives
+ * at a different path. Comparing contents lets those share one daemon (and one
+ * biometric session), while a genuinely different daemon build is swapped in
+ * when you move between projects.
+ *
+ * A daemon that doesn't report a hash predates this check, so it is always
+ * replaced. If we can't hash our own binary, we leave the running daemon alone.
  */
-export function isDaemonBinaryStale(identity: DaemonBinaryIdentity | undefined): boolean {
-  if (!identity?.binaryPath) return false;
-
-  const currentBinaryPath = resolveNativeBinary();
-  if (!currentBinaryPath) return false; // no binary available at all
-
-  // Path changed (e.g. new npm install, different resolution strategy)
-  if (currentBinaryPath !== identity.binaryPath) {
-    debug(`daemon binary path changed: ${identity.binaryPath} -> ${currentBinaryPath}`);
-    return true;
-  }
-
-  // Same path, so check whether the file was updated in place
-  if (identity.binaryMtimeMs === undefined) return false;
-  try {
-    const stat = fs.statSync(currentBinaryPath);
-    if (stat.mtimeMs === identity.binaryMtimeMs) return false;
-    debug(`daemon binary mtime changed: ${identity.binaryMtimeMs} -> ${stat.mtimeMs}`);
-    return true;
-  } catch {
-    return false; // cannot stat, assume OK
-  }
-}
-
-/**
- * Binary identity recorded in daemon.info. Only consulted for daemons too old
- * to report their own identity over IPC; current daemons write this file for
- * the benefit of older clients.
- */
-function readDaemonInfoFile(): DaemonBinaryIdentity | undefined {
-  try {
-    return JSON.parse(fs.readFileSync(getDaemonInfoPath(), 'utf-8'));
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Record which binary the daemon was spawned from, for the benefit of clients
- * older than the daemon-written info file. Current daemons write this
- * themselves, atomically, once they hold the startup lock.
- */
-function writeDaemonInfo(binaryPath: string): void {
-  try {
-    const stat = fs.statSync(binaryPath);
-    fs.writeFileSync(getDaemonInfoPath(), JSON.stringify({
-      binaryPath,
-      binaryMtimeMs: stat.mtimeMs,
-    }));
-  } catch {
-    // Non-fatal — version checking just won't work this time
-  }
+export function shouldReplaceDaemon(runningHash: string | undefined, ourHash: string | undefined): boolean {
+  if (!ourHash) return false;
+  return runningHash !== ourHash;
 }
 
 export class DaemonClient {
@@ -258,8 +227,6 @@ export class DaemonClient {
   private isConnected = false;
   private buffer = Buffer.alloc(0);
   private connectingPromise: Promise<void> | null = null;
-  /** Set after we spawn a daemon in this process — skip stale check to avoid restart loops */
-  private spawnedInThisProcess = false;
 
   async ensureConnected(): Promise<void> {
     if (this.isConnected && this.socket) return;
@@ -306,15 +273,15 @@ export class DaemonClient {
       return;
     }
 
-    if (this.spawnedInThisProcess) return;
+    const replacePid = await this.findReplaceableDaemonPid();
+    if (replacePid === undefined) return;
 
-    const stalePid = await this.findStaleDaemonPid();
-    if (stalePid === undefined) return;
-
-    debug(`restarting daemon (pid ${stalePid}): binary has been updated`);
+    // Replace at most once per connect: if another varlock install swaps the
+    // daemon again before we reconnect, we use whatever wins rather than fight.
+    debug(`replacing daemon (pid ${replacePid}): it runs a different binary than ours`);
     this.cleanup(); // drop our connection to the outgoing daemon
-    killDaemonProcess(stalePid);
-    cleanupDaemonFilesFor(stalePid);
+    killDaemonProcess(replacePid);
+    cleanupDaemonFilesFor(replacePid);
     await this.spawnAndConnect(socketPath);
   }
 
@@ -334,26 +301,25 @@ export class DaemonClient {
   }
 
   /**
-   * PID of the connected daemon when it is running an outdated binary, or
-   * undefined when it is current (or when we can't tell, which is treated the
-   * same way: leave the running daemon alone).
+   * PID of the connected daemon when it runs a different binary than the one we
+   * would spawn, or undefined when it should be kept.
    */
-  private async findStaleDaemonPid(): Promise<number | undefined> {
-    let pong: { pid?: number } & DaemonBinaryIdentity;
+  private async findReplaceableDaemonPid(): Promise<number | undefined> {
+    const binaryPath = resolveNativeBinary();
+    const ourHash = binaryPath ? hashBinary(binaryPath) : undefined;
+    if (!ourHash) return undefined;
+
+    let pong: { pid?: number; binaryHash?: string };
     try {
       pong = await this.sendMessage({ action: 'ping' });
     } catch (err) {
       // A daemon that won't answer a ping is handled by the retry path, where
       // an actual operation has failed and killing it is clearly warranted.
-      debug(`ping failed during staleness check: ${err instanceof Error ? err.message : err}`);
+      debug(`ping failed while checking the daemon binary: ${err instanceof Error ? err.message : err}`);
       return undefined;
     }
 
-    // Daemons from older releases don't report their binary over IPC; for those
-    // the info file written by the client that spawned them is all we have.
-    const identity = pong?.binaryPath ? pong : readDaemonInfoFile();
-    if (!isDaemonBinaryStale(identity)) return undefined;
-
+    if (!shouldReplaceDaemon(pong?.binaryHash, ourHash)) return undefined;
     return pong?.pid ?? readLiveDaemonPid();
   }
 
@@ -529,7 +495,6 @@ export class DaemonClient {
    */
   private async forceCleanup(): Promise<void> {
     this.cleanup();
-    this.spawnedInThisProcess = false; // allow stale-binary check on reconnect
 
     if (await this.isDaemonResponsive()) {
       debug('daemon still responds to ping, reconnecting without restarting it');
@@ -737,8 +702,6 @@ export class DaemonClient {
           const parsed = JSON.parse(stdoutData);
           if (parsed.ready) {
             clearTimeout(timeout);
-            writeDaemonInfo(binaryPath);
-            this.spawnedInThisProcess = true;
             child.unref();
             child.stdout!.destroy();
             child.stderr!.destroy();
