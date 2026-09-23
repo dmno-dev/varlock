@@ -40,20 +40,27 @@ function findVarlockBin(startDir: string): string | null {
 
 
 /**
- * Whether a failed shell `varlock ...` invocation means the command was not on PATH,
- * as opposed to varlock running and exiting non-zero.
- * - sh exits 127 when the command is not found
- * - the shell itself missing surfaces as ENOENT
- * - cmd.exe exits 1 (not 9009, which is only the in-shell ERRORLEVEL) and prints
- *   "'varlock' is not recognized as an internal or external command" to stderr.
- *   A real varlock failure also exits 1, so on Windows we key off that message.
+ * Whether a `varlock` executable exists in any directory on the given env's PATH.
+ * This is a locale-independent way to tell "not installed" apart from "ran and failed":
+ * cmd.exe exits 1 for both and its "not recognized" message is localized, so we cannot
+ * classify the failure after the fact. Instead we check PATH before invoking the shell.
  */
-function isShellCommandNotFound(err: unknown): boolean {
-  const errAny = err as any;
-  if (errAny?.status === 127 || errAny?.code === 'ENOENT') return true;
-  if (isWindows()) {
-    const stderr = errAny?.stderr?.toString() ?? '';
-    if (/is not recognized as an internal or external command/i.test(stderr)) return true;
+function isVarlockOnPath(env: NodeJS.ProcessEnv): boolean {
+  // Windows env keys are case-insensitive, so PATH may be stored as "Path"
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === 'PATH');
+  // pick the path flavor explicitly (rather than the platform default) so the
+  // Windows branch is exercisable in tests running on other platforms
+  const pathImpl = isWindows() ? path.win32 : path.posix;
+  const pathDirs = (pathKey ? env[pathKey] : '')?.split(pathImpl.delimiter).filter(Boolean) ?? [];
+  // PATHEXT is conventionally uppercase while npm/pnpm shims are `varlock.cmd` / `varlock.exe`;
+  // the Windows filesystem does not care, but lowercase keeps the lookup honest elsewhere
+  const exts = isWindows()
+    ? (env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map((ext) => ext.toLowerCase())
+    : [''];
+  for (const dir of pathDirs) {
+    for (const ext of exts) {
+      if (fs.existsSync(pathImpl.join(dir, `varlock${ext}`))) return true;
+    }
   }
   return false;
 }
@@ -187,20 +194,19 @@ export function execSyncVarlock(
 
     // No local install found. Fall back to whatever `varlock` is on PATH, which covers
     // users of the standalone binary or a global install with no npm install of varlock.
-    try {
-      const result = execSync(`varlock ${command}`, {
-        env: execEnv,
-        ...opts?.cwd && { cwd: opts.cwd },
-        stdio: 'pipe',
-      });
-      return opts?.fullResult
-        ? { stdout: result.toString(), stderr: '' }
-        : result.toString();
-    } catch (err) {
-      // The CLI ran but failed: surface its real error rather than "not found".
-      if (!isShellCommandNotFound(err)) throw err;
+    // We check PATH ourselves first so that a failure from the shell below is always a
+    // real CLI failure worth surfacing, rather than a (locale-dependent) "not found".
+    if (!isVarlockOnPath(execEnv)) {
+      throw new Error('Unable to find varlock executable');
     }
-    throw new Error('Unable to find varlock executable');
+    const result = execSync(`varlock ${command}`, {
+      env: execEnv,
+      ...opts?.cwd && { cwd: opts.cwd },
+      stdio: 'pipe',
+    });
+    return opts?.fullResult
+      ? { stdout: result.toString(), stderr: '' }
+      : result.toString();
   } catch (err) {
     // In fullResult mode, wrap the error as VarlockExecError with structured fields
     if (opts?.fullResult) {
