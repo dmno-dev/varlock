@@ -204,10 +204,17 @@ jobs:
 
           echo "All binary tests passed"
 
-      # Bidirectional Rust↔JS interop test (Linux x64 only — crypto is platform-independent)
-      - name: Setup Bun (for interop test)
-        if: matrix.test-interop
+      - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+
+      # Many daemons started at once must elect exactly one, and a killed daemon
+      # must be replaceable while its clients still hold connections (on Windows
+      # those lingering pipe handles are what rule out FILE_FLAG_FIRST_PIPE_INSTANCE)
+      - name: Test daemon single-instance election
+        shell: bash
+        run: bun run packages/encryption-binary-rust/scripts/test-daemon-election.ts "native-bins/${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}"
+
+      # Bidirectional Rust↔JS interop test (Linux x64 only; crypto is platform-independent)
 
       - name: Install JS deps (for interop test)
         if: matrix.test-interop
