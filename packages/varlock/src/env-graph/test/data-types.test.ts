@@ -663,6 +663,51 @@ describe('ip data type', () => {
   });
 });
 
+describe('uuid data type', () => {
+  it.each([
+    ['v1', 'c232ab00-9414-11ec-b3c8-9f6bdeced846'],
+    ['v4', '123e4567-e89b-42d3-a456-426614174000'],
+    ['v6', '1ec9414c-232a-6b00-b3c8-9f6bdeced846'],
+    ['v7', '01890a5d-ac96-774b-bcce-b302099a8057'],
+    ['v8', '2489e9ad-2ee2-8e00-8ec9-32d5f69181c0'],
+    ['NIL', '00000000-0000-0000-0000-000000000000'],
+    ['MAX', 'FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF'],
+  ])('accepts %s', async (_label, value) => {
+    const g = await loadAndResolve(outdent`
+      # @type=uuid
+      ID=${value}
+    `);
+    expect(g.configSchema.ID.isValid).toBe(true);
+  });
+
+  it.each([
+    ['version 0', '123e4567-e89b-02d3-a456-426614174000'],
+    ['version 9', '123e4567-e89b-92d3-a456-426614174000'],
+    ['bad variant', '123e4567-e89b-42d3-c456-426614174000'],
+    ['not a uuid', 'not-a-uuid'],
+  ])('rejects %s', async (_label, value) => {
+    const g = await loadAndResolve(outdent`
+      # @type=uuid
+      ID=${value}
+    `);
+    expect(g.configSchema.ID.isValid).toBe(false);
+  });
+
+  it('restricts to a single version via `version`', async () => {
+    const g = await loadAndResolve(outdent`
+      # @type=uuid(version=7)
+      V7=01890a5d-ac96-774b-bcce-b302099a8057
+      # @type=uuid(version=7)
+      V4=123e4567-e89b-42d3-a456-426614174000
+      # @type=uuid(version=7)
+      NIL=00000000-0000-0000-0000-000000000000
+    `);
+    expect(g.configSchema.V7.isValid).toBe(true);
+    expect(g.configSchema.V4.isValid).toBe(false);
+    expect(g.configSchema.NIL.isValid).toBe(false);
+  });
+});
+
 describe('md5 data type', () => {
   it('accepts lowercase md5', async () => {
     const g = await loadAndResolve(outdent`

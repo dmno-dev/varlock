@@ -289,10 +289,17 @@ MY_DATE=2024-03-20T15:30:00Z
 
 <div>
 ### `uuid`
-Checks for valid [UUID](https://en.wikipedia.org/wiki/UUID) (versions 1-5 per RFC4122, including `NIL`).
+Checks for valid [UUID](https://en.wikipedia.org/wiki/UUID) (versions 1-8 per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562), including `NIL` and `MAX`).
+
+**Options:**
+- `version` (`1-8`): Only accept this UUID version (`NIL` and `MAX` are rejected)
+
 ```env-spec
 # @type=uuid
 MY_UUID=123e4567-e89b-12d3-a456-426614174000
+
+# @type=uuid(version=7)
+MY_UUID_V7=01890a5d-ac96-774b-bcce-b302099a8057
 ```
 </div>
 

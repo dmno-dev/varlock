@@ -815,22 +815,41 @@ const IsoDateDataType = createEnvGraphDataType({
 });
 
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const UuidDataType = createEnvGraphDataType({
-  name: 'uuid',
-  icon: 'mdi:identifier',
-  typeDescription: 'UUID string V1-V5 per RFC4122, including NIL',
-  // A deterministic, unique, valid v4-shaped UUID derived from the seed.
-  generatePlaceholder: (seed) => {
-    const hex = hexFromSeed(seed);
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-  },
-  validate(val) {
-    const result = UUID_REGEX.test(val);
-    if (result) return true;
-    return new ValidationError('Value must be a valid UUID string');
-  },
-});
+// RFC 9562 versions 1-8 (captures the version digit), plus the special NIL and MAX UUIDs
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-([1-8])[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+const MAX_UUID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+const UuidDataType = createEnvGraphDataType(
+  (settings?: {
+    /** restrict to a single UUID version (1-8) */
+    version?: number;
+  }) => ({
+    name: 'uuid',
+    icon: 'mdi:identifier',
+    typeDescription: settings?.version
+      ? `UUIDv${settings.version} string per RFC 9562`
+      : 'UUID string (v1-v8) per RFC 9562, including NIL and MAX',
+    // A deterministic, unique, valid UUID derived from the seed (v4-shaped unless a version is set).
+    generatePlaceholder: (seed) => {
+      const hex = hexFromSeed(seed);
+      const version = settings?.version ?? 4;
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${version}${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+    },
+    validate(val) {
+      if (settings?.version !== undefined) {
+        const version = Number(settings.version);
+        if (!Number.isInteger(version) || version < 1 || version > 8) {
+          return new ValidationError('uuid `version` must be an integer from 1 to 8');
+        }
+        if (UUID_REGEX.exec(val)?.[1] === String(version)) return true;
+        return new ValidationError(`Value must be a valid UUIDv${version} string`);
+      }
+      const lowerVal = val.toLowerCase();
+      if (lowerVal === NIL_UUID || lowerVal === MAX_UUID || UUID_REGEX.test(val)) return true;
+      return new ValidationError('Value must be a valid UUID string');
+    },
+  }),
+);
 
 // case is normalized by `coerce` below, so this only ever sees lowercase
 const MD5_REGEX = /^[a-f0-9]{32}$/;

@@ -440,8 +440,9 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
   {
     name: 'uuid',
     summary: 'UUID string.',
-    documentation: 'Validates RFC4122 UUIDs.',
+    documentation: 'Validates RFC 9562 UUIDs (v1-v8, NIL, MAX). Example: `@type=uuid(version=7)`.',
     insertText: 'uuid',
+    optionSnippets: [{ name: 'version', insertText: 'version=${1|1,2,3,4,5,6,7,8|}', documentation: 'Restrict to a single UUID version.' }],
   },
   {
     name: 'md5',

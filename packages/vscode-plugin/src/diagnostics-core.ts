@@ -570,10 +570,15 @@ export function validateStaticValue(typeInfo: TypeInfo, value: string) {
       return /^\d{4}-\d{2}-\d{2}(?:[T ][0-9:.+-Z]*)?$/.test(value) && !Number.isNaN(Date.parse(value))
         ? undefined
         : 'Value must be a valid ISO date.';
-    case 'uuid':
-      return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-        ? undefined
-        : 'Value must be a valid UUID.';
+    case 'uuid': {
+      const version = typeInfo.options.version !== undefined ? Number(typeInfo.options.version) : undefined;
+      const detectedVersion = /^[0-9a-f]{8}-[0-9a-f]{4}-([1-8])[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.exec(value)?.[1];
+      if (version !== undefined) {
+        return detectedVersion === String(version) ? undefined : `Value must be a valid UUIDv${version}.`;
+      }
+      const isNilOrMax = /^(?:0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12})$/i.test(value);
+      return detectedVersion || isNilOrMax ? undefined : 'Value must be a valid UUID.';
+    }
     case 'md5':
       return /^[0-9a-f]{32}$/i.test(value)
         ? undefined
