@@ -18,6 +18,11 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 const MAX_MESSAGE_SIZE: u32 = 10_000_000; // 10MB safety limit
 
+/// Returned by `start()` when another daemon already holds the startup lock.
+/// The caller reports this to its launcher and exits cleanly, leaving every
+/// shared state file to the daemon that won.
+pub const LOCK_HELD_ERROR: &str = "Another daemon instance holds the lock";
+
 
 
 /// Message handler callback type.
@@ -29,6 +34,12 @@ pub struct IpcServer {
     running: Arc<AtomicBool>,
     message_handler: Option<Arc<MessageHandler>>,
     on_activity: Option<Arc<dyn Fn() + Send + Sync>>,
+    on_listening: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Set once we hold the startup lock and own the socket file. A daemon that
+    /// loses the race must not delete the winner's socket or lock file on its
+    /// way out: that leaves the winner running with no socket, and the next
+    /// client starts a second daemon alongside it.
+    owns_files: Arc<AtomicBool>,
 }
 
 impl IpcServer {
@@ -38,6 +49,8 @@ impl IpcServer {
             running: Arc::new(AtomicBool::new(false)),
             message_handler: None,
             on_activity: None,
+            on_listening: None,
+            owns_files: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -47,6 +60,13 @@ impl IpcServer {
 
     pub fn set_activity_callback(&mut self, callback: impl Fn() + Send + Sync + 'static) {
         self.on_activity = Some(Arc::new(callback));
+    }
+
+    /// Called once the server owns the socket and is about to accept clients.
+    /// Shared state files are claimed here, never before: until this point
+    /// another daemon may hold the lock and own them.
+    pub fn set_listening_callback(&mut self, callback: impl Fn() + Send + Sync + 'static) {
+        self.on_listening = Some(Arc::new(callback));
     }
 
     pub fn running_flag(&self) -> Arc<AtomicBool> {
@@ -86,7 +106,7 @@ impl IpcServer {
         use std::os::unix::io::AsRawFd;
         let lock_result = unsafe { libc::flock(lock_fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if lock_result != 0 {
-            return Err("Another daemon instance holds the lock".into());
+            return Err(LOCK_HELD_ERROR.into());
         }
 
         // Safe to remove stale socket now — we hold the lock
@@ -110,7 +130,11 @@ impl IpcServer {
             .set_nonblocking(true)
             .map_err(|e| format!("Failed to set non-blocking: {e}"))?;
 
+        self.owns_files.store(true, Ordering::SeqCst);
         self.running.store(true, Ordering::SeqCst);
+        if let Some(cb) = &self.on_listening {
+            cb();
+        }
 
         while self.running.load(Ordering::SeqCst) {
             match listener.accept() {
@@ -149,9 +173,7 @@ impl IpcServer {
             }
         }
 
-        // Cleanup socket and lock
-        let _ = std::fs::remove_file(&self.socket_path);
-        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
+        self.cleanup_owned_files();
         Ok(())
     }
 
@@ -169,7 +191,11 @@ impl IpcServer {
         use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
         use windows::core::HSTRING;
 
+        self.owns_files.store(true, Ordering::SeqCst);
         self.running.store(true, Ordering::SeqCst);
+        if let Some(cb) = &self.on_listening {
+            cb();
+        }
 
         let pipe_name = HSTRING::from(&self.socket_path);
 
@@ -255,13 +281,21 @@ impl IpcServer {
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
     }
+
+    /// Remove the socket and lock file, but only if this server created them.
+    fn cleanup_owned_files(&self) {
+        if !self.owns_files.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        let _ = std::fs::remove_file(&self.socket_path);
+        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
+    }
 }
 
 impl Drop for IpcServer {
     fn drop(&mut self) {
         self.stop();
-        let _ = std::fs::remove_file(&self.socket_path);
-        let _ = std::fs::remove_file(format!("{}.lock", self.socket_path));
+        self.cleanup_owned_files();
     }
 }
 

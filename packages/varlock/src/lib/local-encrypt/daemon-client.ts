@@ -40,6 +40,8 @@ const BIOMETRIC_TIMEOUT_MS = 90_000;
 const INTERACTIVE_TIMEOUT_MS = 5 * 60_000;
 /** How long to wait for SIGTERM before escalating to SIGKILL */
 const KILL_GRACE_MS = 2_000;
+/** Timeout for a liveness probe against a daemon that may already be gone */
+const PROBE_TIMEOUT_MS = 2_000;
 
 export class DaemonError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -119,10 +121,6 @@ function getSocketPath(): string {
   return path.join(getSocketDir(), 'daemon.sock');
 }
 
-function getLockPath(): string {
-  return `${getSocketPath()}.lock`;
-}
-
 function getPidPath(): string {
   return path.join(getSocketDir(), 'daemon.pid');
 }
@@ -131,18 +129,28 @@ function getDaemonInfoPath(): string {
   return path.join(getSocketDir(), 'daemon.info');
 }
 
-/** All state files that should be cleaned up when resetting daemon state */
-function getDaemonStateFiles(): Array<string> {
-  const files = [getPidPath(), getDaemonInfoPath()];
-  if (process.platform !== 'win32') {
-    files.push(getSocketPath(), getLockPath());
+/** PID recorded in the daemon PID file, whether or not that process still exists */
+function readRecordedDaemonPid(): number | undefined {
+  try {
+    const pid = parseInt(fs.readFileSync(getPidPath(), 'utf-8').trim(), 10);
+    return Number.isFinite(pid) ? pid : undefined;
+  } catch {
+    return undefined;
   }
-  return files;
 }
 
-/** Remove all daemon state files, ignoring errors */
+/**
+ * Remove the daemon's bookkeeping files (PID + info), ignoring errors.
+ *
+ * Deliberately never touches the socket or lock file: those belong to whichever
+ * daemon currently holds the startup lock. Unlinking them from a client orphans
+ * a live daemon (its socket vanishes while the process keeps running, menu bar
+ * item and all) and lets a second daemon bind alongside it, which costs the user
+ * a second biometric prompt. A starting daemon clears the stale socket itself,
+ * under the lock, where doing so is safe.
+ */
 function cleanupDaemonFiles(): void {
-  for (const file of getDaemonStateFiles()) {
+  for (const file of [getPidPath(), getDaemonInfoPath()]) {
     try {
       fs.unlinkSync(file);
     } catch { /* ignore */ }
@@ -150,62 +158,85 @@ function cleanupDaemonFiles(): void {
 }
 
 /**
- * Check whether the currently running daemon was spawned from the same binary
- * we would spawn now. Compares the resolved binary path and its mtime against
- * the values recorded in daemon.info when the daemon was last started.
- *
- * Returns the stale PID (to kill) if there's a mismatch or no info file
- * exists (daemon predates version tracking), or undefined if daemon is current.
+ * Clear the bookkeeping files left by a daemon we just took down, but only
+ * while they still describe that daemon. Several clients can decide to replace
+ * the same outdated daemon at once, and the slowest of them must not wipe the
+ * files its replacement has already written.
  */
-function checkDaemonBinaryStale(): number | undefined {
-  const infoPath = getDaemonInfoPath();
-  const pidPath = getPidPath();
-
-  let info: { binaryPath: string; binaryMtimeMs: number } | undefined;
-  try {
-    info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
-  } catch {
-    // No info file — daemon predates version tracking, treat as stale
+function cleanupDaemonFilesFor(pid: number): void {
+  const recorded = readRecordedDaemonPid();
+  if (recorded !== undefined && recorded !== pid) {
+    debug(`leaving daemon state files alone: they belong to pid ${recorded}, not ${pid}`);
+    return;
   }
+  cleanupDaemonFiles();
+}
 
-  const currentBinaryPath = resolveNativeBinary();
-  if (!currentBinaryPath) return undefined; // no binary available at all
+/** Identity of the binary a running daemon was launched from */
+type DaemonBinaryIdentity = { binaryPath?: string; binaryMtimeMs?: number };
 
-  if (info) {
-    // Path changed (e.g. new npm install, different resolution strategy)
-    if (currentBinaryPath !== info.binaryPath) {
-      debug(`daemon binary path changed: ${info.binaryPath} → ${currentBinaryPath}`);
-    } else {
-      // Same path — check if the file was updated in place
-      try {
-        const stat = fs.statSync(currentBinaryPath);
-        if (stat.mtimeMs === info.binaryMtimeMs) {
-          debug('daemon binary is current — no restart needed');
-          return undefined; // same binary, daemon is current
-        }
-        debug(`daemon binary mtime changed: ${info.binaryMtimeMs} → ${stat.mtimeMs}`);
-      } catch {
-        return undefined; // can't stat, assume OK
-      }
-    }
-  } else {
-    debug('no daemon.info file — treating running daemon as stale');
-  }
-
-  // Binary changed — read PID so caller can kill the stale daemon
+/** Read the PID recorded by the running daemon, if it points at a live process */
+function readLiveDaemonPid(): number | undefined {
+  const pid = readRecordedDaemonPid();
+  if (pid === undefined) return undefined;
   try {
-    const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
-    process.kill(pid, 0); // verify process is alive
+    process.kill(pid, 0); // throws if the process is gone
     return pid;
   } catch {
-    // Process already gone — clean up stale files so spawnDaemon starts clean
-    debug('stale PID file points to dead process — cleaning up');
-    cleanupDaemonFiles();
     return undefined;
   }
 }
 
-/** Write daemon.info recording which binary was used to spawn the daemon */
+/**
+ * Compare the binary a running daemon reports against the one we would spawn now.
+ *
+ * Returns true only on a definite mismatch. An identity we cannot establish (an
+ * older daemon that does not report its binary, an unreadable file) counts as
+ * current: restarting a daemon we know nothing about costs the user an extra
+ * biometric prompt, while leaving it alone costs nothing until it idles out.
+ */
+export function isDaemonBinaryStale(identity: DaemonBinaryIdentity | undefined): boolean {
+  if (!identity?.binaryPath) return false;
+
+  const currentBinaryPath = resolveNativeBinary();
+  if (!currentBinaryPath) return false; // no binary available at all
+
+  // Path changed (e.g. new npm install, different resolution strategy)
+  if (currentBinaryPath !== identity.binaryPath) {
+    debug(`daemon binary path changed: ${identity.binaryPath} -> ${currentBinaryPath}`);
+    return true;
+  }
+
+  // Same path, so check whether the file was updated in place
+  if (identity.binaryMtimeMs === undefined) return false;
+  try {
+    const stat = fs.statSync(currentBinaryPath);
+    if (stat.mtimeMs === identity.binaryMtimeMs) return false;
+    debug(`daemon binary mtime changed: ${identity.binaryMtimeMs} -> ${stat.mtimeMs}`);
+    return true;
+  } catch {
+    return false; // cannot stat, assume OK
+  }
+}
+
+/**
+ * Binary identity recorded in daemon.info. Only consulted for daemons too old
+ * to report their own identity over IPC; current daemons write this file for
+ * the benefit of older clients.
+ */
+function readDaemonInfoFile(): DaemonBinaryIdentity | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(getDaemonInfoPath(), 'utf-8'));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Record which binary the daemon was spawned from, for the benefit of clients
+ * older than the daemon-written info file. Current daemons write this
+ * themselves, atomically, once they hold the startup lock.
+ */
 function writeDaemonInfo(binaryPath: string): void {
   try {
     const stat = fs.statSync(binaryPath);
@@ -263,21 +294,32 @@ export class DaemonClient {
   private async doConnect(): Promise<void> {
     const socketPath = getSocketPath();
 
-    // Check if a running daemon was spawned from a stale binary
-    const stalePid = this.spawnedInThisProcess ? undefined : checkDaemonBinaryStale();
-    if (stalePid) {
-      debug(`killing stale daemon (pid ${stalePid}) — binary has been updated`);
-      killDaemonProcess(stalePid);
-      cleanupDaemonFiles();
-    } else {
-      try {
-        await this.connectToSocket(socketPath);
-        return;
-      } catch {
-        // Daemon not running, spawn it
-      }
+    // Connect first. Staleness is decided by asking the daemon we reach, never
+    // by inspecting state files up front: during a cold parallel start (an MCP
+    // host launching a dozen stdio servers at once) those files describe a
+    // daemon that is still coming up, and acting on them kills a healthy one.
+    try {
+      await this.connectToSocket(socketPath);
+    } catch (err) {
+      debug(`no daemon to connect to (${err instanceof Error ? err.message : err}), spawning`);
+      await this.spawnAndConnect(socketPath);
+      return;
     }
 
+    if (this.spawnedInThisProcess) return;
+
+    const stalePid = await this.findStaleDaemonPid();
+    if (stalePid === undefined) return;
+
+    debug(`restarting daemon (pid ${stalePid}): binary has been updated`);
+    this.cleanup(); // drop our connection to the outgoing daemon
+    killDaemonProcess(stalePid);
+    cleanupDaemonFilesFor(stalePid);
+    await this.spawnAndConnect(socketPath);
+  }
+
+  /** Spawn a daemon (tolerating a lost spawn race) and connect to whichever one wins */
+  private async spawnAndConnect(socketPath: string): Promise<void> {
     try {
       await this.spawnDaemon();
     } catch (err) {
@@ -289,6 +331,30 @@ export class DaemonClient {
       });
     }
     await this.connectToSocket(socketPath);
+  }
+
+  /**
+   * PID of the connected daemon when it is running an outdated binary, or
+   * undefined when it is current (or when we can't tell, which is treated the
+   * same way: leave the running daemon alone).
+   */
+  private async findStaleDaemonPid(): Promise<number | undefined> {
+    let pong: { pid?: number } & DaemonBinaryIdentity;
+    try {
+      pong = await this.sendMessage({ action: 'ping' });
+    } catch (err) {
+      // A daemon that won't answer a ping is handled by the retry path, where
+      // an actual operation has failed and killing it is clearly warranted.
+      debug(`ping failed during staleness check: ${err instanceof Error ? err.message : err}`);
+      return undefined;
+    }
+
+    // Daemons from older releases don't report their binary over IPC; for those
+    // the info file written by the client that spawned them is all we have.
+    const identity = pong?.binaryPath ? pong : readDaemonInfoFile();
+    if (!isDaemonBinaryStale(identity)) return undefined;
+
+    return pong?.pid ?? readLiveDaemonPid();
   }
 
   async decrypt(ciphertext: string, keyId = 'varlock-default'): Promise<string> {
@@ -446,28 +512,54 @@ export class DaemonClient {
       if (!recoverable) throw err;
 
       debug(`recoverable error, reconnecting: ${msg}`);
-      this.forceCleanup();
+      await this.forceCleanup();
       await this.ensureConnected();
       return await fn();
     }
   }
 
   /**
-   * Aggressive cleanup: kill the daemon process if we know its PID,
-   * then reset client state so the next ensureConnected spawns fresh.
+   * Recovery after a failed operation: reset client state, and take the daemon
+   * down only when it has actually stopped serving.
+   *
+   * A timeout on one call is not proof the daemon is broken (a biometric prompt
+   * another client is sitting on can hold it), so we re-probe first. Killing a
+   * daemon that is still healthy would strand every other varlock process
+   * connected to it and ask the user for a fresh Touch ID.
    */
-  private forceCleanup(): void {
+  private async forceCleanup(): Promise<void> {
     this.cleanup();
     this.spawnedInThisProcess = false; // allow stale-binary check on reconnect
 
-    // Try to kill the daemon by PID so we don't reconnect to a broken process
-    try {
-      const pid = parseInt(fs.readFileSync(getPidPath(), 'utf-8').trim(), 10);
-      killDaemonProcess(pid);
-    } catch { /* no PID file or already dead */ }
+    if (await this.isDaemonResponsive()) {
+      debug('daemon still responds to ping, reconnecting without restarting it');
+      return;
+    }
 
-    // Remove stale files so spawnDaemon starts clean
-    cleanupDaemonFiles();
+    // Try to kill the daemon by PID so we don't reconnect to a broken process,
+    // then drop the bookkeeping files so the next spawn starts clean. The socket
+    // and lock file are left to the next daemon, which clears them under the lock.
+    const pid = readLiveDaemonPid();
+    if (pid !== undefined) {
+      killDaemonProcess(pid);
+      cleanupDaemonFilesFor(pid);
+    } else {
+      cleanupDaemonFiles();
+    }
+  }
+
+  /** Whether a daemon is currently answering on the socket */
+  private async isDaemonResponsive(): Promise<boolean> {
+    const probe = new DaemonClient();
+    try {
+      await probe.connectToSocket(getSocketPath());
+      await probe.sendMessage({ action: 'ping' }, PROBE_TIMEOUT_MS);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      probe.cleanup();
+    }
   }
 
   private connectToSocket(socketPath: string): Promise<void> {
@@ -600,31 +692,25 @@ export class DaemonClient {
     }
     fs.mkdirSync(path.dirname(pidPath), { recursive: true });
 
-    // Check for existing daemon via PID
-    if (fs.existsSync(pidPath)) {
+    // Check for an existing daemon via PID
+    const existingPid = readLiveDaemonPid();
+    if (existingPid !== undefined) {
+      // Process is alive, so verify it's actually responsive on the socket
       try {
-        const pid = parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
-        process.kill(pid, 0); // Throws if process doesn't exist
-
-        // Process is alive — verify it's actually responsive on the socket
-        try {
-          await this.connectToSocket(socketPath);
-          return; // daemon is alive and accepting connections
-        } catch {
-          // Alive but socket unresponsive — kill it and respawn
-          debug(`daemon pid ${pid} alive but socket unresponsive — killing`);
-          killDaemonProcess(pid);
-        }
+        await this.connectToSocket(socketPath);
+        return; // daemon is alive and accepting connections
       } catch {
-        // Stale PID file — clean up both PID and socket
+        // Alive but socket unresponsive, so kill it and respawn
+        debug(`daemon pid ${existingPid} alive but socket unresponsive, killing it`);
+        killDaemonProcess(existingPid);
+        cleanupDaemonFilesFor(existingPid);
       }
     }
 
-    // Clean up stale files before spawning
-    cleanupDaemonFiles();
-    if (!isWindows && fs.existsSync(socketPath)) {
-      throw new Error(`Failed to clean up stale socket file: ${socketPath}`);
-    }
+    // The socket and lock file are intentionally left in place. A daemon that
+    // wins the startup lock clears them itself; removing them here would pull
+    // the socket out from under a daemon that is up but not yet recorded in the
+    // PID file, leaving it orphaned while a second daemon takes its place.
 
     return new Promise((resolve, reject) => {
       const child = spawn(binaryPath, [

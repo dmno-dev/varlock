@@ -85,14 +85,11 @@ impl SessionManager {
 
 /// Run the daemon.
 pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), String> {
-    // Write PID file
-    if let Some(pid_path) = pid_path {
-        if let Some(parent) = std::path::Path::new(pid_path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        std::fs::write(pid_path, std::process::id().to_string())
-            .map_err(|e| format!("Failed to write PID file: {e}"))?;
-    }
+    // The PID file is claimed only once we hold the startup lock (see the
+    // listening callback below). Writing it up front lets a daemon that loses
+    // the race overwrite the winner's PID with its own, about-to-be-dead one,
+    // after which every client reads a dead PID and treats the live daemon as
+    // garbage to be cleaned up.
 
     let session_manager = Arc::new(Mutex::new(SessionManager::new()));
     let mut server = IpcServer::new(socket_path);
@@ -156,22 +153,51 @@ pub fn run_daemon(socket_path: &str, pid_path: Option<&str>) -> Result<(), Strin
         }
     });
 
-    // Print ready message (matches Swift daemon format)
-    let ready = json!({
-        "ready": true,
-        "pid": std::process::id(),
-        "socketPath": socket_path,
+    // Claim the shared state files and announce readiness once the server owns
+    // the socket, so a daemon that loses the startup race touches neither.
+    let ready_socket_path = socket_path.to_string();
+    let ready_pid_path = pid_path_owned.clone();
+    server.set_listening_callback(move || {
+        if let Some(pp) = &ready_pid_path {
+            if let Some(parent) = std::path::Path::new(pp).parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(pp, std::process::id().to_string());
+        }
+
+        // Print ready message (matches Swift daemon format)
+        let ready = json!({
+            "ready": true,
+            "pid": std::process::id(),
+            "socketPath": ready_socket_path,
+        });
+        println!("{}", ready);
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
     });
-    println!("{}", ready);
-    use std::io::Write;
-    let _ = std::io::stdout().flush();
 
     // Start server (blocks)
     let result = server.start();
 
-    // Cleanup
+    if let Err(err) = &result {
+        if err == crate::ipc::LOCK_HELD_ERROR {
+            // Another daemon won the race. Emit the marker its launcher knows
+            // and exit cleanly without touching any shared state.
+            println!("{}", json!({"alreadyRunning": true}));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            return Ok(());
+        }
+    }
+
+    // Cleanup: only drop the PID file while it still names this process
     if let Some(pp) = &pid_path_owned {
-        let _ = std::fs::remove_file(pp);
+        let owned = std::fs::read_to_string(pp)
+            .map(|contents| contents.trim() == std::process::id().to_string())
+            .unwrap_or(false);
+        if owned {
+            let _ = std::fs::remove_file(pp);
+        }
     }
 
     result
@@ -274,11 +300,23 @@ fn handle_ping(tty_id: &Option<String>, sm: &Arc<Mutex<SessionManager>>) -> Valu
         .map(|s| s.is_session_warm(tty_id))
         .unwrap_or(false);
 
+    // argv[0] is the path the client resolved and spawned, so reporting it here
+    // lets clients detect an upgraded binary by asking the daemon itself.
+    let binary_path = std::env::args().next().unwrap_or_default();
+    let binary_mtime_ms = std::fs::metadata(&binary_path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs_f64() * 1000.0);
+
     json!({
         "result": {
             "pong": true,
             "sessionWarm": session_warm,
             "ttyId": tty_id.as_deref().unwrap_or(""),
+            "pid": std::process::id(),
+            "binaryPath": binary_path,
+            "binaryMtimeMs": binary_mtime_ms,
         }
     })
 }

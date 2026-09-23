@@ -178,12 +178,44 @@ case "daemon":
     let sessionManager = SessionManager()
     let server = IPCServer(socketPath: socketPath)
 
-    // Write PID file
+    // State files are written only once we hold the startup lock (see below).
+    // Writing them before then would let a daemon that loses the lock race
+    // clobber the winner's PID file with its own, about-to-be-dead PID.
     let pidPath = getArg("--pid-path")
-    if let pidPath = pidPath {
-        let pidDir = (pidPath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: pidDir, withIntermediateDirectories: true)
-        try? "\(ProcessInfo.processInfo.processIdentifier)".write(toFile: pidPath, atomically: true, encoding: .utf8)
+    let infoPath = getArg("--info-path")
+        ?? ((socketPath as NSString).deletingLastPathComponent as NSString)
+            .appendingPathComponent("daemon.info")
+
+    // argv[0] is exactly the path the client resolved and spawned, so recording
+    // it here lets clients detect an upgraded binary without a second source of
+    // truth. Resolved up front so the value is stable for both the info file
+    // and the `ping` response.
+    let daemonBinaryPath = CommandLine.arguments[0]
+    let daemonBinaryMtimeMs: Double? = {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: daemonBinaryPath),
+              let modified = attrs[.modificationDate] as? Date else { return nil }
+        return modified.timeIntervalSince1970 * 1000
+    }()
+
+    /// Write a state file atomically (temp file + rename) so a concurrently
+    /// starting client never reads a half-written file.
+    func writeStateFile(_ path: String, contents: String) {
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let tmpPath = path + ".tmp.\(ProcessInfo.processInfo.processIdentifier)"
+        guard (try? contents.write(toFile: tmpPath, atomically: false, encoding: .utf8)) != nil else { return }
+        if rename(tmpPath, path) != 0 {
+            unlink(tmpPath)
+        }
+    }
+
+    /// Remove a state file only if it still holds the value we wrote, so a
+    /// daemon shutting down after another has taken over doesn't delete the
+    /// new daemon's files.
+    func removeStateFileIfOwned(_ path: String, expected: String) {
+        guard let current = try? String(contentsOfFile: path, encoding: .utf8),
+              current.trimmingCharacters(in: .whitespacesAndNewlines) == expected else { return }
+        try? FileManager.default.removeItem(atPath: path)
     }
 
     // Status bar menu (must be created before run loop starts)
@@ -198,7 +230,7 @@ case "daemon":
         statusBarMenu?.remove()
         server.stop()
         if let pidPath = pidPath {
-            try? FileManager.default.removeItem(atPath: pidPath)
+            removeStateFileIfOwned(pidPath, expected: "\(ProcessInfo.processInfo.processIdentifier)")
         }
         // Use _exit to skip framework cleanup — LocalAuthentication teardown
         // can hang in the kernel (UE state) if Secure Enclave is unresponsive.
@@ -251,6 +283,9 @@ case "daemon":
                     "pong": true,
                     "sessionWarm": sessionManager.isSessionWarm(sessionId: sessionId),
                     "sessionId": sessionId as Any,
+                    "pid": ProcessInfo.processInfo.processIdentifier,
+                    "binaryPath": daemonBinaryPath,
+                    "binaryMtimeMs": daemonBinaryMtimeMs as Any,
                 ],
             ]
 
@@ -431,6 +466,19 @@ case "daemon":
     do {
         try server.start()
 
+        // We hold the startup lock and own the socket, so it's now safe to claim
+        // the shared state files. A daemon that lost the race never gets here,
+        // so it can't overwrite these with a PID that is about to disappear.
+        if let pidPath = pidPath {
+            writeStateFile(pidPath, contents: "\(ProcessInfo.processInfo.processIdentifier)")
+        }
+        var info: [String: Any] = ["binaryPath": daemonBinaryPath]
+        if let daemonBinaryMtimeMs { info["binaryMtimeMs"] = daemonBinaryMtimeMs }
+        if let infoData = try? JSONSerialization.data(withJSONObject: info),
+           let infoJson = String(data: infoData, encoding: .utf8) {
+            writeStateFile(infoPath, contents: infoJson)
+        }
+
         // Print ready message to stdout so the JS launcher knows we're ready
         jsonOutput(["ready": true, "pid": ProcessInfo.processInfo.processIdentifier, "socketPath": socketPath])
         fflush(stdout)
@@ -462,10 +510,10 @@ case "daemon":
 
         app.run()
     } catch IPCError.lockHeld {
-        // Another daemon won the race (parallel spawn — e.g. turbo tasks).
-        // Emit a marker the JS launcher can recognize and exit cleanly without
-        // touching any shared state. We deliberately skip removing pidPath here
-        // since the existing daemon owns it.
+        // Another daemon won the race (parallel spawn, e.g. turbo tasks, or an
+        // app launching many MCP servers at once). Emit a marker the JS launcher
+        // can recognize and exit cleanly. We never wrote any shared state file,
+        // so there is nothing to undo: the winner owns them all.
         jsonOutput(["alreadyRunning": true])
         fflush(stdout)
         _exit(0)
