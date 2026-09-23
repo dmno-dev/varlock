@@ -148,12 +148,19 @@ plugin.registerRootDecorator({
     }
 
     // keyFile (optional)
-    if (objArgs.keyFile && !objArgs.keyFile.isStatic) {
-      throw new SchemaError('Expected keyFile to be a static value');
+    let keyFile: string | undefined;
+    if (objArgs.keyFile) {
+      if (!objArgs.keyFile.isStatic) {
+        throw new SchemaError('Expected keyFile to be a static value');
+      }
+      if (typeof objArgs.keyFile.staticValue !== 'string' || !objArgs.keyFile.staticValue) {
+        throw new SchemaError('Expected keyFile to be a non-empty path string');
+      }
+      keyFile = objArgs.keyFile.staticValue;
     }
 
     // password is optional only when a key file is used (KeePass allows key-file-only databases)
-    if (!objArgs.password && !objArgs.keyFile) {
+    if (!objArgs.password && !keyFile) {
       throw new SchemaError('@initKeePass requires a password, a keyFile, or both', {
         tip: [
           'Provide the database master password, e.g., @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)',
@@ -166,7 +173,7 @@ plugin.registerRootDecorator({
       id,
       dbPathResolver: objArgs.dbPath,
       passwordResolver: objArgs.password,
-      keyFile: objArgs?.keyFile ? String(objArgs.keyFile.staticValue) : undefined,
+      keyFile,
       useCliResolver: objArgs.useCli,
     };
   },

@@ -305,6 +305,15 @@ describe('keepass plugin', () => {
       expectSchemaError: true,
     }));
 
+    test('empty keyFile does not count as a credential', pluginTest({
+      schema: outdent`
+        # @plugin(${PLUGIN_PATH})
+        # @initKeePass(dbPath="/tmp/x.kdbx", keyFile="")
+        # ---
+      `,
+      expectSchemaError: true,
+    }));
+
     test('key file only db, but password provided', (() => {
       return async () => {
         const { dbPath, keyFilePath } = await buildKeyFileOnlyDb({ SECRET: { Password: 'val' } });
