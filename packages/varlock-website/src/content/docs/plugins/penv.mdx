@@ -1,0 +1,210 @@
+---
+title: penv Plugin
+description: Using penv.cloud with Varlock
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Badge from '@/components/Badge.astro';
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/penv-plugin" />
+</div>
+
+Our [penv.cloud](https://penv.cloud) plugin loads secrets from penv.cloud projects using declarative instructions within your `.env` files.
+
+The plugin reads the same `@penv=org/project` header and `penv(...)` addresses as the [penv CLI](https://github.com/penvhq/penvhq), so one `.env.schema` works with both tools.
+
+## Features
+
+- **Fetch secrets** from a penv.cloud project, in the current environment or any other environment, project or org
+- **Bulk-load an environment** with `penvBulk()` via `@setValuesBulk`
+- **Machine token authentication**, scoped per project and environment in penv.cloud
+- **One request per environment** per load, shared by every item that reads it
+- **HTTPS only**; redirects are refused and tokens never appear in errors
+
+## Installation and setup
+
+In a JS/TS project, you may install the `@varlock/penv-plugin` package as a normal dependency.
+Otherwise you can load it directly from your `.env.schema` file, as long as you add a version specifier.
+See the [plugins guide](/guides/plugins/#installation) for more instructions on installing plugins.
+
+```env-spec title=".env.schema"
+# 1. Load the plugin
+# @plugin(@varlock/penv-plugin)
+#
+# 2. Name the penv.cloud org and project
+# @penv=acme/api
+#
+# 3. Initialize the plugin - see below for more details on options
+# @initPenv(environment=$APP_ENV, token=$PENV_TOKEN)
+# @currentEnv=$APP_ENV
+# ---
+
+# @type=enum(development, staging, production)
+APP_ENV=development
+
+# 4. Add your machine token
+# @type=penvToken
+PENV_TOKEN=
+```
+
+### Machine token setup
+
+<Steps>
+1. **Create a machine token**
+
+    In the [penv.cloud](https://penv.cloud) console, create a machine token for the project, scoped to the environments this app reads. It starts with `pck_`.
+
+2. **Wire up the token in your config**
+
+    ```env-spec title=".env.schema"
+    # @plugin(@varlock/penv-plugin)
+    # @penv=acme/api
+    # @initPenv(token=$PENV_TOKEN)
+    # ---
+
+    # @type=penvToken
+    PENV_TOKEN=
+    ```
+
+3. **Set the token in your environment**
+
+    Use your CI/CD system or platform's env var management to inject `PENV_TOKEN`.
+</Steps>
+
+## Loading secrets
+
+### Basic usage
+
+```env-spec title=".env.schema"
+# The item key, in the current environment
+DATABASE_URL=penv()
+
+# Another key name
+STRIPE_SECRET_KEY=penv(STRIPE_KEY)
+
+# Another environment
+PROD_DATABASE_URL=penv(production/DATABASE_URL)
+
+# Another project, or another org
+BILLING_TOKEN=penv(billing/production/API_TOKEN)
+SENTRY_DSN=penv(acme-shared/observability/production/SENTRY_DSN)
+```
+
+When called without arguments, `penv()` uses the config item key as the key name in penv.cloud.
+
+### Bulk loading secrets
+
+Use `penvBulk()` with `@setValuesBulk` to load every value of an environment at once:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/penv-plugin)
+# @penv=acme/api
+# @initPenv(environment=$APP_ENV, token=$PENV_TOKEN)
+# @setValuesBulk(penvBulk())
+# ---
+# @type=penvToken
+PENV_TOKEN=
+
+DATABASE_URL=
+STRIPE_SECRET_KEY=
+REDIS_URL=
+```
+
+Another environment:
+
+```env-spec title=".env.schema"
+# @setValuesBulk(penvBulk(production))
+```
+
+---
+
+## Reference
+
+### Root decorators
+<div class="reference-docs">
+<div>
+#### `@penv`
+
+The penv.cloud org and project the schema reads: `org/project`. `penv:org/project` is accepted. Any other provider prefix is refused.
+
+```env-spec "@penv"
+# @penv=acme/api
+```
+</div>
+
+<div>
+#### `@initPenv()`
+
+Configure penv.cloud access for `penv()` and `penvBulk()`.
+
+**Key/value args:**
+- `environment` (optional): the environment `penv()` and `penvBulk()` read by default. Defaults to `development`; point it at your `@currentEnv` item to keep them in step.
+- `token` (required when a value is read): a penv.cloud machine token. Should be a reference to a config item of type `penvToken`.
+- `url` (optional): the API root. Defaults to `https://penv.cloud`. Must be `https`, except `http://localhost`.
+- `org`, `project` (optional): used instead of `@penv=`.
+- `cacheTtl` (optional): cache resolved values for the specified duration (e.g. `"5m"`, `"1h"`, `"1d"`, or `forever`). See the [Caching guide](/guides/caching/).
+
+```env-spec "@initPenv"
+# @initPenv(environment=$APP_ENV, token=$PENV_TOKEN, cacheTtl="5m")
+```
+</div>
+</div>
+
+### Resolver functions
+<div class="reference-docs">
+<div>
+#### `penv()`
+
+Read one value. The address is one of:
+
+| Address | Reads |
+|---|---|
+| none | the item key, in the default environment |
+| `KEY` | `KEY`, in the default environment |
+| `env/KEY` | `KEY` in environment `env` |
+| `project/env/KEY` | another project in the same org |
+| `org/project/env/KEY` | another org |
+
+```env-spec "penv"
+DATABASE_URL=penv()
+PROD_DATABASE_URL=penv(production/DATABASE_URL)
+```
+</div>
+
+<div>
+#### `penvBulk()`
+
+Every value of one environment, as JSON, for `@setValuesBulk`. Takes an optional environment name; defaults to the `@initPenv()` environment.
+
+```env-spec "penvBulk"
+# @setValuesBulk(penvBulk(production))
+```
+</div>
+</div>
+
+### Data types
+<div class="reference-docs">
+<div>
+#### `penvToken`
+
+This type is [`@internal`](/reference/item-decorators/#internal) by default: varlock uses it to fetch your other secrets but does **not** inject it into your application. Override with `@internal=false` if your app uses the credential directly.
+
+Represents a penv.cloud machine token. This type is marked as `@sensitive`.
+
+```env-spec "penvToken"
+# @type=penvToken
+PENV_TOKEN=
+```
+</div>
+</div>
+
+## Troubleshooting
+
+| Error | Fix |
+|---|---|
+| `penv.cloud rejected the token` | create a new machine token and set `PENV_TOKEN` |
+| `the token may not read org/project/env` | give the machine identity that project and environment in penv.cloud |
+| `org/project/env does not exist on penv.cloud` | check the names; `penv project ls` lists them |
+| `KEY is not in org/project/env` | add it: `penv set KEY --env env` |
+| `KEY has no stored value` | set one: `penv set KEY --env env` |

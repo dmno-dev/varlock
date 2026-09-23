@@ -478,6 +478,20 @@
         "varlock": "workspace:^",
       },
     },
+    "packages/plugins/penv": {
+      "name": "@varlock/penv-plugin",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "outdent": "catalog:",
+        "tsdown": "catalog:",
+        "varlock": "workspace:^",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "varlock": "workspace:^",
+      },
+    },
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
       "version": "2.0.1",
@@ -1718,6 +1732,8 @@
     "@varlock/pass-plugin": ["@varlock/pass-plugin@workspace:packages/plugins/pass"],
 
     "@varlock/passbolt-plugin": ["@varlock/passbolt-plugin@workspace:packages/plugins/passbolt"],
+
+    "@varlock/penv-plugin": ["@varlock/penv-plugin@workspace:packages/plugins/penv"],
 
     "@varlock/proton-pass-plugin": ["@varlock/proton-pass-plugin@workspace:packages/plugins/proton-pass"],
 

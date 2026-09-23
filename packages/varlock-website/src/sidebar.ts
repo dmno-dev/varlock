@@ -215,6 +215,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             collapsed: true,
             items: [
               { label: 'Doppler', slug: 'plugins/doppler' },
+              { label: 'penv', slug: 'plugins/penv' },
               { label: 'Infisical', slug: 'plugins/infisical' },
               { label: 'HashiCorp Vault', slug: 'plugins/hashicorp-vault' },
               { label: 'Akeyless', slug: 'plugins/akeyless' },

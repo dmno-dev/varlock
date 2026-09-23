@@ -1,0 +1,50 @@
+{
+  "name": "@varlock/penv-plugin",
+  "description": "Varlock plugin to load secrets from penv.cloud",
+  "version": "0.0.1",
+  "type": "module",
+  "homepage": "https://varlock.dev/plugins/penv/",
+  "bugs": "https://github.com/dmno-dev/varlock/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/plugins/penv"
+  },
+  "exports": {
+    "./plugin": "./dist/plugin.cjs"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "varlock",
+    "plugin",
+    "varlock-plugin",
+    "penv",
+    "penv.cloud",
+    "secrets",
+    "secret-management",
+    "env",
+    ".env",
+    "environment variables"
+  ],
+  "author": "penvhq",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "outdent": "catalog:",
+    "tsdown": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
