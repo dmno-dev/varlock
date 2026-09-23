@@ -52,6 +52,8 @@ jobs:
         run: bun run typecheck:all
       - name: Build libraries
         run: bun run build:libs
+      - name: Check plugin bundles are single-file
+        run: bun run scripts/check-plugin-bundles.ts
       - name: Run tests
         run: bun run test:ci
       # The vitest suite runs under Node; this check runs the proxy's verified-TLS

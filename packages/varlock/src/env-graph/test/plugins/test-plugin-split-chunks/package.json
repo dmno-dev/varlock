@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/test-plugin-split-chunks",
+  "private": true,
+  "description": "plugin used in automated tests - mimics a bundler splitting out a lazily loaded chunk that requires the entry back",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.cjs"
+  }
+}

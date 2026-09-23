@@ -31,6 +31,17 @@ describe('plugins ', () => {
     expectValues: { FIRST: 'run-1', SECOND: 'run-1' },
   }));
 
+  // bundlers can split a CJS plugin into chunks that `require('./plugin.cjs')` back.
+  // the entry must not re-run outside the plugin context when that happens (#1113)
+  test('lazily loaded chunk can require the plugin entry back', envFilesTest({
+    envFile: outdent`
+      # @plugin(./plugins/test-plugin-split-chunks/)
+      # ---
+      CHUNKED=chunked(foo)
+    `,
+    expectValues: { CHUNKED: 'chunk:foo' },
+  }));
+
   test('bad semver range', envFilesTest({
     envFile: outdent`
       # @plugin(@varlock/test-plugin@xxx)

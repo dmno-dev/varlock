@@ -2,7 +2,7 @@
 import path from 'node:path';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { createRequire, Module } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import crypto from 'node:crypto';
 import https from 'node:https';
@@ -113,8 +113,15 @@ function loadPluginModuleCJS(filePath: string): void {
 
   const code = fsSync.readFileSync(filePath, 'utf-8');
   const pluginDir = path.dirname(filePath);
-  const moduleObj = { exports: {} as any };
   const baseRequire = createRequire(filePath);
+
+  // register a real module in require.cache before running the plugin code, so a
+  // split chunk that does `require('./plugin.cjs')` gets these exports back instead
+  // of re-running the entry after the plugin context is deactivated (#1113)
+  const moduleObj = new Module(filePath);
+  moduleObj.filename = filePath;
+  moduleObj.paths = (Module as any)._nodeModulePaths(pluginDir);
+  baseRequire.cache[filePath] = moduleObj;
   const requireFn = (id: string) => {
     if (id === 'varlock/plugin-lib') return varlockPluginLibExports;
     return baseRequire(id);
@@ -125,7 +132,13 @@ function loadPluginModuleCJS(filePath: string): void {
 
   // eslint-disable-next-line no-new-func
   const moduleFn = new Function('exports', 'require', 'module', '__filename', '__dirname', code);
-  moduleFn(moduleObj.exports, requireFn, moduleObj, filePath, pluginDir);
+  try {
+    moduleFn(moduleObj.exports, requireFn, moduleObj, filePath, pluginDir);
+    moduleObj.loaded = true;
+  } catch (err) {
+    delete baseRequire.cache[filePath];
+    throw err;
+  }
 }
 
 /**

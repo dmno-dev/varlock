@@ -16,6 +16,10 @@ export default defineConfig({
   platform: 'node',
   target: 'esnext',
   external: ['varlock'],
+  // plugins must build to a single file: varlock executes plugin.cjs itself (not via
+  // require), so a split chunk that requires ./plugin.cjs would re-run the entry
+  // outside of the plugin context. see #1113
+  outputOptions: { codeSplitting: false },
   // point kdbxweb's xmldom import at our compat wrapper (see src/xmldom-compat.ts).
   // an `alias` can't do this: it prefix-matches subpaths, so the shim's own
   // import would resolve back into the shim.
