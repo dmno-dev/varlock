@@ -197,8 +197,8 @@ export default defineConfig({
               paths: ['integrations/**'],
             },
             {
-              label: 'Secret provider plugins',
-              description: '1Password, AWS, Azure, GCP, Vault, Infisical, Doppler, Bitwarden, Kubernetes, and other providers',
+              label: 'Plugins',
+              description: '1Password, AWS, Azure, GCP, Vault, Infisical, Doppler, Bitwarden, Kubernetes, and other providers, plus Effect codegen',
               paths: ['plugins/**'],
             },
             {

@@ -38,6 +38,8 @@ export default tseslint.config(
 
   {
     ignores: [
+      // Exact generator output, checked by the Effect plugin's fixture tests.
+      'packages/plugins/effect/test/**/*.generated.ts',
       '**/dist',
       '**/dist-sea',
       '**/dist-test',

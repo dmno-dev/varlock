@@ -124,6 +124,7 @@ Varlock is built on top of @env-spec, a new DSL for attaching a schema and addit
 | [@varlock/bitwarden-plugin](packages/plugins/bitwarden) | [![npm version](https://img.shields.io/npm/v/@varlock/bitwarden-plugin.svg)](https://npmx.dev/package/@varlock/bitwarden-plugin) |
 | [@varlock/dashlane-plugin](packages/plugins/dashlane) | [![npm version](https://img.shields.io/npm/v/@varlock/dashlane-plugin.svg)](https://npmx.dev/package/@varlock/dashlane-plugin) |
 | [@varlock/doppler-plugin](packages/plugins/doppler) | [![npm version](https://img.shields.io/npm/v/@varlock/doppler-plugin.svg)](https://npmx.dev/package/@varlock/doppler-plugin) |
+| [@varlock/effect-plugin](packages/plugins/effect) | [![npm version](https://img.shields.io/npm/v/@varlock/effect-plugin.svg)](https://npmx.dev/package/@varlock/effect-plugin) |
 | [@varlock/google-secret-manager-plugin](packages/plugins/google-secret-manager) | [![npm version](https://img.shields.io/npm/v/@varlock/google-secret-manager-plugin.svg)](https://npmx.dev/package/@varlock/google-secret-manager-plugin) |
 | [@varlock/hashicorp-vault-plugin](packages/plugins/hashicorp-vault) | [![npm version](https://img.shields.io/npm/v/@varlock/hashicorp-vault-plugin.svg)](https://npmx.dev/package/@varlock/hashicorp-vault-plugin) |
 | [@varlock/infisical-plugin](packages/plugins/infisical) | [![npm version](https://img.shields.io/npm/v/@varlock/infisical-plugin.svg)](https://npmx.dev/package/@varlock/infisical-plugin) |
