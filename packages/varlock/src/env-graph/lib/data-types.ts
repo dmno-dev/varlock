@@ -837,8 +837,9 @@ const UuidDataType = createEnvGraphDataType(
     },
     validate(val) {
       if (settings?.version !== undefined) {
-        const version = Number(settings.version);
-        if (!Number.isInteger(version) || version < 1 || version > 8) {
+        // settings are runtime data, so guard against non-numbers (e.g. `version=true` would coerce to 1)
+        const version = settings.version as unknown;
+        if (!_.isNumber(version) || !Number.isInteger(version) || version < 1 || version > 8) {
           return new ValidationError('uuid `version` must be an integer from 1 to 8');
         }
         if (UUID_REGEX.exec(val)?.[1] === String(version)) return true;

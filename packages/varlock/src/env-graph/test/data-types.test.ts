@@ -706,6 +706,14 @@ describe('uuid data type', () => {
     expect(g.configSchema.V4.isValid).toBe(false);
     expect(g.configSchema.NIL.isValid).toBe(false);
   });
+
+  it.each(['true', '0', '9', '7.5', '"7"'])('rejects invalid `version` option (%s)', async (version) => {
+    const g = await loadAndResolve(outdent`
+      # @type=uuid(version=${version})
+      ID=c232ab00-9414-11ec-b3c8-9f6bdeced846
+    `);
+    expect(g.configSchema.ID.isValid).toBe(false);
+  });
 });
 
 describe('md5 data type', () => {

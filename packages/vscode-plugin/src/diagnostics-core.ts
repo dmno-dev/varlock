@@ -571,10 +571,11 @@ export function validateStaticValue(typeInfo: TypeInfo, value: string) {
         ? undefined
         : 'Value must be a valid ISO date.';
     case 'uuid': {
-      const version = typeInfo.options.version !== undefined ? Number(typeInfo.options.version) : undefined;
+      const version = typeInfo.options.version;
       const detectedVersion = /^[0-9a-f]{8}-[0-9a-f]{4}-([1-8])[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.exec(value)?.[1];
       if (version !== undefined) {
-        return detectedVersion === String(version) ? undefined : `Value must be a valid UUIDv${version}.`;
+        if (typeof version !== 'string' || !/^[1-8]$/.test(version)) return 'uuid `version` must be an integer from 1 to 8.';
+        return detectedVersion === version ? undefined : `Value must be a valid UUIDv${version}.`;
       }
       const isNilOrMax = /^(?:0{8}-0{4}-0{4}-0{4}-0{12}|f{8}-f{4}-f{4}-f{4}-f{12})$/i.test(value);
       return detectedVersion || isNilOrMax ? undefined : 'Value must be a valid UUID.';
