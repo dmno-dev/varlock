@@ -58,6 +58,36 @@ final class IPCServer {
         return (st.st_dev, st.st_ino)
     }
 
+    /// Open the lock file and take an exclusive flock on it. Returns the locked
+    /// fd, or nil when another process holds the lock.
+    ///
+    /// A lock is only meaningful while the path still names the file we locked.
+    /// A daemon shutting down unlinks its lock file, and a stuck-daemon takeover
+    /// replaces it; a process that opened the old file just before either can
+    /// then win a flock on an inode the path no longer points to, alongside a
+    /// daemon holding the real one. So after locking, confirm the path still
+    /// names our file, and start over on the current file if it doesn't.
+    static func acquireLock(path: String) throws -> Int32? {
+        for _ in 0..<5 {
+            let fd = open(path, O_CREAT | O_RDWR, 0o600)
+            guard fd >= 0 else {
+                throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
+            }
+            if flock(fd, LOCK_EX | LOCK_NB) != 0 {
+                close(fd)
+                return nil
+            }
+            var locked = stat()
+            var named = stat()
+            if fstat(fd, &locked) == 0, stat(path, &named) == 0,
+               locked.st_dev == named.st_dev, locked.st_ino == named.st_ino {
+                return fd
+            }
+            close(fd)
+        }
+        throw IPCError.socketCreationFailed("Lock file kept changing while acquiring it")
+    }
+
     /// Unlink a path only if it still resolves to the inode we created.
     private static func unlinkIfOwned(_ path: String, owned: (dev: dev_t, ino: ino_t)?) {
         guard let owned, let current = inodeIdentity(path) else { return }
@@ -153,34 +183,24 @@ final class IPCServer {
         // recovery from genuinely stuck daemons that even the TS-side
         // killDaemonProcess can't bring down.
         let lockPath = socketPath + ".lock"
-        lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
-        guard lockFD >= 0 else {
-            throw IPCError.socketCreationFailed("Failed to create lock file: \(String(cString: strerror(errno)))")
-        }
-        if flock(lockFD, LOCK_EX | LOCK_NB) != 0 {
+        if let fd = try IPCServer.acquireLock(path: lockPath) {
+            lockFD = fd
+        } else {
             let lockAgeSeconds = IPCServer.lockFileAgeSeconds(path: lockPath)
             let isFresh = lockAgeSeconds < IPCServer.freshLockThresholdSeconds
 
             if isFresh || IPCServer.existingDaemonResponsive(socketPath: socketPath, timeoutMs: 1500) {
-                close(lockFD)
-                lockFD = -1
                 throw IPCError.lockHeld
             }
 
             // Old + unresponsive: previous daemon is wedged in the kernel and
             // can't be signaled away. Recreate the lock file so we get a fresh
             // inode whose flock is independent of the stuck holder's.
-            close(lockFD)
             unlink(lockPath)
-            lockFD = open(lockPath, O_CREAT | O_RDWR, 0o600)
-            guard lockFD >= 0 else {
-                throw IPCError.socketCreationFailed("Failed to recreate lock file: \(String(cString: strerror(errno)))")
-            }
-            guard flock(lockFD, LOCK_EX | LOCK_NB) == 0 else {
-                close(lockFD)
-                lockFD = -1
+            guard let fd = try IPCServer.acquireLock(path: lockPath) else {
                 throw IPCError.socketCreationFailed("Failed to take over stuck daemon's lock")
             }
+            lockFD = fd
         }
 
         lockInode = IPCServer.inodeIdentity(lockPath)
@@ -242,14 +262,16 @@ final class IPCServer {
         IPCServer.unlinkIfOwned(socketPath, owned: socketInode)
         socketInode = nil
 
-        // Release the startup lock
+        // Remove the lock file while still holding the lock, then release it.
+        // Unlinking after release would leave a window where a new daemon locks
+        // this file and then loses it from under itself.
+        IPCServer.unlinkIfOwned(socketPath + ".lock", owned: lockInode)
+        lockInode = nil
         if lockFD >= 0 {
             flock(lockFD, LOCK_UN)
             close(lockFD)
             lockFD = -1
         }
-        IPCServer.unlinkIfOwned(socketPath + ".lock", owned: lockInode)
-        lockInode = nil
 
         // Cancel all client handlers
         handlersQueue.sync {

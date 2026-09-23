@@ -93,21 +93,7 @@ impl IpcServer {
         // Prevents a TOCTOU race where a malicious process could create a fake
         // socket between our unlink() and bind(), intercepting client connections.
         let lock_path = format!("{}.lock", self.socket_path);
-        let lock_fd = {
-            use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .mode(0o600)
-                .open(&lock_path)
-                .map_err(|e| format!("Failed to create lock file: {e}"))?
-        };
-        use std::os::unix::io::AsRawFd;
-        let lock_result = unsafe { libc::flock(lock_fd.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-        if lock_result != 0 {
-            return Err(LOCK_HELD_ERROR.into());
-        }
+        let _lock_file = acquire_lock(&lock_path)?;
 
         // Safe to remove stale socket now — we hold the lock
         let _ = std::fs::remove_file(&self.socket_path);
@@ -183,14 +169,12 @@ impl IpcServer {
     /// the TS daemon client's `socket.connect(pipePath)` just works.
     #[cfg(windows)]
     pub fn start(&self) -> Result<(), String> {
-        use windows::Win32::Foundation::{
-            CloseHandle, GetLastError, ERROR_ACCESS_DENIED, HANDLE, INVALID_HANDLE_VALUE,
-        };
+        use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
         use windows::Win32::System::Pipes::{
             ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe,
             PIPE_TYPE_BYTE, PIPE_READMODE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
         };
-        use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
+        use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
         use windows::core::HSTRING;
 
         let pipe_name = HSTRING::from(&self.socket_path);
@@ -203,15 +187,11 @@ impl IpcServer {
         // Instance limit is unlimited: every running varlock process may hold a
         // connection open (an MCP host can easily run a dozen), and a capped pipe
         // turns the next client away as if no daemon were running.
-        let create_instance = |first: bool| -> HANDLE {
-            let mut open_mode = PIPE_ACCESS_DUPLEX;
-            if first {
-                open_mode |= FILE_FLAG_FIRST_PIPE_INSTANCE;
-            }
+        let create_instance = || -> HANDLE {
             unsafe {
                 CreateNamedPipeW(
                     &pipe_name,
-                    open_mode,
+                    PIPE_ACCESS_DUPLEX,
                     PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
                     PIPE_UNLIMITED_INSTANCES,
                     65536,       // out buffer
@@ -222,16 +202,13 @@ impl IpcServer {
             }
         };
 
-        // Named pipes have no lock file, so the first instance is the lock:
-        // FILE_FLAG_FIRST_PIPE_INSTANCE fails with ERROR_ACCESS_DENIED when
-        // another daemon already serves this name. Without it, a second daemon
-        // silently adds instances to the same pipe, clients are split between
-        // the two, and each daemon asks for Windows Hello on its own.
-        let mut listening = create_instance(true);
+        // Named pipes have no lock file, so nothing here stops a second daemon
+        // from adding instances to the same pipe name. FILE_FLAG_FIRST_PIPE_INSTANCE
+        // would, but it also fails while clients of a daemon that just exited still
+        // hold their handles, which would leave no daemon serving at all. Until that
+        // can be tested on Windows, a duplicate daemon is the lesser failure.
+        let mut listening = create_instance();
         if listening == INVALID_HANDLE_VALUE {
-            if unsafe { GetLastError() } == ERROR_ACCESS_DENIED {
-                return Err(LOCK_HELD_ERROR.into());
-            }
             return Err("CreateNamedPipe failed".into());
         }
 
@@ -258,9 +235,8 @@ impl IpcServer {
             }
 
             // Create the next listening instance before handing this one off, so
-            // the pipe name always has an instance. If it ever had none, another
-            // daemon could claim the name as its own first instance.
-            let next = create_instance(false);
+            // there is always an instance ready for the next client.
+            let next = create_instance();
             if next == INVALID_HANDLE_VALUE {
                 unsafe {
                     let _ = DisconnectNamedPipe(listening);
@@ -326,6 +302,41 @@ impl Drop for IpcServer {
         self.stop();
         self.cleanup_owned_files();
     }
+}
+
+/// Open the lock file and take an exclusive flock on it, returning the locked
+/// file (the lock lasts as long as it stays open).
+///
+/// A lock is only meaningful while the path still names the file we locked. A
+/// daemon shutting down unlinks its lock file, and a process that opened the old
+/// file just before that can then win a flock on an inode the path no longer
+/// points to, alongside a daemon holding the real one. So after locking, confirm
+/// the path still names our file, and start over on the current file if not.
+#[cfg(unix)]
+fn acquire_lock(lock_path: &str) -> Result<std::fs::File, String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::io::AsRawFd;
+
+    for _ in 0..5 {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .open(lock_path)
+            .map_err(|e| format!("Failed to create lock file: {e}"))?;
+        let lock_result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if lock_result != 0 {
+            return Err(LOCK_HELD_ERROR.into());
+        }
+        let locked = file.metadata().map_err(|e| format!("Failed to stat lock file: {e}"))?;
+        if let Ok(named) = std::fs::metadata(lock_path) {
+            if named.dev() == locked.dev() && named.ino() == locked.ino() {
+                return Ok(file);
+            }
+        }
+    }
+    Err("Lock file kept changing while acquiring it".into())
 }
 
 // ── Client handling ──────────────────────────────────────────────

@@ -125,10 +125,6 @@ function getPidPath(): string {
   return path.join(getSocketDir(), 'daemon.pid');
 }
 
-function getDaemonInfoPath(): string {
-  return path.join(getSocketDir(), 'daemon.info');
-}
-
 /** PID recorded in the daemon PID file, whether or not that process still exists */
 function readRecordedDaemonPid(): number | undefined {
   try {
@@ -137,39 +133,6 @@ function readRecordedDaemonPid(): number | undefined {
   } catch {
     return undefined;
   }
-}
-
-/**
- * Remove the daemon's bookkeeping files (PID + info), ignoring errors.
- *
- * Deliberately never touches the socket or lock file: those belong to whichever
- * daemon currently holds the startup lock. Unlinking them from a client orphans
- * a live daemon (its socket vanishes while the process keeps running, menu bar
- * item and all) and lets a second daemon bind alongside it, which costs the user
- * a second biometric prompt. A starting daemon clears the stale socket itself,
- * under the lock, where doing so is safe.
- */
-function cleanupDaemonFiles(): void {
-  for (const file of [getPidPath(), getDaemonInfoPath()]) {
-    try {
-      fs.unlinkSync(file);
-    } catch { /* ignore */ }
-  }
-}
-
-/**
- * Clear the bookkeeping files left by a daemon we just took down, but only
- * while they still describe that daemon. Several clients can decide to replace
- * the same outdated daemon at once, and the slowest of them must not wipe the
- * files its replacement has already written.
- */
-function cleanupDaemonFilesFor(pid: number): void {
-  const recorded = readRecordedDaemonPid();
-  if (recorded !== undefined && recorded !== pid) {
-    debug(`leaving daemon state files alone: they belong to pid ${recorded}, not ${pid}`);
-    return;
-  }
-  cleanupDaemonFiles();
 }
 
 /** Read the PID recorded by the running daemon, if it points at a live process */
@@ -281,23 +244,33 @@ export class DaemonClient {
     debug(`replacing daemon (pid ${replacePid}): it runs a different binary than ours`);
     this.cleanup(); // drop our connection to the outgoing daemon
     killDaemonProcess(replacePid);
-    cleanupDaemonFilesFor(replacePid);
     await this.spawnAndConnect(socketPath);
   }
 
   /** Spawn a daemon (tolerating a lost spawn race) and connect to whichever one wins */
   private async spawnAndConnect(socketPath: string): Promise<void> {
-    try {
-      await this.spawnDaemon();
-    } catch (err) {
-      // Another process may have won the race to spawn the daemon.
-      // Wait briefly for it to be ready, then try connecting.
-      debug(`spawnDaemon failed: ${err instanceof Error ? err.message : err}`);
-      await new Promise<void>((r) => {
-        setTimeout(r, 1000);
-      });
+    // Two attempts: a daemon that is shutting down can still hold the startup
+    // lock when ours starts. Ours then exits with `alreadyRunning`, the old one
+    // finishes exiting, and there is nothing left to connect to.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.spawnDaemon();
+      } catch (err) {
+        // Another process may have won the race to spawn the daemon.
+        // Wait briefly for it to be ready, then try connecting.
+        debug(`spawnDaemon failed: ${err instanceof Error ? err.message : err}`);
+        await new Promise<void>((r) => {
+          setTimeout(r, 1000);
+        });
+      }
+      try {
+        await this.connectToSocket(socketPath);
+        return;
+      } catch (err) {
+        if (attempt >= 2) throw err;
+        debug(`no daemon to connect to after spawning (${err instanceof Error ? err.message : err}), trying again`);
+      }
     }
-    await this.connectToSocket(socketPath);
   }
 
   /**
@@ -320,7 +293,23 @@ export class DaemonClient {
     }
 
     if (!shouldReplaceDaemon(pong?.binaryHash, ourHash)) return undefined;
-    return pong?.pid ?? readLiveDaemonPid();
+    if (pong?.pid) return pong.pid;
+
+    // Daemons from before the hash check don't report their PID, so the PID
+    // file is the only way to find them. It only describes the daemon we are
+    // talking to while that daemon is still alive: it holds the startup lock,
+    // so no replacement can have written the file. If another client has
+    // already replaced it, our connection is gone and the file may name the
+    // healthy replacement, which we must not kill.
+    const pid = readLiveDaemonPid();
+    if (pid === undefined) return undefined;
+    try {
+      await this.sendMessage({ action: 'ping' }, PROBE_TIMEOUT_MS);
+    } catch {
+      debug('old daemon went away while we checked it, leaving its replacement alone');
+      return undefined;
+    }
+    return pid;
   }
 
   async decrypt(ciphertext: string, keyId = 'varlock-default'): Promise<string> {
@@ -501,16 +490,11 @@ export class DaemonClient {
       return;
     }
 
-    // Try to kill the daemon by PID so we don't reconnect to a broken process,
-    // then drop the bookkeeping files so the next spawn starts clean. The socket
-    // and lock file are left to the next daemon, which clears them under the lock.
+    // Try to kill the daemon by PID so we don't reconnect to a broken process.
+    // Its state files are left alone: the next daemon to win the startup lock
+    // rewrites the PID and info files and clears the stale socket.
     const pid = readLiveDaemonPid();
-    if (pid !== undefined) {
-      killDaemonProcess(pid);
-      cleanupDaemonFilesFor(pid);
-    } else {
-      cleanupDaemonFiles();
-    }
+    if (pid !== undefined) killDaemonProcess(pid);
   }
 
   /** Whether a daemon is currently answering on the socket */
@@ -668,7 +652,6 @@ export class DaemonClient {
         // Alive but socket unresponsive, so kill it and respawn
         debug(`daemon pid ${existingPid} alive but socket unresponsive, killing it`);
         killDaemonProcess(existingPid);
-        cleanupDaemonFilesFor(existingPid);
       }
     }
 
