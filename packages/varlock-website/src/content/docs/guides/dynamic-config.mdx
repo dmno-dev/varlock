@@ -79,7 +79,7 @@ The response must be a JSON object of key/value pairs, and hydration is filtered
 
 ### Loading from a server endpoint
 
-Each recipe is the same shape: a small server route returning `getPublicDynamicEnv()`, and a one-time `loadPublicDynamicEnv()` call before browser code reads `ENV.KEY`.
+Most recipes are the same shape: a small server route returning `getPublicDynamicEnv()`, and a one-time `loadPublicDynamicEnv()` call before browser code reads `ENV.KEY`. Frameworks that already ship server state to the browser (TanStack Start) can skip the endpoint and hydrate the values with `setPublicDynamicEnv()` instead.
 
 <Tabs syncKey="framework">
 <TabItem label="Next.js">
@@ -163,25 +163,35 @@ Keep dynamic-key usage out of routes that must be prerendered.
 </TabItem>
 <TabItem label="TanStack Start">
 
+No endpoint needed. TanStack Router calls `dehydrate()` on the server during SSR and awaits `hydrate()` in the browser before the first render, so the values ride along with the router's dehydrated state and `ENV.KEY` reads work in components from the initial render, with no hydration mismatch:
+
 ```ts title="src/router.tsx"
+import { createRouter } from '@tanstack/react-router';
+import { getPublicDynamicEnv, setPublicDynamicEnv } from 'varlock/env';
+import { routeTree } from './routeTree.gen';
+
 export function getRouter() {
-  const router = createTanStackRouter({
+  return createRouter({
     routeTree,
-
-    ...
-
     dehydrate: () => ({
       publicDynamicEnv: getPublicDynamicEnv(),
     }),
-
     hydrate: (dehydrated) => {
       setPublicDynamicEnv(dehydrated.publicDynamicEnv);
     },
   });
-
-  return router;
 }
 ```
+
+```tsx title="src/routes/index.tsx"
+import { ENV } from 'varlock/env';
+
+function IndexPage() {
+  return <p>{ENV.PUBLIC_RUNTIME_FLAG}</p>;
+}
+```
+
+Prerendered routes run `dehydrate()` at build time, so they get a build-time snapshot. For those, serve the values from a server route instead and call `loadPublicDynamicEnv({ endpoint })` in the browser, as in the other recipes.
 
 </TabItem>
 <TabItem label="Expo">
