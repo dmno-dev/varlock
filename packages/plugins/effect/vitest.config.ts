@@ -31,12 +31,9 @@ export default defineConfig({
         },
       },
       {
+        // test/effect3 is its own workspace package pinned to Effect 3, so `effect/*`
+        // imports there resolve to test/effect3/node_modules/effect
         ...shared,
-        resolve: {
-          ...shared.resolve,
-          // The generated fixtures import `effect/*`; point them at the Effect 3 install.
-          alias: [{ find: /^effect(?=\/|$)/, replacement: 'effect3' }],
-        },
         test: {
           name: 'effect3',
           include: ['test/effect3/**/*.test.ts'],

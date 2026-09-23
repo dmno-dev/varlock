@@ -1,0 +1,10 @@
+{
+  "name": "@varlock/effect-plugin-effect3-tests",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Installs the minimum supported Effect 3 release so the effect3 tests resolve it",
+  "type": "module",
+  "devDependencies": {
+    "effect": "3.22.1"
+  }
+}

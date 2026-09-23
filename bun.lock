@@ -337,7 +337,6 @@
         "@types/node": "catalog:",
         "@varlock/tsconfig": "workspace:*",
         "effect": "4.0.0-rc.115",
-        "effect3": "npm:effect@3.22.1",
         "tsdown": "catalog:",
         "typescript": "catalog:",
         "varlock": "workspace:*",
@@ -346,6 +345,13 @@
       "peerDependencies": {
         "effect": ">=3.22.1 <4 || >=4.0.0-rc.113 <5",
         "varlock": "workspace:^",
+      },
+    },
+    "packages/plugins/effect/test/effect3": {
+      "name": "@varlock/effect-plugin-effect3-tests",
+      "version": "0.0.0",
+      "devDependencies": {
+        "effect": "3.22.1",
       },
     },
     "packages/plugins/google-secret-manager": {
@@ -1685,6 +1691,8 @@
 
     "@varlock/effect-plugin": ["@varlock/effect-plugin@workspace:packages/plugins/effect"],
 
+    "@varlock/effect-plugin-effect3-tests": ["@varlock/effect-plugin-effect3-tests@workspace:packages/plugins/effect/test/effect3"],
+
     "@varlock/encryption-binary-rust": ["@varlock/encryption-binary-rust@workspace:packages/encryption-binary-rust"],
 
     "@varlock/encryption-binary-swift": ["@varlock/encryption-binary-swift@workspace:packages/encryption-binary-swift"],
@@ -2230,8 +2238,6 @@
     "ee-first": ["ee-first@1.1.1", "", {}, "sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow=="],
 
     "effect": ["effect@4.0.0-rc.115", "", {}, "sha512-ogYulZ5ffeOzrJqQrG0XOkDO5lKn2s9KNHhoxJy/6wKUkF0i12dlVXWA9TgsgQ+zV/JzizyG0+XMPepZEQX6vw=="],
-
-    "effect3": ["effect@3.22.1", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.351", "", {}, "sha512-9D7Iqx8RImSvCnOsj86rCH6eQjZFQoM04Jn6HnZVM0Nu/G58/gmKYQ1d12MZTbjQbQSTGI8nwEy07ErsA2slLA=="],
 
@@ -4108,6 +4114,8 @@
     "@typescript-eslint/visitor-keys/eslint-visitor-keys": ["eslint-visitor-keys@5.0.1", "", {}, "sha512-tD40eHxA35h0PEIZNeIjkHoDR4YjjJp34biM0mDvplBe//mB+IHCqHDGV7pxF+7MklTvighcCPPZC7ynWyjdTA=="],
 
     "@unhead/bundler/magic-string": ["magic-string@1.2.2", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-veT/+7iXrXzT39XnEN4lOxtNl72dMgJ8Lp+5Bd6YcMSWpb0n0MjBM8Uuooi6jgJr8dhUW2swQgBmoZVMni5SVg=="],
+
+    "@varlock/effect-plugin-effect3-tests/effect": ["effect@3.22.1", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ=="],
 
     "@vercel/nft/estree-walker": ["estree-walker@2.0.2", "", {}, "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w=="],
 

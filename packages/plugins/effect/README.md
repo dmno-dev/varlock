@@ -234,5 +234,5 @@ bun run --filter @varlock/effect-plugin test:ci
 bun run --filter @varlock/effect-plugin typecheck
 ```
 
-Tests run twice, once against `effect@4` and once against the `effect3` alias pinned to the minimum supported Effect 3 release,
+Tests run twice, once against `effect@4` and once against the minimum supported Effect 3 release (installed by the private `test/effect3` workspace package),
 so both generated targets are exercised at runtime and typechecked.
