@@ -2,7 +2,7 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 import ky from 'ky';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,56 @@ import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
 const AZURE_ICON = 'skill-icons:azure-dark';
+
+interface AzureCloud {
+  /** Entra ID authority host used to mint tokens */
+  authorityHost: string;
+  /** Entra token resources (the `/.default` scope is derived from these) */
+  keyVaultResource: string;
+  appConfigResource: string;
+  /** DNS suffix of Key Vault hosts; Key Vault references must point at a vault under it */
+  keyVaultDnsSuffix: string;
+}
+
+/**
+ * Per-cloud endpoints. Token audiences differ between clouds, so `authorityHost` alone is not
+ * enough; see https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure
+ */
+const AZURE_CLOUDS: Record<'public' | 'usgov' | 'china', AzureCloud> = {
+  public: {
+    authorityHost: 'https://login.microsoftonline.com',
+    keyVaultResource: 'https://vault.azure.net',
+    appConfigResource: 'https://azconfig.io',
+    keyVaultDnsSuffix: 'vault.azure.net',
+  },
+  usgov: {
+    authorityHost: 'https://login.microsoftonline.us',
+    keyVaultResource: 'https://vault.usgovcloudapi.net',
+    appConfigResource: 'https://azconfig.azure.us',
+    keyVaultDnsSuffix: 'vault.usgovcloudapi.net',
+  },
+  china: {
+    authorityHost: 'https://login.chinacloudapi.cn',
+    keyVaultResource: 'https://vault.azure.cn',
+    appConfigResource: 'https://azconfig.azure.cn',
+    keyVaultDnsSuffix: 'vault.azure.cn',
+  },
+};
+type AzureCloudName = keyof typeof AZURE_CLOUDS;
+/** accept the `az cloud list` names as aliases */
+const AZURE_CLOUD_ALIASES: Record<string, AzureCloudName> = {
+  azurecloud: 'public',
+  azureusgovernment: 'usgov',
+  azurechinacloud: 'china',
+};
+
+const KEY_VAULT_API_VERSION = '7.4';
+const APP_CONFIG_API_VERSION = '2023-11-01';
+
+/** content type of an App Configuration setting that references a Key Vault secret */
+const KEY_VAULT_REF_CONTENT_TYPE = 'application/vnd.microsoft.appconfig.keyvaultref+json';
+/** App Configuration's filter value for settings that have no label */
+const NO_LABEL_FILTER = '\0';
 
 plugin.name = 'azure';
 const { debug } = plugin;
@@ -30,6 +80,11 @@ plugin.standardVars = {
     tenantId: { key: 'AZURE_TENANT_ID' },
     clientId: { key: 'AZURE_CLIENT_ID' },
     clientSecret: { key: 'AZURE_CLIENT_SECRET' },
+    appConfigEndpoint: { key: 'AZURE_APPCONFIG_ENDPOINT' },
+    appConfigConnectionString: {
+      key: 'AZURE_APPCONFIG_CONNECTION_STRING',
+      dataType: 'azureAppConfigConnectionString',
+    },
   },
 };
 
@@ -44,14 +99,137 @@ interface CachedToken {
   expiresAt: number;
 }
 
+interface AppConfigConnection {
+  endpoint: string;
+  id: string;
+  secret: Buffer;
+}
+
+interface AppConfigSetting {
+  key: string;
+  label?: string | null;
+  value?: string | null;
+  content_type?: string | null;
+}
+
+interface AppConfigListPage {
+  items?: Array<AppConfigSetting>;
+  '@nextLink'?: string;
+}
+
+interface AzureInstanceConfig {
+  vaultUrl?: unknown;
+  appConfigEndpoint?: unknown;
+  appConfigConnectionString?: unknown;
+  defaultLabel?: unknown;
+  cloud?: unknown;
+  authorityHost?: unknown;
+  tenantId?: unknown;
+  clientId?: unknown;
+  clientSecret?: unknown;
+  oidcToken?: unknown;
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return String(value);
+}
+
+/** strip trailing slashes so paths can be appended safely */
+function normalizeEndpoint(endpoint: string): string {
+  return endpoint.replace(/\/+$/, '');
+}
+
+function parseAppConfigConnectionString(raw: string): AppConfigConnection {
+  const parts: Record<string, string> = {};
+  for (const segment of raw.split(';')) {
+    const eqIndex = segment.indexOf('=');
+    if (eqIndex === -1) continue;
+    parts[segment.slice(0, eqIndex).trim().toLowerCase()] = segment.slice(eqIndex + 1).trim();
+  }
+  const { endpoint, id, secret } = parts;
+  if (!endpoint || !id || !secret) {
+    throw new SchemaError('Invalid Azure App Configuration connection string', {
+      tip: 'Expected format: Endpoint=https://<store>.azconfig.io;Id=<id>;Secret=<secret>',
+    });
+  }
+  return { endpoint: normalizeEndpoint(endpoint), id, secret: Buffer.from(secret, 'base64') };
+}
+
+/**
+ * Build the headers for App Configuration access-key (HMAC-SHA256) authentication.
+ * See https://learn.microsoft.com/en-us/azure/azure-app-configuration/rest-api-authentication-hmac
+ */
+function signAppConfigRequest(conn: AppConfigConnection, method: string, url: URL): Record<string, string> {
+  const date = new Date().toUTCString();
+  // GET requests have an empty body
+  const contentHash = createHash('sha256').update('').digest('base64');
+  const stringToSign = `${method.toUpperCase()}\n${url.pathname}${url.search}\n${date};${url.host};${contentHash}`;
+  const signature = createHmac('sha256', conn.secret).update(stringToSign, 'utf8').digest('base64');
+  return {
+    'x-ms-date': date,
+    'x-ms-content-sha256': contentHash,
+    Authorization: `HMAC-SHA256 Credential=${conn.id}&SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature=${signature}`,
+  };
+}
+
+/**
+ * Escape a literal value for use in the App Configuration list filter grammar,
+ * where `*`, `\` and `,` are operators.
+ */
+function escapeAppConfigFilter(value: string): string {
+  return value.replace(/([\\*,])/g, '\\$1');
+}
+
+function parseCloudName(raw: string): AzureCloudName {
+  const normalized = raw.trim().toLowerCase();
+  const name = (normalized in AZURE_CLOUDS ? normalized : AZURE_CLOUD_ALIASES[normalized]) as
+    AzureCloudName | undefined;
+  if (!name) {
+    throw new SchemaError(`Unknown Azure cloud "${raw}"`, {
+      tip: `Valid values: ${Object.keys(AZURE_CLOUDS).join(', ')} (or the az CLI names AzureCloud, AzureUSGovernment, AzureChinaCloud)`,
+    });
+  }
+  return name;
+}
+
+function hasContentType(setting: AppConfigSetting, contentType: string): boolean {
+  const actual = setting.content_type;
+  if (!actual) return false;
+  return actual.split(';')[0].trim().toLowerCase() === contentType;
+}
+
+/** parse a Key Vault secret identifier, e.g. https://my-vault.vault.azure.net/secrets/my-secret/abc123 */
+function parseKeyVaultSecretUri(uri: string): { parsed: URL; secretName: string; version?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(uri);
+  } catch {
+    throw new ResolutionError(`Invalid Key Vault reference URI: ${uri}`);
+  }
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments[0] !== 'secrets' || !segments[1]) {
+    throw new ResolutionError(`Key Vault reference does not point to a secret: ${uri}`, {
+      tip: 'Expected a URI like https://<vault>.vault.azure.net/secrets/<name>[/<version>]',
+    });
+  }
+  return { parsed, secretName: segments[1], version: segments[2] };
+}
+
 class AzurePluginInstance {
   private vaultUrl?: string;
+  private appConfigEndpoint?: string;
+  private appConfigConnection?: AppConfigConnection;
+  private defaultLabel?: string;
+  private cloudName: AzureCloudName = 'public';
+  private cloud: AzureCloud = AZURE_CLOUDS.public;
   private tenantId?: string;
   private clientId?: string;
   private clientSecret?: string;
   private oidcToken?: string;
-  private cachedToken?: CachedToken;
-  private secretCache = new Map<string, Promise<string>>();
+  /** cached Entra access tokens, keyed by resource (Key Vault and App Configuration use different scopes) */
+  private cachedTokens = new Map<string, CachedToken>();
+  private fetchCache = new Map<string, Promise<string>>();
   /** optional cache TTL - when set, resolved values are cached */
   cacheTtl?: string | number;
 
@@ -60,23 +238,41 @@ class AzurePluginInstance {
   ) {
   }
 
-  setAuth(
-    vaultUrl?: any,
-    tenantId?: any,
-    clientId?: any,
-    clientSecret?: any,
-    oidcToken?: any,
-  ) {
-    this.vaultUrl = vaultUrl ? String(vaultUrl) : undefined;
-    this.tenantId = tenantId ? String(tenantId) : undefined;
-    this.clientId = clientId ? String(clientId) : undefined;
-    this.clientSecret = clientSecret ? String(clientSecret) : undefined;
-    this.oidcToken = oidcToken ? String(oidcToken) : undefined;
+  setConfig(config: AzureInstanceConfig) {
+    this.vaultUrl = asOptionalString(config.vaultUrl);
+    this.vaultUrl &&= normalizeEndpoint(this.vaultUrl);
+    this.appConfigEndpoint = asOptionalString(config.appConfigEndpoint);
+    this.appConfigEndpoint &&= normalizeEndpoint(this.appConfigEndpoint);
+    const connectionString = asOptionalString(config.appConfigConnectionString);
+    if (connectionString && this.appConfigEndpoint) {
+      throw new SchemaError('Provide either appConfigEndpoint or appConfigConnectionString, not both', {
+        tip: 'The connection string already contains the store endpoint',
+      });
+    }
+    this.appConfigConnection = connectionString ? parseAppConfigConnectionString(connectionString) : undefined;
+    this.defaultLabel = asOptionalString(config.defaultLabel);
+    const cloudName = asOptionalString(config.cloud);
+    this.cloudName = cloudName ? parseCloudName(cloudName) : 'public';
+    this.cloud = { ...AZURE_CLOUDS[this.cloudName] };
+    const authorityHost = asOptionalString(config.authorityHost);
+    if (authorityHost) this.cloud.authorityHost = normalizeEndpoint(authorityHost);
+    this.tenantId = asOptionalString(config.tenantId);
+    this.clientId = asOptionalString(config.clientId);
+    this.clientSecret = asOptionalString(config.clientSecret);
+    this.oidcToken = asOptionalString(config.oidcToken);
     debug(
       'azure instance',
       this.id,
-      'set auth - vaultUrl:',
+      'set config - vaultUrl:',
       this.vaultUrl,
+      'appConfigEndpoint:',
+      this.appConfigStoreEndpoint,
+      'hasAppConfigConnectionString:',
+      !!this.appConfigConnection,
+      'hasDefaultLabel:',
+      !!this.defaultLabel,
+      'cloud:',
+      this.cloudName,
       'hasTenantId:',
       !!this.tenantId,
       'hasClientId:',
@@ -88,14 +284,42 @@ class AzurePluginInstance {
     );
   }
 
+  get hasKeyVault() {
+    return !!this.vaultUrl;
+  }
+
+  get hasAppConfig() {
+    return !!this.appConfigStoreEndpoint;
+  }
+
+  get appConfigDefaultLabel() {
+    return this.defaultLabel;
+  }
+
+  /** the instance's defaultLabel as a literal list filter (reserved filter characters escaped) */
+  get appConfigDefaultLabelFilter() {
+    return this.defaultLabel === undefined ? undefined : escapeAppConfigFilter(this.defaultLabel);
+  }
+
+  get hasAppConfigConnectionString() {
+    return !!this.appConfigConnection;
+  }
+
+  /** the App Configuration store endpoint, from either the explicit endpoint or the connection string */
+  private get appConfigStoreEndpoint(): string | undefined {
+    return this.appConfigConnection?.endpoint ?? this.appConfigEndpoint;
+  }
+
   /**
    * @internal telemetry: which auth method this instance is *configured* for (fixed enum, no user input).
    * 'ambient' means no explicit credentials were configured, so auth falls back to the runtime
    * chain (Managed Identity / Azure CLI) determined at resolve time.
+   * 'connection_string' means only an App Configuration access key was configured.
    */
-  get telemetryAuthMethod(): 'service_principal' | 'oidc_federated' | 'ambient' {
+  get telemetryAuthMethod(): 'service_principal' | 'oidc_federated' | 'connection_string' | 'ambient' {
     if (this.tenantId && this.clientId && this.clientSecret) return 'service_principal';
     if (this.tenantId && this.clientId) return 'oidc_federated';
+    if (this.appConfigConnection) return 'connection_string';
     return 'ambient';
   }
 
@@ -110,14 +334,33 @@ class AzurePluginInstance {
     return this._cacheKeyIdentity;
   }
 
-  private async getAzureCliToken(): Promise<string | undefined> {
+  private _appConfigCacheKeyIdentity?: string;
+  /**
+   * short hash identifying which App Configuration store is being read, used to namespace cache keys.
+   * Only the endpoint is hashed, never the connection string (cache keys are stored in plaintext).
+   */
+  get appConfigCacheKeyIdentity() {
+    this._appConfigCacheKeyIdentity ??= createHash('sha256')
+      .update(JSON.stringify([this.appConfigStoreEndpoint]))
+      .digest('hex')
+      .slice(0, 12);
+    return this._appConfigCacheKeyIdentity;
+  }
+
+  private cacheToken(resource: string, token: string, expiresAt: number) {
+    this.cachedTokens.set(resource, { token, expiresAt });
+  }
+
+  private async getAzureCliToken(resource: string): Promise<string | undefined> {
+    const scope = `${resource}/.default`;
+
     // Try the older accessTokens.json format first
     try {
       const tokenCachePath = join(homedir(), '.azure', 'accessTokens.json');
       const tokenCacheContent = await readFile(tokenCachePath, 'utf-8');
       const tokens = JSON.parse(tokenCacheContent);
 
-      // Find a valid token for vault.azure.net
+      // Find a valid token for the requested resource
       const now = new Date();
       const validToken = tokens.find((t: any) => {
         const expiresOn = new Date(t.expiresOn);
@@ -125,22 +368,15 @@ class AzurePluginInstance {
         // cached token whose issuing tenant matches the configured one (see MSAL note below).
         const tenantMatches = !this.tenantId
           || (typeof t._authority === 'string' && t._authority.includes(this.tenantId));
-        return t.resource === 'https://vault.azure.net'
+        return t.resource === resource
           && expiresOn > now
           && t.tokenType === 'Bearer'
           && tenantMatches;
       });
 
       if (validToken) {
-        debug('Found valid Azure CLI token for vault.azure.net in accessTokens.json');
-
-        // Cache it
-        const expiresOn = new Date(validToken.expiresOn);
-        this.cachedToken = {
-          token: validToken.accessToken,
-          expiresAt: expiresOn.getTime(),
-        };
-
+        debug(`Found valid Azure CLI token for ${resource} in accessTokens.json`);
+        this.cacheToken(resource, validToken.accessToken, new Date(validToken.expiresOn).getTime());
         return validToken.accessToken;
       }
     } catch (err) {
@@ -157,27 +393,21 @@ class AzurePluginInstance {
       const accessTokens = msalCache.AccessToken || {};
       const now = Math.floor(Date.now() / 1000);
 
-      // Find a valid token for vault.azure.net.
+      // Find a valid token for the requested resource.
       // When a tenantId is configured we must match it against the token's `realm`
       // (the tenant that issued the token). With multiple `az login` accounts the cache
-      // can hold valid vault.azure.net tokens for several tenants; handing a token from
-      // the wrong tenant to the vault yields a confusing 401 ("token expired or invalid").
+      // can hold valid tokens for several tenants; handing a token from the wrong tenant
+      // to the service yields a confusing 401 ("token expired or invalid").
       for (const [_key, token] of Object.entries(accessTokens) as Array<[string, any]>) {
-        if (token.target?.includes('https://vault.azure.net/.default')
+        if (token.target?.includes(scope)
           && token.expires_on > now
           && token.secret) {
           if (this.tenantId && token.realm !== this.tenantId) {
             debug(`Skipping cached MSAL token for tenant ${token.realm} (need ${this.tenantId})`);
             continue;
           }
-          debug('Found valid Azure CLI token from MSAL cache');
-
-          // Cache it
-          this.cachedToken = {
-            token: token.secret,
-            expiresAt: token.expires_on * 1000,
-          };
-
+          debug(`Found valid Azure CLI token for ${resource} from MSAL cache`);
+          this.cacheToken(resource, token.secret, token.expires_on * 1000);
           return token.secret;
         }
       }
@@ -190,7 +420,7 @@ class AzurePluginInstance {
       debug('No cached token found, attempting to get token from az CLI directly');
       // Scope the request to the configured tenant so we don't get a token for the wrong account.
       const tenantArg = this.tenantId ? ` --tenant ${this.tenantId}` : '';
-      const result = execSync(`az account get-access-token --resource https://vault.azure.net${tenantArg}`, {
+      const result = execSync(`az account get-access-token --resource ${resource}${tenantArg}`, {
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['ignore', 'pipe', 'ignore'], // Suppress stderr
@@ -208,11 +438,7 @@ class AzurePluginInstance {
           expiresAt = new Date(tokenData.expiresOn).getTime();
         }
 
-        this.cachedToken = {
-          token: tokenData.accessToken,
-          expiresAt,
-        };
-
+        this.cacheToken(resource, tokenData.accessToken, expiresAt);
         return tokenData.accessToken;
       }
     } catch (err) {
@@ -223,7 +449,7 @@ class AzurePluginInstance {
     return undefined;
   }
 
-  private async getManagedIdentityToken(): Promise<string | undefined> {
+  private async getManagedIdentityToken(resource: string): Promise<string | undefined> {
     try {
       debug('Attempting to get token from Managed Identity (IMDS)');
 
@@ -233,7 +459,7 @@ class AzurePluginInstance {
       const response = await ky.get(imdsEndpoint, {
         searchParams: {
           'api-version': '2018-02-01',
-          resource: 'https://vault.azure.net',
+          resource,
         },
         headers: {
           Metadata: 'true',
@@ -243,13 +469,7 @@ class AzurePluginInstance {
 
       if (response.access_token && response.expires_in) {
         debug('Successfully obtained token from Managed Identity');
-
-        // Cache the token
-        this.cachedToken = {
-          token: response.access_token,
-          expiresAt: Date.now() + (response.expires_in * 1000),
-        };
-
+        this.cacheToken(resource, response.access_token, Date.now() + (response.expires_in * 1000));
         return response.access_token;
       }
     } catch (err) {
@@ -259,7 +479,11 @@ class AzurePluginInstance {
     return undefined;
   }
 
-  private async getFederatedCredentialToken(tenantId: string, clientId: string): Promise<string | undefined> {
+  private get tokenUrl() {
+    return `${this.cloud.authorityHost}/${this.tenantId}/oauth2/v2.0/token`;
+  }
+
+  private async getFederatedCredentialToken(resource: string, clientId: string): Promise<string | undefined> {
     // Get OIDC token - either explicit or auto-detected from platform
     let jwt: string | undefined = this.oidcToken;
     if (!jwt) {
@@ -274,23 +498,18 @@ class AzurePluginInstance {
 
     try {
       debug('Exchanging OIDC token for Azure access token via federated credential');
-      const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 
-      const response = await ky.post(tokenUrl, {
+      const response = await ky.post(this.tokenUrl, {
         body: new URLSearchParams({
           grant_type: 'client_credentials',
           client_id: clientId,
           client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
           client_assertion: jwt,
-          scope: 'https://vault.azure.net/.default',
+          scope: `${resource}/.default`,
         }),
       }).json<AzureTokenResponse>();
 
-      // Cache the token
-      this.cachedToken = {
-        token: response.access_token,
-        expiresAt: Date.now() + (response.expires_in * 1000),
-      };
+      this.cacheToken(resource, response.access_token, Date.now() + (response.expires_in * 1000));
 
       debug('Successfully obtained Azure access token via federated credential');
       return response.access_token;
@@ -300,11 +519,16 @@ class AzurePluginInstance {
     }
   }
 
-  private async getAccessToken(): Promise<string> {
+  /**
+   * Get an Entra access token for the given resource (e.g. Key Vault or App Configuration).
+   * Tokens are cached per resource since each service requires its own scope.
+   */
+  private async getAccessToken(resource: string): Promise<string> {
     // Check if we have a cached token that's still valid (with 5 min buffer)
-    if (this.cachedToken && this.cachedToken.expiresAt > Date.now() + 5 * 60 * 1000) {
-      debug('Using cached Azure access token');
-      return this.cachedToken.token;
+    const cachedToken = this.cachedTokens.get(resource);
+    if (cachedToken && cachedToken.expiresAt > Date.now() + 5 * 60 * 1000) {
+      debug(`Using cached Azure access token for ${resource}`);
+      return cachedToken.token;
     }
 
     // First priority: Use explicitly provided service principal credentials
@@ -315,12 +539,12 @@ class AzurePluginInstance {
     // If all credentials are explicitly provided, use them
     if (tenantId && clientId && clientSecret) {
       debug('Using explicitly provided service principal credentials');
-      return this.getServicePrincipalToken(tenantId, clientId, clientSecret);
+      return this.getServicePrincipalToken(resource, clientId, clientSecret);
     }
 
     // Second priority: OIDC federated credential (tenantId + clientId without clientSecret)
     if (tenantId && clientId) {
-      const federatedToken = await this.getFederatedCredentialToken(tenantId, clientId);
+      const federatedToken = await this.getFederatedCredentialToken(resource, clientId);
       if (federatedToken) {
         debug('Using OIDC federated credential authentication');
         return federatedToken;
@@ -328,18 +552,22 @@ class AzurePluginInstance {
     }
 
     // Third priority: Try Managed Identity (for Azure-hosted apps)
-    const managedIdentityToken = await this.getManagedIdentityToken();
+    const managedIdentityToken = await this.getManagedIdentityToken(resource);
     if (managedIdentityToken) {
       debug('Using Managed Identity authentication');
       return managedIdentityToken;
     }
 
     // Fourth priority: Fall back to Azure CLI authentication
-    const cliToken = await this.getAzureCliToken();
+    const cliToken = await this.getAzureCliToken(resource);
     if (cliToken) {
       debug('Using Azure CLI authentication');
       return cliToken;
     }
+
+    const isAppConfig = resource === this.cloud.appConfigResource;
+    const roleName = isAppConfig ? 'App Configuration Data Reader' : 'Key Vault Secrets User';
+    const resourceLabel = isAppConfig ? 'App Configuration store' : 'Key Vault';
 
     // No credentials available
     throw new SchemaError('Azure credentials are required', {
@@ -355,36 +583,36 @@ class AzurePluginInstance {
         '',
         'Option 3: Use Managed Identity (for Azure-hosted apps)',
         '  - Enable system-assigned or user-assigned managed identity on your Azure resource',
-        '  - Grant the identity "Key Vault Secrets User" role on your Key Vault',
+        `  - Grant the identity the "${roleName}" role on your ${resourceLabel}`,
         '  - No credentials needed in your code!',
         '',
         'Option 4: Provide service principal credentials via @initAzure():',
         '  - tenantId: Your Azure AD tenant ID',
         '  - clientId: Your service principal application (client) ID',
         '  - clientSecret: Your service principal client secret',
+        ...(isAppConfig ? [
+          '',
+          'Option 5: Use an App Configuration access key via @initAzure(appConfigConnectionString=...)',
+        ] : []),
       ].join('\n'),
     });
   }
 
-  private async getServicePrincipalToken(tenantId: string, clientId: string, clientSecret: string): Promise<string> {
+  private async getServicePrincipalToken(resource: string, clientId: string, clientSecret: string): Promise<string> {
     try {
       debug('Fetching new Azure access token with service principal');
-      const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 
-      const response = await ky.post(tokenUrl, {
+      const response = await ky.post(this.tokenUrl, {
         body: new URLSearchParams({
           grant_type: 'client_credentials',
           client_id: clientId,
           client_secret: clientSecret,
-          scope: 'https://vault.azure.net/.default',
+          scope: `${resource}/.default`,
         }),
       }).json<AzureTokenResponse>();
 
       // Cache the token (expires_in is in seconds)
-      this.cachedToken = {
-        token: response.access_token,
-        expiresAt: Date.now() + (response.expires_in * 1000),
-      };
+      this.cacheToken(resource, response.access_token, Date.now() + (response.expires_in * 1000));
 
       debug('Successfully obtained Azure access token');
       return response.access_token;
@@ -420,39 +648,53 @@ class AzurePluginInstance {
     }
   }
 
-  fetchSecretValue(secretRef: string): Promise<string> {
-    // Deduplicate concurrent fetches for the same ref
-    const cached = this.secretCache.get(secretRef);
+  /** deduplicate concurrent fetches for the same resource */
+  private dedupeFetch(cacheKey: string, fetcher: () => Promise<string>): Promise<string> {
+    const cached = this.fetchCache.get(cacheKey);
     if (cached) {
-      debug(`Using cached fetch for: ${secretRef}`);
+      debug(`Using in-flight fetch for: ${cacheKey}`);
       return cached;
     }
-    const promise = this._fetchSecretValue(secretRef);
-    this.secretCache.set(secretRef, promise);
+    const promise = fetcher();
+    this.fetchCache.set(cacheKey, promise);
     // Clear cache entry on failure so retries can try again
-    promise.catch(() => this.secretCache.delete(secretRef));
+    promise.catch(() => this.fetchCache.delete(cacheKey));
     return promise;
   }
 
-  private async _fetchSecretValue(secretRef: string): Promise<string> {
+  // Key Vault ----------------------------------------------------------------
+
+  fetchSecretValue(secretRef: string): Promise<string> {
     if (!this.vaultUrl) {
-      throw new SchemaError('vaultUrl is required');
+      throw new SchemaError(`Azure plugin instance "${this.id}" has no vaultUrl configured`, {
+        tip: 'azureSecret() requires a Key Vault. Add vaultUrl="https://<vault>.vault.azure.net/" to your @initAzure() call',
+      });
     }
+    // Parse secret reference: "secretName" or "secretName@version"
+    const [secretName, version] = secretRef.split('@');
+    return this.fetchSecretFromVault(this.vaultUrl, secretName, version);
+  }
 
+  /** fetch a secret from any Key Vault (the configured one, or one named by an App Configuration reference) */
+  fetchSecretFromVault(vaultUrl: string, secretName: string, version?: string): Promise<string> {
+    const secretUrl = version
+      ? `${vaultUrl}/secrets/${secretName}/${version}`
+      : `${vaultUrl}/secrets/${secretName}`;
+    return this.dedupeFetch(secretUrl, () => this._fetchSecretFromVault(vaultUrl, secretUrl, secretName, version));
+  }
+
+  private async _fetchSecretFromVault(
+    vaultUrl: string,
+    secretUrl: string,
+    secretName: string,
+    version?: string,
+  ): Promise<string> {
     try {
-      // Parse secret reference: "secretName" or "secretName@version"
-      const [secretName, version] = secretRef.split('@');
+      const accessToken = await this.getAccessToken(this.cloud.keyVaultResource);
 
-      const accessToken = await this.getAccessToken();
+      debug(`Fetching secret: ${secretName}${version ? `@${version}` : ''} from ${vaultUrl}`);
 
-      // Build the URL - if version is specified, include it, otherwise use latest
-      const secretUrl = version
-        ? `${this.vaultUrl}/secrets/${secretName}/${version}?api-version=7.4`
-        : `${this.vaultUrl}/secrets/${secretName}?api-version=7.4`;
-
-      debug(`Fetching secret: ${secretName}${version ? `@${version}` : ''}`);
-
-      const response = await ky.get(secretUrl, {
+      const response = await ky.get(`${secretUrl}?api-version=${KEY_VAULT_API_VERSION}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
@@ -465,8 +707,8 @@ class AzurePluginInstance {
       debug(`Successfully fetched secret: ${secretName}`);
       return response.value;
     } catch (err: any) {
-      // Re-throw ResolutionError as-is
-      if (err instanceof ResolutionError) {
+      // Re-throw our own errors as-is
+      if (err instanceof ResolutionError || err instanceof SchemaError) {
         throw err;
       }
 
@@ -475,11 +717,10 @@ class AzurePluginInstance {
 
       if (err.response) {
         const status = err.response.status;
-        const secretName = secretRef.split('@')[0];
 
         if (status === 404) {
           errorMessage = `Secret "${secretName}" not found`;
-          const vaultName = this.vaultUrl?.match(/https:\/\/([^.]+)\.vault\.azure\.net/)?.[1];
+          const vaultName = vaultUrl.match(/https:\/\/([^.]+)\.vault\.azure\.net/)?.[1];
           errorTip = [
             'Verify the secret exists in Azure Key Vault',
             vaultName
@@ -487,7 +728,7 @@ class AzurePluginInstance {
               : 'Check Azure Portal: https://portal.azure.com/#view/HubsExtension/BrowseResource/resourceType/Microsoft.KeyVault%2Fvaults',
           ].join('\n');
         } else if (status === 403) {
-          errorMessage = `Permission denied accessing secret "${secretRef}"`;
+          errorMessage = `Permission denied accessing secret "${secretName}"`;
           errorTip = [
             'Ensure your service principal has the required permissions',
             'Required Key Vault access policy or RBAC role:',
@@ -540,13 +781,184 @@ class AzurePluginInstance {
     const rawValue = await this.fetchSecretValue(secretRef);
     return this.extractJsonKeyFromSecret(rawValue, jsonKey);
   }
+
+  // App Configuration --------------------------------------------------------
+
+  private async appConfigRequest<T>(pathAndQuery: string): Promise<T> {
+    const endpoint = this.appConfigStoreEndpoint;
+    if (!endpoint) {
+      throw new SchemaError(`Azure plugin instance "${this.id}" has no App Configuration store configured`, {
+        tip: 'Add appConfigEndpoint="https://<store>.azconfig.io" (or appConfigConnectionString=...) to your @initAzure() call',
+      });
+    }
+    // resolve against the endpoint so @nextLink values (relative or absolute) both work
+    const url = new URL(pathAndQuery, `${endpoint}/`);
+    const headers: Record<string, string> = {};
+    if (this.appConfigConnection) {
+      Object.assign(headers, signAppConfigRequest(this.appConfigConnection, 'GET', url));
+    } else {
+      headers.Authorization = `Bearer ${await this.getAccessToken(this.cloud.appConfigResource)}`;
+    }
+    return ky.get(url, { headers }).json<T>();
+  }
+
+  private async handleAppConfigError(err: any, action: string, subject: string): Promise<never> {
+    if (err instanceof ResolutionError || err instanceof SchemaError) throw err;
+
+    let errorMessage = `Failed ${action} Azure App Configuration ${subject}`;
+    let errorTip: string | undefined;
+
+    if (err.response) {
+      const status = err.response.status;
+      if (status === 404) {
+        errorMessage = `Azure App Configuration ${subject} not found`;
+        errorTip = [
+          'Verify the key and label exist in your App Configuration store',
+          `List settings: az appconfig kv list --endpoint ${this.appConfigStoreEndpoint} --auth-mode login`,
+        ].join('\n');
+      } else if (status === 403) {
+        errorMessage = `Permission denied ${action} Azure App Configuration ${subject}`;
+        errorTip = [
+          'Ensure your identity has read access to the App Configuration store',
+          '  - RBAC: "App Configuration Data Reader" role',
+          'Learn more: https://learn.microsoft.com/en-us/azure/azure-app-configuration/concept-enable-rbac',
+        ].join('\n');
+      } else if (status === 401) {
+        errorMessage = 'Azure App Configuration authentication failed';
+        errorTip = this.appConfigConnection
+          ? 'Verify the App Configuration connection string (access key) is valid and not revoked'
+          : 'Your access token may have expired or is invalid. Try again.';
+      } else {
+        try {
+          const errorBody = await err.response.json();
+          errorMessage = `Azure App Configuration error ${action} ${subject}: ${errorBody.detail || errorBody.title || err.message}`;
+        } catch {
+          errorMessage = `Azure App Configuration error ${action} ${subject} (HTTP ${status})`;
+        }
+      }
+    } else if (err.message) {
+      errorMessage = `Network error ${action} Azure App Configuration ${subject}: ${err.message}`;
+    }
+
+    throw new ResolutionError(errorMessage, { tip: errorTip });
+  }
+
+  /**
+   * A Key Vault reference is data written by whoever can edit the App Configuration store,
+   * so its origin must not be trusted blindly: the vault-scoped bearer token is only ever
+   * sent to the explicitly configured vaultUrl or to an https host under the selected
+   * cloud's Key Vault DNS suffix. Anything else would let a store writer exfiltrate the token.
+   */
+  private assertTrustedVaultOrigin(ref: URL, settingKey: string) {
+    const reject = (reason: string): never => {
+      throw new ResolutionError(`Refusing to dereference Key Vault reference for setting "${settingKey}": ${reason}`, {
+        tip: [
+          `Key Vault references must point at https://<vault>.${this.cloud.keyVaultDnsSuffix}/secrets/<name>`,
+          this.vaultUrl ? `or at the configured vaultUrl (${this.vaultUrl})` : '(or at the vaultUrl configured on the instance)',
+          `Reference: ${ref.href}`,
+        ].join('\n'),
+      });
+    };
+    if (ref.username || ref.password) return reject('URI contains credentials');
+    // the explicitly configured vault is trusted as-is
+    if (this.vaultUrl && ref.origin === new URL(`${this.vaultUrl}/`).origin) return;
+    if (ref.protocol !== 'https:') return reject('URI is not https');
+    if (ref.port) return reject('URI uses a non-default port');
+    const host = ref.hostname.toLowerCase();
+    if (!host.endsWith(`.${this.cloud.keyVaultDnsSuffix}`) || host === `.${this.cloud.keyVaultDnsSuffix}`) {
+      return reject(`host "${ref.hostname}" is not a Key Vault in the ${this.cloudName} cloud`);
+    }
+  }
+
+  /**
+   * Turn a setting into its final string value. Key Vault references are dereferenced
+   * using the instance's Key Vault credentials; everything else (including feature
+   * flags, which are JSON) is returned verbatim.
+   */
+  private async settingValue(setting: AppConfigSetting): Promise<string> {
+    if (hasContentType(setting, KEY_VAULT_REF_CONTENT_TYPE)) {
+      let uri: unknown;
+      try {
+        uri = JSON.parse(setting.value || '').uri;
+      } catch {
+        throw new ResolutionError(`Setting "${setting.key}" is a Key Vault reference but its value is not valid JSON`);
+      }
+      if (typeof uri !== 'string' || !uri) {
+        throw new ResolutionError(`Setting "${setting.key}" is a Key Vault reference without a "uri"`);
+      }
+      const { parsed, secretName, version } = parseKeyVaultSecretUri(uri);
+      this.assertTrustedVaultOrigin(parsed, setting.key);
+      debug(`Dereferencing Key Vault reference for setting "${setting.key}" -> ${uri}`);
+      return this.fetchSecretFromVault(parsed.origin, secretName, version);
+    }
+    return setting.value ?? '';
+  }
+
+  getSetting(key: string, label?: string): Promise<string> {
+    return this.dedupeFetch(`appconfig:${JSON.stringify([key, label ?? null])}`, () => this._getSetting(key, label));
+  }
+
+  private async _getSetting(key: string, label?: string): Promise<string> {
+    const query = new URLSearchParams({ 'api-version': APP_CONFIG_API_VERSION });
+    if (label !== undefined) query.set('label', label);
+    const subject = `setting "${key}"${label !== undefined ? ` (label "${label}")` : ''}`;
+    try {
+      debug(`Fetching App Configuration ${subject}`);
+      const setting = await this.appConfigRequest<AppConfigSetting>(`/kv/${encodeURIComponent(key)}?${query}`);
+      return await this.settingValue(setting);
+    } catch (err) {
+      return this.handleAppConfigError(err, 'reading', subject);
+    }
+  }
+
+  /** list settings matching the filters and return them as a JSON object string (for @setValuesBulk) */
+  async listSettings(keyFilter: string, labelFilter: string, trimKeyPrefix?: string): Promise<string> {
+    const query = new URLSearchParams({
+      key: keyFilter,
+      label: labelFilter,
+      'api-version': APP_CONFIG_API_VERSION,
+    });
+    const subject = `settings (key filter "${keyFilter}", label filter ${JSON.stringify(labelFilter)})`;
+    try {
+      debug(`Listing App Configuration ${subject}`);
+      const settings: Array<AppConfigSetting> = [];
+      let next: string | undefined = `/kv?${query}`;
+      while (next) {
+        const page: AppConfigListPage = await this.appConfigRequest<AppConfigListPage>(next);
+        settings.push(...(page.items || []));
+        next = page['@nextLink'] || undefined;
+      }
+
+      const keys = new Set<string>();
+      const entries = settings.map((setting) => {
+        let key = setting.key;
+        if (trimKeyPrefix && key.startsWith(trimKeyPrefix)) key = key.slice(trimKeyPrefix.length);
+        if (keys.has(key)) {
+          throw new ResolutionError(`Multiple App Configuration settings map to key "${key}"`, {
+            tip: 'Use a narrower keyFilter or labelFilter, or a different trimKeyPrefix',
+          });
+        }
+        keys.add(key);
+        return { key, setting };
+      });
+
+      const values: Record<string, string> = {};
+      await Promise.all(entries.map(async ({ key, setting }) => {
+        values[key] = await this.settingValue(setting);
+      }));
+      debug(`Loaded ${entries.length} App Configuration settings`);
+      return JSON.stringify(values);
+    } catch (err) {
+      return this.handleAppConfigError(err, 'listing', subject);
+    }
+  }
 }
 
 const pluginInstances: Record<string, AzurePluginInstance> = {};
 
 plugin.registerRootDecorator({
   name: 'initAzure',
-  description: 'Initialize an Azure Key Vault plugin instance for azureSecret() resolver',
+  description: 'Initialize an Azure plugin instance for the azureSecret() and azureAppConfig() resolvers',
   isFunction: true,
   async process(argsVal) {
     const objArgs = argsVal.objArgs;
@@ -561,9 +973,13 @@ plugin.registerRootDecorator({
       throw new SchemaError(`Instance with id "${id}" already initialized`);
     }
 
-    // vaultUrl is required
-    if (!objArgs.vaultUrl) {
-      throw new SchemaError('vaultUrl parameter is required');
+    if (!objArgs.vaultUrl && !objArgs.appConfigEndpoint && !objArgs.appConfigConnectionString) {
+      throw new SchemaError('At least one of vaultUrl, appConfigEndpoint, or appConfigConnectionString is required', {
+        tip: [
+          'Key Vault: @initAzure(vaultUrl="https://<vault>.vault.azure.net/")',
+          'App Configuration: @initAzure(appConfigEndpoint="https://<store>.azconfig.io")',
+        ].join('\n'),
+      });
     }
 
     pluginInstances[id] = new AzurePluginInstance(id);
@@ -572,6 +988,11 @@ plugin.registerRootDecorator({
       id,
       cacheTtlResolver: objArgs.cacheTtl,
       vaultUrlResolver: objArgs.vaultUrl,
+      appConfigEndpointResolver: objArgs.appConfigEndpoint,
+      appConfigConnectionStringResolver: objArgs.appConfigConnectionString,
+      defaultLabelResolver: objArgs.defaultLabel,
+      cloudResolver: objArgs.cloud,
+      authorityHostResolver: objArgs.authorityHost,
       tenantIdResolver: objArgs.tenantId,
       clientIdResolver: objArgs.clientId,
       clientSecretResolver: objArgs.clientSecret,
@@ -582,17 +1003,28 @@ plugin.registerRootDecorator({
     id,
     cacheTtlResolver,
     vaultUrlResolver,
+    appConfigEndpointResolver,
+    appConfigConnectionStringResolver,
+    defaultLabelResolver,
+    cloudResolver,
+    authorityHostResolver,
     tenantIdResolver,
     clientIdResolver,
     clientSecretResolver,
     oidcTokenResolver,
   }) {
-    const vaultUrl = await vaultUrlResolver.resolve();
-    const tenantId = await tenantIdResolver?.resolve();
-    const clientId = await clientIdResolver?.resolve();
-    const clientSecret = await clientSecretResolver?.resolve();
-    const oidcToken = await oidcTokenResolver?.resolve();
-    pluginInstances[id].setAuth(vaultUrl, tenantId, clientId, clientSecret, oidcToken);
+    pluginInstances[id].setConfig({
+      vaultUrl: await vaultUrlResolver?.resolve(),
+      appConfigEndpoint: await appConfigEndpointResolver?.resolve(),
+      appConfigConnectionString: await appConfigConnectionStringResolver?.resolve(),
+      defaultLabel: await defaultLabelResolver?.resolve(),
+      cloud: await cloudResolver?.resolve(),
+      authorityHost: await authorityHostResolver?.resolve(),
+      tenantId: await tenantIdResolver?.resolve(),
+      clientId: await clientIdResolver?.resolve(),
+      clientSecret: await clientSecretResolver?.resolve(),
+      oidcToken: await oidcTokenResolver?.resolve(),
+    });
     const cacheTtl = await resolveCacheTtl(cacheTtlResolver);
     if (cacheTtl !== undefined) {
       pluginInstances[id].cacheTtl = cacheTtl;
@@ -653,6 +1085,96 @@ plugin.registerDataType({
   ],
 });
 
+plugin.registerDataType({
+  name: 'azureAppConfigConnectionString',
+  sensitive: true,
+  internal: true,
+  typeDescription: 'Azure App Configuration access key connection string (Endpoint=...;Id=...;Secret=...)',
+  icon: AZURE_ICON,
+  docs: [
+    {
+      description: 'App Configuration access keys',
+      url: 'https://learn.microsoft.com/en-us/azure/azure-app-configuration/howto-connect-app-configuration-connection-string',
+    },
+  ],
+  async validate(val): Promise<true> {
+    for (const part of ['Endpoint', 'Id', 'Secret']) {
+      if (!new RegExp(`(^|;)\\s*${part}=`, 'i').test(val)) {
+        throw new ValidationError(`Must contain "${part}=" (expected format: Endpoint=...;Id=...;Secret=...)`);
+      }
+    }
+    return true;
+  },
+});
+
+function getPluginInstance(instanceId: string, resolverName: string): AzurePluginInstance {
+  if (!Object.values(pluginInstances).length) {
+    throw new SchemaError('No Azure plugin instances found', {
+      tip: 'Initialize at least one Azure plugin instance using the @initAzure root decorator',
+    });
+  }
+
+  const selectedInstance = pluginInstances[instanceId];
+  if (selectedInstance) return selectedInstance;
+
+  if (instanceId === '_default') {
+    throw new SchemaError('Azure plugin instance (without id) not found', {
+      tip: [
+        'Either remove the `id` param from your @initAzure call',
+        `or use \`${resolverName}(id, ...)\` to select an instance by id.`,
+        `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
+      ].join('\n'),
+    });
+  }
+  throw new SchemaError(`Azure plugin instance id "${instanceId}" not found`, {
+    tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
+  });
+}
+
+/** shared arg parsing for azureSecret() / azureAppConfig(): 0 args = infer, 1 arg = name, 2 args = instance id + name */
+function parseInstanceAndNameArgs(
+  resolverCtx: { arrArgs?: Array<Resolver> },
+  resolverName: string,
+  inferFromItemKey: (itemKey: string) => string,
+): { instanceId: string; nameResolver?: Resolver; inferredName?: string } {
+  const arrArgs = resolverCtx.arrArgs || [];
+  let instanceId = '_default';
+  let nameResolver: Resolver | undefined;
+  let inferredName: string | undefined;
+
+  if (arrArgs.length === 0) {
+    const parent = (resolverCtx as any).parent;
+    const itemKey = parent?.key || '';
+    if (!itemKey) {
+      throw new SchemaError(`Cannot infer name for ${resolverName}() - no item key available`, {
+        tip: `Either provide a name as an argument: ${resolverName}("name"), or use this resolver on a config item with a key`,
+      });
+    }
+    inferredName = inferFromItemKey(itemKey);
+    debug(`Auto-inferred ${resolverName}() name from item key "${itemKey}": "${inferredName}"`);
+  } else if (arrArgs.length === 1) {
+    nameResolver = arrArgs[0];
+  } else if (arrArgs.length === 2) {
+    if (!(arrArgs[0].isStatic)) {
+      throw new SchemaError('Expected instance id to be a static value');
+    }
+    instanceId = String(arrArgs[0].staticValue);
+    nameResolver = arrArgs[1];
+  } else {
+    throw new SchemaError('Expected 0, 1, or 2 args');
+  }
+
+  getPluginInstance(instanceId, resolverName);
+  return { instanceId, nameResolver, inferredName };
+}
+
+async function resolveOptionalString(resolver: Resolver | undefined, label: string): Promise<string | undefined> {
+  if (!resolver) return undefined;
+  const value = await resolver.resolve();
+  if (typeof value !== 'string') throw new SchemaError(`Expected ${label} to resolve to a string`);
+  return value;
+}
+
 plugin.registerResolverFunction({
   name: 'azureSecret',
   label: 'Fetch secret from Azure Key Vault',
@@ -660,67 +1182,19 @@ plugin.registerResolverFunction({
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
+    arrayMaxLength: 2,
   },
   process() {
-    let instanceId = '_default';
-    let secretRefResolver: Resolver | undefined;
-    let inferredSecretName: string | undefined;
-
-    // Named modifiers: version=, key=
-    const versionResolver = this.objArgs?.version;
-    const keyResolver = this.objArgs?.key;
-
-    if (!this.arrArgs || this.arrArgs.length === 0) {
-      // No arguments - infer secret name from item name
-      // Convert UPPER_SNAKE_CASE to lower-kebab-case
-      // e.g., DATABASE_URL -> database-url
-      const parent = (this as any).parent;
-      const itemKey = parent?.key || '';
-      if (!itemKey) {
-        throw new SchemaError('Cannot infer secret name - no item key available', {
-          tip: 'Either provide a secret name as an argument: azureSecret("secret-name"), or use this resolver on a config item with a key',
-        });
-      }
-      inferredSecretName = itemKey.toLowerCase().replace(/_/g, '-');
-      debug(`Auto-inferred secret name from item key "${itemKey}": "${inferredSecretName}"`);
-    } else if (this.arrArgs.length === 1) {
-      secretRefResolver = this.arrArgs[0];
-    } else if (this.arrArgs.length === 2) {
-      if (!(this.arrArgs[0].isStatic)) {
-        throw new SchemaError('Expected instance id to be a static value');
-      }
-      instanceId = String(this.arrArgs[0].staticValue);
-      secretRefResolver = this.arrArgs[1];
-    } else {
-      throw new SchemaError('Expected 0, 1, or 2 args');
-    }
-
-    if (!Object.values(pluginInstances).length) {
-      throw new SchemaError('No Azure Key Vault plugin instances found', {
-        tip: 'Initialize at least one Azure plugin instance using the @initAzure root decorator',
-      });
-    }
-
-    // Make sure instance id is valid
-    const selectedInstance = pluginInstances[instanceId];
-    if (!selectedInstance) {
-      if (instanceId === '_default') {
-        throw new SchemaError('Azure Key Vault plugin instance (without id) not found', {
-          tip: [
-            'Either remove the `id` param from your @initAzure call',
-            'or use `azureSecret(id, secretName)` to select an instance by id.',
-            `Possible ids are: ${Object.keys(pluginInstances).join(', ')}`,
-          ].join('\n'),
-        });
-      } else {
-        throw new SchemaError(`Azure Key Vault plugin instance id "${instanceId}" not found`, {
-          tip: [`Valid ids are: ${Object.keys(pluginInstances).join(', ')}`].join('\n'),
-        });
-      }
-    }
-
+    // Convert UPPER_SNAKE_CASE to lower-kebab-case (Key Vault does not allow underscores)
+    // e.g., DATABASE_URL -> database-url
+    const parsed = parseInstanceAndNameArgs(this, 'azureSecret', (itemKey) => itemKey.toLowerCase().replace(/_/g, '-'));
     return {
-      instanceId, secretRefResolver, inferredSecretName, versionResolver, keyResolver,
+      instanceId: parsed.instanceId,
+      secretRefResolver: parsed.nameResolver,
+      inferredSecretName: parsed.inferredName,
+      // Named modifiers: version=, key=
+      versionResolver: this.objArgs?.version,
+      keyResolver: this.objArgs?.key,
     };
   },
   async resolve({
@@ -785,6 +1259,111 @@ plugin.registerResolverFunction({
   },
 });
 
+plugin.registerResolverFunction({
+  name: 'azureAppConfig',
+  label: 'Fetch setting from Azure App Configuration',
+  icon: AZURE_ICON,
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 0,
+    arrayMaxLength: 2,
+  },
+  process() {
+    // App Configuration keys allow underscores, so the item key is used verbatim
+    const parsed = parseInstanceAndNameArgs(this, 'azureAppConfig', (itemKey) => itemKey);
+    return {
+      instanceId: parsed.instanceId,
+      keyResolver: parsed.nameResolver,
+      inferredKey: parsed.inferredName,
+      labelResolver: this.objArgs?.label,
+    };
+  },
+  async resolve({
+    instanceId, keyResolver, inferredKey, labelResolver,
+  }) {
+    const selectedInstance = pluginInstances[instanceId];
+
+    const key = inferredKey ?? await resolveOptionalString(keyResolver, 'setting key');
+    if (!key) throw new SchemaError('Expected either a setting key argument or an item key to infer from');
+
+    // label= overrides the instance's defaultLabel; an explicit empty label means "no label"
+    let label: string | undefined;
+    if (labelResolver) {
+      label = await resolveOptionalString(labelResolver, 'label') || undefined;
+    } else {
+      label = selectedInstance.appConfigDefaultLabel;
+    }
+
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `azureAppConfig:${instanceId}:${selectedInstance.appConfigCacheKeyIdentity}:${JSON.stringify([key, label ?? null])}`;
+      const value = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.getSetting(key, label),
+      );
+      if (typeof value !== 'string') {
+        throw new ResolutionError('Cached Azure App Configuration value has unexpected type (expected string)');
+      }
+      return value;
+    }
+
+    return selectedInstance.getSetting(key, label);
+  },
+});
+
+plugin.registerResolverFunction({
+  name: 'azureAppConfigBulk',
+  label: 'Load settings from Azure App Configuration as JSON',
+  icon: AZURE_ICON,
+  argsSchema: {
+    type: 'mixed',
+    arrayMinLength: 0,
+    arrayMaxLength: 1,
+  },
+  process() {
+    let instanceId = '_default';
+    if (this.arrArgs?.length) {
+      if (!this.arrArgs[0].isStatic) throw new SchemaError('Expected instance id to be a static value');
+      instanceId = String(this.arrArgs[0].staticValue);
+    }
+    getPluginInstance(instanceId, 'azureAppConfigBulk');
+    return {
+      instanceId,
+      keyFilterResolver: this.objArgs?.keyFilter,
+      labelFilterResolver: this.objArgs?.labelFilter,
+      trimKeyPrefixResolver: this.objArgs?.trimKeyPrefix,
+    };
+  },
+  async resolve({
+    instanceId, keyFilterResolver, labelFilterResolver, trimKeyPrefixResolver,
+  }) {
+    const selectedInstance = pluginInstances[instanceId];
+
+    const keyFilter = await resolveOptionalString(keyFilterResolver, 'keyFilter') || '*';
+    // default to the instance's defaultLabel (as a literal, escaped for the filter grammar),
+    // otherwise only unlabeled settings. An explicit labelFilter is a filter expression as-is.
+    const labelFilter = await resolveOptionalString(labelFilterResolver, 'labelFilter')
+      || selectedInstance.appConfigDefaultLabelFilter
+      || NO_LABEL_FILTER;
+    const trimKeyPrefix = await resolveOptionalString(trimKeyPrefixResolver, 'trimKeyPrefix') || undefined;
+
+    if (selectedInstance.cacheTtl !== undefined && pluginCache) {
+      const cacheKey = `azureAppConfigBulk:${instanceId}:${selectedInstance.appConfigCacheKeyIdentity}:${JSON.stringify([keyFilter, labelFilter, trimKeyPrefix ?? null])}`;
+      const value = await pluginCache.getOrSet(
+        cacheKey,
+        selectedInstance.cacheTtl,
+        async () => await selectedInstance.listSettings(keyFilter, labelFilter, trimKeyPrefix),
+      );
+      if (typeof value !== 'string') {
+        throw new ResolutionError('Cached Azure App Configuration bulk value has unexpected type (expected string)');
+      }
+      return value;
+    }
+
+    return selectedInstance.listSettings(keyFilter, labelFilter, trimKeyPrefix);
+  },
+});
+
 // Anonymous, non-sensitive usage signals. Strictly sanitized before send.
 plugin.registerTelemetryAttributes(() => {
   const instances = Object.values(pluginInstances);
@@ -794,8 +1373,11 @@ plugin.registerTelemetryAttributes(() => {
     instance_count: instances.length,
     cache_enabled: instances.some((i) => i.cacheTtl != null),
     // custom attributes
+    key_vault_enabled: instances.some((i) => i.hasKeyVault),
+    app_config_enabled: instances.some((i) => i.hasAppConfig),
     auth_service_principal: authMethods.has('service_principal'),
     auth_oidc_federated: authMethods.has('oidc_federated'),
+    auth_connection_string: instances.some((i) => i.hasAppConfigConnectionString),
     auth_ambient: authMethods.has('ambient'),
   };
 });
