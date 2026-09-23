@@ -18,7 +18,7 @@ It supports two modes of operation: **file mode** (default) reads `.kdbx` files 
 
 - **KDBX 4.0 support**: reads KeePass database files directly via [kdbxweb](https://github.com/keeweb/kdbxweb) with pure WASM argon2
 - **KeePassXC CLI integration**: use `keepassxc-cli` for development workflows
-- **Key file support**: authenticate with password + optional key file
+- **Key file support**: authenticate with a password, a key file, or both
 - **`#attribute` syntax**: read any entry field (Password, UserName, URL, Notes, or custom fields)
 - **Auto-infer entry paths** from variable names for convenience
 - **Custom attributes object**: load all custom fields from a single entry for `@setValuesBulk`
@@ -45,6 +45,15 @@ See the [plugins guide](/guides/plugins/#installation) for more instructions on 
 # @plugin(@varlock/keepass-plugin)
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, keyFile="./secrets.keyx")
 ```
+
+If the database has no master password (key file only), omit `password`:
+
+```env-spec title=".env.schema"
+# @plugin(@varlock/keepass-plugin)
+# @initKeePass(dbPath="./secrets.kdbx", keyFile="./secrets.keyx")
+```
+
+KeePass treats "no master password" and "an empty master password" as different credentials. Omitting `password` means no master password.
 
 ### CLI mode
 
@@ -200,8 +209,8 @@ Initialize a KeePass plugin instance for accessing secrets from a KDBX database.
 
 **Key/value args:**
 - `dbPath` **(required)**: Path to the `.kdbx` database file
-- `password` **(required)**: Master password (typically from an env var like `$KP_PASSWORD`)
-- `keyFile` (optional): Path to a key file for additional authentication
+- `password` (required unless `keyFile` is set): Master password (typically from an env var like `$KP_PASSWORD`). Omit it for a database protected only by a key file
+- `keyFile` (optional): Path to a key file, used alone or together with `password`
 - `useCli` (optional): Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, e.g. `useCli=forEnv(dev)`
 - `id` (optional): Instance identifier for multiple databases
 

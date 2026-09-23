@@ -46,7 +46,7 @@ class KeePassPluginInstance {
     await this.initPromise;
   }
 
-  configure(dbPath: string, password: string, keyFile?: string, useCli?: boolean) {
+  configure(dbPath: string, password: string | undefined, keyFile?: string, useCli?: boolean) {
     debug('keepass instance', this.id, 'configured - dbPath:', dbPath, 'useCli:', !!useCli);
 
     if (useCli) {
@@ -147,23 +147,33 @@ plugin.registerRootDecorator({
       });
     }
 
-    // password is required
-    if (!objArgs.password) {
-      throw new SchemaError('password is required for @initKeePass', {
-        tip: 'Provide the database master password, e.g., @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)',
-      });
+    // keyFile (optional)
+    let keyFile: string | undefined;
+    if (objArgs.keyFile) {
+      if (!objArgs.keyFile.isStatic) {
+        throw new SchemaError('Expected keyFile to be a static value');
+      }
+      if (typeof objArgs.keyFile.staticValue !== 'string' || !objArgs.keyFile.staticValue) {
+        throw new SchemaError('Expected keyFile to be a non-empty path string');
+      }
+      keyFile = objArgs.keyFile.staticValue;
     }
 
-    // keyFile (optional)
-    if (objArgs.keyFile && !objArgs.keyFile.isStatic) {
-      throw new SchemaError('Expected keyFile to be a static value');
+    // password is optional only when a key file is used (KeePass allows key-file-only databases)
+    if (!objArgs.password && !keyFile) {
+      throw new SchemaError('@initKeePass requires a password, a keyFile, or both', {
+        tip: [
+          'Provide the database master password, e.g., @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD)',
+          'or a key file for a database without a master password, e.g., @initKeePass(dbPath="./secrets.kdbx", keyFile="./secrets.keyx")',
+        ].join('\n'),
+      });
     }
 
     return {
       id,
       dbPathResolver: objArgs.dbPath,
       passwordResolver: objArgs.password,
-      keyFile: objArgs?.keyFile ? String(objArgs.keyFile.staticValue) : undefined,
+      keyFile,
       useCliResolver: objArgs.useCli,
     };
   },
@@ -174,11 +184,16 @@ plugin.registerRootDecorator({
     // make an unset password fatal even when nothing in the schema reads from KeePass
     pluginInstances[id].setInit(async () => {
       const dbPath = await dbPathResolver.resolve();
-      const password = await passwordResolver.resolve();
+      // no password resolver = key-file-only database (no master password at all, which
+      // KeePass treats differently from an empty master password)
+      const password = passwordResolver ? await passwordResolver.resolve() : undefined;
       if (typeof dbPath !== 'string') {
         throw new SchemaError('Expected dbPath to resolve to a string');
       }
-      if (typeof password !== 'string') {
+      if (password !== undefined && typeof password !== 'string') {
+        throw new SchemaError('Expected password to resolve to a string');
+      }
+      if (passwordResolver && password === undefined) {
         throw new SchemaError('Expected password to resolve to a string');
       }
 

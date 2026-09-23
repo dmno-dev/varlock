@@ -64,7 +64,8 @@ export class KdbxReader {
 
   constructor(
     private dbPath: string,
-    private password: string,
+    /** undefined = database has no master password (key file only) */
+    private password: string | undefined,
     private keyFilePath?: string,
   ) {}
 
@@ -88,7 +89,7 @@ export class KdbxReader {
       ) as ArrayBuffer;
 
       const credentials = new kdbxweb.KdbxCredentials(
-        kdbxweb.ProtectedValue.fromString(this.password),
+        this.password === undefined ? null : kdbxweb.ProtectedValue.fromString(this.password),
         readKeyFile(this.keyFilePath),
       );
 
@@ -101,7 +102,7 @@ export class KdbxReader {
         if (msg.includes('InvalidKey') || msg.includes('invalid key') || msg.toLowerCase().includes('invalid credentials')) {
           throw new ResolutionError('Invalid KeePass database credentials', {
             tip: [
-              'Check that the password is correct.',
+              'Check that the password is correct (omit `password` if the database has no master password).',
               'If the database uses a key file, make sure the keyFile path is valid.',
             ],
           });

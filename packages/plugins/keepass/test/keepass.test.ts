@@ -38,7 +38,11 @@ type TestDbEntries = Record<string, Record<string, string>>;
  * It has to come back off immediately: leaving it in place would also satisfy the plugin's own
  * bundled kdbxweb, and every test here would keep passing even if the redirect broke.
  */
-async function buildTestKdbx(password: string, entries: TestDbEntries): Promise<Buffer> {
+async function buildTestKdbx(
+  password: string | null,
+  entries: TestDbEntries,
+  keyFile?: Uint8Array,
+): Promise<Buffer> {
   const xmlGlobals = globalThis as typeof globalThis & {
     DOMParser?: typeof DOMParser;
     XMLSerializer?: typeof XMLSerializer;
@@ -49,7 +53,10 @@ async function buildTestKdbx(password: string, entries: TestDbEntries): Promise<
   xmlGlobals.XMLSerializer = XMLSerializer;
 
   try {
-    const creds = new kdbxweb.KdbxCredentials(kdbxweb.ProtectedValue.fromString(password));
+    const creds = new kdbxweb.KdbxCredentials(
+      password === null ? null : kdbxweb.ProtectedValue.fromString(password),
+      keyFile,
+    );
     const db = kdbxweb.Kdbx.create(creds, 'TestDB');
     const root = db.getDefaultGroup();
     const groups: Record<string, kdbxweb.KdbxGroup> = {};
@@ -84,6 +91,18 @@ async function buildTestKdbx(password: string, entries: TestDbEntries): Promise<
 }
 
 let dbCounter = 0;
+
+/** Builds a KDBX protected only by a key file (no master password at all) */
+async function buildKeyFileOnlyDb(entries: TestDbEntries) {
+  fs.mkdirSync(FIXTURES_DIR, { recursive: true });
+  const n = dbCounter++;
+  const dbPath = path.join(FIXTURES_DIR, `test-db-${n}.kdbx`);
+  const keyFilePath = path.join(FIXTURES_DIR, `test-db-${n}.keyx`);
+  const keyFile = await kdbxweb.Credentials.createRandomKeyFile(2);
+  fs.writeFileSync(keyFilePath, keyFile);
+  fs.writeFileSync(dbPath, await buildTestKdbx(null, entries, keyFile));
+  return { dbPath, keyFilePath };
+}
 
 /**
  * Builds a KDBX on the fly and wires up plugin/initKeePass boilerplate.
@@ -219,6 +238,23 @@ describe('keepass plugin', () => {
     }));
   });
 
+  describe('key file only (no master password)', () => {
+    test('reads entries with only a keyFile', (() => {
+      return async () => {
+        const { dbPath, keyFilePath } = await buildKeyFileOnlyDb({ SECRET: { Password: 'val' } });
+        await pluginTest({
+          schema: outdent`
+            # @plugin(${PLUGIN_PATH})
+            # @initKeePass(dbPath="${dbPath}", keyFile="${keyFilePath}")
+            # ---
+            SECRET=kp(SECRET)
+          `,
+          expectValues: { SECRET: 'val' },
+        })();
+      };
+    })());
+  });
+
   describe('errors', () => {
     test('unused plugin with empty password causes no errors', pluginTest({
       schema: outdent`
@@ -240,7 +276,7 @@ describe('keepass plugin', () => {
       expectSchemaError: true,
     }));
 
-    test('missing password', pluginTest({
+    test('missing both password and keyFile', pluginTest({
       schema: outdent`
         # @plugin(${PLUGIN_PATH})
         # @initKeePass(dbPath="/tmp/x.kdbx")
@@ -268,6 +304,30 @@ describe('keepass plugin', () => {
       `,
       expectSchemaError: true,
     }));
+
+    test('empty keyFile does not count as a credential', pluginTest({
+      schema: outdent`
+        # @plugin(${PLUGIN_PATH})
+        # @initKeePass(dbPath="/tmp/x.kdbx", keyFile="")
+        # ---
+      `,
+      expectSchemaError: true,
+    }));
+
+    test('key file only db, but password provided', (() => {
+      return async () => {
+        const { dbPath, keyFilePath } = await buildKeyFileOnlyDb({ SECRET: { Password: 'val' } });
+        await pluginTest({
+          schema: outdent`
+            # @plugin(${PLUGIN_PATH})
+            # @initKeePass(dbPath="${dbPath}", password=pw, keyFile="${keyFilePath}")
+            # ---
+            SECRET=kp(SECRET)
+          `,
+          expectValues: { SECRET: Error },
+        })();
+      };
+    })());
 
     test('wrong password', (() => {
       // need manual setup: DB built with 'correct' but schema uses 'wrong'

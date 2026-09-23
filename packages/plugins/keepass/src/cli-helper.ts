@@ -88,14 +88,22 @@ async function execKeePassCliCommand(args: Array<string>, stdinInput?: string): 
 export class KpCliReader {
   constructor(
     private dbPath: string,
-    private password: string,
+    /** undefined = database has no master password (key file only) */
+    private password: string | undefined,
     private keyFile?: string,
   ) {}
+
+  private get authArgs() {
+    return [
+      ...(this.password === undefined ? ['--no-password'] : []),
+      ...(this.keyFile ? ['--key-file', this.keyFile] : []),
+    ];
+  }
 
   async readEntry(entryPath: string, attribute: string = 'Password'): Promise<string> {
     const args = [
       'show',
-      ...(this.keyFile ? ['--key-file', this.keyFile] : []),
+      ...this.authArgs,
       '--attributes',
       attribute,
       '--quiet',
@@ -109,7 +117,7 @@ export class KpCliReader {
   async listEntries(groupPath?: string): Promise<Array<string>> {
     const args = [
       'ls',
-      ...(this.keyFile ? ['--key-file', this.keyFile] : []),
+      ...this.authArgs,
       '--recursive',
       '--flatten',
       this.dbPath,

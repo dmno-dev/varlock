@@ -8,7 +8,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 
 - **KDBX 4.0 support** — reads KeePass database files directly via [kdbxweb](https://github.com/keeweb/kdbxweb) with pure WASM argon2
 - **KeePassXC CLI integration** — use `keepassxc-cli` for development workflows
-- **Key file support** — authenticate with password + optional key file
+- **Key file support** — authenticate with a password, a key file, or both
 - **Custom attributes** — read any entry field via `#attribute` syntax
 - **Bulk loading** with `kpBulk()` via `@setValuesBulk` to load all entries in a group
 - **Custom attributes object** — load all custom fields from a single entry via `customAttributesObj=true`
@@ -97,6 +97,12 @@ KP_PASSWORD=
 # @plugin(@varlock/keepass-plugin)
 # @initKeePass(dbPath="./secrets.kdbx", password=$KP_PASSWORD, keyFile="./secrets.keyx")
 # ---
+```
+
+If the database has no master password (key file only), omit `password`:
+
+```env-spec
+# @initKeePass(dbPath="./secrets.kdbx", keyFile="./secrets.keyx")
 ```
 
 ### Multiple databases
@@ -222,8 +228,8 @@ Initialize a KeePass plugin instance.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `dbPath` | string | yes | Path to the `.kdbx` database file |
-| `password` | string | yes | Master password (typically from an env var like `$KP_PASSWORD`) |
-| `keyFile` | string | no | Path to a key file for additional authentication |
+| `password` | string | unless `keyFile` is set | Master password (typically from an env var like `$KP_PASSWORD`). Omit for a key-file-only database |
+| `keyFile` | string | no | Path to a key file, used alone or together with `password` |
 | `useCli` | boolean | no | Use `keepassxc-cli` instead of reading the file directly (default: `false`). Can be dynamic, e.g. `useCli=forEnv(dev)` |
 | `id` | string | no | Instance identifier for multiple databases (defaults to `_default`) |
 
