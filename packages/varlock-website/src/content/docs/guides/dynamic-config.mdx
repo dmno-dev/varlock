@@ -196,7 +196,7 @@ function IndexPage() {
 }
 ```
 
-If you keep these router options and also have prerendered routes, those routes ship a build-time snapshot and `hydrate()` fills the store with it, which makes a plain `loadPublicDynamicEnv()` skip its fetch. Pass `force: true` there and keep `ENV` reads out of render:
+If you keep these router options and also have routes that are prerendered or served from cached HTML, those pages ship a stale snapshot and `hydrate()` fills the store with it, which makes a plain `loadPublicDynamicEnv()` skip its fetch. Pass `force: true` on those routes and keep `ENV` reads out of render:
 
 ```tsx title="src/routes/prerendered.tsx"
 import { useEffect, useState } from 'react';
