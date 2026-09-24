@@ -3,6 +3,7 @@ import {
 } from 'vitest';
 import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
 
 vi.mock('node:child_process', () => ({
@@ -10,10 +11,13 @@ vi.mock('node:child_process', () => ({
   execFileSync: vi.fn(() => Buffer.from('ok')),
 }));
 
-/** Pretend only the given paths exist on disk (bin dirs and bins) */
+/**
+ * Pretend only the given (absolute) paths exist on disk (bin dirs and bins).
+ * Relative lookups are resolved against process.cwd() like the real fs would.
+ */
 function stubExistingPaths(paths: Array<string>) {
   const existing = new Set(paths);
-  return vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => existing.has(String(filePath)));
+  return vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => existing.has(path.resolve(String(filePath))));
 }
 
 describe('execSyncVarlock integration telemetry', () => {
@@ -266,6 +270,25 @@ describe('execSyncVarlock CLI resolution order', () => {
       ['load'],
       expect.objectContaining({ cwd: '/explicit' }),
     );
+  });
+
+  it('resolves a relative cwd against process.cwd() so the bin path found from a parent is absolute', () => {
+    // e.g. varlock-wrangler passing wrangler's `--cwd nested` straight through. The walk-up
+    // starts at /project/nested and finds /project's bin; a relative bin path would then be
+    // executed relative to `nested` and fail with ENOENT.
+    existsSyncSpy = stubExistingPaths([
+      '/project/node_modules/.bin',
+      '/project/node_modules/.bin/varlock',
+    ]);
+
+    execSyncVarlock('load', { cwd: 'nested' });
+
+    expect(execFileSync).toHaveBeenCalledWith(
+      '/project/node_modules/.bin/varlock',
+      ['load'],
+      expect.objectContaining({ cwd: 'nested' }),
+    );
+    expect(execSync).not.toHaveBeenCalled();
   });
 
   it('throws "Unable to find varlock executable" when neither a local bin nor PATH has varlock', () => {
