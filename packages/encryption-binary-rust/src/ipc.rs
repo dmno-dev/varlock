@@ -202,11 +202,17 @@ impl IpcServer {
             }
         };
 
-        // Named pipes have no lock file, so nothing here stops a second daemon
-        // from adding instances to the same pipe name. FILE_FLAG_FIRST_PIPE_INSTANCE
-        // would, but it also fails while clients of a daemon that just exited still
-        // hold their handles, which would leave no daemon serving at all. Until that
-        // can be tested on Windows, a duplicate daemon is the lesser failure.
+        // Named pipes have no lock file, so nothing about the pipe itself stops a
+        // second daemon from adding instances to the same name and splitting the
+        // clients between them. A named mutex plays the part of the unix flock:
+        // whoever owns it serves the pipe, everyone else reports alreadyRunning.
+        // FILE_FLAG_FIRST_PIPE_INSTANCE would lean on how long a pipe name outlives
+        // its server while clients still hold handles, which isn't documented, and
+        // its ERROR_ACCESS_DENIED also covers a pipe we simply may not open. The
+        // mutex is never released: the OS abandons it when this process exits
+        // (including a crash or kill), and the next daemon takes it over.
+        let _instance_lock = acquire_instance_mutex(&self.socket_path)?;
+
         let mut listening = create_instance();
         if listening == INVALID_HANDLE_VALUE {
             return Err("CreateNamedPipe failed".into());
@@ -337,6 +343,61 @@ fn acquire_lock(lock_path: &str) -> Result<std::fs::File, String> {
         }
     }
     Err("Lock file kept changing while acquiring it".into())
+}
+
+/// Take the named mutex that elects the one daemon serving `pipe_path`, or
+/// fail with `LOCK_HELD_ERROR` while another live daemon owns it.
+///
+/// Mutex ownership belongs to the calling thread, so this must be called on the
+/// thread that runs the accept loop and lives as long as the daemon does. The
+/// returned handle is kept open for the same reason: closing it without
+/// releasing would abandon the mutex while we are still serving.
+#[cfg(windows)]
+fn acquire_instance_mutex(pipe_path: &str) -> Result<windows::Win32::Foundation::HANDLE, String> {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject};
+    use windows::core::HSTRING;
+
+    // Same current-user-only DACL as the pipe: the mutex lives in the global
+    // namespace, and no other account may take it (or hold it to block us).
+    let sa = create_current_user_security_attributes()
+        .map_err(|e| format!("Failed to create mutex security attributes: {e}"))?;
+    let name = HSTRING::from(instance_mutex_name(pipe_path));
+    let mutex = unsafe { CreateMutexW(Some(&sa), false, &name) }
+        .map_err(|e| format!("Failed to create daemon instance mutex: {e}"))?;
+
+    // WAIT_ABANDONED means the previous owner exited without releasing it
+    // (killed or crashed). Its pipe instances died with it, so we own it now.
+    match unsafe { WaitForSingleObject(mutex, 0) } {
+        r if r == WAIT_OBJECT_0 || r == WAIT_ABANDONED => Ok(mutex),
+        r => {
+            unsafe { let _ = CloseHandle(mutex); }
+            if r == WAIT_TIMEOUT {
+                Err(LOCK_HELD_ERROR.into())
+            } else {
+                Err(format!("Failed to wait on daemon instance mutex: {}", r.0))
+            }
+        }
+    }
+}
+
+/// Mutex name for a pipe path: `\\.\pipe\name` becomes `Global\name.lock`,
+/// mirroring the `<socket>.lock` file on unix.
+///
+/// - `Global\` because pipe names are machine-wide: a `Local\` (per-session)
+///   mutex would let the same user's daemons in two sessions (console + RDP)
+///   both serve one pipe. Creating a global mutex needs no special privilege.
+/// - Lowercased because pipe names are case-insensitive and mutex names are not.
+/// - Kernel object names can't contain a backslash after the namespace prefix,
+///   so any in the pipe name are swapped out.
+#[cfg(any(windows, test))]
+fn instance_mutex_name(pipe_path: &str) -> String {
+    let lower = pipe_path.to_lowercase();
+    let name = ["\\\\.\\pipe\\", "//./pipe/"]
+        .iter()
+        .find_map(|prefix| lower.strip_prefix(prefix))
+        .unwrap_or(&lower);
+    format!("Global\\{}.lock", name.replace('\\', "/"))
 }
 
 // ── Client handling ──────────────────────────────────────────────
@@ -1124,5 +1185,24 @@ mod tests {
         if let Some(id) = get_tty_session_id(std::process::id()) {
             assert!(id.starts_with("tty:"), "expected tty: prefix, got {id}");
         }
+    }
+}
+
+#[cfg(test)]
+mod instance_mutex_tests {
+    use super::instance_mutex_name;
+
+    #[test]
+    fn test_instance_mutex_name() {
+        assert_eq!(
+            instance_mutex_name(r"\\.\pipe\varlock-local-encrypt"),
+            r"Global\varlock-local-encrypt.lock",
+        );
+        assert_eq!(instance_mutex_name(r"\\.\PIPE\a\b"), r"Global\a/b.lock");
+        assert_eq!(instance_mutex_name("//./pipe/x"), r"Global\x.lock");
+        assert_eq!(
+            instance_mutex_name(r"\\.\pipe\VARLOCK-Local-Encrypt"),
+            instance_mutex_name(r"\\.\pipe\varlock-local-encrypt"),
+        );
     }
 }
