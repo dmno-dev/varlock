@@ -79,7 +79,7 @@ The response must be a JSON object of key/value pairs, and hydration is filtered
 
 ### Loading from a server endpoint
 
-Each recipe is the same shape: a small server route returning `getPublicDynamicEnv()`, and a one-time `loadPublicDynamicEnv()` call before browser code reads `ENV.KEY`.
+Most recipes are the same shape: a small server route returning `getPublicDynamicEnv()`, and a one-time `loadPublicDynamicEnv()` call before browser code reads `ENV.KEY`. Frameworks that already ship server state to the browser (TanStack Start) can skip the endpoint and hydrate the values with `setPublicDynamicEnv()` instead.
 
 <Tabs syncKey="framework">
 <TabItem label="Next.js">
@@ -163,28 +163,56 @@ Keep dynamic-key usage out of routes that must be prerendered.
 </TabItem>
 <TabItem label="TanStack Start">
 
-```ts title="src/routes/api/public-env.ts"
-import { createServerFileRoute } from '@tanstack/react-start/server';
-import { getPublicDynamicEnv } from 'varlock/env';
+Which recipe to use:
 
-export const ServerRoute = createServerFileRoute('/api/public-env').methods({
-  GET: async () => Response.json(getPublicDynamicEnv(), {
-    headers: { 'cache-control': 'no-store' },
-  }),
-});
-```
+- **Routes rendered per request (SSR)**: pass the values through the router. No endpoint, no fetch, no hydration mismatch.
+- **Prerendered routes, cached HTML, or consumers outside the app** (a native client, another origin): use a server route plus `loadPublicDynamicEnv()`, like the other tabs. Anything not rendered per request freezes whatever the router saw at that moment.
 
-```tsx title="src/components/client-widget.tsx"
-import { useEffect } from 'react';
-import { ENV, loadPublicDynamicEnv } from 'varlock/env';
+TanStack Router calls `dehydrate()` on the server during SSR and awaits `hydrate()` in the browser before the first render, so `ENV.KEY` reads work in components from the initial render:
 
-export function ClientWidget() {
-  useEffect(() => {
-    void loadPublicDynamicEnv({ endpoint: '/api/public-env' });
-  }, []);
-  return <p>{ENV.PUBLIC_RUNTIME_FLAG}</p>;
+```ts title="src/router.tsx"
+import { createRouter } from '@tanstack/react-router';
+import { getPublicDynamicEnv, setPublicDynamicEnv } from 'varlock/env';
+import { routeTree } from './routeTree.gen';
+
+export function getRouter() {
+  return createRouter({
+    routeTree,
+    dehydrate: () => ({
+      publicDynamicEnv: getPublicDynamicEnv(),
+    }),
+    hydrate: (dehydrated) => {
+      setPublicDynamicEnv(dehydrated.publicDynamicEnv);
+    },
+  });
 }
 ```
+
+```tsx title="src/routes/index.tsx"
+import { ENV } from 'varlock/env';
+
+function IndexPage() {
+  return <p>{ENV.RUNTIME_FLAG}</p>;
+}
+```
+
+If you keep these router options and also have routes that are prerendered or served from cached HTML, those pages ship a stale snapshot and `hydrate()` fills the store with it, which makes a plain `loadPublicDynamicEnv()` skip its fetch. Pass `force: true` on those routes and keep `ENV` reads out of render:
+
+```tsx title="src/routes/prerendered.tsx"
+import { useEffect, useState } from 'react';
+import { loadPublicDynamicEnv } from 'varlock/env';
+
+function PrerenderedPage() {
+  const [runtimeFlag, setRuntimeFlag] = useState<string>();
+  useEffect(() => {
+    loadPublicDynamicEnv({ endpoint: '/api/public-env', force: true })
+      .then((values) => setRuntimeFlag(values.RUNTIME_FLAG));
+  }, []);
+  return <p>{runtimeFlag ?? 'loading...'}</p>;
+}
+```
+
+`/api/public-env` is a server route returning `getPublicDynamicEnv()`, as in the other recipes.
 
 </TabItem>
 <TabItem label="Expo">
