@@ -329,18 +329,29 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // losing both the graceful shutdown and the true exit code. we deliberately do NOT
     // impose our own kill deadline by default (see FORCE_KILL_TIMEOUT_MS).
     FORWARDED_SIGNALS.forEach((signal) => {
+      const forwardSignal = () => {
+        signalChild(signal);
+        // opt-in only: escalate to SIGKILL if the child hasn't exited in time
+        if (FORCE_KILL_TIMEOUT_MS !== undefined && !forceKillTimer) {
+          forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
+          // don't let the fallback timer keep the process alive on its own
+          forceKillTimer.unref();
+        }
+      };
       try {
-        process.on(signal, () => {
-          signalChild(signal);
-          // opt-in only: escalate to SIGKILL if the child hasn't exited in time
-          if (FORCE_KILL_TIMEOUT_MS !== undefined && !forceKillTimer) {
-            forceKillTimer = setTimeout(() => signalChild('SIGKILL'), FORCE_KILL_TIMEOUT_MS);
-            // don't let the fallback timer keep the process alive on its own
-            forceKillTimer.unref();
-          }
-        });
+        process.on(signal, forwardSignal);
       } catch {
         // some signals (e.g. SIGQUIT) can't be listened for on every platform — skip those
+        return;
+      }
+      // While a child is running, ours must be the ONLY listener for these signals.
+      // Libraries loaded earlier register their own (notably `exit-hook`, used by the
+      // telemetry module, which installs SIGINT/SIGTERM listeners that run its hooks and
+      // then process.exit(128+N)). Left in place, such a listener exits varlock the moment
+      // the signal is forwarded, and our `exit` handler above then SIGKILLs the child
+      // mid-shutdown. Their exit hooks still run at the end via gracefulExit().
+      for (const listener of process.listeners(signal)) {
+        if (listener !== forwardSignal) process.removeListener(signal, listener);
       }
     });
   }
