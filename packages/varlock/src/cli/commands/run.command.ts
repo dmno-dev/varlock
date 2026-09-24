@@ -8,6 +8,7 @@ import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '
 import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
+import { flushSchemaLoadedEvent } from '../helpers/telemetry';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
@@ -309,6 +310,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   //    fan-out runners like turbo whose per-task PTYs we must not sever).
   const useProcessGroup = !hasControllingTerminal();
   childInOwnProcessGroup = useProcessGroup && process.platform !== 'win32';
+
+  // The schema is resolved and validated by now, and nothing in this process changes it
+  // afterwards, so send the schema usage event here rather than at exit. A long-running
+  // child (a server) may only ever end by SIGKILL, in which case an exit-time flush is
+  // lost. Fire-and-forget: the request completes while the child runs, gracefulExit still
+  // awaits anything pending, and taking the payload makes the exit-time flush a no-op.
+  flushSchemaLoadedEvent().catch(() => undefined);
 
   // Install signal handling BEFORE spawning the child. This both (a) closes the window
   // where a signal arriving between spawn and handler-registration would kill varlock
