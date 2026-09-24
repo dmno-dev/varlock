@@ -70,6 +70,8 @@ The proxy uses an **ephemeral, in-memory certificate authority** generated per r
 
 **Stdout/stderr redaction** is decided per stream: a stream attached to an interactive terminal passes through raw (so TUIs like `claude` render correctly), while a piped or redirected stream is scrubbed of sensitive values, including the real values the proxy injects at the wire, in case an upstream response echoes one back. Override with `--redact-stdout` / `--no-redact-stdout`.
 
+**Signals and exit codes** follow `varlock run`: `SIGTERM`, `SIGINT`, `SIGHUP`, and `SIGQUIT` are forwarded to the child so it can run its own shutdown handlers, varlock waits for it, and the child's exit status is propagated (`128+N` when it dies from a signal). The proxy session is closed after the child exits. See [Signals and exit codes](/reference/cli/load-and-run/#run) for the full contract, including the opt-in `SIGKILL` escalation.
+
 ### Client compatibility
 
 The proxy works with any client that honors the standard proxy and CA env vars above. Status of common clients:
