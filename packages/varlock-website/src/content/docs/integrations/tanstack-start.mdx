@@ -132,7 +132,7 @@ See the [Cloudflare integration page](/integrations/cloudflare/) for more detail
 
 ## Dynamic+public config
 
-TanStack Start uses the Vite integration, so static/dynamic behavior works the same as in any Vite app: public values are inlined at build time unless marked [`@dynamic`](/reference/item-decorators/#dynamic), and server code keeps using `ENV.KEY` at runtime. For browser access to a public+dynamic value, pass the values through the router's `dehydrate` and `hydrate` options with `getPublicDynamicEnv()` and `setPublicDynamicEnv()`; no server route or fetch is needed for SSR routes. Prerendered routes get a build-time snapshot this way and need a forced runtime fetch instead. See the [TanStack Start recipe in the guide](/guides/dynamic-config/#loading-from-a-server-endpoint).
+TanStack Start uses the Vite integration, so static/dynamic behavior works the same as in any Vite app: public values are inlined at build time unless marked [`@dynamic`](/reference/item-decorators/#dynamic), and server code keeps using `ENV.KEY` at runtime. For browser access to a public+dynamic value on SSR routes, pass the values through the router's `dehydrate` and `hydrate` options with `getPublicDynamicEnv()` and `setPublicDynamicEnv()`; no server route or fetch is needed. Prerendered routes get a build-time snapshot that way, so they need a server route and `loadPublicDynamicEnv()` instead. See the [TanStack Start recipe in the guide](/guides/dynamic-config/#loading-from-a-server-endpoint).
 
 ## Compared to TanStack Start's built-in env var handling
 

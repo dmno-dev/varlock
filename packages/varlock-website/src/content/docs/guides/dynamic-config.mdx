@@ -163,7 +163,12 @@ Keep dynamic-key usage out of routes that must be prerendered.
 </TabItem>
 <TabItem label="TanStack Start">
 
-No endpoint needed. TanStack Router calls `dehydrate()` on the server during SSR and awaits `hydrate()` in the browser before the first render, so the values ride along with the router's dehydrated state and `ENV.KEY` reads work in components from the initial render, with no hydration mismatch:
+Which recipe to use:
+
+- **Routes rendered per request (SSR)**: pass the values through the router. No endpoint, no fetch, no hydration mismatch.
+- **Prerendered routes, cached HTML, or consumers outside the app** (a native client, another origin): use a server route plus `loadPublicDynamicEnv()`, like the other tabs. Anything not rendered per request freezes whatever the router saw at that moment.
+
+TanStack Router calls `dehydrate()` on the server during SSR and awaits `hydrate()` in the browser before the first render, so `ENV.KEY` reads work in components from the initial render:
 
 ```ts title="src/router.tsx"
 import { createRouter } from '@tanstack/react-router';
@@ -191,7 +196,7 @@ function IndexPage() {
 }
 ```
 
-Prerendered routes run `dehydrate()` at build time, so their HTML carries a build-time snapshot and `hydrate()` restores it in the browser. Reading `ENV.KEY` while a route prerenders throws (the build-time guard, see above), and a plain `loadPublicDynamicEnv()` call in the browser will not help: it sees the store as already hydrated and skips the fetch. Either leave these router options out and use the endpoint recipe everywhere, or keep them and have prerendered routes fetch explicitly, without reading `ENV` during render:
+If you keep these router options and also have prerendered routes, those routes ship a build-time snapshot and `hydrate()` fills the store with it, which makes a plain `loadPublicDynamicEnv()` skip its fetch. Pass `force: true` there and keep `ENV` reads out of render:
 
 ```tsx title="src/routes/prerendered.tsx"
 import { useEffect, useState } from 'react';
@@ -200,7 +205,6 @@ import { loadPublicDynamicEnv } from 'varlock/env';
 function PrerenderedPage() {
   const [runtimeFlag, setRuntimeFlag] = useState<string>();
   useEffect(() => {
-    // force: the store already holds the build-time snapshot
     loadPublicDynamicEnv({ endpoint: '/api/public-env', force: true })
       .then((values) => setRuntimeFlag(values.RUNTIME_FLAG));
   }, []);
@@ -208,7 +212,7 @@ function PrerenderedPage() {
 }
 ```
 
-with `/api/public-env` being a server route that returns `getPublicDynamicEnv()`, as in the other recipes.
+`/api/public-env` is a server route returning `getPublicDynamicEnv()`, as in the other recipes.
 
 </TabItem>
 <TabItem label="Expo">
