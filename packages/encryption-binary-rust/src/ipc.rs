@@ -358,8 +358,12 @@ fn acquire_instance_mutex(pipe_path: &str) -> Result<windows::Win32::Foundation:
     use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject};
     use windows::core::HSTRING;
 
+    // Same current-user-only DACL as the pipe: the mutex lives in the global
+    // namespace, and no other account may take it (or hold it to block us).
+    let sa = create_current_user_security_attributes()
+        .map_err(|e| format!("Failed to create mutex security attributes: {e}"))?;
     let name = HSTRING::from(instance_mutex_name(pipe_path));
-    let mutex = unsafe { CreateMutexW(None, false, &name) }
+    let mutex = unsafe { CreateMutexW(Some(&sa), false, &name) }
         .map_err(|e| format!("Failed to create daemon instance mutex: {e}"))?;
 
     // WAIT_ABANDONED means the previous owner exited without releasing it
@@ -377,19 +381,23 @@ fn acquire_instance_mutex(pipe_path: &str) -> Result<windows::Win32::Foundation:
     }
 }
 
-/// Mutex name for a pipe path: `\\.\pipe\name` becomes `Local\name.lock`,
-/// mirroring the `<socket>.lock` file on unix. Kernel object names can't contain
-/// a backslash after the namespace prefix, so any in the pipe name are swapped out.
-/// `Local\` scopes the election to the login session, which is the widest scope
-/// an unprivileged process can create objects in.
+/// Mutex name for a pipe path: `\\.\pipe\name` becomes `Global\name.lock`,
+/// mirroring the `<socket>.lock` file on unix.
+///
+/// - `Global\` because pipe names are machine-wide: a `Local\` (per-session)
+///   mutex would let the same user's daemons in two sessions (console + RDP)
+///   both serve one pipe. Creating a global mutex needs no special privilege.
+/// - Lowercased because pipe names are case-insensitive and mutex names are not.
+/// - Kernel object names can't contain a backslash after the namespace prefix,
+///   so any in the pipe name are swapped out.
 #[cfg(any(windows, test))]
 fn instance_mutex_name(pipe_path: &str) -> String {
-    let lower = pipe_path.to_ascii_lowercase();
+    let lower = pipe_path.to_lowercase();
     let name = ["\\\\.\\pipe\\", "//./pipe/"]
         .iter()
-        .find_map(|prefix| lower.starts_with(prefix).then(|| &pipe_path[prefix.len()..]))
-        .unwrap_or(pipe_path);
-    format!("Local\\{}.lock", name.replace('\\', "/"))
+        .find_map(|prefix| lower.strip_prefix(prefix))
+        .unwrap_or(&lower);
+    format!("Global\\{}.lock", name.replace('\\', "/"))
 }
 
 // ── Client handling ──────────────────────────────────────────────
@@ -1188,9 +1196,13 @@ mod instance_mutex_tests {
     fn test_instance_mutex_name() {
         assert_eq!(
             instance_mutex_name(r"\\.\pipe\varlock-local-encrypt"),
-            r"Local\varlock-local-encrypt.lock",
+            r"Global\varlock-local-encrypt.lock",
         );
-        assert_eq!(instance_mutex_name(r"\\.\PIPE\a\b"), r"Local\a/b.lock");
-        assert_eq!(instance_mutex_name("//./pipe/x"), r"Local\x.lock");
+        assert_eq!(instance_mutex_name(r"\\.\PIPE\a\b"), r"Global\a/b.lock");
+        assert_eq!(instance_mutex_name("//./pipe/x"), r"Global\x.lock");
+        assert_eq!(
+            instance_mutex_name(r"\\.\pipe\VARLOCK-Local-Encrypt"),
+            instance_mutex_name(r"\\.\pipe\varlock-local-encrypt"),
+        );
     }
 }
