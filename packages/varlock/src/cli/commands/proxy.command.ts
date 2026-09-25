@@ -11,6 +11,7 @@ import ansis from 'ansis';
 import { gracefulExit } from 'exit-hook';
 
 import { exec } from '../../lib/exec';
+import { claimSignals, createChildSignalForwarder, type ChildSignalForwarder } from '../../lib/child-signals';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { startLocalProxyRuntime, type ProxyResponseInfo } from '../../proxy/runtime-proxy';
 import {
@@ -421,6 +422,8 @@ function spawnProxiedChild(opts: {
   redactionManagedItems?: Array<ProxyManagedItem>;
   /** Wrap the child in the built-in minimal OS sandbox (`--sandbox`). */
   sandbox?: boolean;
+  /** run the child in its own process group (see createChildSignalForwarder) */
+  detached?: boolean;
 }) {
   const fullInjectedEnv = buildProxiedChildEnv({
     payload: opts.payload,
@@ -471,6 +474,7 @@ function spawnProxiedChild(opts: {
     stdout: redactStdout ? 'pipe' : 'inherit',
     stderr: redactStderr ? 'pipe' : 'inherit',
     env: fullInjectedEnv,
+    detached: opts.detached,
   });
   pipeRedactedStreams(commandProcess, { redactStdout, redactStderr });
   return commandProcess;
@@ -1543,6 +1547,11 @@ export async function runAction(ctx: any) {
   let commandProcess: ReturnType<typeof spawnProxiedChild>;
   let sandboxTeardown: (() => void) | undefined;
 
+  // Forward terminating signals to the child and wait for it (see createChildSignalForwarder
+  // for why this must be set up BEFORE spawning). An agent gets SIGTERM and time to shut
+  // down, rather than being SIGKILLed the moment varlock is asked to stop.
+  const signalForwarder = createChildSignalForwarder();
+
   if (sandboxIsContainer) {
     const runtime = sandboxSpec!.kind as 'docker' | 'podman';
     const hostProxyUrl = session.env.HTTPS_PROXY ?? session.env.https_proxy;
@@ -1561,6 +1570,7 @@ export async function runAction(ctx: any) {
       childEnv: payload.env,
       sessionProxyEnv: session.env,
       hasTty: Boolean(process.stdout.isTTY && process.stdin.isTTY),
+      detached: signalForwarder.useProcessGroup,
     });
     commandProcess = started.child;
     sandboxTeardown = started.teardown;
@@ -1575,11 +1585,21 @@ export async function runAction(ctx: any) {
       redactStdoutFlag: ctx.values['redact-stdout'],
       redactionManagedItems,
       sandbox: sandboxSpec?.kind === 'builtin',
+      detached: signalForwarder.useProcessGroup,
     });
     if (sandboxSpec?.kind === 'builtin') {
       console.error('Running the child inside the built-in sandbox (credential + egress jail).');
     }
   }
+
+  // attach before any further await: a signal arriving in that window would otherwise
+  // be dropped (the forwarder buffers pre-attach signals, but no need to rely on it)
+  signalForwarder.attach(commandProcess);
+  // The child can exit during the record write below (a forwarded signal, or a command
+  // that fails at once), before awaitProxiedChild awaits its promise. Mark the rejection
+  // handled now, or Node treats it as unhandled and crashes varlock with exit 1 instead
+  // of propagating the child's real status. The later await still receives it.
+  commandProcess.catch(() => undefined);
 
   if (commandProcess.pid && !attachSession) {
     await updateProxySessionRecord(session.uuid, { childPid: commandProcess.pid });
@@ -1588,6 +1608,7 @@ export async function runAction(ctx: any) {
   // eslint-disable-next-line no-use-before-define
   const exitCode = await awaitProxiedChild(commandProcess, {
     commandToRunStr,
+    signalForwarder,
     cleanup,
     sandboxTeardown,
     onSummary: statsWriter
@@ -1609,41 +1630,43 @@ async function awaitProxiedChild(
   commandProcess: ReturnType<typeof spawnProxiedChild>,
   opts: {
     commandToRunStr: string;
+    /** created BEFORE the child was spawned; forwards terminating signals and waits */
+    signalForwarder: ChildSignalForwarder;
     cleanup: () => Promise<void>;
     sandboxTeardown?: () => void;
     onSummary?: () => void;
   },
 ): Promise<number> {
-  process.on('exit', () => {
-    commandProcess?.kill(9);
-    // Sync best-effort container cleanup: the `finally` below may not run when
-    // gracefulExit tears the process down on a signal.
-    opts.sandboxTeardown?.();
-  });
-
-  ['SIGTERM', 'SIGINT'].forEach((signal) => {
-    process.on(signal, () => {
-      commandProcess?.kill(9);
-      opts.sandboxTeardown?.();
-      gracefulExit(1);
-    });
-  });
+  // Sync best-effort container cleanup for the case where varlock is torn down while the
+  // child is still alive (an unexpected error in varlock itself): the `finally` below
+  // does not run then.
+  if (opts.sandboxTeardown) {
+    const { sandboxTeardown } = opts;
+    process.on('exit', () => sandboxTeardown());
+  }
+  opts.signalForwarder.attach(commandProcess); // idempotent; callers attach right after spawn
 
   let exitCode = 0;
   try {
     const result = await commandProcess;
     exitCode = result.exitCode;
   } catch (error) {
-    if ((error as any).signal === 'SIGINT' || (error as any).signal === 'SIGKILL') {
-      exitCode = 1;
+    const err = error as any;
+    if (err.signal) {
+      // the child was terminated by a signal (often one we just forwarded). this is a
+      // normal shutdown path, not a varlock failure: propagate the conventional 128+N
+      // status (already computed by exec) without the "varlock may be broken" noise.
+      exitCode = err.exitCode || 1;
     } else {
       console.log((error as Error).message);
       console.log(`command [${opts.commandToRunStr}] failed`);
       console.log('try running the same command without varlock');
       console.log('if you get a different result, varlock may be the problem...');
-      exitCode = (error as any).exitCode || 1;
+      exitCode = err.exitCode || 1;
     }
   } finally {
+    // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
+    opts.signalForwarder.detach();
     // Tear down the container sandbox before other cleanup, so nothing lingers.
     if (opts.sandboxTeardown) {
       try {
@@ -1794,6 +1817,10 @@ export async function startAction(ctx: any) {
 
     process.on('SIGINT', close);
     process.on('SIGTERM', close);
+    // Ours must be the only listeners, or exit-hook's own (from the telemetry module)
+    // ends the process within its short hook window, cutting the bounded cleanup above
+    // short and reporting 128+N instead of 0. gracefulExit() in `close` still runs its hooks.
+    claimSignals(['SIGINT', 'SIGTERM'], close);
 
     // Interactive daemon: `r` then `y` reloads the schema in place; Ctrl-C quits.
     if (canKeypressReload) {
@@ -1932,6 +1959,7 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
   // 4. Spawn the command through the same path a local run uses: the wiring is the
   //    loopback proxy + the guest cert dir; redaction seeds from the payload graph.
   const { injectVars, injectBlob } = resolveInjectMode(ctx.values.inject);
+  const signalForwarder = createChildSignalForwarder();
   const commandProcess = spawnProxiedChild({
     payload,
     sessionExportEnv: guestLoopbackWiring(guestProxyUrl, certDir),
@@ -1940,10 +1968,13 @@ async function runRemoteThroughTunnel(ctx: any, cmd: {
     injectVars,
     injectBlob,
     redactStdoutFlag: ctx.values['redact-stdout'],
+    detached: signalForwarder.useProcessGroup,
   });
+  signalForwarder.attach(commandProcess);
 
   const exitCode = await awaitProxiedChild(commandProcess, {
     commandToRunStr: cmd.commandToRunStr,
+    signalForwarder,
     cleanup: async () => {
       try {
         listener.close();

@@ -174,6 +174,8 @@ export function runContainerSandbox(opts: {
   childEnv: Record<string, string>;
   sessionProxyEnv: Record<string, string>;
   hasTty: boolean;
+  /** run the docker CLI in its own process group (see createChildSignalForwarder) */
+  detached?: boolean;
 }) {
   const hostPort = hostProxyPort(opts.hostProxyUrl);
   const wiring = buildContainerWiring({
@@ -210,6 +212,6 @@ export function runContainerSandbox(opts: {
     ...opts.commandArgs,
   ];
 
-  const child = exec(opts.runtime, runArgs, { stdio: 'inherit' });
+  const child = exec(opts.runtime, runArgs, { stdio: 'inherit', detached: opts.detached });
   return { child, teardown, names };
 }

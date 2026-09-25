@@ -106,6 +106,23 @@ describe.skipIf(process.platform === 'win32')('Signal handling', () => {
     expect(result.code).toBe(0);
   });
 
+  // Regression: the telemetry module registers an `exit-hook` at load, and that library
+  // installs its own SIGTERM/SIGINT listeners which process.exit(128+N) after a short hook
+  // wait. Those must not preempt run's forward-and-wait, or a child mid-shutdown gets
+  // SIGKILLed by varlock's exit handler. Dev builds opt out of telemetry (so the hook is
+  // never registered); DEBUG=varlock:telemetry forces registration on the real code path.
+  test('waits for a slow child shutdown even when telemetry exit hooks are registered', async () => {
+    const result = await runAndSignal(
+      ['bash', '-c', 'trap "echo bye-start; sleep 2; echo bye-done; exit 0" TERM; echo ready; sleep 60 & wait'],
+      'SIGTERM',
+      { DEBUG: 'varlock:telemetry' },
+    );
+
+    expect(result.output).toContain('bye-start');
+    expect(result.output).toContain('bye-done');
+    expect(result.code).toBe(0);
+  });
+
   // escalation is opt-in via _VARLOCK_FORCE_KILL_TIMEOUT_MS
   test('escalates to SIGKILL when _VARLOCK_FORCE_KILL_TIMEOUT_MS is set and the child ignores the signal', async () => {
     const result = await runAndSignal(

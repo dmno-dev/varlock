@@ -206,6 +206,20 @@ docker run --rm \
   my-app:latest
 ```
 
+### PID 1, signals, and zombie processes
+
+With `varlock run` as the entrypoint, varlock is PID 1. It forwards `SIGTERM`, `SIGINT`, `SIGHUP`, and `SIGQUIT` to your app's process group, waits for the app to finish its own shutdown handlers, and exits with the app's status. `docker stop` and Kubernetes pod termination reach your app the same way they would if it were PID 1 itself. See [Signals and exit codes](/reference/cli/load-and-run/#run) for details.
+
+What varlock does not do is reap orphaned processes. If your app spawns subprocesses that can outlive their parent (a shell that backgrounds a job, a worker pool that forks), the orphans are reparented to PID 1 and remain as zombies once they exit. If that applies to you, put a minimal init above varlock. Signal forwarding works the same either way:
+
+```dockerfile title="Dockerfile"
+RUN apk add --no-cache tini
+ENTRYPOINT ["tini", "--", "varlock", "run", "--"]
+CMD ["node", "dist/server.js"]
+```
+
+`docker run --init` does the same thing without changing the image, but it is a Docker flag, so it does not apply under Kubernetes or other orchestrators.
+
 ### Docker Compose
 
 ```yaml title="docker-compose.yml"
