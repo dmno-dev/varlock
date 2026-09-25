@@ -18,26 +18,11 @@ import { pathExists } from '@env-spec/utils/fs-utils';
 import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
-import { type KeyFilter, keyMatchesFilter, parseKeyFilterArgs } from './key-filter';
+import {
+  type KeyFilter, buildKeyFilter, keyMatchesFilter, parseKeyFilterArgs,
+} from './key-filter';
 import { TAG_NAME_REGEX } from './item-filter';
 import { getWindowsPathHint } from './path-hints';
-
-/**
- * Whether `key` passes a single import's filter — the deprecated positional allowlist
- * (`importKeys`, exact match) and/or a pick/omit {@link KeyFilter} (globs, negations, and
- * `#tag` selectors). Returns true when no filter is set. `getTags` supplies the tags declared
- * on `key` within the imported source, and is only called for filters that select by tag.
- */
-export function keyPassesImportFilter(
-  key: string,
-  importKeys?: Array<string>,
-  importFilter?: KeyFilter,
-  getTags?: () => Array<string>,
-): boolean {
-  if (importKeys?.length && !importKeys.includes(key)) return false;
-  const tags = importFilter?.filter.usesTagSelector ? getTags?.() : undefined;
-  return keyMatchesFilter(key, importFilter, tags);
-}
 
 /**
  * Tag names from the `@tag(...)` decorators on a single parsed item definition. Read straight
@@ -45,10 +30,7 @@ export function keyPassesImportFilter(
  * while the graph is still loading, before any `ConfigItem` exists. Invalid names are
  * ignored here; `ConfigItem.process()` reports them.
  */
-const defTagsCache = new WeakMap<ConfigItemDef, Array<string>>();
 export function getConfigItemDefTags(def: ConfigItemDef): Array<string> {
-  const cached = defTagsCache.get(def);
-  if (cached) return cached;
   const tags: Array<string> = [];
   for (const dec of def.parsedDecorators ?? []) {
     // `@tag(a, b)` is a bare decorator function call: its args live on the decorator itself
@@ -60,7 +42,6 @@ export function getConfigItemDefTags(def: ConfigItemDef): Array<string> {
       if (TAG_NAME_REGEX.test(tag) && !tags.includes(tag)) tags.push(tag);
     }
   }
-  defTagsCache.set(def, tags);
   return tags;
 }
 
@@ -118,9 +99,7 @@ export abstract class EnvGraphDataSource {
    * */
   importMeta?: {
     isImport?: boolean,
-    /** deprecated positional allowlist (exact match) - prefer `importFilter` */
-    importKeys?: Array<string>,
-    /** pick/omit filter (globs, negations, #tags) */
+    /** pick/omit filter (globs, negations, #tags); deprecated positional keys become a pick */
     importFilter?: KeyFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
@@ -133,9 +112,7 @@ export abstract class EnvGraphDataSource {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let currentSource: EnvGraphDataSource | undefined = this;
     while (currentSource) {
-      if (currentSource.importMeta?.importKeys?.length || currentSource.importMeta?.importFilter) {
-        return true;
-      }
+      if (currentSource.importMeta?.importFilter) return true;
       currentSource = currentSource.parent;
     }
     return false;
@@ -160,9 +137,11 @@ export abstract class EnvGraphDataSource {
    * against the tags declared on `key` anywhere in this source's subtree.
    */
   keyPassesOwnImportFilter(key: string): boolean {
-    const meta = this.importMeta;
-    if (!meta) return true;
-    return keyPassesImportFilter(key, meta.importKeys, meta.importFilter, () => this.getSubtreeKeyTags(key));
+    const importFilter = this.importMeta?.importFilter;
+    if (!importFilter) return true;
+    // tags cost a subtree walk, so only look them up for filters that select by tag
+    const tags = importFilter.filter.usesTagSelector ? this.getSubtreeKeyTags(key) : undefined;
+    return keyMatchesFilter(key, importFilter, tags);
   }
 
   /**
@@ -568,14 +547,13 @@ export abstract class EnvGraphDataSource {
             throw new Error('expected @import keys to all be strings');
           }
 
-          // build the key filter: pick/omit (preferred) or positional keys (deprecated)
-          const importFilter = parseKeyFilterArgs(
+          // build the key filter: pick/omit (preferred) or positional keys (deprecated, treated as a pick)
+          let importFilter = parseKeyFilterArgs(
             importDec.decValueResolver?.objArgs?.pick,
             importDec.decValueResolver?.objArgs?.omit,
             '@import',
             { allowTagSelectors: true },
           );
-          let importKeys: Array<string> | undefined;
           if (importFilter && positionalKeys.length) {
             throw new Error('@import: cannot combine positional keys with pick/omit - put all keys in pick=[...]');
           }
@@ -585,7 +563,7 @@ export abstract class EnvGraphDataSource {
               + ` (e.g. @import("${importPath}", pick=[${positionalKeys.join(', ')}]))`,
               { isWarning: true },
             ));
-            importKeys = positionalKeys;
+            importFilter = buildKeyFilter('pick', positionalKeys, '@import', { allowTagSelectors: true });
           }
 
           // determine the full import path based on path type
@@ -618,9 +596,7 @@ export abstract class EnvGraphDataSource {
           const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
           const isConditionallyEnabled = !!enabledResolver && !enabledResolver.isStatic;
 
-          const importMeta = {
-            isImport: true, importKeys, importFilter, isConditionallyEnabled,
-          };
+          const importMeta = { isImport: true, importFilter, isConditionallyEnabled };
 
           // Check if missing imports should be allowed (defaults to false if not specified)
           const allowMissing = importArgs.obj.allowMissing ?? false;
@@ -637,8 +613,9 @@ export abstract class EnvGraphDataSource {
             const existingSource = this.graph.getLoadedImportSource(fullImportPath);
             if (existingSource) {
               // eslint-disable-next-line no-use-before-define
-              await this.addChild(new ImportAliasSource(existingSource), importMeta);
-              this.graph.registerItemsForImport(existingSource, this, importMeta);
+              const alias = new ImportAliasSource(existingSource);
+              await this.addChild(alias, importMeta);
+              this.graph.registerItemsForImport(alias);
               continue;
             }
 

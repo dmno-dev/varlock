@@ -14,6 +14,22 @@ import { ParsedItemFilter } from './item-filter';
  */
 export type KeyFilter = { mode: 'pick' | 'omit', filter: ParsedItemFilter };
 
+/** Build a {@link KeyFilter} from already-extracted selector entries (see {@link parseKeyFilterArgs}). */
+export function buildKeyFilter(
+  mode: KeyFilter['mode'],
+  entries: Array<string>,
+  label: string,
+  opts?: { allowTagSelectors?: boolean },
+): KeyFilter {
+  const filter = new ParsedItemFilter(entries, `${label} ${mode}`, {
+    allowDecoratorSelectors: false,
+    decoratorSelectorsUnsupportedTip: `${mode}=[...] is applied while loading, before values are resolved, so it cannot select by decorator. Use the --filter flag on \`varlock load\`/\`run\` for that.`,
+    allowTagSelectors: !!opts?.allowTagSelectors,
+    tagSelectorsUnsupportedTip: `${label} ${mode}=[...] matches key names only; tags are declared on schema items, which this data does not have.`,
+  });
+  return { mode, filter };
+}
+
 /**
  * Parse `pick`/`omit` named-arg resolvers into a {@link KeyFilter}.
  *
@@ -47,13 +63,7 @@ export function parseKeyFilterArgs(
   if (!entries.length) {
     throw new SchemaError(`${label}: ${mode} list cannot be empty`);
   }
-  const filter = new ParsedItemFilter(entries, `${label} ${mode}`, {
-    allowDecoratorSelectors: false,
-    decoratorSelectorsUnsupportedTip: `${mode}=[...] is applied while loading, before values are resolved, so it cannot select by decorator. Use the --filter flag on \`varlock load\`/\`run\` for that.`,
-    allowTagSelectors: !!opts?.allowTagSelectors,
-    tagSelectorsUnsupportedTip: `${label} ${mode}=[...] matches key names only; tags are declared on schema items, which this data does not have.`,
-  });
-  return { mode, filter };
+  return buildKeyFilter(mode, entries, label, opts);
 }
 
 /**
