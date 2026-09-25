@@ -183,6 +183,11 @@ describe('getCliItemFilter - package.json varlock.filter fallback', () => {
     expect(getCliItemFilter(undefined, { cwd: tempDir, cliPaths: ['./other/'] })).toBeUndefined();
   });
 
+  it('--path skips validation of the bypassed package filter too', () => {
+    writePkg({ filter: '#prod' }); // invalid on its own (no loadPath), but never consulted
+    expect(getCliItemFilter(undefined, { cwd: tempDir, cliPaths: ['./other/'] })).toBeUndefined();
+  });
+
   it('errors when varlock.filter is set without varlock.loadPath', () => {
     writePkg({ filter: '#prod' });
     expect(() => getCliItemFilter(undefined, { cwd: tempDir })).toThrow(CliExitError);

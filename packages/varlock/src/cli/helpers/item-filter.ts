@@ -25,6 +25,8 @@ export type CliItemFilter = {
  * alone is an error rather than a silent no-op. Not applied when `--path` overrides `loadPath`.
  */
 export function getPackageJsonFilter(opts?: { cliPaths?: Array<string>, cwd?: string }): string | undefined {
+  // --path bypasses package.json loadPath entirely, so its filter is neither applied nor validated
+  if (opts?.cliPaths?.length) return undefined;
   const pkgConfig = readVarlockPackageJsonConfig({ cwd: opts?.cwd });
   if (pkgConfig?.filter === undefined) return undefined;
   if (typeof pkgConfig.filter !== 'string' || !pkgConfig.filter.trim()) {
@@ -37,7 +39,6 @@ export function getPackageJsonFilter(opts?: { cliPaths?: Array<string>, cwd?: st
       suggestion: 'Set `varlock.loadPath` to the shared schema this filter applies to, or remove `varlock.filter` and pass --filter instead.',
     });
   }
-  if (opts?.cliPaths?.length) return undefined;
   return pkgConfig.filter;
 }
 

@@ -170,18 +170,25 @@ export abstract class EnvGraphDataSource {
    * this source, its imports, and, for an alias, the original source it points at. A
    * directory import is one source with several files, so a tag on the schema definition
    * makes the key's `.env.*` values pass a `#tag` import filter too.
+   *
+   * Only definitions that are actually in effect count: disabled sources are skipped, and a
+   * nested import contributes tags only if `key` passes its own filter. Otherwise a tag on a
+   * definition that never reaches the graph could let an untagged one through.
    */
   getSubtreeKeyTags(key: string): Array<string> {
     const tags = new Set<string>();
     const visited = new Set<EnvGraphDataSource>();
     const visit = (node: EnvGraphDataSource) => {
+      if (node.disabled) return;
       // eslint-disable-next-line no-use-before-define
       const real = node instanceof ImportAliasSource ? node.original : node;
-      if (visited.has(real)) return;
+      if (real.disabled || visited.has(real)) return;
       visited.add(real);
       const def = real.configItemDefs[key];
       if (def) for (const tag of getConfigItemDefTags(def)) tags.add(tag);
-      for (const child of real.children) visit(child);
+      for (const child of real.children) {
+        if (child.keyPassesOwnImportFilter(key)) visit(child);
+      }
     };
     visit(this);
     return [...tags];

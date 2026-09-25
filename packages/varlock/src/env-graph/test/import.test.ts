@@ -491,6 +491,49 @@ describe('@import', () => {
       expectNotInSchema: ['C_ITEM'],
     }));
 
+    test('a tag on a disabled definition does not let an untagged active one through', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./shared/, pick=[#frontend])
+          # ---
+        `,
+        'shared/.env.schema': outdent`
+          # @disable
+          # ---
+          # @tag(frontend)
+          KEY=
+        `,
+        'shared/.env': outdent`
+          KEY=from-env-file
+        `,
+      },
+      expectNotInSchema: ['KEY'],
+    }));
+
+    test('a tag hidden by an inner import filter does not count for the outer #tag pick', envFilesTest({
+      files: {
+        // KEY is declared here (no value), so the imported definitions decide its value
+        '.env.schema': outdent`
+          # @import(./.env.mid, pick=[#frontend])
+          # ---
+          KEY=
+        `,
+        '.env.mid': outdent`
+          # @import(./.env.leaf, pick=[OTHER])
+          # ---
+          KEY=mid-untagged
+        `,
+        '.env.leaf': outdent`
+          # @tag(frontend)
+          KEY=leaf-tagged
+          # @tag(frontend)
+          OTHER=other
+        `,
+      },
+      // leaf's tag is hidden by the inner pick, so mid's untagged KEY must not be imported
+      expectValues: { KEY: undefined, OTHER: 'other' },
+    }));
+
     test('@currentEnv flag can be brought in via a #tag pick', envFilesTest({
       files: {
         '.env.schema': outdent`
