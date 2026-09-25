@@ -94,6 +94,21 @@ describe('varlock freeze', () => {
     expect(fs.existsSync(join(SCENARIO_DIR, '.varlock-frozen-env-nokey'))).toBe(false);
   });
 
+  test('tightens the mode of an existing file it overwrites', () => {
+    if (process.platform === 'win32') return;
+    const outFile = '.varlock-frozen-env-mode';
+    const outPath = join(SCENARIO_DIR, outFile);
+    fs.writeFileSync(outPath, 'stale\n', { mode: 0o644 });
+    try {
+      const result = freeze({ args: ['--out', outFile] });
+      expect(result.exitCode, result.output).toBe(0);
+      // eslint-disable-next-line no-bitwise
+      expect(fs.statSync(outPath).mode & 0o777).toBe(0o600);
+    } finally {
+      fs.rmSync(outPath, { force: true });
+    }
+  });
+
   test('writes an encrypted file', () => {
     const contents = fs.readFileSync(FROZEN_FILE, 'utf8');
     expect(contents.startsWith('varlock:v1:')).toBe(true);
@@ -220,6 +235,20 @@ describe('booting from a frozen env file', () => {
     expect(result.exitCode, result.output).toBe(0);
     expect(result.output).toContain('reusing pre-resolved env from frozen-file');
     expect(result.output).toContain('APP_ENV=production');
+  });
+
+  // With `--inject blob` nothing is injected as individual vars, so the child can only see
+  // the frozen values through the __VARLOCK_ENV it is handed. The child is told to ignore
+  // the file on disk so it cannot mask a missing blob by re-reading it.
+  test('varlock run --inject blob hands the child the frozen graph', () => {
+    const result = runVarlock(['run', '--inject', 'blob', '--', 'sh', '-c', '_VARLOCK_USE_FROZEN_ENV=0 node app.mjs'], {
+      cwd: SCENARIO,
+      env: { _VARLOCK_ENV_KEY: encryptionKey, DEBUG: 'varlock:auto-load' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('reusing pre-resolved env from env-blob');
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).toContain('SECRET_OK=true');
   });
 
   describe('fails closed rather than silently re-resolving', () => {
