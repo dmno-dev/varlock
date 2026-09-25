@@ -8,6 +8,7 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
+import { getPinnedGraphForResolution } from '../helpers/pinned-env';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -45,11 +46,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
   }
 
+  // A `varlock freeze` pin is honored only when asked for explicitly (`_VARLOCK_USE_FROZEN_ENV=1`
+  // or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`): a plain `load`
+  // in a project directory keeps showing what the .env files resolve to. This is also how
+  // `varlock/auto-load` hands a frozen file with `@dynamic=boot` keys to the CLI.
+  const pinned = getPinnedGraphForResolution({ explicitFrozenOnly: true });
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,
     clearCache: ctx.values['clear-cache'],
     skipCache: ctx.values['skip-cache'],
+    pinned,
   });
 
   // For json-full, still run the checks so their pretty output goes to stderr,

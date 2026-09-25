@@ -16,6 +16,7 @@ Before adding varlock to a Dockerfile, decide which role it plays:
 | **CI-only validation** | Validate schema and config in pipelines; runtime env comes from the platform | No. Run `varlock load` in CI only |
 | **Runtime injection** | Long-running containers (APIs, workers) that resolve secrets at boot via [plugins](/guides/plugins/) | Yes. Use `varlock run` as the entrypoint |
 | **Build-time** | SSR apps where a [framework integration](/integrations/overview/) injects resolved env into build output | Sometimes. Only in a **builder** stage, not the final runtime image |
+| **Deploy-time freeze** | Apps with no build step that would inline values (Elysia, Hono, Fastify), where you want config pinned to the release | Sometimes. Only in a **builder** stage or CI |
 
 <Tabs>
   <TabItem label="CI-only validation">
@@ -54,6 +55,45 @@ Secrets are fetched when the container starts, not when the image is built.
 Use when a [framework integration](/integrations/overview/) (Next.js, Vite SSR, Cloudflare Workers, etc.) resolves and injects env during `build`. Varlock belongs in the **builder** stage; the runtime image receives env via the platform or an encrypted blob, not via the CLI.
 
 For serverless SSR, prefer [encrypted deployments](/guides/encrypted-deployments/) over baking resolved values into image layers.
+
+  </TabItem>
+  <TabItem label="Deploy-time freeze">
+
+Use when your app has no build step to inline values, but you still want config resolved once per release rather than on every container boot. [`varlock freeze`](/guides/deploy-time-config/) resolves everything at deploy time and encrypts it; the runtime image needs no varlock CLI, no `.env` files, and no resolver credentials, so this works in distroless.
+
+```dockerfile title="Dockerfile"
+FROM oven/bun:1 AS builder
+WORKDIR /app
+COPY . .
+RUN bun install --frozen-lockfile
+RUN bun build ./src/index.ts --target=bun --outdir dist
+# .env files and resolver credentials exist only in this stage
+RUN --mount=type=secret,id=varlock_key \
+    _VARLOCK_ENV_KEY=$(cat /run/secrets/varlock_key) bunx varlock freeze --env production
+
+FROM gcr.io/distroless/base-debian13:nonroot
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/.varlock-frozen-env ./
+CMD ["/app/dist/index.js"]
+```
+
+Set `_VARLOCK_ENV_KEY` in the runtime environment so the file can be decrypted, and `_VARLOCK_USE_FROZEN_ENV=1` so a missing file is an error rather than a silent fall back to normal resolution.
+
+If you cannot copy a file into the image (a Compose file that pulls a tag it does not rebuild, say), `varlock freeze --out -` writes the same payload to stdout and you carry it in one variable instead:
+
+```yaml title="compose.yaml"
+services:
+  app:
+    environment:
+      __VARLOCK_ENV: ${__VARLOCK_ENV:?run `varlock freeze --out -` first}
+      _VARLOCK_USE_INJECTED_ENV: "1"
+      _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
+```
+
+That is a weaker seal, since the payload lives in platform config rather than inside the release. See [carrying the payload in an env var](/guides/deploy-time-config/#carrying-the-payload-in-an-env-var-instead) for the full comparison.
+
+Values are pinned either way: rotating a secret takes effect on your next deploy, not on the next restart.
 
   </TabItem>
 </Tabs>

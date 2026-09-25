@@ -428,6 +428,38 @@ describe('evaluateInjectedEnvReuse', () => {
     });
   });
 
+  describe('blobs carrying resolution errors', () => {
+    const brokenBlob = () => makeBlob({ errors: { configItems: { FOO: ['missing required value'] } } });
+
+    // explicit trust says the blob may come from anywhere, not that it may be broken. The
+    // producer (`load --format json-full`) prints its JSON even when it exits non-zero, so a
+    // capture that ignored the exit code would otherwise boot the app on known-bad values.
+    test('forced mode throws rather than booting on a failed resolution', () => {
+      expect(() => evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: brokenBlob(), [USE_INJECTED_ENV_VAR]: '1' },
+        cwd: tempDir,
+      })).toThrow(/contains errors/);
+    });
+
+    test('forced mode still accepts an equivalent blob with no errors', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: makeBlob(), [USE_INJECTED_ENV_VAR]: '1' },
+        cwd: tempDir,
+      });
+      expect(decision.reuse).toBe(true);
+    });
+
+    // the errors check runs before the force shortcut, so it applies to a blob that would
+    // otherwise be waved through on locality grounds too
+    test('auto mode declines instead of throwing', () => {
+      const decision = evaluateInjectedEnvReuse({
+        env: { __VARLOCK_ENV: brokenBlob() },
+        cwd: tempDir,
+      });
+      expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('errors') });
+    });
+  });
+
   describe('@internal items in the blob', () => {
     const blobWithInternal = () => makeBlob({
       config: {

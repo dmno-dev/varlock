@@ -44,6 +44,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
         label: 'Encryption & delivery',
         collapsed: false,
         items: [
+          { label: 'Deploy-time config', slug: 'guides/deploy-time-config', badge: 'new' },
           { label: 'Local encryption', slug: 'guides/local-encryption' },
           { label: 'Encrypted deployments', slug: 'guides/encrypted-deployments' },
           { label: 'Caching', slug: 'guides/caching' },
@@ -155,6 +156,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
             items: [
               { label: 'JavaScript / Node.js', slug: 'integrations/javascript' },
               { label: 'Bun', slug: 'integrations/bun' },
+              { label: 'Elysia', slug: 'integrations/elysia', badge: 'new' },
               { label: 'Next.js', slug: 'integrations/nextjs' },
               { label: 'Nuxt', slug: 'integrations/nuxt' },
               { label: 'Vite-based', slug: 'integrations/vite' },

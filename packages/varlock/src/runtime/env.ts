@@ -541,11 +541,19 @@ export function initVarlockEnv(opts?: {
     serializedEnvData = JSON.parse(process.env.__VARLOCK_ENV);
   } else {
     if (opts?.allowFail) return;
+    // Name the missing thing, and every way to supply it. The old text said only "try
+    // rerunning via `varlock run`", which is wrong advice wherever there is no varlock CLI
+    // to rerun with - a compiled single binary, a distroless image - and those are exactly
+    // the setups that reach this branch.
     // eslint-disable-next-line no-console
     console.error([
       '',
-      '🚨 initVarlockEnv failed  🚨',
-      'try rerunning your command via `varlock run`',
+      '🚨 initVarlockEnv failed - no resolved env found 🚨',
+      'varlock needs the resolved env to already be present in this process. Either:',
+      '  - import `varlock/auto-load` before anything else, so it resolves at boot, or',
+      '  - launch via `varlock run -- <your-command>`, or',
+      '  - supply a pre-resolved env: the `__VARLOCK_ENV` blob (with',
+      '    `_VARLOCK_USE_INJECTED_ENV=1`), or a `varlock freeze` file.',
       '',
     ].join('\n'));
     throw new Error('initVarlockEnv failed');

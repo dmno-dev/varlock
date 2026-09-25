@@ -484,6 +484,18 @@ export class ConfigItem {
   async earlyResolve() {
     await this.process();
 
+    // Early resolution exists for decisions made before any values are loaded (@currentEnv,
+    // @disable, @import(enabled=...), @cache), and `varlock freeze` makes those decisions at
+    // deploy time. A boot-bound value does not exist yet, so refuse here rather than resolve
+    // it: the decorator then fails on its unresolved dependency, and no boot resolver runs.
+    if (this.isBootDynamic) {
+      this._schemaErrors.push(new SchemaError(
+        `${this.key} is @dynamic=boot, so it cannot be used by @currentEnv, @disable, @import, or @cache - those are decided before boot`,
+        { tip: `Remove @dynamic=boot from ${this.key}, or reference a value that is fixed before boot instead` },
+      ));
+      return;
+    }
+
     // process and resolve any other items our env flag depends on
     for (const depKey of this.dependencyKeys) {
       const depItem = this.envGraph.configSchema[depKey];
@@ -816,17 +828,52 @@ export class ConfigItem {
   get isDynamic(): boolean {
     return this._isDynamic;
   }
+
+  /**
+   * The explicit `@dynamic` / `@static` decorator that decides this item's dynamic state, if
+   * any - the first one found across the item's definitions (same precedence as
+   * {@link processDynamic}).
+   */
+  private getExplicitDynamicDecorator() {
+    for (const def of this.defs) {
+      const dynamicDec = def.itemDef.decorators?.find((d) => d.name === 'dynamic' || d.name === 'static');
+      if (dynamicDec) return dynamicDec;
+    }
+    return undefined;
+  }
+
+  /**
+   * `@dynamic=boot`: the value is bound at process start on each instance (a platform-assigned
+   * PORT, pod identity, an operator's `docker run -e`), so it is a subset of dynamic that can
+   * be fixed neither at build nor at deploy time. `varlock freeze` leaves such items out of the
+   * pin and they are resolved and validated against the schema at boot.
+   *
+   * `boot` must be written literally, so this is knowable from the schema alone (before any
+   * resolution) - the graph relies on that for its frozen-depends-on-boot check.
+   */
+  get isBootDynamic(): boolean {
+    const dynamicDec = this.getExplicitDynamicDecorator();
+    if (!dynamicDec || dynamicDec.name !== 'dynamic') return false;
+    const resolver = dynamicDec.decValueResolver;
+    return !!resolver?.isStatic && resolver.staticValue === 'boot';
+  }
+
   private async processDynamic() {
     try {
       // Pass 1: explicit per-item @dynamic / @static decorators take highest priority
-      for (const def of this.defs) {
-        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
-        const dynamicDec = dynamicDecs[0];
-        if (!dynamicDec) continue;
-
+      const dynamicDec = this.getExplicitDynamicDecorator();
+      if (dynamicDec) {
         const usingStatic = dynamicDec.name === 'static';
         const dynamicDecValue = await dynamicDec.resolve();
         if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) return;
+        if (dynamicDecValue === 'boot') {
+          // boot-bound items are dynamic (never inlined at build) plus more - see isBootDynamic
+          if (usingStatic || !dynamicDec.decValueResolver?.isStatic) {
+            throw new SchemaError('@dynamic=boot must be written literally, not computed (and @static has no boot form)');
+          }
+          this._isDynamic = true;
+          return;
+        }
         if (![true, false, undefined].includes(dynamicDecValue)) {
           throw new SchemaError('@dynamic/@static must resolve to a boolean or undefined');
         }
