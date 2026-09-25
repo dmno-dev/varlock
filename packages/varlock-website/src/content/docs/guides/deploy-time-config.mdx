@@ -201,7 +201,7 @@ This changes what the runtime image needs. The varlock CLI and your `.env.schema
 A few rules follow from the fact that a boot value does not exist before boot:
 
 - **Nothing pinned may depend on it.** `PUBLIC_URL=http://localhost:${PORT}` with a boot `PORT` is a schema error on every load, not just under `freeze`. The fix is to mark `PUBLIC_URL` `@dynamic=boot` as well. The reverse is fine: a boot key can be built from pinned values.
-- **The `@currentEnv` item cannot be boot**, since it decides which env files load.
+- **Root decorators cannot reference it**, and the `@currentEnv` item cannot be boot. Anything that decides how the schema loads or how varlock behaves (`@currentEnv`, `@disable`, `@import`, `@cache`, `@redactLogs`, plugin init) is evaluated before boot, so a boot value there is a schema error.
 - **`boot` is per item and written literally.** There is no root default, and a computed value is an error.
 - **The pin must match the schema it was frozen from.** A key added or removed since the freeze, or a key whose boot marking changed, fails the boot with a message naming the drift. Re-run `varlock freeze` and redeploy.
 
