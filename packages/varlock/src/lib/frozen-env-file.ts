@@ -70,6 +70,22 @@ export function resolveFrozenEnvFileMode(env: EnvRecord, cwd: string): FrozenEnv
 }
 
 /**
+ * What is at the frozen env path. Only a regular file is readable: `existsSync` is true for
+ * a FIFO or a directory too, and `readFileSync` on a FIFO with no writer blocks forever, so
+ * a present-but-not-a-file path must be rejected rather than opened.
+ */
+function statFrozenEnvPath(filePath: string): 'absent' | 'file' | 'other' {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT' || (err as NodeJS.ErrnoException).code === 'ENOTDIR') return 'absent';
+    throw new FrozenEnvFileError(`failed to read frozen env file ${filePath}: ${(err as Error).message}`);
+  }
+  return stat.isFile() ? 'file' : 'other';
+}
+
+/**
  * Whether a frozen env file will be consumed on this invocation - i.e. it is required, or it
  * is present at the auto-discovered path. Callers use this to reject flags that would change
  * what gets loaded (rather than silently ignoring the pin).
@@ -78,7 +94,7 @@ export function getFrozenEnvFileInPlay(env: EnvRecord, cwd: string): string | un
   const resolved = resolveFrozenEnvFileMode(env, cwd);
   if (resolved.mode === 'off') return undefined;
   if (resolved.mode === 'required') return resolved.filePath;
-  return fs.existsSync(resolved.filePath) ? resolved.filePath : undefined;
+  return statFrozenEnvPath(resolved.filePath) === 'absent' ? undefined : resolved.filePath;
 }
 
 export type FrozenEnvFileResult = | { found: false, reason: string }
@@ -102,13 +118,17 @@ export function readFrozenEnvFile(opts: { env: EnvRecord, cwd?: string }): Froze
   }
   const { filePath, mode } = resolved;
 
-  if (!fs.existsSync(filePath)) {
+  const pathKind = statFrozenEnvPath(filePath);
+  if (pathKind === 'absent') {
     if (mode === 'required') {
       throw new FrozenEnvFileError(
         `${USE_FROZEN_ENV_VAR} requires a frozen env file at ${filePath}, but none is present`,
       );
     }
     return { found: false, reason: `no frozen env file at ${filePath}` };
+  }
+  if (pathKind === 'other') {
+    throw new FrozenEnvFileError(`frozen env file ${filePath} is not a regular file`);
   }
 
   // A frozen file is a complete, already-validated snapshot of the graph, so honoring

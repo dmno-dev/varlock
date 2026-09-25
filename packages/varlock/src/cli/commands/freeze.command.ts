@@ -145,10 +145,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   try {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     // 0600 so the resolved values aren't readable by other users on a shared build machine.
-    // `mode` only applies when the file is created, so an existing (re-frozen) file keeps
-    // whatever mode it had - tighten it explicitly
-    fs.writeFileSync(outPath, `${contents}\n`, { mode: 0o600 });
-    fs.chmodSync(outPath, 0o600);
+    // Written to a fresh temp file and renamed into place: `mode` only applies when a file
+    // is created, so writing over an existing (re-frozen) artifact would keep whatever mode
+    // it had, and the rename means nothing ever reads a half-written file.
+    const tmpPath = `${outPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, `${contents}\n`, { mode: 0o600, flag: 'wx' });
+    try {
+      fs.renameSync(tmpPath, outPath);
+    } catch (err) {
+      fs.rmSync(tmpPath, { force: true });
+      throw err;
+    }
   } catch (err) {
     throw new CliExitError(`Failed to write frozen env file to ${outPath}: ${(err as Error).message}`);
   }
