@@ -265,5 +265,78 @@ describe('@dynamic=boot', () => {
       `,
       expectValues: { APP_ENV: SchemaError },
     }));
+
+    // root decorators run before any value is available at boot, so under `varlock freeze`
+    // they would resolve a boot item at deploy time and bake the result into the pin
+    test('a root decorator cannot reference a boot item', async () => {
+      const g = new EnvGraph();
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @redactLogs=$BOOT
+          # ---
+          BOOT=false  # @dynamic=boot
+        `,
+      }));
+      await g.finishLoad();
+      const source = g.rootDataSource!;
+      expect(source.isValid).toBe(false);
+      expect(source.errors[0].message).toContain('@redactLogs depends on BOOT, which is @dynamic=boot');
+      // refused before executing, so the boot item's resolver never ran
+      expect(g.configSchema.BOOT.isResolved).toBe(false);
+      expect(g.getRootDec('redactLogs')?.resolvedValue).toBeUndefined();
+    });
+
+    test('the decorators that resolve even earlier (@disable, @cache) are refused too', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @cache=if($BOOT, "memory", "disabled")
+          # @import(./.env.extra)
+          # ---
+          BOOT=true  # @dynamic=boot
+        `,
+        '.env.extra': outdent`
+          # @disable=not($BOOT)
+          # ---
+          EXTRA=1
+        `,
+      },
+      expectError: true,
+    }));
+
+    test('@disable names the rule rather than failing on an unresolved value', async () => {
+      const g = new EnvGraph();
+      g.setVirtualImports(process.cwd(), {
+        '.env.extra': outdent`
+          # @disable=not($BOOT)
+          # ---
+          EXTRA=1
+        `,
+      });
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @import(./.env.extra)
+          # ---
+          BOOT=true  # @dynamic=boot
+        `,
+      }));
+      await g.finishLoad();
+      const messages = g.sortedDataSources.flatMap((s) => s.errors.map((e) => e.message));
+      expect(messages.some((m) => m.includes('@disable depends on BOOT, which is @dynamic=boot'))).toBe(true);
+      expect(g.configSchema.BOOT.isResolved).toBe(false);
+    });
+
+    test('an early-resolved boot item is never resolved', async () => {
+      const g = new EnvGraph();
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @cache=if($BOOT, "memory", "disabled")
+          # ---
+          BOOT=true  # @dynamic=boot
+        `,
+      }));
+      await g.finishLoad();
+      expect(g.configSchema.BOOT.isResolved).toBe(false);
+      expect(g.configSchema.BOOT.errors[0].message).toContain('BOOT is @dynamic=boot, so it cannot be used by @currentEnv, @disable, @import, or @cache');
+    });
   });
 });
