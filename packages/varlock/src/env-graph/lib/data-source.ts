@@ -19,7 +19,7 @@ import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
 import {
-  type KeyFilter, exactKeysFilter, keyMatchesFilter, parseKeyFilterArgs,
+  type KeyFilter, buildKeyFilter, keyMatchesFilter, parseKeyFilterArgs,
 } from './key-filter';
 import { TAG_NAME_REGEX } from './item-filter';
 import { getWindowsPathHint } from './path-hints';
@@ -99,7 +99,7 @@ export abstract class EnvGraphDataSource {
    * */
   importMeta?: {
     isImport?: boolean,
-    /** pick/omit filter (globs, negations, #tags); deprecated positional keys become an exact-match pick */
+    /** pick/omit filter (globs, negations, #tags); deprecated positional keys become a pick */
     importFilter?: KeyFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
@@ -140,7 +140,7 @@ export abstract class EnvGraphDataSource {
     const importFilter = this.importMeta?.importFilter;
     if (!importFilter) return true;
     // tags cost a subtree walk, so only look them up for filters that select by tag
-    const tags = importFilter.usesTagSelector ? this.getSubtreeKeyTags(key) : undefined;
+    const tags = importFilter.filter.usesTagSelector ? this.getSubtreeKeyTags(key) : undefined;
     return keyMatchesFilter(key, importFilter, tags);
   }
 
@@ -547,7 +547,7 @@ export abstract class EnvGraphDataSource {
             throw new Error('expected @import keys to all be strings');
           }
 
-          // build the key filter: pick/omit (preferred) or positional keys (deprecated, exact-match pick)
+          // build the key filter: pick/omit (preferred) or positional keys (deprecated, treated as a pick)
           let importFilter = parseKeyFilterArgs(
             importDec.decValueResolver?.objArgs?.pick,
             importDec.decValueResolver?.objArgs?.omit,
@@ -563,7 +563,7 @@ export abstract class EnvGraphDataSource {
               + ` (e.g. @import("${importPath}", pick=[${positionalKeys.join(', ')}]))`,
               { isWarning: true },
             ));
-            importFilter = exactKeysFilter(positionalKeys);
+            importFilter = buildKeyFilter('pick', positionalKeys, '@import', { allowTagSelectors: true });
           }
 
           // determine the full import path based on path type
