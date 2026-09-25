@@ -1,7 +1,11 @@
 import {
   describe, it, expect, afterEach, vi,
 } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { getCliItemFilter } from '../item-filter';
+import { CliExitError } from '../exit-error';
 import type { ConfigItem } from '../../../env-graph/lib/config-item';
 
 /** parse + evaluate in one step, mirroring how the commands use getCliItemFilter */
@@ -147,6 +151,52 @@ describe('getCliItemFilter - _VARLOCK_FILTER env var fallback', () => {
   it('no filtering when neither --filter nor _VARLOCK_FILTER is set', () => {
     vi.stubEnv('_VARLOCK_FILTER', '');
     expect(resolveItemFilterKeys(items, undefined)).toBeUndefined();
+  });
+});
+
+describe('getCliItemFilter - package.json varlock.filter fallback', () => {
+  let tempDir: string;
+  function writePkg(varlock: Record<string, unknown>) {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-pkg-filter-'));
+    fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({ name: 'x', varlock }));
+  }
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('applies varlock.filter when neither --filter nor _VARLOCK_FILTER is set', () => {
+    writePkg({ loadPath: '../', filter: '#prod' });
+    const keys = getCliItemFilter(undefined, { cwd: tempDir })?.getFilterKeys(items);
+    expect(keys).toEqual(new Set(['PUBLIC_URL']));
+  });
+
+  it('--filter and _VARLOCK_FILTER take precedence over varlock.filter', () => {
+    writePkg({ loadPath: '../', filter: '#prod' });
+    expect(getCliItemFilter('NOT_THIS', { cwd: tempDir })?.getFilterKeys(items)).toEqual(new Set(['NOT_THIS']));
+    vi.stubEnv('_VARLOCK_FILTER', 'STRIPE_KEY');
+    expect(getCliItemFilter(undefined, { cwd: tempDir })?.getFilterKeys(items)).toEqual(new Set(['STRIPE_KEY']));
+  });
+
+  it('is not applied when --path bypasses loadPath', () => {
+    writePkg({ loadPath: '../', filter: '#prod' });
+    expect(getCliItemFilter(undefined, { cwd: tempDir, cliPaths: ['./other/'] })).toBeUndefined();
+  });
+
+  it('errors when varlock.filter is set without varlock.loadPath', () => {
+    writePkg({ filter: '#prod' });
+    expect(() => getCliItemFilter(undefined, { cwd: tempDir })).toThrow(CliExitError);
+    expect(() => getCliItemFilter(undefined, { cwd: tempDir })).toThrow(/requires `varlock.loadPath`/);
+  });
+
+  it('errors when varlock.filter is not a non-empty string', () => {
+    writePkg({ loadPath: '../', filter: ['#prod'] });
+    expect(() => getCliItemFilter(undefined, { cwd: tempDir })).toThrow(/non-empty string/);
+  });
+
+  it('a bad selector in varlock.filter is reported against package.json', () => {
+    writePkg({ loadPath: '../', filter: '@nope' });
+    expect(() => getCliItemFilter(undefined, { cwd: tempDir })).toThrow(/package.json varlock.filter/);
   });
 });
 

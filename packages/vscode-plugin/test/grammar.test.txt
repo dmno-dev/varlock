@@ -203,6 +203,25 @@ KEYS=fn([a, b])
 #            ^ punctuation.definition.array.end.env-spec
 #             ^ punctuation.definition.parameters.end.env-spec
 
+# `#tag` selectors inside decorator args are values, not comments (a comment needs `# `)
+# @import(./.env.shared, pick=[#frontend, !#internal]) # note
+#                              ^^^^^^^^^ string.unquoted.env-spec
+#                                         ^^^^^^^^^^ string.unquoted.env-spec
+#                                                   ^ punctuation.definition.array.end.env-spec
+#                                                      ^^^^^^ comment.line.env-spec
+
+# @import(
+#   ./.env.shared,
+#   pick=[
+#     #frontend,
+#     ^^^^^^^^^ string.unquoted.env-spec
+#     # #legacy,
+#     ^^^^^^^^^ comment.line.env-spec
+#   ],
+# )
+TAGGED_IMPORT=test
+#^^^^^^^^^^^^ entity.name.tag.env-spec
+
 
 # Item-value array (plain-newline continuation) with comments
 LIST_ML=fn([

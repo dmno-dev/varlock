@@ -19,20 +19,49 @@ import { processPluginInstallDecorators } from './plugins';
 import { RootDecoratorInstance } from './decorators';
 import { isBuiltinVar } from './builtin-vars';
 import { type KeyFilter, keyMatchesFilter, parseKeyFilterArgs } from './key-filter';
+import { TAG_NAME_REGEX } from './item-filter';
 import { getWindowsPathHint } from './path-hints';
 
 /**
  * Whether `key` passes a single import's filter — the deprecated positional allowlist
- * (`importKeys`, exact match) and/or a pick/omit {@link KeyFilter} (glob-aware). Returns
- * true when no filter is set.
+ * (`importKeys`, exact match) and/or a pick/omit {@link KeyFilter} (globs, negations, and
+ * `#tag` selectors). Returns true when no filter is set. `getTags` supplies the tags declared
+ * on `key` within the imported source, and is only called for filters that select by tag.
  */
 export function keyPassesImportFilter(
   key: string,
   importKeys?: Array<string>,
   importFilter?: KeyFilter,
+  getTags?: () => Array<string>,
 ): boolean {
   if (importKeys?.length && !importKeys.includes(key)) return false;
-  return keyMatchesFilter(key, importFilter);
+  const tags = importFilter?.filter.usesTagSelector ? getTags?.() : undefined;
+  return keyMatchesFilter(key, importFilter, tags);
+}
+
+/**
+ * Tag names from the `@tag(...)` decorators on a single parsed item definition. Read straight
+ * from the parse tree (tags are always static names) so import filters can select by tag
+ * while the graph is still loading, before any `ConfigItem` exists. Invalid names are
+ * ignored here; `ConfigItem.process()` reports them.
+ */
+const defTagsCache = new WeakMap<ConfigItemDef, Array<string>>();
+export function getConfigItemDefTags(def: ConfigItemDef): Array<string> {
+  const cached = defTagsCache.get(def);
+  if (cached) return cached;
+  const tags: Array<string> = [];
+  for (const dec of def.parsedDecorators ?? []) {
+    // `@tag(a, b)` is a bare decorator function call: its args live on the decorator itself
+    if (dec.name !== 'tag') continue;
+    const args = dec.bareFnArgs?.simplifiedValues;
+    if (!Array.isArray(args)) continue;
+    for (const arg of args) {
+      const tag = String(arg);
+      if (TAG_NAME_REGEX.test(tag) && !tags.includes(tag)) tags.push(tag);
+    }
+  }
+  defTagsCache.set(def, tags);
+  return tags;
 }
 
 /**
@@ -91,7 +120,7 @@ export abstract class EnvGraphDataSource {
     isImport?: boolean,
     /** deprecated positional allowlist (exact match) - prefer `importFilter` */
     importKeys?: Array<string>,
-    /** pick/omit key filter (glob-aware) */
+    /** pick/omit filter (globs, negations, #tags) */
     importFilter?: KeyFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
@@ -119,11 +148,43 @@ export abstract class EnvGraphDataSource {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let currentSource: EnvGraphDataSource | undefined = this;
     while (currentSource) {
-      const meta = currentSource.importMeta;
-      if (meta && !keyPassesImportFilter(key, meta.importKeys, meta.importFilter)) return false;
+      if (!currentSource.keyPassesOwnImportFilter(key)) return false;
       currentSource = currentSource.parent;
     }
     return true;
+  }
+
+  /**
+   * Whether `key` passes the filter of the `@import` that brought in this source (true when
+   * this source is not an import, or the import is unfiltered). `#tag` selectors match
+   * against the tags declared on `key` anywhere in this source's subtree.
+   */
+  keyPassesOwnImportFilter(key: string): boolean {
+    const meta = this.importMeta;
+    if (!meta) return true;
+    return keyPassesImportFilter(key, meta.importKeys, meta.importFilter, () => this.getSubtreeKeyTags(key));
+  }
+
+  /**
+   * Tags declared on `key` (via `@tag(...)`) by any definition in this source's subtree:
+   * this source, its imports, and, for an alias, the original source it points at. A
+   * directory import is one source with several files, so a tag on the schema definition
+   * makes the key's `.env.*` values pass a `#tag` import filter too.
+   */
+  getSubtreeKeyTags(key: string): Array<string> {
+    const tags = new Set<string>();
+    const visited = new Set<EnvGraphDataSource>();
+    const visit = (node: EnvGraphDataSource) => {
+      // eslint-disable-next-line no-use-before-define
+      const real = node instanceof ImportAliasSource ? node.original : node;
+      if (visited.has(real)) return;
+      visited.add(real);
+      const def = real.configItemDefs[key];
+      if (def) for (const tag of getConfigItemDefTags(def)) tags.add(tag);
+      for (const child of real.children) visit(child);
+    };
+    visit(this);
+    return [...tags];
   }
 
   /** shared child-setup logic: wire up parent/graph refs, finishInit (but no import processing) */
@@ -222,8 +283,7 @@ export abstract class EnvGraphDataSource {
     const visit = (node: EnvGraphDataSource): boolean => {
       for (const child of node.children) {
         if (child.disabled) continue;
-        const meta = child.importMeta;
-        if (meta && !keyPassesImportFilter(key, meta.importKeys, meta.importFilter)) continue;
+        if (!child.keyPassesOwnImportFilter(key)) continue;
         // eslint-disable-next-line no-use-before-define
         const real = child instanceof ImportAliasSource ? child.original : child;
         // the alias itself may be enabled while the original was disabled by its own @disable
@@ -506,6 +566,7 @@ export abstract class EnvGraphDataSource {
             importDec.decValueResolver?.objArgs?.pick,
             importDec.decValueResolver?.objArgs?.omit,
             '@import',
+            { allowTagSelectors: true },
           );
           let importKeys: Array<string> | undefined;
           if (importFilter && positionalKeys.length) {
@@ -656,7 +717,14 @@ export abstract class EnvGraphDataSource {
             return;
           }
         } catch (err) {
-          this._errors.push(err instanceof LoadingError ? err : new LoadingError(err as Error));
+          if (err instanceof LoadingError) {
+            this._errors.push(err);
+          } else if (err instanceof VarlockError) {
+            // e.g. a SchemaError from pick/omit parsing: keep its message + tip, without a stack trace
+            this._errors.push(new LoadingError(err.message, { tip: err.tip }));
+          } else {
+            this._errors.push(new LoadingError(err as Error));
+          }
           return;
         }
       }

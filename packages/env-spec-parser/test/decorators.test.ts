@@ -250,6 +250,35 @@ describe('decorator parsing', () => {
       expect((dec.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['VAL1', 'VAL3']);
     });
 
+    it('keeps `#tag` selectors as values (a comment needs a space after the `#`)', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @import(./.env.shared, pick=[#frontend, !#internal, API_*]) # trailing comment
+        # ---
+        VAL=
+      `);
+      const dec = result.decoratorsObject.import;
+      const pick = dec.bareFnArgs!.values[1] as any;
+      expect(pick.key).toBe('pick');
+      expect((pick.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['#frontend', '!#internal', 'API_*']);
+    });
+
+    it('keeps `#tag` selectors on continuation lines of a multi-line literal', () => {
+      const result = parseEnvSpecDotEnvFile(outdent`
+        # @import(
+        #   ./.env.shared,
+        #   pick=[
+        #     #frontend,
+        #     # #legacy,
+        #     KEY1, # note
+        #   ],
+        # )
+        VAL=
+      `);
+      const args = result.configItems[0].decoratorsObject.import.bareFnArgs!;
+      const pick = args.values[1] as any;
+      expect((pick.value as ParsedEnvSpecArrayLiteral).simplifiedValue).toEqual(['#frontend', 'KEY1']);
+    });
+
     it('skips comments inside a multi-line object literal', () => {
       const result = parseEnvSpecDotEnvFile(outdent`
         # @sensitive={

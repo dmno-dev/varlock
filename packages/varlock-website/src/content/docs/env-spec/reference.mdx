@@ -290,18 +290,22 @@ A trailing comma is allowed. If a `#`-prefixed continuation is omitted in a deco
 the bracket simply falls back to a plain string value and the following lines remain
 independent config items. They are never silently absorbed into the literal.
 
-Within a multi-line literal (or function call), `#` introduces a comment that runs to the
-end of the line, so entries can be commented out or annotated. This applies the same way
-to multi-line function-call arguments.
+Within a decorator literal (or function call), a `#` followed by a space (or by nothing)
+introduces a comment that runs to the end of the line, so entries can be commented out or
+annotated. A `#` directly followed by a letter or digit is a value, not a comment: this is
+how `#tag` selectors are written (`pick=[#frontend]`).
 
 ```env-spec
 # @import(./.env.shared, pick=[
 #   DATABASE_URL,
 #   # REDIS_URL,        ← commented out, skipped
 #   STRIPE_KEY, # primary payment key
+#   #frontend,          ← a tag selector, kept
 # ])
 DATABASE_URL=
 ```
+
+In item values (`KEY=fn([...])`), any `#` starts a comment, as in plain dotenv.
 
 ### String expansion ||expansion||
 While the parser itself does not include any implemention of specific functions, it does handle _expansion_ of strings - and it uses several function calls under the hood to do so. This means a few basic function calls, while not implemented, have specific inherent meaning and must be implemented similarly across all tools that support this spec.

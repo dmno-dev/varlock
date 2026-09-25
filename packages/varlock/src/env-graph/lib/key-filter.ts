@@ -1,27 +1,33 @@
 import { SchemaError } from './errors';
 import { ArrayLiteralResolver, type Resolver } from './resolver';
-import { globToRegExp } from './glob';
+import { ParsedItemFilter } from './item-filter';
 
 /**
- * A reusable allow/deny key filter, shared by any decorator that selects a subset of keys
+ * A reusable allow/deny filter, shared by any decorator that selects a subset of keys
  * via `pick=[...]` / `omit=[...]` named args (e.g. `@setValuesBulk`, `@import`).
  *
- * `pick` keeps only matching keys; `omit` drops them. Patterns support simple globs
- * (`*`, `?`) via {@link globToRegExp} and match case-sensitively.
+ * `pick` keeps only matching keys; `omit` drops them. Entries use the shared item-selection
+ * language (see {@link ParsedItemFilter}): key names, globs (`*`, `?`), `!negations`, and,
+ * where the caller has item metadata to match against, `#tag` selectors. Decorator selectors
+ * (`@sensitive`, ...) are never supported here: they depend on resolved values, while pick/omit
+ * are applied while the graph is still loading.
  */
-export type KeyFilter = { mode: 'pick' | 'omit', patterns: Array<string> };
+export type KeyFilter = { mode: 'pick' | 'omit', filter: ParsedItemFilter };
 
 /**
  * Parse `pick`/`omit` named-arg resolvers into a {@link KeyFilter}.
  *
  * Both must be static array literals of non-empty strings, and the two are mutually
  * exclusive. Returns `undefined` when neither is set (meaning "all keys"). `label` is
- * used to prefix error messages (e.g. `"@import"`).
+ * used to prefix error messages (e.g. `"@import"`). `#tag` selectors are only accepted when
+ * `opts.allowTagSelectors` is set, since the caller must then supply each key's tags to
+ * {@link keyMatchesFilter}.
  */
 export function parseKeyFilterArgs(
   pick: Resolver | undefined,
   omit: Resolver | undefined,
   label: string,
+  opts?: { allowTagSelectors?: boolean },
 ): KeyFilter | undefined {
   if (pick && omit) {
     throw new SchemaError(`${label}: cannot use both pick and omit - choose one`);
@@ -32,22 +38,32 @@ export function parseKeyFilterArgs(
   if (!(resolver instanceof ArrayLiteralResolver)) {
     throw new SchemaError(`${label}: ${mode} must be an array literal, e.g. ${mode}=[API_KEY, DB_*]`);
   }
-  const patterns = (resolver.arrArgs ?? []).map((el) => {
+  const entries = (resolver.arrArgs ?? []).map((el) => {
     if (!el.isStatic || typeof el.staticValue !== 'string' || !el.staticValue.trim()) {
-      throw new SchemaError(`${label}: ${mode} entries must be non-empty static key names or globs`);
+      throw new SchemaError(`${label}: ${mode} entries must be non-empty static key names, globs, or selectors`);
     }
     return el.staticValue.trim();
   });
-  if (!patterns.length) {
+  if (!entries.length) {
     throw new SchemaError(`${label}: ${mode} list cannot be empty`);
   }
-  return { mode, patterns };
+  const filter = new ParsedItemFilter(entries, `${label} ${mode}`, {
+    allowDecoratorSelectors: false,
+    decoratorSelectorsUnsupportedTip: `${mode}=[...] is applied while loading, before values are resolved, so it cannot select by decorator. Use the --filter flag on \`varlock load\`/\`run\` for that.`,
+    allowTagSelectors: !!opts?.allowTagSelectors,
+    tagSelectorsUnsupportedTip: `${label} ${mode}=[...] matches key names only; tags are declared on schema items, which this data does not have.`,
+  });
+  return { mode, filter };
 }
 
-/** Whether `key` passes the filter. An `undefined` filter matches every key. */
-export function keyMatchesFilter(key: string, filter: KeyFilter | undefined): boolean {
+/**
+ * Whether `key` passes the filter. An `undefined` filter matches every key. `tags` are the
+ * item's `@tag(...)` names, only consulted by filters that use a `#tag` selector.
+ */
+export function keyMatchesFilter(key: string, filter: KeyFilter | undefined, tags: Array<string> = []): boolean {
   if (!filter) return true;
-  const matched = filter.patterns.some((p) => globToRegExp(p).test(key));
+  // decorator selectors are rejected at parse time, so pre-evaluation is always conclusive
+  const matched = filter.filter.preEvaluate({ key, tags }) === 'yes';
   return filter.mode === 'pick' ? matched : !matched;
 }
 

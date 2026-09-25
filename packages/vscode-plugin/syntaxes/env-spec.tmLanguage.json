@@ -511,8 +511,8 @@
           "name": "comment.line.env-spec punctuation.definition.comment"
         },
         {
-          "comment": "comment inside a literal (commented-out entry or trailing note)",
-          "match": "#.*$",
+          "comment": "comment inside a literal (commented-out entry or trailing note). A `#` directly followed by a letter/digit is a value (`#tag` selector), not a comment",
+          "match": "#(?![a-zA-Z0-9]).*$",
           "name": "comment.line.env-spec"
         },
         { "include": "#bracket-literal" },
@@ -705,8 +705,8 @@
               "name": "comment.line.env-spec punctuation.definition.comment"
             },
             {
-              "comment": "comment inside a multi-line decorator fn call (commented-out arg or trailing note)",
-              "match": "#.*$",
+              "comment": "comment inside a multi-line decorator fn call (commented-out arg or trailing note). A `#` directly followed by a letter/digit is a value (`#tag` selector), not a comment",
+              "match": "#(?![a-zA-Z0-9]).*$",
               "name": "comment.line.env-spec"
             },
             { "include": "#bracket-literal" },
@@ -795,8 +795,8 @@
           "name": "comment.line.env-spec punctuation.definition.comment"
         },
         {
-          "comment": "comment inside a multi-line decorator fn call (commented-out arg or trailing note)",
-          "match": "#.*$",
+          "comment": "comment inside a multi-line decorator fn call (commented-out arg or trailing note). A `#` directly followed by a letter/digit is a value (`#tag` selector), not a comment",
+          "match": "#(?![a-zA-Z0-9]).*$",
           "name": "comment.line.env-spec"
         },
         { "include": "#bracket-literal" },

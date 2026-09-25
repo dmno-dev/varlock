@@ -122,6 +122,13 @@ export function evaluateInjectedEnvReuse(opts: {
     }
     return { reuse: false, reason: '_VARLOCK_FILTER is set' };
   }
+  // same for a `varlock.filter` configured in package.json (validated by the CLI on load)
+  if (readVarlockPackageJsonConfig({ cwd })?.filter) {
+    if (mode === 'force') {
+      throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} cannot be combined with package.json varlock.filter - capture the blob with --filter instead`);
+    }
+    return { reuse: false, reason: 'package.json varlock.filter is set' };
+  }
 
   const rawBlob = env.__VARLOCK_ENV;
   if (!rawBlob) {

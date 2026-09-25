@@ -40,6 +40,7 @@ You can configure varlock's default behavior by adding a `varlock` key to your `
 | Option | Description |
 |--------|-------------|
 | `loadPath` | Path (or array of paths) to a directory or specific `.env` file to use as the default entry point. Defaults to the current working directory if not set. Use a **directory path** (with trailing `/`) to automatically load all relevant files (`.env.schema`, `.env`, `.env.local`, etc.); a file path only loads that file and its explicit imports. When an array is provided, all paths are loaded and combined, with later entries taking higher precedence. Can be overridden by the `--path` CLI flag. Varlock looks for this config in the `package.json` in the current working directory only. |
+| `filter` | Default [item filter](#filtering-items) for `varlock load` and `varlock run`, using the same selectors as `--filter` (e.g. `"#frontend"` or `"PUBLIC_*,!PUBLIC_DEBUG"`). Only valid together with `loadPath`: it scopes what a shared schema exposes to this package, so a package can point `loadPath` at a shared schema and take just its tagged items with no `.env.schema` of its own. An explicit `--filter` or `_VARLOCK_FILTER` takes precedence, and it is not applied when `--path` overrides `loadPath`. |
 
 
 :::note[Plugins]
@@ -58,7 +59,7 @@ Several commands share these flags. They behave identically wherever they appear
 
 ### Filtering items ||filtering-items||
 
-`--filter` takes a comma-separated list of selectors:
+`--filter` takes a comma-separated list of selectors (the same language is used by `pick`/`omit` on [`@import()`](/reference/root-decorators/#import), by `filter=` on code-generation decorators, and by `varlock.filter` in [`package.json`](#configuration-via-packagejson)):
 
 - a key name or glob, e.g. `STRIPE_*` (matches `*` and `?`)
 - `!selector` to negate any of the below, e.g. `!STRIPE_DEBUG_KEY`
@@ -78,6 +79,8 @@ varlock load --filter="@sensitive,#billing"       # sensitive items OR billing-t
 varlock load --filter="STRIPE_*,!@sensitive"      # STRIPE_* keys, minus any that are sensitive
 varlock load --filter="!#debug"                   # everything except items tagged @tag(debug)
 ```
+
+When `--filter` is not passed, the `_VARLOCK_FILTER` env var is used, and failing that `varlock.filter` from `package.json` (which requires `varlock.loadPath`, and is skipped when `--path` is passed).
 
 There's no way to express an intersection (e.g. "`STRIPE_*` AND `@sensitive`"): only unions of non-negated selectors minus unions of negated ones. A negated selector always subtracts from the whole inclusion set; it isn't scoped to only the positive selector(s) that happened to include a given item.
 

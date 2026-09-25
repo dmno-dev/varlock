@@ -40,6 +40,17 @@ const DECORATOR_PREDICATES: Record<string, (item: FilterableItem) => boolean> = 
 export const TAG_NAME_REGEX = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const TAG_NAME_RULES = 'Tag names must start with a letter or number, followed by letters, numbers, "_", or "-"';
 
+export type ItemFilterOptions = {
+  /** set to false to reject `@sensitive`-style selectors (default: allowed) */
+  allowDecoratorSelectors?: boolean;
+  /** shown as the tip when a rejected decorator selector is used */
+  decoratorSelectorsUnsupportedTip?: string;
+  /** set to false to reject `#tag` selectors (default: allowed) */
+  allowTagSelectors?: boolean;
+  /** shown as the tip when a rejected tag selector is used */
+  tagSelectorsUnsupportedTip?: string;
+};
+
 type FilterToken = | { negate: boolean, kind: 'key', regex: RegExp }
   | { negate: boolean, kind: 'decorator', name: string }
   | { negate: boolean, kind: 'tag', tag: string };
@@ -64,12 +75,26 @@ export class ParsedItemFilter {
    * (see `EnvGraph.resolveEnvValuesForFilter()`).
    */
   readonly usesDecoratorSelector: boolean;
+  /** whether this filter uses a `#tag` selector (matching then needs the item's tags, not just its key) */
+  readonly usesTagSelector: boolean;
 
-  /** `label` prefixes any thrown `SchemaError` (e.g. `--filter` or `@generateTsTypes filter`) */
-  constructor(filterStr: string, label: string) {
-    const rawTokens = filterStr.split(',').map((t) => t.trim()).filter(Boolean);
+  /**
+   * `label` prefixes any thrown `SchemaError` (e.g. `--filter` or `@generateTsTypes filter`).
+   * `selectors` accepts a comma-separated string, or an already-split list (e.g. the entries of a
+   * `pick=[...]` array literal). Contexts that evaluate the filter before item metadata exists
+   * (like `@import` pick/omit) opt out of decorator and/or tag selectors via `opts`.
+   */
+  constructor(selectors: string | Array<string>, label: string, opts?: ItemFilterOptions) {
+    const rawTokens = (Array.isArray(selectors) ? selectors : selectors.split(','))
+      .map((t) => t.trim()).filter(Boolean);
+    const supported = [
+      'key names/globs',
+      '!negations',
+      ...(opts?.allowDecoratorSelectors === false ? [] : ['@decorators']),
+      ...(opts?.allowTagSelectors === false ? [] : ['#tags']),
+    ];
     if (!rawTokens.length) {
-      throw new SchemaError(`${label}: expected a comma-separated list of key names/globs, !negations, @decorators, or #tags`);
+      throw new SchemaError(`${label}: expected a comma-separated list of ${supported.join(', ')}`);
     }
     this.tokens = rawTokens.map((raw) => {
       let token = raw;
@@ -82,6 +107,11 @@ export class ParsedItemFilter {
 
       if (token.startsWith('@')) {
         const name = token.slice(1);
+        if (opts?.allowDecoratorSelectors === false) {
+          throw new SchemaError(`${label}: decorator selectors like "@${name}" are not supported here`, {
+            tip: opts.decoratorSelectorsUnsupportedTip ?? `Supported selectors: ${supported.join(', ')}`,
+          });
+        }
         if (!(name in DECORATOR_PREDICATES)) {
           throw new SchemaError(`${label}: unknown decorator selector "@${name}"`, {
             tip: `Supported decorator selectors: ${Object.keys(DECORATOR_PREDICATES).map((n) => `@${n}`).join(', ')}`,
@@ -91,6 +121,11 @@ export class ParsedItemFilter {
       }
       if (token.startsWith('#')) {
         const tag = token.slice(1);
+        if (opts?.allowTagSelectors === false) {
+          throw new SchemaError(`${label}: tag selectors like "#${tag}" are not supported here`, {
+            tip: opts.tagSelectorsUnsupportedTip ?? `Supported selectors: ${supported.join(', ')}`,
+          });
+        }
         if (!tag) throw new SchemaError(`${label}: empty tag in "${raw}"`);
         if (!TAG_NAME_REGEX.test(tag)) {
           throw new SchemaError(`${label}: invalid tag selector "#${tag}"`, { tip: TAG_NAME_RULES });
@@ -100,6 +135,7 @@ export class ParsedItemFilter {
       return { negate, kind: 'key' as const, regex: globToRegExp(token) };
     });
     this.usesDecoratorSelector = this.tokens.some((t) => t.kind === 'decorator');
+    this.usesTagSelector = this.tokens.some((t) => t.kind === 'tag');
   }
 
   /**

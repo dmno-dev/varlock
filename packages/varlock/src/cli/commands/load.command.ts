@@ -37,7 +37,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } = ctx.values;
   // parse --filter (or the _VARLOCK_FILTER env var) up front, so a bad filter string errors
   // before any loading/resolution work happens
-  const itemFilter = getCliItemFilter(ctx.values.filter);
+  const itemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 

@@ -309,6 +309,231 @@ describe('@import', () => {
     }));
   });
 
+  describe('pick / omit selectors (tags + negation)', () => {
+    test('pick=[#tag] imports only items tagged in the imported file', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[#frontend])
+          # ---
+        `,
+        '.env.import': outdent`
+          # @tag(frontend)
+          PUBLIC_URL=https://example.com
+          # @tag(backend)
+          DATABASE_URL=postgres://x
+          # @tag(frontend, backend)
+          SHARED=both
+          UNTAGGED=x
+        `,
+      },
+      expectValues: { PUBLIC_URL: 'https://example.com', SHARED: 'both' },
+      expectTags: { PUBLIC_URL: ['frontend'], SHARED: ['frontend', 'backend'] },
+      expectNotInSchema: ['DATABASE_URL', 'UNTAGGED'],
+    }));
+
+    test('omit=[#tag] imports everything except tagged items', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, omit=[#backend])
+          # ---
+        `,
+        '.env.import': outdent`
+          # @tag(frontend)
+          PUBLIC_URL=https://example.com
+          # @tag(backend)
+          DATABASE_URL=postgres://x
+          UNTAGGED=x
+        `,
+      },
+      expectValues: { PUBLIC_URL: 'https://example.com', UNTAGGED: 'x' },
+      expectNotInSchema: ['DATABASE_URL'],
+    }));
+
+    test('tags and key names/globs combine as a union', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[#frontend, APP_*, DATABASE_URL])
+          # ---
+        `,
+        '.env.import': outdent`
+          # @tag(frontend)
+          PUBLIC_URL=https://example.com
+          APP_NAME=demo
+          DATABASE_URL=postgres://x
+          SECRET=x
+        `,
+      },
+      expectValues: { PUBLIC_URL: 'https://example.com', APP_NAME: 'demo', DATABASE_URL: 'postgres://x' },
+      expectNotInSchema: ['SECRET'],
+    }));
+
+    test('!negation narrows a pick', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[API_*, !API_SECRET])
+          # ---
+        `,
+        '.env.import': outdent`
+          API_URL=u
+          API_KEY=k
+          API_SECRET=s
+          OTHER=o
+        `,
+      },
+      expectValues: { API_URL: 'u', API_KEY: 'k' },
+      expectNotInSchema: ['API_SECRET', 'OTHER'],
+    }));
+
+    test('!#tag negation excludes tagged items from a pick', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[#frontend, !#internal])
+          # ---
+        `,
+        '.env.import': outdent`
+          # @tag(frontend)
+          PUBLIC_URL=u
+          # @tag(frontend, internal)
+          PUBLIC_DEBUG=d
+        `,
+      },
+      expectValues: { PUBLIC_URL: 'u' },
+      expectNotInSchema: ['PUBLIC_DEBUG'],
+    }));
+
+    test('a tag on the schema definition lets the directory\'s value files through too', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./shared/, pick=[#frontend])
+          # ---
+        `,
+        'shared/.env.schema': outdent`
+          # @tag(frontend)
+          PUBLIC_URL=
+          # @tag(backend)
+          DATABASE_URL=
+        `,
+        'shared/.env': outdent`
+          PUBLIC_URL=from-env-file
+          DATABASE_URL=from-env-file
+        `,
+      },
+      expectValues: { PUBLIC_URL: 'from-env-file' },
+      expectNotInSchema: ['DATABASE_URL'],
+    }));
+
+    test('#tag pick sees tags declared deeper in the imported subtree', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.mid, pick=[#frontend])
+          # ---
+        `,
+        '.env.mid': outdent`
+          # @import(./.env.leaf)
+          # ---
+          # @tag(frontend)
+          MID_ITEM=mid
+          MID_OTHER=x
+        `,
+        '.env.leaf': outdent`
+          # @tag(frontend)
+          LEAF_ITEM=leaf
+          LEAF_OTHER=x
+        `,
+      },
+      expectValues: { MID_ITEM: 'mid', LEAF_ITEM: 'leaf' },
+      expectNotInSchema: ['MID_OTHER', 'LEAF_OTHER'],
+    }));
+
+    test('#tag filters intersect with key filters across nested imports', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.mid, pick=[#frontend])
+          # ---
+        `,
+        '.env.mid': outdent`
+          # @import(./.env.leaf, pick=[A, B])
+          # ---
+        `,
+        '.env.leaf': outdent`
+          # @tag(frontend)
+          A=a
+          B=b
+          # @tag(frontend)
+          C=c
+        `,
+      },
+      expectValues: { A: 'a' },
+      expectNotInSchema: ['B', 'C'],
+    }));
+
+    test('the same source imported twice with different #tag picks (diamond)', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./root/, pick=[#a])
+          # @import(./shared/)
+          # ---
+        `,
+        'root/.env.schema': outdent`
+          # @tag(a)
+          A_ITEM=a
+          # @tag(b)
+          B_ITEM=b
+          C_ITEM=c
+        `,
+        'shared/.env.schema': outdent`
+          # @import(../root/, pick=[#b])
+          # ---
+          SHARED_VAR=shared
+        `,
+      },
+      expectValues: { A_ITEM: 'a', B_ITEM: 'b', SHARED_VAR: 'shared' },
+      expectNotInSchema: ['C_ITEM'],
+    }));
+
+    test('@currentEnv flag can be brought in via a #tag pick', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[#env])
+          # @currentEnv=$APP_ENV
+          # ---
+        `,
+        '.env.import': outdent`
+          # @tag(env)
+          APP_ENV=production
+          OTHER=x
+        `,
+        '.env.production': outdent`
+          FROM_ENV_FILE=prod
+        `,
+      },
+      expectValues: { APP_ENV: 'production', FROM_ENV_FILE: 'prod' },
+      expectNotInSchema: ['OTHER'],
+    }));
+
+    test('decorator selectors are not supported in pick', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[@sensitive])
+          # ---
+        `,
+        '.env.import': 'A=1',
+      },
+      expectError: true,
+    }));
+
+    test('an empty tag selector is an error', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, pick=[#])
+          # ---
+        `,
+        '.env.import': 'A=1',
+      },
+      expectError: true,
+    }));
+  });
+
   describe('errors', () => {
     test('importing non .env.* file triggers an error', envFilesTest({
       files: {

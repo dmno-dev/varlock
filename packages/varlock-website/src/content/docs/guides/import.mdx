@@ -83,18 +83,31 @@ A registry (npm, jsr, etc.), package name, version, and path can be used to impo
 
 ## Partial imports
 
-By default, all items will be imported, but you can restrict which keys are brought in:
+By default, all items will be imported, but you can restrict which items are brought in:
 
-- `pick=[...]` imports only an allowlist of keys
-- `omit=[...]` imports everything except a denylist of keys
-- You can't use both in one import, and both accept simple globs (`*`, `?`)
+- `pick=[...]` imports only an allowlist of items
+- `omit=[...]` imports everything except a denylist of items
+- You can't use both in one import
 - If there is a chain of imports, an item is only imported if every ancestor import includes it (filters intersect)
 
+Each entry is a selector, using the same language as the [`--filter` CLI flag](/reference/cli-commands/#filtering-items):
+
+- a key name or glob (`*`, `?`), e.g. `API_*`
+- `#tagname` to select items tagged with [`@tag(tagname)`](/reference/item-decorators/#tag) in the imported file
+- `!selector` to exclude matches of any selector above, e.g. `!API_SECRET` or `!#internal`
+
+Entries combine the same way as `--filter`: non-negated selectors are OR'd into one set, then negated ones are subtracted. Decorator selectors like `@sensitive` are not supported in `pick`/`omit`, since imports are filtered while loading, before values are resolved.
+
 ```env-spec
-# @import(./.env.imported, pick=[KEY1, KEY2])   # allowlist
-# @import(./.env.imported, pick=[API_*])        # globs work too
-# @import(./.env.imported, omit=[SECRET])       # denylist
+# @import(./.env.imported, pick=[KEY1, KEY2])         # allowlist
+# @import(./.env.imported, pick=[API_*])              # globs work too
+# @import(./.env.imported, omit=[SECRET])             # denylist
+# @import(./.env.imported, pick=[#frontend])          # items tagged @tag(frontend)
+# @import(./.env.imported, pick=[API_*, !API_SECRET]) # API_* except API_SECRET
+# @import(./.env.imported, omit=[#internal, DEBUG_*]) # everything except internal-tagged and DEBUG_* items
 ```
+
+Tags let one shared schema declare which items each consumer needs, without repeating key lists in every importer. Tag items in the shared schema (an item can carry several tags), then `pick=[#tag]` from each package. When importing a directory, a tag on the schema definition also lets that key's values from the directory's `.env.*` files through. See [Sharing one schema across packages with tags](/guides/monorepos/#sharing-one-schema-across-packages-with-tags).
 
 :::caution[Positional keys are deprecated]
 Older docs and configs list keys as positional args (`@import(./.env.imported, KEY1, KEY2)`). This still works but is deprecated and will warn. Use `pick=[KEY1, KEY2]` instead.

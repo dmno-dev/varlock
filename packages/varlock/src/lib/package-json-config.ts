@@ -4,6 +4,13 @@ import fs from 'node:fs';
 export type VarlockPackageJsonConfig = {
   /** Path (or array of paths) to a specific .env file or directory to use as the entry point for loading */
   loadPath?: string | Array<string>;
+  /**
+   * Default `--filter` for `varlock load`/`run` (same selector language: keys, globs, `!negations`,
+   * `@decorators`, `#tags`). Only valid alongside `loadPath`, and not applied when `--path` is
+   * passed, since it scopes what a shared schema exposes to this package. An explicit `--filter`
+   * or `_VARLOCK_FILTER` takes precedence.
+   */
+  filter?: string;
 };
 
 /**

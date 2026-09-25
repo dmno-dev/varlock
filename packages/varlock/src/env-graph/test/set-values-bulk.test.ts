@@ -269,6 +269,40 @@ describe('@setValuesBulk() root decorator', () => {
       },
     }));
 
+    test('pick supports !negation', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"bulk","API_DEBUG":"bulk","DB_HOST":"bulk"}', format=json, pick=[API_*, !API_DEBUG])
+        # ---
+        API_KEY=schema
+        API_DEBUG=schema
+        DB_HOST=schema
+      `,
+      expectValues: {
+        API_KEY: 'bulk',
+        API_DEBUG: 'schema',
+        DB_HOST: 'schema',
+      },
+    }));
+
+    test('#tag selectors are rejected (bulk data has no schema items to tag)', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"bulk"}', format=json, pick=[#billing])
+        # ---
+        # @tag(billing)
+        API_KEY=schema
+      `,
+      expectError: true,
+    }));
+
+    test('decorator selectors are rejected', envFilesTest({
+      envFile: outdent`
+        # @setValuesBulk('{"API_KEY":"bulk"}', format=json, pick=[@sensitive])
+        # ---
+        API_KEY=schema
+      `,
+      expectError: true,
+    }));
+
     test('pick combines with createMissing', envFilesTest({
       envFile: outdent`
         # @setValuesBulk('{"A":"bulk","B":"bulk"}', format=json, createMissing=true, pick=[A])

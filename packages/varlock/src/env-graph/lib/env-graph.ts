@@ -286,7 +286,9 @@ export class EnvGraph {
     // importSite's full import chain (nested imports intersect).
     for (const s of this._getDescendants(source)) {
       for (const itemKey of _.keys(s.configItemDefs)) {
-        if (importMeta && !keyPassesImportFilter(itemKey, importMeta.importKeys, importMeta.importFilter)) continue;
+        const getTags = () => source.getSubtreeKeyTags(itemKey);
+        const { importKeys, importFilter } = importMeta ?? {};
+        if (importMeta && !keyPassesImportFilter(itemKey, importKeys, importFilter, getTags)) continue;
         if (!importSite.isKeyImported(itemKey)) continue;
         this.configSchema[itemKey] ??= new ConfigItem(this, itemKey);
       }
