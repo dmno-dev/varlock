@@ -2,11 +2,7 @@ import _ from '@env-spec/utils/my-dash';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ConfigItem, type TypeGenItemInfo } from './config-item';
-import {
-  EnvGraphDataSource, FileBasedDataSource, ImportAliasSource,
-  keyPassesImportFilter,
-} from './data-source';
-import { type KeyFilter } from './key-filter';
+import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
 import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
@@ -274,20 +270,15 @@ export class EnvGraph {
   }
 
   /**
-   * Register ConfigItems for keys visible through an import
-   * that may not have been registered during the original source's finishInit.
+   * Register ConfigItems for keys visible through an alias import (the same source imported
+   * again from another location) that may not have been registered when the original loaded.
+   * The alias sits in the tree at the new import site, so its import chain (its own filter
+   * plus every filter above it) decides visibility, exactly like a first-time import.
    */
-  registerItemsForImport(
-    source: EnvGraphDataSource,
-    importSite: EnvGraphDataSource,
-    importMeta?: { importKeys?: Array<string>, importFilter?: KeyFilter },
-  ) {
-    // A key is visible only if it passes both this import's own filter and the
-    // importSite's full import chain (nested imports intersect).
-    for (const s of this._getDescendants(source)) {
+  registerItemsForImport(alias: ImportAliasSource) {
+    for (const s of this._getDescendants(alias.original)) {
       for (const itemKey of _.keys(s.configItemDefs)) {
-        if (importMeta && !keyPassesImportFilter(itemKey, importMeta.importKeys, importMeta.importFilter)) continue;
-        if (!importSite.isKeyImported(itemKey)) continue;
+        if (!alias.isKeyImported(itemKey)) continue;
         this.configSchema[itemKey] ??= new ConfigItem(this, itemKey);
       }
     }
@@ -325,7 +316,7 @@ export class EnvGraph {
    * Unlike `sortedDataSources` (which contains each real source exactly once),
    * this list can contain the same source multiple times at different positions
    * when it's imported from multiple locations (diamond dependency). Each entry
-   * carries its own `importKeys` filter for that specific import context.
+   * carries its own import filter for that specific import context.
    *
    * Built from `sortedDataSources` by expanding `ImportAliasSource` nodes into
    * the original source's full subtree at the alias's precedence position.

@@ -123,7 +123,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // unrelated broken item outside the filter won't block this run, and excluded items'
     // value resolvers never run. Decorator selectors resolve item metadata first, then match
     // exactly (see EnvGraph.resolveEnvValuesForFilter).
-    const itemFilter = getCliItemFilter(ctx.values.filter);
+    const itemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
     if (itemFilter) await itemFilter.resolveScoped(envGraph);
     else await envGraph.resolveEnvValues();
     checkForConfigErrors(envGraph);

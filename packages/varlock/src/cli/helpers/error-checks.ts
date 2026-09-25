@@ -85,6 +85,7 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
 
     for (const err of loadingErrors) {
       console.error(ansis.red(`- ❌ ${err.message}`));
+      showErrorTip(err);
       showErrorLocationDetails(err);
       if (err.isUnexpected && err.originalError?.stack) {
         console.error(`\n${ansis.dim('Stack trace:')}`);

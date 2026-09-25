@@ -106,6 +106,19 @@ describe('evaluateInjectedEnvReuse', () => {
     });
 
     describe('package.json loadPath handling', () => {
+      test('does not reuse when package.json sets varlock.filter (a fresh load would scope items)', () => {
+        const envDir = path.join(tempDir, 'envs');
+        fs.mkdirSync(envDir);
+        fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify({
+          name: 'x', varlock: { loadPath: './envs', filter: '#frontend' },
+        }));
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ basePath: envDir }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('varlock.filter') });
+      });
+
       test('reuses when loadPath dir matches the blob basePath', () => {
         const envDir = path.join(tempDir, 'envs');
         fs.mkdirSync(envDir);

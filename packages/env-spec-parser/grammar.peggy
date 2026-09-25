@@ -175,7 +175,9 @@ DecoratorFunctionArgValue =
 // `#`-prefixed) is treated as a comment to end-of-line and skipped, so entries can be
 // commented out (`# # OLD_KEY,`) or annotated (`# KEY, # note`). Continuation across a
 // newline still REQUIRES the leading `#` (so a missing `#` can't silently swallow lines).
-_decWs = ([ \t] / ("#" [^\n]*)? "\n" [ \t]* "#" [ \t]*)*
+// A `#` immediately followed by a letter or digit is NOT a comment: it is a value such as
+// a `#tag` selector (`pick=[#frontend]`). A comment needs a space after the `#` (or nothing).
+_decWs = ([ \t] / ("#" ![a-zA-Z0-9] [^\n]*)? "\n" [ \t]* "#" [ \t]*)*
 
 // Standalone object/array literals — usable as decorator/function-arg values.
 // `{ key=value, ... }` is an object, `[ value, ... ]` is an array.

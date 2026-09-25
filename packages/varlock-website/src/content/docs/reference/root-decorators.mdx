@@ -184,10 +184,10 @@ The optional `enabled` parameter allows conditional imports based on boolean exp
 
 The optional `allowMissing` parameter makes the import optional - if set to `true`, the import will be silently skipped if the file or directory doesn't exist instead of causing a loading error. It defaults to `false` if not specified.
 
-**Filtering keys:** by default every key from the imported file(s) is brought in. Use `pick` to import only an allowlist of keys, or `omit` to import everything except a denylist. You can't use both in one import, and both accept simple globs (`*`, `?`). Across nested imports, filters intersect: a key must pass every filter in the chain.
+**Filtering items:** by default every item from the imported file(s) is brought in. Use `pick` to import only an allowlist, or `omit` to import everything except a denylist. You can't use both in one import. Entries are selectors (same language as [`--filter`](/reference/cli-commands/#filtering-items)): key names, globs (`*`, `?`), `#tagname` for items tagged with [`@tag()`](/reference/item-decorators/#tag) in the imported file, and `!selector` to exclude matches. Decorator selectors (`@sensitive`, ...) are not supported here, since imports are filtered before values resolve. Across nested imports, filters intersect: an item must pass every filter in the chain.
 
 :::caution[Positional keys are deprecated]
-Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated**; use `pick=[KEY1, KEY2]` instead. The positional form still works (exact-match only, no globs) but will warn.
+Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated**; use `pick=[KEY1, KEY2]` instead. The positional form still works (treated as a `pick`) but will warn.
 :::
 
 See the [imports guide](/guides/import/) for more details and advanced usage.
@@ -196,6 +196,8 @@ See the [imports guide](/guides/import/) for more details and advanced usage.
 # @import(./.env.imported)                        # import a specific file
 # @import(./.env.other, pick=[KEY1, KEY2])        # import only these keys (allowlist)
 # @import(./.env.other, pick=[API_*])             # globs are supported
+# @import(./.env.other, pick=[#frontend])         # items tagged @tag(frontend) in .env.other
+# @import(./.env.other, pick=[API_*, !API_SECRET]) # exclude with !
 # @import(./.env.other, omit=[SECRET])            # import everything except these (denylist)
 # @import(../shared-env/)                         # import a directory
 # @import(~/.env.shared)                          # import from home directory
@@ -224,7 +226,7 @@ Bulk values participate in the normal file override chain: `process.env` still o
 - `pick`: An array of key names to inject, an **allowlist**. Only matching keys are injected; everything else from the source is ignored.
 - `omit`: An array of key names to skip, a **denylist**. Every key _except_ the matches is injected.
 
-By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns: `*` matches any run of characters and `?` matches a single character (e.g. `pick=[API_*]`).
+By default (neither `pick` nor `omit`) every key from the source is injected. You can't use `pick` and `omit` together. Both accept simple glob patterns (`*` matches any run of characters, `?` a single character, e.g. `pick=[API_*]`) and `!` to exclude matches (e.g. `pick=[API_*, !API_DEBUG]`). Tag and decorator selectors are not available here: the bulk data is plain key/value pairs with no schema metadata to match on.
 
 _Can be called multiple times; later calls overwrite earlier ones for the same keys._
 

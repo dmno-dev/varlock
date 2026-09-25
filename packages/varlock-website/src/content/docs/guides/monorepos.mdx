@@ -50,6 +50,39 @@ Use `@import()` to pull in a root or shared schema without copying keys, to spli
 
 You can also **import directly from a sibling package**, which lets you keep a config item with its logical owner instead of hoisting everything to the root. Define the item once in the package that owns it, then `pick` just what you need, like the `../api/` import in the example above.
 
+### Sharing one schema across packages with tags
+
+If you would rather keep a single `.env.schema` at the repo root than maintain a key list in every package, tag each item with the packages (or concerns) it belongs to, and have each package pick by tag:
+
+```env-spec title=".env.schema (repo root)"
+# @tag(web) @type=url
+NEXT_PUBLIC_SERVER_URL=
+# @tag(api) @type=url
+DATABASE_URL=
+# @tag(web, api)
+SENTRY_DSN=
+```
+
+```env-spec title="apps/web/.env.schema"
+# @import(../../, pick=[#web])
+# ---
+```
+
+An item can carry several tags, and a `pick` list can mix tags, key names, and globs (`pick=[#web, SENTRY_*]`), or subtract with `!` (`pick=[#web, !#internal]`). Adding a new shared item is then a one-line change in the root schema: tag it, and every package that picks that tag gets it. Because the import brings the whole directory, a tag on the schema definition lets the key's values from the root `.env`, `.env.local`, and `.env.[currentEnv]` files through too.
+
+To drop the per-package `.env.schema` entirely, point the package at the shared schema with `loadPath` and apply the tag as a default filter for `varlock load`/`run`:
+
+```json title="apps/web/package.json"
+{
+  "varlock": {
+    "loadPath": "../../",
+    "filter": "#web"
+  }
+}
+```
+
+`varlock.filter` uses the same selectors as [`--filter`](/reference/cli-commands/#filtering-items) and is only valid alongside `loadPath`. An explicit `--filter` or `_VARLOCK_FILTER` still takes precedence. Like `--filter`, it also scopes resolution and validation to the selected items (plus their dependencies), so an unrelated broken item in the root schema does not block this package. The tradeoff versus a per-package schema: the package cannot add its own items or override imported ones.
+
 :::caution[Avoid circular imports]
 Imports must flow in one direction. If `web` imports `api` and `api` also imports `web` (directly or through a chain), varlock detects the cycle and loading fails with an explicit error naming the chain (e.g. `Circular import detected: web/.env.schema -> api/.env.schema -> web/.env.schema`). Keep each shared item with a single owner and import one way; if two packages genuinely need each other's values, hoist those keys into a common file (e.g. the repo root) that both import.
 
