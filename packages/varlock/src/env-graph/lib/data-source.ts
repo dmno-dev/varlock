@@ -303,6 +303,11 @@ export abstract class EnvGraphDataSource {
           const depItem = this.graph.configSchema[depKey];
           if (depItem) await depItem.earlyResolve();
         }
+        const bootError = this.graph.bootDependencyError('disable', disabledDec.decValueResolver.deps);
+        if (bootError) {
+          disabledDec._errors.push(bootError);
+          return;
+        }
       }
 
       const disabledVal = await disabledDec.resolve();
@@ -483,6 +488,8 @@ export abstract class EnvGraphDataSource {
               }
               await depItem.earlyResolve();
             }
+            const bootError = this.graph.bootDependencyError('import', enabledDeps);
+            if (bootError) throw bootError;
           }
 
           const importArgs = await importDec.resolve();

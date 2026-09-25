@@ -631,13 +631,18 @@ export class EnvGraph {
       // (e.g. if($USE_CACHE, "memory", "disabled")) must be early-resolved first,
       // same as @disable does in finishInit. A missing ref is surfaced by the
       // resolver itself when the decorator resolves below.
+      let cacheBootError: SchemaError | undefined;
       if (cacheDec.decValueResolver) {
         for (const depKey of cacheDec.decValueResolver.deps) {
           const depItem = this.configSchema[depKey];
           if (depItem) await depItem.earlyResolve();
         }
+        cacheBootError = this.bootDependencyError('cache', cacheDec.decValueResolver.deps);
+        if (cacheBootError) cacheDec._errors.push(cacheBootError);
       }
-      const cacheSetting = await cacheDec.resolve();
+      // a boot dependency was refused above (see earlyResolve), so the setting is unknowable
+      // here - leave the policy at auto; the schema error stops the load anyway
+      const cacheSetting = cacheBootError ? undefined : await cacheDec.resolve();
       let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
       if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
         cacheMode = cacheSetting;
@@ -741,7 +746,8 @@ export class EnvGraph {
         );
       }
     }
-    this.checkBootDynamicDependencies();
+    // a root decorator that would resolve a boot item is refused before any of them execute
+    if (this.checkBootDynamicDependencies()) return;
 
     // now execute all root decorators
     for (const source of this.sortedDataSources) {
@@ -791,10 +797,34 @@ export class EnvGraph {
    * Uses the same dependency list as the cycle check, so decorator-function references
    * (`@required=eq($PORT, ...)`) count as well as value references. Only structural because
    * `boot` must be written literally (see ConfigItem.isBootDynamic).
+   *
+   * Root decorators are covered too: they execute right after this (settings like
+   * `@redactLogs=$X`, plugin init like `@initAws(profile=$X)`), which resolves whatever they
+   * reference - at deploy time under `varlock freeze`. Returns true when any root decorator
+   * would do that, so the caller can stop before executing them. (The decorators that
+   * resolve even earlier - @currentEnv, @disable, @import, @cache - are refused inside
+   * ConfigItem.earlyResolve for the same reason.)
    */
-  private checkBootDynamicDependencies() {
+  /**
+   * For the decorators that early-resolve their references before config items are even
+   * processed (@disable, @import(enabled=...), @cache): the error to record when any of
+   * those references, transitively, is `@dynamic=boot`. ConfigItem.earlyResolve already
+   * refuses to resolve the boot item itself; this names the decorator so the failure reads
+   * as the rule it is, not as a generic "could not resolve".
+   */
+  bootDependencyError(decName: string, deps: Array<string>): SchemaError | undefined {
+    const bootDeps = [...this.expandKeysWithTransitiveDeps(deps)].filter((k) => this.configSchema[k]?.isBootDynamic);
+    if (!bootDeps.length) return undefined;
+    const depList = bootDeps.join(', ');
+    return new SchemaError(
+      `@${decName} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, but @${decName} is evaluated before boot`,
+      { tip: `Reference a value that is fixed before boot instead, or remove @dynamic=boot from ${depList}` },
+    );
+  }
+
+  private checkBootDynamicDependencies(): boolean {
     const bootKeys = new Set(_.keys(this.configSchema).filter((k) => this.configSchema[k].isBootDynamic));
-    if (!bootKeys.size) return;
+    if (!bootKeys.size) return false;
 
     // the current-env item selects which env files load at all, so it is bound before
     // anything else and cannot itself wait for boot
@@ -817,6 +847,24 @@ export class EnvGraph {
         { tip: `Mark ${itemKey} @dynamic=boot too, so it is resolved at boot alongside ${depList}` },
       ));
     }
+
+    let rootDecoratorViolations = false;
+    for (const source of this.sortedDataSources) {
+      if (source.disabled) continue;
+      for (const decInstance of source.rootDecorators) {
+        const directDeps = decInstance.decValueResolver?.deps ?? [];
+        if (!directDeps.length) continue;
+        const bootDeps = [...this.expandKeysWithTransitiveDeps(directDeps)].filter((k) => bootKeys.has(k));
+        if (!bootDeps.length) continue;
+        rootDecoratorViolations = true;
+        const depList = bootDeps.join(', ');
+        decInstance._errors.push(new SchemaError(
+          `@${decInstance.name} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, but root decorators are evaluated before boot`,
+          { tip: `Reference a value that is fixed before boot instead, or remove @dynamic=boot from ${depList}` },
+        ));
+      }
+    }
+    return rootDecoratorViolations;
   }
 
   get graphAdjacencyList() {

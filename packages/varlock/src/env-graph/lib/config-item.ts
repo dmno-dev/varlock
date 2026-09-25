@@ -484,6 +484,18 @@ export class ConfigItem {
   async earlyResolve() {
     await this.process();
 
+    // Early resolution exists for decisions made before any values are loaded (@currentEnv,
+    // @disable, @import(enabled=...), @cache), and `varlock freeze` makes those decisions at
+    // deploy time. A boot-bound value does not exist yet, so refuse here rather than resolve
+    // it: the decorator then fails on its unresolved dependency, and no boot resolver runs.
+    if (this.isBootDynamic) {
+      this._schemaErrors.push(new SchemaError(
+        `${this.key} is @dynamic=boot, so it cannot be used by @currentEnv, @disable, @import, or @cache - those are decided before boot`,
+        { tip: `Remove @dynamic=boot from ${this.key}, or reference a value that is fixed before boot instead` },
+      ));
+      return;
+    }
+
     // process and resolve any other items our env flag depends on
     for (const depKey of this.dependencyKeys) {
       const depItem = this.envGraph.configSchema[depKey];
