@@ -275,6 +275,25 @@ describe('@import', () => {
       expectNotInSchema: ['SKIP'],
     }));
 
+    test('deprecated positional keys match literally (no globs or selectors)', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @import(./.env.import, PLAIN, API_*, !SECRET, #frontend)
+          # ---
+        `,
+        '.env.import': outdent`
+          PLAIN=p
+          API_KEY=a
+          SECRET=s
+          # @tag(frontend)
+          PUBLIC_URL=u
+        `,
+      },
+      // PLAIN proves the import ran; the other args are literal key names that match nothing
+      expectValues: { PLAIN: 'p' },
+      expectNotInSchema: ['API_KEY', 'SECRET', 'PUBLIC_URL'],
+    }));
+
     test('using both pick and omit is an error', envFilesTest({
       files: {
         '.env.schema': outdent`

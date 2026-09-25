@@ -12,7 +12,13 @@ import { ParsedItemFilter } from './item-filter';
  * (`@sensitive`, ...) are never supported here: they depend on resolved values, while pick/omit
  * are applied while the graph is still loading.
  */
-export type KeyFilter = { mode: 'pick' | 'omit', filter: ParsedItemFilter };
+export type KeyFilter = {
+  mode: 'pick' | 'omit',
+  /** whether `matches` needs the item's tags (a `#tag` selector), which cost the caller a lookup */
+  usesTagSelector: boolean,
+  /** whether `key` is selected, before the pick/omit polarity is applied */
+  matches(key: string, tags: Array<string>): boolean,
+};
 
 /** Build a {@link KeyFilter} from already-extracted selector entries (see {@link parseKeyFilterArgs}). */
 export function buildKeyFilter(
@@ -27,7 +33,21 @@ export function buildKeyFilter(
     allowTagSelectors: !!opts?.allowTagSelectors,
     tagSelectorsUnsupportedTip: `${label} ${mode}=[...] matches key names only; tags are declared on schema items, which this data does not have.`,
   });
-  return { mode, filter };
+  return {
+    mode,
+    usesTagSelector: filter.usesTagSelector,
+    // decorator selectors are rejected at parse time, so pre-evaluation is always conclusive
+    matches: (key, tags) => filter.preEvaluate({ key, tags }) === 'yes',
+  };
+}
+
+/**
+ * A pick filter that matches the given key names literally: no globs, negations, or tag
+ * selectors. Used for the deprecated positional `@import(path, KEY1, KEY2)` form, which is
+ * documented as exact-match only, so an old schema keeps meaning what it always meant.
+ */
+export function exactKeysFilter(keys: Array<string>): KeyFilter {
+  return { mode: 'pick', usesTagSelector: false, matches: (key) => keys.includes(key) };
 }
 
 /**
@@ -72,8 +92,7 @@ export function parseKeyFilterArgs(
  */
 export function keyMatchesFilter(key: string, filter: KeyFilter | undefined, tags: Array<string> = []): boolean {
   if (!filter) return true;
-  // decorator selectors are rejected at parse time, so pre-evaluation is always conclusive
-  const matched = filter.filter.preEvaluate({ key, tags }) === 'yes';
+  const matched = filter.matches(key, tags);
   return filter.mode === 'pick' ? matched : !matched;
 }
 
