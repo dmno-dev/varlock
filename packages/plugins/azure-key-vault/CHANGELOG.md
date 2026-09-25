@@ -6,6 +6,13 @@
 
 
 
+
+## 1.3.0
+<sub>2026-09-25</sub>
+
+- [#1098](https://github.com/dmno-dev/varlock/pull/1098)  *(minor)*
+  Add Azure App Configuration support. `@initAzure()` now accepts `appConfigEndpoint`, `appConfigConnectionString`, and `defaultLabel` (with `vaultUrl` now optional), and two new resolvers load settings: `azureAppConfig()` reads a single setting by key and label, and `azureAppConfigBulk()` loads many settings at once for `@setValuesBulk()`. Key Vault references stored in App Configuration are dereferenced automatically. Also adds a `cloud` option (`public`, `usgov`, `china`) so tokens use the right endpoints in sovereign clouds.
+
 ## 1.2.3
 <sub>2026-08-25</sub>
 

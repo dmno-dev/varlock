@@ -15,6 +15,21 @@
 
 
 
+
+## 0.4.3
+<sub>2026-09-25</sub>
+
+- [#1099](https://github.com/dmno-dev/varlock/pull/1099)  *(patch)*
+  Move the TextMate grammar from `language/` to `syntaxes/` (the standard VS Code extension layout, and the location GitHub Linguist's grammar compiler expects); `language-configuration.json` now lives at the extension root.
+- [#1107](https://github.com/dmno-dev/varlock/pull/1107)  *(patch)*
+  `varlock audit` no longer tries to lex string, template and regex literals while scanning source files. A quote inside a regex (such as `s.replace(/'/g, "")`), JSX text or a docstring could throw that lexer off and silently hide every env var reference after it in the same file. The scanner now only skips lines that are entirely comments, and references mentioned inside string literals are reported like any other.
+
+  New `@auditIgnoreKeys(KEY, PREFIX_*)` root decorator: keys the audit should never report as missing from the schema, for scanner false positives such as a `process.env.FOO` mentioned inside a string.
+- [#1112](https://github.com/dmno-dev/varlock/pull/1112)  *(patch)*
+  `uuid` type now accepts UUID versions 6-8 (RFC 9562, including UUIDv7) and the MAX UUID, and takes an optional `version` option (e.g. `@type=uuid(version=7)`) to require a specific version.
+- [#1124](https://github.com/dmno-dev/varlock/pull/1124)  *(patch)*
+  `#tag` selectors inside decorator args (e.g. `@import(..., pick=[#frontend])`) are now highlighted as values instead of comments.
+
 ## 0.4.2
 <sub>2026-09-17</sub>
 
