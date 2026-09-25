@@ -189,15 +189,25 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ambientEnvKey: process.env._VARLOCK_ENV_KEY,
     });
   } else if (injectBlob) {
-    // normally the ambient blob is forwarded byte-for-byte; if @internal items were
-    // stripped from it on consumption, forward the sanitized form instead (re-encrypted
-    // with the ambient key when the original was encrypted - the key must have been
-    // present for decryption to have succeeded)
-    let childBlob = process.env.__VARLOCK_ENV!;
-    if (reuseDecision.strippedInternalKeys.length) {
-      childBlob = isEncryptedBlob(childBlob)
-        ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
-        : reuseDecision.blobJson;
+    let childBlob: string;
+    if (reuseDecision.source === 'frozen-file') {
+      // the graph came from disk, so there is no ambient blob to forward (and any that is
+      // present lost to the file, so it must not leak through): hand the child the frozen
+      // graph itself, encrypted whenever a key is available - it always is when the file
+      // was encrypted, since decryption succeeded
+      const ambientKey = process.env._VARLOCK_ENV_KEY;
+      childBlob = ambientKey ? encryptEnvBlobSync(reuseDecision.blobJson, ambientKey) : reuseDecision.blobJson;
+    } else {
+      // normally the ambient blob is forwarded byte-for-byte; if @internal items were
+      // stripped from it on consumption, forward the sanitized form instead (re-encrypted
+      // with the ambient key when the original was encrypted - the key must have been
+      // present for decryption to have succeeded)
+      childBlob = process.env.__VARLOCK_ENV!;
+      if (reuseDecision.strippedInternalKeys.length) {
+        childBlob = isEncryptedBlob(childBlob)
+          ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
+          : reuseDecision.blobJson;
+      }
     }
     injectedBlobEnv = {
       __VARLOCK_ENV: childBlob,
