@@ -151,7 +151,11 @@ export function execSyncVarlock(
     // Bun-compiled executables are the exception: callerDir points into Bun's
     // virtual /$bunfs filesystem, while process.execPath points at the real
     // executable inside the workspace.
-    const cwdStr = opts?.cwd ? String(opts.cwd) : undefined;
+    // `opts.cwd` may be relative (e.g. wrangler's `--cwd nested` passed straight through).
+    // Resolve it first: the walk-up must start from a real directory, and the bin path it
+    // returns is later executed with `cwd` set to that same directory, so a relative bin
+    // path found from the parent would resolve against the wrong directory (ENOENT).
+    const cwdStr = opts?.cwd ? path.resolve(String(opts.cwd)) : undefined;
     const searchDirs = [
       ...(cwdStr ? [cwdStr] : []),
       ...(opts?.callerDir ? [opts.callerDir] : []),
