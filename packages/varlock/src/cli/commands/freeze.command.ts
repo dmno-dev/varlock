@@ -144,8 +144,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   try {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    // 0600 so the resolved values aren't readable by other users on a shared build machine
+    // 0600 so the resolved values aren't readable by other users on a shared build machine.
+    // `mode` only applies when the file is created, so an existing (re-frozen) file keeps
+    // whatever mode it had - tighten it explicitly
     fs.writeFileSync(outPath, `${contents}\n`, { mode: 0o600 });
+    fs.chmodSync(outPath, 0o600);
   } catch (err) {
     throw new CliExitError(`Failed to write frozen env file to ${outPath}: ${(err as Error).message}`);
   }
