@@ -187,7 +187,7 @@ The optional `allowMissing` parameter makes the import optional - if set to `tru
 **Filtering items:** by default every item from the imported file(s) is brought in. Use `pick` to import only an allowlist, or `omit` to import everything except a denylist. You can't use both in one import. Entries are selectors (same language as [`--filter`](/reference/cli-commands/#filtering-items)): key names, globs (`*`, `?`), `#tagname` for items tagged with [`@tag()`](/reference/item-decorators/#tag) in the imported file, and `!selector` to exclude matches. Decorator selectors (`@sensitive`, ...) are not supported here, since imports are filtered before values resolve. Across nested imports, filters intersect: an item must pass every filter in the chain.
 
 :::caution[Positional keys are deprecated]
-Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated**; use `pick=[KEY1, KEY2]` instead. The positional form still works (exact-match only, no globs) but will warn.
+Listing keys as positional args (`@import(./.env.other, KEY1, KEY2)`) is **deprecated**; use `pick=[KEY1, KEY2]` instead. The positional form still works (treated as a `pick`) but will warn.
 :::
 
 See the [imports guide](/guides/import/) for more details and advanced usage.
