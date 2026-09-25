@@ -4,6 +4,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import {
   FROZEN_ENV_FILE_NAME,
   FrozenEnvFileError,
@@ -162,6 +163,20 @@ describe('readFrozenEnvFile', () => {
       writeFrozenFile({ key: null });
       expect(() => readFrozenEnvFile({ env: { _VARLOCK_FILTER: 'FOO' }, cwd: tempDir }))
         .toThrow(/_VARLOCK_FILTER/);
+    });
+
+    // existsSync is true for these too, and reading a FIFO with no writer never returns
+    test('throws when the path is a directory', () => {
+      fs.mkdirSync(path.join(tempDir, FROZEN_ENV_FILE_NAME));
+      expect(() => readFrozenEnvFile({ env: {}, cwd: tempDir })).toThrow(/not a regular file/);
+      expect(getFrozenEnvFileInPlay({}, tempDir)).toBe(path.join(tempDir, FROZEN_ENV_FILE_NAME));
+    });
+
+    test('throws when the path is a FIFO, without opening it', () => {
+      if (process.platform === 'win32') return;
+      const fifoPath = path.join(tempDir, FROZEN_ENV_FILE_NAME);
+      expect(spawnSync('mkfifo', [fifoPath]).status).toBe(0);
+      expect(() => readFrozenEnvFile({ env: {}, cwd: tempDir })).toThrow(/not a regular file/);
     });
   });
 });
