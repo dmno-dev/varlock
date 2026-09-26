@@ -626,15 +626,10 @@ export class EnvGraph {
       // (e.g. if($USE_CACHE, "memory", "disabled")) must be early-resolved first,
       // same as @disable does in finishInit. A missing ref is surfaced by the
       // resolver itself when the decorator resolves below.
-      let cacheBootError: SchemaError | undefined;
-      if (cacheDec.decValueResolver) {
-        for (const depKey of cacheDec.decValueResolver.deps) {
-          const depItem = this.configSchema[depKey];
-          if (depItem) await depItem.earlyResolve();
-        }
-        cacheBootError = this.bootDependencyError('cache', cacheDec.decValueResolver.deps);
-        if (cacheBootError) cacheDec._errors.push(cacheBootError);
-      }
+      const cacheBootError = cacheDec.decValueResolver
+        ? await this.earlyResolveDecoratorDeps('cache', cacheDec.decValueResolver.deps)
+        : undefined;
+      if (cacheBootError) cacheDec._errors.push(cacheBootError);
       // a boot dependency was refused above (see earlyResolve), so the setting is unknowable
       // here - leave the policy at auto; the schema error stops the load anyway
       const cacheSetting = cacheBootError ? undefined : await cacheDec.resolve();
@@ -783,6 +778,36 @@ export class EnvGraph {
   }
 
   /**
+   * Early-resolve the items a decorator references, for the decorators evaluated before
+   * config items are even processed (@disable, @import(enabled=...), @cache).
+   *
+   * Returns an error when any reference is, transitively, `@dynamic=boot`: such a value
+   * does not exist yet, so ConfigItem.earlyResolve refuses to resolve it, and the caller
+   * must not evaluate the decorator (it would see the boot item as unset and decide wrongly).
+   */
+  async earlyResolveDecoratorDeps(
+    decName: string,
+    deps: Array<string>,
+    opts?: { requireExists?: boolean },
+  ): Promise<SchemaError | undefined> {
+    for (const depKey of deps) {
+      const depItem = this.configSchema[depKey];
+      if (!depItem) {
+        if (opts?.requireExists) throw new Error(`@${decName} depends on non-existent item: ${depKey}`);
+        continue;
+      }
+      await depItem.earlyResolve();
+    }
+    const bootDeps = [...this.expandKeysWithTransitiveDeps(deps)].filter((k) => this.configSchema[k]?.isBootDynamic);
+    if (!bootDeps.length) return undefined;
+    const depList = bootDeps.join(', ');
+    return new SchemaError(
+      `@${decName} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, but @${decName} is evaluated before boot`,
+      { tip: `Reference a value that is fixed before boot instead, or remove @dynamic=boot from ${depList}` },
+    );
+  }
+
+  /**
    * A `@dynamic=boot` value does not exist until each instance starts, so nothing bound
    * earlier may depend on it: a static value would be inlined at build with whatever the
    * build machine had, and a frozen value would carry the CI-time result forever. This is a
@@ -800,23 +825,6 @@ export class EnvGraph {
    * resolve even earlier - @currentEnv, @disable, @import, @cache - are refused inside
    * ConfigItem.earlyResolve for the same reason.)
    */
-  /**
-   * For the decorators that early-resolve their references before config items are even
-   * processed (@disable, @import(enabled=...), @cache): the error to record when any of
-   * those references, transitively, is `@dynamic=boot`. ConfigItem.earlyResolve already
-   * refuses to resolve the boot item itself; this names the decorator so the failure reads
-   * as the rule it is, not as a generic "could not resolve".
-   */
-  bootDependencyError(decName: string, deps: Array<string>): SchemaError | undefined {
-    const bootDeps = [...this.expandKeysWithTransitiveDeps(deps)].filter((k) => this.configSchema[k]?.isBootDynamic);
-    if (!bootDeps.length) return undefined;
-    const depList = bootDeps.join(', ');
-    return new SchemaError(
-      `@${decName} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, but @${decName} is evaluated before boot`,
-      { tip: `Reference a value that is fixed before boot instead, or remove @dynamic=boot from ${depList}` },
-    );
-  }
-
   private checkBootDynamicDependencies(): boolean {
     const bootKeys = new Set(_.keys(this.configSchema).filter((k) => this.configSchema[k].isBootDynamic));
     if (!bootKeys.size) return false;

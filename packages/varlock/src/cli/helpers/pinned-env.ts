@@ -1,28 +1,26 @@
 import { findPinnedGraphForResolution, type PinnedGraphInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
-import { FrozenEnvFileError, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { FrozenEnvFileError } from '../../lib/frozen-env-file';
 import { CliExitError } from './exit-error';
 
 /**
- * CLI wrapper around findPinnedGraphForResolution: same lookup, with an unusable pin turned
- * into a CliExitError (a pin that is present but broken never falls back to fresh resolution).
+ * A pre-resolved env (frozen env file, or a blob under `_VARLOCK_USE_INJECTED_ENV=1`) that is
+ * requested but unusable, as a CliExitError. Neither ever falls back to fresh resolution.
  */
-export function getPinnedGraphForResolution(opts: { explicitFrozenOnly: boolean }): PinnedGraphInfo | undefined {
+export function pinErrorToCliExitError(err: unknown): CliExitError {
+  const message = (err as Error).message.replace(/^\[varlock\] /, '');
+  return new CliExitError(message, {
+    suggestion: err instanceof FrozenEnvFileError
+      ? err.suggestion
+      : 'Provide a valid __VARLOCK_ENV blob (e.g. captured via `varlock load --format json-full --compact`), '
+        + `or unset ${USE_INJECTED_ENV_VAR} to resolve from .env files.`,
+  });
+}
+
+/** CLI wrapper around findPinnedGraphForResolution, with an unusable pin as a CliExitError */
+export function getPinnedGraphForResolution(): PinnedGraphInfo | undefined {
   try {
-    return findPinnedGraphForResolution({
-      env: process.env,
-      cwd: process.cwd(),
-      explicitFrozenOnly: opts.explicitFrozenOnly,
-    });
+    return findPinnedGraphForResolution({ env: process.env, cwd: process.cwd() });
   } catch (err) {
-    const message = (err as Error).message.replace(/^\[varlock\] /, '');
-    if (err instanceof FrozenEnvFileError) {
-      throw new CliExitError(message, {
-        suggestion: 'Re-create it with `varlock freeze`, make sure _VARLOCK_ENV_KEY matches the key it was frozen with, '
-          + `or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files instead.`,
-      });
-    }
-    throw new CliExitError(message, {
-      suggestion: `Provide a valid __VARLOCK_ENV payload, or unset ${USE_INJECTED_ENV_VAR} to resolve from .env files.`,
-    });
+    throw pinErrorToCliExitError(err);
   }
 }

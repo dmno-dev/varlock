@@ -44,7 +44,7 @@ function isolatedEnv(env?: Record<string, string | undefined>) {
 function runApp(env?: Record<string, string | undefined>) {
   const result = spawnSync(process.execPath, ['app.mjs'], {
     cwd: SCENARIO_DIR,
-    env: isolatedEnv(env) as NodeJS.ProcessEnv,
+    env: isolatedEnv({ _VARLOCK_USE_FROZEN_ENV: '1', ...env }) as NodeJS.ProcessEnv,
     encoding: 'utf-8',
   });
   return {
@@ -57,7 +57,7 @@ function runApp(env?: Record<string, string | undefined>) {
 function runAppViaVarlockRun(env?: Record<string, string | undefined>) {
   return varlockRun(['node', 'app.mjs'], {
     cwd: SCENARIO,
-    env: isolatedEnv(env) as Record<string, string>,
+    env: isolatedEnv({ _VARLOCK_USE_FROZEN_ENV: '1', ...env }) as Record<string, string>,
   });
 }
 
@@ -176,10 +176,11 @@ describe('booting with boot keys', () => {
     expect(result.output).not.toContain('APP_ENV=production');
   });
 
-  test('_VARLOCK_USE_FROZEN_ENV=1 varlock load shows the pinned-plus-boot view', () => {
+  // load finds the pin exactly as run does, so it shows what the app will boot with
+  test('varlock load shows the pinned-plus-boot view', () => {
     const result = runVarlock(['load', '--format', 'json'], {
       cwd: SCENARIO,
-      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', PORT: '8080' }) as Record<string, string>,
+      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, PORT: '8080' }) as Record<string, string>,
     });
     expect(result.exitCode, result.output).toBe(0);
     const values = JSON.parse(result.stdout);
@@ -188,13 +189,22 @@ describe('booting with boot keys', () => {
     expect(values.PUBLIC_URL).toBe('http://localhost:8080');
   });
 
-  test('a plain varlock load ignores a merely-present pin', () => {
-    const result = runVarlock(['load', '--format', 'json'], {
+  test('varlock load rejects flags that would change what the pin fixes', () => {
+    const result = runVarlock(['load', '--format', 'json', '--env', 'development'], {
       cwd: SCENARIO,
       env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, PORT: '8080' }) as Record<string, string>,
     });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('cannot be combined with --env');
+  });
+
+  test('_VARLOCK_USE_FROZEN_ENV=0 varlock load resolves from the .env files', () => {
+    const result = runVarlock(['load', '--format', 'json'], {
+      cwd: SCENARIO,
+      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '0', PORT: '8080' }) as Record<string, string>,
+    });
     expect(result.exitCode, result.output).toBe(0);
-    // resolved from the .env files: no APP_ENV set, so development
+    // no APP_ENV set, so development
     expect(JSON.parse(result.stdout).APP_ENV).toBe('development');
   });
 });
@@ -217,7 +227,7 @@ describe('the pin must match the schema', () => {
   function bootDrifted() {
     return varlockRun(['node', 'app.mjs'], {
       cwd: `${SCENARIO}/drifted`,
-      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, PORT: '8080' }) as Record<string, string>,
+      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', PORT: '8080' }) as Record<string, string>,
     });
   }
 
