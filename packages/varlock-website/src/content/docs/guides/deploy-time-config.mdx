@@ -79,7 +79,7 @@ The framework integrations have done this for a long time. `varlock freeze` gene
     varlock freeze --env production
     ```
 
-    This writes `.varlock-frozen-env` in the current directory. Add it to your `.gitignore`.
+    This writes `.varlock-frozen-env` in the current directory. Add it to your `.gitignore`. [`varlock scan`](/reference/cli/project/#scan) reports an unencrypted one if it ever gets committed.
 
 3. **Ship the file inside your deploy artifact**
 
@@ -143,6 +143,8 @@ Varlock uses `.varlock-frozen-env` in the working directory automatically when i
 Setting `_VARLOCK_USE_FROZEN_ENV=1` (or booting with `varlock run --frozen`) in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
 
 `varlock load` is different: every framework integration resolves through it at dev and build time, so it uses the file only when told to explicitly (`--frozen`, or `_VARLOCK_USE_FROZEN_ENV` set to `1` or a path). A plain `varlock load` next to a frozen file keeps showing what your .env files resolve to, and prints a warning that `varlock run` and auto-load would boot from the file instead. `varlock load --frozen` in the runtime image shows exactly what the app boots with. If the file is left over from running `varlock freeze` locally, delete it.
+
+A frozen file is a deploy artifact, so `vite dev` and `next dev` refuse to start when one is present in the project directory, rather than quietly disagreeing with `varlock run`. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0` if you need to keep it there.
 
 Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
 
