@@ -9,8 +9,8 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
-import { getPinnedGraphForResolution } from '../helpers/pinned-env';
-import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { applyFrozenArg, getPinnedGraphForResolution } from '../helpers/pinned-env';
+import { getFrozenEnvFileInPlay } from '../../lib/frozen-env-file';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -48,12 +48,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
   }
 
-  // A `varlock freeze` pin is applied only when named explicitly (`_VARLOCK_USE_FROZEN_ENV=1`
-  // or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`), showing the
+  // A `varlock freeze` pin is applied only when named explicitly (`--frozen`,
+  // `_VARLOCK_USE_FROZEN_ENV=1` or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`), showing the
   // pinned values plus any `@dynamic=boot` keys resolved live. That is also how
   // `varlock/auto-load` hands a pin to the CLI. A file that is merely present is left alone,
   // because every framework integration resolves through `load` - but `varlock run` and
   // auto-load WOULD boot from it, so say that rather than silently disagreeing with them.
+  applyFrozenArg(ctx.values.frozen);
   const pinned = getPinnedGraphForResolution();
   const ignoredFrozenFile = pinned ? undefined : getFrozenEnvFileInPlay(process.env, process.cwd());
   if (ignoredFrozenFile) {
@@ -62,7 +63,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       `⚠ ${relPath} is present: \`varlock run\` and \`varlock/auto-load\` boot from it, but this shows resolution from .env files.`,
     ));
     console.error(ansis.gray(
-      `  Set ${USE_FROZEN_ENV_VAR}=1 to see the pinned values, or delete the file if it is left over from a local freeze.`,
+      '  Use `varlock load --frozen` to see the pinned values, or delete the file if it is left over from a local freeze.',
     ));
   }
   const envGraph = await loadVarlockEnvGraph({

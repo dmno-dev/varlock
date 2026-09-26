@@ -140,9 +140,9 @@ Varlock uses `.varlock-frozen-env` in the working directory automatically when i
 | `0` / `false` | Never use a frozen env file |
 | any path | Require a frozen env file at that path, relative to the working directory unless absolute |
 
-Setting `_VARLOCK_USE_FROZEN_ENV=1` in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
+Setting `_VARLOCK_USE_FROZEN_ENV=1` (or booting with `varlock run --frozen`) in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
 
-`varlock load` is different: every framework integration resolves through it at dev and build time, so it uses the file only when told to explicitly (`1` or a path). A plain `varlock load` next to a frozen file keeps showing what your .env files resolve to, and prints a warning that `varlock run` and auto-load would boot from the file instead. `_VARLOCK_USE_FROZEN_ENV=1 varlock load` in the runtime image shows exactly what the app boots with. If the file is left over from running `varlock freeze` locally, delete it.
+`varlock load` is different: every framework integration resolves through it at dev and build time, so it uses the file only when told to explicitly (`--frozen`, or `_VARLOCK_USE_FROZEN_ENV` set to `1` or a path). A plain `varlock load` next to a frozen file keeps showing what your .env files resolve to, and prints a warning that `varlock run` and auto-load would boot from the file instead. `varlock load --frozen` in the runtime image shows exactly what the app boots with. If the file is left over from running `varlock freeze` locally, delete it.
 
 Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
 
@@ -205,7 +205,7 @@ A few rules follow from the fact that a boot value does not exist before boot:
 - **`boot` is per item and written literally.** There is no root default, and a computed value is an error.
 - **The pin must match the schema it was frozen from.** A key added or removed since the freeze, or a key whose boot marking changed, fails the boot with a message naming the drift. Re-run `varlock freeze` and redeploy.
 
-The freeze summary lists what was left out (`left to boot (@dynamic=boot): PORT, INSTANCE_ID`), and `_VARLOCK_USE_FROZEN_ENV=1 varlock load` in the runtime image shows the same pinned-plus-boot view the app gets.
+The freeze summary lists what was left out (`left to boot (@dynamic=boot): PORT, INSTANCE_ID`), and `varlock load --frozen` in the runtime image shows the same pinned-plus-boot view the app gets.
 
 If you find yourself marking more than a handful of keys `boot`, freezing is the wrong tool for that service. Use [`varlock run`](/reference/cli/load-and-run/#run) and resolve everything at boot.
 

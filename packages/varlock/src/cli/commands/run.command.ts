@@ -17,7 +17,7 @@ import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
-import { pinErrorToCliExitError } from '../helpers/pinned-env';
+import { applyFrozenArg, pinErrorToCliExitError } from '../helpers/pinned-env';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
@@ -33,6 +33,7 @@ let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  applyFrozenArg(ctx.values.frozen);
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
   let restCommandArgs: Array<string> = [];
