@@ -1,6 +1,6 @@
 {
   "name": "@varlock/effect-plugin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Generate Effect Config modules from Varlock schemas",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/effect/",

@@ -1,7 +1,7 @@
 {
   "name": "@varlock/azure-key-vault-plugin",
   "description": "Varlock plugin to load secrets from Azure Key Vault and settings from Azure App Configuration",
-  "version": "1.2.3",
+  "version": "1.3.0",
   "type": "module",
   "homepage": "https://varlock.dev/plugins/azure-key-vault/",
   "bugs": "https://github.com/dmno-dev/varlock/issues",

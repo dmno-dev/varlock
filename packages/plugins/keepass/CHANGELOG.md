@@ -4,6 +4,13 @@
 
 
 
+
+## 2.0.3
+<sub>2026-09-25</sub>
+
+- [#1117](https://github.com/dmno-dev/varlock/pull/1117)  *(patch)*
+  Support KeePass databases protected only by a key file: `password` is now optional in `@initKeePass` when `keyFile` is set
+
 ## 2.0.2
 <sub>2026-08-25</sub>
 

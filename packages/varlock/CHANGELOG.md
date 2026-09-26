@@ -30,6 +30,33 @@
 
 
 
+
+## 1.21.0
+<sub>2026-09-25</sub>
+
+- [#1112](https://github.com/dmno-dev/varlock/pull/1112)  *(minor)*
+  `uuid` type now accepts UUID versions 6-8 (RFC 9562, including UUIDv7) and the MAX UUID, and takes an optional `version` option (e.g. `@type=uuid(version=7)`) to require a specific version.
+- [#1124](https://github.com/dmno-dev/varlock/pull/1124)  *(minor)*
+  `pick`/`omit` on `@import()` now accept the same selectors as `--filter`: `#tag` to import items tagged with `@tag()` in the imported file, and `!selector` to exclude matches (e.g. `pick=[#frontend, !#internal]` or `pick=[API_*, !API_SECRET]`). Previously a `#tag` entry silently matched nothing. `@setValuesBulk` `pick`/`omit` gain `!` exclusions too; decorator selectors like `@sensitive` are rejected with a clear error in both.
+
+  New `varlock.filter` option in `package.json`: a default `--filter` for `varlock load`/`run`, valid alongside `varlock.loadPath`, so a package can point at a shared root schema and take just its tagged items without a `.env.schema` of its own.
+- [#1108](https://github.com/dmno-dev/varlock/pull/1108)  *(patch)*
+  Fix an infinite spawn loop when `varlock/auto-load` is preloaded via bun's `bunfig.toml` and bun also serves as `node` (as in bun-only containers): the CLI process spawned by auto-load was preloaded too, and spawned another. The spawned CLI is now tagged with `__VARLOCK_CLI_CHILD` and a preloaded auto-load inside it skips resolving.
+- [#1107](https://github.com/dmno-dev/varlock/pull/1107)  *(patch)*
+  `varlock audit` no longer tries to lex string, template and regex literals while scanning source files. A quote inside a regex (such as `s.replace(/'/g, "")`), JSX text or a docstring could throw that lexer off and silently hide every env var reference after it in the same file. The scanner now only skips lines that are entirely comments, and references mentioned inside string literals are reported like any other.
+
+  New `@auditIgnoreKeys(KEY, PREFIX_*)` root decorator: keys the audit should never report as missing from the schema, for scanner false positives such as a `process.env.FOO` mentioned inside a string.
+- [#1110](https://github.com/dmno-dev/varlock/pull/1110)  *(patch)*
+  Fix duplicate encryption daemons, and the repeated Touch ID / Windows Hello prompts they cause, when many varlock processes start at once (an MCP host launching several stdio servers, a parallel task runner). Switching between projects on different varlock versions now only restarts the daemon when its binary actually differs, so versions that ship the same daemon share one biometric session.
+- [#1114](https://github.com/dmno-dev/varlock/pull/1114)  *(patch)*
+  Plugins whose build is split into several files no longer fail with "No active plugin context" when a chunk loads after the plugin has initialized
+- [#1109](https://github.com/dmno-dev/varlock/pull/1109)  *(patch)*
+  Auto-load and framework integrations now always run the varlock CLI installed alongside the imported package, and only fall back to a `varlock` on PATH when there is no local install. Previously a globally installed CLI could win over the local one when an app was started directly with `node`, so the runtime library and the CLI could be different versions.
+- [#1120](https://github.com/dmno-dev/varlock/pull/1120)  *(patch)*
+  Fix duplicate encryption daemons on Windows when many varlock processes start at once, which made each daemon ask for Windows Hello separately.
+- [#1121](https://github.com/dmno-dev/varlock/pull/1121)  *(patch)*
+  `varlock run` now waits for a child's shutdown handler to finish after forwarding `SIGTERM` or `SIGINT`. Previously, in published builds, varlock exited right after forwarding the signal and killed the child mid-shutdown (for example on `docker stop` with `varlock run` as the container entrypoint). `varlock proxy run` now handles signals the same way: it forwards them to the child and waits, instead of killing it immediately, and propagates the child's real exit status. The `proxy start` daemon's shutdown cleanup is no longer cut short by the same exit hook.
+
 ## 1.20.0
 <sub>2026-09-17</sub>
 
