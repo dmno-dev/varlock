@@ -319,12 +319,23 @@ describe('a pin with boot keys', () => {
   });
 
   describe('findPinnedGraphForResolution', () => {
-    test('a present frozen file is a pin, found the same way varlock run finds it', () => {
+    // load is what integrations resolve through, so a merely-present file is not a pin there
+    test('a present frozen file is a pin only when named explicitly', () => {
       const { key } = writeFrozenFile({ contents: withBootKeys() });
       expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
-        .toMatchObject({ source: 'frozen-file' });
-      expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: '0' }, cwd: tempDir }))
         .toBeUndefined();
+      expect(findPinnedGraphForResolution({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
+        .toMatchObject({ source: 'frozen-file' });
+    });
+
+    test('a discovered file does not shadow a trusted frozen payload', () => {
+      writeFrozenFile({ key: null, contents: graphJson({ frozen: { bootKeys: [] }, config: { FOO: { value: 'from-file' } } }) });
+      const pinned = findPinnedGraphForResolution({
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: { bootKeys: [] } }) },
+        cwd: tempDir,
+      });
+      expect(pinned).toMatchObject({ source: 'env-blob' });
+      expect(pinned?.graph.config.FOO.value).toBe('foo-val');
     });
 
     test('an explicitly named frozen file is returned, with or without boot keys', () => {

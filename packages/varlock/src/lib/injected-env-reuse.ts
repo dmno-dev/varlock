@@ -5,7 +5,7 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
-import { FrozenEnvFileError, getFrozenEnvFileInPlay, readFrozenEnvFile } from './frozen-env-file';
+import { FrozenEnvFileError, readFrozenEnvFile, resolveFrozenEnvFileMode } from './frozen-env-file';
 
 /**
  * Decides whether a consumer (`varlock/auto-load`, or a `varlock run` that finds a blob
@@ -197,6 +197,8 @@ export function evaluateInjectedEnvReuse(opts: {
    */
   preInjectionEnv?: EnvRecord,
   cwd?: string,
+  /** only consume a frozen env file named by `_VARLOCK_USE_FROZEN_ENV`, never a discovered one */
+  explicitFrozenOnly?: boolean,
 }): InjectedEnvReuseDecision {
   const { env } = opts;
   const preInjectionEnv = opts.preInjectionEnv ?? env;
@@ -211,7 +213,7 @@ export function evaluateInjectedEnvReuse(opts: {
   // the checks below compare a blob against local .env files which a frozen deploy by design
   // does not carry. Any problem with a present or required file throws, so a broken pin can never
   // silently degrade into a boot-time re-resolution.
-  const frozen = readFrozenEnvFile({ env, cwd });
+  const frozen = readFrozenEnvFile({ env, cwd, explicitOnly: opts.explicitFrozenOnly });
   if (frozen) {
     const sanitizedFrozen = parseAndSanitizeBlob(frozen.blobJson);
     if (!sanitizedFrozen) {
@@ -370,13 +372,16 @@ export function evaluateInjectedEnvReuse(opts: {
 }
 
 /**
- * The pinned graph a fresh resolution should be applied on top of, if any - for commands
- * that always load the schema (`varlock load`) rather than deciding between reuse and
- * resolution. Either a `varlock freeze` file (found the same way as for `varlock run`), or a
- * `varlock freeze --out -` payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`. An ordinary
- * blob (a parent `varlock run`, a `load --format json-full` capture) is never a pin, and
- * neither is anything reused automatically: "resolve on top of it" is a stronger claim than
- * "reuse it".
+ * The pinned graph a fresh resolution should be applied on top of, if any - for `varlock
+ * load`, which always loads the schema rather than deciding between reuse and resolution.
+ *
+ * Unlike `varlock run` and auto-load, only an explicit pin counts: a frozen env file named by
+ * `_VARLOCK_USE_FROZEN_ENV` (`1` or a path - auto-load passes the path it found), or a
+ * `varlock freeze --out -` payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`. `load` is what
+ * every framework integration shells out to at dev and build time, so a frozen file merely
+ * sitting in a project directory must not take over those; `load` says so instead (see
+ * load.command). An ordinary blob (a parent `varlock run`, a `load --format json-full`
+ * capture) is never a pin.
  *
  * Throws the same way evaluateInjectedEnvReuse does when a pin is present but unusable.
  */
@@ -384,9 +389,9 @@ export function findPinnedGraphForResolution(opts: { env: EnvRecord, cwd?: strin
   const { env } = opts;
   const cwd = opts.cwd ?? process.cwd();
   const forced = getUseInjectedEnvMode(env) === 'force';
-  if (!forced && !getFrozenEnvFileInPlay(env, cwd)) return undefined;
+  if (!forced && !resolveFrozenEnvFileMode(env, cwd)?.required) return undefined;
 
-  const decision = evaluateInjectedEnvReuse({ env, cwd });
+  const decision = evaluateInjectedEnvReuse({ env, cwd, explicitFrozenOnly: true });
   const pinned = decision.reuse
     ? { graph: decision.parsedEnv, source: decision.source, filePath: decision.filePath }
     : decision.pinned;

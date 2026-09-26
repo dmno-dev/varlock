@@ -176,36 +176,40 @@ describe('booting with boot keys', () => {
     expect(result.output).not.toContain('APP_ENV=production');
   });
 
-  // load finds the pin exactly as run does, so it shows what the app will boot with
-  test('varlock load shows the pinned-plus-boot view', () => {
+  test('_VARLOCK_USE_FROZEN_ENV=1 varlock load shows the pinned-plus-boot view', () => {
     const result = runVarlock(['load', '--format', 'json'], {
       cwd: SCENARIO,
-      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, PORT: '8080' }) as Record<string, string>,
+      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', PORT: '8080' }) as Record<string, string>,
     });
     expect(result.exitCode, result.output).toBe(0);
     const values = JSON.parse(result.stdout);
     expect(values.APP_ENV).toBe('production');
     expect(values.PORT).toBe(8080);
     expect(values.PUBLIC_URL).toBe('http://localhost:8080');
+    expect(result.stderr).not.toContain('is present');
   });
 
-  test('varlock load rejects flags that would change what the pin fixes', () => {
-    const result = runVarlock(['load', '--format', 'json', '--env', 'development'], {
+  // every integration resolves through `load`, so a merely-present file doesn't take over -
+  // but the disagreement with `varlock run` is called out rather than silent
+  test('a plain varlock load resolves from .env files and says a pin is being ignored', () => {
+    const result = runVarlock(['load', '--format', 'json'], {
       cwd: SCENARIO,
       env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, PORT: '8080' }) as Record<string, string>,
     });
-    expect(result.exitCode).not.toBe(0);
-    expect(result.output).toContain('cannot be combined with --env');
+    expect(result.exitCode, result.output).toBe(0);
+    // resolved from the .env files: no APP_ENV set, so development
+    expect(JSON.parse(result.stdout).APP_ENV).toBe('development');
+    expect(result.stderr).toContain('.varlock-frozen-env is present');
+    expect(result.stderr).toContain('_VARLOCK_USE_FROZEN_ENV=1');
   });
 
-  test('_VARLOCK_USE_FROZEN_ENV=0 varlock load resolves from the .env files', () => {
+  test('_VARLOCK_USE_FROZEN_ENV=0 silences the notice', () => {
     const result = runVarlock(['load', '--format', 'json'], {
       cwd: SCENARIO,
       env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '0', PORT: '8080' }) as Record<string, string>,
     });
     expect(result.exitCode, result.output).toBe(0);
-    // no APP_ENV set, so development
-    expect(JSON.parse(result.stdout).APP_ENV).toBe('development');
+    expect(result.stderr).not.toContain('is present');
   });
 });
 
