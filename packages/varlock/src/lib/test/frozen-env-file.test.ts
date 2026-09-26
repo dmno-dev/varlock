@@ -13,6 +13,7 @@ import {
   readFrozenEnvFile,
   resolveFrozenEnvFileMode,
 } from '../frozen-env-file';
+import { assertNoFrozenEnvFileInDev } from '../frozen-env-guard';
 import { evaluateInjectedEnvReuse, findPinnedGraphForResolution, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from '../../runtime/crypto';
 
@@ -365,5 +366,29 @@ describe('a pin with boot keys', () => {
       expect(findPinnedGraphForResolution({ env: { __VARLOCK_ENV: graphJson({ frozen: { bootKeys: ['PORT'] } }) }, cwd: tempDir }))
         .toBeUndefined();
     });
+  });
+});
+
+describe('assertNoFrozenEnvFileInDev', () => {
+  test('passes when no file is present', () => {
+    expect(() => assertNoFrozenEnvFileInDev({ cwd: tempDir, devCommand: 'vite dev', env: {} })).not.toThrow();
+  });
+
+  test('throws when a file is present, naming both remedies', () => {
+    writeFrozenFile();
+    expect(() => assertNoFrozenEnvFileInDev({ cwd: tempDir, devCommand: 'vite dev', env: {} }))
+      .toThrow(/\.varlock-frozen-env is present, but `vite dev`[\s\S]*rm \.varlock-frozen-env[\s\S]*_VARLOCK_USE_FROZEN_ENV=0/);
+  });
+
+  test('checks a path named by _VARLOCK_USE_FROZEN_ENV', () => {
+    writeFrozenFile({ fileName: 'custom.frozen' });
+    expect(() => assertNoFrozenEnvFileInDev({ cwd: tempDir, devCommand: 'next dev', env: { [USE_FROZEN_ENV_VAR]: 'custom.frozen' } }))
+      .toThrow(/custom\.frozen is present/);
+  });
+
+  test('_VARLOCK_USE_FROZEN_ENV=0 opts out', () => {
+    writeFrozenFile();
+    expect(() => assertNoFrozenEnvFileInDev({ cwd: tempDir, devCommand: 'vite dev', env: { [USE_FROZEN_ENV_VAR]: '0' } }))
+      .not.toThrow();
   });
 });

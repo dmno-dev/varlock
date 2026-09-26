@@ -14,6 +14,8 @@ import { fmt, logLines } from '../helpers/pretty-format';
 import { detectJsPackageManager } from '../helpers/js-package-manager-utils';
 import { isBundledSEA } from '../helpers/install-detection';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
+import { FROZEN_ENV_FILE_NAME } from '../../lib/frozen-env-guard';
+import { isEncryptedBlob } from '../../runtime/crypto';
 import { commandSpec } from './scan.command-spec';
 
 // Directories to always skip when walking the file tree
@@ -255,6 +257,22 @@ export async function scanFileForValues(
   return findings;
 }
 
+/** Files named like `varlock freeze` output that are not encrypted */
+async function findPlaintextFrozenEnvFiles(files: Array<string>): Promise<Array<string>> {
+  const found: Array<string> = [];
+  for (const filePath of files) {
+    if (path.basename(filePath) !== FROZEN_ENV_FILE_NAME) continue;
+    let contents: string;
+    try {
+      contents = (await fs.readFile(filePath, 'utf-8')).trim();
+    } catch {
+      continue;
+    }
+    if (contents && !isEncryptedBlob(contents)) found.push(filePath);
+  }
+  return found;
+}
+
 const SCAN_COMMAND = 'varlock scan';
 
 /**
@@ -449,11 +467,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
-  if (sensitiveValues.size === 0) {
-    logLines([ansis.green('✅ No sensitive values found in config - nothing to scan for.')]);
-    return;
-  }
-
   const cwd = process.cwd();
   let files: Array<string>;
 
@@ -493,15 +506,39 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     return;
   }
 
-  const allFindings: Array<ScanFinding> = [];
-  for (const filePath of files) {
-    const findings = await scanFileForValues(filePath, sensitiveValues);
-    allFindings.push(...findings);
+  // A plaintext `varlock freeze --allow-plaintext` file holds every resolved value, but
+  // usually for another environment (production), so matching against the values resolved
+  // here would miss it. Flag it by name instead.
+  const plaintextFrozenFiles = await findPlaintextFrozenEnvFiles(files);
+
+  if (sensitiveValues.size === 0 && plaintextFrozenFiles.length === 0) {
+    logLines([ansis.green('✅ No sensitive values found in config - nothing to scan for.')]);
+    return;
   }
 
-  if (allFindings.length === 0) {
+  const allFindings: Array<ScanFinding> = [];
+  if (sensitiveValues.size) {
+    for (const filePath of files) {
+      const findings = await scanFileForValues(filePath, sensitiveValues);
+      allFindings.push(...findings);
+    }
+  }
+
+  if (allFindings.length === 0 && plaintextFrozenFiles.length === 0) {
     logLines([ansis.green(`✅ No sensitive values found in plaintext. (scanned ${files.length} file${files.length === 1 ? '' : 's'})`)]);
     return;
+  }
+
+  if (plaintextFrozenFiles.length) {
+    console.error(ansis.red(`\n🚨 Found ${plaintextFrozenFiles.length} unencrypted frozen env file(s), holding every resolved value in plaintext:\n`));
+    for (const filePath of plaintextFrozenFiles) {
+      console.error(`  ${fmt.fileName(path.relative(cwd, filePath))}`);
+    }
+    console.error(ansis.dim('\n  Re-create it with `varlock freeze` and _VARLOCK_ENV_KEY set, and keep it out of version control.\n'));
+    if (allFindings.length === 0) {
+      gracefulExit(1);
+      return;
+    }
   }
 
   // Group findings by file for display

@@ -11,6 +11,7 @@ import {
 import { getCliItemFilter } from '../helpers/item-filter';
 import { applyFrozenArg, getPinnedGraphForResolution } from '../helpers/pinned-env';
 import { getFrozenEnvFileInPlay } from '../../lib/frozen-env-file';
+import { CliExitError } from '../helpers/exit-error';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -56,6 +57,22 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // auto-load WOULD boot from it, so say that rather than silently disagreeing with them.
   applyFrozenArg(ctx.values.frozen);
   const pinned = getPinnedGraphForResolution();
+  if (pinned) {
+    // same contradiction `varlock run` rejects: these change what a fresh resolution
+    // produces, but the pin fixes it. (`--env` is left alone: the Next.js integration always
+    // passes it, and a pin applies its own recorded environment as the fallback.)
+    const resolutionFlags = [
+      ctx.values.path?.length ? '--path' : undefined,
+      ctx.values['clear-cache'] ? '--clear-cache' : undefined,
+      ctx.values['skip-cache'] ? '--skip-cache' : undefined,
+    ].filter(Boolean) as Array<string>;
+    if (resolutionFlags.length) {
+      const what = pinned.source === 'frozen-file' ? `a frozen env file (${pinned.filePath})` : 'a frozen __VARLOCK_ENV payload';
+      throw new CliExitError(`${what} cannot be combined with ${resolutionFlags.join(', ')}`, {
+        suggestion: 'These flags change what a fresh resolution produces, but the pin fixes it. Drop them, or drop --frozen / _VARLOCK_USE_FROZEN_ENV.',
+      });
+    }
+  }
   const ignoredFrozenFile = pinned ? undefined : getFrozenEnvFileInPlay(process.env, process.cwd());
   if (ignoredFrozenFile) {
     const relPath = path.relative(process.cwd(), ignoredFrozenFile) || ignoredFrozenFile;

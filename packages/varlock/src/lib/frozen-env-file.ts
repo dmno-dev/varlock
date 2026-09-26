@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 
 /**
@@ -19,11 +18,11 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
  * secret no longer takes effect on restart. It takes effect on the next deploy.
  */
 
-/** Default filename, resolved relative to cwd (the app dir at boot, per-package in a monorepo). */
-export const FROZEN_ENV_FILE_NAME = '.varlock-frozen-env';
+import {
+  FROZEN_ENV_FILE_NAME, USE_FROZEN_ENV_VAR, resolveFrozenEnvFileMode,
+} from './frozen-env-guard';
 
-/** user-controllable behavior flag (leading single underscore per convention) */
-export const USE_FROZEN_ENV_VAR = '_VARLOCK_USE_FROZEN_ENV';
+export { FROZEN_ENV_FILE_NAME, USE_FROZEN_ENV_VAR, resolveFrozenEnvFileMode };
 
 type EnvRecord = Record<string, string | undefined>;
 
@@ -39,29 +38,6 @@ export class FrozenEnvFileError extends Error {
     super(`[varlock] ${message}`);
     this.name = 'FrozenEnvFileError';
   }
-}
-
-/**
- * Interpret `_VARLOCK_USE_FROZEN_ENV`:
- *  - unset         -> the default path, used if present
- *  - `1`/`true`    -> the default path, required (assert the pin is actually in effect)
- *  - `0`/`false`   -> off (undefined)
- *  - anything else -> that path, required
- *
- * Unlike `getUseInjectedEnvMode`, an unrecognized value is a path, so `=off` names a file
- * called `off` and hard-errors as missing. A typo is still never silently permissive.
- */
-export function resolveFrozenEnvFileMode(
-  env: EnvRecord,
-  cwd: string,
-): { filePath: string, required: boolean } | undefined {
-  const rawValue = env[USE_FROZEN_ENV_VAR]?.trim();
-  const defaultPath = path.resolve(cwd, FROZEN_ENV_FILE_NAME);
-  if (!rawValue) return { filePath: defaultPath, required: false };
-  const normalized = rawValue.toLowerCase();
-  if (normalized === '0' || normalized === 'false') return undefined;
-  if (normalized === '1' || normalized === 'true') return { filePath: defaultPath, required: true };
-  return { filePath: path.resolve(cwd, rawValue), required: true };
 }
 
 /** `fs.statSync` without throwing on absence: undefined when nothing is at the path */
