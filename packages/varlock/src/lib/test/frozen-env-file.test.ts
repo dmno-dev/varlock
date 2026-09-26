@@ -44,6 +44,9 @@ function graphJson(overrides?: Record<string, any>) {
   });
 }
 
+/** requires the frozen env file at the default path (a present file is also used without it) */
+const ON = { [USE_FROZEN_ENV_VAR]: '1' };
+
 /** write a frozen env file, encrypted unless `key` is null */
 function writeFrozenFile(opts?: { key?: string | null, contents?: string, fileName?: string }) {
   const key = opts?.key === undefined ? generateEncryptionKeyHex() : opts.key;
@@ -54,114 +57,103 @@ function writeFrozenFile(opts?: { key?: string | null, contents?: string, fileNa
 }
 
 describe('resolveFrozenEnvFileMode', () => {
-  test('defaults to auto at the default path', () => {
-    expect(resolveFrozenEnvFileMode({}, tempDir)).toEqual({
-      mode: 'auto', filePath: path.join(tempDir, FROZEN_ENV_FILE_NAME),
-    });
+  test.each([undefined, '', '  '])('%s uses the default path if present', (rawValue) => {
+    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: rawValue }, tempDir))
+      .toEqual({ filePath: path.join(tempDir, FROZEN_ENV_FILE_NAME), required: false });
   });
 
-  test.each(['1', 'true', 'TRUE', ' True '])('%s requires the file at the default path', (rawValue) => {
-    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: rawValue }, tempDir)).toEqual({
-      mode: 'required', filePath: path.join(tempDir, FROZEN_ENV_FILE_NAME),
-    });
+  test.each(['1', 'true', 'TRUE', ' True '])('%s requires the default path', (rawValue) => {
+    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: rawValue }, tempDir))
+      .toEqual({ filePath: path.join(tempDir, FROZEN_ENV_FILE_NAME), required: true });
   });
 
   test.each(['0', 'false', 'False'])('%s disables frozen env files', (rawValue) => {
-    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: rawValue }, tempDir)).toEqual({ mode: 'off' });
-  });
-
-  test('an empty value is treated as unset', () => {
-    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: '  ' }, tempDir).mode).toBe('auto');
+    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: rawValue }, tempDir)).toBeUndefined();
   });
 
   test('any other value is a required path, resolved against cwd', () => {
-    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: 'dist/env.frozen' }, tempDir)).toEqual({
-      mode: 'required', filePath: path.join(tempDir, 'dist/env.frozen'),
-    });
+    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: 'dist/env.frozen' }, tempDir))
+      .toEqual({ filePath: path.join(tempDir, 'dist/env.frozen'), required: true });
   });
 
   test('absolute paths are used as-is', () => {
     const abs = path.join(tempDir, 'somewhere', 'env.frozen');
-    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: abs }, tempDir)).toEqual({
-      mode: 'required', filePath: abs,
-    });
+    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: abs }, tempDir)).toEqual({ filePath: abs, required: true });
   });
 
   // unlike _VARLOCK_USE_INJECTED_ENV (which maps unknown values back to auto), an
   // unrecognized value here is a path - so a typo hard-errors as a missing file rather than
   // silently disabling the pin
   test('a typo`d disable value becomes a required path rather than disabling', () => {
-    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: 'off' }, tempDir)).toEqual({
-      mode: 'required', filePath: path.join(tempDir, 'off'),
-    });
+    expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: 'off' }, tempDir))
+      .toEqual({ filePath: path.join(tempDir, 'off'), required: true });
     expect(() => readFrozenEnvFile({ env: { [USE_FROZEN_ENV_VAR]: 'off' }, cwd: tempDir }))
       .toThrow(/requires a frozen env file/);
   });
 });
 
 describe('readFrozenEnvFile', () => {
-  test('returns not-found when no file is present', () => {
-    expect(readFrozenEnvFile({ env: {}, cwd: tempDir })).toMatchObject({
-      found: false, reason: expect.stringContaining('no frozen env file'),
-    });
+  test('returns undefined when no file is present', () => {
+    expect(readFrozenEnvFile({ env: {}, cwd: tempDir })).toBeUndefined();
   });
 
-  test('reads and decrypts a file at the default path', () => {
-    const { key } = writeFrozenFile();
-    const result = readFrozenEnvFile({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
-    expect(result.found).toBe(true);
-    if (result.found) expect(JSON.parse(result.blobJson).config.FOO.value).toBe('foo-val');
-  });
-
-  test('reads a plaintext file', () => {
+  test('discovers a file at the default path', () => {
     writeFrozenFile({ key: null });
-    const result = readFrozenEnvFile({ env: {}, cwd: tempDir });
-    expect(result.found).toBe(true);
-    if (result.found) expect(JSON.parse(result.blobJson).config.FOO.value).toBe('foo-val');
-  });
-
-  test('reads a file at an explicit path', () => {
-    const { key } = writeFrozenFile({ fileName: 'custom.frozen' });
-    const result = readFrozenEnvFile({
-      env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: 'custom.frozen' },
-      cwd: tempDir,
-    });
-    expect(result.found).toBe(true);
+    expect(readFrozenEnvFile({ env: {}, cwd: tempDir })?.filePath).toBe(path.join(tempDir, FROZEN_ENV_FILE_NAME));
   });
 
   test('does not read anything when disabled', () => {
     writeFrozenFile({ key: null });
-    expect(readFrozenEnvFile({ env: { [USE_FROZEN_ENV_VAR]: '0' }, cwd: tempDir })).toMatchObject({
-      found: false, reason: expect.stringContaining('disabled'),
-    });
+    expect(readFrozenEnvFile({ env: { [USE_FROZEN_ENV_VAR]: '0' }, cwd: tempDir })).toBeUndefined();
   });
 
-  test('throws when required but missing', () => {
-    expect(() => readFrozenEnvFile({ env: { [USE_FROZEN_ENV_VAR]: '1' }, cwd: tempDir }))
+  test('reads and decrypts a file at the default path', () => {
+    const { key } = writeFrozenFile();
+    const result = readFrozenEnvFile({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    expect(JSON.parse(result!.blobJson).config.FOO.value).toBe('foo-val');
+  });
+
+  test('reads a plaintext file', () => {
+    writeFrozenFile({ key: null });
+    const result = readFrozenEnvFile({ env: ON, cwd: tempDir });
+    expect(JSON.parse(result!.blobJson).config.FOO.value).toBe('foo-val');
+  });
+
+  test('reads a file at an explicit path', () => {
+    const { key, filePath } = writeFrozenFile({ fileName: 'custom.frozen' });
+    const result = readFrozenEnvFile({
+      env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: 'custom.frozen' },
+      cwd: tempDir,
+    });
+    expect(result?.filePath).toBe(filePath);
+  });
+
+  test('throws when requested but missing', () => {
+    expect(() => readFrozenEnvFile({ env: ON, cwd: tempDir }))
       .toThrow(FrozenEnvFileError);
   });
 
   describe('fail-closed on a present but unusable file', () => {
     test('throws when encrypted and no key is set', () => {
       writeFrozenFile();
-      expect(() => readFrozenEnvFile({ env: {}, cwd: tempDir }))
+      expect(() => readFrozenEnvFile({ env: ON, cwd: tempDir }))
         .toThrow(/_VARLOCK_ENV_KEY is not set/);
     });
 
     test('throws when the key is wrong', () => {
       writeFrozenFile();
-      expect(() => readFrozenEnvFile({ env: { _VARLOCK_ENV_KEY: generateEncryptionKeyHex() }, cwd: tempDir }))
+      expect(() => readFrozenEnvFile({ env: { ...ON, _VARLOCK_ENV_KEY: generateEncryptionKeyHex() }, cwd: tempDir }))
         .toThrow(/failed to decrypt/);
     });
 
     test('throws when the file is empty', () => {
       fs.writeFileSync(path.join(tempDir, FROZEN_ENV_FILE_NAME), '\n');
-      expect(() => readFrozenEnvFile({ env: {}, cwd: tempDir })).toThrow(/is empty/);
+      expect(() => readFrozenEnvFile({ env: ON, cwd: tempDir })).toThrow(/is empty/);
     });
 
     test('throws when combined with _VARLOCK_FILTER', () => {
       writeFrozenFile({ key: null });
-      expect(() => readFrozenEnvFile({ env: { _VARLOCK_FILTER: 'FOO' }, cwd: tempDir }))
+      expect(() => readFrozenEnvFile({ env: { ...ON, _VARLOCK_FILTER: 'FOO' }, cwd: tempDir }))
         .toThrow(/_VARLOCK_FILTER/);
     });
 
@@ -176,21 +168,20 @@ describe('readFrozenEnvFile', () => {
       if (process.platform === 'win32') return;
       const fifoPath = path.join(tempDir, FROZEN_ENV_FILE_NAME);
       expect(spawnSync('mkfifo', [fifoPath]).status).toBe(0);
-      expect(() => readFrozenEnvFile({ env: {}, cwd: tempDir })).toThrow(/not a regular file/);
+      expect(() => readFrozenEnvFile({ env: ON, cwd: tempDir })).toThrow(/not a regular file/);
     });
   });
 });
 
 describe('getFrozenEnvFileInPlay', () => {
-  test('undefined when disabled, or when nothing is present in auto mode', () => {
+  test('undefined when disabled, or when nothing is present at the default path', () => {
     expect(getFrozenEnvFileInPlay({}, tempDir)).toBeUndefined();
     writeFrozenFile({ key: null });
     expect(getFrozenEnvFileInPlay({ [USE_FROZEN_ENV_VAR]: '0' }, tempDir)).toBeUndefined();
   });
 
   test('returns the path when present, or when required but missing', () => {
-    expect(getFrozenEnvFileInPlay({ [USE_FROZEN_ENV_VAR]: '1' }, tempDir))
-      .toBe(path.join(tempDir, FROZEN_ENV_FILE_NAME));
+    expect(getFrozenEnvFileInPlay(ON, tempDir)).toBe(path.join(tempDir, FROZEN_ENV_FILE_NAME));
     const { filePath } = writeFrozenFile({ key: null });
     expect(getFrozenEnvFileInPlay({}, tempDir)).toBe(filePath);
   });
@@ -199,7 +190,7 @@ describe('getFrozenEnvFileInPlay', () => {
 describe('evaluateInjectedEnvReuse with a frozen env file', () => {
   test('consumes the file with no env files present, and reports its source', () => {
     const { key } = writeFrozenFile();
-    const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
     expect(decision.reuse).toBe(true);
     if (decision.reuse) {
       expect(decision.source).toBe('frozen-file');
@@ -222,7 +213,7 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
           ],
         }),
       });
-      const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+      const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
       expect(decision.reuse).toBe(true);
     } finally {
       fs.rmSync(otherDir, { recursive: true, force: true });
@@ -233,6 +224,7 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
     const { key } = writeFrozenFile();
     const decision = evaluateInjectedEnvReuse({
       env: {
+        ...ON,
         _VARLOCK_ENV_KEY: key!,
         __VARLOCK_ENV: graphJson({ config: { FOO: { value: 'from-ambient-blob', isSensitive: false } } }),
       },
@@ -249,7 +241,7 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
   test('is not disabled by _VARLOCK_USE_INJECTED_ENV=0', () => {
     const { key } = writeFrozenFile();
     const decision = evaluateInjectedEnvReuse({
-      env: { _VARLOCK_ENV_KEY: key!, [USE_INJECTED_ENV_VAR]: '0' },
+      env: { ...ON, _VARLOCK_ENV_KEY: key!, [USE_INJECTED_ENV_VAR]: '0' },
       cwd: tempDir,
     });
     expect(decision.reuse).toBe(true);
@@ -273,7 +265,7 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
         },
       }),
     });
-    const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
     expect(decision.reuse).toBe(true);
     if (decision.reuse) {
       expect(decision.strippedInternalKeys).toEqual(['SECRET_ZERO']);
@@ -284,13 +276,13 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
 
   test('throws rather than falling back when the file is not a serialized graph', () => {
     writeFrozenFile({ key: null, contents: JSON.stringify({ nope: true }) });
-    expect(() => evaluateInjectedEnvReuse({ env: {}, cwd: tempDir }))
+    expect(() => evaluateInjectedEnvReuse({ env: ON, cwd: tempDir }))
       .toThrow(/not a valid serialized env graph/);
   });
 
   test('throws when the file was created from a failed resolution', () => {
     writeFrozenFile({ key: null, contents: graphJson({ errors: { schemaErrors: [{ message: 'bad' }] } }) });
-    expect(() => evaluateInjectedEnvReuse({ env: {}, cwd: tempDir }))
+    expect(() => evaluateInjectedEnvReuse({ env: ON, cwd: tempDir }))
       .toThrow(/contains errors/);
   });
 });
@@ -302,7 +294,7 @@ describe('a pin with boot keys', () => {
 
   test('a frozen file is handed back for schema resolution instead of reused', () => {
     const { key, filePath } = writeFrozenFile({ contents: withBootKeys() });
-    const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
     expect(decision.reuse).toBe(false);
     if (!decision.reuse) {
       expect(decision.reason).toContain('leaves 1 key to boot (PORT)');
@@ -322,17 +314,17 @@ describe('a pin with boot keys', () => {
 
   test('a pin without boot keys is still reused as-is', () => {
     const { key } = writeFrozenFile({ contents: graphJson({ frozen: { bootKeys: [] } }) });
-    const decision = evaluateInjectedEnvReuse({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
     expect(decision.reuse).toBe(true);
   });
 
   describe('findPinnedGraphForResolution', () => {
-    test('a merely-present frozen file is skipped when only explicit use is wanted', () => {
+    test('a present frozen file is a pin, found the same way varlock run finds it', () => {
       const { key } = writeFrozenFile({ contents: withBootKeys() });
-      expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir, explicitFrozenOnly: true }))
-        .toBeUndefined();
       expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
         .toMatchObject({ source: 'frozen-file' });
+      expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: '0' }, cwd: tempDir }))
+        .toBeUndefined();
     });
 
     test('an explicitly named frozen file is returned, with or without boot keys', () => {
@@ -340,7 +332,6 @@ describe('a pin with boot keys', () => {
       const pinned = findPinnedGraphForResolution({
         env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: filePath },
         cwd: tempDir,
-        explicitFrozenOnly: true,
       });
       expect(pinned).toMatchObject({ source: 'frozen-file', filePath });
     });

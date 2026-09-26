@@ -34,10 +34,11 @@ const ISOLATED_KEYS = [
   'UNSET_IN_SEAL',
 ];
 
+/** boots the app, opted into the frozen env file unless `env` sets the flag itself */
 function runApp(opts: { cwd?: string, env?: Record<string, string | undefined> } = {}) {
-  const env: Record<string, string | undefined> = { ...process.env, ...opts.env };
+  const env: Record<string, string | undefined> = { ...process.env, _VARLOCK_USE_FROZEN_ENV: '1', ...opts.env };
   for (const key of ISOLATED_KEYS) {
-    if (!(opts.env && key in opts.env)) delete env[key];
+    if (!(opts.env && key in opts.env) && key !== '_VARLOCK_USE_FROZEN_ENV') delete env[key];
   }
   const result = spawnSync(process.execPath, ['app.mjs'], {
     cwd: opts.cwd ?? deployDir,
@@ -173,6 +174,7 @@ describe('varlock freeze --out -', () => {
       env: {
         __VARLOCK_ENV: blob,
         _VARLOCK_USE_INJECTED_ENV: '1',
+        _VARLOCK_USE_FROZEN_ENV: undefined,
         _VARLOCK_ENV_KEY: encryptionKey,
       },
     });
@@ -230,7 +232,7 @@ describe('booting from a frozen env file', () => {
   test('varlock run consumes it too', () => {
     const result = varlockRun(['node', 'app.mjs'], {
       cwd: SCENARIO,
-      env: { _VARLOCK_ENV_KEY: encryptionKey, DEBUG: 'varlock:auto-load' },
+      env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', DEBUG: 'varlock:auto-load' },
     });
     expect(result.exitCode, result.output).toBe(0);
     expect(result.output).toContain('reusing pre-resolved env from frozen-file');
@@ -243,7 +245,7 @@ describe('booting from a frozen env file', () => {
   test('varlock run --inject blob hands the child the frozen graph', () => {
     const result = runVarlock(['run', '--inject', 'blob', '--', 'sh', '-c', '_VARLOCK_USE_FROZEN_ENV=0 node app.mjs'], {
       cwd: SCENARIO,
-      env: { _VARLOCK_ENV_KEY: encryptionKey, DEBUG: 'varlock:auto-load' },
+      env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', DEBUG: 'varlock:auto-load' },
     });
     expect(result.exitCode, result.output).toBe(0);
     expect(result.output).toContain('reusing pre-resolved env from env-blob');
@@ -343,10 +345,43 @@ describe('booting from a frozen env file', () => {
       expect(result.output).toContain('APP_ENV=production');
     });
 
-    test('=0 ignores the file entirely', () => {
-      // the deploy dir has no .env files, so ignoring the artifact leaves nothing to resolve
-      const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '0' } });
-      expect(result.output).not.toContain('PUBLIC_VAR=public-value-prod');
+    test('=0 ignores a present file', () => {
+      const result = runApp({
+        cwd: SCENARIO_DIR,
+        env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '0' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('APP_ENV=development');
+    });
+
+    test('a present file is discovered without the flag', () => {
+      const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: undefined } });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('APP_ENV=production');
+    });
+
+    // the consumer hands the file on by absolute path, so a child that starts in another
+    // directory reads the same pin rather than missing it (or erroring under a relative `=1`)
+    test('a child process in another directory reads the same pin', () => {
+      const subDir = join(deployDir, 'sub');
+      fs.mkdirSync(subDir, { recursive: true });
+      fs.copyFileSync(join(deployDir, 'app.mjs'), join(subDir, 'app.mjs'));
+      fs.writeFileSync(join(deployDir, 'spawn-child.mjs'), [
+        "import 'varlock/auto-load';",
+        "import { spawnSync } from 'node:child_process';",
+        "const r = spawnSync(process.execPath, ['app.mjs'], { cwd: 'sub', encoding: 'utf-8' });",
+        'process.stdout.write(r.stdout + r.stderr);',
+        'process.exit(r.status ?? 1);',
+      ].join('\n'));
+      const result = spawnSync(process.execPath, ['spawn-child.mjs'], {
+        cwd: deployDir,
+        env: { PATH: process.env.PATH, _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1' },
+        encoding: 'utf-8',
+      });
+      const output = (result.stdout ?? '') + (result.stderr ?? '');
+      expect(result.status, output).toBe(0);
+      expect(output).toContain('APP_ENV=production');
+      expect(output).toContain('SECRET_OK=true');
     });
   });
 });

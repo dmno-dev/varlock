@@ -58,6 +58,11 @@ function autoLoad() {
       cwd: process.cwd(),
     });
 
+    // Hand any frozen env file we consumed to child processes by absolute path, so one
+    // started in another directory reads the same pin instead of missing it
+    const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : reuseDecision.pinned?.filePath;
+    if (frozenFilePath) process.env[USE_FROZEN_ENV_VAR] = frozenFilePath;
+
     let parsed: any;
     let parsedJsonStr: string;
     if (reuseDecision.reuse) {
@@ -80,12 +85,11 @@ function autoLoad() {
         // parent `varlock run` (e.g. `varlock run -- sh -c 'FOO=x node app.js'`) reaches the
         // CLI already clobbered back to the parent's value, and the nested override handling
         // in load-graph can never see the user's real value.
+        // (the pre-injection snapshot predates the absolute frozen path set above, so pass
+        // that along too: pinned values stay sealed and only the boot keys resolve live)
         env: {
           ...getPreInjectionProcessEnv() as NodeJS.ProcessEnv,
-          // `varlock load` only honors a frozen file when told to explicitly, so name the one
-          // we found: pinned values stay sealed and only the boot keys are resolved live. A
-          // frozen payload in __VARLOCK_ENV needs nothing extra - the trust flag is already set.
-          ...(pinnedForCli?.source === 'frozen-file' ? { [USE_FROZEN_ENV_VAR]: pinnedForCli.filePath } : {}),
+          ...(frozenFilePath ? { [USE_FROZEN_ENV_VAR]: frozenFilePath } : {}),
         },
       });
       parsed = JSON.parse(stdout);
@@ -122,7 +126,7 @@ function autoLoad() {
       process.stderr.write(err.stderr);
     } else if (err instanceof FrozenEnvFileError) {
       // a setup/config problem, not a crash - a stack trace here is noise
-      process.stderr.write(`${err.message}\n`);
+      process.stderr.write(`${err.message}\n[varlock] ${err.suggestion}\n`);
     } else if (pinnedForCli && !(err instanceof VarlockExecError)) {
       // most likely the CLI is not in the runtime image (e.g. distroless) - a deliberate choice
       // for a fully pinned deploy, but boot keys need the schema at startup

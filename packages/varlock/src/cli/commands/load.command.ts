@@ -9,6 +9,8 @@ import {
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
 import { getPinnedGraphForResolution } from '../helpers/pinned-env';
+import { CliExitError } from '../helpers/exit-error';
+import { USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -46,11 +48,25 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
   }
 
-  // A `varlock freeze` pin is honored only when asked for explicitly (`_VARLOCK_USE_FROZEN_ENV=1`
-  // or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`): a plain `load`
-  // in a project directory keeps showing what the .env files resolve to. This is also how
-  // `varlock/auto-load` hands a frozen file with `@dynamic=boot` keys to the CLI.
-  const pinned = getPinnedGraphForResolution({ explicitFrozenOnly: true });
+  // A `varlock freeze` pin is found and applied exactly as `varlock run` does, so `load`
+  // shows what the app will boot with: pinned values, plus any `@dynamic=boot` keys resolved
+  // live. This is also how `varlock/auto-load` hands such a pin to the CLI.
+  const pinned = getPinnedGraphForResolution();
+  if (pinned) {
+    const resolutionFlags = [
+      ctx.values.path?.length ? '--path' : undefined,
+      ctx.values.env ? '--env' : undefined,
+      ctx.values['clear-cache'] ? '--clear-cache' : undefined,
+      ctx.values['skip-cache'] ? '--skip-cache' : undefined,
+    ].filter(Boolean) as Array<string>;
+    if (resolutionFlags.length) {
+      const what = pinned.source === 'frozen-file' ? `a frozen env file (${pinned.filePath})` : 'a frozen __VARLOCK_ENV payload';
+      throw new CliExitError(`${what} cannot be combined with ${resolutionFlags.join(', ')}`, {
+        suggestion: 'These flags change what a fresh resolution produces, but the pin fixes it. Drop them, '
+          + `re-run \`varlock freeze\` with them, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files.`,
+      });
+    }
+  }
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,
