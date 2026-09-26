@@ -1,5 +1,5 @@
 import { findPinnedGraphForResolution, type PinnedGraphInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
-import { FrozenEnvFileError } from '../../lib/frozen-env-file';
+import { FrozenEnvFileError, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { CliExitError } from './exit-error';
 
 /**
@@ -23,4 +23,14 @@ export function getPinnedGraphForResolution(): PinnedGraphInfo | undefined {
   } catch (err) {
     throw pinErrorToCliExitError(err);
   }
+}
+
+/**
+ * Apply `--frozen` (see FROZEN_ARG) by setting `_VARLOCK_USE_FROZEN_ENV`, so the flag behaves
+ * exactly like the env var everywhere downstream: the pin lookup, the child env, and any
+ * nested varlock process.
+ */
+export function applyFrozenArg(value: string | undefined) {
+  if (value === undefined) return;
+  process.env[USE_FROZEN_ENV_VAR] = value || '1';
 }
