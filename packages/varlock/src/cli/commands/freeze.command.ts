@@ -29,6 +29,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     });
   }
 
+  // Invariant: the producer never consults a pin (no `pinned`, no reuse check), otherwise
+  // re-freezing would read back the previous artifact and values would never change again.
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,

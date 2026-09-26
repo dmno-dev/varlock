@@ -12,6 +12,7 @@ import type { SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
+import { assertNoFrozenEnvFileInDev } from 'varlock/frozen-env-guard';
 
 export type Env = { [key: string]: string | undefined };
 export type LoadedEnvFiles = Array<{
@@ -541,6 +542,9 @@ export function loadEnvConfig(
 
   rootDir ||= dir;
   if (rootDir !== dir) throw new Error('root directory changed');
+
+  // a `varlock freeze` artifact in a dev checkout is always a leftover - see the helper
+  if (dev) assertNoFrozenEnvFileInDev({ cwd: rootDir, devCommand: 'next dev', env: initialEnv });
 
   // Always watch .env.schema early — even before the first successful load —
   // so that if the load fails (e.g. validation error), the user can fix the

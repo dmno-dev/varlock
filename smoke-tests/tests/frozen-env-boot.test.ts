@@ -218,6 +218,15 @@ describe('booting with boot keys', () => {
     expect(missing.output).toContain('requires a frozen env file');
   });
 
+  test('varlock load rejects flags that would change what the pin fixes', () => {
+    const result = runVarlock(['load', '--frozen', '--skip-cache'], {
+      cwd: SCENARIO,
+      env: isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, PORT: '8080' }) as Record<string, string>,
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('cannot be combined with --skip-cache');
+  });
+
   test('varlock run --frozen boots from the pin', () => {
     const result = runVarlock(['run', '--frozen', '--', 'node', 'app.mjs'], {
       cwd: SCENARIO,

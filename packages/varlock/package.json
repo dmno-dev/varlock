@@ -162,6 +162,18 @@
       },
       "default": "./dist/lib/exec-sync-varlock.mjs"
     },
+    "./frozen-env-guard": {
+      "ts-src": "./src/lib/frozen-env-guard.ts",
+      "import": {
+        "types": "./dist/lib/frozen-env-guard.d.mts",
+        "default": "./dist/lib/frozen-env-guard.mjs"
+      },
+      "require": {
+        "types": "./dist/lib/frozen-env-guard.d.cts",
+        "default": "./dist/lib/frozen-env-guard.cjs"
+      },
+      "default": "./dist/lib/frozen-env-guard.mjs"
+    },
     "./config": {
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.mts",

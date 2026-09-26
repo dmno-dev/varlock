@@ -85,6 +85,40 @@ afterAll(() => {
 });
 
 describe('varlock freeze', () => {
+  // the producer must never read back a pin, or values could never change again
+  test('re-freezing ignores an existing frozen file, even one explicitly requested', () => {
+    const outFile = join(SCENARIO_DIR, '.varlock-frozen-env-refreeze');
+    try {
+      expect(freeze({ args: ['--out', outFile, '--allow-plaintext'], env: { _VARLOCK_ENV_KEY: '' } }).exitCode).toBe(0);
+      const refrozen = freeze({
+        args: ['--out', outFile, '--allow-plaintext'],
+        env: { APP_ENV: 'development', _VARLOCK_ENV_KEY: '', _VARLOCK_USE_FROZEN_ENV: outFile },
+      });
+      expect(refrozen.exitCode, refrozen.output).toBe(0);
+      expect(JSON.parse(fs.readFileSync(outFile, 'utf8')).config.PUBLIC_VAR.value).toBe('public-value');
+    } finally {
+      fs.rmSync(outFile, { force: true });
+    }
+  });
+
+  test('varlock scan flags an unencrypted frozen file even when its values differ from the local ones', () => {
+    const plainDir = join(SCENARIO_DIR, 'plain-frozen');
+    try {
+      // production values, while scan resolves development ones
+      expect(freeze({ args: ['--out', 'plain-frozen/.varlock-frozen-env', '--allow-plaintext'], env: { _VARLOCK_ENV_KEY: '' } }).exitCode).toBe(0);
+      const result = runVarlock(['scan', 'plain-frozen'], { cwd: SCENARIO });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('unencrypted frozen env file');
+      expect(result.output).toContain('plain-frozen/.varlock-frozen-env');
+
+      // an encrypted one is fine
+      expect(freeze({ args: ['--out', 'plain-frozen/.varlock-frozen-env'] }).exitCode).toBe(0);
+      expect(runVarlock(['scan', 'plain-frozen'], { cwd: SCENARIO }).exitCode).toBe(0);
+    } finally {
+      fs.rmSync(plainDir, { recursive: true, force: true });
+    }
+  });
+
   test('refuses to write an unencrypted file without a key', () => {
     const result = runVarlock(['freeze', '--out', '.varlock-frozen-env-nokey'], {
       cwd: SCENARIO,
