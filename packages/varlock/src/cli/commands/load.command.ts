@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { gracefulExit } from 'exit-hook';
 
@@ -9,8 +10,7 @@ import {
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
 import { getPinnedGraphForResolution } from '../helpers/pinned-env';
-import { CliExitError } from '../helpers/exit-error';
-import { USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -48,24 +48,22 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
   }
 
-  // A `varlock freeze` pin is found and applied exactly as `varlock run` does, so `load`
-  // shows what the app will boot with: pinned values, plus any `@dynamic=boot` keys resolved
-  // live. This is also how `varlock/auto-load` hands such a pin to the CLI.
+  // A `varlock freeze` pin is applied only when named explicitly (`_VARLOCK_USE_FROZEN_ENV=1`
+  // or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`), showing the
+  // pinned values plus any `@dynamic=boot` keys resolved live. That is also how
+  // `varlock/auto-load` hands a pin to the CLI. A file that is merely present is left alone,
+  // because every framework integration resolves through `load` - but `varlock run` and
+  // auto-load WOULD boot from it, so say that rather than silently disagreeing with them.
   const pinned = getPinnedGraphForResolution();
-  if (pinned) {
-    const resolutionFlags = [
-      ctx.values.path?.length ? '--path' : undefined,
-      ctx.values.env ? '--env' : undefined,
-      ctx.values['clear-cache'] ? '--clear-cache' : undefined,
-      ctx.values['skip-cache'] ? '--skip-cache' : undefined,
-    ].filter(Boolean) as Array<string>;
-    if (resolutionFlags.length) {
-      const what = pinned.source === 'frozen-file' ? `a frozen env file (${pinned.filePath})` : 'a frozen __VARLOCK_ENV payload';
-      throw new CliExitError(`${what} cannot be combined with ${resolutionFlags.join(', ')}`, {
-        suggestion: 'These flags change what a fresh resolution produces, but the pin fixes it. Drop them, '
-          + `re-run \`varlock freeze\` with them, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files.`,
-      });
-    }
+  const ignoredFrozenFile = pinned ? undefined : getFrozenEnvFileInPlay(process.env, process.cwd());
+  if (ignoredFrozenFile) {
+    const relPath = path.relative(process.cwd(), ignoredFrozenFile) || ignoredFrozenFile;
+    console.error(ansis.yellow(
+      `⚠ ${relPath} is present: \`varlock run\` and \`varlock/auto-load\` boot from it, but this shows resolution from .env files.`,
+    ));
+    console.error(ansis.gray(
+      `  Set ${USE_FROZEN_ENV_VAR}=1 to see the pinned values, or delete the file if it is left over from a local freeze.`,
+    ));
   }
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,

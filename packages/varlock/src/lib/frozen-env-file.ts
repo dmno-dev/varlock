@@ -97,10 +97,12 @@ export function getFrozenEnvFileInPlay(env: EnvRecord, cwd: string): string | un
 export function readFrozenEnvFile(opts: {
   env: EnvRecord,
   cwd?: string,
+  /** skip a file that would only be auto-discovered (see findPinnedGraphForResolution) */
+  explicitOnly?: boolean,
 }): { filePath: string, blobJson: string } | undefined {
   const { env } = opts;
   const mode = resolveFrozenEnvFileMode(env, opts.cwd ?? process.cwd());
-  if (!mode) return undefined;
+  if (!mode || (opts.explicitOnly && !mode.required)) return undefined;
   const { filePath } = mode;
 
   const stat = statFrozenEnvPath(filePath);
