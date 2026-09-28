@@ -365,4 +365,70 @@ describe('execSyncVarlock CLI resolution order', () => {
       expect.objectContaining({ stdio: 'pipe' }),
     );
   });
+
+  describe('when the caller runs in Bun', () => {
+    let realpathSpy: ReturnType<typeof vi.spyOn> | undefined;
+    const originalExecPath = process.execPath;
+
+    beforeEach(() => {
+      process.execPath = '/runtime/bin/bun';
+      vi.stubGlobal('Bun', { isStandaloneExecutable: false });
+    });
+
+    afterEach(() => {
+      process.execPath = originalExecPath;
+      realpathSpy?.mockRestore();
+      realpathSpy = undefined;
+    });
+
+    it('runs the symlinked CLI script with bun instead of relying on the node shebang', () => {
+      existsSyncSpy = stubExistingPaths([
+        '/project/node_modules/.bin',
+        '/project/node_modules/.bin/varlock',
+      ]);
+      realpathSpy = vi.spyOn(fs, 'realpathSync').mockReturnValue('/project/node_modules/varlock/bin/cli.js');
+
+      execSyncVarlock('load');
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        '/runtime/bin/bun',
+        ['/project/node_modules/varlock/bin/cli.js', 'load'],
+        expect.objectContaining({ stdio: 'pipe' }),
+      );
+    });
+
+    it('finds the CLI script next to a non-symlink shim (pnpm, Windows)', () => {
+      const pkgCli = path.join('/project/node_modules/.bin', '..', 'varlock', 'bin', 'cli.js');
+      existsSyncSpy = stubExistingPaths([
+        '/project/node_modules/.bin',
+        '/project/node_modules/.bin/varlock',
+        pkgCli,
+      ]);
+      realpathSpy = vi.spyOn(fs, 'realpathSync').mockReturnValue('/project/node_modules/.bin/varlock');
+
+      execSyncVarlock('load');
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        '/runtime/bin/bun',
+        [pkgCli, 'load'],
+        expect.objectContaining({ stdio: 'pipe' }),
+      );
+    });
+
+    it('falls back to executing the shim when no CLI script can be found', () => {
+      existsSyncSpy = stubExistingPaths([
+        '/project/node_modules/.bin',
+        '/project/node_modules/.bin/varlock',
+      ]);
+      realpathSpy = vi.spyOn(fs, 'realpathSync').mockReturnValue('/project/node_modules/.bin/varlock');
+
+      execSyncVarlock('load');
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        '/project/node_modules/.bin/varlock',
+        ['load'],
+        expect.objectContaining({ stdio: 'pipe' }),
+      );
+    });
+  });
 });

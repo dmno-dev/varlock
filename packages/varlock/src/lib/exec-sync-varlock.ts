@@ -2,7 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
-import { isBunStandaloneExecutable } from './detect-runtime';
+import { isBunRuntime, isBunStandaloneExecutable } from './detect-runtime';
 import { CLI_CHILD_MARKER } from './cli-child-marker';
 
 const isWindows = /^win/i.test(os.platform());
@@ -43,6 +43,23 @@ function findVarlockBin(startDir: string): string | null {
     currentDir = parentDir;
   }
   return null;
+}
+
+/**
+ * Find the JS entry point behind a `node_modules/.bin/varlock` shim, so it can be run with
+ * the current Bun runtime instead of the `#!/usr/bin/env node` shebang.
+ * npm/bun/yarn create a symlink to the script; pnpm creates a shell wrapper and Windows
+ * installs create .exe/.cmd shims, so we also check the package next to the .bin dir.
+ */
+function findVarlockCliScript(binPath: string): string | null {
+  try {
+    const realPath = fs.realpathSync(binPath);
+    if (/\.[cm]?js$/.test(realPath)) return realPath;
+  } catch {
+    // fall through to the package lookup
+  }
+  const pkgCliPath = path.join(path.dirname(binPath), '..', 'varlock', 'bin', 'cli.js');
+  return fs.existsSync(pkgCliPath) ? pkgCliPath : null;
 }
 
 
@@ -166,14 +183,23 @@ export function execSyncVarlock(
     for (const startDir of searchDirs) {
       const varlockPath = findVarlockBin(startDir);
       if (varlockPath) {
+        // When the caller runs in Bun, run the CLI in Bun too rather than letting the bin's
+        // node shebang pick the runtime, so features that need Bun (e.g. .ts plugins) work
+        const bunCliScript = isBunRuntime() && !isBunStandaloneExecutable()
+          ? findVarlockCliScript(varlockPath)
+          : null;
         // .cmd files are batch scripts that must be run through cmd.exe
-        const needsShell = varlockPath.endsWith('.cmd');
-        const result = execFileSync(varlockPath, command.split(' '), {
-          ...childProcessOpts,
-          env: execEnv,
-          stdio: 'pipe',
-          ...(needsShell && { shell: true }),
-        });
+        const needsShell = !bunCliScript && varlockPath.endsWith('.cmd');
+        const result = execFileSync(
+          bunCliScript ? process.execPath : varlockPath,
+          [...(bunCliScript ? [bunCliScript] : []), ...command.split(' ')],
+          {
+            ...childProcessOpts,
+            env: execEnv,
+            stdio: 'pipe',
+            ...(needsShell && { shell: true }),
+          },
+        );
         return opts?.fullResult
           ? { stdout: result.toString(), stderr: '' }
           : result.toString();

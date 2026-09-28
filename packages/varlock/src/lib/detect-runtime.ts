@@ -30,6 +30,11 @@ export const isDeno: boolean = typeof Deno !== 'undefined'
 /** @see {@link https://bun.sh/guides/util/detect-bun} */
 export const isBun = processVersions && processVersions.bun != null;
 
+/** Checked at call time (unlike `isBun`) so tests can stub the `Bun` global */
+export function isBunRuntime(): boolean {
+  return (globalThis as typeof globalThis & { Bun?: unknown }).Bun != null;
+}
+
 /** @see {@link https://bun.com/docs/bundler/executables#detecting-standalone-mode} */
 export function isBunStandaloneExecutable(): boolean {
   const bunGlobal = (globalThis as typeof globalThis & {
