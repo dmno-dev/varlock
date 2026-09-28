@@ -94,7 +94,7 @@ async function fetchIconSvg(
   return colorizedSvg;
 }
 
-async function getTsDefinitionForField(field: ResolvedFieldType, indentLevel = 0) {
+async function getTsDefinitionForField(field: ResolvedFieldType, indentLevel = 0, includeIcons = true) {
   const i = _.times(indentLevel, () => '  ').join('');
   const itemSrc = [];
   const { docs } = field;
@@ -105,7 +105,8 @@ async function getTsDefinitionForField(field: ResolvedFieldType, indentLevel = 0
 
   if (docs.description) jsDocLines.push(...docs.description.split('\n'));
 
-  if (docs.icon) {
+  // icons are fetched over the network (see fetchIconSvg), so `icons=false` keeps output network-independent
+  if (docs.icon && includeIcons) {
     const iconSvg = await fetchIconSvg(docs.icon);
     if (iconSvg) jsDocLines.push(`![icon](data:image/svg+xml;utf-8,${encodeURIComponent(iconSvg)}) `);
   }
@@ -175,6 +176,12 @@ export type TsGenOptions = {
    * skip is visible where someone would notice it, naming the file found and how to override.
    */
   processEnvSkipNote?: string;
+  /**
+   * Embed each item's icon in its JSDoc (defaults to true). Icons are fetched from iconify at
+   * generation time and silently skipped on failure, so set `false` when output must not depend
+   * on the network (e.g. committed files checked for drift in CI).
+   */
+  icons?: boolean;
 };
 
 // defaults preserve the historical output: globally augment `varlock/env`, and augment both globals
@@ -188,6 +195,7 @@ const DEFAULT_TS_GEN_OPTIONS = {
   importMetaEnv: 'strict',
   injectUndefinedAsEmpty: false,
   processEnvSkipNote: '',
+  icons: true,
 } satisfies Required<TsGenOptions>;
 
 const TS_ENV_EXPOSURE_VALUES: ReadonlyArray<TsEnvExposure> = ['global', 'local', 'none'];
@@ -204,6 +212,12 @@ function coerceOption<T extends string>(
   throw new Error(`@generateTsTypes - invalid \`${optionName}\` value: ${JSON.stringify(raw)}. Allowed: ${allowed.join(', ')}`);
 }
 
+function coerceBooleanOption(raw: unknown, fallback: boolean, optionName: string): boolean {
+  if (raw === undefined || raw === null) return fallback;
+  if (typeof raw === 'boolean') return raw;
+  throw new Error(`@generateTsTypes - invalid \`${optionName}\` value: ${JSON.stringify(raw)}. Allowed: true, false`);
+}
+
 /** Parse+validate raw decorator args into resolved TS generator options. */
 function resolveTsGenOptions(options: Record<string, any> = {}): Required<TsGenOptions> {
   const exposeEnv = coerceOption(options.exposeEnv, TS_ENV_EXPOSURE_VALUES, DEFAULT_TS_GEN_OPTIONS.exposeEnv, 'exposeEnv');
@@ -215,6 +229,7 @@ function resolveTsGenOptions(options: Record<string, any> = {}): Required<TsGenO
     importMetaEnv: coerceOption(options.importMetaEnv, TS_GLOBAL_AUGMENT_VALUES, defaultAugment ?? DEFAULT_TS_GEN_OPTIONS.importMetaEnv, 'importMetaEnv'),
     injectUndefinedAsEmpty: !!options.injectUndefinedAsEmpty,
     processEnvSkipNote: options.processEnvSkipNote || '',
+    icons: coerceBooleanOption(options.icons, DEFAULT_TS_GEN_OPTIONS.icons, 'icons'),
   };
 }
 
@@ -244,7 +259,7 @@ export async function generateTsTypesSrc(fields: Array<ResolvedFieldType>, optio
 
   tsSrc.push('export type CoercedEnvSchema = {');
   for (const field of fields) {
-    tsSrc.push(...await getTsDefinitionForField(field, 1));
+    tsSrc.push(...await getTsDefinitionForField(field, 1, opts.icons));
   }
   tsSrc.push('};\n');
 

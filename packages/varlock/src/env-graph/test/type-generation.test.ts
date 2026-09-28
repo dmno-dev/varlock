@@ -1259,6 +1259,20 @@ describe('type generation', () => {
         await fs.promises.rm(iconCachePath(iconName), { force: true });
       }
     });
+
+    test('icons=false skips fetching and embedding icons', async () => {
+      const fetchMock = vi.fn(async () => new Response('<svg></svg>', { status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const src = await generateTsTypesSrc([iconField(uniqueIconName('disabled'))], { icons: false });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(src).not.toContain('![icon]');
+      expect(src).toContain('ICON_ITEM: string;');
+    });
+
+    test('non-boolean icons value is an error', async () => {
+      await expect(generateTsTypesSrc([], { icons: 'nope' as any })).rejects.toThrow('invalid `icons` value');
+    });
   });
 
   describe('JSDoc comment safety', () => {

@@ -717,6 +717,7 @@ TypeScript type declarations. Makes `import { ENV } from 'varlock/env'` typed an
 
   It also defaults to `none` when another `.d.ts` sitting next to your schema (or next to the generated file) already declares `NodeJS.ProcessEnv`. The common case is `worker-configuration.d.ts`, written by [`wrangler types`](/integrations/cloudflare/#type-safety-and-intellisense). TypeScript merges every declaration of that one interface and requires each shared key to be identical, so two of them can't coexist: an optional item alone (`FOO?: string` vs `FOO: string`) is enough to fail with `TS2320`. The generated file names the file that triggered the skip. Set `processEnv=strict` to emit ours anyway.
 - `importMetaEnv`: how `import.meta.env` is typed: `strict`, `loose`, or `none` (defaults to `strict`; to `none` when `exposeEnv=local`).
+- `icons`: embed each item's [`@icon`](/reference/item-decorators/#icon) (or its data type's icon) in the generated JSDoc (defaults to `true`). Icons are fetched from `api.iconify.design` during generation and are left out if the fetch fails, so the output can vary with network access. Set `icons=false` when the generated file must be identical on every machine, for example when you commit it and check it for drift in CI.
 
 ```env-spec
 # @generateTsTypes(path=./env.d.ts)
