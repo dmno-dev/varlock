@@ -5,7 +5,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { isBunRuntime, isBunStandaloneExecutable } from './detect-runtime';
 import { CLI_CHILD_MARKER } from './cli-child-marker';
 
-const isWindows = /^win/i.test(os.platform());
+const isWindows = () => /^win/i.test(os.platform());
 
 
 /**
@@ -20,7 +20,7 @@ const isWindows = /^win/i.test(os.platform());
 function findVarlockBin(startDir: string): string | null {
   // On Windows, npm creates varlock.exe while pnpm only creates varlock.cmd
   // (and a shell script). Check .exe first, then fall back to .cmd.
-  const binNames = isWindows ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
+  const binNames = isWindows() ? ['varlock.exe', 'varlock.cmd'] : ['varlock'];
 
   let currentDir = startDir;
   while (currentDir) {
@@ -183,23 +183,26 @@ export function execSyncVarlock(
     for (const startDir of searchDirs) {
       const varlockPath = findVarlockBin(startDir);
       if (varlockPath) {
-        // When the caller runs in Bun, run the CLI in Bun too rather than letting the bin's
-        // node shebang pick the runtime, so features that need Bun (e.g. .ts plugins) work
-        const bunCliScript = isBunRuntime() && !isBunStandaloneExecutable()
+        // Run the CLI script directly for Bun compatibility and to avoid shell:true for .cmd shims.
+        const canRunCliScript = !isBunStandaloneExecutable()
+          && (isBunRuntime() || varlockPath.endsWith('.cmd'));
+        const cliScript = canRunCliScript
           ? findVarlockCliScript(varlockPath)
           : null;
-        // .cmd files are batch scripts that must be run through cmd.exe
-        const needsShell = !bunCliScript && varlockPath.endsWith('.cmd');
-        const result = execFileSync(
-          bunCliScript ? process.execPath : varlockPath,
-          [...(bunCliScript ? [bunCliScript] : []), ...command.split(' ')],
-          {
-            ...childProcessOpts,
-            env: execEnv,
-            stdio: 'pipe',
-            ...(needsShell && { shell: true }),
-          },
-        );
+        const execOpts = {
+          ...childProcessOpts,
+          env: execEnv,
+          stdio: 'pipe' as const,
+        };
+        // A .cmd shim needs cmd.exe, but execFileSync with args and shell:true is deprecated
+        // because Node concatenates the arguments without escaping them.
+        const result = varlockPath.endsWith('.cmd') && !cliScript
+          ? execSync(`"${varlockPath}" ${command}`, execOpts)
+          : execFileSync(
+            cliScript ? process.execPath : varlockPath,
+            [...(cliScript ? [cliScript] : []), ...command.split(' ')],
+            execOpts,
+          );
         return opts?.fullResult
           ? { stdout: result.toString(), stderr: '' }
           : result.toString();
