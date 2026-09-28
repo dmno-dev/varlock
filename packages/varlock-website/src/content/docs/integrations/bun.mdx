@@ -47,9 +47,18 @@ One option we have with bun is to use a [preload script](https://bun.com/docs/ru
 
 ```diff lang="toml" title="bunfig.toml"
 preload = ["varlock/auto-load"]
+
+[test]
+preload = ["varlock/auto-load"]
 ```
 
-Like bun's own `.env` loading, the preload applies to every bun process started from that directory, including `bun test` and `bunx` tools. The difference is that varlock validates: if your env fails validation, those commands fail too, not just your app.
+The top-level `preload` applies to scripts bun runs from that directory (`bun run`, `bun <file>`, and `bunx --bun` tools). `bun test` ignores it and only uses `[test] preload`, so set both if the package has app code and tests. Plain `bunx` runs tools with a `node` shebang under Node, so the preload does not apply there.
+
+Like bun's own `.env` loading, the preload affects every command it applies to. The difference is that varlock validates: if your env fails validation, those commands fail too, not just your app.
+
+:::caution[Bun native clients read the startup environment]
+A preload sets `process.env` after the process has started. Bun's native clients that fall back to env vars when created without config (for example `new RedisClient()` reading `REDIS_URL`, or the default `s3` and `sql` clients) read the environment the process started with, so they will not see values injected by the preload. Either pass the config explicitly (e.g., `new RedisClient(ENV.REDIS_URL)`) or launch the process with `varlock run`.
+:::
 
 :::caution[Do not use preload with framework integrations]
 Note that you should not do this if using a framework integration, as those integrations watch your `.env` files to trigger live-reloading.
