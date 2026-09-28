@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import ky from 'ky';
 import { Buffer } from 'node:buffer';
 import { createHash, webcrypto } from 'node:crypto';
@@ -33,6 +34,7 @@ try {
   // cache not available (e.g., no encryption key)
 }
 plugin.icon = BITWARDEN_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initBitwarden',
   params: {

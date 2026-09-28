@@ -32,6 +32,7 @@
     "audit:changed": "bun run scripts/audit-changed-packages.ts --audit-level=critical",
     "audit:full": "bun audit --audit-level=moderate",
     "bumpy:add": "bumpy add",
+    "sync-icons": "bun run scripts/sync-bundled-icons.ts",
     "release:create-missing-tags": "node scripts/create-missing-release-tags.js",
     "prepare": "lefthook install",
     "packages:new": "bunx fledgling",

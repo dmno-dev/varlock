@@ -148,6 +148,17 @@ describe('plugins ', () => {
     expectValues: { WARNED_ITEM: 'some_value', OTHER_ITEM: 'bar' },
   }));
 
+  test('plugin bundled icons are registered on the graph', async () => {
+    const currentDir = path.dirname(expect.getState().testPath!);
+    vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: '# @plugin(./plugins/test-plugin/)\n# ---\nITEM=foo',
+    }));
+    await g.finishLoad();
+    expect(g.bundledIcons['test-plugin:icon']).toBe('<svg>test</svg>');
+  });
+
   describe('standardVars warnings', () => {
     async function loadGraphWithPlugin(envFile: string, overrideValues: Record<string, string>) {
       const currentDir = path.dirname(expect.getState().testPath!);

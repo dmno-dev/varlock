@@ -55,7 +55,8 @@
   "files": [
     "/bin",
     "/dist",
-    "/skills"
+    "/skills",
+    "/BUNDLED_ICONS_LICENSES.md"
   ],
   "bin": {
     "varlock": "./bin/cli.js"
