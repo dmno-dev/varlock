@@ -114,7 +114,7 @@ async function generateTsFile(ctx: CodeGenContext): Promise<string> {
 export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
   {
     decoratorName: 'generateTsTypes',
-    knownOptions: ['exposeEnv', 'processEnv', 'importMetaEnv'],
+    knownOptions: ['exposeEnv', 'processEnv', 'importMetaEnv', 'icons'],
     generate: generateTsFile,
   },
   { decoratorName: 'generatePythonEnv', knownOptions: [], generate: (ctx) => generatePythonEnvSrc(ctx.fields) },
