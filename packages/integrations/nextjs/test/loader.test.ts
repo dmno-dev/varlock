@@ -329,6 +329,23 @@ describe('which files are transformed', () => {
     expect(result).toContain('const a = "public-value";');
   });
 
+  it('does not inject the init guard into server files outside the project root', () => {
+    // the guard's require()s resolve from the file's location, where the app's deps
+    // (e.g. @varlock/nextjs-integration) usually aren't installed (pnpm strict layout)
+    const serverSource = 'const a = ENV.PUBLIC_VAR;';
+    const buildResult = runLoader(serverSource, { resourcePath: '/packages/db/server.ts' });
+    expect(buildResult).not.toContain('globalThis.__varlockBuildInit');
+    expect(buildResult).not.toContain('@varlock/nextjs-integration');
+    // values are still inlined during builds
+    expect(buildResult).toContain('const a = "public-value";');
+
+    const webpackResult = runLoader(`import x from 'y';\n${serverSource}`, {
+      resourcePath: '/packages/db/server.ts',
+      options: { bundler: 'webpack', dev: false },
+    });
+    expect(webpackResult).not.toContain('@varlock/nextjs-integration');
+  });
+
   it('skips node_modules, inside or outside the project root', () => {
     for (const file of [
       `${PROJECT_ROOT}/node_modules/some-pkg/index.js`,

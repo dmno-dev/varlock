@@ -234,6 +234,11 @@ function webpackLoader(this: LoaderContext, source: string) {
 
   const projectRoot = this.rootContext || process.cwd();
   const relPath = path.relative(projectRoot, this.resourcePath);
+  // files outside the project root (monorepo workspace packages) get ENV inlining only. The
+  // init guard's require()s resolve from the file's own location, where the app's deps
+  // (e.g. @varlock/nextjs-integration) usually aren't installed. The guard only needs to run
+  // once per process, which the app's own files already take care of.
+  const isInProjectRoot = !relPath.startsWith('..') && !path.isAbsolute(relPath);
   debug('processing:', relPath);
 
   const loaderOptions = this.getOptions?.() ?? {};
@@ -265,7 +270,7 @@ function webpackLoader(this: LoaderContext, source: string) {
 
   let result = source;
 
-  if (!isClientComponent) {
+  if (!isClientComponent && isInProjectRoot) {
     // Inject a tiny guarded init snippet into every server file.
     // Pre-rendering workers receive compiled code via IPC (not from disk), so runtime
     // file injection doesn't help them. This ensures initVarlockEnv() and
@@ -309,7 +314,7 @@ function webpackLoader(this: LoaderContext, source: string) {
       }
       result = prependAfterDirectives(result, initGuard);
     }
-  } else {
+  } else if (isClientComponent) {
     // Client components: inject the declared public+dynamic key list so the runtime
     // hydration helpers (loadPublicDynamicEnv, setPublicDynamicEnv payload filtering,
     // hydration-state checks) work in the browser. Key NAMES only - never values.
