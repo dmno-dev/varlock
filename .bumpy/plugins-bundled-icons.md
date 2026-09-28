@@ -13,6 +13,8 @@
 "@varlock/pass-plugin": patch
 "@varlock/passbolt-plugin": patch
 "@varlock/proton-pass-plugin": patch
+"@varlock/doppler-plugin": patch
+"@varlock/infisical-plugin": patch
 ---
 
 Bundle this plugin's icon so generated types include it without a network request
