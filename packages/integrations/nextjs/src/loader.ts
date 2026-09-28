@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { parse as babelParse, type ParserPlugin } from '@babel/parser';
 import { createReplacerTransformFn } from '@env-spec/utils/ast-replacer';
 import type { SerializedEnvGraph } from 'varlock';
@@ -12,7 +14,19 @@ type LoaderContext = {
   cacheable(flag: boolean): void;
   resourcePath: string;
   rootContext: string;
-  getOptions?(): { bundler?: 'webpack' | 'turbopack'; isEdge?: boolean; dev?: boolean };
+  getOptions?(): LoaderOptions;
+};
+
+type LoaderOptions = {
+  bundler?: 'webpack' | 'turbopack';
+  isEdge?: boolean;
+  dev?: boolean;
+  /**
+   * Set by the turbopack rule scoped to the `browser` condition (Next 15.5+). Any file
+   * compiled for the browser is client code, whether or not it has a 'use client' directive
+   * (e.g. instrumentation-client.ts, or plain modules imported from client components).
+   */
+  browser?: boolean;
 };
 
 function isTurbopackWorker() {
@@ -36,6 +50,51 @@ const USE_CLIENT_RE = /^(?:[^\S\n]*\/\/[^\n]*\n|[^\S\n]*\/\*[^*]*\*+(?:[^/*][^*]
 // loader rule (no per-compiler split like webpack), so we sniff the source
 const EDGE_RUNTIME_RE = /export\s+const\s+runtime\s*=\s*['"](?:edge|experimental-edge)['"]/;
 const MIDDLEWARE_FILE_RE = /(?:^|[\\/])middleware\.(?:ts|js|mts|mjs)$/;
+// instrumentation-client runs only in the browser but has no 'use client' directive. Detected by
+// name as a fallback for turbopack versions without per-condition rules (the `browser` option)
+const INSTRUMENTATION_CLIENT_FILE_RE = /(?:^|[\\/])instrumentation-client\.(?:ts|tsx|js|jsx|mts|mjs)$/;
+
+function isInNodeModules(filePath: string) {
+  return filePath.includes('/node_modules/') || filePath.includes('\\node_modules\\');
+}
+
+// Files in varlock's own packages must never be transformed (injecting the init guard into
+// varlock/env itself would be circular). Installed normally they sit in node_modules, but a
+// symlinked install (link:, workspace:) resolves to a real path outside of it.
+let varlockPackageDirs: Array<string> | undefined;
+function getVarlockPackageDirs() {
+  if (!varlockPackageDirs) {
+    const dirs = new Set<string>();
+    const addDir = (dir: string) => {
+      dirs.add(dir);
+      try {
+        dirs.add(fs.realpathSync(dir));
+      } catch { /* ignore */ }
+    };
+    // this integration (the loader is built to dist/loader.cjs)
+    addDir(path.resolve(__dirname, '..'));
+    try {
+      // walk up from a resolved varlock entry to its package root
+      let dir = path.dirname(require.resolve('varlock/env'));
+      while (!fs.existsSync(path.join(dir, 'package.json')) && path.dirname(dir) !== dir) {
+        dir = path.dirname(dir);
+      }
+      addDir(dir);
+    } catch { /* varlock not resolvable, nothing to skip */ }
+    varlockPackageDirs = [...dirs].map((dir) => dir + path.sep);
+  }
+  return varlockPackageDirs;
+}
+
+/**
+ * Whether the loader should transform a file. Anything outside node_modules is transformed,
+ * including monorepo workspace packages outside the app dir (turbopack resolves symlinked
+ * workspace packages to their real paths), except for varlock's own packages.
+ */
+function shouldTransformFile(filePath: string) {
+  if (isInNodeModules(filePath)) return false;
+  return !getVarlockPackageDirs().some((dir) => filePath.startsWith(dir));
+}
 
 // match the directive prologue ('use server', 'use client', 'use cache: remote', etc.)
 // captures the whole block - including interleaved comments/blank lines and repeated
@@ -171,23 +230,25 @@ function prependAfterDirectives(source: string, codeToPrepend: string): string {
  * replacements explicitly skip dynamic vars.
  */
 function webpackLoader(this: LoaderContext, source: string) {
-  // only transform files within the project root
-  // this skips node_modules AND symlinked workspace packages (e.g. varlock/env)
-  // which turbopack resolves to their real paths outside node_modules
-  const projectRoot = this.rootContext || process.cwd();
-  if (!this.resourcePath.startsWith(projectRoot)) {
-    return source;
-  }
-  // still skip node_modules within the project root
-  const relPath = this.resourcePath.slice(projectRoot.length);
-  if (relPath.includes('/node_modules/') || relPath.includes('\\node_modules\\')) {
-    return source;
-  }
+  if (!shouldTransformFile(this.resourcePath)) return source;
 
+  const projectRoot = this.rootContext || process.cwd();
+  const relPath = path.relative(projectRoot, this.resourcePath);
+  // files outside the project root (monorepo workspace packages) get ENV inlining only. The
+  // init guard's require()s resolve from the file's own location, where the app's deps
+  // (e.g. @varlock/nextjs-integration) usually aren't installed. The guard only needs to run
+  // once per process, which the app's own files already take care of.
+  const isInProjectRoot = !relPath.startsWith('..') && !path.isAbsolute(relPath);
   debug('processing:', relPath);
 
-  const isClientComponent = USE_CLIENT_RE.test(source);
-  if (isClientComponent) debug('client component:', relPath);
+  const loaderOptions = this.getOptions?.() ?? {};
+
+  // client code = compiled for the browser, or a 'use client' component (which is also
+  // compiled for SSR, but must still be treated as client code there)
+  const isClientComponent = loaderOptions.browser
+    || USE_CLIENT_RE.test(source)
+    || INSTRUMENTATION_CLIENT_FILE_RE.test(this.resourcePath);
+  if (isClientComponent) debug('client code:', relPath);
 
   const rawEnv = process.env.__VARLOCK_ENV;
   if (!rawEnv) {
@@ -196,8 +257,6 @@ function webpackLoader(this: LoaderContext, source: string) {
 
   const envGraph = parseEnvGraphCached(rawEnv);
   if (!envGraph) return source;
-
-  const loaderOptions = this.getOptions?.() ?? {};
 
   const isWebpack = loaderOptions.bundler === 'webpack';
   const isTurbopack = loaderOptions.bundler === 'turbopack' || isTurbopackWorker();
@@ -211,7 +270,7 @@ function webpackLoader(this: LoaderContext, source: string) {
 
   let result = source;
 
-  if (!isClientComponent) {
+  if (!isClientComponent && isInProjectRoot) {
     // Inject a tiny guarded init snippet into every server file.
     // Pre-rendering workers receive compiled code via IPC (not from disk), so runtime
     // file injection doesn't help them. This ensures initVarlockEnv() and
@@ -255,7 +314,7 @@ function webpackLoader(this: LoaderContext, source: string) {
       }
       result = prependAfterDirectives(result, initGuard);
     }
-  } else {
+  } else if (isClientComponent) {
     // Client components: inject the declared public+dynamic key list so the runtime
     // hydration helpers (loadPublicDynamicEnv, setPublicDynamicEnv payload filtering,
     // hydration-state checks) work in the browser. Key NAMES only - never values.

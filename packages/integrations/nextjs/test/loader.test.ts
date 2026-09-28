@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { createRequire } from 'node:module';
 import { parse as babelParse } from '@babel/parser';
 import {
   describe, it, expect, beforeEach, vi,
@@ -6,7 +8,11 @@ import {
 // loader-runner) — vitest surfaces it as the namespace default
 import * as loaderModule from '../src/loader';
 
-type LoaderOptions = { bundler?: 'webpack' | 'turbopack'; isEdge?: boolean; dev?: boolean };
+const require = createRequire(import.meta.url);
+
+type LoaderOptions = {
+  bundler?: 'webpack' | 'turbopack'; isEdge?: boolean; dev?: boolean; browser?: boolean;
+};
 type LoaderContext = {
   cacheable(flag: boolean): void;
   resourcePath: string;
@@ -276,5 +282,84 @@ describe('inlining gate (dev vs build, client vs server vs edge)', () => {
   it('does not inject the init guard into client components', () => {
     const result = runLoader(USE_CLIENT + SERVER_SOURCE);
     expect(result).not.toContain('globalThis.__varlockBuildInit');
+  });
+});
+
+describe('browser-compiled files without a \'use client\' directive', () => {
+  const SOURCE = 'const a = ENV.PUBLIC_VAR;';
+
+  it('inlines in dev and skips the server init guard when compiled for the browser', () => {
+    // e.g. a plain util module imported from a client component
+    const result = runLoader(SOURCE, {
+      resourcePath: `${PROJECT_ROOT}/lib/analytics.ts`,
+      options: { bundler: 'turbopack', dev: true, browser: true },
+    });
+    expect(result).toContain('const a = "public-value";');
+    expect(result).not.toContain('globalThis.__varlockBuildInit');
+  });
+
+  it('treats instrumentation-client files as client code by name', () => {
+    // fallback for turbopack versions without per-condition rules
+    for (const file of ['instrumentation-client.ts', 'src/instrumentation-client.js']) {
+      const result = runLoader(SOURCE, {
+        resourcePath: `${PROJECT_ROOT}/${file}`,
+        options: { bundler: 'turbopack', dev: true },
+      });
+      expect(result).toContain('const a = "public-value";');
+      expect(result).not.toContain('globalThis.__varlockBuildInit');
+    }
+  });
+
+  it('does not treat instrumentation.ts (server) as client code', () => {
+    const result = runLoader(SOURCE, {
+      resourcePath: `${PROJECT_ROOT}/instrumentation.ts`,
+      options: { bundler: 'turbopack', dev: true },
+    });
+    expect(result).toContain('const a = ENV.PUBLIC_VAR;');
+    expect(result).toContain('globalThis.__varlockBuildInit');
+  });
+});
+
+describe('which files are transformed', () => {
+  const SOURCE = `${USE_CLIENT}const a = ENV.PUBLIC_VAR;`;
+
+  it('transforms monorepo workspace packages outside the project root', () => {
+    // turbopack resolves symlinked workspace packages to their real paths
+    const result = runLoader(SOURCE, { resourcePath: '/packages/analytics/client.ts' });
+    expect(result).toContain('const a = "public-value";');
+  });
+
+  it('does not inject the init guard into server files outside the project root', () => {
+    // the guard's require()s resolve from the file's location, where the app's deps
+    // (e.g. @varlock/nextjs-integration) usually aren't installed (pnpm strict layout)
+    const serverSource = 'const a = ENV.PUBLIC_VAR;';
+    const buildResult = runLoader(serverSource, { resourcePath: '/packages/db/server.ts' });
+    expect(buildResult).not.toContain('globalThis.__varlockBuildInit');
+    expect(buildResult).not.toContain('@varlock/nextjs-integration');
+    // values are still inlined during builds
+    expect(buildResult).toContain('const a = "public-value";');
+
+    const webpackResult = runLoader(`import x from 'y';\n${serverSource}`, {
+      resourcePath: '/packages/db/server.ts',
+      options: { bundler: 'webpack', dev: false },
+    });
+    expect(webpackResult).not.toContain('@varlock/nextjs-integration');
+  });
+
+  it('skips node_modules, inside or outside the project root', () => {
+    for (const file of [
+      `${PROJECT_ROOT}/node_modules/some-pkg/index.js`,
+      '/node_modules/.pnpm/some-pkg@1.0.0/node_modules/some-pkg/index.js',
+    ]) {
+      expect(runLoader(SOURCE, { resourcePath: file })).toBe(SOURCE);
+    }
+  });
+
+  it('skips varlock\'s own package files, even when symlinked outside node_modules', () => {
+    const varlockEnvPath = require.resolve('varlock/env');
+    expect(runLoader(SOURCE, { resourcePath: varlockEnvPath })).toBe(SOURCE);
+    // this integration's own files
+    const ownFile = path.resolve(import.meta.dirname, '../dist/dynamic-access.cjs');
+    expect(runLoader(SOURCE, { resourcePath: ownFile })).toBe(SOURCE);
   });
 });
