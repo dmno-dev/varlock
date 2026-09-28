@@ -14,8 +14,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(import.meta.dir, '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NOTICES_FILENAME = 'BUNDLED_ICONS_LICENSES.md';
 
 // must match ICON_SIZE in packages/varlock/src/env-graph/lib/type-generation/emitters/ts.ts
@@ -90,7 +92,7 @@ async function fetchText(url: string): Promise<string | undefined> {
   for (let attempt = 1; res.status === 429 && attempt <= 5; attempt++) {
     const retryAfterSec = Number(res.headers.get('retry-after')) || 15 * attempt;
     console.log(`[sync-bundled-icons] rate limited, retrying in ${retryAfterSec}s`);
-    await Bun.sleep(retryAfterSec * 1000);
+    await sleep(retryAfterSec * 1000);
     res = await fetch(url);
   }
   if (res.status === 404) return undefined;
