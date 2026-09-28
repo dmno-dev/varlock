@@ -169,6 +169,12 @@ import { ENV } from '../env'; // typed to this package's schema only
 
 Runtime behavior is identical (it's the same underlying proxy); only the types are scoped locally. The output path must be a `.ts` file (not `.d.ts`) since it contains a runtime re-export.
 
+Each package's generated file is written when that package's own schema is loaded, so run `varlock load` or [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen) in each package directory (for example from each package's `dev`/`build` script, or a root script that loops over them). Loading an app that `@import`s a package does not regenerate the package's file.
+
+:::caution[Don't use `executeWhenImported` for separate packages]
+Setting `executeWhenImported=true` on a package's generator makes it run when an app imports that package, but it then generates from the **app's** full graph. The package's `env.ts` would pick up the app's keys and flip between versions depending on which directory loaded last. That option is meant for files that are part of the same app, not for separate packages.
+:::
+
 ## Mixed stacks (JavaScript and other languages)
 
 Monorepos often combine Node apps with Python, Go, or other runtimes. Varlock's CLI works the same everywhere: load and validate from a schema, then exec your command with the resolved env injected.
