@@ -18,7 +18,7 @@ import type { CacheHitInfo } from './resolution-context';
 
 import { EnvGraphDataSource } from './data-source';
 import {
-  convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
+  convertParsedValueToResolvers, getMalformedFunctionCallError, type ResolvedValue, Resolver, StaticValueResolver,
   ArrayLiteralResolver, ObjectLiteralResolver,
 } from './resolver';
 import { buildTypeSpecPlan, coercedTypesMatch, type TypeSpecPlan } from './type-decorator';
@@ -39,23 +39,6 @@ export type ConfigItemDefAndSource = {
   source?: EnvGraphDataSource;
 };
 
-// An unquoted item value shaped like `fn(...)` that the parser could not read as a
-// function call (e.g. an unquoted arg containing a space) falls back to a plain
-// string. That is almost always a mistake, so we error rather than silently using
-// the literal text (which could otherwise be shipped as a "secret").
-const LOOKS_LIKE_FN_CALL_REGEX = /^([a-zA-Z][a-zA-Z0-9_]*)\(.*\)$/s;
-function getMalformedFunctionCall(parsedValue: ConfigItemDef['parsedValue']) {
-  if (!(parsedValue instanceof ParsedEnvSpecStaticValue)) return;
-  if (parsedValue.data.quote || typeof parsedValue.data.rawValue !== 'string') return;
-  const fnName = parsedValue.data.rawValue.trim().match(LOOKS_LIKE_FN_CALL_REGEX)?.[1];
-  if (!fnName) return;
-  return new SchemaError(`Value looks like a call to ${fnName}() but could not be parsed as a function call`, {
-    tip: [
-      'Function args containing spaces or other special characters must be quoted, e.g. `op("op://Vault/Item Name/field")`',
-      'If you meant a literal string, wrap the whole value in quotes',
-    ],
-  });
-}
 
 
 export class ConfigItem {
@@ -331,7 +314,7 @@ export class ConfigItem {
           def.source!, // parsedValue is only set for source-backed defs
           this.envGraph.registeredResolverFunctions,
         );
-        const malformedFnCall = getMalformedFunctionCall(def.itemDef.parsedValue);
+        const malformedFnCall = getMalformedFunctionCallError(def.itemDef.parsedValue);
         if (malformedFnCall) this._schemaErrors.push(malformedFnCall);
       }
       await def.itemDef.resolver?.process(this);

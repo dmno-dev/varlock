@@ -51,4 +51,12 @@ describe('malformed function calls', () => {
     `);
     expect(schemaErrorMessages(g, 'ITEM')).toEqual(['@sensitive value looks like a call to forEnv() but could not be parsed as a function call']);
   });
+
+  test('malformed decorator fn call without a space errors', async () => {
+    const g = await loadSchema(outdent`
+      # @placeholder=fn(a,,b)
+      ITEM=foo
+    `);
+    expect(schemaErrorMessages(g, 'ITEM')).toEqual(['@placeholder value looks like a call to fn() but could not be parsed as a function call']);
+  });
 });
