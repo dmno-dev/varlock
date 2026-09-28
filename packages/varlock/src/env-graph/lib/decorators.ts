@@ -113,7 +113,25 @@ export abstract class DecoratorInstance {
 
 
       // stray text found after this decorator (e.g. `# @dec some text`)
-      if (this.parsedDecorator.strayText) {
+      // `@dec=fn(a b)` - an unquoted fn arg containing a space splits the call
+      // into the value `fn(a` and stray text `b)`, which should be a hard error
+      const decValue = this.parsedDecorator.value;
+      const splitFnCallName = decValue instanceof ParsedEnvSpecStaticValue && !decValue.data.quote
+        && typeof decValue.data.rawValue === 'string'
+        && this.parsedDecorator.strayText?.includes(')')
+        ? decValue.data.rawValue.match(/^([a-zA-Z][a-zA-Z0-9_]*)\(/)?.[1]
+        : undefined;
+      if (splitFnCallName) {
+        this._errors.push(new SchemaError(
+          `@${this.name} value looks like a call to ${splitFnCallName}() but could not be parsed as a function call`,
+          {
+            tip: [
+              'Function args containing spaces or other special characters must be quoted, e.g. `op("op://Vault/Item Name/field")`',
+              'If you meant a literal string, wrap the whole value in quotes',
+            ],
+          },
+        ));
+      } else if (this.parsedDecorator.strayText) {
         this._errors.push(new SchemaError(
           `Unexpected text "${this.parsedDecorator.strayText}" after @${this.name} - use another # for trailing comments`,
           { isWarning: true },

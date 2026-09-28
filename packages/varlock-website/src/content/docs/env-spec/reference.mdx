@@ -161,7 +161,8 @@ Values are interpreted similarly for config item values, decorator values, and v
 - May not contain other characters depending on the context:
   - config item values - may not contain `#`
   - decorator values - may not contain `[ #]`
-  - function call arg values - may not contain `[),]`
+  - function call arg values - may not contain `[ ),]`, so an arg with a space must be quoted -- `op("op://Vault/Item Name/field")`
+- A config item value that looks like a function call but cannot be parsed as one (for example `fn(foo bar)`) is an error rather than a string. Wrap the whole value in quotes if you want the literal text.
 
 #### Quoted values
 - A value in quotes is _always_ treated as a string -- `@d1="with spaces"`, `@trueString="true"`, `@numStr="123"`
