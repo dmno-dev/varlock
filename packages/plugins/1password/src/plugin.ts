@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFile, rm } from 'node:fs/promises';
@@ -239,6 +240,7 @@ try {
   // cache not available (e.g., no encryption key)
 }
 plugin.icon = OP_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initOp',
   params: {

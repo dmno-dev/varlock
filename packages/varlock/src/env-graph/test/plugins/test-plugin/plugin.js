@@ -1,5 +1,7 @@
 const { plugin } = require('varlock/plugin-lib');
 
+plugin.bundledIcons = { 'test-plugin:icon': '<svg>test</svg>' };
+
 plugin.registerResolverFunction({
   name: 'test',
   argsSchema: {

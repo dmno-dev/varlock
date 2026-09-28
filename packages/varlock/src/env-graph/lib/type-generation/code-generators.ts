@@ -107,6 +107,7 @@ async function generateTsFile(ctx: CodeGenContext): Promise<string> {
   // `@injectUndefinedAsEmpty` means unset items land on process.env as empty strings, so the
   // process.env augmentation drops its optionality (graph-level flag, not a decorator arg)
   options.injectUndefinedAsEmpty = ctx.graph.injectUndefinedAsEmpty;
+  options.pluginIcons = ctx.graph.bundledIcons;
 
   return generateTsTypesSrc(ctx.fields, options);
 }

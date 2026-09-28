@@ -1260,6 +1260,31 @@ describe('type generation', () => {
       }
     });
 
+    test('bundled icons (built-in data types) are embedded without a network request', async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new Error('network unavailable');
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const src = await generateTsTypesSrc([iconField('carbon:url')]);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(src).toContain('![icon](data:image/svg+xml;utf-8,');
+    });
+
+    test('icons bundled by plugins are embedded without a network request', async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new Error('network unavailable');
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const iconName = uniqueIconName('plugin');
+      const src = await generateTsTypesSrc([iconField(iconName)], {
+        pluginIcons: { [iconName]: '<svg fill="currentColor"></svg>' },
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(src).toContain(encodeURIComponent('<svg fill="#808080"></svg>'));
+    });
+
     test('icons=false skips fetching and embedding icons', async () => {
       const fetchMock = vi.fn(async () => new Response('<svg></svg>', { status: 200 }));
       vi.stubGlobal('fetch', fetchMock);

@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { createHash } from 'node:crypto';
 import {
@@ -25,6 +26,7 @@ plugin.name = 'aws';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AWS_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 // capture cache accessor while the plugin proxy context is active
 // (the `plugin` proxy is only valid during module initialization, not during resolve())

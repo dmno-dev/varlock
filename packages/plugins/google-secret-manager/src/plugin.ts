@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { GoogleAuth } from 'google-auth-library';
 
@@ -22,6 +23,7 @@ try {
   // cache not available (e.g., no encryption key)
 }
 plugin.icon = GSM_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initGsm',
   params: {

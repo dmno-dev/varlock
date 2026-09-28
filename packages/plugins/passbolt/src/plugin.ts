@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { createHash } from 'node:crypto';
 import { PassboltClient, type UUIDv4String } from './passbolt';
 import type { Resource } from './types';
@@ -20,6 +21,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = PASSBOLT_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initPassbolt',
   params: {
