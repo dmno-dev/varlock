@@ -20,6 +20,27 @@ You may also use the `--no-env-file` CLI flag when invoking scripts with `bun`/`
 
 Note that if you are building a standalone executable using `bun build`, you can use the `--no-compile-autoload-dotenv` flag to disable this behavior in the final executable.
 
+### Running your code
+Launch bun through `varlock run`. The resolved env is in place before bun starts, so everything sees it, including Bun's native clients (`RedisClient`, `s3`, `sql`) that read env vars at startup:
+
+```sh
+varlock run -- bun src/index.ts
+varlock run -- bun test
+```
+
+You can put this in your `package.json` scripts:
+
+```json title="package.json"
+{
+  "scripts": {
+    "start": "varlock run -- bun src/index.ts",
+    "test": "varlock run -- bun test"
+  }
+}
+```
+
+To use varlock's `ENV` object, log redaction, and leak detection, also `import 'varlock/auto-load'` at the top of your entry file. When launched by `varlock run`, it [reuses the injected env](/integrations/javascript/#reusing-an-injected-env-blob) instead of resolving again.
+
 ### Compiled executables
 
 `bun build --compile` bundles the `varlock/auto-load` runtime code into your executable, but it does not bundle the separate Varlock CLI that resolves your config. If the executable resolves config when it starts, your deployment must also include the installed `varlock` package and its dependencies. The executable looks for `node_modules/.bin/varlock` in its directory and each parent directory (stopping at the git repository root, if there is one), and only falls back to a `varlock` on `PATH` if no local install is found.
@@ -42,15 +63,18 @@ varlock run -- ./dist/server
 If your deployment otherwise contains only the compiled executable, install the [standalone Varlock binary](/getting-started/installation/#as-a-standalone-binary) in the deployment environment and launch the application through `varlock run`.
 
 
-### Using a preload script (optional)
-One option we have with bun is to use a [preload script](https://bun.com/docs/runtime/bunfig#preload), configured in `bunfig.toml`. If you do this, you will no longer have to use `bun run varlock run -- yourscript` or use `import 'varlock/auto-load'` in your code!
+### Using a preload script (not recommended)
+Bun can run `varlock/auto-load` as a [preload script](https://bun.com/docs/runtime/bunfig#preload) configured in `bunfig.toml`, so you can skip `varlock run` and the import in your code. We don't recommend this: it only covers some commands, and one of its failure modes is silent. If you still want to use it, understand these limits first:
+
+- **Bun native clients read the startup environment.** A preload sets `process.env` after the process has started. Bun's native clients that fall back to env vars when created without config (for example `new RedisClient()` reading `REDIS_URL`, or the default `s3` and `sql` clients) read the environment the process started with. They will not see values from the preload. Depending on the client, they either fall back to their defaults (e.g., `RedisClient` quietly connects to `localhost:6379`) or fail with a missing-config error. Pass config explicitly (e.g., `new RedisClient(ENV.REDIS_URL)`) or use `varlock run`. This also applies to `import 'varlock/auto-load'` in your code.
+- **`bun test` needs its own entry.** The top-level `preload` applies to code run by Bun's runtime (`bun <file>`, and `bun run` scripts or `bunx --bun` tools that execute under Bun). `bun test` ignores it and only uses `[test] preload`.
+- **Anything run by Node skips it.** A `package.json` script that calls `node`, or a tool with a `node` shebang run via plain `bunx` or `bun run`, runs under Node, so the preload does not apply.
+- **It affects every bun command in that directory.** If your env fails validation, unrelated commands fail too.
+- **Do not use it with framework integrations.** Those integrations watch your `.env` files to trigger live-reloading.
 
 ```diff lang="toml" title="bunfig.toml"
 preload = ["varlock/auto-load"]
+
+[test]
+preload = ["varlock/auto-load"]
 ```
-
-Like bun's own `.env` loading, the preload applies to every bun process started from that directory, including `bun test` and `bunx` tools. The difference is that varlock validates: if your env fails validation, those commands fail too, not just your app.
-
-:::caution[Do not use preload with framework integrations]
-Note that you should not do this if using a framework integration, as those integrations watch your `.env` files to trigger live-reloading.
-:::
