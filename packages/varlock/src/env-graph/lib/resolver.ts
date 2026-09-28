@@ -1337,6 +1337,33 @@ export const BaseResolvers: Array<ResolverChildClass> = [
 
 /// /
 
+// An unquoted value shaped like `fn(...)` that the parser could not read as a function
+// call (e.g. an unquoted arg containing a space) falls back to a plain string. That is
+// almost always a mistake, so we error rather than silently using the literal text
+// (which could otherwise be shipped as a "secret"). In decorators, a space splits the
+// call into the value `fn(a` plus stray text `b)`, so that shape is passed in too.
+const LOOKS_LIKE_FN_CALL_REGEX = /^([a-zA-Z][a-zA-Z0-9_]*)\(.*\)$/s;
+const STARTS_LIKE_FN_CALL_REGEX = /^([a-zA-Z][a-zA-Z0-9_]*)\(/;
+export function getMalformedFunctionCallError(
+  parsedValue: unknown,
+  opts?: { decoratorName?: string, strayText?: string },
+) {
+  if (!(parsedValue instanceof ParsedEnvSpecStaticValue)) return;
+  if (parsedValue.data.quote || typeof parsedValue.data.rawValue !== 'string') return;
+  const rawValue = parsedValue.data.rawValue.trim();
+  const fnName = opts?.strayText?.includes(')')
+    ? rawValue.match(STARTS_LIKE_FN_CALL_REGEX)?.[1]
+    : rawValue.match(LOOKS_LIKE_FN_CALL_REGEX)?.[1];
+  if (!fnName) return;
+  const subject = opts?.decoratorName ? `@${opts.decoratorName} value` : 'Value';
+  return new SchemaError(`${subject} looks like a call to ${fnName}() but could not be parsed as a function call`, {
+    tip: [
+      'Function args containing spaces or other special characters must be quoted, e.g. `op("op://Vault/Item Name/field")`',
+      'If you meant a literal string, wrap the whole value in quotes',
+    ],
+  });
+}
+
 export function convertParsedValueToResolvers(
   value: ParsedEnvSpecStaticValue | ParsedEnvSpecFunctionCall
     | ParsedEnvSpecFunctionArgs | ParsedEnvSpecObjectLiteral | ParsedEnvSpecArrayLiteral | undefined,

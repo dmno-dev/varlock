@@ -18,7 +18,7 @@ import type { CacheHitInfo } from './resolution-context';
 
 import { EnvGraphDataSource } from './data-source';
 import {
-  convertParsedValueToResolvers, type ResolvedValue, Resolver, StaticValueResolver,
+  convertParsedValueToResolvers, getMalformedFunctionCallError, type ResolvedValue, Resolver, StaticValueResolver,
   ArrayLiteralResolver, ObjectLiteralResolver,
 } from './resolver';
 import { buildTypeSpecPlan, coercedTypesMatch, type TypeSpecPlan } from './type-decorator';
@@ -38,6 +38,7 @@ export type ConfigItemDefAndSource = {
   itemDef: ConfigItemDef;
   source?: EnvGraphDataSource;
 };
+
 
 
 export class ConfigItem {
@@ -313,6 +314,8 @@ export class ConfigItem {
           def.source!, // parsedValue is only set for source-backed defs
           this.envGraph.registeredResolverFunctions,
         );
+        const malformedFnCall = getMalformedFunctionCallError(def.itemDef.parsedValue);
+        if (malformedFnCall) this._schemaErrors.push(malformedFnCall);
       }
       await def.itemDef.resolver?.process(this);
     }

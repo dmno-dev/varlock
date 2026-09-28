@@ -9,6 +9,7 @@ import { EnvGraphDataSource } from './data-source';
 import type { ConfigItem } from './config-item';
 import {
   StaticValueResolver, ArrayLiteralResolver, ObjectLiteralResolver, type Resolver, convertParsedValueToResolvers,
+  getMalformedFunctionCallError,
 } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
@@ -112,8 +113,15 @@ export abstract class DecoratorInstance {
       }
 
 
-      // stray text found after this decorator (e.g. `# @dec some text`)
-      if (this.parsedDecorator.strayText) {
+      // unquoted value that looks like a fn call but did not parse as one
+      const malformedFnCall = getMalformedFunctionCallError(
+        this.parsedDecorator.value,
+        { decoratorName: this.name, strayText: this.parsedDecorator.strayText },
+      );
+      if (malformedFnCall) {
+        this._errors.push(malformedFnCall);
+      } else if (this.parsedDecorator.strayText) {
+        // stray text found after this decorator (e.g. `# @dec some text`)
         this._errors.push(new SchemaError(
           `Unexpected text "${this.parsedDecorator.strayText}" after @${this.name} - use another # for trailing comments`,
           { isWarning: true },
