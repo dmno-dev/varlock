@@ -1,12 +1,13 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { createHash } from 'node:crypto';
 import ky from 'ky';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
-const DOPPLER_ICON = 'simple-icons:doppler';
+const DOPPLER_ICON = 'selfhst:doppler-dark';
 const DOPPLER_API_BASE = 'https://api.doppler.com/v3';
 
 plugin.name = 'doppler';
@@ -20,6 +21,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = DOPPLER_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initDoppler',
   params: {
