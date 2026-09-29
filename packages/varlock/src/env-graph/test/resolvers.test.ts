@@ -7,7 +7,9 @@
 */
 
 
-import { describe, it, expect } from 'vitest';
+import {
+  describe, it, expect, vi,
+} from 'vitest';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { ResolutionError, SchemaError } from '../lib/errors';
@@ -149,6 +151,42 @@ describe('exec()', functionValueTests({
   },
 }));
 
+
+describe('exec() failures', () => {
+  it('reports exit code + stderr on the error without logging to stdout', async () => {
+    const consoleLog = vi.spyOn(console, 'log');
+    try {
+      const g = new EnvGraph();
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+        overrideContents: 'ITEM=exec("echo boom >&2; exit 3")',
+      }));
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      const err = g.configSchema.ITEM.errors.find((e) => e instanceof ResolutionError);
+      expect(err?.message).toContain('exit code 3');
+      expect(err?.tip).toContain('boom');
+      expect(consoleLog).not.toHaveBeenCalled();
+    } finally {
+      consoleLog.mockRestore();
+    }
+  });
+
+  it('includes an invalid dependency\'s errors when a root decorator references it', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @setValuesBulk($SRC, format=json)
+        # ---
+        SRC=exec("exit 3")
+        FOO=
+      `,
+    }));
+    await g.finishLoad();
+    const [resErr] = g.rootDataSource!.resolutionErrors;
+    expect(resErr?.message).toContain('Referenced item "SRC" is not valid');
+    expect(resErr?.tip).toContain('exit code 3');
+  });
+});
 
 describe('ref()', functionValueTests({
   'working example': {

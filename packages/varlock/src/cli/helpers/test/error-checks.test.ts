@@ -2,7 +2,10 @@ import {
   describe, it, expect, vi,
 } from 'vitest';
 import { checkForSchemaErrors } from '../error-checks';
+import outdent from 'outdent';
 import { ResolutionError, SchemaError } from '../../../env-graph/lib/errors';
+import { EnvGraph } from '../../../env-graph';
+import { DotEnvFileDataSource } from '../../../env-graph/lib/data-source';
 
 /**
  * Minimal stub of EnvGraph that exposes only what checkForSchemaErrors reads.
@@ -75,5 +78,57 @@ describe('checkForSchemaErrors', () => {
     expect(result.hasOutput).toBe(true);
     consoleError.mockRestore();
     consoleLog.mockRestore();
+  });
+});
+
+describe('checkForSchemaErrors prints each error once', () => {
+  async function loadGraph(schema: string) {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: schema }));
+    await g.finishLoad();
+    return g;
+  }
+
+  function captureOutput(fn: () => void) {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => { /* swallow */ });
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => { /* swallow */ });
+    try {
+      fn();
+      return [...consoleError.mock.calls, ...consoleLog.mock.calls].flat().join('\n');
+    } finally {
+      consoleError.mockRestore();
+      consoleLog.mockRestore();
+    }
+  }
+
+  function countOccurrences(haystack: string, needle: string) {
+    return haystack.split(needle).length - 1;
+  }
+
+  it('prints a root decorator execute() error once, under the initialization heading', async () => {
+    // regression for #1150: `source.errors` also contains `source.resolutionErrors`
+    const g = await loadGraph(outdent`
+      # @setValuesBulk("{not json", format=json)
+      # ---
+      FOO=
+    `);
+    const output = captureOutput(() => checkForSchemaErrors(g, { noThrow: true }));
+    expect(countOccurrences(output, 'invalid JSON data')).toBe(1);
+    expect(output).toContain('initialization');
+  });
+
+  it('prints every error and warning from a real graph exactly once', async () => {
+    const g = await loadGraph(outdent`
+      # @bogusDec=1
+      # @cache=bogus
+      # ---
+      _VARLOCK_THING=1
+    `);
+    const errs = g.sortedDataSources.flatMap((s) => [...s.errors, ...s.resolutionErrors]);
+    expect(errs.length).toBeGreaterThan(0);
+    const output = captureOutput(() => checkForSchemaErrors(g, { noThrow: true }));
+    for (const err of new Set(errs)) {
+      expect(countOccurrences(output, err.message), err.message).toBe(1);
+    }
   });
 });

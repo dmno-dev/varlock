@@ -58,3 +58,31 @@ describe('getSerializedGraph filterKeys', () => {
     expect(blob.overrideKeys).toEqual(['STRIPE_KEY', 'OTHER_VAR']);
   });
 });
+
+describe('getSerializedGraph errors', () => {
+  it('lists only errors (not warnings) for an invalid item', async () => {
+    const g = await loadSchema(outdent`
+      # @defaultSensitive=true
+      # ---
+      # @type=number
+      FOO=abc
+    `);
+    const blob = g.getSerializedGraph();
+    expect(g.configSchema.FOO.errors.some((e) => e.isWarning)).toBe(true);
+    expect(blob.errors?.configItems?.FOO).toBe('Unable to coerce string to number');
+  });
+
+  it('includes root decorator execute() errors once', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @setValuesBulk("{not json", format=json)
+        # ---
+        FOO=
+      `,
+    }));
+    await g.finishLoad();
+    const rootErrors = g.getSerializedGraph().errors?.root ?? [];
+    expect(rootErrors.filter((e) => e.includes('invalid JSON data'))).toHaveLength(1);
+  });
+});

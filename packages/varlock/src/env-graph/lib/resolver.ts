@@ -296,7 +296,14 @@ export class Resolver {
     // because we only try to resolve the item if all deps are valid
     const depItem = this.envGraph?.configSchema[key];
     if (!depItem) throw new Error(`Referenced item "${key}" not found`);
-    if (!depItem.isValid) throw new Error(`Referenced item "${key}" is not valid`);
+    if (!depItem.isValid) {
+      // include the dep's own errors - when this surfaces from a root decorator, item-level
+      // errors are never printed (config checks are skipped once there are schema errors)
+      const depErrors = depItem.errors.filter((e) => !e.isWarning).map((e) => `- ${e.message}`);
+      throw new ResolutionError(`Referenced item "${key}" is not valid`, {
+        ...depErrors.length && { tip: [`${key} errors:`, ...depErrors] },
+      });
+    }
     // a valid-but-unresolved dep means the calling context forgot to resolve deps
     // first (see earlyResolve / resolveEnvValues); returning resolvedValue here
     // would silently produce undefined instead of the item's actual value
@@ -502,9 +509,15 @@ export const ExecResolver: typeof Resolver = createResolver({
       // we could allow options here?
       return stdout.replace(/\n$/, '');
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.log('exec() failed', err);
-      throw new ResolutionError(`exec() command failed: ${commandStr}`);
+      // surface the exit code and stderr on the error itself rather than logging here -
+      // a stray log would land in stdout and corrupt machine-readable output (e.g. json-full).
+      // stdout is left out since it may contain a partially-printed secret
+      const execErr = err as { code?: number | string, stderr?: string };
+      const exitInfo = execErr.code !== undefined ? ` (exit code ${execErr.code})` : '';
+      const stderr = execErr.stderr?.trim();
+      throw new ResolutionError(`command failed${exitInfo}: ${commandStr}`, {
+        ...stderr && { tip: `stderr:\n${stderr}` },
+      });
     }
   },
 });
