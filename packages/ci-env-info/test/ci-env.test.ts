@@ -399,6 +399,24 @@ describe('getCiEnv', () => {
     );
   });
 
+  it('detects Fly.io and extracts runId', () => {
+    expectCiEnv(
+      {
+        FLY_APP_NAME: 'my-app',
+        FLY_MACHINE_ID: '148ed193b95089',
+        FLY_IMAGE_REF: 'registry.fly.io/my-app:deployment-01H',
+      },
+      {
+        name: 'Fly.io',
+        runId: 'registry.fly.io/my-app:deployment-01H',
+      },
+    );
+  });
+
+  it('does not detect Fly.io from FLY_APP_NAME alone', () => {
+    expect(getCiEnv({ FLY_APP_NAME: 'my-app' }).name).toBeUndefined();
+  });
+
   it('detects Railway and extracts repo, branch, commit, environment, buildUrl', () => {
     expectCiEnv(
       {
