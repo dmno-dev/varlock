@@ -4,6 +4,7 @@ import {
 import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
 
 vi.mock('node:child_process', () => ({
@@ -364,6 +365,77 @@ describe('execSyncVarlock CLI resolution order', () => {
       ['load'],
       expect.objectContaining({ stdio: 'pipe' }),
     );
+  });
+
+  describe('on Windows', () => {
+    let platformSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      platformSpy = vi.spyOn(os, 'platform').mockReturnValue('win32');
+    });
+
+    afterEach(() => {
+      platformSpy.mockRestore();
+    });
+
+    it('runs the CLI script with Node instead of spawning a .cmd shim with shell:true', () => {
+      const pkgCli = path.join('/project/node_modules/.bin', '..', 'varlock', 'bin', 'cli.js');
+      existsSyncSpy = stubExistingPaths([
+        '/project/node_modules/.bin',
+        '/project/node_modules/.bin/varlock.cmd',
+        pkgCli,
+      ]);
+
+      execSyncVarlock('load --format json');
+
+      expect(execFileSync).toHaveBeenCalledWith(
+        process.execPath,
+        [pkgCli, 'load', '--format', 'json'],
+        expect.not.objectContaining({ shell: true }),
+      );
+      expect(execSync).not.toHaveBeenCalled();
+    });
+
+    it('quotes the .cmd path when its CLI script cannot be found', () => {
+      existsSyncSpy = stubExistingPaths([
+        '/project with spaces/node_modules/.bin',
+        '/project with spaces/node_modules/.bin/varlock.cmd',
+      ]);
+      cwdSpy.mockReturnValue('/project with spaces');
+
+      execSyncVarlock('load --format json');
+
+      expect(execSync).toHaveBeenCalledWith(
+        '"/project with spaces/node_modules/.bin/varlock.cmd" load --format json',
+        expect.objectContaining({ stdio: 'pipe' }),
+      );
+      expect(execFileSync).not.toHaveBeenCalled();
+    });
+
+    it('uses the .cmd shim under Electron, whose execPath cannot run scripts', () => {
+      const pkgCli = path.join('/project/node_modules/.bin', '..', 'varlock', 'bin', 'cli.js');
+      existsSyncSpy = stubExistingPaths([
+        '/project/node_modules/.bin',
+        '/project/node_modules/.bin/varlock.cmd',
+        pkgCli,
+      ]);
+      vi.stubGlobal('process', {
+        ...process,
+        versions: { ...process.versions, electron: '30.0.0' },
+      });
+
+      try {
+        execSyncVarlock('load --format json');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(execSync).toHaveBeenCalledWith(
+        '"/project/node_modules/.bin/varlock.cmd" load --format json',
+        expect.objectContaining({ stdio: 'pipe' }),
+      );
+      expect(execFileSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('when the caller runs in Bun', () => {
