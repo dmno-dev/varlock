@@ -126,10 +126,7 @@ class GsmPluginInstance {
               audience: this.workloadIdentityProvider,
               subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
               token_url: 'https://sts.googleapis.com/v1/token',
-              // Use file-sourced credential with a temp approach
-              credential_source: {
-                file: '', // placeholder - overridden below
-              },
+              subject_token_supplier: { getSubjectToken: async () => jwt },
             };
 
             if (this.serviceAccountEmail) {
