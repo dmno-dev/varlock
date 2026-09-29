@@ -539,8 +539,10 @@ export const RefResolver: typeof Resolver = createResolver({
       throw new SchemaError('expects a string keyname passed in');
     }
 
-    // Auto-register builtin vars when referenced
-    if (isBuiltinVar(refKey) && !this.envGraph!.configSchema[refKey]) {
+    // Auto-register builtin vars when referenced. Also when the item is already declared
+    // (e.g. `VARLOCK_ENV=` to attach decorators): an early-resolved env flag may depend on it
+    // before finishLoad attaches builtin defs to declared items
+    if (isBuiltinVar(refKey)) {
       this.envGraph!.registerBuiltinVar(refKey);
     }
 

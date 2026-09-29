@@ -354,6 +354,34 @@ describe('VARLOCK_* builtin variables', () => {
       expectValues: { VARLOCK_ENV: 'production' },
     }));
 
+    // the env flag is resolved early, before finishLoad attaches builtin defs to declared items
+    test('defining VARLOCK_ENV= works when the env flag depends on it', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV
+          # ---
+          VARLOCK_ENV=
+          APP_ENV=remap($VARLOCK_ENV, preview, development)
+        `,
+      },
+      processEnv: { NODE_ENV: 'test' },
+      expectValues: { VARLOCK_ENV: 'test', APP_ENV: 'test' },
+    }));
+
+    test('defining VARLOCK_ENV= in an imported file works when the env flag depends on it', envFilesTest({
+      files: {
+        '.env.schema': '# @import(./.env.common)\n# ---\nITEM1=foo',
+        '.env.common': outdent`
+          # @currentEnv=$APP_ENV
+          # ---
+          VARLOCK_ENV=
+          APP_ENV=remap($VARLOCK_ENV, preview, development)
+        `,
+      },
+      processEnv: { NODE_ENV: 'test' },
+      expectValues: { VARLOCK_ENV: 'test', APP_ENV: 'test' },
+    }));
+
     test('process.env override still takes precedence over builtin', envFilesTest({
       envFile: 'MY_ENV=$VARLOCK_ENV',
       processEnv: {},
