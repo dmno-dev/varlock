@@ -58,19 +58,25 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
   let hasErrors = false;
   let hasOutput = false;
   for (const source of envGraph.sortedDataSources) {
-    const warnings = source.errors.filter((e) => e.isWarning);
-    const errors = source.errors.filter((e) => !e.isWarning);
-    const resolutionErrors = source.resolutionErrors;
+    // `source.errors` is an aggregate view that already overlaps with `resolutionErrors`, so
+    // sort every unique error into exactly one bucket - each error is printed once, by construction
+    const resolutionErrorSet = new Set(source.resolutionErrors);
+    const warnings: Array<VarlockError> = [];
+    const loadingErrors: Array<VarlockError> = [];
+    const otherErrors: Array<VarlockError> = [];
+    const resolutionErrors: Array<VarlockError> = [];
+    for (const err of new Set([...source.errors, ...resolutionErrorSet])) {
+      if (resolutionErrorSet.has(err)) resolutionErrors.push(err);
+      else if (err.isWarning) warnings.push(err);
+      else if (err instanceof LoadingError || err instanceof ParseError) loadingErrors.push(err);
+      else otherErrors.push(err);
+    }
 
-    if (!warnings.length && !errors.length && !resolutionErrors.length) continue;
+    if (!warnings.length && !loadingErrors.length && !otherErrors.length && !resolutionErrors.length) continue;
     hasOutput = true;
 
-    // group by error type for clearer output
-    const loadingErrors = errors.filter((e) => e instanceof LoadingError || e instanceof ParseError);
-    const otherErrors = errors.filter((e) => !(e instanceof LoadingError || e instanceof ParseError));
-
     // single header per file
-    const hasAnyError = errors.length || resolutionErrors.length;
+    const hasAnyError = loadingErrors.length || otherErrors.length || resolutionErrors.length;
     console.error(ansis.bold[hasAnyError ? 'red' : 'yellow'](`-- Problems encountered in ${source.label} --`));
 
     if (source instanceof FileBasedDataSource) {

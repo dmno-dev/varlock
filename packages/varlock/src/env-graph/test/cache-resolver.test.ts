@@ -337,6 +337,21 @@ describe('cache() resolver', () => {
       expect(cacheDec!.errors.some((e) => e.message.includes('invalid dependency: NOPE'))).toBe(true);
     });
 
+    it('reports a static invalid @cache value only once', async () => {
+      const g = new EnvGraph();
+      const source = new DotEnvFileDataSource('.env.schema', {
+        overrideContents: outdent`
+          # @cache=bogus
+          # ---
+          A=1
+        `,
+      });
+      await g.setRootDataSource(source);
+      await g.finishLoad();
+      const cacheDec = g.getRootDec('cache');
+      expect(cacheDec!.errors.filter((e) => !e.isWarning)).toHaveLength(1);
+    });
+
     it('errors when dynamic @cache resolves to an invalid value', async () => {
       const g = new EnvGraph();
       g.registerResolver(RandomResolver);

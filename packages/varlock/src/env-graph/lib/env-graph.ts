@@ -624,7 +624,7 @@ export class EnvGraph {
       let cacheMode: 'auto' | 'memory' | 'disk' | 'disabled' = 'auto';
       if (cacheSetting === 'auto' || cacheSetting === 'memory' || cacheSetting === 'disk' || cacheSetting === 'disabled') {
         cacheMode = cacheSetting;
-      } else if (cacheSetting !== undefined) {
+      } else if (cacheSetting !== undefined && !cacheDec.schemaErrors.some((e) => !e.isWarning)) {
         // dynamic values are validated here (static ones already failed in process());
         // undefined (e.g. forEnv with no match) falls back to auto
         cacheDec._errors.push(new SchemaError(
@@ -1196,7 +1196,7 @@ export class EnvGraph {
     for (const itemKey of this.sortedConfigKeys) {
       const item = this.configSchema[itemKey];
       if (item.validationState === 'error') {
-        configItemErrors[itemKey] = item.errors.map((e) => e.message).join('; ');
+        configItemErrors[itemKey] = item.errors.filter((e) => !e.isWarning).map((e) => e.message).join('; ');
       }
     }
     if (Object.keys(configItemErrors).length > 0) {
