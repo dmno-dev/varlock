@@ -3,6 +3,10 @@ import {
   afterEach, beforeEach, describe, expect, test, vi,
 } from 'vitest';
 
+import outdent from 'outdent';
+
+import { EnvGraph } from '../../../env-graph';
+import { DotEnvFileDataSource } from '../../../env-graph/lib/data-source';
 import { diffSchemaAndCodeKeys } from '../../helpers/audit-diff';
 import { commandFn } from '../audit.command';
 
@@ -280,41 +284,47 @@ describe('audit command', () => {
     expect(errorOutput).toContain('ORPHAN_KEY');
   });
 
-  test('excludes keys referenced by a definition whose item is overridden', async () => {
-    loadVarlockEnvGraphMock.mockResolvedValue({
-      configSchema: {
-        VARLOCK_ENV: { getDec: vi.fn().mockReturnValue(undefined) },
-        // APP_ENV=remap($VARLOCK_ENV, ...) overridden from process.env, so its
-        // active resolver is static and has no deps
-        APP_ENV: {
-          getDec: vi.fn().mockReturnValue(undefined),
-          defs: [{ itemDef: { resolver: { deps: ['VARLOCK_ENV'] } } }],
-        },
-        ORPHAN_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
-      },
-      graphAdjacencyList: {
-        VARLOCK_ENV: [],
-        APP_ENV: [],
-        ORPHAN_KEY: [],
-      },
-      sortedDataSources: [],
-      getRootDecFns: vi.fn().mockReturnValue([]),
-      rootDataSource: undefined,
-      basePath: '/repo',
+  describe('keys referenced by a definition that is not the active one', () => {
+    // real graph: `SHADOWED=local` in .env.schema wins over the imported `SHADOWED=$SHADOW_SRC`
+    async function loadRealGraph(overrideValues?: Record<string, string>) {
+      const g = new EnvGraph();
+      g.setVirtualImports('/repo', {
+        '.env.base': 'SHADOW_SRC=q\nSHADOWED=$SHADOW_SRC\n',
+      });
+      if (overrideValues) g.overrideValues = overrideValues;
+      await g.setRootDataSource(new DotEnvFileDataSource('/repo/.env.schema', {
+        overrideContents: outdent`
+          # @import(./.env.base)
+          # ---
+          BASE=abc
+          URL=$BASE/x
+          SHADOWED=local
+          ORPHAN_KEY=x
+        `,
+      }));
+      await g.finishLoad();
+      return g;
+    }
+
+    test.each([
+      ['no overrides', undefined],
+      ['referencing item overridden from process.env', { URL: 'zzz' }],
+    ])('are excluded from unused keys (%s)', async (_label, overrideValues) => {
+      loadVarlockEnvGraphMock.mockResolvedValue(await loadRealGraph(overrideValues));
+      scanCodeForEnvVarsMock.mockResolvedValue({
+        keys: ['URL', 'SHADOWED'],
+        references: [],
+        scannedFilesCount: 1,
+      });
+
+      await commandFn({ values: {} } as any);
+
+      expect(gracefulExitMock).toHaveBeenCalledWith(1);
+      const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+      expect(errorOutput).not.toMatch(/\bBASE\b/);
+      expect(errorOutput).not.toContain('SHADOW_SRC');
+      expect(errorOutput).toContain('ORPHAN_KEY');
     });
-
-    scanCodeForEnvVarsMock.mockResolvedValue({
-      keys: ['APP_ENV'],
-      references: [],
-      scannedFilesCount: 1,
-    });
-
-    await commandFn({ values: {} } as any);
-
-    expect(gracefulExitMock).toHaveBeenCalledWith(1);
-    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
-    expect(errorOutput).not.toContain('VARLOCK_ENV');
-    expect(errorOutput).toContain('ORPHAN_KEY');
   });
 
   test('flattens multiple # @auditIgnorePaths(...) calls and forwards merged excludes to scanner', async () => {
