@@ -516,13 +516,13 @@ export const RESOLVERS: Array<ResolverInfo> = [
   {
     name: 'and',
     summary: 'Resolves to true when all arguments are truthy.',
-    documentation: 'Takes two or more arguments. Stops at the first falsy argument without resolving the rest.',
+    documentation: 'Takes two or more arguments. Stops at the first falsy argument, so later function calls do not run (referenced items still resolve).',
     insertText: 'and(${1:$$FLAG_A}, ${2:$$FLAG_B})',
   },
   {
     name: 'or',
     summary: 'Resolves to true when any argument is truthy.',
-    documentation: 'Takes two or more arguments. Stops at the first truthy argument without resolving the rest.',
+    documentation: 'Takes two or more arguments. Stops at the first truthy argument, so later function calls do not run (referenced items still resolve).',
     insertText: 'or(${1:$$FLAG_A}, ${2:$$FLAG_B})',
   },
   {
