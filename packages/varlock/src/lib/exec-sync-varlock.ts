@@ -46,6 +46,17 @@ function findVarlockBin(startDir: string): string | null {
 }
 
 /**
+ * Whether `process.execPath` can run a JS file given as its first argument, like `node cli.js`.
+ * Electron's execPath launches the app itself and Deno needs `deno run`, so those use the shim.
+ */
+function execPathRunsScripts(): boolean {
+  if (isBunRuntime()) return !isBunStandaloneExecutable();
+  return process.versions?.node != null
+    && process.versions.electron == null
+    && (globalThis as typeof globalThis & { Deno?: unknown }).Deno == null;
+}
+
+/**
  * Find the JS entry point behind a `node_modules/.bin/varlock` shim, so it can be run with
  * the current Bun runtime instead of the `#!/usr/bin/env node` shebang.
  * npm/bun/yarn create a symlink to the script; pnpm creates a shell wrapper and Windows
@@ -184,7 +195,7 @@ export function execSyncVarlock(
       const varlockPath = findVarlockBin(startDir);
       if (varlockPath) {
         // Run the CLI script directly for Bun compatibility and to avoid shell:true for .cmd shims.
-        const canRunCliScript = !isBunStandaloneExecutable()
+        const canRunCliScript = execPathRunsScripts()
           && (isBunRuntime() || varlockPath.endsWith('.cmd'));
         const cliScript = canRunCliScript
           ? findVarlockCliScript(varlockPath)

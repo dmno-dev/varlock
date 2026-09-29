@@ -411,6 +411,31 @@ describe('execSyncVarlock CLI resolution order', () => {
       );
       expect(execFileSync).not.toHaveBeenCalled();
     });
+
+    it('uses the .cmd shim under Electron, whose execPath cannot run scripts', () => {
+      const pkgCli = path.join('/project/node_modules/.bin', '..', 'varlock', 'bin', 'cli.js');
+      existsSyncSpy = stubExistingPaths([
+        '/project/node_modules/.bin',
+        '/project/node_modules/.bin/varlock.cmd',
+        pkgCli,
+      ]);
+      vi.stubGlobal('process', {
+        ...process,
+        versions: { ...process.versions, electron: '30.0.0' },
+      });
+
+      try {
+        execSyncVarlock('load --format json');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(execSync).toHaveBeenCalledWith(
+        '"/project/node_modules/.bin/varlock.cmd" load --format json',
+        expect.objectContaining({ stdio: 'pipe' }),
+      );
+      expect(execFileSync).not.toHaveBeenCalled();
+    });
   });
 
   describe('when the caller runs in Bun', () => {
