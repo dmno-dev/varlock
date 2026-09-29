@@ -514,6 +514,18 @@ export const RESOLVERS: Array<ResolverInfo> = [
     insertText: 'not(${1:forEnv(production)})',
   },
   {
+    name: 'and',
+    summary: 'Resolves to true when all arguments are truthy.',
+    documentation: 'Takes two or more arguments. Stops at the first falsy argument without resolving the rest.',
+    insertText: 'and(${1:$$FLAG_A}, ${2:$$FLAG_B})',
+  },
+  {
+    name: 'or',
+    summary: 'Resolves to true when any argument is truthy.',
+    documentation: 'Takes two or more arguments. Stops at the first truthy argument without resolving the rest.',
+    insertText: 'or(${1:$$FLAG_A}, ${2:$$FLAG_B})',
+  },
+  {
     name: 'isEmpty',
     summary: 'Checks whether a value is undefined or empty.',
     documentation: 'Useful for conditionals and optional env values.',

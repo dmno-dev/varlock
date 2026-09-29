@@ -244,6 +244,34 @@ SHOULD_DISABLE_FEATURE=not(forEnv(production))
 </div>
 
 <div>
+### `and()`
+
+Returns `true` if every argument is truthy, `false` otherwise. Takes two or more arguments and uses the same truthiness as `if()` and `not()`.
+
+Arguments are resolved in order, and resolution stops at the first falsy one, so later arguments (for example a call to a secrets manager) are only resolved when needed.
+
+```env-spec /(and)\\(/
+# Combine multiple conditions
+RUN_SLOW_TESTS_IN_CI=and($VARLOCK_IS_CI, $RUN_SLOW_TESTS)
+
+# @import(./.env.slow-tests, enabled=and(not($VARLOCK_IS_CI), $RUN_SLOW_TESTS))
+```
+</div>
+
+<div>
+### `or()`
+
+Returns `true` if any argument is truthy, `false` otherwise. Takes two or more arguments and uses the same truthiness as `if()` and `not()`.
+
+Arguments are resolved in order, and resolution stops at the first truthy one.
+
+```env-spec /(or)\\(/
+# @required=or(forEnv(production), $FEATURE_X)
+FEATURE_X_API_KEY=
+```
+</div>
+
+<div>
 ### `isEmpty()`
 
 Returns `true` if the value is `undefined` or an empty string, `false` otherwise.

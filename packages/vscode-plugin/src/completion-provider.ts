@@ -216,7 +216,7 @@ function createDecoratorValueItems(document: TextDocument, context: MatchContext
       return [
         ...createKeywordItems(['true', 'false'], context),
         ...RESOLVERS
-          .filter((resolver) => ['forEnv', 'eq', 'if', 'not', 'isEmpty'].includes(resolver.name))
+          .filter((resolver) => ['forEnv', 'eq', 'if', 'not', 'and', 'or', 'isEmpty'].includes(resolver.name))
           .map((info) => createResolverItem(info, context)),
       ];
     default:
