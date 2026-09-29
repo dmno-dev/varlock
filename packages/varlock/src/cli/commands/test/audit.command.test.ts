@@ -280,6 +280,43 @@ describe('audit command', () => {
     expect(errorOutput).toContain('ORPHAN_KEY');
   });
 
+  test('excludes keys referenced by a definition whose item is overridden', async () => {
+    loadVarlockEnvGraphMock.mockResolvedValue({
+      configSchema: {
+        VARLOCK_ENV: { getDec: vi.fn().mockReturnValue(undefined) },
+        // APP_ENV=remap($VARLOCK_ENV, ...) overridden from process.env, so its
+        // active resolver is static and has no deps
+        APP_ENV: {
+          getDec: vi.fn().mockReturnValue(undefined),
+          defs: [{ itemDef: { resolver: { deps: ['VARLOCK_ENV'] } } }],
+        },
+        ORPHAN_KEY: { getDec: vi.fn().mockReturnValue(undefined) },
+      },
+      graphAdjacencyList: {
+        VARLOCK_ENV: [],
+        APP_ENV: [],
+        ORPHAN_KEY: [],
+      },
+      sortedDataSources: [],
+      getRootDecFns: vi.fn().mockReturnValue([]),
+      rootDataSource: undefined,
+      basePath: '/repo',
+    });
+
+    scanCodeForEnvVarsMock.mockResolvedValue({
+      keys: ['APP_ENV'],
+      references: [],
+      scannedFilesCount: 1,
+    });
+
+    await commandFn({ values: {} } as any);
+
+    expect(gracefulExitMock).toHaveBeenCalledWith(1);
+    const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+    expect(errorOutput).not.toContain('VARLOCK_ENV');
+    expect(errorOutput).toContain('ORPHAN_KEY');
+  });
+
   test('flattens multiple # @auditIgnorePaths(...) calls and forwards merged excludes to scanner', async () => {
     loadVarlockEnvGraphMock.mockResolvedValue({
       configSchema: {
