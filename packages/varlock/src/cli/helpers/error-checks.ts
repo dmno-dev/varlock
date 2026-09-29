@@ -4,6 +4,7 @@ import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import {
   LoadingError, ParseError, VarlockError,
 } from '../../env-graph/lib/errors';
+import { isNoSchemaAllowed } from '../../lib/no-schema-check';
 import { CliExitError } from './exit-error';
 import { InvalidEnvError } from './invalid-env-error';
 
@@ -39,6 +40,9 @@ export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolea
       if (opts?.noThrow) return;
       throw new CliExitError('Parse error', { silent: true });
     }
+
+    // explicit opt-in to running with no schema (e.g. a deploy that ships no .env files)
+    if (isNoSchemaAllowed()) return;
 
     const displayPath = envGraph.basePath ?? process.cwd();
     const hasLoadedFiles = envGraph.sortedDataSources.some((s) => s instanceof FileBasedDataSource);
