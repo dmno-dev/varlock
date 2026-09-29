@@ -298,7 +298,12 @@ async function findGitRoot(cwd: string): Promise<string | null> {
   try {
     const root = await spawnAsync('git', ['rev-parse', '--show-toplevel'], { cwd });
     return root.trim();
-  } catch {
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new CliExitError('git was not found', {
+        suggestion: 'Install git and make sure it is on your PATH.',
+      });
+    }
     return null;
   }
 }
@@ -365,8 +370,12 @@ async function installHook(cwd: string): Promise<void> {
     return;
   }
 
-  // No hook manager detected -- install directly to .git/hooks/pre-commit
-  const hooksDir = path.join(gitRoot, '.git', 'hooks');
+  // No hook manager detected -- install directly into the repo's hooks dir
+  // (let git resolve it, since `.git` is a file in linked worktrees and core.hooksPath may be set)
+  const hooksDir = path.resolve(
+    gitRoot,
+    (await spawnAsync('git', ['rev-parse', '--git-path', 'hooks'], { cwd: gitRoot })).trim(),
+  );
   const hookPath = path.join(hooksDir, 'pre-commit');
 
   // Ensure hooks directory exists
