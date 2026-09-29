@@ -45,6 +45,20 @@ describe('checkForSchemaErrors', () => {
     consoleLog.mockRestore();
   });
 
+  it('prints a resolution error once when source.errors also includes it', () => {
+    // the real DataSource.errors getter includes resolutionErrors
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => { /* swallow */ });
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => { /* swallow */ });
+    const resErr = new ResolutionError('Invalid cacheTtl');
+    const graph = makeGraphWithSource([resErr], [resErr]);
+    expect(() => checkForSchemaErrors(graph)).toThrow();
+    const allOutput = consoleError.mock.calls.flat().join('\n');
+    expect(allOutput.match(/Invalid cacheTtl/g)).toHaveLength(1);
+    expect(allOutput).toContain('initialization');
+    consoleError.mockRestore();
+    consoleLog.mockRestore();
+  });
+
   it('does not throw when source is clean', () => {
     const graph = makeGraphWithSource([], []);
     const result = checkForSchemaErrors(graph);

@@ -58,9 +58,10 @@ export function checkForSchemaErrors(envGraph: EnvGraph, opts?: { noThrow?: bool
   let hasErrors = false;
   let hasOutput = false;
   for (const source of envGraph.sortedDataSources) {
-    const warnings = source.errors.filter((e) => e.isWarning);
-    const errors = source.errors.filter((e) => !e.isWarning);
     const resolutionErrors = source.resolutionErrors;
+    const warnings = source.errors.filter((e) => e.isWarning);
+    // source.errors includes resolutionErrors, which get their own section below
+    const errors = source.errors.filter((e) => !e.isWarning && !resolutionErrors.includes(e));
 
     if (!warnings.length && !errors.length && !resolutionErrors.length) continue;
     hasOutput = true;
