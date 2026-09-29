@@ -248,7 +248,7 @@ SHOULD_DISABLE_FEATURE=not(forEnv(production))
 
 Returns `true` if every argument is truthy, `false` otherwise. Takes two or more arguments and uses the same truthiness as `if()` and `not()`.
 
-Arguments are resolved in order, and resolution stops at the first falsy one, so later arguments (for example a call to a secrets manager) are only resolved when needed.
+Arguments are resolved in order, and resolution stops at the first falsy one. A function call in a later argument (for example `op(...)` to fetch a secret) only runs when it is needed. This does not apply to references like `$OTHER_ITEM`: referenced items are still resolved as part of loading the env.
 
 ```env-spec /(and)\\(/
 # Combine multiple conditions
@@ -263,7 +263,7 @@ RUN_SLOW_TESTS_IN_CI=and($VARLOCK_IS_CI, $RUN_SLOW_TESTS)
 
 Returns `true` if any argument is truthy, `false` otherwise. Takes two or more arguments and uses the same truthiness as `if()` and `not()`.
 
-Arguments are resolved in order, and resolution stops at the first truthy one.
+Arguments are resolved in order, and resolution stops at the first truthy one. As with `and()`, this skips later function calls, not referenced items.
 
 ```env-spec /(or)\\(/
 # @required=or(forEnv(production), $FEATURE_X)
