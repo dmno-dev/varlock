@@ -308,7 +308,7 @@ async function findGitRoot(cwd: string): Promise<string | null> {
   }
 }
 
-async function installHook(cwd: string): Promise<void> {
+export async function installHook(cwd: string): Promise<void> {
   const gitRoot = await findGitRoot(cwd);
   if (!gitRoot) {
     throw new CliExitError('Not inside a git repository', {

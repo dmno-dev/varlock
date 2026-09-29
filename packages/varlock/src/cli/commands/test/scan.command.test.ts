@@ -4,8 +4,9 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import {
-  scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths,
+  scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths, installHook,
 } from '../scan.command';
 
 describe('scanFileForValues', () => {
@@ -251,5 +252,42 @@ describe('resolveTargetPaths', () => {
     const files = await resolveTargetPaths([distDir], tempDir);
     expect(files).toHaveLength(1);
     expect(files[0]).toContain('bundle.js');
+  });
+});
+
+describe('installHook', () => {
+  let tempDir: string;
+  const git = (cwd: string, ...args: Array<string>) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+
+  beforeEach(() => {
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-hook-test-')));
+    const mainRepo = path.join(tempDir, 'main');
+    fs.mkdirSync(mainRepo);
+    git(mainRepo, 'init', '-q');
+    git(mainRepo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'init');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('installs into the main repo hooks dir from a linked worktree', async () => {
+    const mainRepo = path.join(tempDir, 'main');
+    const worktree = path.join(tempDir, 'wt');
+    git(mainRepo, 'worktree', 'add', '-q', worktree);
+
+    await installHook(worktree);
+
+    expect(fs.existsSync(path.join(mainRepo, '.git', 'hooks', 'pre-commit'))).toBe(true);
+  });
+
+  test('respects a relative core.hooksPath', async () => {
+    const mainRepo = path.join(tempDir, 'main');
+    git(mainRepo, 'config', 'core.hooksPath', 'custom-hooks');
+
+    await installHook(mainRepo);
+
+    expect(fs.existsSync(path.join(mainRepo, 'custom-hooks', 'pre-commit'))).toBe(true);
+    expect(fs.existsSync(path.join(mainRepo, '.git', 'hooks', 'pre-commit'))).toBe(false);
   });
 });

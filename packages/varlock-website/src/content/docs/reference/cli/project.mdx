@@ -92,7 +92,7 @@ The easiest way to set up scanning as a pre-commit hook is to run:
 ```bash
 varlock scan --install-hook
 ```
-This will detect if you are using a hook manager (like husky or lefthook) and provide the appropriate setup instructions. Otherwise, it will create a `.git/hooks/pre-commit` hook for you automatically.
+This will detect if you are using a hook manager (like husky or lefthook) and provide the appropriate setup instructions. Otherwise, it will create a `pre-commit` hook for you in git's hooks directory (`.git/hooks` by default, or `core.hooksPath` if set; linked worktrees share the main repo's hooks).
 
 If varlock is installed as a project dependency, the hook command will be automatically prefixed with your package manager (e.g., `npx varlock scan`).
 
