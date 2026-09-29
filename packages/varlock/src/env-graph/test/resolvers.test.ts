@@ -657,6 +657,82 @@ describe('not()', functionValueTests({
   },
 }));
 
+describe('and()', functionValueTests({
+  working: {
+    input: outdent`
+      ALL_TRUE=and(true, true)
+      ONE_FALSE=and(true, false)
+      THREE=and(true, 1, "a")
+      THREE_FALSY=and(true, 1, "")
+      UNDEF=and(true, undefined)
+    `,
+    expected: {
+      ALL_TRUE: true,
+      ONE_FALSE: false,
+      THREE: true,
+      THREE_FALSY: false,
+      UNDEF: false,
+    },
+  },
+  'with nested resolvers and refs': {
+    input: outdent`
+      # @type=boolean
+      IS_CI=false
+      # @type=boolean
+      RUN_SLOW=true
+      ITEM1=and(not($IS_CI), $RUN_SLOW)
+      ITEM2=and($IS_CI, $RUN_SLOW)
+      ITEM3=and(eq("a", "a"), or($IS_CI, $RUN_SLOW))
+    `,
+    expected: { ITEM1: true, ITEM2: false, ITEM3: true },
+  },
+  'short-circuits after a falsy arg': {
+    input: 'ITEM=and(false, exec("exit 1"))',
+    expected: { ITEM: false },
+  },
+  'resolves later args when needed': {
+    input: 'ITEM=and(true, exec("exit 1"))',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - too few args': {
+    input: 'ITEM=and(true)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - key/val args': {
+    input: 'ITEM=and(a=true, b=true)',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('or()', functionValueTests({
+  working: {
+    input: outdent`
+      ALL_FALSE=or(false, false)
+      ONE_TRUE=or(false, true)
+      THREE=or("", 0, "a")
+      THREE_FALSY=or("", 0, undefined)
+    `,
+    expected: {
+      ALL_FALSE: false,
+      ONE_TRUE: true,
+      THREE: true,
+      THREE_FALSY: false,
+    },
+  },
+  'short-circuits after a truthy arg': {
+    input: 'ITEM=or(true, exec("exit 1"))',
+    expected: { ITEM: true },
+  },
+  'resolves later args when needed': {
+    input: 'ITEM=or(false, exec("exit 1"))',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - too few args': {
+    input: 'ITEM=or(true)',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
 describe('isEmpty()', functionValueTests({
   working: {
     input: outdent`

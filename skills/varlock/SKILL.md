@@ -181,7 +181,7 @@ APP_ENV=remap($CI_BRANCH, "main", production, regex(".*"), preview, undefined, d
 PROD_ONLY_KEY=
 ```
 
-Key functions: `ref()`, `concat()`, `exec()`, `fallback()`, `if()`, `eq()`, `not()`, `isEmpty()`, `ifs()`, `remap()`, `forEnv()`
+Key functions: `ref()`, `concat()`, `exec()`, `fallback()`, `if()`, `eq()`, `not()`, `and()`, `or()`, `isEmpty()`, `ifs()`, `remap()`, `forEnv()`
 
 See https://varlock.dev/reference/functions/
 

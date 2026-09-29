@@ -809,6 +809,40 @@ export const NotResolver: typeof Resolver = createResolver({
   },
 });
 
+export const AndResolver: typeof Resolver = createResolver({
+  name: 'and',
+  icon: 'material-symbols:join-inner',
+  inferredType: 'boolean',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 2,
+  },
+  async resolve() {
+    // short-circuit - later args are not resolved once the result is known
+    for (const arg of this.arrArgs!) {
+      if (!await arg.resolve()) return false;
+    }
+    return true;
+  },
+});
+
+export const OrResolver: typeof Resolver = createResolver({
+  name: 'or',
+  icon: 'material-symbols:join-full',
+  inferredType: 'boolean',
+  argsSchema: {
+    type: 'array',
+    arrayMinLength: 2,
+  },
+  async resolve() {
+    // short-circuit - later args are not resolved once the result is known
+    for (const arg of this.arrArgs!) {
+      if (await arg.resolve()) return true;
+    }
+    return false;
+  },
+});
+
 export const IsEmptyResolver: typeof Resolver = createResolver({
   name: 'isEmpty',
   icon: 'material-symbols:empty',
@@ -1342,6 +1376,8 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   EqResolver,
   IfResolver,
   NotResolver,
+  AndResolver,
+  OrResolver,
   IsEmptyResolver,
   DomainFromUrlResolver,
   RegexResolver,
