@@ -86,3 +86,30 @@ describe('getSerializedGraph errors', () => {
     expect(rootErrors.filter((e) => e.includes('invalid JSON data'))).toHaveLength(1);
   });
 });
+
+describe('getSerializedGraph warnings', () => {
+  const schema = outdent`
+    # @defaultSensitive=true
+    # ---
+    _VARLOCK_THING=1
+    # @type=number
+    FOO=1
+    # @type=number @internal
+    SECRET_ZERO=1
+  `;
+
+  it('omits warnings unless requested', async () => {
+    const g = await loadSchema(schema);
+    expect(g.getSerializedGraph().warnings).toBeUndefined();
+  });
+
+  it('includes source and item warnings when requested, respecting item visibility', async () => {
+    const g = await loadSchema(schema);
+    const { warnings, errors } = g.getSerializedGraph({ includeWarnings: true });
+    expect(errors).toBeUndefined();
+    expect(warnings?.root?.some((w) => w.includes('reserved _VARLOCK_ prefix'))).toBe(true);
+    expect(warnings?.configItems?.FOO).toContain('never redacted');
+    expect(warnings?.configItems).not.toHaveProperty('SECRET_ZERO');
+    expect(warnings?.configItems).not.toHaveProperty('_VARLOCK_THING');
+  });
+});
