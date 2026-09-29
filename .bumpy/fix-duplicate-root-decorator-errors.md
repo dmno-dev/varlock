@@ -8,4 +8,3 @@ Error output fixes:
 - an invalid static `@cache` value is reported once
 - a root decorator referencing an invalid item now shows that item's errors
 - `json-full` item errors no longer include warnings
-- `load --format json-full` now includes a `warnings` object (same shape as `errors`)

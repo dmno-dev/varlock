@@ -162,11 +162,6 @@ export type SerializedEnvGraph = {
   injectedAtBuild?: boolean;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
-  /**
-   * Non-fatal warnings, same shape as `errors`. Only included when requested (e.g. by
-   * `load --format json-full`) so the injected `__VARLOCK_ENV` blob stays lean.
-   */
-  warnings?: SerializedEnvGraphErrors;
 };
 
 /**
@@ -1098,12 +1093,7 @@ export class EnvGraph {
     return envObject;
   }
 
-  getSerializedGraph(opts?: {
-    includeInternal?: boolean,
-    filterKeys?: Set<string>,
-    /** also include non-fatal warnings (source, plugin, and item level) */
-    includeWarnings?: boolean,
-  }): SerializedEnvGraph {
+  getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       blobFormatVersion: SERIALIZED_ENV_GRAPH_FORMAT_VERSION,
       varlockVersion: VARLOCK_VERSION_ID,
@@ -1216,32 +1206,6 @@ export class EnvGraph {
     // only include errors key if there are any
     if (errors.root || errors.configItems) {
       serializedGraph.errors = errors;
-    }
-
-    if (opts?.includeWarnings) {
-      const warnings: SerializedEnvGraphErrors = {};
-      const rootWarnings: Array<string> = [];
-      for (const source of this.sortedDataSources) {
-        for (const warning of source.errors.filter((e) => e.isWarning)) {
-          rootWarnings.push(`${source.label}: ${warning.message}`);
-        }
-      }
-      for (const plugin of this.plugins) {
-        for (const warning of plugin.warnings) {
-          rootWarnings.push(`plugin ${plugin.name}: ${warning.message}`);
-        }
-      }
-      if (rootWarnings.length) warnings.root = rootWarnings;
-
-      // same visibility rules as `config` above, so this never names a hidden item
-      const configItemWarnings: Record<string, string> = {};
-      for (const itemKey of Object.keys(serializedGraph.config)) {
-        const itemWarnings = this.configSchema[itemKey].errors.filter((e) => e.isWarning);
-        if (itemWarnings.length) configItemWarnings[itemKey] = itemWarnings.map((e) => e.message).join('; ');
-      }
-      if (Object.keys(configItemWarnings).length) warnings.configItems = configItemWarnings;
-
-      if (warnings.root || warnings.configItems) serializedGraph.warnings = warnings;
     }
 
     return serializedGraph;
