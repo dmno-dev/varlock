@@ -134,7 +134,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "1.2.2",
+      "version": "1.2.3",
       "devDependencies": {
         "@babel/parser": "^7.29.3",
         "@env-spec/utils": "workspace:^",
@@ -188,19 +188,19 @@
     },
     "packages/native-helpers/darwin": {
       "name": "@varlock/native-helper-darwin",
-      "version": "1.21.0",
+      "version": "1.21.1",
     },
     "packages/native-helpers/linux-arm64": {
       "name": "@varlock/native-helper-linux-arm64",
-      "version": "1.21.0",
+      "version": "1.21.1",
     },
     "packages/native-helpers/linux-x64": {
       "name": "@varlock/native-helper-linux-x64",
-      "version": "1.21.0",
+      "version": "1.21.1",
     },
     "packages/native-helpers/win32-x64": {
       "name": "@varlock/native-helper-win32-x64",
-      "version": "1.21.0",
+      "version": "1.21.1",
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
@@ -518,7 +518,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.21.0",
+      "version": "1.21.1",
       "bin": {
         "varlock": "./bin/cli.js",
       },

@@ -15,6 +15,13 @@
 
 
 
+
+## 1.2.3
+<sub>2026-09-29</sub>
+
+- [#1136](https://github.com/dmno-dev/varlock/pull/1136)  *(patch)*
+  Fix `ENV` values being `undefined` in the browser with Turbopack when read from monorepo workspace packages outside the app directory, or from browser-only files without a 'use client' directive (such as `instrumentation-client.ts`) in dev
+
 ## 1.2.2
 <sub>2026-09-01</sub>
 
