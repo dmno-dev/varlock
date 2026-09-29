@@ -404,6 +404,9 @@ class OpPluginInstance {
       integrationName: 'varlock plugin',
       integrationVersion: PLUGIN_VERSION,
     });
+    // readItem() awaits the client in a setImmediate batch, which runs after a fast
+    // rejection (e.g. a malformed token) would already be reported as unhandled
+    this.opClientPromise.catch(() => undefined);
   }
 
   // ── Connect REST API helpers ──────────────────────────────
@@ -756,9 +759,6 @@ class OpPluginInstance {
   }
 
   private async executeReadBatch() {
-    const opClient = await this.opClientPromise;
-    if (!opClient) throw new Error('Expected op sdk to be initialized');
-
     const batch = this.readBatch;
     this.readBatch = undefined;
 
@@ -767,6 +767,8 @@ class OpPluginInstance {
     if (!opReferences.length) return;
 
     try {
+      const opClient = await this.opClientPromise;
+      if (!opClient) throw new Error('Expected op sdk to be initialized');
       const result = await opClient.secrets.resolveAll(opReferences);
 
       for (const ref in batch) {
