@@ -3,6 +3,10 @@ import {
   afterEach, beforeEach, describe, expect, test, vi,
 } from 'vitest';
 
+import outdent from 'outdent';
+
+import { EnvGraph } from '../../../env-graph';
+import { DotEnvFileDataSource } from '../../../env-graph/lib/data-source';
 import { diffSchemaAndCodeKeys } from '../../helpers/audit-diff';
 import { commandFn } from '../audit.command';
 
@@ -278,6 +282,49 @@ describe('audit command', () => {
     expect(errorOutput).not.toContain('PLUGIN_TOKEN');
     // ORPHAN_KEY is not in code and not referenced internally, should be reported
     expect(errorOutput).toContain('ORPHAN_KEY');
+  });
+
+  describe('keys referenced by a definition that is not the active one', () => {
+    // real graph: `SHADOWED=local` in .env.schema wins over the imported `SHADOWED=$SHADOW_SRC`
+    async function loadRealGraph(overrideValues?: Record<string, string>) {
+      const g = new EnvGraph();
+      g.setVirtualImports('/repo', {
+        '.env.base': 'SHADOW_SRC=q\nSHADOWED=$SHADOW_SRC\n',
+      });
+      if (overrideValues) g.overrideValues = overrideValues;
+      await g.setRootDataSource(new DotEnvFileDataSource('/repo/.env.schema', {
+        overrideContents: outdent`
+          # @import(./.env.base)
+          # ---
+          BASE=abc
+          URL=$BASE/x
+          SHADOWED=local
+          ORPHAN_KEY=x
+        `,
+      }));
+      await g.finishLoad();
+      return g;
+    }
+
+    test.each([
+      ['no overrides', undefined],
+      ['referencing item overridden from process.env', { URL: 'zzz' }],
+    ])('are excluded from unused keys (%s)', async (_label, overrideValues) => {
+      loadVarlockEnvGraphMock.mockResolvedValue(await loadRealGraph(overrideValues));
+      scanCodeForEnvVarsMock.mockResolvedValue({
+        keys: ['URL', 'SHADOWED'],
+        references: [],
+        scannedFilesCount: 1,
+      });
+
+      await commandFn({ values: {} } as any);
+
+      expect(gracefulExitMock).toHaveBeenCalledWith(1);
+      const errorOutput = consoleErrorSpy.mock.calls.flat().join('\n');
+      expect(errorOutput).not.toMatch(/\bBASE\b/);
+      expect(errorOutput).not.toContain('SHADOW_SRC');
+      expect(errorOutput).toContain('ORPHAN_KEY');
+    });
   });
 
   test('flattens multiple # @auditIgnorePaths(...) calls and forwards merged excludes to scanner', async () => {

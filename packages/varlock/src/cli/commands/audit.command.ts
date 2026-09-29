@@ -165,6 +165,17 @@ function getInternallyReferencedKeys(envGraph: any): Set<string> {
     }
   }
 
+  // The adjacency list only follows the active resolver: a bare static value when the item is
+  // overridden from process.env, or the highest-priority definition when a file shadows another.
+  // Read the deps of every definition too so the result doesn't depend on the environment
+  for (const item of Object.values<any>(envGraph.configSchema ?? {})) {
+    for (const def of item.defs ?? []) {
+      for (const dep of def.itemDef.resolver?.deps ?? []) {
+        referenced.add(dep);
+      }
+    }
+  }
+
   // Keys referenced by root decorators (e.g., @currentEnv=$APP_ENV)
   for (const source of envGraph.sortedDataSources ?? []) {
     for (const dec of source.rootDecorators ?? []) {
