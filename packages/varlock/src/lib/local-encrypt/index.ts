@@ -12,7 +12,7 @@
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import { resolveNativeBinary, getInstalledPlatformPackageName } from './binary-resolver';
+import { resolveNativeBinary, getInstalledPlatformPackageName, getNativeBinarySpawnOptions } from './binary-resolver';
 import { DaemonClient } from './daemon-client';
 import * as fileBackend from './file-backend';
 import { isWSL } from './wsl-detect';
@@ -171,6 +171,7 @@ function toWindowsPathFromWsl(pathInWsl: string): string | undefined {
   if (!isWSL()) return undefined;
   try {
     return execFileSync('wslpath', ['-w', pathInWsl], {
+      ...getNativeBinarySpawnOptions(pathInWsl),
       encoding: 'utf-8',
       timeout: 10_000,
     }).trim();
@@ -203,6 +204,7 @@ function tryPrestartWindowsDaemonFromWsl(binaryPath: string): boolean {
     '-Command',
     psScript,
   ], {
+    ...getNativeBinarySpawnOptions(binaryPath),
     encoding: 'utf-8',
     timeout: 20_000,
   });
@@ -223,6 +225,7 @@ function tryPrestartWindowsDaemonFromWsl(binaryPath: string): boolean {
 
 function pingWindowsDaemonFromWsl(binaryPath: string, timeoutMs: number = 2_000): boolean {
   const proc = spawnSync(binaryPath, ['ping-daemon'], {
+    ...getNativeBinarySpawnOptions(binaryPath),
     encoding: 'utf-8',
     timeout: timeoutMs,
   });
@@ -273,6 +276,7 @@ function runNativeBinary(args: Array<string>, opts?: { timeout?: number; sensiti
   }
   debug(`runNativeBinary: ${binaryPath} ${redactDataArg(args).join(' ')}`);
   const output = execFileSync(binaryPath, args, {
+    ...getNativeBinarySpawnOptions(binaryPath),
     encoding: 'utf-8',
     timeout: opts?.timeout ?? 30_000,
   }).trim();
@@ -297,7 +301,7 @@ function spawnNativeBinaryAsync(
   const timeoutMs = opts.timeout ?? 30_000;
   return new Promise((resolve, reject) => {
     debug(`spawnNativeBinaryAsync: ${binaryPath} ${redactDataArg(args).join(' ')}`);
-    const proc = spawn(binaryPath, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(binaryPath, args, { ...getNativeBinarySpawnOptions(binaryPath), stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -577,6 +581,7 @@ export async function decryptValue(ciphertext: string, keyId: string = DEFAULT_K
         ttyId: getSelfSessionId(),
       });
       const runViaDaemon = (timeout: number) => spawnSync(binaryPath, ['decrypt', '--key-id', keyId, '--data-stdin', '--via-daemon'], {
+        ...getNativeBinarySpawnOptions(binaryPath),
         input: stdinPayload,
         encoding: 'utf-8',
         timeout,

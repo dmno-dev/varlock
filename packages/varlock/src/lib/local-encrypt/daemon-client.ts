@@ -21,7 +21,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 
 import { getUserVarlockDir } from '../user-config-dir';
-import { resolveNativeBinary } from './binary-resolver';
+import { getNativeBinarySpawnOptions, resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 import type {
   KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
@@ -668,6 +668,7 @@ export class DaemonClient {
         '--pid-path',
         pidPath,
       ], {
+        ...getNativeBinarySpawnOptions(binaryPath),
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });

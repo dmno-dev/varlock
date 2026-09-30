@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 
 /**
@@ -15,9 +15,11 @@ import { existsSync } from 'node:fs';
 export function getUserVarlockDir(): string {
   const home = os.homedir();
 
-  // If XDG_CONFIG_HOME is explicitly set, always respect it
+  // If XDG_CONFIG_HOME is explicitly set, always respect it. Resolved so a
+  // relative value still means the same place when passed to the native helper,
+  // which runs from its own directory.
   if (process.env.XDG_CONFIG_HOME) {
-    return join(process.env.XDG_CONFIG_HOME, 'varlock');
+    return resolve(process.env.XDG_CONFIG_HOME, 'varlock');
   }
 
   // Backwards compatibility: if legacy ~/.varlock exists, keep using it

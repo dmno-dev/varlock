@@ -1,3 +1,9 @@
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync, existsSync, mkdtempSync, rmSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, test, expect } from 'vitest';
 import {
   runBinary, binaryRun, BINARY_PATH,
@@ -49,6 +55,38 @@ describe('Compiled binary tests', () => {
     // without --no-compile-autoload-dotenv this would be the literal: 'if(true, a, b)'
     expect(result.output).toContain('PUBLIC_VAR=a');
   });
+
+  // Runs as a service user often start in a directory that user cannot enter
+  // (e.g. `runuser` keeps the caller's cwd). The native helper must still start.
+  // Needs the helper next to the binary (a build without --skip-native), or
+  // `cache clear` never spawns it. Skipped as root, which can enter any directory.
+  const hasNativeHelper = existsSync(join(dirname(BINARY_PATH), 'varlock-local-encrypt'));
+  test.skipIf(process.platform === 'win32' || process.getuid?.() === 0 || !hasNativeHelper)(
+    'native helper starts when the cwd cannot be entered',
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'varlock-locked-cwd-'));
+      // A scratch config dir, so `cache clear` never touches the real user cache.
+      const configDir = mkdtempSync(join(tmpdir(), 'varlock-config-'));
+      try {
+        // Enter the directory first, then remove access, so varlock starts with a
+        // cwd it cannot enter. `cache clear` asks the native helper for the key;
+        // VARLOCK_DEBUG shows that it really did.
+        const result = spawnSync('/bin/sh', ['-c', 'chmod 000 . && exec "$0" cache clear --yes', BINARY_PATH], {
+          cwd: dir,
+          env: { ...process.env, XDG_CONFIG_HOME: configDir, VARLOCK_DEBUG: '1' },
+          encoding: 'utf-8',
+        });
+        const output = (result.stdout ?? '') + (result.stderr ?? '');
+        expect(output).toContain('runNativeBinary:');
+        expect(output).not.toContain('EACCES');
+        expect(result.status).toBe(0);
+      } finally {
+        chmodSync(dir, 0o700);
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(configDir, { recursive: true, force: true });
+      }
+    },
+  );
 
   describe('nested varlock run (issue #312)', () => {
     test('inner binary can run and inject env vars', () => {
