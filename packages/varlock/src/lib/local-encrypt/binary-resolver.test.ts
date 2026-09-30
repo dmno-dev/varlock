@@ -104,6 +104,17 @@ describe('getNativeBinarySpawnOptions', () => {
     }
   });
 
+  it('drops an empty XDG_CONFIG_HOME, which getUserVarlockDir treats as unset', () => {
+    process.env.XDG_CONFIG_HOME = '';
+    try {
+      const { env } = getNativeBinarySpawnOptions('/opt/varlock/varlock-local-encrypt');
+      expect(env).toBeDefined();
+      expect(env).not.toHaveProperty('XDG_CONFIG_HOME');
+    } finally {
+      restoreXdg();
+    }
+  });
+
   it('leaves an absolute XDG_CONFIG_HOME to the inherited env', () => {
     process.env.XDG_CONFIG_HOME = '/home/someone/.config';
     try {
