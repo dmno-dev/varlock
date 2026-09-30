@@ -1,11 +1,12 @@
 import {
-  describe, test, expect, beforeEach, afterEach,
+  describe, test, expect, beforeEach, afterEach, vi,
 } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import {
-  scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths,
+  scanFileForValues, walkDirectory, walkDirectoryAll, resolveTargetPaths, installHook,
 } from '../scan.command';
 
 describe('scanFileForValues', () => {
@@ -251,5 +252,48 @@ describe('resolveTargetPaths', () => {
     const files = await resolveTargetPaths([distDir], tempDir);
     expect(files).toHaveLength(1);
     expect(files[0]).toContain('bundle.js');
+  });
+});
+
+describe('installHook', () => {
+  let tempDir: string;
+  const git = (cwd: string, ...args: Array<string>) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+
+  beforeEach(() => {
+    // isolate from the user's global/system git config (e.g. a global core.hooksPath)
+    // - installHook spawns git with the inherited env, so stub process.env itself
+    vi.stubEnv('GIT_CONFIG_GLOBAL', '/dev/null');
+    vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+    vi.stubEnv('GIT_CONFIG_COUNT', '0');
+    tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-hook-test-')));
+    const mainRepo = path.join(tempDir, 'main');
+    fs.mkdirSync(mainRepo);
+    git(mainRepo, 'init', '-q');
+    git(mainRepo, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'init');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('installs into the main repo hooks dir from a linked worktree', async () => {
+    const mainRepo = path.join(tempDir, 'main');
+    const worktree = path.join(tempDir, 'wt');
+    git(mainRepo, 'worktree', 'add', '-q', worktree);
+
+    await installHook(worktree);
+
+    expect(fs.existsSync(path.join(mainRepo, '.git', 'hooks', 'pre-commit'))).toBe(true);
+  });
+
+  test('respects a relative core.hooksPath', async () => {
+    const mainRepo = path.join(tempDir, 'main');
+    git(mainRepo, 'config', 'core.hooksPath', 'custom-hooks');
+
+    await installHook(mainRepo);
+
+    expect(fs.existsSync(path.join(mainRepo, 'custom-hooks', 'pre-commit'))).toBe(true);
+    expect(fs.existsSync(path.join(mainRepo, '.git', 'hooks', 'pre-commit'))).toBe(false);
   });
 });
