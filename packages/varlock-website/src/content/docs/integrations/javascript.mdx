@@ -68,9 +68,9 @@ Only resolved values are available to the hook, so this does not help with `.env
 
 ### Running with no config
 
-If no `.env` files are found (or they define no items), auto-load prints a warning and the app starts with an empty config. This usually means the app was started from a different directory than its `.env.schema`, or a build or archive left the `.env` files out. The framework integrations print the same warning. In the next major version this becomes an error, matching `varlock load` and `varlock run`.
+If no `.env` files are found (or they define no items), auto-load fails the same way as `varlock load` and `varlock run`. This usually means the app was started from a different directory than its `.env.schema`, or a build or archive left the `.env` files out. The framework integrations fail the same way.
 
-If your app intentionally runs with no config items (for example a deploy that ships no `.env` files and reads everything from `process.env`), set [`_VARLOCK_ALLOW_EMPTY_CONFIG=1`](/reference/reserved-variables/#_varlock_allow_empty_config) to silence the warning. It also makes `varlock load` and `varlock run` succeed with an empty config instead of erroring.
+If your app intentionally runs with no config items (for example a deploy that ships no `.env` files and reads everything from `process.env`), set [`_VARLOCK_ALLOW_EMPTY_CONFIG=1`](/reference/reserved-variables/#_varlock_allow_empty_config). auto-load, the integrations, `varlock load`, and `varlock run` then continue with an empty config.
 
 ### Reusing an injected env blob
 

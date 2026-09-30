@@ -3,9 +3,9 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { runVarlock } from '../helpers/run-varlock.js';
 
-// Loading from a directory with no .env files (issue #1143). `load` and `run` error, while
-// auto-load (and the framework integrations) currently only warn. `_VARLOCK_ALLOW_EMPTY_CONFIG=1`
-// opts in to running with an empty config.
+// Loading from a directory with no .env files (issue #1143) fails everywhere: `load`, `run`, and
+// auto-load (and the framework integrations, via `load --format json-full`).
+// `_VARLOCK_ALLOW_EMPTY_CONFIG=1` opts in to running with an empty config.
 
 const SCENARIO = 'smoke-test-empty-config';
 const SCENARIO_DIR = join(import.meta.dirname, '..', SCENARIO);
@@ -26,15 +26,21 @@ function runApp(env: Record<string, string> = {}) {
 }
 
 describe('loading an empty config', () => {
-  test('auto-load warns but still runs the app', () => {
+  test('auto-load fails and the app never runs', () => {
     const { exitCode, stdout, stderr } = runApp();
-    expect(exitCode).toBe(0);
+    expect(exitCode).not.toBe(0);
     expect(stderr).toContain('No .env files found');
     expect(stderr).toContain('_VARLOCK_ALLOW_EMPTY_CONFIG=1');
-    expect(stdout).toContain('DOWNSTREAM_RAN');
+    expect(stdout).not.toContain('DOWNSTREAM_RAN');
   });
 
-  test('auto-load with _VARLOCK_ALLOW_EMPTY_CONFIG=1 does not warn', () => {
+  test('load --format json-full reports the error in its JSON and exits non-zero', () => {
+    const result = runVarlock(['load', '--format', 'json-full'], { cwd: SCENARIO });
+    expect(result.exitCode).not.toBe(0);
+    expect(JSON.parse(result.stdout).errors.root).toEqual([expect.stringContaining('No .env files found')]);
+  });
+
+  test('auto-load with _VARLOCK_ALLOW_EMPTY_CONFIG=1 runs the app', () => {
     const { exitCode, stdout, stderr } = runApp({ _VARLOCK_ALLOW_EMPTY_CONFIG: '1' });
     expect(exitCode).toBe(0);
     expect(stderr).not.toContain('No .env files found');

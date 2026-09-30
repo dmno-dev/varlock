@@ -57,11 +57,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // For all other formats, exit on errors as before.
   let hasSchemaErrors = false;
   let hadSchemaOutput = false;
+  let emptyConfigError: string | undefined;
   if (outputFormat === 'json-full') {
     const result = checkForSchemaErrors(envGraph, { noThrow: true });
     hasSchemaErrors = result.hasErrors;
     hadSchemaOutput = result.hasOutput;
-    checkForNoEnvFiles(envGraph, { noThrow: true, allowOptOut: true });
+    emptyConfigError = checkForNoEnvFiles(envGraph, { noThrow: true, allowOptOut: true });
   } else {
     const result = checkForSchemaErrors(envGraph);
     hadSchemaOutput = result.hasOutput;
@@ -170,6 +171,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
           item.value = '[REDACTED]';
         }
       }
+    }
+    // an empty config is an error for json-full consumers too (auto-load, framework integrations),
+    // not just for the other formats
+    if (emptyConfigError) {
+      serialized.errors ??= {};
+      serialized.errors.root = [...serialized.errors.root ?? [], emptyConfigError];
     }
     console.log(JSON.stringify(serialized, null, indent));
     // Output JSON to stdout even on failure (so consumers can parse err.stdout),
