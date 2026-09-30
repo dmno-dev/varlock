@@ -23,7 +23,7 @@ import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, ruleMatchesFacts,
   type RequestFacts, type RequestScopedManagedItem,
 } from './policy';
-import { canonicalizeRequestTarget } from './request-target';
+import { canonicalizeRequestTarget, substitutedPathKeepsStructure } from './request-target';
 import { BUILT_IN_TRANSFORM_SCHEMES } from './request-transform';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
@@ -1560,7 +1560,23 @@ export async function startLocalProxyRuntime({
       const queryStart = t.requestTarget.indexOf('?');
       const pathPart = queryStart === -1 ? t.requestTarget : t.requestTarget.slice(0, queryStart);
       const queryPart = queryStart === -1 ? undefined : t.requestTarget.slice(queryStart + 1);
-      rewrittenPath = substitutePlaceholdersInSurface(pathPart, managedItems, keysForLocation('path'))
+      const substitutedPathPart = substitutePlaceholdersInSurface(pathPart, managedItems, keysForLocation('path'));
+      // Policy matched the canonical placeholder-form path (`t.pathOnly`). A value
+      // substituted into it must stay inside its segment: one that carries `/`,
+      // `..`, `?`, `#`, or anything the canonicalizer would rewrite would route
+      // the request somewhere the rules never evaluated. The value is the schema
+      // author's, not the agent's, so this is a misconfiguration, but it fails
+      // closed all the same (and names the key, never the value).
+      if (!substitutedPathKeepsStructure(pathPart, substitutedPathPart)) {
+        const pathKeys = [...keysForLocation('path')].filter((key) => injectedKeys.includes(key));
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-location',
+        });
+        respondBlocked(res, 502, `Blocked by the varlock credential proxy: substituting ${pathKeys.join(', ') || 'a managed item'} into the URL path would change the path's structure (the value contains a path separator, dot segment, query or fragment marker, or a character that needs encoding). `
+          + 'A value carried in the path must be URL-safe; encode it, or substitute it somewhere else.', t.tunnelTeardown);
+        return;
+      }
+      rewrittenPath = substitutedPathPart
         + (queryPart === undefined
           ? ''
           : `?${substitutePlaceholdersInSurface(queryPart, managedItems, keysForLocation('query'))}`);

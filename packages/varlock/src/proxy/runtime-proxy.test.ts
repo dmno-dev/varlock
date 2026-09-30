@@ -754,8 +754,10 @@ describe('startLocalProxyRuntime', () => {
 
   test('matches path rules on the canonical path, so `//`-spelled and encoded paths cannot bypass a block', async () => {
     let upstreamHit = false;
-    const upstream = http.createServer((_req, res) => {
+    let upstreamUrl = '';
+    const upstream = http.createServer((req, res) => {
       upstreamHit = true;
+      upstreamUrl = req.url ?? '';
       res.end('ok');
     });
     await new Promise<void>((resolve) => {
@@ -791,10 +793,11 @@ describe('startLocalProxyRuntime', () => {
     expect(malformed.statusCode).toBe(400);
     expect(upstreamHit).toBe(false);
 
-    // The canonical form is what goes upstream.
-    const okResponse = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}//charges/./re_1`);
+    // The canonical form is what goes upstream: matched path == routed path.
+    const okResponse = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}//charges/./re_1?x=%2F..`);
     expect(okResponse.statusCode).toBe(200);
     expect(activities.at(-1)).toMatchObject({ decision: 'allow', path: '/charges/re_1' });
+    expect(upstreamUrl).toBe('/charges/re_1?x=%2F..');
 
     await runtime.stop();
     await new Promise<void>((resolve) => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { canonicalizeRequestTarget } from './request-target';
+import { canonicalizeRequestTarget, substitutedPathKeepsStructure } from './request-target';
 import { evaluateProxyPolicy, getRequestScopedManagedItems } from './policy';
 import type { ProxyManagedItem, ProxyRule } from './types';
 
@@ -88,6 +88,23 @@ describe('canonicalized paths close the block-rule bypass', () => {
     // set should be judged on the canonical path.
     expect(target.pathOnly).toBe('/v1/refunds/re_1');
     expect(getRequestScopedManagedItems(facts, rules, items).map((i) => i.key)).toEqual(['STRIPE']);
+  });
+
+  test('substituting a value into the path may not change its structure', () => {
+    const base = '/v1/sk-stub-PLACEHOLDER/data';
+    expect(substitutedPathKeepsStructure(base, base)).toBe(true);
+    expect(substitutedPathKeepsStructure(base, '/v1/sk-stub-REALKEY/data')).toBe(true);
+    expect(substitutedPathKeepsStructure(base, '/v1/a%20b~c.d/data')).toBe(true);
+    // structural characters in the value move the request off the authorized path
+    expect(substitutedPathKeepsStructure(base, '/v1/../admin/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/a/b/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1//data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/x?admin=1/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/x#frag/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/x%2Fy/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/x%2e%2e/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/x y/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/100%/data')).toBe(false);
   });
 
   test('strict egress with a path allow rule does not let a dot segment reach a sibling path', () => {

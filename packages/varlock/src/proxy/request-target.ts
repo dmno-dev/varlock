@@ -112,3 +112,19 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
   const pathOnly = `/${segments.join('/')}${trailingSlash ? '/' : ''}`;
   return { ok: true, pathOnly, requestTarget: `${pathOnly}${query}` };
 }
+
+/**
+ * Whether substituting a real value into a canonical path left its structure
+ * intact. Policy was evaluated on the placeholder-form path, so the value that
+ * replaces the placeholder must stay inside its segment: it may not add or
+ * remove segments (`/`, `..`), start a query or fragment (`?`, `#`), or spell
+ * anything the canonicalizer would rewrite or reject. Otherwise the routed path
+ * is not the one the rules authorized.
+ */
+export function substitutedPathKeepsStructure(canonicalPath: string, substitutedPath: string): boolean {
+  if (substitutedPath === canonicalPath) return true;
+  if (substitutedPath.includes('?') || substitutedPath.includes('#')) return false;
+  const check = canonicalizeRequestTarget(substitutedPath);
+  if (!check.ok || check.pathOnly !== substitutedPath) return false;
+  return substitutedPath.split('/').length === canonicalPath.split('/').length;
+}
