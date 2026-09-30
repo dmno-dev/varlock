@@ -61,6 +61,14 @@ The [`@proxyConfig={egress=...}`](/reference/root-decorators/#proxyconfig) heade
 
 A matching `block` rule **always wins over an allow rule**, in either egress mode — so a `block=true` rule denies a request even if a broader `@proxy` allow rule also matches it. (To allow only a subset of a host and deny the rest, use `strict` egress with a specific allow rule, rather than a broad `block` with a narrow allow.)
 
+### How paths are matched
+
+`path` globs are matched against the **canonical** request path, and that canonical path is what the proxy sends upstream. Before matching, the proxy resolves `.` and `..` segments, collapses repeated slashes, and decodes percent-escapes of unreserved characters (letters, digits, `-._~`). So `/v1/charges/../refunds/x`, `//v1/refunds/x`, and `/v1/%72efunds/x` all match a `path="/v1/refunds/**"` rule, the same way the upstream would route them. The query string is never part of the match.
+
+A request whose path cannot be canonicalized unambiguously is rejected with a `400` and never forwarded: an encoded `/` or `\` (`%2F`, `%5C`), a raw backslash, control characters or whitespace, a `..` that climbs above the root, a dot segment hidden behind a `;` path parameter, or a request line inside a tunnel that is not in origin form (it must start with `/`).
+
+Matching is case-sensitive. If an upstream routes case-insensitively, a `block` rule needs to cover the spellings the upstream accepts, or use `strict` egress so anything not explicitly allowed is denied.
+
 :::note[Helpful failures instead of mystery 401s]
 Even in `permissive` mode, if a request carries a placeholder that **no rule injects on that route** (e.g. the agent hits `/v2/…` but your rule matched `/v1/…`), the proxy blocks it with a message naming the item and the rule gap — rather than forwarding the placeholder and letting the upstream reject it with a confusing `401`. So a mismatched path tells you *the proxy rule is the problem*, not "check your credentials."
 :::

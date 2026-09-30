@@ -23,6 +23,7 @@ import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, ruleMatchesFacts,
   type RequestFacts, type RequestScopedManagedItem,
 } from './policy';
+import { canonicalizeRequestTarget } from './request-target';
 import { BUILT_IN_TRANSFORM_SCHEMES } from './request-transform';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
@@ -1773,14 +1774,21 @@ export async function startLocalProxyRuntime({
       res.end('Invalid host');
       return;
     }
-    const rawUrl = req.url ?? '/';
+    // Canonicalize before anything looks at the path: policy matches the canonical
+    // form and the same form goes upstream, so a `..`/`//`/`%2e` spelling can't
+    // slip a blocked endpoint past a path rule. Malformed targets fail closed.
+    const target = canonicalizeRequestTarget(req.url ?? '/');
+    if (!target.ok) {
+      respondBlocked(res, 400, `Blocked by the varlock credential proxy: ${target.reason}.`, true);
+      return;
+    }
     await processProxiedRequest(req, res, {
       host: hostInfo.host,
       port: hostInfo.port || 443,
       isHttps: true, // the MITM tunnel is always TLS
       method: req.method ?? 'GET',
-      pathOnly: rawUrl.split('?')[0] ?? '/',
-      requestTarget: rawUrl,
+      pathOnly: target.pathOnly,
+      requestTarget: target.requestTarget,
       upstreamHostHeader: undefined, // pass the client's Host through
       tunnelTeardown: true,
     });
@@ -1849,13 +1857,21 @@ export async function startLocalProxyRuntime({
 
     const isHttps = destination.protocol === 'https:';
     const defaultPort = isHttps ? 443 : 80;
+    // WHATWG parsing resolves dot segments but keeps `//` and non-dot escapes;
+    // run the same canonicalization as the tunnel path so both transports match
+    // and forward identical forms.
+    const target = canonicalizeRequestTarget(`${destination.pathname}${destination.search}`);
+    if (!target.ok) {
+      respondBlocked(clientRes, 400, `Blocked by the varlock credential proxy: ${target.reason}.`, false);
+      return;
+    }
     await processProxiedRequest(clientReq, clientRes, {
       host: destination.hostname,
       port: destination.port ? Number(destination.port) : defaultPort,
       isHttps,
       method: clientReq.method ?? 'GET',
-      pathOnly: destination.pathname,
-      requestTarget: `${destination.pathname}${destination.search}`,
+      pathOnly: target.pathOnly,
+      requestTarget: target.requestTarget,
       upstreamHostHeader: destination.host, // absolute-form: client Host may be the proxy
       tunnelTeardown: false,
     });
