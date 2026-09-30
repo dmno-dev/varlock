@@ -44,6 +44,10 @@ export type ConfigItemDefAndSource = {
 export class ConfigItem {
   /** Whether this is a builtin VARLOCK_* variable */
   isBuiltin?: boolean;
+  /** warning from the builtin resolver, only surfaced once something reads the value */
+  _builtinUsageWarning?: SchemaError;
+  /** set when another item, decorator, or env flag lookup reads this builtin's value */
+  _builtinValueUsed = false;
 
   /** Cache hits recorded during resolution (rolled up from potentially multiple cache() resolvers) */
   _cacheHits: Array<CacheHitInfo> = [];
@@ -868,6 +872,7 @@ export class ConfigItem {
   get errors() {
     return _.compact([
       ...this._schemaErrors || [],
+      this._builtinValueUsed ? this._builtinUsageWarning : undefined,
       ...this._typeSpecWarnings,
       ...this.resolverSchemaErrors || [],
       ...this.decoratorSchemaErrors || [],

@@ -50,6 +50,8 @@ The inferred deployment environment. Detection follows this priority:
 4. **CI fallback**: if in CI but no branch info is available, defaults to `preview`
 5. **Local fallback**: if not in CI, defaults to `development`
 
+The CI fallback is a guess. Some hosting platforms (e.g., Fly.io, Google Cloud Run, Heroku, Deno Deploy) report neither an environment nor a branch, so a production app running there resolves to `preview`. When your schema uses `VARLOCK_ENV` and its value came from this fallback, `varlock load` shows a warning. To fix it, set the environment explicitly in the platform's env settings: either `VARLOCK_ENV=production`, or your own flag if you derive it from `$VARLOCK_ENV` (e.g., `APP_ENV=production`).
+
 #### Using with `@currentEnv`
 
 ```env-spec title=".env.schema"
