@@ -1,5 +1,5 @@
 import {
-  describe, test, expect, beforeEach, afterEach,
+  describe, test, expect, beforeEach, afterEach, vi,
 } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -260,6 +260,11 @@ describe('installHook', () => {
   const git = (cwd: string, ...args: Array<string>) => execFileSync('git', args, { cwd, stdio: 'pipe' });
 
   beforeEach(() => {
+    // isolate from the user's global/system git config (e.g. a global core.hooksPath)
+    // - installHook spawns git with the inherited env, so stub process.env itself
+    vi.stubEnv('GIT_CONFIG_GLOBAL', '/dev/null');
+    vi.stubEnv('GIT_CONFIG_NOSYSTEM', '1');
+    vi.stubEnv('GIT_CONFIG_COUNT', '0');
     tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-hook-test-')));
     const mainRepo = path.join(tempDir, 'main');
     fs.mkdirSync(mainRepo);
@@ -268,6 +273,7 @@ describe('installHook', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
