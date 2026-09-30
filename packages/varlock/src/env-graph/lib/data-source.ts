@@ -467,6 +467,8 @@ export abstract class EnvGraphDataSource {
       // If it's a builtin var, register it now
       if (isBuiltinVar(envFlagItemKey)) {
         this.graph.registerBuiltinVar(envFlagItemKey);
+        // the env flag drives which files load, so its value always counts as used
+        this.graph.configSchema[envFlagItemKey]._builtinValueUsed = true;
       }
 
       // Always set the envFlagKey so parent directories can check it

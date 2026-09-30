@@ -308,6 +308,7 @@ export class Resolver {
     // first (see earlyResolve / resolveEnvValues); returning resolvedValue here
     // would silently produce undefined instead of the item's actual value
     if (!depItem.isResolved) throw new Error(`Referenced item "${key}" has not been resolved yet`);
+    if (depItem.isBuiltin) depItem._builtinValueUsed = true;
     return depItem.resolvedValue;
   }
 }

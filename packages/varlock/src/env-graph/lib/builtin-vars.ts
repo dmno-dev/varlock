@@ -1,5 +1,6 @@
 import { asyncExec } from '@env-spec/utils/exec-helpers';
 import { type CiEnvInfo, type DeploymentEnvironment } from '@varlock/ci-env-info';
+import { SchemaError } from './errors';
 
 export type BuiltinVarDef = {
   name: string;
@@ -9,6 +10,13 @@ export type BuiltinVarDef = {
   resolver: (
     ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>,
   ) => string | boolean | undefined | Promise<string | undefined>;
+  /**
+   * Warning to surface when the builtin's own resolver produced the value and something
+   * in the schema actually reads it (e.g. VARLOCK_ENV being a low-confidence guess)
+   */
+  usageWarning?: (
+    ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>,
+  ) => SchemaError | undefined;
 };
 
 /**
@@ -58,28 +66,47 @@ async function getGitBranch(): Promise<string | undefined> {
  * 4. deployed in CI → preview
  * 5. not CI, default to development
  */
-function inferVarlockEnv(ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>): DeploymentEnvironment {
+function inferVarlockEnv(ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>): {
+  env: DeploymentEnvironment,
+  /** true when nothing identified the environment and we fell back to a bare guess */
+  isGuess: boolean,
+} {
   // Tier 1: Test detection (runs first, even in CI)
-  if (detectTestEnvironment(processEnv)) return 'test';
+  if (detectTestEnvironment(processEnv)) return { env: 'test', isGuess: false };
 
   // Tier 2: Platform-provided (Vercel, Netlify, etc.)
-  if (ciEnv.environment) return ciEnv.environment;
+  if (ciEnv.environment) return { env: ciEnv.environment, isGuess: false };
 
   // Tier 3: Branch inference (when in CI with branch info)
-  if (ciEnv.isCI && ciEnv.branch) return inferFromBranch(ciEnv.branch);
+  if (ciEnv.isCI && ciEnv.branch) return { env: inferFromBranch(ciEnv.branch), isGuess: false };
 
   // Tier 4: deployed in CI = preview
-  if (ciEnv.isCI) return 'preview';
+  if (ciEnv.isCI) return { env: 'preview', isGuess: true };
 
   // Tier 5: not CI, default to development
-  return 'development';
+  return { env: 'development', isGuess: false };
 }
 
 export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
   VARLOCK_ENV: {
     name: 'VARLOCK_ENV',
     description: 'Auto-detected deployment environment (development, preview, staging, production, test)',
-    resolver: (ciEnv, processEnv) => inferVarlockEnv(ciEnv, processEnv),
+    resolver: (ciEnv, processEnv) => inferVarlockEnv(ciEnv, processEnv).env,
+    usageWarning: (ciEnv, processEnv) => {
+      const { env, isGuess } = inferVarlockEnv(ciEnv, processEnv);
+      if (!isGuess) return;
+      const where = ciEnv.name ?? 'this CI environment';
+      return new SchemaError(
+        `VARLOCK_ENV guessed "${env}" - ${where} does not report a deployment environment or branch`,
+        {
+          isWarning: true,
+          tip: [
+            'set the environment explicitly in this platform\'s env settings, e.g. VARLOCK_ENV=production',
+            'or override your own env flag if you derive it from $VARLOCK_ENV (e.g. APP_ENV=production)',
+          ],
+        },
+      );
+    },
   },
   VARLOCK_IS_CI: {
     name: 'VARLOCK_IS_CI',
