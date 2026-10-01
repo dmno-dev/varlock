@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   createHash, randomBytes, randomUUID, randomInt as cryptoRandomInt,
@@ -24,8 +24,10 @@ import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
+import { shellQuoteWord } from '../../lib/shell-quote';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
 /** Whether a string has the `/pattern/flags` shape that consumers read as a regex. */
@@ -488,35 +490,86 @@ export const FallbackResolver: typeof Resolver = createResolver({
 });
 
 const execQueue = new SimpleQueue();
+
+/**
+ * Build the shell command for the string form of `exec()`.
+ *
+ * Static text is the command as written. Anything interpolated into it (a
+ * `${REF}`, a nested function call) is a *value*, so it is quoted to a single
+ * shell word: `exec(\`./fetch ${APP_ENV}\`)` with `APP_ENV=dev; rm -rf /` runs
+ * `./fetch 'dev; rm -rf /'`, not two commands. Template expansion turns an
+ * interpolated string into `concat(static, ref, static, ...)`, so a `concat`
+ * arg is walked part by part; any other single arg is resolved whole. A
+ * wholly dynamic arg (`exec($CMD)`) is left as written: the author asked for
+ * that value to be the command.
+ */
+async function buildExecShellCommand(arg: Resolver): Promise<string> {
+  if (arg.fnName === 'concat' && arg.arrArgs?.length) {
+    let command = '';
+    for (const part of arg.arrArgs) {
+      const resolved = await part.resolve();
+      const text = String(resolved ?? '');
+      command += part.isStatic ? text : shellQuoteWord(text);
+    }
+    return command;
+  }
+  const resolved = await arg.resolve();
+  if (typeof resolved !== 'string') {
+    throw new ResolutionError('exec() expects a string command, or an array of command + arguments');
+  }
+  return resolved;
+}
+
 export const ExecResolver: typeof Resolver = createResolver({
   name: 'exec',
   icon: 'iconoir:terminal',
   argsSchema: {
     type: 'array',
-    arrayExactLength: 1,
+    arrayMinLength: 1,
   },
   async resolve() {
-    const commandStr = await this.arrArgs?.[0].resolve();
-    if (typeof commandStr !== 'string') {
-      throw new ResolutionError('exec() expects a string arg');
+    const args = this.arrArgs!;
+
+    let run: () => Promise<{ stdout: string }>;
+    if (args.length === 1) {
+      // string form: exec(`cmd ...`) runs through the shell
+      const commandStr = await buildExecShellCommand(args[0]);
+      run = () => execAsync(commandStr);
+    } else {
+      // argv form: exec("./script", "--flag", $REF) runs the program directly with
+      // no shell, one argument per arg, so no value can be read as shell syntax.
+      const argv: Array<string> = [];
+      for (const arg of args) {
+        const v = await arg.resolve();
+        if (v === undefined || v === null) argv.push('');
+        else if (typeof v === 'string') argv.push(v);
+        else if (typeof v === 'number' || typeof v === 'boolean') argv.push(String(v));
+        else throw new ResolutionError('exec() arguments must resolve to strings');
+      }
+      const [file, ...fileArgs] = argv;
+      if (!file) throw new ResolutionError('exec() needs a non-empty command as its first argument');
+      run = () => execFileAsync(file, fileArgs);
     }
 
     try {
       // ? NOTE - putting these calls through a simple queue for now
       // this avoids multiple 1password auth popups, but it also makes multiple 1p calls very slow
       // we likely want to remove this once we have the specific 1Password plugin re-implemented
-      const { stdout } = await execQueue.enqueue(() => execAsync(commandStr));
+      const { stdout } = await execQueue.enqueue(run);
       // trim trailing newline by default
       // we could allow options here?
       return stdout.replace(/\n$/, '');
     } catch (err) {
       // surface the exit code and stderr on the error itself rather than logging here -
       // a stray log would land in stdout and corrupt machine-readable output (e.g. json-full).
-      // stdout is left out since it may contain a partially-printed secret
+      // stdout is left out since it may contain a partially-printed secret, and the command
+      // is reported as written in the schema (not with interpolated values filled in) for
+      // the same reason: a ${SECRET} passed as an argument must not land in error output.
       const execErr = err as { code?: number | string, stderr?: string };
       const exitInfo = execErr.code !== undefined ? ` (exit code ${execErr.code})` : '';
       const stderr = execErr.stderr?.trim();
-      throw new ResolutionError(`command failed${exitInfo}: ${commandStr}`, {
+      const asWritten = this._parsedNode?.toString();
+      throw new ResolutionError(`command failed${exitInfo}${asWritten ? `: ${asWritten}` : ''}`, {
         ...stderr && { tip: `stderr:\n${stderr}` },
       });
     }

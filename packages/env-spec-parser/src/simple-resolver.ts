@@ -1,9 +1,17 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import {
   ParsedEnvSpecFile, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
   ParsedEnvSpecStaticValue, ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
   type ParsedEnvSpecConfigItemValue,
 } from './classes.js';
+
+/** Quote a value as exactly one shell word (POSIX single quotes; cmd.exe double quotes on Windows). */
+function shellQuoteWord(value: string): string {
+  if (process.platform === 'win32') return `"${value.replace(/"/g, '""')}"`;
+  if (value === '') return "''";
+  if (/^[A-Za-z0-9_\-./:=@%+,]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
 
 /**
  * very simple resolver meant to be used for testing
@@ -59,18 +67,37 @@ export function simpleResolver(
         return resolvedArgs.join('');
       } else if (valOrFn.name === 'exec') {
         const args = valOrFn.data.args.values;
+        const execEnv = { ...resolved, ...opts?.env };
+        if (args.length > 1) {
+          // argv form: exec("cmd", "arg", $REF) runs the program directly, no shell
+          const argv = args.map((a) => {
+            if (a instanceof ParsedEnvSpecKeyValuePair) throw new Error('Invalid `exec` args - key/value pairs not allowed');
+            return String(valueResolver(a) ?? '');
+          });
+          const [file, ...fileArgs] = argv;
+          if (!file) throw new Error('Invalid `exec` args - needs a command');
+          return execFileSync(file, fileArgs, { env: execEnv }).toString().trim();
+        }
         if (
           args.length === 1
           && (args[0] instanceof ParsedEnvSpecStaticValue || args[0] instanceof ParsedEnvSpecFunctionCall)
         ) {
-          const cmdStr = valueResolver(args[0]);
+          // string form: static text is the command as written, anything interpolated
+          // into it (`${REF}`, a nested call) is quoted to one shell word so a value can
+          // never be read as more shell syntax. Mirrors varlock's resolver.
+          const cmdArg = args[0];
+          let cmdStr: unknown;
+          if (cmdArg instanceof ParsedEnvSpecFunctionCall && cmdArg.name === 'concat') {
+            cmdStr = cmdArg.data.args.values.map((part) => {
+              if (part instanceof ParsedEnvSpecKeyValuePair) throw new Error('Invalid concat args');
+              const text = String(valueResolver(part) ?? '');
+              return part instanceof ParsedEnvSpecStaticValue ? text : shellQuoteWord(text);
+            }).join('');
+          } else {
+            cmdStr = valueResolver(cmdArg);
+          }
           if (typeof cmdStr !== 'string') throw new Error('Invalid `exec` command');
-          return execSync(
-            cmdStr,
-            {
-              env: { ...resolved, ...opts?.env },
-            },
-          ).toString().trim();
+          return execSync(cmdStr, { env: execEnv }).toString().trim();
         } else {
           throw new Error('Invalid `exec` args');
         }

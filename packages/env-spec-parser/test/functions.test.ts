@@ -79,6 +79,23 @@ describe('function calls', functionValueTests({
 }));
 
 
+describe('exec() argument safety', functionValueTests({
+  'interpolated value is quoted to one shell word': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`echo cfg-\${APP_ENV}\`)
+    `,
+    expected: { ITEM: 'cfg-dev; echo pwned' },
+  },
+  'argv form runs without a shell': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec("echo", "a b", $APP_ENV)
+    `,
+    expected: { ITEM: 'a b dev; echo pwned' },
+  },
+}));
+
 describe('exec expansion', functionValueTests({
   'exec expansion - unquoted': {
     input: 'ITEM=$(echo foo)',

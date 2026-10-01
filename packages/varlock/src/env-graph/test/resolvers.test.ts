@@ -151,8 +151,102 @@ describe('exec()', functionValueTests({
   },
 }));
 
+describe('exec() string form quotes interpolated values', functionValueTests({
+  'an interpolated value is one argument, never more shell': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`echo cfg-\${APP_ENV}\`)
+    `,
+    expected: { ITEM: 'cfg-dev; echo pwned' },
+  },
+  'same via $() expansion': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=$(echo cfg-\${APP_ENV})
+    `,
+    expected: { ITEM: 'cfg-dev; echo pwned' },
+  },
+  'command substitution and globs in a value stay literal': {
+    // single-quoted so env-spec's own $() expansion leaves the value alone and the shell gets it raw
+    input: outdent`
+      EVIL='$(echo pwned) * ~'
+      ITEM=exec(\`echo \${EVIL}\`)
+    `,
+    expected: { ITEM: '$(echo pwned) * ~' },
+  },
+  'single quotes in a value survive': {
+    input: outdent`
+      NAME="it's"
+      ITEM=exec(\`echo \${NAME}\`)
+    `,
+    expected: { ITEM: 'it\'s' },
+  },
+  'an empty value is still an argument': {
+    input: outdent`
+      EMPTY=
+      ITEM=exec(\`printf '[%s]' \${EMPTY}\`)
+    `,
+    expected: { ITEM: '[]' },
+  },
+  'static text keeps its shell syntax': {
+    input: 'ITEM=exec(`echo a && echo b | tr b c`)',
+    expected: { ITEM: 'a\nc' },
+  },
+  'a wholly dynamic command runs as written': {
+    input: outdent`
+      CMD="echo from-var"
+      ITEM=exec($CMD)
+    `,
+    expected: { ITEM: 'from-var' },
+  },
+}));
+
+describe('exec() argv form', functionValueTests({
+  'runs the program with each element as one argument, no shell': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec("echo", "a b", $APP_ENV, '$(whoami)')
+    `,
+    expected: { ITEM: 'a b dev; echo pwned $(whoami)' },
+  },
+  'numbers and booleans are stringified': {
+    input: 'ITEM=exec("echo", 1, true)',
+    expected: { ITEM: '1 true' },
+  },
+  'shell syntax in a static arg is literal too': {
+    input: 'ITEM=exec("echo", "a | b && c")',
+    expected: { ITEM: 'a | b && c' },
+  },
+  'error - empty command': {
+    input: 'ITEM=exec("", "arg")',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - missing program': {
+    input: 'ITEM=exec("definitely-not-a-real-command-varlock", "--flag")',
+    expected: { ITEM: ResolutionError },
+  },
+}));
 
 describe('exec() failures', () => {
+  it('reports the command as written, not with interpolated values filled in', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultSensitive=false
+        # ---
+        TOKEN=super-secret-token-value
+        ITEM=exec(\`definitely-not-a-real-command-varlock --token \${TOKEN}\`)
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const err = g.configSchema.ITEM.errors.find((e) => e instanceof ResolutionError);
+    expect(err?.message).toContain('command failed');
+    expect(err?.message).toContain('exec(');
+    expect(err?.message).not.toContain('super-secret-token-value');
+    expect(err?.tip ?? '').not.toContain('super-secret-token-value');
+  });
+
   it('reports exit code + stderr on the error without logging to stdout', async () => {
     const consoleLog = vi.spyOn(console, 'log');
     try {

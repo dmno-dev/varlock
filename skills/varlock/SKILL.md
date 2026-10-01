@@ -164,8 +164,10 @@ Instead of static values, items can use resolver functions:
 # Reference another item ($VAR and ${VAR} are shorthand for ref(VAR))
 FULL_URL=${API_URL}/v2/users
 
-# Execute a CLI command
+# Execute a CLI command (string form runs via the shell; an interpolated ${VAR} is quoted as one argument)
 SECRET=exec(`op read "op://vault/item/field"`)
+# Argv form runs the program directly with no shell: use it when passing dynamic values as arguments
+CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
 
 # Conditional logic
 API_URL=if(eq($APP_ENV, prod), https://api.example.com, http://localhost:3000)
