@@ -26,6 +26,11 @@
     "@types/react": "19.2.15",
     "@varlock/1password-plugin": "^2.0.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "postcss": "^8.5.28",
+    "vite": "^8.3.2"
   }
 }
