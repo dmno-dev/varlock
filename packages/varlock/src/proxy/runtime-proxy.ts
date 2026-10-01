@@ -1791,29 +1791,32 @@ export async function startLocalProxyRuntime({
   // skips it while server.close() still waits for it. stop() destroys these
   // itself so shutdown never depends on the client's or peer's behavior.
   const tunnelSockets = new Set<net.Socket>();
+  const adoptTunnelSocket = (socket: net.Socket) => {
+    tunnelSockets.add(socket);
+    socket.on('close', () => tunnelSockets.delete(socket));
+  };
+  // Set at the top of stop(): CONNECT handlers still awaiting MITM setup check
+  // it afterwards so they neither bridge a socket nor register a MITM server
+  // that stop() has already looked past.
+  let stopping = false;
 
   /**
-   * Pipes a CONNECT client socket and its peer (the MITM loopback connection or
-   * the raw upstream) in both directions and ties their lifetimes together.
-   * `pipe()` alone leaves a hole: when one side closes, the pipe is torn down and
-   * the other socket's readable side is left paused, so bytes that arrive after
-   * that (e.g. the client's TLS close_notify once it has read a blocked response)
-   * sit unread, its 'end' never fires, and the socket stays open for good.
+   * Ties a CONNECT client socket and its peer (the MITM loopback connection or
+   * the raw upstream) together once they are piped. `pipe()` alone leaves a
+   * hole: when one side closes, the pipe is torn down and the other socket's
+   * readable side is left paused, so bytes that arrive after that (e.g. the
+   * client's TLS close_notify once it has read a blocked response) sit unread,
+   * its 'end' never fires, and the socket stays open for good.
    */
   const bridgeTunnelSockets = (clientSocket: net.Socket, peerSocket: net.Socket) => {
-    tunnelSockets.add(clientSocket);
-    tunnelSockets.add(peerSocket);
+    adoptTunnelSocket(peerSocket);
     peerSocket.on('error', () => clientSocket.destroy());
     clientSocket.on('error', () => peerSocket.destroy());
     peerSocket.on('close', () => {
-      tunnelSockets.delete(peerSocket);
       // the pipe already ended the client's write side; flush that, then drop it
       clientSocket.destroySoon();
     });
-    clientSocket.on('close', () => {
-      tunnelSockets.delete(clientSocket);
-      peerSocket.destroy();
-    });
+    clientSocket.on('close', () => peerSocket.destroy());
   };
 
   const hostMitmServers = new Map<string, { server: https.Server; port: number }>();
@@ -1823,6 +1826,7 @@ export async function startLocalProxyRuntime({
     if (cached) return cached;
 
     const hostCert = await createHostCert(ca, normalized);
+    if (stopping) throw new Error('varlock proxy is stopping');
     const server = https.createServer({
       key: hostCert.keyPem,
       cert: hostCert.certPem,
@@ -1845,6 +1849,11 @@ export async function startLocalProxyRuntime({
     if (!addr || typeof addr === 'string') {
       server.close();
       throw new Error(`Failed to start MITM TLS server for ${normalized}`);
+    }
+    if (stopping) {
+      // stop() already snapshotted hostMitmServers; don't leak a listener past it
+      server.close();
+      throw new Error('varlock proxy is stopping');
     }
 
     const created = { server, port: addr.port };
@@ -1943,6 +1952,10 @@ export async function startLocalProxyRuntime({
       return;
     }
 
+    // From here on the socket is ours: track it right away so stop() can close
+    // it even while the peer connection (or MITM cert) is still being set up.
+    adoptTunnelSocket(clientSocket);
+
     // Only MITM for configured proxy domains. Others are tunneled through.
     if (!shouldRewrite) {
       const upstreamSocket = net.connect(hostInfo.port, hostInfo.host, () => {
@@ -1957,6 +1970,10 @@ export async function startLocalProxyRuntime({
 
     try {
       const hostMitmServer = await getOrCreateHostMitmServer(hostInfo.host);
+      if (stopping || clientSocket.destroyed) {
+        clientSocket.destroy();
+        return;
+      }
       const mitmSocket = net.connect(hostMitmServer.port, LOCALHOST, () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (head.length > 0) {
@@ -2055,6 +2072,7 @@ export async function startLocalProxyRuntime({
       activeConsumedTransformKeys = collectConsumedTransformKeys(activeRules, activeTransformSchemes);
     },
     stop: async () => {
+      stopping = true;
       // Detach the tunnel WS server first so it stops accepting upgrades.
       tunnel?.close();
       // `server.close()` only calls back once every connection has drained, and

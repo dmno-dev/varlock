@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { readFileSync } from 'node:fs';
-import net from 'node:net';
+import net, { Server } from 'node:net';
 import { URL } from 'node:url';
 
 import { startLocalProxyRuntime } from './runtime-proxy';
@@ -89,5 +89,53 @@ test('stop() resolves while an idle passthrough CONNECT tunnel is still open', a
     }),
   ]);
   expect(clientClosed).toBe(true);
+  await upstream.close();
+}, 5000);
+
+test('stop() resolves when called while a MITM CONNECT is still setting up, and leaks no listener', async () => {
+  const upstream = await startUpstream((_req, res) => {
+    res.end('ok');
+  });
+  // closed-but-not-yet-released handles from earlier tests are not listening
+  const listeningServers = () => (process as any)._getActiveHandles()
+    .filter((h: unknown) => h instanceof Server && h.listening).length;
+  const serversBefore = listeningServers();
+
+  const runtime = await startLocalProxyRuntime({
+    managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+    rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+    egressMode: 'permissive',
+  });
+  const proxy = new URL(runtime.env.HTTP_PROXY!);
+  const rawSocket = net.connect(Number(proxy.port), proxy.hostname);
+  rawSocket.on('error', () => { /* expected: torn down by stop() */ });
+  await new Promise<void>((resolve) => {
+    rawSocket.once('connect', () => resolve());
+  });
+  // Send the CONNECT, then call stop() one timer tick later: by then the proxy
+  // has read the CONNECT and is parked in the host cert mint (async key
+  // generation, a few ms), so the client socket has been adopted but has no
+  // peer yet. Measured: a 0-2ms delay lands inside the mint, 4ms is past it.
+  rawSocket.write(`CONNECT ${UPSTREAM_HOST}:${upstream.port} HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\n\r\n`);
+  await new Promise((resolve) => {
+    setTimeout(resolve, 1);
+  });
+
+  await expect(stopOrTimeout(runtime.stop)).resolves.toBe('stopped');
+  const clientClosed = await Promise.race([
+    new Promise<true>((resolve) => {
+      if (rawSocket.closed) resolve(true);
+      else rawSocket.once('close', () => resolve(true));
+    }),
+    new Promise<false>((resolve) => {
+      setTimeout(() => resolve(false), STOP_TIMEOUT_MS);
+    }),
+  ]);
+  expect(clientClosed).toBe(true);
+  // Let a MITM server that finished setting up after stop() close itself.
+  await new Promise((resolve) => {
+    setTimeout(resolve, 50);
+  });
+  expect(listeningServers()).toBe(serversBefore);
   await upstream.close();
 }, 5000);
