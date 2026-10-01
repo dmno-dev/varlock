@@ -4,7 +4,7 @@ import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import {
   LoadingError, ParseError, VarlockError,
 } from '../../env-graph/lib/errors';
-import { isNoSchemaAllowed } from '../../lib/no-schema-check';
+import { isEmptyConfigAllowed } from '../../lib/empty-config-check';
 import { CliExitError } from './exit-error';
 import { InvalidEnvError } from './invalid-env-error';
 
@@ -32,8 +32,8 @@ function showErrorTip(err: VarlockError) {
 
 /**
  * Errors when no config items were loaded (no .env files found, or none define items).
- * `allowOptOut` lets `_VARLOCK_ALLOW_NO_SCHEMA` skip the check; only `load` and `run` pass it, so
- * commands that need a schema (e.g. `proxy`, which would otherwise start with no rules) always fail.
+ * `allowOptOut` lets `_VARLOCK_ALLOW_EMPTY_CONFIG` skip the check; only `load` and `run` pass it, so
+ * commands that need config items (e.g. `proxy`, which would otherwise start with no rules) always fail.
  */
 export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolean, allowOptOut?: boolean }) {
   if (Object.keys(envGraph.configSchema).length === 0) {
@@ -46,8 +46,8 @@ export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolea
       throw new CliExitError('Parse error', { silent: true });
     }
 
-    // explicit opt-in to running with no schema (e.g. a deploy that ships no .env files)
-    if (opts?.allowOptOut && isNoSchemaAllowed()) return;
+    // explicit opt-in to running with an empty config (e.g. a deploy that ships no .env files)
+    if (opts?.allowOptOut && isEmptyConfigAllowed()) return;
 
     const displayPath = envGraph.basePath ?? process.cwd();
     const hasLoadedFiles = envGraph.sortedDataSources.some((s) => s instanceof FileBasedDataSource);

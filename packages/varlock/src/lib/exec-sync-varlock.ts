@@ -4,7 +4,7 @@ import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
 import { isBunRuntime, isBunStandaloneExecutable } from './detect-runtime';
 import { CLI_CHILD_MARKER } from './cli-child-marker';
-import { warnIfNoConfigLoaded } from './no-schema-check';
+import { warnIfNoConfigLoaded } from './empty-config-check';
 
 const isWindows = () => /^win/i.test(os.platform());
 
