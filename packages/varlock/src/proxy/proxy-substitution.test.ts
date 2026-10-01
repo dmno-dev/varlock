@@ -301,6 +301,44 @@ describe('proxy substitution surface (end-to-end)', () => {
     await upstream.close();
   });
 
+  test('blocks a path substitution whose value would change the path structure', async () => {
+    let upstreamHit = false;
+    const upstream = await startUpstream((_req, res) => {
+      upstreamHit = true;
+      res.statusCode = 200;
+      res.end('ok');
+    });
+
+    const activities: Array<import('./audit').ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      // A value with structural characters: policy evaluated `/v1/<placeholder>/data`,
+      // but substituting this would route the request to `/admin/data`.
+      managedItems: [{ key: 'PATH_TOKEN', placeholder: 'sk-stub-PLACEHOLDER', realValue: '../admin' }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['PATH_TOKEN'], substituteIn: ['path'] }],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET /v1/sk-stub-PLACEHOLDER/data HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
+    );
+
+    // Fails closed, names the key, and never echoes the value.
+    expect(response.split('\r\n')[0]).toBe('HTTP/1.1 502 Bad Gateway');
+    expect(response).toContain('substituting PATH_TOKEN into the URL path would change the path\'s structure');
+    expect(response).not.toContain('admin');
+    expect(upstreamHit).toBe(false);
+    expect(JSON.stringify(activities)).not.toContain('admin');
+    expect(activities.at(-1)).toMatchObject({ decision: 'blocked-location', blocked: true, path: '/v1/sk-stub-PLACEHOLDER/data' });
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('blocks a request that repeats the placeholder at the same substitution target', async () => {
     let upstreamHit = false;
     const upstream = await startUpstream((_req, res) => {

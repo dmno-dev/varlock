@@ -23,6 +23,7 @@ import {
   describeRule, domainMatches, evaluateProxyPolicy, getRequestScopedManagedItems, normalizeHost, ruleMatchesFacts,
   type RequestFacts, type RequestScopedManagedItem,
 } from './policy';
+import { canonicalizeRequestTarget, substitutedPathKeepsStructure } from './request-target';
 import { BUILT_IN_TRANSFORM_SCHEMES } from './request-transform';
 import {
   PROXY_TOKEN_HEADER, SESSION_ENV_ENDPOINT_PATH, VARLOCK_INTERNAL_HOST,
@@ -1559,7 +1560,23 @@ export async function startLocalProxyRuntime({
       const queryStart = t.requestTarget.indexOf('?');
       const pathPart = queryStart === -1 ? t.requestTarget : t.requestTarget.slice(0, queryStart);
       const queryPart = queryStart === -1 ? undefined : t.requestTarget.slice(queryStart + 1);
-      rewrittenPath = substitutePlaceholdersInSurface(pathPart, managedItems, keysForLocation('path'))
+      const substitutedPathPart = substitutePlaceholdersInSurface(pathPart, managedItems, keysForLocation('path'));
+      // Policy matched the canonical placeholder-form path (`t.pathOnly`). A value
+      // substituted into it must stay inside its segment: one that carries `/`,
+      // `..`, `?`, `#`, or anything the canonicalizer would rewrite would route
+      // the request somewhere the rules never evaluated. The value is the schema
+      // author's, not the agent's, so this is a misconfiguration, but it fails
+      // closed all the same (and names the key, never the value).
+      if (!substitutedPathKeepsStructure(pathPart, substitutedPathPart)) {
+        const pathKeys = [...keysForLocation('path')].filter((key) => injectedKeys.includes(key));
+        onActivity?.({
+          ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-location',
+        });
+        respondBlocked(res, 502, `Blocked by the varlock credential proxy: substituting ${pathKeys.join(', ') || 'a managed item'} into the URL path would change the path's structure (the value contains a path separator, dot segment, query or fragment marker, ";", or a character that needs encoding). `
+          + 'A value carried in the path must be URL-safe; encode it, or substitute it somewhere else.', t.tunnelTeardown);
+        return;
+      }
+      rewrittenPath = substitutedPathPart
         + (queryPart === undefined
           ? ''
           : `?${substitutePlaceholdersInSurface(queryPart, managedItems, keysForLocation('query'))}`);
@@ -1773,14 +1790,21 @@ export async function startLocalProxyRuntime({
       res.end('Invalid host');
       return;
     }
-    const rawUrl = req.url ?? '/';
+    // Canonicalize before anything looks at the path: policy matches the canonical
+    // form and the same form goes upstream, so a `..`/`//`/`%2e` spelling can't
+    // slip a blocked endpoint past a path rule. Malformed targets fail closed.
+    const target = canonicalizeRequestTarget(req.url ?? '/');
+    if (!target.ok) {
+      respondBlocked(res, 400, `Blocked by the varlock credential proxy: ${target.reason}.`, true);
+      return;
+    }
     await processProxiedRequest(req, res, {
       host: hostInfo.host,
       port: hostInfo.port || 443,
       isHttps: true, // the MITM tunnel is always TLS
       method: req.method ?? 'GET',
-      pathOnly: rawUrl.split('?')[0] ?? '/',
-      requestTarget: rawUrl,
+      pathOnly: target.pathOnly,
+      requestTarget: target.requestTarget,
       upstreamHostHeader: undefined, // pass the client's Host through
       tunnelTeardown: true,
     });
@@ -1903,13 +1927,21 @@ export async function startLocalProxyRuntime({
 
     const isHttps = destination.protocol === 'https:';
     const defaultPort = isHttps ? 443 : 80;
+    // WHATWG parsing resolves dot segments but keeps `//` and non-dot escapes;
+    // run the same canonicalization as the tunnel path so both transports match
+    // and forward identical forms.
+    const target = canonicalizeRequestTarget(`${destination.pathname}${destination.search}`);
+    if (!target.ok) {
+      respondBlocked(clientRes, 400, `Blocked by the varlock credential proxy: ${target.reason}.`, false);
+      return;
+    }
     await processProxiedRequest(clientReq, clientRes, {
       host: destination.hostname,
       port: destination.port ? Number(destination.port) : defaultPort,
       isHttps,
       method: clientReq.method ?? 'GET',
-      pathOnly: destination.pathname,
-      requestTarget: `${destination.pathname}${destination.search}`,
+      pathOnly: target.pathOnly,
+      requestTarget: target.requestTarget,
       upstreamHostHeader: destination.host, // absolute-form: client Host may be the proxy
       tunnelTeardown: false,
     });

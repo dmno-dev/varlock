@@ -752,6 +752,59 @@ describe('startLocalProxyRuntime', () => {
     });
   });
 
+  test('matches path rules on the canonical path, so `//`-spelled and encoded paths cannot bypass a block', async () => {
+    let upstreamHit = false;
+    let upstreamUrl = '';
+    const upstream = http.createServer((req, res) => {
+      upstreamHit = true;
+      upstreamUrl = req.url ?? '';
+      res.end('ok');
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = upstream.address();
+    if (!addr || typeof addr === 'string') throw new Error('Failed to start test upstream');
+
+    const activities: Array<ProxyActivity> = [];
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [],
+      rules: [
+        { domain: ['127.0.0.1'], itemKeys: [] },
+        {
+          domain: ['127.0.0.1'], path: '/refunds/**', itemKeys: [], block: true,
+        },
+      ],
+      egressMode: 'permissive',
+      onActivity: (a) => activities.push(a),
+    });
+
+    // WHATWG URL parsing already resolves `..`, so the absolute-form transport is
+    // probed with the spellings it leaves alone: a doubled slash and an encoded letter.
+    for (const spelling of ['//refunds/re_1', '/%72efunds/re_1', '/charges/%2e%2e/refunds/re_1']) {
+      const response = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}${spelling}`);
+      expect(response.statusCode).toBe(403);
+      expect(activities.at(-1)).toMatchObject({ decision: 'deny', path: '/refunds/re_1', blocked: true });
+    }
+    expect(upstreamHit).toBe(false);
+
+    // A target the canonicalizer refuses is rejected outright, never forwarded.
+    const malformed = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/charges%2F..%2Frefunds`);
+    expect(malformed.statusCode).toBe(400);
+    expect(upstreamHit).toBe(false);
+
+    // The canonical form is what goes upstream: matched path == routed path.
+    const okResponse = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}//charges/./re_1?x=%2F..`);
+    expect(okResponse.statusCode).toBe(200);
+    expect(activities.at(-1)).toMatchObject({ decision: 'allow', path: '/charges/re_1' });
+    expect(upstreamUrl).toBe('/charges/re_1?x=%2F..');
+
+    await runtime.stop();
+    await new Promise<void>((resolve) => {
+      upstream.close(() => resolve());
+    });
+  });
+
   test('emits a single blocked-cleartext activity (not allow-then-block) and no secret', async () => {
     const upstream = http.createServer((_req, res) => res.end('ok'));
     await new Promise<void>((resolve) => {
