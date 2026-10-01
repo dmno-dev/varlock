@@ -57,4 +57,10 @@ describe('loading with no schema', () => {
     expect(run.exitCode).toBe(0);
     expect(run.stdout).toContain('CHILD_RAN');
   });
+
+  test('_VARLOCK_ALLOW_NO_SCHEMA=1 does not relax commands that need a schema', () => {
+    const rules = runVarlock(['proxy', 'rules'], { cwd: SCENARIO, env: { _VARLOCK_ALLOW_NO_SCHEMA: '1' } });
+    expect(rules.exitCode).not.toBe(0);
+    expect(rules.output).toContain('No .env files found');
+  });
 });

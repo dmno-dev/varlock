@@ -54,7 +54,7 @@ When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporti
 
 ### `_VARLOCK_ALLOW_NO_SCHEMA`
 
-When set (`1` / `true`), allows loading with no schema: no `.env` files found, or files that define no items. [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run) succeed with an empty config instead of erroring, and [`varlock/auto-load`](/integrations/javascript/#running-without-a-schema) and the framework integrations skip their no-schema warning. Use it for deploys that intentionally ship no `.env` files. Parse errors still fail.
+When set (`1` / `true`), allows loading with no schema: no `.env` files found, or files that define no items. [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run) succeed with an empty config instead of erroring, and [`varlock/auto-load`](/integrations/javascript/#running-without-a-schema) and the framework integrations skip their no-schema warning. Use it for deploys that intentionally ship no `.env` files. Parse errors still fail, and other commands (for example `varlock proxy`) still require a schema.
 
 ### `_VARLOCK_USE_INJECTED_ENV`
 

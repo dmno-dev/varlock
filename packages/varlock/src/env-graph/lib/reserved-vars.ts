@@ -55,7 +55,7 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   },
   {
     name: '_VARLOCK_ALLOW_NO_SCHEMA',
-    description: 'When set (`1`/`true`), allows loading with no schema (no .env files found, or no items defined). `varlock load`/`run` succeed with an empty config instead of erroring, and `varlock/auto-load` and the framework integrations skip their no-schema warning. Use for deploys that intentionally ship no .env files.',
+    description: 'When set (`1`/`true`), allows loading with no schema (no .env files found, or no items defined). `varlock load`/`run` succeed with an empty config instead of erroring, and `varlock/auto-load` and the framework integrations skip their no-schema warning. Use for deploys that intentionally ship no .env files. Other commands (e.g. `varlock proxy`) still require a schema.',
   },
   {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',

@@ -30,7 +30,12 @@ function showErrorTip(err: VarlockError) {
   }
 }
 
-export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolean }) {
+/**
+ * Errors when no config items were loaded (no .env files found, or none define items).
+ * `allowOptOut` lets `_VARLOCK_ALLOW_NO_SCHEMA` skip the check; only `load` and `run` pass it, so
+ * commands that need a schema (e.g. `proxy`, which would otherwise start with no rules) always fail.
+ */
+export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolean, allowOptOut?: boolean }) {
   if (Object.keys(envGraph.configSchema).length === 0) {
     // If a source has a parse error, the schema couldn't be read at all so
     // "no config items defined" is misleading — the parse error (already
@@ -42,7 +47,7 @@ export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolea
     }
 
     // explicit opt-in to running with no schema (e.g. a deploy that ships no .env files)
-    if (isNoSchemaAllowed()) return;
+    if (opts?.allowOptOut && isNoSchemaAllowed()) return;
 
     const displayPath = envGraph.basePath ?? process.cwd();
     const hasLoadedFiles = envGraph.sortedDataSources.some((s) => s instanceof FileBasedDataSource);

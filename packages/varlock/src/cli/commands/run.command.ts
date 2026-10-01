@@ -114,7 +114,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       skipCache: ctx.values['skip-cache'],
     });
     checkForSchemaErrors(envGraph);
-    checkForNoEnvFiles(envGraph);
+    checkForNoEnvFiles(envGraph, { allowOptOut: true });
 
     // Generate types before resolving values — uses only non-env-specific schema info
     await envGraph.runCodeGeneratorsIfNeeded();
