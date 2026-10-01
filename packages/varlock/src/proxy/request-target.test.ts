@@ -50,6 +50,12 @@ describe('canonicalizeRequestTarget', () => {
     expect(rejected('/v1/%2e%2e/../../x')).toMatch(/above the root/);
     expect(rejected('/v1/refunds/..;/re_1')).toMatch(/path parameter/);
     expect(rejected('/v1/.;jsessionid=x/re_1')).toMatch(/path parameter/);
+    expect(rejected('/v1/;/refunds/re_1')).toMatch(/path parameter/);
+    expect(rejected('/v1/;jsessionid=x/refunds/re_1')).toMatch(/path parameter/);
+    expect(ok('/v1/refunds;jsessionid=x/re_1').pathOnly).toBe('/v1/refunds;jsessionid=x/re_1');
+    expect(rejected('/v1/refunds#/../re_1')).toMatch(/fragment/);
+    expect(rejected('/v1/refunds#?x=1')).toMatch(/fragment/);
+    expect(ok('/v1/refunds?x=%23').pathOnly).toBe('/v1/refunds');
     expect(rejected('/v1/charges%2F..%2Frefunds')).toMatch(/percent-encoding/);
     expect(rejected('/v1/charges%5c..%5crefunds')).toMatch(/percent-encoding/);
     expect(rejected('/v1/%00')).toMatch(/percent-encoding/);
@@ -103,6 +109,11 @@ describe('canonicalized paths close the block-rule bypass', () => {
     expect(substitutedPathKeepsStructure(base, '/v1/x#frag/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x%2Fy/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x%2e%2e/data')).toBe(false);
+    // a `;` path parameter is stripped by servlet routers; keeping it in the
+    // segment is fine, but an empty or dot segment in front of it is not
+    expect(substitutedPathKeepsStructure(base, '/v1/x;y/data')).toBe(true);
+    expect(substitutedPathKeepsStructure(base, '/v1/;y/data')).toBe(false);
+    expect(substitutedPathKeepsStructure(base, '/v1/..;y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/100%/data')).toBe(false);
   });

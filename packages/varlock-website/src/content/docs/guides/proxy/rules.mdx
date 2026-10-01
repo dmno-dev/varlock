@@ -65,7 +65,9 @@ A matching `block` rule **always wins over an allow rule**, in either egress mod
 
 `path` globs are matched against the **canonical** request path, and that canonical path is what the proxy sends upstream. Before matching, the proxy resolves `.` and `..` segments, collapses repeated slashes, and decodes percent-escapes of unreserved characters (letters, digits, `-._~`). So `/v1/charges/../refunds/x`, `//v1/refunds/x`, and `/v1/%72efunds/x` all match a `path="/v1/refunds/**"` rule, the same way the upstream would route them. The query string is never part of the match.
 
-A request whose path cannot be canonicalized unambiguously is rejected with a `400` and never forwarded: an encoded `/` or `\` (`%2F`, `%5C`), a raw backslash, control characters or whitespace, a `..` that climbs above the root, a dot segment hidden behind a `;` path parameter, or a request line inside a tunnel that is not in origin form (it must start with `/`).
+A request whose path cannot be canonicalized unambiguously is rejected with a `400` and never forwarded: an encoded `/` or `\` (`%2F`, `%5C`), a raw backslash, control characters or whitespace, a `#` in the path, a `..` that climbs above the root, a dot or empty segment hidden behind a `;` path parameter (`..;/`, `;x/`), or a request line inside a tunnel that is not in origin form (it must start with `/`).
+
+A value substituted into the path (`substituteIn=[path]`) has to stay inside its segment. If the real value contains a path separator, a dot segment, a `?`, or anything the canonicalizer would rewrite, the request is refused with a `502` rather than routed to a path the rules never evaluated.
 
 Matching is case-sensitive. If an upstream routes case-insensitively, a `block` rule needs to cover the spellings the upstream accepts, or use `strict` egress so anything not explicitly allowed is denied.
 

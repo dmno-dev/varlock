@@ -11,8 +11,9 @@
  * So the proxy canonicalizes first, matches the canonical path, and sends the
  * canonical form upstream, so what was matched is what is routed. Anything the
  * canonical form cannot express unambiguously is rejected (400) rather than
- * guessed at: encoded path separators, backslashes, control characters, dot
- * segments hidden behind `;` path parameters, and `..` climbing above the root.
+ * guessed at: encoded path separators, backslashes, control characters, a `#`
+ * (some upstreams cut the path there as a fragment, others route on it), `;`
+ * path parameters hiding a dot or empty segment, and `..` climbing above the root.
  */
 
 export type CanonicalRequestTarget = {
@@ -59,13 +60,17 @@ function normalizePercentEncoding(segment: string): string | undefined {
  * - Requires origin form: the target must start with `/` (or be `*`, the
  *   asterisk-form used by `OPTIONS *`). Absolute-form inside a tunnel is
  *   rejected so the request-line authority can never disagree with `Host`.
- * - Rejects raw control characters, whitespace, and backslashes anywhere in the path.
+ * - Rejects raw control characters, whitespace, backslashes, and `#` anywhere in
+ *   the path. A fragment never belongs on the wire, and upstreams disagree on
+ *   whether `#` ends the path (Go, nginx) or is part of it, so there is no
+ *   single routed form to match against.
  * - Rejects escapes that decode to `/`, `\`, or a control character, and
  *   malformed escapes.
  * - Decodes unreserved percent-escapes and uppercases the rest.
  * - Resolves `.` and `..` segments; `..` above the root is rejected.
- * - Rejects a segment whose part before a `;` path parameter is `.` or `..`
- *   (servlet containers strip the parameter, then normalize).
+ * - Rejects a segment whose part before a `;` path parameter is empty, `.` or
+ *   `..` (servlet containers strip the parameter, then normalize, so `..;/`
+ *   climbs and `;x/` collapses to `//`).
  * - Collapses empty segments (`//`).
  *
  * The query string is passed through untouched: rules never match on it, and
@@ -85,6 +90,9 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
   if (/[\x00-\x20\x7f\\]/.test(rawPath)) {
     return { ok: false, reason: 'request path contains a control character, whitespace, or backslash' };
   }
+  if (rawPath.includes('#')) {
+    return { ok: false, reason: 'request path contains a fragment marker ("#")' };
+  }
 
   const segments: Array<string> = [];
   for (const rawSegment of rawPath.split('/').slice(1)) {
@@ -100,8 +108,8 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
       continue;
     }
     const beforeParams = segment.split(';')[0];
-    if (beforeParams === '.' || beforeParams === '..') {
-      return { ok: false, reason: 'request path hides a dot segment behind a path parameter' };
+    if (beforeParams === '' || beforeParams === '.' || beforeParams === '..') {
+      return { ok: false, reason: 'request path hides a dot or empty segment behind a ";" path parameter' };
     }
     segments.push(segment);
   }
@@ -123,7 +131,7 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
  */
 export function substitutedPathKeepsStructure(canonicalPath: string, substitutedPath: string): boolean {
   if (substitutedPath === canonicalPath) return true;
-  if (substitutedPath.includes('?') || substitutedPath.includes('#')) return false;
+  if (substitutedPath.includes('?')) return false;
   const check = canonicalizeRequestTarget(substitutedPath);
   if (!check.ok || check.pathOnly !== substitutedPath) return false;
   return substitutedPath.split('/').length === canonicalPath.split('/').length;

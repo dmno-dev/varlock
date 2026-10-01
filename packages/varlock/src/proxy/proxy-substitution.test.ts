@@ -321,17 +321,15 @@ describe('proxy substitution surface (end-to-end)', () => {
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
 
     const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
-    // Not read back on purpose: reading a torn-down block response makes
-    // runtime.stop() hang in this harness (pre-existing, same as the sibling
-    // occurrences test below). The activity stream carries the decision.
-    tlsSocket.write(
+    const response = await sendAndRead(
+      tlsSocket,
       `GET /v1/sk-stub-PLACEHOLDER/data HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`,
     );
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500);
-    });
 
+    // Fails closed, names the key, and never echoes the value.
+    expect(response.split('\r\n')[0]).toBe('HTTP/1.1 502 Bad Gateway');
+    expect(response).toContain('substituting PATH_TOKEN into the URL path would change the path\'s structure');
+    expect(response).not.toContain('admin');
     expect(upstreamHit).toBe(false);
     expect(JSON.stringify(activities)).not.toContain('admin');
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-location', blocked: true, path: '/v1/sk-stub-PLACEHOLDER/data' });
