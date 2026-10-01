@@ -9,6 +9,8 @@ import {
   runBinary, binaryRun, BINARY_PATH,
 } from '../helpers/run-varlock-binary.js';
 
+const SMOKE_TESTS_DIR = join(import.meta.dirname, '..');
+
 describe('Compiled binary tests', () => {
   test('--version prints version', () => {
     const result = runBinary(['--version']);
@@ -84,6 +86,33 @@ describe('Compiled binary tests', () => {
         chmodSync(dir, 0o700);
         rmSync(dir, { recursive: true, force: true });
         rmSync(configDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  // Bun 1.3.x failed every child_process spawn from such a cwd with EACCES, so
+  // `varlock run` could never start its command. Fixed by building with Bun 1.4.2.
+  // Skipped as root and on macOS, where getcwd() itself fails from a directory
+  // without search permission, so no runtime can start there at all.
+  test.skipIf(process.platform === 'win32' || process.platform === 'darwin' || process.getuid?.() === 0)(
+    'run starts its command when the cwd cannot be entered',
+    () => {
+      const dir = mkdtempSync(join(tmpdir(), 'varlock-locked-cwd-'));
+      try {
+        // The schema is loaded from an absolute --path since the locked cwd itself
+        // cannot be scanned.
+        const result = spawnSync(
+          '/bin/sh',
+          ['-c', 'chmod 000 . && exec "$0" run --path "$1" -- /bin/sh -c \'echo PUBLIC_VAR=$PUBLIC_VAR\'', BINARY_PATH, join(SMOKE_TESTS_DIR, 'smoke-test-basic')],
+          { cwd: dir, encoding: 'utf-8' },
+        );
+        const output = (result.stdout ?? '') + (result.stderr ?? '');
+        expect(output).not.toContain('EACCES');
+        expect(output).toContain('PUBLIC_VAR=public-value');
+        expect(result.status).toBe(0);
+      } finally {
+        chmodSync(dir, 0o700);
+        rmSync(dir, { recursive: true, force: true });
       }
     },
   );
