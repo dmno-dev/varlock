@@ -152,53 +152,47 @@ describe('exec()', functionValueTests({
   },
 }));
 
-describe('exec() string form quotes interpolated values', functionValueTests({
-  'an interpolated value is one argument, never more shell': {
-    input: outdent`
-      APP_ENV="dev; echo pwned"
-      ITEM=exec(\`echo cfg-\${APP_ENV}\`)
-    `,
-    expected: { ITEM: 'cfg-dev; echo pwned' },
-  },
-  'same via $() expansion': {
-    input: outdent`
-      APP_ENV="dev; echo pwned"
-      ITEM=$(echo cfg-\${APP_ENV})
-    `,
-    expected: { ITEM: 'cfg-dev; echo pwned' },
-  },
-  'command substitution and globs in a value stay literal': {
-    // single-quoted so env-spec's own $() expansion leaves the value alone and the shell gets it raw
-    input: outdent`
-      EVIL='$(echo pwned) * ~'
-      ITEM=exec(\`echo \${EVIL}\`)
-    `,
-    expected: { ITEM: '$(echo pwned) * ~' },
-  },
-  'single quotes in a value survive': {
-    input: outdent`
-      NAME="it's"
-      ITEM=exec(\`echo \${NAME}\`)
-    `,
-    expected: { ITEM: 'it\'s' },
-  },
-  'an empty value is still an argument': {
-    input: outdent`
-      EMPTY=
-      ITEM=exec(\`printf '[%s]' \${EMPTY}\`)
-    `,
-    expected: { ITEM: '[]' },
-  },
+describe('exec() string form takes a fixed command only', functionValueTests({
   'static text keeps its shell syntax': {
     input: 'ITEM=exec(`echo a && echo b | tr b c`)',
     expected: { ITEM: 'a\nc' },
   },
-  'a wholly dynamic command runs as written': {
+  'static quotes are fine': {
+    input: 'ITEM=exec(`printf \'[%s]\' "a b"`)',
+    expected: { ITEM: '[a b]' },
+  },
+  'error - interpolated value': {
+    // used to run `echo cfg-dev; echo pwned` as two commands
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`echo cfg-\${APP_ENV}\`)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - interpolated via $() expansion': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=$(echo cfg-\${APP_ENV})
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - interpolated inside static quotes': {
+    input: outdent`
+      EVIL='$(echo pwned)'
+      ITEM=exec(\`printf %s "x-\${EVIL}"\`)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - wholly dynamic command': {
     input: outdent`
       CMD="echo from-var"
       ITEM=exec($CMD)
     `,
-    expected: { ITEM: 'from-var' },
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested function call': {
+    input: 'ITEM=exec(fallback("", "echo hi"))',
+    expected: { ITEM: SchemaError },
   },
 }));
 
@@ -209,6 +203,13 @@ describe('exec() argv form', functionValueTests({
       ITEM=exec("echo", "a b", $APP_ENV, '$(whoami)')
     `,
     expected: { ITEM: 'a b dev; echo pwned $(whoami)' },
+  },
+  'an interpolated string is one argument': {
+    input: outdent`
+      ITEM_NAME="my item"
+      ITEM=exec("printf", "%s", "op://vault/\${ITEM_NAME}/field")
+    `,
+    expected: { ITEM: 'op://vault/my item/field' },
   },
   'numbers and booleans are stringified': {
     input: 'ITEM=exec("echo", 1, true)',
@@ -293,14 +294,14 @@ describe('exec() failures', () => {
     expect(err?.message).toContain('timed out after 100ms');
   });
 
-  it('reports the command as written, not with interpolated values filled in', async () => {
+  it('reports the command as written, not with resolved values filled in', async () => {
     const g = new EnvGraph();
     await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
       overrideContents: outdent`
         # @defaultSensitive=false
         # ---
         TOKEN=super-secret-token-value
-        ITEM=exec(\`definitely-not-a-real-command-varlock --token \${TOKEN}\`)
+        ITEM=exec("definitely-not-a-real-command-varlock", "--token", $TOKEN)
       `,
     }));
     await g.finishLoad();

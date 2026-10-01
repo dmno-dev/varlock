@@ -24,7 +24,6 @@ import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
-import { shellQuoteWord } from '../../lib/shell-quote';
 
 type ExecChildOptions = {
   shell: boolean;
@@ -544,35 +543,6 @@ export const FallbackResolver: typeof Resolver = createResolver({
 
 const execQueue = new SimpleQueue();
 
-/**
- * Build the shell command for the string form of `exec()`.
- *
- * Static text is the command as written. Anything interpolated into it (a
- * `${REF}`, a nested function call) is a *value*, so it is quoted to a single
- * shell word: `exec(\`./fetch ${APP_ENV}\`)` with `APP_ENV=dev; rm -rf /` runs
- * `./fetch 'dev; rm -rf /'`, not two commands. Template expansion turns an
- * interpolated string into `concat(static, ref, static, ...)`, so a `concat`
- * arg is walked part by part; any other single arg is resolved whole. A
- * wholly dynamic arg (`exec($CMD)`) is left as written: the author asked for
- * that value to be the command.
- */
-async function buildExecShellCommand(arg: Resolver): Promise<string> {
-  if (arg.fnName === 'concat' && arg.arrArgs?.length) {
-    let command = '';
-    for (const part of arg.arrArgs) {
-      const resolved = await part.resolve();
-      const text = String(resolved ?? '');
-      command += part.isStatic ? text : shellQuoteWord(text);
-    }
-    return command;
-  }
-  const resolved = await arg.resolve();
-  if (typeof resolved !== 'string') {
-    throw new ResolutionError('exec() expects a string command, or an array of command + arguments');
-  }
-  return resolved;
-}
-
 export const ExecResolver: typeof Resolver = createResolver({
   name: 'exec',
   icon: 'iconoir:terminal',
@@ -585,6 +555,14 @@ export const ExecResolver: typeof Resolver = createResolver({
       if (!EXEC_OPTION_KEYS.includes(key)) {
         throw new SchemaError(`exec() does not accept a "${key}" option (expected one of ${EXEC_OPTION_KEYS.join(', ')})`);
       }
+    }
+    // string form runs through the shell, so it only takes a fixed command. A value
+    // (`${REF}`, `$CMD`, a nested call) could come from the process environment or a
+    // .env.local, and would be read as shell syntax; values go through the argv form.
+    if (this.arrArgs?.length === 1 && !(this.arrArgs[0] instanceof StaticValueResolver)) {
+      throw new SchemaError('exec() with a single argument runs a fixed shell command, so it cannot include values', {
+        tip: 'pass the program and its arguments separately instead, e.g. exec("./script", "--env", $APP_ENV) - this runs the program directly, with no shell',
+      });
     }
   },
   async resolve() {
@@ -641,7 +619,8 @@ export const ExecResolver: typeof Resolver = createResolver({
     let run: () => Promise<{ stdout: string }>;
     if (args.length === 1) {
       // string form: exec(`cmd ...`) runs through the shell
-      const commandStr = await buildExecShellCommand(args[0]);
+      const commandStr = (args[0] as StaticValueResolver).staticValue;
+      if (typeof commandStr !== 'string' || !commandStr) throw new ResolutionError('exec() needs a non-empty command');
       run = () => runExecChild(commandStr, [], { ...childOpts, shell: true });
     } else {
       // argv form: exec("./script", "--flag", $REF) runs the program directly with

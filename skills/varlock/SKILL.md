@@ -164,9 +164,9 @@ Instead of static values, items can use resolver functions:
 # Reference another item ($VAR and ${VAR} are shorthand for ref(VAR))
 FULL_URL=${API_URL}/v2/users
 
-# Execute a CLI command (string form runs via the shell; an interpolated ${VAR} is quoted as one argument)
+# Execute a CLI command (string form runs a fixed command via the shell; values are not allowed in it)
 SECRET=exec(`op read "op://vault/item/field"`)
-# Argv form runs the program directly with no shell: use it when passing dynamic values as arguments
+# Argv form runs the program directly with no shell: required whenever a value is part of the command
 CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
 # Options: stdin=, env={...} (pass secrets without argv), cwd= (relative to the env file), timeout=
 DB_URL=exec("./conn.sh", "--password-stdin", stdin=$DB_PASSWORD, timeout="30s")

