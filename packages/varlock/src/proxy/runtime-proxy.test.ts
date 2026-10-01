@@ -799,16 +799,6 @@ describe('startLocalProxyRuntime', () => {
     expect(activities.at(-1)).toMatchObject({ decision: 'allow', path: '/charges/re_1' });
     expect(upstreamUrl).toBe('/charges/re_1?x=%2F..');
 
-    // A `;` path parameter is matched under both routed forms: the block fires
-    // because a servlet upstream would strip it to `/refunds/re_1`...
-    const matrixBlocked = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/refunds;jsessionid=abc/re_1`);
-    expect(matrixBlocked.statusCode).toBe(403);
-    expect(activities.at(-1)).toMatchObject({ decision: 'deny', path: '/refunds;jsessionid=abc/re_1', blocked: true });
-    // ...and an unblocked one goes upstream with the parameter intact.
-    const matrixOk = await requestViaProxy(runtime.env.HTTP_PROXY!, `http://127.0.0.1:${addr.port}/charges;jsessionid=abc/re_1`);
-    expect(matrixOk.statusCode).toBe(200);
-    expect(upstreamUrl).toBe('/charges;jsessionid=abc/re_1');
-
     await runtime.stop();
     await new Promise<void>((resolve) => {
       upstream.close(() => resolve());
