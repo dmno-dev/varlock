@@ -54,6 +54,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Controls whether `varlock/auto-load` reuses an already-injected `__VARLOCK_ENV` blob instead of re-resolving via the CLI. `1`/`true` always trusts the blob (e.g. handing a blob into a sandbox with no .env files); `0`/`false` always re-resolves. Unset, auto-load reuses the blob only when it was resolved in the same directory.',
   },
   {
+    name: '_VARLOCK_ALLOW_EMPTY_CONFIG',
+    description: 'When set (`1`/`true`), allows loading an empty config (no .env files found, or no items defined). `varlock load`/`run` succeed with an empty config instead of erroring, and `varlock/auto-load` and the framework integrations skip their empty-config warning. Use for deploys that intentionally ship no .env files. Other commands (e.g. `varlock proxy`) still require config items.',
+  },
+  {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
     description: 'Forces the file-based local encryption fallback instead of the native binary. Intended for testing/debugging.',
     internal: true,

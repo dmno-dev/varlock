@@ -52,6 +52,10 @@ Set to `warn` to downgrade the build/prerender-time guard on [public+dynamic](/g
 
 When set (`1` / `true`), [`varlock/auto-load`](/integrations/javascript/#reporting-load-failures) throws the error on a load failure instead of exiting, so an already-initialized error tracker (e.g. Sentry) can capture it via its `uncaughtException` handler. Setting a `globalThis._varlockOnLoadError` hook enables the same throw behavior. See [Reporting load failures](/integrations/javascript/#reporting-load-failures).
 
+### `_VARLOCK_ALLOW_EMPTY_CONFIG`
+
+When set (`1` / `true`), allows loading an empty config: no `.env` files found, or files that define no items. [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run) succeed with an empty config instead of erroring, and [`varlock/auto-load`](/integrations/javascript/#running-with-no-config) and the framework integrations skip their empty-config warning. Use it for deploys that intentionally ship no `.env` files. Parse errors still fail, and other commands (for example `varlock proxy`) still require config items.
+
 ### `_VARLOCK_USE_INJECTED_ENV`
 
 Controls whether [`varlock/auto-load`](/integrations/javascript/#reusing-an-injected-env-blob) and [`varlock run`](/reference/cli/load-and-run/#run) reuse an already-injected [`__VARLOCK_ENV`](#__varlock_env) blob (e.g. from a parent `varlock run`) instead of re-resolving:

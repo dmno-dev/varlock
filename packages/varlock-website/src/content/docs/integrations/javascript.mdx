@@ -66,6 +66,12 @@ Two things to keep in mind:
 
 Only resolved values are available to the hook, so this does not help with `.env` **parse or schema errors**, where resolution is skipped entirely. To report those, the DSN must come from a real environment variable and be picked up by an already-initialized reporter.
 
+### Running with no config
+
+If no `.env` files are found (or they define no items), auto-load prints a warning and the app starts with an empty config. This usually means the app was started from a different directory than its `.env.schema`, or a build or archive left the `.env` files out. The framework integrations print the same warning. In the next major version this becomes an error, matching `varlock load` and `varlock run`.
+
+If your app intentionally runs with no config items (for example a deploy that ships no `.env` files and reads everything from `process.env`), set [`_VARLOCK_ALLOW_EMPTY_CONFIG=1`](/reference/reserved-variables/#_varlock_allow_empty_config) to silence the warning. It also makes `varlock load` and `varlock run` succeed with an empty config instead of erroring.
+
 ### Reusing an injected env blob
 
 When the process was launched by [`varlock run`](/reference/cli/load-and-run/#run), the resolved env is already present as the `__VARLOCK_ENV` blob. auto-load reuses it instead of calling the CLI again, so wrapping an auto-load app in `varlock run` does not cost a second resolution.

@@ -61,11 +61,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     const result = checkForSchemaErrors(envGraph, { noThrow: true });
     hasSchemaErrors = result.hasErrors;
     hadSchemaOutput = result.hasOutput;
-    checkForNoEnvFiles(envGraph, { noThrow: true });
+    checkForNoEnvFiles(envGraph, { noThrow: true, allowOptOut: true });
   } else {
     const result = checkForSchemaErrors(envGraph);
     hadSchemaOutput = result.hasOutput;
-    checkForNoEnvFiles(envGraph);
+    checkForNoEnvFiles(envGraph, { allowOptOut: true });
   }
 
   if (!envGraph.rootDataSource) throw new Error('expected root data source to be set');
