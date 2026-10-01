@@ -69,7 +69,7 @@ A request whose path cannot be canonicalized unambiguously is rejected with a `4
 
 `;` path parameters (`/v1/admin;jsessionid=x/data`) are forwarded as written, but they have two routed forms: servlet containers strip `;...` from each segment before routing (`/v1/admin/data`), everything else routes on the literal text. The proxy evaluates both. A `block` rule denies the request if either form matches it, and an allow rule (and so strict egress) only matches if both forms do.
 
-A value substituted into the path (`substituteIn=[path]`) has to stay inside its segment. If the real value contains a path separator, a dot segment, a `?`, `#` or `;`, or anything the canonicalizer would rewrite, the request is refused with a `502` rather than routed to a path the rules never evaluated.
+A value substituted into the path (`substituteIn=[path]`) has to stay inside its segment. If the real value contains a path separator, a dot segment, a `?` or `#`, or anything the canonicalizer would rewrite, the request is refused with a `502` rather than routed to a path the rules never evaluated.
 
 Matching is case-sensitive. If an upstream routes case-insensitively, a `block` rule needs to cover the spellings the upstream accepts, or use `strict` egress so anything not explicitly allowed is denied.
 

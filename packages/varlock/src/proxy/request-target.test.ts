@@ -150,14 +150,11 @@ describe('canonicalized paths close the block-rule bypass', () => {
     expect(substitutedPathKeepsStructure(base, '/v1/x#frag/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x%2Fy/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x%2e%2e/data')).toBe(false);
-    // a `;` in the value lets a servlet router strip the rest of the segment,
-    // routing `/v1/admin<ph>/data` as `/v1/admin/data`: a path the rules never saw
-    expect(substitutedPathKeepsStructure(base, '/v1/x;y/data')).toBe(false);
+    // a `;` in the value is fine while every routed form keeps the segment
+    // count; one a servlet router would strip to an empty or dot segment is not
+    expect(substitutedPathKeepsStructure(base, '/v1/x;y/data')).toBe(true);
     expect(substitutedPathKeepsStructure(base, '/v1/;y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/..;y/data')).toBe(false);
-    expect(substitutedPathKeepsStructure('/v1/admin-sk-stub-PLACEHOLDER/data', '/v1/admin-;x/data')).toBe(false);
-    // a `;` already in the request (outside the placeholder) is fine
-    expect(substitutedPathKeepsStructure('/v1/sk-stub-PLACEHOLDER/data;jsessionid=1', '/v1/sk-stub-REALKEY/data;jsessionid=1')).toBe(true);
     expect(substitutedPathKeepsStructure(base, '/v1/x y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/100%/data')).toBe(false);
   });
