@@ -1819,12 +1819,13 @@ export async function startLocalProxyRuntime({
     clientSocket.on('close', () => peerSocket.destroy());
   };
 
-  const hostMitmServers = new Map<string, { server: https.Server; port: number }>();
-  const getOrCreateHostMitmServer = async (host: string): Promise<{ server: https.Server; port: number }> => {
-    const normalized = normalizeHost(host);
-    const cached = hostMitmServers.get(normalized);
-    if (cached) return cached;
-
+  type HostMitmServer = { server: https.Server; port: number };
+  const hostMitmServers = new Map<string, HostMitmServer>();
+  // In-flight setups, keyed by host so concurrent CONNECTs to one host share a
+  // server, and awaited by stop() so it is a completion barrier: a setup that
+  // finishes after stop() began tears its server back down before stop() returns.
+  const pendingMitmServers = new Map<string, Promise<HostMitmServer>>();
+  const createHostMitmServer = async (normalized: string): Promise<HostMitmServer> => {
     const hostCert = await createHostCert(ca, normalized);
     if (stopping) throw new Error('varlock proxy is stopping');
     const server = https.createServer({
@@ -1852,13 +1853,27 @@ export async function startLocalProxyRuntime({
     }
     if (stopping) {
       // stop() already snapshotted hostMitmServers; don't leak a listener past it
-      server.close();
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
       throw new Error('varlock proxy is stopping');
     }
 
     const created = { server, port: addr.port };
     hostMitmServers.set(normalized, created);
     return created;
+  };
+
+
+  const getOrCreateHostMitmServer = (host: string): Promise<HostMitmServer> => {
+    const normalized = normalizeHost(host);
+    const cached = hostMitmServers.get(normalized);
+    if (cached) return Promise.resolve(cached);
+    const pending = pendingMitmServers.get(normalized);
+    if (pending) return pending;
+    const setup = createHostMitmServer(normalized).finally(() => pendingMitmServers.delete(normalized));
+    pendingMitmServers.set(normalized, setup);
+    return setup;
   };
 
   // Handles absolute-form proxy requests (mostly plain HTTP).
@@ -2075,6 +2090,9 @@ export async function startLocalProxyRuntime({
       stopping = true;
       // Detach the tunnel WS server first so it stops accepting upgrades.
       tunnel?.close();
+      // A CONNECT handler still setting up a MITM server finishes (and tears it
+      // back down, see createHostMitmServer) before the snapshot below.
+      await Promise.allSettled([...pendingMitmServers.values()]);
       // `server.close()` only calls back once every connection has drained, and
       // an idle keep-alive socket never closes on its own, so without forcing
       // connections closed, stop() (and the daemon's SIGTERM cleanup) hangs

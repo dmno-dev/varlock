@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import net, { Server } from 'node:net';
 import { URL } from 'node:url';
@@ -13,6 +13,27 @@ import {
 // closeAllConnections() skips it while server.close() still waits for it. Both
 // cases below hung forever before the tunnel sockets were tracked and tied to
 // their peer's lifetime.
+
+// Latch on the proxy's per-host cert mint so one test can hold a CONNECT
+// handler inside MITM setup deterministically. Pass-through when unarmed.
+const mintLatch = vi.hoisted(() => ({
+  armed: undefined as { started: () => void; release: Promise<void> } | undefined,
+}));
+vi.mock('./cert-authority', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./cert-authority')>();
+  return {
+    ...actual,
+    createHostCert: async (...args: Parameters<typeof actual.createHostCert>) => {
+      const latch = mintLatch.armed;
+      if (latch) {
+        mintLatch.armed = undefined;
+        latch.started();
+        await latch.release;
+      }
+      return actual.createHostCert(...args);
+    },
+  };
+});
 
 const { startUpstream } = setupMitmHarness();
 
@@ -92,7 +113,7 @@ test('stop() resolves while an idle passthrough CONNECT tunnel is still open', a
   await upstream.close();
 }, 5000);
 
-test('stop() resolves when called while a MITM CONNECT is still setting up, and leaks no listener', async () => {
+test('stop() called while a MITM CONNECT is still minting its cert resolves, closes the client, and leaks no listener', async () => {
   const upstream = await startUpstream((_req, res) => {
     res.end('ok');
   });
@@ -112,16 +133,31 @@ test('stop() resolves when called while a MITM CONNECT is still setting up, and 
   await new Promise<void>((resolve) => {
     rawSocket.once('connect', () => resolve());
   });
-  // Send the CONNECT, then call stop() one timer tick later: by then the proxy
-  // has read the CONNECT and is parked in the host cert mint (async key
-  // generation, a few ms), so the client socket has been adopted but has no
-  // peer yet. Measured: a 0-2ms delay lands inside the mint, 4ms is past it.
-  rawSocket.write(`CONNECT ${UPSTREAM_HOST}:${upstream.port} HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\n\r\n`);
-  await new Promise((resolve) => {
-    setTimeout(resolve, 1);
+  // Hold the proxy inside the host cert mint: the CONNECT handler has adopted
+  // the client socket but has no peer and no MITM server yet. Call stop() in
+  // that state, then let the mint finish while stop() is in flight.
+  let mintStarted!: () => void;
+  let releaseMint!: () => void;
+  const started = new Promise<void>((resolve) => {
+    mintStarted = resolve;
   });
+  mintLatch.armed = {
+    started: mintStarted,
+    release: new Promise<void>((resolve) => {
+      releaseMint = resolve;
+    }),
+  };
+  rawSocket.write(`CONNECT ${UPSTREAM_HOST}:${upstream.port} HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\n\r\n`);
+  await started;
 
-  await expect(stopOrTimeout(runtime.stop)).resolves.toBe('stopped');
+  const stopping = stopOrTimeout(runtime.stop);
+  await new Promise((resolve) => {
+    setTimeout(resolve, 10);
+  });
+  releaseMint();
+  await expect(stopping).resolves.toBe('stopped');
+  // stop() is a completion barrier: the late setup has already been torn down.
+  expect(listeningServers()).toBe(serversBefore);
   const clientClosed = await Promise.race([
     new Promise<true>((resolve) => {
       if (rawSocket.closed) resolve(true);
@@ -132,10 +168,5 @@ test('stop() resolves when called while a MITM CONNECT is still setting up, and 
     }),
   ]);
   expect(clientClosed).toBe(true);
-  // Let a MITM server that finished setting up after stop() close itself.
-  await new Promise((resolve) => {
-    setTimeout(resolve, 50);
-  });
-  expect(listeningServers()).toBe(serversBefore);
   await upstream.close();
 }, 5000);
