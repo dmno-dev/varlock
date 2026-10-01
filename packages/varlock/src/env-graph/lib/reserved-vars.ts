@@ -55,7 +55,7 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   },
   {
     name: '_VARLOCK_ALLOW_EMPTY_CONFIG',
-    description: 'When set (`1`/`true`), allows loading an empty config (no .env files found, or no items defined). `varlock load`/`run` succeed with an empty config instead of erroring, and `varlock/auto-load` and the framework integrations skip their empty-config warning. Use for deploys that intentionally ship no .env files. Other commands (e.g. `varlock proxy`) still require config items.',
+    description: 'When set (`1`/`true`), allows loading an empty config (no .env files found, or no items defined). `varlock load`/`run`, `varlock/auto-load`, and the framework integrations continue with an empty config instead of erroring. Use for deploys that intentionally ship no .env files. Other commands (e.g. `varlock proxy`) still require config items.',
   },
   {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',

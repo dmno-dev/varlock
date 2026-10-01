@@ -4,7 +4,6 @@ import os from 'node:os';
 import { execFileSync, execSync } from 'node:child_process';
 import { isBunRuntime, isBunStandaloneExecutable } from './detect-runtime';
 import { CLI_CHILD_MARKER } from './cli-child-marker';
-import { warnIfNoConfigLoaded } from './empty-config-check';
 
 const isWindows = () => /^win/i.test(os.platform());
 
@@ -156,22 +155,6 @@ type ExecSyncVarlockOpts = Parameters<typeof execSync>[1] & {
  *
  * @returns stdout as a string by default, or `{ stdout, stderr }` when `fullResult: true`
  */
-/**
- * Callers of `load --format json-full` (auto-load and every framework integration) discard the
- * CLI's stderr on success, so the CLI's own "no .env files" message never reaches the user.
- * Warn here, in the one place they all share.
- */
-function successResult(command: string, stdout: string, opts?: ExecSyncVarlockOpts) {
-  if (command.startsWith('load ') && command.includes('--format json-full')) {
-    try {
-      warnIfNoConfigLoaded(JSON.parse(stdout));
-    } catch {
-      // unparseable output is the caller's problem to report
-    }
-  }
-  return opts?.fullResult ? { stdout, stderr: '' } : stdout;
-}
-
 export function execSyncVarlock(command: string, opts?: ExecSyncVarlockOpts & { fullResult?: false }): string;
 export function execSyncVarlock(command: string, opts: ExecSyncVarlockOpts & { fullResult: true }): ExecVarlockResult;
 export function execSyncVarlock(
@@ -231,7 +214,9 @@ export function execSyncVarlock(
             [...(cliScript ? [cliScript] : []), ...command.split(' ')],
             execOpts,
           );
-        return successResult(command, result.toString(), opts);
+        return opts?.fullResult
+          ? { stdout: result.toString(), stderr: '' }
+          : result.toString();
       }
     }
 
@@ -243,7 +228,9 @@ export function execSyncVarlock(
         ...opts?.cwd && { cwd: opts.cwd },
         stdio: 'pipe',
       });
-      return successResult(command, result.toString(), opts);
+      return opts?.fullResult
+        ? { stdout: result.toString(), stderr: '' }
+        : result.toString();
     } catch (err) {
       // sh exits 127 when the command is not found; ENOENT means the shell itself is missing.
       // cmd.exe exits 1 for both "not found" and a real CLI failure, and its message is

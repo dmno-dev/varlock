@@ -4,7 +4,7 @@ import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import {
   LoadingError, ParseError, VarlockError,
 } from '../../env-graph/lib/errors';
-import { isEmptyConfigAllowed } from '../../lib/empty-config-check';
+import { ALLOW_EMPTY_CONFIG_ENV_VAR, isEmptyConfigAllowed } from '../../lib/empty-config-check';
 import { CliExitError } from './exit-error';
 import { InvalidEnvError } from './invalid-env-error';
 
@@ -34,8 +34,13 @@ function showErrorTip(err: VarlockError) {
  * Errors when no config items were loaded (no .env files found, or none define items).
  * `allowOptOut` lets `_VARLOCK_ALLOW_EMPTY_CONFIG` skip the check; only `load` and `run` pass it, so
  * commands that need config items (e.g. `proxy`, which would otherwise start with no rules) always fail.
+ * With `noThrow`, returns the problem as a one-line message instead, so `load --format json-full`
+ * can report it in its JSON output.
  */
-export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolean, allowOptOut?: boolean }) {
+export function checkForNoEnvFiles(
+  envGraph: EnvGraph,
+  opts?: { noThrow?: boolean, allowOptOut?: boolean },
+): string | undefined {
   if (Object.keys(envGraph.configSchema).length === 0) {
     // If a source has a parse error, the schema couldn't be read at all so
     // "no config items defined" is misleading — the parse error (already
@@ -51,14 +56,17 @@ export function checkForNoEnvFiles(envGraph: EnvGraph, opts?: { noThrow?: boolea
 
     const displayPath = envGraph.basePath ?? process.cwd();
     const hasLoadedFiles = envGraph.sortedDataSources.some((s) => s instanceof FileBasedDataSource);
+    const message = hasLoadedFiles
+      ? `No config items defined in ${displayPath}`
+      : `No .env files found in ${displayPath}`;
+    console.error(`🚨 ${message}\n`);
     if (!hasLoadedFiles) {
-      console.error(`🚨 No .env files found in ${displayPath}\n`);
       console.error('Run `varlock init` to create a .env.schema file, or use `--path` to specify a file or directory.');
     } else {
-      console.error(`🚨 No config items defined in ${displayPath}\n`);
       console.error('Add items to your .env.schema file to get started.');
     }
-    if (opts?.noThrow) return;
+    if (opts?.allowOptOut) console.error(`Set ${ALLOW_EMPTY_CONFIG_ENV_VAR}=1 to allow running with an empty config.`);
+    if (opts?.noThrow) return message;
     throw new CliExitError('No env files', { silent: true });
   }
 }
