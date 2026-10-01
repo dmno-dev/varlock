@@ -3,6 +3,7 @@ import {
 } from 'vitest';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
+import { EnvGraph, DotEnvFileDataSource } from '../index';
 
 // We need to mock the child_process module used by builtin-vars.ts
 // to verify git is/isn't called
@@ -415,5 +416,77 @@ describe('VARLOCK_* builtin variables', () => {
         ITEM1: 'dev-value',
       },
     }));
+  });
+
+  describe('guessed VARLOCK_ENV warning', () => {
+    const FLY_ENV = { FLY_APP_NAME: 'my-app', FLY_MACHINE_ID: 'abc123' };
+    const GUESS_MSG = 'VARLOCK_ENV guessed "preview"';
+
+    async function getVarlockEnvWarnings(
+      envFile: string,
+      processEnv: Record<string, string>,
+      overrideValues?: Record<string, string>,
+    ) {
+      const g = new EnvGraph();
+      g.processEnvOverride = processEnv;
+      if (overrideValues) g.overrideValues = overrideValues;
+      await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: envFile }));
+      await g.finishLoad();
+      await g.resolveEnvValues();
+      const item = g.configSchema.VARLOCK_ENV;
+      return {
+        value: item?.resolvedValue,
+        warnings: (item?.errors ?? [])
+          .filter((e) => e.isWarning && e.message.startsWith('VARLOCK_ENV guessed'))
+          .map((e) => e.message),
+      };
+    }
+
+    test('warns when a derived flag uses the bare fallback on a platform', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', FLY_ENV);
+      expect(r.value).toBe('preview');
+      expect(r.warnings).toEqual([expect.stringContaining(GUESS_MSG)]);
+      expect(r.warnings[0]).toContain('Fly.io');
+    });
+
+    test('warns when used as @currentEnv', async () => {
+      const r = await getVarlockEnvWarnings('# @currentEnv=$VARLOCK_ENV\n# ---\nFOO=bar', FLY_ENV);
+      expect(r.warnings).toEqual([expect.stringContaining(GUESS_MSG)]);
+    });
+
+    test('warns for generic CI with no platform or branch', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', { CI: 'true' });
+      expect(r.warnings).toEqual([expect.stringContaining('this CI environment')]);
+    });
+
+    test('no warning when the platform reports an environment', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', { VERCEL: '1', VERCEL_ENV: 'production' });
+      expect(r.warnings).toEqual([]);
+    });
+
+    test('no warning when inferred from a branch', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', {
+        GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'owner/repo',
+      });
+      expect(r.value).toBe('production');
+      expect(r.warnings).toEqual([]);
+    });
+
+    test('no warning locally', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', {});
+      expect(r.value).toBe('development');
+      expect(r.warnings).toEqual([]);
+    });
+
+    test('no warning when VARLOCK_ENV is set explicitly', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', FLY_ENV, { VARLOCK_ENV: 'production' });
+      expect(r.value).toBe('production');
+      expect(r.warnings).toEqual([]);
+    });
+
+    test('no warning when the derived flag is overridden', async () => {
+      const r = await getVarlockEnvWarnings('APP_ENV=$VARLOCK_ENV', FLY_ENV, { APP_ENV: 'production' });
+      expect(r.warnings).toEqual([]);
+    });
   });
 });

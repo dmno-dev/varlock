@@ -348,6 +348,13 @@ export const PLATFORMS: Array<PlatformDefinition> = [
     commitSha: 'EAS_BUILD_GIT_COMMIT_HASH',
   },
   { name: 'Firebase App Hosting', docsUrl: 'https://firebase.google.com/docs/app-hosting/configure', detect: 'FIREBASE_APP_HOSTING' },
+  {
+    name: 'Fly.io',
+    docsUrl: 'https://fly.io/docs/machines/runtime-environment/',
+    // set on every Fly Machine; no git metadata is exposed
+    detect: envAll('FLY_APP_NAME', 'FLY_MACHINE_ID'),
+    runId: 'FLY_IMAGE_REF',
+  },
   { name: 'Gerrit', detect: 'GERRIT_PROJECT' },
   { name: 'Gitea Actions', detect: 'GITEA_ACTIONS' },
   { name: 'GoCD', detect: 'GO_PIPELINE_LABEL' },

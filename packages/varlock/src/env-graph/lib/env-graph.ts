@@ -516,6 +516,10 @@ export class EnvGraph {
       // builtin (e.g. VARLOCK_IS_CI false -> "false", breaking not()/if()).
       inferredType: builtinType,
       async resolve() {
+        const builtinItem = graph.configSchema[key];
+        if (builtinItem) {
+          builtinItem._builtinUsageWarning = builtinDef.usageWarning?.(graph.ciEnvInfo, graph.processEnvForBuiltins);
+        }
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
     });

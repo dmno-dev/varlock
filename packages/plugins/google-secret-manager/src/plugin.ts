@@ -3,7 +3,8 @@ import {
 } from 'varlock/plugin-lib';
 
 import { GoogleAuth } from 'google-auth-library';
-import { getOidcToken } from '@env-spec/utils/oidc-tokens';
+
+import { createSubjectTokenSupplier } from './workload-identity';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
@@ -110,46 +111,36 @@ class GsmPluginInstance {
 
         // Second priority: OIDC via Workload Identity Federation
         if (this.workloadIdentityProvider) {
-          // Get OIDC token - either explicit or auto-detected from platform
-          let jwt: string | undefined = this.oidcToken;
-          if (!jwt) {
-            const result = await getOidcToken(this.workloadIdentityProvider);
-            jwt = result?.token;
+          debug('Using Workload Identity Federation with OIDC token');
+
+          // Build external account credentials JSON that GoogleAuth understands
+          const externalAccountConfig: Record<string, any> = {
+            type: 'external_account',
+            audience: this.workloadIdentityProvider,
+            subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
+            token_url: 'https://sts.googleapis.com/v1/token',
+            subject_token_supplier: createSubjectTokenSupplier(
+              this.workloadIdentityProvider,
+              this.oidcToken,
+            ),
+          };
+
+          if (this.serviceAccountEmail) {
+            const saUrl = 'https://iamcredentials.googleapis.com/v1/projects/-'
+              + `/serviceAccounts/${this.serviceAccountEmail}`
+              + ':generateAccessToken';
+            externalAccountConfig.service_account_impersonation_url = saUrl;
           }
 
-          if (jwt) {
-            debug('Using Workload Identity Federation with OIDC token');
+          // GoogleAuth can accept external_account type credentials
+          const auth = new GoogleAuth({
+            scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+            credentials: externalAccountConfig as any,
+            projectId: this.projectId,
+          });
 
-            // Build external account credentials JSON that GoogleAuth understands
-            const externalAccountConfig: Record<string, any> = {
-              type: 'external_account',
-              audience: this.workloadIdentityProvider,
-              subject_token_type: 'urn:ietf:params:oauth:token-type:jwt',
-              token_url: 'https://sts.googleapis.com/v1/token',
-              // Use file-sourced credential with a temp approach
-              credential_source: {
-                file: '', // placeholder - overridden below
-              },
-            };
-
-            if (this.serviceAccountEmail) {
-              const saUrl = 'https://iamcredentials.googleapis.com/v1/projects/-'
-                + `/serviceAccounts/${this.serviceAccountEmail}`
-                + ':generateAccessToken';
-              externalAccountConfig.service_account_impersonation_url = saUrl;
-            }
-
-            // GoogleAuth can accept external_account type credentials
-            const auth = new GoogleAuth({
-              scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-              credentials: externalAccountConfig as any,
-              projectId: this.projectId,
-            });
-
-            debug('GSM WIF auth client initialized for instance', this.id);
-            return auth;
-          }
-          debug('WIF configured but no OIDC token available, falling back');
+          debug('GSM WIF auth client initialized for instance', this.id);
+          return auth;
         }
 
         // Third priority: Application Default Credentials

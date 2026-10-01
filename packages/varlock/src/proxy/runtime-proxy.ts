@@ -1810,13 +1810,48 @@ export async function startLocalProxyRuntime({
     });
   };
 
-  const hostMitmServers = new Map<string, { server: https.Server; port: number }>();
-  const getOrCreateHostMitmServer = async (host: string): Promise<{ server: https.Server; port: number }> => {
-    const normalized = normalizeHost(host);
-    const cached = hostMitmServers.get(normalized);
-    if (cached) return cached;
+  // Sockets adopted by the CONNECT handler. Once a request is upgraded to a
+  // tunnel the http server no longer tracks its socket, so closeAllConnections()
+  // skips it while server.close() still waits for it. stop() destroys these
+  // itself so shutdown never depends on the client's or peer's behavior.
+  const tunnelSockets = new Set<net.Socket>();
+  const adoptTunnelSocket = (socket: net.Socket) => {
+    tunnelSockets.add(socket);
+    socket.on('close', () => tunnelSockets.delete(socket));
+  };
+  // Set at the top of stop(): CONNECT handlers still awaiting MITM setup check
+  // it afterwards so they neither bridge a socket nor register a MITM server
+  // that stop() has already looked past.
+  let stopping = false;
 
+  /**
+   * Ties a CONNECT client socket and its peer (the MITM loopback connection or
+   * the raw upstream) together once they are piped. `pipe()` alone leaves a
+   * hole: when one side closes, the pipe is torn down and the other socket's
+   * readable side is left paused, so bytes that arrive after that (e.g. the
+   * client's TLS close_notify once it has read a blocked response) sit unread,
+   * its 'end' never fires, and the socket stays open for good.
+   */
+  const bridgeTunnelSockets = (clientSocket: net.Socket, peerSocket: net.Socket) => {
+    adoptTunnelSocket(peerSocket);
+    peerSocket.on('error', () => clientSocket.destroy());
+    clientSocket.on('error', () => peerSocket.destroy());
+    peerSocket.on('close', () => {
+      // the pipe already ended the client's write side; flush that, then drop it
+      clientSocket.destroySoon();
+    });
+    clientSocket.on('close', () => peerSocket.destroy());
+  };
+
+  type HostMitmServer = { server: https.Server; port: number };
+  const hostMitmServers = new Map<string, HostMitmServer>();
+  // In-flight setups, keyed by host so concurrent CONNECTs to one host share a
+  // server, and awaited by stop() so it is a completion barrier: a setup that
+  // finishes after stop() began tears its server back down before stop() returns.
+  const pendingMitmServers = new Map<string, Promise<HostMitmServer>>();
+  const createHostMitmServer = async (normalized: string): Promise<HostMitmServer> => {
     const hostCert = await createHostCert(ca, normalized);
+    if (stopping) throw new Error('varlock proxy is stopping');
     const server = https.createServer({
       key: hostCert.keyPem,
       cert: hostCert.certPem,
@@ -1840,10 +1875,29 @@ export async function startLocalProxyRuntime({
       server.close();
       throw new Error(`Failed to start MITM TLS server for ${normalized}`);
     }
+    if (stopping) {
+      // stop() already snapshotted hostMitmServers; don't leak a listener past it
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+      throw new Error('varlock proxy is stopping');
+    }
 
     const created = { server, port: addr.port };
     hostMitmServers.set(normalized, created);
     return created;
+  };
+
+
+  const getOrCreateHostMitmServer = (host: string): Promise<HostMitmServer> => {
+    const normalized = normalizeHost(host);
+    const cached = hostMitmServers.get(normalized);
+    if (cached) return Promise.resolve(cached);
+    const pending = pendingMitmServers.get(normalized);
+    if (pending) return pending;
+    const setup = createHostMitmServer(normalized).finally(() => pendingMitmServers.delete(normalized));
+    pendingMitmServers.set(normalized, setup);
+    return setup;
   };
 
   // Handles absolute-form proxy requests (mostly plain HTTP).
@@ -1893,7 +1947,9 @@ export async function startLocalProxyRuntime({
     });
   });
 
-  proxyServer.on('connect', async (req, clientSocket, head) => {
+  proxyServer.on('connect', async (req, clientSocketDuplex, head) => {
+    // typed as Duplex but is a net.Socket at runtime
+    const clientSocket = clientSocketDuplex as net.Socket;
     const hostInfo = parseHostPort(req.url ?? '');
     if (!hostInfo) {
       clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -1904,8 +1960,7 @@ export async function startLocalProxyRuntime({
     // A CONNECT tunnel to the internal host reaches handleInternalRequest via a
     // local MITM pipe, where the original peer address is no longer visible — so
     // the loopback-only assertion for the control plane must happen here.
-    // clientSocket is typed as Duplex but is a net.Socket at runtime
-    const connectPeer = (clientSocket as net.Socket).remoteAddress;
+    const connectPeer = clientSocket.remoteAddress;
     if (normalizeHost(hostInfo.host) === VARLOCK_INTERNAL_HOST && !isLoopbackAddress(connectPeer)) {
       internalEndpoint?.onAuthFailure?.();
       clientSocket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
@@ -1944,6 +1999,10 @@ export async function startLocalProxyRuntime({
       return;
     }
 
+    // From here on the socket is ours: track it right away so stop() can close
+    // it even while the peer connection (or MITM cert) is still being set up.
+    adoptTunnelSocket(clientSocket);
+
     // Only MITM for configured proxy domains. Others are tunneled through.
     if (!shouldRewrite) {
       const upstreamSocket = net.connect(hostInfo.port, hostInfo.host, () => {
@@ -1952,13 +2011,16 @@ export async function startLocalProxyRuntime({
         clientSocket.pipe(upstreamSocket);
         upstreamSocket.pipe(clientSocket);
       });
-      upstreamSocket.on('error', () => clientSocket.destroy());
-      clientSocket.on('error', () => upstreamSocket.destroy());
+      bridgeTunnelSockets(clientSocket, upstreamSocket);
       return;
     }
 
     try {
       const hostMitmServer = await getOrCreateHostMitmServer(hostInfo.host);
+      if (stopping || clientSocket.destroyed) {
+        clientSocket.destroy();
+        return;
+      }
       const mitmSocket = net.connect(hostMitmServer.port, LOCALHOST, () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         if (head.length > 0) {
@@ -1967,12 +2029,7 @@ export async function startLocalProxyRuntime({
         clientSocket.pipe(mitmSocket);
         mitmSocket.pipe(clientSocket);
       });
-      mitmSocket.on('error', () => {
-        clientSocket.destroy();
-      });
-      clientSocket.on('error', () => {
-        mitmSocket.destroy();
-      });
+      bridgeTunnelSockets(clientSocket, mitmSocket);
     } catch {
       clientSocket.destroy();
     }
@@ -2062,12 +2119,20 @@ export async function startLocalProxyRuntime({
       activeConsumedTransformKeys = collectConsumedTransformKeys(activeRules, activeTransformSchemes);
     },
     stop: async () => {
+      stopping = true;
       // Detach the tunnel WS server first so it stops accepting upgrades.
       tunnel?.close();
+      // A CONNECT handler still setting up a MITM server finishes (and tears it
+      // back down, see createHostMitmServer) before the snapshot below.
+      await Promise.allSettled([...pendingMitmServers.values()]);
       // `server.close()` only calls back once every connection has drained, and
-      // an idle keep-alive socket never closes on its own — so without forcing
+      // an idle keep-alive socket never closes on its own, so without forcing
       // connections closed, stop() (and the daemon's SIGTERM cleanup) hangs
       // forever. Destroy live sockets first so close() resolves promptly.
+      // CONNECT tunnels are not in the http server's connection list, so they
+      // are destroyed from our own set.
+      for (const socket of tunnelSockets) socket.destroy();
+      tunnelSockets.clear();
       proxyServer.closeAllConnections?.();
       for (const { server } of hostMitmServers.values()) server.closeAllConnections?.();
       await Promise.all([
