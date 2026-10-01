@@ -1,7 +1,8 @@
 import {
   describe, it, expect, vi, beforeEach,
 } from 'vitest';
-import { getInstalledPlatformPackageName, getPlatformPackageName } from './binary-resolver';
+import path from 'node:path';
+import { getInstalledPlatformPackageName, getNativeBinarySpawnOptions, getPlatformPackageName } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 
 vi.mock('./wsl-detect', () => ({ isWSL: vi.fn(() => false) }));
@@ -74,5 +75,52 @@ describe('getPlatformPackageName', () => {
 describe('getInstalledPlatformPackageName', () => {
   it('does not report an optional dependency from a development checkout', () => {
     expect(getInstalledPlatformPackageName()).toBeUndefined();
+  });
+});
+
+describe('getNativeBinarySpawnOptions', () => {
+  const origXdg = process.env.XDG_CONFIG_HOME;
+  const restoreXdg = () => {
+    if (origXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = origXdg;
+  };
+
+  it('starts the helper from its own directory', () => {
+    delete process.env.XDG_CONFIG_HOME;
+    try {
+      expect(getNativeBinarySpawnOptions('/opt/varlock/varlock-local-encrypt')).toEqual({ cwd: '/opt/varlock' });
+    } finally {
+      restoreXdg();
+    }
+  });
+
+  it('passes a relative XDG_CONFIG_HOME on resolved against the caller cwd', () => {
+    process.env.XDG_CONFIG_HOME = 'rel-config';
+    try {
+      const { env } = getNativeBinarySpawnOptions('/opt/varlock/varlock-local-encrypt');
+      expect(env?.XDG_CONFIG_HOME).toBe(path.resolve('rel-config'));
+    } finally {
+      restoreXdg();
+    }
+  });
+
+  it('drops an empty XDG_CONFIG_HOME, which getUserVarlockDir treats as unset', () => {
+    process.env.XDG_CONFIG_HOME = '';
+    try {
+      const { env } = getNativeBinarySpawnOptions('/opt/varlock/varlock-local-encrypt');
+      expect(env).toBeDefined();
+      expect(env).not.toHaveProperty('XDG_CONFIG_HOME');
+    } finally {
+      restoreXdg();
+    }
+  });
+
+  it('leaves an absolute XDG_CONFIG_HOME to the inherited env', () => {
+    process.env.XDG_CONFIG_HOME = '/home/someone/.config';
+    try {
+      expect(getNativeBinarySpawnOptions('/opt/varlock/varlock-local-encrypt').env).toBeUndefined();
+    } finally {
+      restoreXdg();
+    }
   });
 });

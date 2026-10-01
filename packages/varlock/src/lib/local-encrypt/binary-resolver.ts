@@ -240,6 +240,31 @@ function ensureExecutable(binaryPath: string): string {
  */
 let _cachedBinaryPath: string | undefined | null = null; // null = not yet resolved
 
+/**
+ * Spawn options for the native helper (and the tools that start it on WSL).
+ *
+ * Bun's spawn (used by the standalone binary) fails with EACCES when the
+ * caller's cwd cannot be entered, e.g. `runuser` to a service user from a
+ * private home directory. So the helper starts from its own directory, which
+ * anyone who can run it can enter. The helper only reads its cwd through a
+ * relative XDG_CONFIG_HOME, which is passed on resolved against the caller's
+ * cwd, as it was before. An empty XDG_CONFIG_HOME is dropped: getUserVarlockDir
+ * treats it as unset, and the helpers would otherwise read it as a relative path.
+ */
+export function getNativeBinarySpawnOptions(binaryPath: string): { cwd: string; env?: NodeJS.ProcessEnv } {
+  const cwd = path.dirname(binaryPath);
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  if (xdgConfigHome === '') {
+    const env = { ...process.env };
+    delete env.XDG_CONFIG_HOME;
+    return { cwd, env };
+  }
+  if (xdgConfigHome && !path.isAbsolute(xdgConfigHome)) {
+    return { cwd, env: { ...process.env, XDG_CONFIG_HOME: path.resolve(xdgConfigHome) } };
+  }
+  return { cwd };
+}
+
 export function resolveNativeBinary(): string | undefined {
   if (_cachedBinaryPath !== null) return _cachedBinaryPath;
 
