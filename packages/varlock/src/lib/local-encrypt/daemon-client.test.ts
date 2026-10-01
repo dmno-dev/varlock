@@ -134,6 +134,30 @@ function killAllDaemons() {
   }
 }
 
+/** Newest mtime of any file under `dir`, or 0 if it does not exist */
+function newestMtimeMs(dir: string): number {
+  let newest = 0;
+  for (const entry of fs.readdirSync(dir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    newest = Math.max(newest, fs.statSync(path.join(entry.parentPath, entry.name)).mtimeMs);
+  }
+  return newest;
+}
+
+/**
+ * The lifecycle tests check behavior implemented in the Swift daemon, so a
+ * helper built before the latest Swift changes fails them in confusing ways.
+ */
+function assertHelperIsFresh(binary: string) {
+  const swiftSourcesDir = path.resolve(__dirname, '../../../../encryption-binary-swift/swift/Sources');
+  if (!fs.existsSync(swiftSourcesDir)) return;
+  if (fs.statSync(binary).mtimeMs >= newestMtimeMs(swiftSourcesDir)) return;
+  throw new Error(
+    `The native helper at ${binary} is older than the Swift sources. Rebuild it with:\n`
+    + '  bun run --filter @varlock/encryption-binary-swift build:current',
+  );
+}
+
 beforeEach(async () => {
   fs.mkdirSync(socketDir, { recursive: true });
   vi.resetModules();
@@ -169,6 +193,10 @@ describe('shouldReplaceDaemon', () => {
 });
 
 describe.runIf(process.platform === 'darwin')('daemon lifecycle', () => {
+  beforeEach(() => {
+    if (binaryPath) assertHelperIsFresh(binaryPath);
+  });
+
   it('keeps the winner\'s PID file when a second daemon loses the startup race', async () => {
     if (!binaryPath) return; // no built binary available
 
