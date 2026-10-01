@@ -24,6 +24,13 @@ export type RequestFacts = {
   method: string;
   /** Path only (no query string), e.g. `/v1/customers/42`. */
   path: string;
+  /**
+   * Other paths an upstream may route this request as (today: the servlet form
+   * with `;...` path parameters stripped). The request has to be authorized
+   * under every one of them: a block rule matches if it matches `path` OR any
+   * of these, an allow rule only if it matches `path` AND all of these.
+   */
+  routedPaths?: Array<string>;
 };
 
 export type PolicyVerdict = 'allow' | 'deny' | 'require-approval';
@@ -73,10 +80,22 @@ function methodMatches(ruleMethods: Array<string>, method: string): boolean {
   return allowed.length === 0 || allowed.includes(method.toUpperCase());
 }
 
-/** Whether a rule's match constraints (domain + optional path + optional method) all hold for the facts. */
+/**
+ * Whether a rule's match constraints (domain + optional path + optional method)
+ * all hold for the facts. When the request has more than one routed path, a
+ * block rule matches if any of them matches (deny if any upstream would route
+ * it somewhere blocked) and an allow rule only if all of them match (allow only
+ * if every upstream would route it somewhere allowed).
+ */
 export function ruleMatchesFacts(rule: ProxyRule, facts: RequestFacts): boolean {
   if (!rule.domain.some((d) => domainMatches(d, facts.host))) return false;
-  if (rule.path !== undefined && !pathMatches(rule.path, facts.path)) return false;
+  if (rule.path !== undefined) {
+    const paths = [facts.path, ...(facts.routedPaths ?? [])];
+    const pathMatch = rule.block
+      ? paths.some((p) => pathMatches(rule.path!, p))
+      : paths.every((p) => pathMatches(rule.path!, p));
+    if (!pathMatch) return false;
+  }
   if (rule.method !== undefined && !methodMatches(rule.method, facts.method)) return false;
   return true;
 }

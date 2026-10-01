@@ -891,6 +891,8 @@ type ProxiedRequestTransport = {
   method: string;
   /** Path component for policy facts/activity (no query). */
   pathOnly: string;
+  /** Other paths an upstream may route this request as; see RequestFacts.routedPaths. */
+  routedPaths: Array<string>;
   /** Origin-form path+query sent upstream (and scrubbed) — also used as the activity URL. */
   requestTarget: string;
   /** When set, override the upstream `Host` header (absolute-form). Undefined = pass the client's through (MITM). */
@@ -1334,7 +1336,9 @@ export async function startLocalProxyRuntime({
 
     // Per-call policy (static authorization): evaluate host + method + path; a
     // matching `block` rule denies the request and it never reaches upstream.
-    const facts: RequestFacts = { host: t.host, method: t.method, path: t.pathOnly };
+    const facts: RequestFacts = {
+      host: t.host, method: t.method, path: t.pathOnly, routedPaths: t.routedPaths,
+    };
     const policyDecision = shouldRewrite ? evaluateProxyPolicy(facts, rules, egressMode) : undefined;
     const ruleIdStr = policyDecision?.matchedRule ? describeRule(policyDecision.matchedRule) : undefined;
     const ruleId = ruleIdStr ? { ruleId: ruleIdStr } : {};
@@ -1563,8 +1567,9 @@ export async function startLocalProxyRuntime({
       const substitutedPathPart = substitutePlaceholdersInSurface(pathPart, managedItems, keysForLocation('path'));
       // Policy matched the canonical placeholder-form path (`t.pathOnly`). A value
       // substituted into it must stay inside its segment: one that carries `/`,
-      // `..`, `?`, `#`, or anything the canonicalizer would rewrite would route
-      // the request somewhere the rules never evaluated. The value is the schema
+      // `..`, `?`, `#`, or anything the canonicalizer would rewrite (or a `;`
+      // form a servlet router would strip to a different segment count) would
+      // route the request somewhere the rules never evaluated. The value is the schema
       // author's, not the agent's, so this is a misconfiguration, but it fails
       // closed all the same (and names the key, never the value).
       if (!substitutedPathKeepsStructure(pathPart, substitutedPathPart)) {
@@ -1572,7 +1577,7 @@ export async function startLocalProxyRuntime({
         onActivity?.({
           ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-location',
         });
-        respondBlocked(res, 502, `Blocked by the varlock credential proxy: substituting ${pathKeys.join(', ') || 'a managed item'} into the URL path would change the path's structure (the value contains a path separator, dot segment, query or fragment marker, ";", or a character that needs encoding). `
+        respondBlocked(res, 502, `Blocked by the varlock credential proxy: substituting ${pathKeys.join(', ') || 'a managed item'} into the URL path would change the path's structure (the value contains a path separator, dot segment, query marker, or a character that needs encoding). `
           + 'A value carried in the path must be URL-safe; encode it, or substitute it somewhere else.', t.tunnelTeardown);
         return;
       }
@@ -1804,6 +1809,7 @@ export async function startLocalProxyRuntime({
       isHttps: true, // the MITM tunnel is always TLS
       method: req.method ?? 'GET',
       pathOnly: target.pathOnly,
+      routedPaths: target.routedPaths,
       requestTarget: target.requestTarget,
       upstreamHostHeader: undefined, // pass the client's Host through
       tunnelTeardown: true,
@@ -1941,6 +1947,7 @@ export async function startLocalProxyRuntime({
       isHttps,
       method: clientReq.method ?? 'GET',
       pathOnly: target.pathOnly,
+      routedPaths: target.routedPaths,
       requestTarget: target.requestTarget,
       upstreamHostHeader: destination.host, // absolute-form: client Host may be the proxy
       tunnelTeardown: false,
