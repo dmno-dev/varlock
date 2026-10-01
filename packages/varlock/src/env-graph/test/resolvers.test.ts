@@ -10,6 +10,7 @@
 import {
   describe, it, expect, vi,
 } from 'vitest';
+import path from 'node:path';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { ResolutionError, SchemaError } from '../lib/errors';
@@ -227,7 +228,71 @@ describe('exec() argv form', functionValueTests({
   },
 }));
 
+describe('exec() options', functionValueTests({
+  'stdin= is written to the command': {
+    input: outdent`
+      SECRET="p@ss word; echo pwned"
+      ITEM=exec("cat", "-", stdin=$SECRET)
+    `,
+    expected: { ITEM: 'p@ss word; echo pwned' },
+  },
+  'stdin= works with the string form too': {
+    input: 'ITEM=exec(`tr a-z A-Z`, stdin="shout")',
+    expected: { ITEM: 'SHOUT' },
+  },
+  'env= adds variables to the child environment': {
+    input: outdent`
+      TOKEN=tok-123
+      ITEM=exec("sh", "-c", 'echo $MY_TOKEN-$MY_FLAG', env={MY_TOKEN=$TOKEN, MY_FLAG=true})
+    `,
+    expected: { ITEM: 'tok-123-true' },
+  },
+  'env= does not leak into later execs': {
+    input: outdent`
+      FIRST=exec("sh", "-c", 'echo $ONLY_HERE', env={ONLY_HERE=yes})
+      ITEM=exec("sh", "-c", 'echo [$ONLY_HERE]')
+    `,
+    expected: { FIRST: 'yes', ITEM: '[]' },
+  },
+  'cwd= is resolved relative to the env file': {
+    // the test data source lives at ./.env.schema, so cwd=".." is the parent of cwd
+    input: 'ITEM=exec("pwd", cwd="..")',
+    expected: { ITEM: path.dirname(process.cwd()) },
+  },
+  'timeout= kills a hung command': {
+    input: 'ITEM=exec("sleep", "5", timeout="100ms")',
+    expected: { ITEM: ResolutionError },
+  },
+  'timeout= must be a valid duration': {
+    input: 'ITEM=exec("echo", "hi", timeout="soon")',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - unknown option': {
+    input: 'ITEM=exec("echo hi", shell=false)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - env= must be an object': {
+    input: 'ITEM=exec("echo hi", env="A=b")',
+    expected: { ITEM: ResolutionError },
+  },
+}));
+
 describe('exec() failures', () => {
+  it('reports a timeout as such, without the resolved command', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultSensitive=false
+        # ---
+        ITEM=exec("sleep", "5", timeout="100ms")
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const err = g.configSchema.ITEM.errors.find((e) => e instanceof ResolutionError);
+    expect(err?.message).toContain('timed out after 100ms');
+  });
+
   it('reports the command as written, not with interpolated values filled in', async () => {
     const g = new EnvGraph();
     await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {

@@ -168,6 +168,8 @@ FULL_URL=${API_URL}/v2/users
 SECRET=exec(`op read "op://vault/item/field"`)
 # Argv form runs the program directly with no shell: use it when passing dynamic values as arguments
 CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
+# Options: stdin=, env={...} (pass secrets without argv), cwd= (relative to the env file), timeout=
+DB_URL=exec("./conn.sh", "--password-stdin", stdin=$DB_PASSWORD, timeout="30s")
 
 # Conditional logic
 API_URL=if(eq($APP_ENV, prod), https://api.example.com, http://localhost:3000)

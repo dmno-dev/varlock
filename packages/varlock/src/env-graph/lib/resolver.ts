@@ -1,5 +1,5 @@
-import { exec, execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+import path from 'node:path';
 import {
   createHash, randomBytes, randomUUID, randomInt as cryptoRandomInt,
 } from 'node:crypto';
@@ -26,8 +26,61 @@ import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
 import { shellQuoteWord } from '../../lib/shell-quote';
 
-const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
+type ExecChildOptions = {
+  shell: boolean;
+  cwd?: string;
+  env?: Record<string, string>;
+  timeoutMs?: number;
+  stdin?: string;
+};
+type ExecChildFailure = {
+  code?: number | string | null;
+  signal?: NodeJS.Signals | null;
+  killed?: boolean;
+  stderr?: string;
+};
+
+/**
+ * Run a child for `exec()`. The string form passes the whole command as `file`
+ * with `shell: true` (same as `child_process.exec`); the argv form passes the
+ * program and its arguments with no shell. Unlike the promisified helpers this
+ * exposes the child so a value can be written to its stdin.
+ */
+function runExecChild(file: string, args: Array<string>, opts: ExecChildOptions): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(file, args, {
+      shell: opts.shell,
+      cwd: opts.cwd,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      timeout: opts.timeoutMs,
+      encoding: 'utf8',
+    }, (err, stdout, stderr) => {
+      if (err) {
+        reject(Object.assign(err, { stderr }));
+      } else {
+        resolve({ stdout });
+      }
+    });
+    if (child.stdin) {
+      // a stdin write can fail if the child exits before reading it (EPIPE); the
+      // exit error is the one that matters, so this one is swallowed
+      child.stdin.on('error', () => undefined);
+      if (opts.stdin !== undefined) child.stdin.write(opts.stdin);
+      child.stdin.end();
+    }
+  });
+}
+
+/** Resolve a `key=value` option of `exec()` and check its type. */
+async function resolveExecOption(
+  objArgs: Record<string, Resolver> | undefined,
+  key: string,
+): Promise<ResolvedValue> {
+  const resolver = objArgs?.[key];
+  return resolver ? await resolver.resolve() : undefined;
+}
+
+const EXEC_OPTION_KEYS = ['cwd', 'env', 'timeout', 'stdin'];
 
 const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
 /** Whether a string has the `/pattern/flags` shape that consumers read as a regex. */
@@ -524,17 +577,72 @@ export const ExecResolver: typeof Resolver = createResolver({
   name: 'exec',
   icon: 'iconoir:terminal',
   argsSchema: {
-    type: 'array',
+    type: 'mixed',
     arrayMinLength: 1,
+  },
+  process() {
+    for (const key of Object.keys(this.objArgs ?? {})) {
+      if (!EXEC_OPTION_KEYS.includes(key)) {
+        throw new SchemaError(`exec() does not accept a "${key}" option (expected one of ${EXEC_OPTION_KEYS.join(', ')})`);
+      }
+    }
   },
   async resolve() {
     const args = this.arrArgs!;
+
+    // options: cwd= (relative to the env file), env= (object literal, added to the
+    // child's environment), timeout= (duration), stdin= (written to the child's stdin).
+    // env and stdin exist so a secret can reach a CLI without going through argv,
+    // which every process on the machine can read via `ps`.
+    const childOpts: ExecChildOptions = { shell: false };
+
+    const cwdVal = await resolveExecOption(this.objArgs, 'cwd');
+    if (cwdVal !== undefined) {
+      if (typeof cwdVal !== 'string' || !cwdVal) throw new ResolutionError('exec() cwd= must be a non-empty string');
+      const ds = this.dataSource as { fullPath?: string } | undefined;
+      const baseDir = ds?.fullPath ? path.dirname(ds.fullPath) : process.cwd();
+      childOpts.cwd = path.resolve(baseDir, cwdVal);
+    }
+
+    const envVal = await resolveExecOption(this.objArgs, 'env');
+    if (envVal !== undefined) {
+      if (!_.isPlainObject(envVal)) throw new ResolutionError('exec() env= must be an object literal, e.g. env={TOKEN=$TOKEN}');
+      childOpts.env = {};
+      for (const [k, v] of Object.entries(envVal as Record<string, ResolvedValue>)) {
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+          throw new ResolutionError(`exec() env= value for "${k}" must resolve to a string`);
+        }
+        childOpts.env[k] = String(v);
+      }
+    }
+
+    const timeoutVal = await resolveExecOption(this.objArgs, 'timeout');
+    if (timeoutVal !== undefined) {
+      if (typeof timeoutVal !== 'string' && typeof timeoutVal !== 'number') {
+        throw new ResolutionError('exec() timeout= must be a duration like "30s" or "2m"');
+      }
+      try {
+        childOpts.timeoutMs = parseDuration(timeoutVal);
+      } catch (err) {
+        throw new ResolutionError(`exec() timeout= is not a valid duration: ${(err as Error).message}`);
+      }
+      if (childOpts.timeoutMs <= 0) throw new ResolutionError('exec() timeout= must be greater than 0');
+    }
+
+    const stdinVal = await resolveExecOption(this.objArgs, 'stdin');
+    if (stdinVal !== undefined && stdinVal !== null) {
+      if (typeof stdinVal !== 'string' && typeof stdinVal !== 'number' && typeof stdinVal !== 'boolean') {
+        throw new ResolutionError('exec() stdin= must resolve to a string');
+      }
+      childOpts.stdin = String(stdinVal);
+    }
 
     let run: () => Promise<{ stdout: string }>;
     if (args.length === 1) {
       // string form: exec(`cmd ...`) runs through the shell
       const commandStr = await buildExecShellCommand(args[0]);
-      run = () => execAsync(commandStr);
+      run = () => runExecChild(commandStr, [], { ...childOpts, shell: true });
     } else {
       // argv form: exec("./script", "--flag", $REF) runs the program directly with
       // no shell, one argument per arg, so no value can be read as shell syntax.
@@ -548,7 +656,7 @@ export const ExecResolver: typeof Resolver = createResolver({
       }
       const [file, ...fileArgs] = argv;
       if (!file) throw new ResolutionError('exec() needs a non-empty command as its first argument');
-      run = () => execFileAsync(file, fileArgs);
+      run = () => runExecChild(file, fileArgs, childOpts);
     }
 
     try {
@@ -565,8 +673,11 @@ export const ExecResolver: typeof Resolver = createResolver({
       // stdout is left out since it may contain a partially-printed secret, and the command
       // is reported as written in the schema (not with interpolated values filled in) for
       // the same reason: a ${SECRET} passed as an argument must not land in error output.
-      const execErr = err as { code?: number | string, stderr?: string };
-      const exitInfo = execErr.code !== undefined ? ` (exit code ${execErr.code})` : '';
+      const execErr = err as ExecChildFailure;
+      const timedOut = execErr.killed && childOpts.timeoutMs !== undefined;
+      let exitInfo = '';
+      if (timedOut) exitInfo = ` (timed out after ${timeoutVal})`;
+      else if (execErr.code !== undefined && execErr.code !== null) exitInfo = ` (exit code ${execErr.code})`;
       const stderr = execErr.stderr?.trim();
       const asWritten = this._parsedNode?.toString();
       throw new ResolutionError(`command failed${exitInfo}${asWritten ? `: ${asWritten}` : ''}`, {

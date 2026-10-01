@@ -92,6 +92,24 @@ CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
 If you need an interpolated value split into several arguments, or on Windows (where `cmd.exe` quoting is best effort and `%NAME%` still expands inside quotes), use the argv form.
 
 When a command fails, the error shows the command as written in the schema and the exit code and stderr, not the interpolated values, so a secret passed as an argument stays out of the output.
+
+**Options.** Both forms accept these `key=value` options after the command:
+
+| Option | Meaning |
+|---|---|
+| `stdin=` | Written to the command's stdin. Use it to hand a secret to a CLI without putting it on the command line, which every process on the machine can read via `ps`. |
+| `env=` | Object literal of extra environment variables for the command, e.g. `env={VAULT_TOKEN=$VAULT_TOKEN}`. Added on top of varlock's own environment, for this command only. The other way to pass a credential without argv. |
+| `cwd=` | Directory to run in, resolved relative to the env file that contains the `exec()`, not to wherever varlock was invoked. |
+| `timeout=` | Kill the command after this long (`"30s"`, `"2m"`, or milliseconds). The item then fails with a timeout error instead of hanging the load, which matters for a CLI that is waiting on an auth prompt nobody sees in CI. |
+
+```env-spec "exec"
+# @sensitive
+DB_PASSWORD=op(op://vault/db/password)
+# feed the password via stdin and run from the scripts directory
+DB_URL=exec("./connection-string.sh", "--password-stdin", stdin=$DB_PASSWORD, cwd="./scripts", timeout="30s")
+# a CLI that reads its credential from the environment
+VAULT_VALUE=exec("vault", "kv", "get", "-field=value", "secret/app", env={VAULT_TOKEN=$VAULT_TOKEN})
+```
 </div>
 
 <div>
