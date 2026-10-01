@@ -1786,6 +1786,36 @@ export async function startLocalProxyRuntime({
     });
   };
 
+  // Sockets adopted by the CONNECT handler. Once a request is upgraded to a
+  // tunnel the http server no longer tracks its socket, so closeAllConnections()
+  // skips it while server.close() still waits for it. stop() destroys these
+  // itself so shutdown never depends on the client's or peer's behavior.
+  const tunnelSockets = new Set<net.Socket>();
+
+  /**
+   * Pipes a CONNECT client socket and its peer (the MITM loopback connection or
+   * the raw upstream) in both directions and ties their lifetimes together.
+   * `pipe()` alone leaves a hole: when one side closes, the pipe is torn down and
+   * the other socket's readable side is left paused, so bytes that arrive after
+   * that (e.g. the client's TLS close_notify once it has read a blocked response)
+   * sit unread, its 'end' never fires, and the socket stays open for good.
+   */
+  const bridgeTunnelSockets = (clientSocket: net.Socket, peerSocket: net.Socket) => {
+    tunnelSockets.add(clientSocket);
+    tunnelSockets.add(peerSocket);
+    peerSocket.on('error', () => clientSocket.destroy());
+    clientSocket.on('error', () => peerSocket.destroy());
+    peerSocket.on('close', () => {
+      tunnelSockets.delete(peerSocket);
+      // the pipe already ended the client's write side; flush that, then drop it
+      clientSocket.destroySoon();
+    });
+    clientSocket.on('close', () => {
+      tunnelSockets.delete(clientSocket);
+      peerSocket.destroy();
+    });
+  };
+
   const hostMitmServers = new Map<string, { server: https.Server; port: number }>();
   const getOrCreateHostMitmServer = async (host: string): Promise<{ server: https.Server; port: number }> => {
     const normalized = normalizeHost(host);
@@ -1861,7 +1891,9 @@ export async function startLocalProxyRuntime({
     });
   });
 
-  proxyServer.on('connect', async (req, clientSocket, head) => {
+  proxyServer.on('connect', async (req, clientSocketDuplex, head) => {
+    // typed as Duplex but is a net.Socket at runtime
+    const clientSocket = clientSocketDuplex as net.Socket;
     const hostInfo = parseHostPort(req.url ?? '');
     if (!hostInfo) {
       clientSocket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
@@ -1872,8 +1904,7 @@ export async function startLocalProxyRuntime({
     // A CONNECT tunnel to the internal host reaches handleInternalRequest via a
     // local MITM pipe, where the original peer address is no longer visible — so
     // the loopback-only assertion for the control plane must happen here.
-    // clientSocket is typed as Duplex but is a net.Socket at runtime
-    const connectPeer = (clientSocket as net.Socket).remoteAddress;
+    const connectPeer = clientSocket.remoteAddress;
     if (normalizeHost(hostInfo.host) === VARLOCK_INTERNAL_HOST && !isLoopbackAddress(connectPeer)) {
       internalEndpoint?.onAuthFailure?.();
       clientSocket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
@@ -1920,8 +1951,7 @@ export async function startLocalProxyRuntime({
         clientSocket.pipe(upstreamSocket);
         upstreamSocket.pipe(clientSocket);
       });
-      upstreamSocket.on('error', () => clientSocket.destroy());
-      clientSocket.on('error', () => upstreamSocket.destroy());
+      bridgeTunnelSockets(clientSocket, upstreamSocket);
       return;
     }
 
@@ -1935,12 +1965,7 @@ export async function startLocalProxyRuntime({
         clientSocket.pipe(mitmSocket);
         mitmSocket.pipe(clientSocket);
       });
-      mitmSocket.on('error', () => {
-        clientSocket.destroy();
-      });
-      clientSocket.on('error', () => {
-        mitmSocket.destroy();
-      });
+      bridgeTunnelSockets(clientSocket, mitmSocket);
     } catch {
       clientSocket.destroy();
     }
@@ -2033,9 +2058,13 @@ export async function startLocalProxyRuntime({
       // Detach the tunnel WS server first so it stops accepting upgrades.
       tunnel?.close();
       // `server.close()` only calls back once every connection has drained, and
-      // an idle keep-alive socket never closes on its own — so without forcing
+      // an idle keep-alive socket never closes on its own, so without forcing
       // connections closed, stop() (and the daemon's SIGTERM cleanup) hangs
       // forever. Destroy live sockets first so close() resolves promptly.
+      // CONNECT tunnels are not in the http server's connection list, so they
+      // are destroyed from our own set.
+      for (const socket of tunnelSockets) socket.destroy();
+      tunnelSockets.clear();
       proxyServer.closeAllConnections?.();
       for (const { server } of hostMitmServers.values()) server.closeAllConnections?.();
       await Promise.all([
