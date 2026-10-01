@@ -76,7 +76,7 @@
         "@types/node": "catalog:",
         "@varlock/cloudflare-integration": "workspace:*",
         "@varlock/vite-integration": "workspace:*",
-        "astro": ">=5.12.8",
+        "astro": "^7.3.2",
         "tsdown": "catalog:",
         "varlock": "workspace:^",
         "vitest": "catalog:",

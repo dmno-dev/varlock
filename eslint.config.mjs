@@ -45,6 +45,8 @@ export default tseslint.config(
       '**/dist-test',
       '**/node_modules',
       '**/.turbo',
+      // cargo build output (json fingerprints) in the rust native helper
+      'packages/encryption-binary-rust/target',
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
       'packages/varlock-website/.astro',
