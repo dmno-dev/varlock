@@ -543,6 +543,32 @@ export const FallbackResolver: typeof Resolver = createResolver({
 
 const execQueue = new SimpleQueue();
 
+/**
+ * For the error on a string-form `exec()` that includes values, spell out the
+ * argv-form equivalent when the rewrite is unambiguous: a template of plain
+ * words and `${REF}`s, with no shell syntax that the argv form would change.
+ */
+function suggestExecArgvForm(arg: Resolver): string | undefined {
+  if (arg.fnName !== 'concat' || !arg.arrArgs?.length) return;
+  let text = '';
+  for (const part of arg.arrArgs) {
+    if (part instanceof StaticValueResolver) {
+      const str = String(part.staticValue ?? '');
+      // quotes, escapes, pipes, globs, expansions: the rewrite is not mechanical
+      if (/[^A-Za-z0-9_\-./:=@%+, ]/.test(str)) return;
+      text += str;
+    } else if (part.fnName === 'ref' && part.arrArgs?.[0] instanceof StaticValueResolver) {
+      text += `\${${String(part.arrArgs[0].staticValue)}}`;
+    } else {
+      return;
+    }
+  }
+  const words = text.trim().split(/ +/);
+  if (words.length < 2) return;
+  // a word that is exactly one ref reads better as `$REF`
+  return `exec(${words.map((w) => w.match(/^\$\{(\w+)\}$/)?.[1].replace(/^/, '$') ?? `"${w}"`).join(', ')})`;
+}
+
 export const ExecResolver: typeof Resolver = createResolver({
   name: 'exec',
   icon: 'iconoir:terminal',
@@ -560,8 +586,14 @@ export const ExecResolver: typeof Resolver = createResolver({
     // (`${REF}`, `$CMD`, a nested call) could come from the process environment or a
     // .env.local, and would be read as shell syntax; values go through the argv form.
     if (this.arrArgs?.length === 1 && !(this.arrArgs[0] instanceof StaticValueResolver)) {
+      const suggestion = suggestExecArgvForm(this.arrArgs[0]);
       throw new SchemaError('exec() with a single argument runs a fixed shell command, so it cannot include values', {
-        tip: 'pass the program and its arguments separately instead, e.g. exec("./script", "--env", $APP_ENV) - this runs the program directly, with no shell',
+        tip: [
+          suggestion
+            ? `pass the program and its arguments separately, which runs it directly with no shell: ${suggestion}`
+            : 'pass the program and its arguments separately, which runs it directly with no shell: exec("./script", "--env", $APP_ENV)',
+          'to use shell syntax (pipes, &&) with a value, pass it as an env var and quote it in a single-quoted command: exec(\'my-cli get "$ITEM" | jq -r .value\', env={ITEM=$ITEM})',
+        ],
       });
     }
   },

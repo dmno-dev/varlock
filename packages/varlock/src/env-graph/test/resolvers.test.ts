@@ -196,6 +196,31 @@ describe('exec() string form takes a fixed command only', functionValueTests({
   },
 }));
 
+describe('exec() string form error tip', () => {
+  async function execError(input: string) {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: `# @defaultSensitive=false\n# ---\nAPP_ENV=dev\nITEM_NAME=x\n${input}`,
+    }));
+    await g.finishLoad();
+    return g.configSchema.ITEM.errors[0];
+  }
+
+  it('suggests the argv form when the rewrite is mechanical', async () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const err = await execError('ITEM=exec(`./load.sh --env ${APP_ENV} op://vault/${ITEM_NAME}/field`)');
+    // eslint-disable-next-line no-template-curly-in-string
+    expect(err.tip).toContain('exec("./load.sh", "--env", $APP_ENV, "op://vault/${ITEM_NAME}/field")');
+  });
+
+  it('falls back to a generic example when the command has shell syntax', async () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const err = await execError('ITEM=exec(`my-cli get ${ITEM_NAME} | jq -r .value`)');
+    expect(err.tip).toContain('exec("./script", "--env", $APP_ENV)');
+    expect(err.tip).toContain('env={ITEM=$ITEM}');
+  });
+});
+
 describe('exec() argv form', functionValueTests({
   'runs the program with each element as one argument, no shell': {
     input: outdent`
