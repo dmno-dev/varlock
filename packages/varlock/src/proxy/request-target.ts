@@ -159,21 +159,24 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
   };
 }
 
-const segmentCount = (path: string) => path.split('/').length;
+const count = (s: string, ch: string) => s.split(ch).length - 1;
 
 /**
  * Whether substituting a real value into a canonical path left its structure
  * intact. Policy was evaluated on the placeholder-form path, so the value that
  * replaces the placeholder must stay inside its segment: it may not add or
- * remove segments (`/`, `..`, or a `;` form that strips to one), start a query
- * (`?`), or spell anything the canonicalizer would rewrite or reject.
- * Otherwise the routed path is not the one the rules authorized.
+ * remove segments (`/`, `..`), start a query (`?`), introduce a `;` (a servlet
+ * router strips the rest of the segment, so `/v1/admin<ph>/data` with the
+ * value `;x` would route as `/v1/admin/data`, a path the rules never saw), or
+ * spell anything the canonicalizer would rewrite or reject. Otherwise the
+ * routed path is not the one the rules authorized.
  */
 export function substitutedPathKeepsStructure(canonicalPath: string, substitutedPath: string): boolean {
   if (substitutedPath === canonicalPath) return true;
   if (substitutedPath.includes('?')) return false;
+  if (count(substitutedPath, ';') !== count(canonicalPath, ';')) return false;
   const check = canonicalizeRequestTarget(substitutedPath);
   if (!check.ok || check.pathOnly !== substitutedPath) return false;
-  const expected = segmentCount(canonicalPath);
-  return [check.pathOnly, ...check.routedPaths].every((p) => segmentCount(p) === expected);
+  const expected = count(canonicalPath, '/');
+  return [check.pathOnly, ...check.routedPaths].every((p) => count(p, '/') === expected);
 }
