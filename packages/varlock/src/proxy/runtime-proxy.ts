@@ -1572,7 +1572,7 @@ export async function startLocalProxyRuntime({
         onActivity?.({
           ...baseActivity, ...ruleId, matched: true, blocked: true, decision: 'blocked-location',
         });
-        respondBlocked(res, 502, `Blocked by the varlock credential proxy: substituting ${pathKeys.join(', ') || 'a managed item'} into the URL path would change the path's structure (the value contains a path separator, dot segment, query or fragment marker, or a character that needs encoding). `
+        respondBlocked(res, 502, `Blocked by the varlock credential proxy: substituting ${pathKeys.join(', ') || 'a managed item'} into the URL path would change the path's structure (the value contains a path separator, dot segment, query or fragment marker, ";", or a character that needs encoding). `
           + 'A value carried in the path must be URL-safe; encode it, or substitute it somewhere else.', t.tunnelTeardown);
         return;
       }

@@ -12,8 +12,9 @@
  * canonical form upstream, so what was matched is what is routed. Anything the
  * canonical form cannot express unambiguously is rejected (400) rather than
  * guessed at: encoded path separators, backslashes, control characters, a `#`
- * (some upstreams cut the path there as a fragment, others route on it), `;`
- * path parameters hiding a dot or empty segment, and `..` climbing above the root.
+ * (some upstreams cut the path there as a fragment, others route on it), a `;`
+ * (servlet containers strip the rest of the segment before routing, others
+ * route on it), and `..` climbing above the root.
  */
 
 export type CanonicalRequestTarget = {
@@ -60,17 +61,16 @@ function normalizePercentEncoding(segment: string): string | undefined {
  * - Requires origin form: the target must start with `/` (or be `*`, the
  *   asterisk-form used by `OPTIONS *`). Absolute-form inside a tunnel is
  *   rejected so the request-line authority can never disagree with `Host`.
- * - Rejects raw control characters, whitespace, backslashes, and `#` anywhere in
- *   the path. A fragment never belongs on the wire, and upstreams disagree on
- *   whether `#` ends the path (Go, nginx) or is part of it, so there is no
- *   single routed form to match against.
+ * - Rejects raw control characters, whitespace, backslashes, `#` and `;`
+ *   anywhere in the path. A fragment never belongs on the wire, and upstreams
+ *   disagree on whether `#` ends the path (Go, nginx) or is part of it. Servlet
+ *   containers strip `;...` from every segment before mapping, so
+ *   `/v1/admin;x/data` routes as `/v1/admin/data` there and as the literal
+ *   spelling elsewhere. Neither has a single routed form to match against.
  * - Rejects escapes that decode to `/`, `\`, or a control character, and
  *   malformed escapes.
  * - Decodes unreserved percent-escapes and uppercases the rest.
  * - Resolves `.` and `..` segments; `..` above the root is rejected.
- * - Rejects a segment whose part before a `;` path parameter is empty, `.` or
- *   `..` (servlet containers strip the parameter, then normalize, so `..;/`
- *   climbs and `;x/` collapses to `//`).
  * - Collapses empty segments (`//`).
  *
  * The query string is passed through untouched: rules never match on it, and
@@ -93,6 +93,9 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
   if (rawPath.includes('#')) {
     return { ok: false, reason: 'request path contains a fragment marker ("#")' };
   }
+  if (rawPath.includes(';')) {
+    return { ok: false, reason: 'request path contains a ";" path parameter' };
+  }
 
   const segments: Array<string> = [];
   for (const rawSegment of rawPath.split('/').slice(1)) {
@@ -106,10 +109,6 @@ export function canonicalizeRequestTarget(rawTarget: string): CanonicalizeResult
       if (segments.length === 0) return { ok: false, reason: 'request path climbs above the root' };
       segments.pop();
       continue;
-    }
-    const beforeParams = segment.split(';')[0];
-    if (beforeParams === '' || beforeParams === '.' || beforeParams === '..') {
-      return { ok: false, reason: 'request path hides a dot or empty segment behind a ";" path parameter' };
     }
     segments.push(segment);
   }

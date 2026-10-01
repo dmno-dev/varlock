@@ -51,8 +51,11 @@ describe('canonicalizeRequestTarget', () => {
     expect(rejected('/v1/refunds/..;/re_1')).toMatch(/path parameter/);
     expect(rejected('/v1/.;jsessionid=x/re_1')).toMatch(/path parameter/);
     expect(rejected('/v1/;/refunds/re_1')).toMatch(/path parameter/);
-    expect(rejected('/v1/;jsessionid=x/refunds/re_1')).toMatch(/path parameter/);
-    expect(ok('/v1/refunds;jsessionid=x/re_1').pathOnly).toBe('/v1/refunds;jsessionid=x/re_1');
+    // servlet containers map `/v1/refunds;jsessionid=x/re_1` as `/v1/refunds/re_1`,
+    // everything else routes on the literal text: no single form to match
+    expect(rejected('/v1/refunds;jsessionid=x/re_1')).toMatch(/path parameter/);
+    expect(rejected('/v1/refunds/re_1;x')).toMatch(/path parameter/);
+    expect(ok('/v1/refunds/re_1?a=b;c').pathOnly).toBe('/v1/refunds/re_1');
     expect(rejected('/v1/refunds#/../re_1')).toMatch(/fragment/);
     expect(rejected('/v1/refunds#?x=1')).toMatch(/fragment/);
     expect(ok('/v1/refunds?x=%23').pathOnly).toBe('/v1/refunds');
@@ -109,10 +112,9 @@ describe('canonicalized paths close the block-rule bypass', () => {
     expect(substitutedPathKeepsStructure(base, '/v1/x#frag/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x%2Fy/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x%2e%2e/data')).toBe(false);
-    // a `;` path parameter is stripped by servlet routers; keeping it in the
-    // segment is fine, but an empty or dot segment in front of it is not
-    expect(substitutedPathKeepsStructure(base, '/v1/x;y/data')).toBe(true);
-    expect(substitutedPathKeepsStructure(base, '/v1/;y/data')).toBe(false);
+    // servlet routers strip `;...` from the segment, so a value carrying one
+    // would route differently per upstream
+    expect(substitutedPathKeepsStructure(base, '/v1/x;y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/..;y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/x y/data')).toBe(false);
     expect(substitutedPathKeepsStructure(base, '/v1/100%/data')).toBe(false);
