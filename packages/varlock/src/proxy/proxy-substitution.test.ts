@@ -150,19 +150,18 @@ describe('proxy substitution surface (end-to-end)', () => {
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
 
     const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    // The blocked MITM path tears the tunnel down (see the DNS-poison test), so
-    // assert on the security properties + audit decision rather than reading a body.
-    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
     // The agent is tricked into moving the placeholder to an exfil-friendly field.
     const payload = JSON.stringify({ note: 'sk-stub-PLACEHOLDER' });
-    tlsSocket.write(
+    const response = await sendAndRead(
+      tlsSocket,
       `POST /send HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
         + `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
     );
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500);
-    });
 
+    // Fails closed with a 403 that names the stray placement.
+    expect(response.split('\r\n')[0]).toBe('HTTP/1.1 403 Forbidden');
+    expect(response).toContain("CLIENT_SECRET's placeholder appears in the");
+    expect(response).not.toContain('sk-stub-REALKEY');
     // Blocked before forwarding: the upstream never saw the request, and the real
     // value was never substituted (so it can't have leaked into the note field).
     expect(upstreamHit).toBe(false);
@@ -322,17 +321,19 @@ describe('proxy substitution surface (end-to-end)', () => {
     const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
 
     const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
-    tlsSocket.on('error', () => { /* expected: connection torn down on block */ });
     // A valid call uses the token once (the auth header); the copy in a second
     // header is an exfiltration attempt that still makes a working request.
-    tlsSocket.write(
+    const response = await sendAndRead(
+      tlsSocket,
       `GET /data HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
         + 'Authorization: Bearer sk-stub-PLACEHOLDER\r\nX-Duplicate: sk-stub-PLACEHOLDER\r\n\r\n',
     );
-    await new Promise((resolve) => {
-      setTimeout(resolve, 500);
-    });
 
+    // Fails closed with a 403 whose body tells the agent what to fix.
+    expect(response.split('\r\n')[0]).toBe('HTTP/1.1 403 Forbidden');
+    expect(response).toContain("API_KEY's placeholder appears 2 times at the same substitution target (header)");
+    expect(response).toContain('substituteIn=[header, <the-other-place>]');
+    expect(response).not.toContain('sk-stub-REALKEY');
     expect(upstreamHit).toBe(false);
     expect(JSON.stringify(activities)).not.toContain('sk-stub-REALKEY');
     expect(activities.at(-1)).toMatchObject({ decision: 'blocked-occurrences', blocked: true });
