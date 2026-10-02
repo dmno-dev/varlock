@@ -80,12 +80,19 @@ describe('function calls', functionValueTests({
 
 
 describe('exec() argument safety', functionValueTests({
-  'argv form runs without a shell': {
+  'array form runs without a shell': {
     input: outdent`
       APP_ENV="dev; echo pwned"
-      ITEM=exec("echo", "a b", $APP_ENV)
+      ITEM=exec(["echo", "a b", $APP_ENV])
     `,
     expected: { ITEM: 'a b dev; echo pwned' },
+  },
+  'shell command reads values as positional params': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`printf '[%s]' "$1" | tr a-z A-Z\`, $APP_ENV)
+    `,
+    expected: { ITEM: '[DEV; ECHO PWNED]' },
   },
 }));
 

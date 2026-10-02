@@ -60,25 +60,26 @@ export function simpleResolver(
       } else if (valOrFn.name === 'exec') {
         const args = valOrFn.data.args.values;
         const execEnv = { ...resolved, ...opts?.env };
-        if (args.length > 1) {
-          // argv form: exec("cmd", "arg", $REF) runs the program directly, no shell
-          const argv = args.map((a) => {
-            if (a instanceof ParsedEnvSpecKeyValuePair) throw new Error('Invalid `exec` args - key/value pairs not allowed');
-            return String(valueResolver(a) ?? '');
-          });
-          const [file, ...fileArgs] = argv;
-          if (!file) throw new Error('Invalid `exec` args - needs a command');
+        const [command, ...values] = args;
+        const toStrings = (vals: Array<unknown>) => vals.map((a) => {
+          if (a instanceof ParsedEnvSpecKeyValuePair) throw new Error('Invalid `exec` args - key/value pairs not allowed');
+          return String(valueResolver(a as ParsedEnvSpecConfigItemValue) ?? '');
+        });
+        // mirrors varlock's resolver: an array runs the program with no shell; otherwise the
+        // command is fixed shell text, and any values after it are read as "$1", "$2"...
+        if (command instanceof ParsedEnvSpecArrayLiteral) {
+          if (values.length) throw new Error('Invalid `exec` args - array form takes all of its arguments inside the array');
+          const [file, ...fileArgs] = toStrings(command.values);
+          if (!file) throw new Error('Invalid `exec` args - needs a program');
           return execFileSync(file, fileArgs, { env: execEnv }).toString().trim();
         }
-        if (args.length === 1 && args[0] instanceof ParsedEnvSpecStaticValue) {
-          // string form: a fixed shell command only; values go through the argv form.
-          // Mirrors varlock's resolver.
-          const cmdStr = valueResolver(args[0]);
-          if (typeof cmdStr !== 'string') throw new Error('Invalid `exec` command');
-          return execSync(cmdStr, { env: execEnv }).toString().trim();
-        } else {
-          throw new Error('Invalid `exec` args');
+        if (!(command instanceof ParsedEnvSpecStaticValue)) throw new Error('Invalid `exec` args - shell command must be fixed text');
+        const cmdStr = valueResolver(command);
+        if (typeof cmdStr !== 'string') throw new Error('Invalid `exec` command');
+        if (values.length) {
+          return execFileSync('/bin/sh', ['-c', cmdStr, 'sh', ...toStrings(values)], { env: execEnv }).toString().trim();
         }
+        return execSync(cmdStr, { env: execEnv }).toString().trim();
       } else if (valOrFn.name === 'fallback') {
         const args = valOrFn.data.args.values;
         for (const arg of args) {

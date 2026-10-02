@@ -468,7 +468,7 @@ export const RESOLVERS: Array<ResolverInfo> = [
   {
     name: 'exec',
     summary: 'Executes a command and uses stdout as the value.',
-    documentation: 'Trailing newlines are trimmed automatically.',
+    documentation: 'A shell command must be fixed text. To pass values, use the array form (`exec(["my-cli", "get", $ITEM])`, no shell) or pass them after the command and read them as `"$1"`, `"$2"`. Trailing newlines are trimmed automatically.',
     insertText: 'exec(`${1:command}`)',
   },
   {

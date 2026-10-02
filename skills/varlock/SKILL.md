@@ -164,12 +164,14 @@ Instead of static values, items can use resolver functions:
 # Reference another item ($VAR and ${VAR} are shorthand for ref(VAR))
 FULL_URL=${API_URL}/v2/users
 
-# Execute a CLI command (string form runs a fixed command via the shell; values are not allowed in it)
+# Execute a CLI command. A shell command must be fixed text: never interpolate values into it
 SECRET=exec(`op read "op://vault/item/field"`)
-# Argv form runs the program directly with no shell: required whenever a value is part of the command
-CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
-# Options: stdin=, env={...} (pass secrets without argv), cwd= (relative to the env file), timeout=
-DB_URL=exec("./conn.sh", "--password-stdin", stdin=$DB_PASSWORD, timeout="30s")
+# Array form runs the program directly with no shell: the usual way to pass values
+CONFIG=exec(["./scripts/load-config.sh", "--env", $APP_ENV])
+# Shell syntax plus values: pass them after the command and read them as "$1", "$2"... (not on Windows)
+TOKEN=exec(`my-cli get "$1" | jq -r .value`, $ITEM)
+# Options: stdin=, env={...} (pass secrets off the command line), cwd= (relative to the env file), timeout=
+DB_URL=exec(["./conn.sh", "--password-stdin"], stdin=$DB_PASSWORD, timeout="30s")
 
 # Conditional logic
 API_URL=if(eq($APP_ENV, prod), https://api.example.com, http://localhost:3000)
