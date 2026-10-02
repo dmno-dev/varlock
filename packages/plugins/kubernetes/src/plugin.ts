@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import * as k8s from '@kubernetes/client-node';
 
 const { SchemaError, ResolutionError, ValidationError } = plugin.ERRORS;
@@ -11,6 +12,7 @@ plugin.name = 'kubernetes';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = KUBERNETES_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initKubernetes',
   params: {

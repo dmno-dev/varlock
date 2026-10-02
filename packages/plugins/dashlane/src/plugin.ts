@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { DashlaneManager } from './dashlane-manager';
 import { validateDeviceKeys } from './validators';
 
@@ -10,6 +11,7 @@ plugin.name = 'dashlane';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = DASHLANE_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initDashlane',
   params: {

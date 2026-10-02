@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -9,6 +10,7 @@ plugin.name = 'proton-pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = PROTON_PASS_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 plugin.standardVars = {
   initDecorator: '@initProtonPass',

@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
@@ -9,6 +10,7 @@ plugin.name = 'pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = PASS_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 const FIX_INSTALL_TIP = [
   'The `pass` command was not found on your system.',

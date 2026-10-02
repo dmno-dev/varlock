@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import ky from 'ky';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -23,6 +24,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = VAULT_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initHcpVault',
   params: {

@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { KdbxReader, sanitizeEnvKey } from './kdbx-reader';
 import { KpCliReader } from './cli-helper';
@@ -11,6 +12,7 @@ plugin.name = 'keepass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = KP_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 /** Shared interface for both file-mode and CLI-mode readers */
 interface KpReader {

@@ -30,6 +30,7 @@ You can control what it emits:
 
 - **`exposeEnv`**: where the coerced `ENV` object lives: `global` (default, augments `varlock/env`), `local` (export a package-local `ENV` from the generated file, ideal for monorepos), or `none`.
 - **`processEnv`** / **`importMetaEnv`**: `strict` (only defined keys), `loose` (also allow extra keys), or `none` (don't augment).
+- **`icons`**: set `false` to leave item icons out of the generated JSDoc. Icons for built-in data types and official plugins ship with varlock, but custom [`@icon`](/reference/item-decorators/#icon) values are fetched from Iconify during generation, so turn this off if the generated file must not depend on network access (for example, a committed file checked for drift in CI).
 
 See the [`@generateTsTypes` reference](/reference/root-decorators/#generatetstypes) for details. In monorepos where multiple packages have different schemas, prefer `exposeEnv=local` to avoid global augmentation clashes. See [Typed `ENV` across packages](/guides/monorepos/#typed-env-across-packages).
 
@@ -98,6 +99,23 @@ Once registered, users trigger it from their schema like any other generator:
 ```
 
 The `decoratorName` must start with `generate` (e.g. `generateZodSchema`), a shared convention that keeps code-generation decorators recognizable and separate from behavior decorators. Generators also get the common `path`, `auto`, and `executeWhenImported` args automatically, so your `generate` function only handles turning the schema into code.
+
+### Bundling icons
+
+If your plugin's data types set an `icon`, TypeScript generation embeds it in the JSDoc for each matching item. Icons it doesn't have locally are fetched from Iconify at generation time. To avoid that network request, ship the SVGs with your plugin, keyed by Iconify name:
+
+```ts title="my-plugin.ts"
+plugin.registerDataType({
+  name: 'myServiceToken',
+  icon: 'mdi:shield-key',
+  // ...
+});
+plugin.bundledIcons = {
+  'mdi:shield-key': '<svg xmlns="http://www.w3.org/2000/svg" ...>...</svg>',
+};
+```
+
+Use the SVG Iconify serves at a height of 20 (`https://api.iconify.design/mdi/shield-key.svg?height=20`) so the output matches a fetched icon. Older varlock versions ignore `bundledIcons`, so setting it is safe.
 
 Plugins that register custom data types can also declare `coercedType` (what their `coerce()` function outputs: `'string'`, `'int'`, `'number'`, `'boolean'`, `'object'`, or `{ enum: [...] }`) so generated code types those fields correctly in every language:
 
