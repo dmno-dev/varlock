@@ -79,6 +79,37 @@ describe('function calls', functionValueTests({
 }));
 
 
+describe('exec() argument safety', functionValueTests({
+  'array form runs without a shell': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(["echo", "a b", $APP_ENV])
+    `,
+    expected: { ITEM: 'a b dev; echo pwned' },
+  },
+  'shell command reads values as positional params': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`printf '[%s]' "$1" | tr a-z A-Z\`, $APP_ENV)
+    `,
+    expected: { ITEM: '[DEV; ECHO PWNED]' },
+  },
+}));
+
+describe('exec() string form rejects values', () => {
+  const cases = {
+    'interpolated ref': 'ITEM=exec(`echo cfg-${EVIL}`)',
+    'interpolated inside quotes': 'ITEM=exec(`printf %s "x-${EVIL}"`)',
+    'wholly dynamic command': 'ITEM=exec($EVIL)',
+  };
+  for (const [label, line] of Object.entries(cases)) {
+    it(label, () => {
+      const parsedFile = parseEnvSpecDotEnvFile(`EVIL='$(echo pwned); echo pwned'\n${line}`);
+      expect(() => simpleResolver(parsedFile, { env: {} })).toThrow(/Invalid `exec` args/);
+    });
+  }
+});
+
 describe('exec expansion', functionValueTests({
   'exec expansion - unquoted': {
     input: 'ITEM=$(echo foo)',
@@ -108,28 +139,28 @@ describe('exec expansion', functionValueTests({
     input: 'ITEM=$(printf %s \'join(".")\')',
     expected: { ITEM: 'join(".")' },
   },
-  'exec expansion preserves space before simple ref': {
-    input: outdent`
-      HOST=localhost
-      ITEM=$(echo hello $HOST)
-    `,
-    expected: { ITEM: 'hello localhost' },
-  },
-  'exec expansion preserves space before bracketed ref': {
-    input: outdent`
-      HOST=localhost
-      ITEM=$(echo hello \${HOST})
-    `,
-    expected: { ITEM: 'hello localhost' },
-  },
-  'exec expansion preserves space before ref - quoted': {
-    input: outdent`
-      HOST=localhost
-      ITEM="$(echo hello $HOST)"
-    `,
-    expected: { ITEM: 'hello localhost' },
-  },
 }));
+
+// exec() rejects values in a command string, so these check the expanded structure
+// rather than running it: the space before the ref stays in the static part
+describe('exec expansion preserves space before a ref', () => {
+  const cases = {
+    'simple ref': 'ITEM=$(echo hello $HOST)',
+    'bracketed ref': 'ITEM=$(echo hello ${HOST})',
+    quoted: 'ITEM="$(echo hello $HOST)"',
+  };
+  for (const [label, line] of Object.entries(cases)) {
+    it(label, () => {
+      const execCall = parseEnvSpecDotEnvFile(line).configItems[0].value as ParsedEnvSpecFunctionCall;
+      expect(execCall.name).toBe('exec');
+      const concatCall = execCall.data.args.values[0] as ParsedEnvSpecFunctionCall;
+      expect(concatCall.name).toBe('concat');
+      const [pre, ref] = concatCall.data.args.values as Array<any>;
+      expect(pre.unescapedValue).toBe('echo hello ');
+      expect(ref.name).toBe('ref');
+    });
+  }
+});
 
 describe('ref expansion', functionValueTests({
   'ref expansion - unquoted': {
