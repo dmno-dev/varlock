@@ -185,7 +185,9 @@ function resolveNpmBundled(): string | undefined {
 
 /**
  * Strategy 4: Development fallback — look for build output in the monorepo.
- * Walks up from __dirname looking for native binary build output
+ * Walks up from __dirname looking for native binary build output, stopping at
+ * the repo root. Git worktrees often live inside the main checkout, and walking
+ * past the worktree's root would pick up the main checkout's (possibly stale) build.
  */
 function resolveDevFallback(): string | undefined {
   let dir = __dirname;
@@ -203,6 +205,9 @@ function resolveDevFallback(): string | undefined {
     // Check for Rust build output (Linux/Windows)
     const rustBuild = path.join(dir, 'packages', 'encryption-binary-rust', 'target', 'release', getPlatformBinaryName());
     if (fs.existsSync(rustBuild)) return rustBuild;
+
+    // `.git` is a directory in a main checkout and a file in a worktree
+    if (fs.existsSync(path.join(dir, '.git'))) break;
   }
 
   return undefined;
