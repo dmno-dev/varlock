@@ -58,16 +58,13 @@ async function fetchIconSvg(
   color = '808080',
   iconCacheFolder = '/tmp/varlock-icon-cache',
 ) {
-  if (!iconCacheFolderInit) {
-    fs.mkdirSync(iconCacheFolder, { recursive: true });
-    iconCacheFolderInit = true;
-  }
-
   const iconPath = `${iconCacheFolder}/${iconifyName}-${ICON_SIZE}.svg`;
 
   let svgSrc: string | undefined;
   // icons used by built-in data types and plugins ship with their packages (see scripts/sync-bundled-icons.ts)
-  const bundledSvg = BUNDLED_ICONS[iconifyName] ?? pluginIcons[iconifyName];
+  // (plugin-provided values are not type-checked, so ignore anything that isn't a string)
+  const pluginSvg = pluginIcons[iconifyName];
+  const bundledSvg = BUNDLED_ICONS[iconifyName] ?? (typeof pluginSvg === 'string' ? pluginSvg : undefined);
   if (bundledSvg) {
     svgSrc = bundledSvg;
   } else if (iconInMemoryCache[iconPath]) {
@@ -90,6 +87,11 @@ async function fetchIconSvg(
     } catch {
       iconFetchFailedNames.add(iconifyName);
       return;
+    }
+    // only create the disk cache folder once something actually needs caching
+    if (!iconCacheFolderInit) {
+      fs.mkdirSync(iconCacheFolder, { recursive: true });
+      iconCacheFolderInit = true;
     }
     await fs.promises.writeFile(iconPath, svgSrc, 'utf-8');
     iconInMemoryCache[iconPath] = svgSrc;
@@ -115,7 +117,7 @@ async function getTsDefinitionForField(
 
   if (docs.description) jsDocLines.push(...docs.description.split('\n'));
 
-  // icons are fetched over the network (see fetchIconSvg), so `icons=false` keeps output network-independent
+  // custom icons are fetched over the network (see fetchIconSvg), so `icons=false` keeps output network-independent
   if (docs.icon && opts.icons) {
     const iconSvg = await fetchIconSvg(docs.icon, opts.pluginIcons);
     if (iconSvg) jsDocLines.push(`![icon](data:image/svg+xml;utf-8,${encodeURIComponent(iconSvg)}) `);
@@ -187,9 +189,9 @@ export type TsGenOptions = {
    */
   processEnvSkipNote?: string;
   /**
-   * Embed each item's icon in its JSDoc (defaults to true). Icons are fetched from iconify at
-   * generation time and silently skipped on failure, so set `false` when output must not depend
-   * on the network (e.g. committed files checked for drift in CI).
+   * Embed each item's icon in its JSDoc (defaults to true). Icons not bundled by varlock or a plugin
+   * are fetched from iconify at generation time and silently skipped on failure, so set `false`
+   * when output must not depend on the network (e.g. committed files checked for drift in CI).
    */
   icons?: boolean;
   /** icon SVGs bundled by plugins, keyed by iconify name (set from the graph, not a decorator arg) */

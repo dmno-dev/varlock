@@ -1285,6 +1285,16 @@ describe('type generation', () => {
       expect(src).toContain(encodeURIComponent('<svg fill="#808080"></svg>'));
     });
 
+    test('non-string plugin icon values are ignored', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('404', { status: 404 })));
+      const iconName = uniqueIconName('plugin-bad');
+      const src = await generateTsTypesSrc([iconField(iconName)], {
+        pluginIcons: { [iconName]: { not: 'a string' } as any },
+      });
+      expect(src).not.toContain('![icon]');
+      expect(src).toContain('ICON_ITEM: string;');
+    });
+
     test('icons=false skips fetching and embedding icons', async () => {
       const fetchMock = vi.fn(async () => new Response('<svg></svg>', { status: 200 }));
       vi.stubGlobal('fetch', fetchMock);
