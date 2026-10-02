@@ -8,7 +8,7 @@ description: Using varlock with Minimal sessions, so an agent in a local microVM
 The recommended shape for local development is a **broker on your Mac**: secrets, resolver [plugins](/guides/plugins/), biometric unlock, and the interactive request log all stay on the host, and the session reaches the broker through Minimal's virtual switch. For multi-session fleets there is also a [hub session](#hub-session-sandbox-to-sandbox) variant, which is the topology Minimal's future egress enforcement is designed around.
 
 :::caution[Pre-release networking surface]
-The session networking these recipes use (the `.local.min.internal` hostnames, the proxy on port 7654, the host alias IP, and the `--network` / `--ingress` flags) is not in Minimal's docs yet and is not a stable contract: names, ports, and flags may change. We verified every recipe on this page end to end on macOS with `min` 0.5.4. If a command here does not exist in your install, you need a newer build; ask the Minimal team. The same surface on Linux is untested.
+The session networking these recipes use (the `.local.min.internal` hostnames, the proxy on port 7654, the host alias IP, and the `--network` / `--ingress` flags) is not in Minimal's docs yet and is not a stable contract: names, ports, and flags may change. We verified every recipe on this page end to end on macOS with `min` 0.6.0. If a command here does not exist in your install, upgrade (re-running the installer, `curl -fsSL go.minimal.dev/stable | sh`, upgrades in place). The same surface on Linux is untested.
 :::
 
 ## How session networking works
@@ -17,7 +17,7 @@ Four facts shape the setup:
 
 - **Sessions register hostnames.** An active session is reachable as `<name>.local.min.internal`, where `<name>` is the session name if set, otherwise the project directory name lowercased. `min session rename <id> web` changes it live.
 - **A proxy routes by hostname.** The Minimal daemon runs an HTTP proxy on `127.0.0.1:7654` on your Mac. From inside any session it is reachable at `100.64.255.254:7654` (the host alias below); default-network sessions also see it on their own `127.0.0.1:7654`, [own-ip](#own-ip-sessions-and-future-enforcement) sessions do not, so the alias form is the one to script against. The port in the URL picks the port inside the target session, nothing to declare up front. WebSockets pass through (both Upgrade and CONNECT tunneling), which matters here because varlock's [tunnel](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url) is a WebSocket.
-- **A session's loopback is its own.** Inside a session, `127.0.0.1` is the session VM, not your Mac. Your Mac's loopback is reachable from inside at the host alias `100.64.255.254`, which the virtual switch NATs to the Mac. That address is a constant today, not configuration, and may change.
+- **A session's loopback is its own.** Inside a session, `127.0.0.1` is the session VM, not your Mac. Your Mac's loopback is reachable from inside at the host alias `100.64.255.254`, which the virtual switch NATs to the Mac. That address is a constant today, not configuration, and may change. Minimal has merged a `host.min.internal` name for it (and a shorter `<name>.min.internal` session zone) after 0.6.0; until those ship in a release, use the literal and the `.local.min.internal` form.
 - **There is no egress gateway.** Default sessions have open egress, and they share one network namespace with each other. Nothing forces the agent's traffic through varlock or anything else; see [trust model](#trust-model-and-todays-limits) for what that means.
 
 ## Broker on your Mac
@@ -78,9 +78,9 @@ varlock proxy run --url ws://100.64.255.254:8080 -- your-agent-command
 
 Three setup facts worth knowing up front:
 
-- Session packages come from `minimal.toml` at activation. Inside a running session, the in-sandbox `min` helper can install a tool on the spot (`min add --session <pkg>`), but that install is scoped to the shell that ran it; anything you need durably goes in the file, and host-side `min add --session` only edits the file for the next activation.
+- Session packages come from `minimal.toml` at activation. Inside a running session, the in-sandbox `min` helper installs a tool on the spot (`min add --session <pkg>`) and it stays available to later shells and `min session exec` calls in that session. Host-side `min add --session` only edits the file for the next activation, so anything every session needs goes in the file.
 - Activation uploads your project from a VCS root (`.git`, `.hg`, ...). For a plain directory pass `--sync tarball` explicitly; otherwise headless runs skip the upload with a warning and the session gets a default scaffold config instead of yours.
-- The registry's `varlock` package can lag npm by a release. If you need the newest varlock, `npm i -g --prefix ~/.local varlock` (with `node` in your packages) puts it in `~/.local/bin`, which is on the session `PATH`; a bare `npm i -g` fails because the global prefix points into the read-only package store.
+- The registry's `varlock` package is bumped by hand and can lag npm by a release. If you need the newest varlock, `npm i -g --prefix ~/.local varlock` (with `node` in your packages) puts it in `~/.local/bin`, which is on the session `PATH`; a bare `npm i -g` fails because the global prefix points into the read-only package store.
 
 That is the whole path: the agent holds placeholders, the broker on your Mac injects real values only on verified TLS connections to hosts your schema allows, and every request is checked against your [`@proxy` rules](/guides/proxy/rules/#routing-rules) and recorded in the [audit log](/guides/proxy/running/#auditing).
 
@@ -99,14 +99,16 @@ For repeatable runs, declare the wrapped agent as a task and run it in an epheme
 [tasks.agent]
 packages = ["varlock", "curl"]
 env_vars.VARLOCK_PROXY_TOKEN = { inherit = true }
-exec = "bash ./agent-task.sh"   # the wrapper lives in a script: task strings are Nickel-interpolated, so a literal %{...} breaks them
+exec = "bash ./agent-task.sh"
 ```
 
 ```bash
 min task run agent   # uploads the project, runs the task, streams output, tears the session down
 ```
 
-We verified the full broker path this way. Two related commands: `min session exec <session> -- <cmd>` runs an ad-hoc command in an existing session with its packages on `PATH` (also verified with the wrapper; output is complete and quoting survives as of 0.5.4, though a command that backgrounds a process holds the stream open until that process exits), and `min session list --json` / `min session destroy --force` cover the rest of the lifecycle. `min session run <session> <task>` exists too, but as of 0.5.4 it composes neither the session's `[session.vars]` nor task-level inherits, so it cannot carry the token yet. `attach` gives a persistent shell that survives detach and re-attach.
+Task command strings are Nickel-evaluated, so a literal `%{` (as in curl's `-w "%{http_code}"`) opens an interpolation and fails the task at spawn. Escape it as `%{"%"}{http_code}`, or keep the command in a script as above.
+
+We verified the full broker path this way. Two related commands: `min session exec <session> -- <cmd>` runs an ad-hoc command in an existing session with its packages on `PATH` (also verified with the wrapper; to start a long-running process from it, redirect all of its stdio, as in `nohup cmd >log 2>&1 </dev/null &`, so the exec returns), and `min session list --json` / `min session destroy --force` cover the rest of the lifecycle. `min session run <session> <task>` is not the in-session equivalent of `min task run`: as of 0.6.0 it composes neither the session's `[session.vars]` nor its `PATH`, and it resolves task-level `inherit` in the daemon's environment, so it cannot carry the token. Use `min task run` or `min session exec` instead. `attach` gives a persistent shell that survives detach and re-attach.
 :::
 
 ## Hub session (sandbox-to-sandbox)
@@ -140,7 +142,7 @@ Two notes on this shape:
 - **Real inter-session isolation.** Own-ip peers are distinct network identities on the switch, not roommates on one loopback.
 - **It is where egress enforcement will land.** Minimal's policy schema already rejects egress config on anything that is not own-ip, so when "workers can only reach the hub" ships, it ships there. `min session policy <name-or-id>` prints a session's effective network policy as JSON (`--ingress` mappings show up there).
 
-What we saw on the installed release (0.5.4, macOS): own-ip activation and `--ingress` publishing both work, and both broker paths pass from an own-ip session: the host broker via the alias, and a hub session by hostname through the alias proxy (`100.64.255.254:7654`). The session-local `127.0.0.1:7654` does not exist in an own-ip namespace, so scripts that hardcode it fail there; the recipes above use the alias for that reason.
+What we saw on the installed release (0.6.0, macOS): own-ip activation and `--ingress` publishing both work, and both broker paths pass from an own-ip session: the host broker via the alias, and a hub session by hostname through the alias proxy (`100.64.255.254:7654`). The session-local `127.0.0.1:7654` does not exist in an own-ip namespace, so scripts that hardcode it fail there; the recipes above use the alias for that reason.
 
 There is also a `no-net` mode with zero networking. A no-net session cannot reach a broker, so it is only for fully offline tasks.
 
@@ -168,4 +170,6 @@ To see what agents are doing on the credential side, run [`varlock proxy audit`]
 
 ## Sharp edges
 
-**Port 7654 is fixed, and the daemon claims it only at startup.** If something else on your Mac holds 7654 when the daemon starts, it warns (`session hostnames will not route: ... bind: address already in use`) and carries on without routing; it does not retry once the port frees. Free the port, `min stop`, and the next `min` command restarts the daemon. If routing looks dead with no warning in sight: `lsof -nP -iTCP:7654 -sTCP:LISTEN`. (A request for an unknown hostname returns an empty `502`, so a `502` means the proxy is up and the session name in the URL is wrong.)
+**Port 7654 is fixed, and the daemon claims it only at startup.** If something else on your Mac holds 7654 when the daemon starts, it warns (`session hostnames will not route: ... bind: address already in use`) and carries on without routing; in 0.6.0 it does not retry once the port frees (a retry is merged upstream for the next release). Free the port, `min stop`, and the next `min` command restarts the daemon. If routing looks dead with no warning in sight: `lsof -nP -iTCP:7654 -sTCP:LISTEN`. A `502` from the proxy means it did not route: the session name in the URL is wrong, or nothing listens on that port in the session. Anything else, `404` included, came from the backend.
+
+**Routed requests arrive in absolute form.** The proxy forwards `GET http://<name>.local.min.internal:<port>/ HTTP/1.1`, and some servers (Python's `http.server`, for one) treat the whole URI as the path and answer `404` for everything. Check status codes, not response bodies, when testing routing.
