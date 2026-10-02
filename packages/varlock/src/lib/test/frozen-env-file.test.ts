@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import {
   FROZEN_ENV_FILE_NAME,
   FrozenEnvFileError,
+  PreResolvedEnvError,
   USE_FROZEN_ENV_VAR,
   getFrozenEnvFileInPlay,
   readFrozenEnvFile,
@@ -390,5 +391,48 @@ describe('assertNoFrozenEnvFileInDev', () => {
     writeFrozenFile();
     expect(() => assertNoFrozenEnvFileInDev({ cwd: tempDir, devCommand: 'vite dev', env: { [USE_FROZEN_ENV_VAR]: '0' } }))
       .not.toThrow();
+  });
+});
+
+// every failure carries a remedy for that specific case, shown the same way by auto-load,
+// `run`, and `load` - a generic "re-create it" is wrong advice for a file that was never shipped
+describe('failure suggestions', () => {
+  function suggestionFor(fn: () => unknown) {
+    try {
+      fn();
+    } catch (err) {
+      expect(err).toBeInstanceOf(PreResolvedEnvError);
+      return (err as PreResolvedEnvError).suggestion;
+    }
+    throw new Error('expected a throw');
+  }
+
+  test('a required frozen file that is missing points at the deploy, not the key', () => {
+    const suggestion = suggestionFor(() => readFrozenEnvFile({ env: ON, cwd: tempDir }));
+    expect(suggestion).toContain('did not make it into this deploy');
+    expect(suggestion).not.toContain('_VARLOCK_ENV_KEY');
+  });
+
+  test('a frozen file with the wrong key points at the key', () => {
+    writeFrozenFile();
+    const suggestion = suggestionFor(() => readFrozenEnvFile({
+      env: { ...ON, _VARLOCK_ENV_KEY: generateEncryptionKeyHex() },
+      cwd: tempDir,
+    }));
+    expect(suggestion).toContain('must be the key it was frozen with');
+  });
+
+  test('a trusted __VARLOCK_ENV that is missing names both producers', () => {
+    const suggestion = suggestionFor(() => evaluateInjectedEnvReuse({ env: { [USE_INJECTED_ENV_VAR]: '1' }, cwd: tempDir }));
+    expect(suggestion).toContain('varlock freeze --out -');
+    expect(suggestion).toContain('varlock load --format json-full --compact');
+  });
+
+  test('a trusted __VARLOCK_ENV that is mangled says so', () => {
+    const suggestion = suggestionFor(() => evaluateInjectedEnvReuse({
+      env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: '{"trunc' },
+      cwd: tempDir,
+    }));
+    expect(suggestion).toContain('truncated');
   });
 });

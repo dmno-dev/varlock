@@ -201,6 +201,18 @@ describe('varlock freeze --out -', () => {
     expect(fs.existsSync(join(SCENARIO_DIR, '-'))).toBe(false);
   });
 
+  // auto-load used to print these as a raw stack trace with no remedy
+  test('a missing payload fails with a remedy, not a stack trace', () => {
+    const result = runApp({
+      cwd: blobDeployDir,
+      env: { _VARLOCK_USE_INJECTED_ENV: '1', _VARLOCK_USE_FROZEN_ENV: undefined, _VARLOCK_ENV_KEY: encryptionKey },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('no __VARLOCK_ENV blob is present');
+    expect(result.output).toContain('varlock freeze --out -');
+    expect(result.output).not.toMatch(/\n\s+at /);
+  });
+
   test('the payload boots an app with no .env files, no CLI, and no artifact on disk', () => {
     const blob = freeze({ args: ['--out', '-'] }).stdout.trim();
     const result = runApp({
@@ -368,6 +380,7 @@ describe('booting from a frozen env file', () => {
       const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1' } });
       expect(result.exitCode).not.toBe(0);
       expect(result.output).toContain('requires a frozen env file');
+      expect(result.output).toContain('did not make it into this deploy');
     });
 
     test('accepts an explicit path', () => {

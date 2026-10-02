@@ -5,7 +5,9 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
-import { FrozenEnvFileError, readFrozenEnvFile, resolveFrozenEnvFileMode } from './frozen-env-file';
+import {
+  FrozenEnvFileError, PreResolvedEnvError, readFrozenEnvFile, resolveFrozenEnvFileMode,
+} from './frozen-env-file';
 
 /**
  * Decides whether a consumer (`varlock/auto-load`, or a `varlock run` that finds a blob
@@ -186,6 +188,13 @@ function parseAndSanitizeBlob(rawJson: string): {
   };
 }
 
+// Suggestions for explicit-trust failures. Two producers feed this path: `varlock freeze --out -`
+// (a deploy payload) and a `load --format json-full --compact` capture (handing env into a
+// sandbox), so remedies name both rather than assuming one.
+const UNSET_FORCE = `Or unset ${USE_INJECTED_ENV_VAR} to resolve from .env files instead.`;
+const RECAPTURE_BLOB = 'Re-capture it with `varlock freeze --out -` (or `varlock load --format json-full --compact`), '
+  + `and fail the pipeline when that command exits non-zero. ${UNSET_FORCE}`;
+
 export function evaluateInjectedEnvReuse(opts: {
   /** env holding the blob/key/flags - normally the live process.env */
   env: EnvRecord,
@@ -233,14 +242,22 @@ export function evaluateInjectedEnvReuse(opts: {
   // values the caller expected to exclude
   if (env._VARLOCK_FILTER) {
     if (mode === 'force') {
-      throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} cannot be combined with _VARLOCK_FILTER - capture the blob with --filter instead`);
+      throw new PreResolvedEnvError(
+        `${USE_INJECTED_ENV_VAR} cannot be combined with _VARLOCK_FILTER`,
+        'Unset _VARLOCK_FILTER, or capture a scoped blob with `varlock load --filter ... --format json-full --compact` '
+          + '(a `varlock freeze` payload is always complete).',
+      );
     }
     return { reuse: false, reason: '_VARLOCK_FILTER is set' };
   }
   // same for a `varlock.filter` configured in package.json (validated by the CLI on load)
   if (readVarlockPackageJsonConfig({ cwd })?.filter) {
     if (mode === 'force') {
-      throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} cannot be combined with package.json varlock.filter - capture the blob with --filter instead`);
+      throw new PreResolvedEnvError(
+        `${USE_INJECTED_ENV_VAR} cannot be combined with package.json varlock.filter`,
+        `Capture a scoped blob with \`varlock load --format json-full --compact\`, which applies the filter. ${
+          UNSET_FORCE}`,
+      );
     }
     return { reuse: false, reason: 'package.json varlock.filter is set' };
   }
@@ -248,7 +265,11 @@ export function evaluateInjectedEnvReuse(opts: {
   const rawBlob = env.__VARLOCK_ENV;
   if (!rawBlob) {
     if (mode === 'force') {
-      throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} is enabled but no __VARLOCK_ENV blob is present in the environment`);
+      throw new PreResolvedEnvError(
+        `${USE_INJECTED_ENV_VAR} is enabled but no __VARLOCK_ENV blob is present in the environment`,
+        'The payload did not reach this process: set __VARLOCK_ENV to the output of `varlock freeze --out -` '
+          + `(or a \`varlock load --format json-full --compact\` capture) on your platform. ${UNSET_FORCE}`,
+      );
     }
     return { reuse: false, reason: 'no injected env blob present' };
   }
@@ -258,7 +279,10 @@ export function evaluateInjectedEnvReuse(opts: {
     const key = env._VARLOCK_ENV_KEY;
     if (!key) {
       if (mode === 'force') {
-        throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} is enabled but __VARLOCK_ENV is encrypted and _VARLOCK_ENV_KEY is not set`);
+        throw new PreResolvedEnvError(
+          `${USE_INJECTED_ENV_VAR} is enabled but __VARLOCK_ENV is encrypted and _VARLOCK_ENV_KEY is not set`,
+          'Set _VARLOCK_ENV_KEY in the runtime environment, to the key the payload was encrypted with.',
+        );
       }
       return { reuse: false, reason: 'blob is encrypted and no _VARLOCK_ENV_KEY is set' };
     }
@@ -266,7 +290,10 @@ export function evaluateInjectedEnvReuse(opts: {
       blobJson = decryptEnvBlobSync(rawBlob, key);
     } catch (err) {
       if (mode === 'force') {
-        throw new Error(`[varlock] failed to decrypt __VARLOCK_ENV blob: ${(err as Error).message}`);
+        throw new PreResolvedEnvError(
+          `failed to decrypt __VARLOCK_ENV blob: ${(err as Error).message.replace(/^\[varlock\] /, '')}`,
+          '_VARLOCK_ENV_KEY must be the key the payload was encrypted with. If the key was rotated, re-capture the payload with the new key.',
+        );
       }
       return { reuse: false, reason: 'failed to decrypt blob' };
     }
@@ -275,7 +302,10 @@ export function evaluateInjectedEnvReuse(opts: {
   const sanitized = parseAndSanitizeBlob(blobJson);
   if (!sanitized) {
     if (mode === 'force') {
-      throw new Error(`[varlock] ${USE_INJECTED_ENV_VAR} is enabled but the __VARLOCK_ENV blob is not a valid serialized env graph`);
+      throw new PreResolvedEnvError(
+        `${USE_INJECTED_ENV_VAR} is enabled but the __VARLOCK_ENV blob is not a valid serialized env graph`,
+        `It may have been truncated or mangled by quoting on its way into the environment. ${RECAPTURE_BLOB}`,
+      );
     }
     return { reuse: false, reason: 'blob is not a valid serialized env graph' };
   }
@@ -289,8 +319,9 @@ export function evaluateInjectedEnvReuse(opts: {
   // warning on each ENV access. Matches how a frozen file refuses the same payload.
   if (parsedEnv.errors) {
     if (mode === 'force') {
-      throw new Error(
-        `[varlock] ${USE_INJECTED_ENV_VAR} is enabled but the __VARLOCK_ENV blob was created from a failed resolution and contains errors`,
+      throw new PreResolvedEnvError(
+        `${USE_INJECTED_ENV_VAR} is enabled but the __VARLOCK_ENV blob was created from a failed resolution and contains errors`,
+        RECAPTURE_BLOB,
       );
     }
     return { reuse: false, reason: 'blob contains resolution errors' };

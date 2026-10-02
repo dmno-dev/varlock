@@ -1,7 +1,7 @@
 import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex, isEncryptedBlob } from './runtime/crypto';
 import { evaluateInjectedEnvReuse, getPinnedBootKeys, type PinnedGraphInfo } from './lib/injected-env-reuse';
-import { FrozenEnvFileError, USE_FROZEN_ENV_VAR } from './lib/frozen-env-file';
+import { PreResolvedEnvError, USE_FROZEN_ENV_VAR } from './lib/frozen-env-file';
 import { createDebug } from './lib/debug';
 import { isVarlockCliChild } from './lib/cli-child-marker';
 
@@ -124,7 +124,7 @@ function autoLoad() {
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) {
       process.stderr.write(err.stderr);
-    } else if (err instanceof FrozenEnvFileError) {
+    } else if (err instanceof PreResolvedEnvError) {
       // a setup/config problem, not a crash - a stack trace here is noise
       process.stderr.write(`${err.message}\n[varlock] ${err.suggestion}\n`);
     } else if (pinnedForCli && !(err instanceof VarlockExecError)) {

@@ -26,16 +26,28 @@ export { FROZEN_ENV_FILE_NAME, USE_FROZEN_ENV_VAR, resolveFrozenEnvFileMode };
 
 type EnvRecord = Record<string, string | undefined>;
 
-/** Suggestion attached to every frozen env file failure, for callers that print one */
-export const FROZEN_ENV_FILE_SUGGESTION = 'Re-create it with `varlock freeze`, '
-  + 'make sure _VARLOCK_ENV_KEY matches the key it was frozen with, '
-  + `or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files instead.`;
-
-/** Thrown when a frozen env file is in play but cannot be used. Never falls back to fresh resolution. */
-export class FrozenEnvFileError extends Error {
-  readonly suggestion = FROZEN_ENV_FILE_SUGGESTION;
-  constructor(message: string) {
+/**
+ * A pre-resolved env (a frozen env file, or a `__VARLOCK_ENV` payload trusted via
+ * `_VARLOCK_USE_INJECTED_ENV=1`) that was asked for but cannot be used. Never falls back to
+ * fresh resolution. Carries a suggestion specific to what went wrong, so every consumer
+ * (auto-load, `run`, `load`) shows the same remedy.
+ */
+export class PreResolvedEnvError extends Error {
+  readonly suggestion: string;
+  constructor(message: string, suggestion: string) {
     super(`[varlock] ${message}`);
+    this.name = 'PreResolvedEnvError';
+    this.suggestion = suggestion;
+  }
+}
+
+const RECREATE_FROZEN_FILE = 'Re-create it with `varlock freeze`.';
+const FROZEN_KEY_MISMATCH = '_VARLOCK_ENV_KEY must be the key it was frozen with.';
+
+/** A frozen env file that is in play but cannot be used */
+export class FrozenEnvFileError extends PreResolvedEnvError {
+  constructor(message: string, suggestion = RECREATE_FROZEN_FILE) {
+    super(message, suggestion);
     this.name = 'FrozenEnvFileError';
   }
 }
@@ -84,7 +96,11 @@ export function readFrozenEnvFile(opts: {
   const stat = statFrozenEnvPath(filePath);
   if (!stat) {
     if (!mode.required) return undefined;
-    throw new FrozenEnvFileError(`${USE_FROZEN_ENV_VAR} requires a frozen env file at ${filePath}, but none is present`);
+    throw new FrozenEnvFileError(
+      `${USE_FROZEN_ENV_VAR} requires a frozen env file at ${filePath}, but none is present`,
+      'The file did not make it into this deploy: check that your build copies it and that the path is right '
+        + `(relative paths resolve against the working directory). To resolve from .env files instead, unset ${USE_FROZEN_ENV_VAR} and drop --frozen.`,
+    );
   }
   // only a regular file is readable: `readFileSync` on a FIFO with no writer blocks forever
   if (!stat.isFile()) {
@@ -99,8 +115,8 @@ export function readFrozenEnvFile(opts: {
   // never to re-freeze with a matching filter.
   if (env._VARLOCK_FILTER) {
     throw new FrozenEnvFileError(
-      `a frozen env file (${filePath}) cannot be combined with _VARLOCK_FILTER`
-      + ' - unset _VARLOCK_FILTER to use the frozen env, or set _VARLOCK_USE_FROZEN_ENV=0 to resolve from .env files instead',
+      `a frozen env file (${filePath}) cannot be combined with _VARLOCK_FILTER`,
+      `Unset _VARLOCK_FILTER to use the frozen env, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files instead.`,
     );
   }
 
@@ -124,6 +140,7 @@ export function readFrozenEnvFile(opts: {
   if (!key) {
     throw new FrozenEnvFileError(
       `frozen env file ${filePath} is encrypted but _VARLOCK_ENV_KEY is not set in the environment`,
+      `Set _VARLOCK_ENV_KEY in the runtime environment. ${FROZEN_KEY_MISMATCH}`,
     );
   }
   try {
@@ -131,6 +148,7 @@ export function readFrozenEnvFile(opts: {
   } catch (err) {
     throw new FrozenEnvFileError(
       `failed to decrypt frozen env file ${filePath}: ${(err as Error).message.replace(/^\[varlock\] /, '')}`,
+      `${FROZEN_KEY_MISMATCH} If the key was rotated, re-create the file with \`varlock freeze\` using the new key.`,
     );
   }
 }
