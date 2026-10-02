@@ -6,6 +6,12 @@
 
 
 
+
+## 1.2.4
+<sub>2026-10-02</sub>
+
+- [#1166](https://github.com/dmno-dev/varlock/pull/1166)  *(patch)* Thanks [@duailibe](https://github.com/duailibe)! - Fix Workload Identity Federation, which never passed the OIDC token to Google STS.
+
 ## 1.2.3
 <sub>2026-09-25</sub>
 

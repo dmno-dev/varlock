@@ -10,6 +10,12 @@
 
 
 
+
+## 2.0.5
+<sub>2026-10-02</sub>
+
+- [#1152](https://github.com/dmno-dev/varlock/pull/1152)  *(patch)* Thanks [@timche](https://github.com/timche)! - Report an invalid or rejected service account token as an error on the item instead of crashing, when using the SDK
+
 ## 2.0.4
 <sub>2026-08-25</sub>
 
