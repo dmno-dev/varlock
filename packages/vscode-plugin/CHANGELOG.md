@@ -16,6 +16,12 @@
 
 
 
+
+## 0.4.4
+<sub>2026-10-02</sub>
+
+- [#1153](https://github.com/dmno-dev/varlock/pull/1153)  *(patch)* - Add `and()` and `or()` resolver functions for combining boolean conditions
+
 ## 0.4.3
 <sub>2026-09-25</sub>
 

@@ -32,6 +32,35 @@
 
 
 
+
+## 1.22.0
+<sub>2026-10-02</sub>
+
+- [#1153](https://github.com/dmno-dev/varlock/pull/1153)  *(minor)* - Add `and()` and `or()` resolver functions for combining boolean conditions
+- [#1161](https://github.com/dmno-dev/varlock/pull/1161)  *(minor)*
+  `varlock/auto-load` and the framework integrations now warn when no config items are loaded (no .env files found, or none define items) instead of silently continuing with an empty config. This becomes an error in the next major. Set `_VARLOCK_ALLOW_EMPTY_CONFIG=1` to allow an empty config, which also lets `varlock load` and `varlock run` succeed with an empty config.
+- [#1155](https://github.com/dmno-dev/varlock/pull/1155)  *(patch)* Thanks [@timche](https://github.com/timche)!
+  Fix `varlock audit` reporting a referenced item as unused when the item referencing it is overridden, either from the process environment or by a higher-priority file
+- [#1156](https://github.com/dmno-dev/varlock/pull/1156)  *(patch)*
+  Error output fixes:
+  - errors thrown from a root decorator are no longer printed twice
+  - a failing `exec()` no longer dumps a raw stack trace to stdout (which broke `load --format json-full`); the error now includes the exit code and stderr
+  - an invalid static `@cache` value is reported once
+  - a root decorator referencing an invalid item now shows that item's errors
+  - `json-full` item errors no longer include warnings
+- [#1160](https://github.com/dmno-dev/varlock/pull/1160)  *(patch)* - Fix a declared builtin (e.g. `VARLOCK_ENV=`) resolving empty when the `@currentEnv` item depends on it
+- [#1165](https://github.com/dmno-dev/varlock/pull/1165)  *(patch)* - Fix `varlock scan --install-hook` failing in git worktrees, and respect `core.hooksPath`
+- [#1167](https://github.com/dmno-dev/varlock/pull/1167)  *(patch)*
+  Detect Fly.io as a platform (`VARLOCK_PLATFORM=Fly.io`), and warn when `VARLOCK_ENV` is used but only guessed `preview` because the platform reports no environment or branch
+- [#1170](https://github.com/dmno-dev/varlock/pull/1170)  *(patch)*
+  Fix `varlock proxy` shutdown hanging when a client had read a blocked response over a MITM tunnel, or still held an idle CONNECT tunnel open
+- [#1169](https://github.com/dmno-dev/varlock/pull/1169)  *(patch)* Thanks [@JayOfTheKeyboard](https://github.com/JayOfTheKeyboard)!
+  Fix the native helper failing with EACCES when varlock runs from a directory the current user cannot enter, such as after `runuser` to a service user from a private home directory. This broke `varlock cache clear` in the standalone binary.
+- [#1172](https://github.com/dmno-dev/varlock/pull/1172)  *(patch)*
+  Build the standalone binary with Bun 1.4.2, fixing spawn failures when varlock runs from a directory the current user cannot enter
+- [#1168](https://github.com/dmno-dev/varlock/pull/1168)  *(patch)*
+  `varlock proxy`: `@proxy(path=...)` rules are now matched against the canonical request path (dot segments resolved, repeated slashes collapsed, unreserved percent-escapes decoded), and that canonical path is what is sent upstream. Previously a request spelled `/v1/charges/../refunds/x` did not match a `path="/v1/refunds/**"` block rule even though the upstream routed it to `/v1/refunds/x`. Paths that cannot be canonicalized unambiguously (encoded slashes, backslashes, control characters, `#`, `;` path parameters, `..` above the root, absolute-form request lines inside a tunnel) are now rejected with a 400. A `substituteIn=[path]` value that would itself change the path structure (contains a path separator, dot segment, or query marker) is refused instead of routing the request somewhere the rules never evaluated.
+
 ## 1.21.1
 <sub>2026-09-29</sub>
 
