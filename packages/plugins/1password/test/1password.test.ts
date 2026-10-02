@@ -34,6 +34,8 @@ const sdkMockState = {
   itemErrors: {} as Record<string, string>,
   /** If set, resolveAll throws this string (simulates SDK-level crash) */
   sdkThrow: undefined as string | undefined,
+  /** If set, createClient rejects with this message (e.g. an invalid token) */
+  clientThrow: undefined as string | undefined,
   /** Map of environment ID → array of { name, value } */
   environments: {} as Record<string, Array<{ name: string; value: string }>>,
   /** If set, getVariables throws with this message */
@@ -44,6 +46,7 @@ function resetSdkMockState() {
   sdkMockState.responses = {};
   sdkMockState.itemErrors = {};
   sdkMockState.sdkThrow = undefined;
+  sdkMockState.clientThrow = undefined;
   sdkMockState.environments = {};
   sdkMockState.envThrow = undefined;
 }
@@ -75,7 +78,10 @@ const mockSdkClient = {
 };
 
 const mockSdkExports = {
-  createClient: async () => mockSdkClient,
+  createClient: async () => {
+    if (sdkMockState.clientThrow) throw new Error(sdkMockState.clientThrow);
+    return mockSdkClient;
+  },
   Client: class {},
 };
 
@@ -460,6 +466,8 @@ describe('1password plugin', () => {
       mockItemErrors?: Record<string, string>;
       /** If set, resolveAll() throws this string (simulates SDK-level crash) */
       mockSdkThrow?: string;
+      /** If set, createClient() rejects with this message */
+      mockClientThrow?: string;
       /** Mock environments: envId → array of { name, value } */
       mockEnvironments?: Record<string, Array<{ name: string; value: string }>>;
       /** If set, getVariables() throws with this message */
@@ -471,6 +479,7 @@ describe('1password plugin', () => {
         mockResponses = {},
         mockItemErrors = {},
         mockSdkThrow,
+        mockClientThrow,
         mockEnvironments = {},
         mockEnvThrow,
         schema,
@@ -484,6 +493,7 @@ describe('1password plugin', () => {
         sdkMockState.responses = mockResponses;
         sdkMockState.itemErrors = mockItemErrors;
         sdkMockState.sdkThrow = mockSdkThrow;
+        sdkMockState.clientThrow = mockClientThrow;
         sdkMockState.environments = mockEnvironments;
         sdkMockState.envThrow = mockEnvThrow;
 
@@ -546,6 +556,15 @@ describe('1password plugin', () => {
 
     test('SDK-level throw rejects all items', sdkTest({
       mockSdkThrow: 'SDK authentication failed',
+      schema: outdent`
+        A=op("op://vault/item/a")
+        B=op("op://vault/item/b")
+      `,
+      expectValues: { A: Error, B: Error },
+    }));
+
+    test('client creation failure rejects all items', sdkTest({
+      mockClientThrow: 'invalid service account token',
       schema: outdent`
         A=op("op://vault/item/a")
         B=op("op://vault/item/b")
