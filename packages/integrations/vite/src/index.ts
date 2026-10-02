@@ -6,6 +6,7 @@ import type { Plugin } from 'vite';
 import MagicString from 'magic-string';
 
 import { initVarlockEnv } from 'varlock/env';
+import { assertNoFrozenEnvFileInDev } from 'varlock/frozen-env-guard';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
@@ -680,6 +681,11 @@ See https://varlock.dev/integrations/vite/ for more details.
       // hook ran (see `buildVarlockSsrInitCode`), and cwd is not the project
       // root when a framework CLI is pointed elsewhere (`nuxt build --cwd`).
       const rootDiffersFromLoaded = !!(projectRoot && projectRoot !== loadedConfigDir);
+
+      // a `varlock freeze` artifact in a dev checkout is always a leftover - see the helper
+      if (isDevCommand && !env.isPreview) {
+        assertNoFrozenEnvFileInDev({ cwd: projectRoot ?? loadedConfigDir ?? process.cwd(), devCommand: 'vite dev' });
+      }
 
       if (rootDiffersFromLoaded) {
         // Reload with the correct project root. This handles monorepo

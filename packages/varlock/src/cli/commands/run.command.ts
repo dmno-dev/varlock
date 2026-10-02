@@ -13,6 +13,8 @@ import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
+import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { applyFrozenArg, pinErrorToCliExitError } from '../helpers/pinned-env';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
@@ -28,6 +30,7 @@ let commandProcess: ReturnType<typeof exec> | undefined;
 let childCommandKilledFromRestart = false;
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  applyFrozenArg(ctx.values.frozen);
   // if "--" is present, split the args into our command and the rest, which will be another external command
   const argv = process.argv.slice(2);
   let restCommandArgs: Array<string> = [];
@@ -65,6 +68,15 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   let reuseDecision: ReturnType<typeof evaluateInjectedEnvReuse>;
   if (resolutionFlags.length) {
+    // A frozen env file is a deploy-time pin, so silently ignoring it and re-resolving would
+    // defeat the point just as much as it would for an explicitly-forced blob.
+    const requestedFrozenPath = getFrozenEnvFileInPlay(process.env, process.cwd());
+    if (requestedFrozenPath) {
+      throw new CliExitError(`a frozen env file (${requestedFrozenPath}) cannot be combined with ${resolutionFlags.join(', ')}`, {
+        suggestion: 'These flags change what a fresh resolution produces, so there is nothing to reuse. Drop them, '
+          + `re-run \`varlock freeze\` with them, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files.`,
+      });
+    }
     if (getUseInjectedEnvMode(process.env) === 'force') {
       throw new CliExitError(`${USE_INJECTED_ENV_VAR} cannot be combined with ${resolutionFlags.join(', ')}`, {
         suggestion: 'These flags change what a fresh resolution produces, so there is nothing to reuse. Drop them, or unset the env var to resolve normally.',
@@ -79,11 +91,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         cwd: process.cwd(),
       });
     } catch (err) {
-      // explicit trust mode with a missing/unusable blob
-      throw new CliExitError((err as Error).message.replace(/^\[varlock\] /, ''), {
-        suggestion: 'Provide a valid __VARLOCK_ENV blob (e.g. captured via `varlock load --format json-full --compact`), '
-          + `or unset ${USE_INJECTED_ENV_VAR} to resolve from .env files.`,
-      });
+      // a requested frozen env file, or explicit trust mode, with a missing/unusable pin -
+      // neither ever falls back to a fresh resolution
+      throw pinErrorToCliExitError(err);
     }
   }
 
@@ -97,7 +107,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   let serializedGraph: SerializedEnvGraph;
 
   if (reuseDecision.reuse) {
-    debug('reusing injected env blob - skipping resolution');
+    debug('reusing pre-resolved env from %s - skipping resolution', reuseDecision.source);
     serializedGraph = reuseDecision.parsedEnv;
     // same shape as getResolvedEnvStringObject: unset items stay undefined, so they still
     // mask any inherited value when the child env is built. The blob never carries
@@ -108,10 +118,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } else {
     debug('resolving env (%s)', reuseDecision.reason);
+    // A pin that leaves `@dynamic=boot` keys to the runtime is applied on top of the schema:
+    // pinned values stay sealed (their resolvers never run) and only the boot keys are
+    // resolved and validated here. The child then gets a complete, fresh blob.
     envGraph = await loadVarlockEnvGraph({
       entryFilePaths: ctx.values.path,
       clearCache: ctx.values['clear-cache'],
       skipCache: ctx.values['skip-cache'],
+      pinned: reuseDecision.pinned,
     });
     checkForSchemaErrors(envGraph);
     checkForNoEnvFiles(envGraph, { allowOptOut: true });
@@ -168,15 +182,25 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ambientEnvKey: process.env._VARLOCK_ENV_KEY,
     });
   } else if (injectBlob) {
-    // normally the ambient blob is forwarded byte-for-byte; if @internal items were
-    // stripped from it on consumption, forward the sanitized form instead (re-encrypted
-    // with the ambient key when the original was encrypted - the key must have been
-    // present for decryption to have succeeded)
-    let childBlob = process.env.__VARLOCK_ENV!;
-    if (reuseDecision.strippedInternalKeys.length) {
-      childBlob = isEncryptedBlob(childBlob)
-        ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
-        : reuseDecision.blobJson;
+    let childBlob: string;
+    if (reuseDecision.source === 'frozen-file') {
+      // the graph came from disk, so there is no ambient blob to forward (and any that is
+      // present lost to the file, so it must not leak through): hand the child the frozen
+      // graph itself, encrypted whenever a key is available - it always is when the file
+      // was encrypted, since decryption succeeded
+      const ambientKey = process.env._VARLOCK_ENV_KEY;
+      childBlob = ambientKey ? encryptEnvBlobSync(reuseDecision.blobJson, ambientKey) : reuseDecision.blobJson;
+    } else {
+      // normally the ambient blob is forwarded byte-for-byte; if @internal items were
+      // stripped from it on consumption, forward the sanitized form instead (re-encrypted
+      // with the ambient key when the original was encrypted - the key must have been
+      // present for decryption to have succeeded)
+      childBlob = process.env.__VARLOCK_ENV!;
+      if (reuseDecision.strippedInternalKeys.length) {
+        childBlob = isEncryptedBlob(childBlob)
+          ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
+          : reuseDecision.blobJson;
+      }
     }
     injectedBlobEnv = {
       __VARLOCK_ENV: childBlob,
@@ -184,8 +208,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     };
   }
 
+  // a consumed frozen env file is handed on by absolute path, so a child that starts in
+  // another directory reads the same pin
+  const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : reuseDecision.pinned?.filePath;
+
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,
+    ...(frozenFilePath ? { [USE_FROZEN_ENV_VAR]: frozenFilePath } : {}),
     ...(injectVars ? resolvedEnv : {}),
     __VARLOCK_RUN: '1', // flag for a child process to detect it is running via `varlock run`
     ...injectedBlobEnv,

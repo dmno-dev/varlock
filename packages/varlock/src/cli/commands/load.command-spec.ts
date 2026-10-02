@@ -1,9 +1,12 @@
 import { define } from 'gunshi';
 
+import { FROZEN_ARG } from '../helpers/frozen-arg';
+
 export const commandSpec = define({
   name: 'load',
   description: 'Load env according to schema and resolve values',
   args: {
+    ...FROZEN_ARG,
     format: {
       type: 'enum',
       short: 'f',
