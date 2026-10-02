@@ -101,6 +101,34 @@ describe('varlock freeze', () => {
     }
   });
 
+  // package.json `varlock.filter` scopes a shared schema to one package; the frozen file holds
+  // only that package's keys, and is final from then on
+  test('applies a package.json varlock.filter, and the pin stays scoped at boot', () => {
+    const pkgDir = join(SCENARIO_DIR, 'scoped-pkg');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    try {
+      fs.writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+        name: 'scoped-pkg', private: true, varlock: { loadPath: '../', filter: 'APP_ENV,PUBLIC_VAR' },
+      }));
+      const result = runVarlock(['freeze', '--allow-plaintext'], {
+        cwd: `${SCENARIO}/scoped-pkg`,
+        env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('scoped by package.json varlock.filter');
+      const frozen = JSON.parse(fs.readFileSync(join(pkgDir, '.varlock-frozen-env'), 'utf8'));
+      expect(frozen.config.PUBLIC_VAR.value).toBe('public-value-prod');
+      expect(frozen.config.SECRET_TOKEN).toBeUndefined();
+
+      // booting from it neither re-applies the filter nor resolves the scoped-out keys
+      const loaded = runVarlock(['load', '--frozen', '--format', 'json'], { cwd: `${SCENARIO}/scoped-pkg`, env: { _VARLOCK_ENV_KEY: '' } });
+      expect(loaded.exitCode, loaded.output).toBe(0);
+      expect(JSON.parse(loaded.stdout)).toEqual({ APP_ENV: 'production', PUBLIC_VAR: 'public-value-prod' });
+    } finally {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
+  });
+
   test('varlock scan flags an unencrypted frozen file even when its values differ from the local ones', () => {
     const plainDir = join(SCENARIO_DIR, 'plain-frozen');
     try {

@@ -159,6 +159,8 @@ Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_E
 | `--clear-cache` | Clear the cache and re-resolve everything |
 | `--skip-cache` | Skip the cache for this invocation |
 
+In a monorepo package that sets [`varlock.filter`](/guides/monorepos/#sharing-one-schema-across-packages-with-tags) in its package.json, the frozen file holds only the items that filter selects. `_VARLOCK_FILTER` is not applied. Once frozen, the file is final: the filter is not applied again at boot, and a frozen file refuses to boot with `_VARLOCK_FILTER` set.
+
 ### Encryption is required
 
 `varlock freeze` fails if `_VARLOCK_ENV_KEY` is not set. The file holds every resolved value, including secrets, and it is a portable standalone file: it gets copied between build stages, retained as a CI artifact, and read by anyone with access to your image layers or registry. That is a wider audience than the people who can reach your running container.
@@ -205,7 +207,7 @@ A few rules follow from the fact that a boot value does not exist before boot:
 - **Nothing pinned may depend on it.** `PUBLIC_URL=http://localhost:${PORT}` with a boot `PORT` is a schema error on every load, not just under `freeze`. The fix is to mark `PUBLIC_URL` `@dynamic=boot` as well. The reverse is fine: a boot key can be built from pinned values.
 - **Root decorators cannot reference it**, and the `@currentEnv` item cannot be boot. Anything that decides how the schema loads or how varlock behaves (`@currentEnv`, `@disable`, `@import`, `@cache`, `@redactLogs`, plugin init) is evaluated before boot, so a boot value there is a schema error.
 - **`boot` is per item and written literally.** There is no root default, and a computed value is an error.
-- **The pin must match the schema it was frozen from.** A key added or removed since the freeze, or a key whose boot marking changed, fails the boot with a message naming the drift. Re-run `varlock freeze` and redeploy.
+- **The pin defines the item set.** Schema items outside it are never resolved at boot, including keys added to the schema since the freeze, so their resolvers never need credentials at runtime. A pinned key that has since been removed from the schema, or a key whose boot marking changed, fails the boot with a message naming the drift. Re-run `varlock freeze` and redeploy.
 
 The freeze summary lists what was left out (`left to boot (@dynamic=boot): PORT, INSTANCE_ID`), and `varlock load --frozen` in the runtime image shows the same pinned-plus-boot view the app gets.
 

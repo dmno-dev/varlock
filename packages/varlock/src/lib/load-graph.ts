@@ -60,11 +60,11 @@ function describePinnedSource(pinned: PinnedGraphInfo) {
 }
 
 /**
- * A pinned graph is only valid against the schema it was frozen from. Fail closed on any
- * drift rather than resolving whatever is missing fresh: a key added to the schema since
- * the freeze would otherwise be silently resolved at boot (needing credentials the runtime
- * is not supposed to have, or worse, quietly succeeding with a different value), and a
- * boot-key mismatch means the file and the schema disagree about what is pinned at all.
+ * A pinned graph must agree with the schema it is applied to about what is pinned. A pin is
+ * final, so it defines the item set: schema items outside it are never resolved (see
+ * getPinnedItemFilter), which covers both scoping applied at freeze time (package.json
+ * `varlock.filter`) and keys added to the schema since. What fails closed is a disagreement
+ * about the pin itself: a pinned key that no longer exists, or a boot marking that changed.
  */
 function verifyPinnedGraphMatchesSchema(graph: EnvGraph, pinned: PinnedGraphInfo) {
   // a schema that failed to load reports its own errors; a drift report on top would be noise
@@ -78,11 +78,10 @@ function verifyPinnedGraphMatchesSchema(graph: EnvGraph, pinned: PinnedGraphInfo
   const pinnedBootKeys = getPinnedBootKeys(pinned.graph);
 
   const problems: Array<string> = [];
-  const missing = schemaKeys.filter((k) => !pinnedKeys.includes(k) && !pinnedBootKeys.includes(k));
-  if (missing.length) problems.push(`not in the pin: ${missing.join(', ')}`);
   const extra = pinnedKeys.filter((k) => !schemaKeys.includes(k));
   if (extra.length) problems.push(`pinned but no longer in the schema: ${extra.join(', ')}`);
-  const bootOnlyInSchema = schemaBootKeys.filter((k) => !pinnedBootKeys.includes(k));
+  // only boot items the pin knows about: one outside it was scoped out at freeze time
+  const bootOnlyInSchema = schemaBootKeys.filter((k) => !pinnedBootKeys.includes(k) && pinnedKeys.includes(k));
   const bootOnlyInPin = pinnedBootKeys.filter((k) => !schemaBootKeys.includes(k));
   if (bootOnlyInSchema.length) problems.push(`@dynamic=boot in the schema but pinned: ${bootOnlyInSchema.join(', ')}`);
   if (bootOnlyInPin.length) problems.push(`left to boot by the pin but not @dynamic=boot in the schema: ${bootOnlyInPin.join(', ')}`);

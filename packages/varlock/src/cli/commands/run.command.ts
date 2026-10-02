@@ -17,7 +17,7 @@ import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
-import { applyFrozenArg, pinErrorToCliExitError } from '../helpers/pinned-env';
+import { applyFrozenArg, getPinnedItemFilter, pinErrorToCliExitError } from '../helpers/pinned-env';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
@@ -142,7 +142,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // unrelated broken item outside the filter won't block this run, and excluded items'
     // value resolvers never run. Decorator selectors resolve item metadata first, then match
     // exactly (see EnvGraph.resolveEnvValuesForFilter).
-    const itemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
+    // a pin is final, so it defines the item set rather than any filter
+    const itemFilter = reuseDecision.pinned
+      ? getPinnedItemFilter(reuseDecision.pinned)
+      : getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
     if (itemFilter) await itemFilter.resolveScoped(envGraph);
     else await envGraph.resolveEnvValues();
     checkForConfigErrors(envGraph);

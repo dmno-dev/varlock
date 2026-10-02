@@ -1113,13 +1113,19 @@ export class EnvGraph {
    *    (plus transitive deps) get their values resolved and validated
    */
   async resolveEnvValuesForFilter(filter: ParsedItemFilter): Promise<void> {
-    const allItems = Object.values(this.configSchema);
+    const matchedKeys = await this.computeFilterKeys(filter);
+    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+  }
 
-    if (!filter.usesDecoratorSelector) {
-      const matchedKeys = filter.computeKeys(allItems);
-      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
-      return;
-    }
+  /**
+   * Steps 1-2 of {@link resolveEnvValuesForFilter}: the keys a filter selects, resolving only
+   * what evaluating it needs (no matched item's value resolver runs). For callers that need
+   * the selection before deciding what to resolve, e.g. `varlock freeze` splitting it into
+   * pinned and `@dynamic=boot` keys.
+   */
+  async computeFilterKeys(filter: ParsedItemFilter): Promise<Set<string>> {
+    const allItems = Object.values(this.configSchema);
+    if (!filter.usesDecoratorSelector) return filter.computeKeys(allItems);
 
     // pre-evaluate with decorator state unknown - definite yes/no verdicts need no metadata
     const definitelyIncluded: Array<string> = [];
@@ -1140,11 +1146,10 @@ export class EnvGraph {
       await item.resolveMetadata();
     }
 
-    const matchedKeys = new Set([
+    return new Set([
       ...definitelyIncluded,
       ...undecidedItems.filter((item) => filter.matches(item)).map((item) => item.key),
     ]);
-    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
   }
 
   /** config keys with builtin vars first, then user-defined in schema order */

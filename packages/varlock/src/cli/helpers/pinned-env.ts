@@ -1,4 +1,7 @@
-import { findPinnedGraphForResolution, type PinnedGraphInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
+import {
+  findPinnedGraphForResolution, getPinnedBootKeys, type PinnedGraphInfo, USE_INJECTED_ENV_VAR,
+} from '../../lib/injected-env-reuse';
+import type { CliItemFilter } from './item-filter';
 import { PreResolvedEnvError, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { CliExitError } from './exit-error';
 
@@ -33,4 +36,26 @@ export function getPinnedGraphForResolution(): PinnedGraphInfo | undefined {
 export function applyFrozenArg(value: string | undefined) {
   if (value === undefined) return;
   process.env[USE_FROZEN_ENV_VAR] = value || '1';
+}
+
+/**
+ * A pin is final: its keys plus its `@dynamic=boot` keys are the whole env. Any scoping (e.g.
+ * package.json `varlock.filter`) was applied when it was frozen, so it is not applied again,
+ * and other schema items are never resolved at boot (their resolvers may need credentials the
+ * runtime does not have). Shaped like a CLI item filter so `load` and `run` apply it the same way.
+ */
+export function getPinnedItemFilter(pinned: PinnedGraphInfo): CliItemFilter {
+  const keys = new Set([...Object.keys(pinned.graph.config), ...getPinnedBootKeys(pinned.graph)]);
+  return {
+    async resolveScoped(graph) {
+      const scoped = [...keys].filter((k) => graph.configSchema[k]);
+      await graph.resolveEnvValues([...graph.expandKeysWithTransitiveDeps(scoped)]);
+    },
+    async computeKeys(graph) {
+      return new Set(Object.keys(graph.configSchema).filter((k) => keys.has(k)));
+    },
+    getFilterKeys(items) {
+      return new Set(items.map((item) => item.key).filter((k) => keys.has(k)));
+    },
+  };
 }

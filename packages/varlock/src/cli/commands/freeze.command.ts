@@ -10,6 +10,7 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { CliExitError } from '../helpers/exit-error';
+import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { commandSpec } from './freeze.command-spec';
 
@@ -40,16 +41,28 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForSchemaErrors(envGraph);
   checkForNoEnvFiles(envGraph);
 
+  // A package.json `varlock.filter` scopes a shared schema to this package, so the frozen file
+  // holds only this package's keys. Applied here and never again: a pin is final, so at boot it
+  // defines the item set itself. `_VARLOCK_FILTER` is deliberately not applied (it is a
+  // per-invocation knob, and a frozen file refuses to boot under one).
+  const scopeFilter = getCliItemFilter(undefined, { cliPaths: ctx.values.path, ignoreEnvFilter: true });
+  const inScope = scopeFilter ? await scopeFilter.computeKeys(envGraph) : new Set(envGraph.sortedConfigKeys);
+
   // `@dynamic=boot` items are bound at process start on each instance (a platform-assigned
   // PORT, pod identity), so they are left out of the pin entirely: their resolvers never run
   // here, and they are resolved and validated against the schema at boot instead. The graph
   // already guarantees nothing pinned depends on them (see checkBootDynamicDependencies).
-  const bootKeys = envGraph.sortedConfigKeys.filter((k) => envGraph.configSchema[k].isBootDynamic);
-  const pinnedKeys = envGraph.sortedConfigKeys.filter((k) => !envGraph.configSchema[k].isBootDynamic);
+  // What a boot key depends on is pinned too, even if the filter left it out, so resolving the
+  // boot key at boot never has to resolve anything fresh.
+  const isBoot = (k: string) => envGraph.configSchema[k].isBootDynamic;
+  const bootKeys = envGraph.sortedConfigKeys.filter((k) => inScope.has(k) && isBoot(k));
+  const bootDeps = envGraph.expandKeysWithTransitiveDeps(bootKeys);
+  const pinnedKeys = envGraph.sortedConfigKeys.filter((k) => !isBoot(k) && (inScope.has(k) || bootDeps.has(k)));
+  const isScoped = !!scopeFilter || bootKeys.length > 0;
 
   // Generate types before resolving values: uses only non-env-specific schema info
   await envGraph.runCodeGeneratorsIfNeeded();
-  await envGraph.resolveEnvValues(bootKeys.length ? pinnedKeys : undefined);
+  await envGraph.resolveEnvValues(isScoped ? [...envGraph.expandKeysWithTransitiveDeps(pinnedKeys)] : undefined);
   // a frozen file is consumed without re-resolution, so a partially-broken graph must never
   // be written - there would be no opportunity to surface the failure later
   checkForConfigErrors(envGraph);
@@ -72,7 +85,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     );
   }
 
-  const serialized = envGraph.getSerializedGraph(bootKeys.length ? { filterKeys: new Set(pinnedKeys) } : undefined);
+  const serialized = envGraph.getSerializedGraph(isScoped ? { filterKeys: new Set(pinnedKeys) } : undefined);
   // marks the payload as a freeze (consumers apply it on top of the schema when it leaves
   // keys to boot) and records what was frozen - see the SerializedEnvGraph type
   serialized.frozen = {
@@ -93,6 +106,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // every summary names what was left out - a key that is not pinned is the one thing a
   // reader of "Froze N env vars" would otherwise assume is
+  const scopeSummaryLine = scopeFilter
+    ? ansis.gray('  scoped by package.json varlock.filter')
+    : undefined;
   const bootSummaryLine = bootKeys.length
     ? ansis.gray(`  left to boot (@dynamic=boot): ${ansis.bold(bootKeys.join(', '))}`)
     : undefined;
@@ -115,6 +131,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     process.stdout.write(`${contents}\n`);
     console.error(`Froze ${itemCount} env var${itemCount === 1 ? '' : 's'} to stdout`);
     if (frozenEnv !== undefined) console.error(ansis.gray(`  environment: ${ansis.bold(String(frozenEnv))}`));
+    if (scopeSummaryLine) console.error(scopeSummaryLine);
     if (bootSummaryLine) console.error(bootSummaryLine);
     console.error(ansis.gray(`  ${encryptionKey ? 'encrypted with _VARLOCK_ENV_KEY' : 'UNENCRYPTED'}`));
     console.error('');
@@ -168,6 +185,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // always state the environment - this file gets shipped, and picking the wrong one is
   // the easiest mistake to make and the hardest to notice
   if (frozenEnv !== undefined) console.log(ansis.gray(`  environment: ${ansis.bold(String(frozenEnv))}`));
+  if (scopeSummaryLine) console.log(scopeSummaryLine);
   if (bootSummaryLine) console.log(bootSummaryLine);
   console.log(ansis.gray(`  ${encryptionKey ? 'encrypted with _VARLOCK_ENV_KEY' : 'UNENCRYPTED'}`));
   console.log('');

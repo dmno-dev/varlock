@@ -269,13 +269,14 @@ describe('the pin must match the schema', () => {
     });
   }
 
-  test('a key added since the freeze is not silently resolved at boot', () => {
-    setupDriftedSchema((schema) => `${schema}\nADDED_LATER=x\n`);
+  // a pin is final: it defines the item set, so a key added to the schema since the freeze is
+  // out of scope and its resolver never runs at boot (it would fail here if it did)
+  test('a key added since the freeze is ignored, not resolved at boot', () => {
+    setupDriftedSchema((schema) => `${schema}\nADDED_LATER=exec("exit 1")\n`);
     const result = bootDrifted();
-    expect(result.exitCode).not.toBe(0);
-    expect(result.output).toContain('does not match the schema');
-    expect(result.output).toContain('not in the pin: ADDED_LATER');
-    expect(result.output).not.toContain('APP_ENV=production');
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).not.toContain('ADDED_LATER');
   });
 
   test('a boot marking that changed since the freeze is caught too', () => {

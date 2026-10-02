@@ -9,7 +9,7 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
-import { applyFrozenArg, getPinnedGraphForResolution } from '../helpers/pinned-env';
+import { applyFrozenArg, getPinnedGraphForResolution, getPinnedItemFilter } from '../helpers/pinned-env';
 import { getFrozenEnvFileInPlay } from '../../lib/frozen-env-file';
 import { CliExitError } from '../helpers/exit-error';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -41,7 +41,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } = ctx.values;
   // parse --filter (or the _VARLOCK_FILTER env var) up front, so a bad filter string errors
   // before any loading/resolution work happens
-  const itemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
+  const cliItemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 
@@ -63,6 +63,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // passes it, and a pin applies its own recorded environment as the fallback.)
     const resolutionFlags = [
       ctx.values.path?.length ? '--path' : undefined,
+      ctx.values.filter ? '--filter' : undefined,
       ctx.values['clear-cache'] ? '--clear-cache' : undefined,
       ctx.values['skip-cache'] ? '--skip-cache' : undefined,
     ].filter(Boolean) as Array<string>;
@@ -73,6 +74,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       });
     }
   }
+  // a pin is final, so it defines the item set rather than any filter
+  const itemFilter = pinned ? getPinnedItemFilter(pinned) : cliItemFilter;
   const ignoredFrozenFile = pinned ? undefined : getFrozenEnvFileInPlay(process.env, process.cwd());
   if (ignoredFrozenFile) {
     const relPath = path.relative(process.cwd(), ignoredFrozenFile) || ignoredFrozenFile;
