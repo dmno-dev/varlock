@@ -89,11 +89,13 @@ CONFIG=exec("./scripts/load-config.sh", "--env", $APP_ENV)
 
 **Values go through the argv form.** The string form only takes a fixed command. Interpolating a value into it (``exec(`./load-config.sh ${APP_ENV}`)``, `$(./load-config.sh ${APP_ENV})`) or passing a value as the whole command (`exec($CMD)`) is a schema error. A value can come from the process environment or a `.env.local`, not only from your schema, so it must never be read as shell syntax. Pass it as its own argument instead: `exec("./load-config.sh", $APP_ENV)`, or `exec("op", "read", "op://vault/${ITEM}/field")` to build one argument from several parts. Each argument reaches the program exactly as resolved, never split or expanded.
 
-To use shell syntax (pipes, `&&`) together with a value, pass the value as an environment variable with the `env=` option and reference it as a shell variable. The shell expands a variable as data, so its contents are never read as more commands. Write the command in single quotes, since env-spec expands `$ITEM` itself inside double quotes and backticks:
+On macOS and Linux, to use shell syntax (pipes, `&&`) together with a value, pass the value as an environment variable with the `env=` option and reference it as a shell variable. The shell expands a variable as data, so its contents are never read as more commands. Write the command in single quotes, since env-spec expands `$ITEM` itself inside double quotes and backticks:
 
 ```env-spec "exec"
 TOKEN=exec('my-cli get "$ITEM" | jq -r .value', env={ITEM=$ITEM})
 ```
+
+This does not carry over to Windows: `cmd.exe` expands `%ITEM%` before it parses the command, so the value would be read as shell syntax. Use the argv form there.
 
 On Windows the argv form launches executables directly, so it can't run `.cmd` or `.bat` files (like the `npx` and `pnpm` shims). Call the `.exe` instead, or use the string form with a fixed command.
 

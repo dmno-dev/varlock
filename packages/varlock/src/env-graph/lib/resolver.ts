@@ -592,7 +592,8 @@ export const ExecResolver: typeof Resolver = createResolver({
           suggestion
             ? `pass the program and its arguments separately, which runs it directly with no shell: ${suggestion}`
             : 'pass the program and its arguments separately, which runs it directly with no shell: exec("./script", "--env", $APP_ENV)',
-          'to use shell syntax (pipes, &&) with a value, pass it as an env var and quote it in a single-quoted command: exec(\'my-cli get "$ITEM" | jq -r .value\', env={ITEM=$ITEM})',
+          // cmd.exe expands %VAR% before parsing, so this pattern is POSIX-only
+          ...process.platform !== 'win32' ? ['to use shell syntax (pipes, &&) with a value, pass it as an env var and quote it in a single-quoted command: exec(\'my-cli get "$ITEM" | jq -r .value\', env={ITEM=$ITEM})'] : [],
         ],
       });
     }

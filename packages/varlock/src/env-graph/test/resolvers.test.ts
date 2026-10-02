@@ -217,7 +217,7 @@ describe('exec() string form error tip', () => {
     // eslint-disable-next-line no-template-curly-in-string
     const err = await execError('ITEM=exec(`my-cli get ${ITEM_NAME} | jq -r .value`)');
     expect(err.tip).toContain('exec("./script", "--env", $APP_ENV)');
-    expect(err.tip).toContain('env={ITEM=$ITEM}');
+    if (process.platform !== 'win32') expect(err.tip).toContain('env={ITEM=$ITEM}');
   });
 });
 
