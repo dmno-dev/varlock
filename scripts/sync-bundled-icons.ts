@@ -40,6 +40,8 @@ type IconTarget = {
   sourceFiles: Array<string>;
   /** generated module path */
   outputPath: string;
+  /** plugins must hand the generated icons to varlock via `plugin.bundledIcons` */
+  isPlugin: boolean;
 };
 
 function listTsFiles(dir: string): Array<string> {
@@ -55,6 +57,7 @@ function getTargets(): Array<IconTarget> {
       pkgDir: varlockDir,
       sourceFiles: [path.join(varlockDir, 'src/env-graph/lib/data-types.ts')],
       outputPath: path.join(varlockDir, 'src/env-graph/lib/type-generation/bundled-icons.gen.ts'),
+      isPlugin: false,
     },
   ];
   const pluginsDir = path.join(REPO_ROOT, 'packages/plugins');
@@ -65,6 +68,7 @@ function getTargets(): Array<IconTarget> {
       pkgDir: path.join(pluginsDir, pluginName),
       sourceFiles: listTsFiles(srcDir),
       outputPath: path.join(srcDir, 'bundled-icons.gen.ts'),
+      isPlugin: true,
     });
   }
   return targets;
@@ -130,6 +134,7 @@ const collectionsJson = await fetchText(`https://api.iconify.design/collections?
 const collections = JSON.parse(collectionsJson ?? '{}') as Record<string, CollectionInfo>;
 
 const missing = new Set<string>();
+const unwiredPlugins: Array<string> = [];
 const expectedFiles: Array<[filePath: string, content: string | undefined]> = [];
 
 for (const target of targets) {
@@ -160,6 +165,11 @@ for (const target of targets) {
   if (!Object.keys(icons).length) {
     expectedFiles.push([target.outputPath, undefined], [notesPath, undefined]);
     continue;
+  }
+
+  // a generated icons module does nothing unless the plugin passes it to varlock
+  if (target.isPlugin && !target.sourceFiles.some((f) => fs.readFileSync(f, 'utf-8').includes('plugin.bundledIcons'))) {
+    unwiredPlugins.push(path.relative(REPO_ROOT, target.pkgDir));
   }
 
   const prefixes = [...new Set(Object.keys(icons).map((name) => name.split(':')[0]))].sort();
@@ -212,6 +222,12 @@ for (const target of targets) {
 
 if (missing.size) {
   console.warn(`[sync-bundled-icons] not found on iconify, skipped: ${[...missing].join(', ')}`);
+}
+
+if (unwiredPlugins.length) {
+  console.error(`[sync-bundled-icons] these plugins use icons but never set \`plugin.bundledIcons\`:\n${unwiredPlugins.map((p) => `  ${p}`).join('\n')}`);
+  console.error("add `import { BUNDLED_ICONS } from './bundled-icons.gen';` and `plugin.bundledIcons = BUNDLED_ICONS;` to each");
+  process.exitCode = 1;
 }
 
 const readOrUndefined = (filePath: string) => (fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : undefined);
