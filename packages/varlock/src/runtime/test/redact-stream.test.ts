@@ -159,6 +159,23 @@ describe('createRedactedStreamWriter', () => {
       expect(calls).toEqual(['first', 'second', 'third']);
     });
 
+    it('passes on an error from the write that carried the start of the chunk', () => {
+      const error = new Error('EPIPE');
+      const results: Array<Error | undefined> = [error, undefined];
+      const writer = createRedactedStreamWriter({
+        write(str: string, callback?: (err?: Error | null) => void) {
+          written.push(str);
+          callback?.(results.shift());
+        },
+      });
+      const callback = vi.fn();
+      writer.write('key=super-secr', callback);
+      expect(callback).not.toHaveBeenCalled();
+      writer.flush();
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenCalledWith(error);
+    });
+
     it('runs the callback of an empty chunk', () => {
       const writer = createRedactedStreamWriter(callbackStream);
       const callback = vi.fn();

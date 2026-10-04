@@ -29,6 +29,7 @@ function createFakeStream(isTTY = false): FakeStream {
       stream.written.push(chunk);
       const callback = typeof encodingOrCallback === 'function' ? encodingOrCallback : maybeCallback;
       callback?.(stream.writeError);
+      if (!stream.writeResult) stream.writableNeedDrain = true;
       return stream.writeResult;
     },
   };
@@ -151,6 +152,18 @@ describe('patchGlobalStdStreams', () => {
     expect(callback).toHaveBeenCalledWith(stdout.writeError);
   });
 
+  it('passes the error of an earlier part of the chunk to the callback', () => {
+    patchGlobalStdStreams();
+    const callback = vi.fn();
+    const error = new Error('EPIPE');
+    stdout.writeError = error;
+    process.stdout.write('key=super-secr', callback);
+    stdout.writeError = undefined;
+    expect(callback).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(callback).toHaveBeenCalledWith(error);
+  });
+
   it('returns what the underlying write returns', () => {
     patchGlobalStdStreams();
     expect(process.stdout.write('plain\n')).toBe(true);
@@ -163,6 +176,14 @@ describe('patchGlobalStdStreams', () => {
     expect(process.stdout.write('super-secr')).toBe(true);
     stdout.writableNeedDrain = true;
     expect(process.stdout.write('et-val')).toBe(false);
+  });
+
+  it('reports backpressure from a delayed flush on the next write', () => {
+    patchGlobalStdStreams();
+    expect(process.stdout.write('super-secr')).toBe(true);
+    stdout.writeResult = false;
+    vi.runAllTimers();
+    expect(process.stdout.write('su')).toBe(false);
   });
 
   it('redacts a secret inside a byte chunk', () => {
