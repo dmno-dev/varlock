@@ -79,7 +79,7 @@ Note that plugins will not be loaded from an inactive file - for example an envi
 No specific namespacing or prefixes are enforced, and any naming conflicts will trigger an error, but plugins will use specific names to avoid conflicts.
 
 ## Initialization
-Plugins are initialized using custom root decorators that they introduce. In some cases, no specific initialization is needed, and in others, you may need to initialize multiple instances of a plugin with different options, referred to by some identifier. How (or if) a plugin needs to be initialized depends on the specific plugin and can depend on the the external service's data/auth model.
+Plugins are initialized using custom root decorators that they introduce. In some cases, no specific initialization is needed, and in others, you may need to initialize multiple instances of a plugin with different options, referred to by some identifier. How (or if) a plugin needs to be initialized depends on the specific plugin and can depend on the external service's data/auth model.
 
 A plugin initialization root decorator is used to set IDs, toggle features, and wire up auth. Note that sensitive data should be passed in via references to config items within your schema.
 

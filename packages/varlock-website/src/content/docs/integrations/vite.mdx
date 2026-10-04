@@ -167,7 +167,7 @@ Vite [natively supports](https://vite.dev/guide/env-and-mode.html#html-constant-
 
 This plugin injects additional replacements for strings like `%ENV.SOME_VAR%`.
 
-Note that unlike the native functionality which does not replace missing/non-existant items, we will try to replace all items, and will throw helpful errors if something goes wrong.
+Note that unlike the native functionality which does not replace missing/non-existent items, we will try to replace all items, and will throw helpful errors if something goes wrong.
 
 :::tip[HTML comments]
 Note that replacements anywhere in the file, including HTML comments, are still attempted and can cause errors. For example `<!-- %ENV.BAD_ITEM_KEY% -->` will still fail!

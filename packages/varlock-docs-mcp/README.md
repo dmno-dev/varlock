@@ -36,7 +36,7 @@ bun run inspector
 
 ## Cloudflare
 
-The server is deployed automaticaly to cloudlfare workers when you open a PR or merge to `main`.
+The server is deployed automatically to cloudflare workers when you open a PR or merge to `main`.
 
 It relies on an AI Gateway and an AI Search (autoRAG) to search the Varlock docs.
 

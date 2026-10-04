@@ -21,7 +21,7 @@ This structured data can be used by libraries to provide:
 
 ## How can schema data be used?
 
-This schema information is most valuable when it is shared across team members and machines - so it is intended to be used within a file which is comitted to git.
+This schema information is most valuable when it is shared across team members and machines - so it is intended to be used within a file which is committed to git.
 In most cases, that will mean creating a `.env.schema`, committed to source control, which contains all schema info and possibly some default values.
 It's not very different than a having a `.env.example` file - it's just more useful and actually involving it in the env loading process.
 
@@ -129,7 +129,7 @@ Each has a key, an optional value, and optional attached comments.
 - An empty string is allowed -- `EMPTY_STRING_VAR=""`
 - Single-line values may be wrapped in quotes or not, and will follow the common value-handling rules (see below)
 - Multi-line values may be wrapped in either ``( " | """ | ``` )``
-- Only comments _directly_ preceeding the item will be attached to the item
+- Only comments _directly_ preceding the item will be attached to the item
 - However a `Divider` will break the above comments into a `CommentBlock` that is not attached to the item
 - An additional post-comment can appear after the item `ITEM1=foo # post comment`
 - This post-comment can contain decorators `ITEM1=foo # @required`

@@ -72,7 +72,7 @@ The extension also highlights obvious static validation issues, such as invalid 
 
 The new `@env-spec` language mode should be enabled automatically for any `.env` and `.env.*` files, but you can always set it via the Language Mode selector in the bottom right of your editor.
 
-### Feeback, Contributing, Support
+### Feedback, Contributing, Support
 
 We are actively iterating on **@env-spec** and your feedback is invaluable. Please read through our [RFC](https://github.com/dmno-dev/varlock/discussions/17) and let us know what you think!
 

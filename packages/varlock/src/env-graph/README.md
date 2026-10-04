@@ -4,7 +4,7 @@ This is a suite of tools to help load env vars (both schema and values) from mul
 
 In most cases, this will usually be a set of .env files and actual process vars, for example:
 - `.env.schema` - contains schema info and default values
-- `.env.local` - contains your git-ignored local overides
+- `.env.local` - contains your git-ignored local overrides
 - `.env.[env]` - contains environment specific settings
 - actual process/shell env vars are applied
 
