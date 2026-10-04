@@ -10,20 +10,26 @@ const REDACTED_SECRET = 'su▒▒▒▒▒';
 
 type FakeStream = {
   isTTY: boolean,
+  writableNeedDrain: boolean,
+  writeResult: boolean,
+  writeError: Error | undefined,
   written: Array<string | Uint8Array>,
   write: (...args: Array<any>) => boolean,
 };
 
-/** stands in for process.stdout / process.stderr, recording what reaches the real stream */
+/** stands in for process.stdout / process.stderr */
 function createFakeStream(isTTY = false): FakeStream {
   const stream: FakeStream = {
     isTTY,
+    writableNeedDrain: false,
+    writeResult: true,
+    writeError: undefined,
     written: [],
     write(chunk: string | Uint8Array, encodingOrCallback?: any, maybeCallback?: any) {
       stream.written.push(chunk);
       const callback = typeof encodingOrCallback === 'function' ? encodingOrCallback : maybeCallback;
-      callback?.();
-      return true;
+      callback?.(stream.writeError);
+      return stream.writeResult;
     },
   };
   return stream;
@@ -102,15 +108,61 @@ describe('patchGlobalStdStreams', () => {
     expect(process.listenerCount('beforeExit')).toBe(beforeExitListeners);
   });
 
-  it('calls the write callback, also when the whole chunk is held back', async () => {
+  it('calls the write callback once the chunk is written', () => {
     patchGlobalStdStreams();
-    const onWritten = vi.fn();
-    const onHeldBack = vi.fn();
-    process.stdout.write('plain\n', onWritten);
-    process.stdout.write('super-secr', 'utf8', onHeldBack);
-    expect(onWritten).toHaveBeenCalledTimes(1);
+    const callback = vi.fn();
+    process.stdout.write('plain\n', callback);
+    process.stdout.write('more\n', 'utf8', callback);
+    process.stdout.write('', callback);
+    expect(callback).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not call the write callback before held-back text is written', async () => {
+    patchGlobalStdStreams();
+    const callback = vi.fn();
+    process.stdout.write('super-secr', callback);
     await Promise.resolve();
-    expect(onHeldBack).toHaveBeenCalledTimes(1);
+    expect(stdout.written).toEqual([]);
+    expect(callback).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(stdout.written.join('')).toBe('super-secr');
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the callback of a partly held chunk until its tail is written', () => {
+    patchGlobalStdStreams();
+    const first = vi.fn();
+    const second = vi.fn();
+    process.stdout.write(`key=${SECRET_VALUE.slice(0, 10)}`, first);
+    expect(stdout.written.join('')).toBe('key=');
+    expect(first).not.toHaveBeenCalled();
+    process.stdout.write(`${SECRET_VALUE.slice(10)}\n`, second);
+    expect(stdout.written.join('')).toBe(`key=${REDACTED_SECRET}\n`);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the error of a delayed write to the callback', () => {
+    patchGlobalStdStreams();
+    const callback = vi.fn();
+    process.stdout.write('super-secr', callback);
+    stdout.writeError = new Error('EPIPE');
+    vi.runAllTimers();
+    expect(callback).toHaveBeenCalledWith(stdout.writeError);
+  });
+
+  it('returns what the underlying write returns', () => {
+    patchGlobalStdStreams();
+    expect(process.stdout.write('plain\n')).toBe(true);
+    stdout.writeResult = false;
+    expect(process.stdout.write('plain\n')).toBe(false);
+  });
+
+  it('reports backpressure when the whole chunk is held back', () => {
+    patchGlobalStdStreams();
+    expect(process.stdout.write('super-secr')).toBe(true);
+    stdout.writableNeedDrain = true;
+    expect(process.stdout.write('et-val')).toBe(false);
   });
 
   it('redacts a secret inside a byte chunk', () => {

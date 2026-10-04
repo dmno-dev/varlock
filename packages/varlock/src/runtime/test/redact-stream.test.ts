@@ -118,4 +118,60 @@ describe('createRedactedStreamWriter', () => {
     writer.write(`key=${SECRET_VALUE}\n`);
     expect(written.join('')).toBe(`key=${SECRET_VALUE}\n`);
   });
+
+  describe('write callbacks', () => {
+    const callbackStream = {
+      write(str: string, callback?: (err?: Error | null) => void) {
+        written.push(str);
+        callback?.();
+        return true;
+      },
+    };
+
+    it('runs a callback once its chunk is written', () => {
+      const writer = createRedactedStreamWriter(callbackStream);
+      const callback = vi.fn();
+      writer.write('plain\n', callback);
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('holds a callback while part of its chunk is held back', () => {
+      const writer = createRedactedStreamWriter(callbackStream);
+      const callback = vi.fn();
+      writer.write('key=super-secr', callback);
+      expect(written.join('')).toBe('key=');
+      expect(callback).not.toHaveBeenCalled();
+      vi.runAllTimers();
+      expect(written.join('')).toBe('key=super-secr');
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the callbacks of earlier chunks when a later one completes them', () => {
+      const writer = createRedactedStreamWriter(callbackStream);
+      const calls: Array<string> = [];
+      writer.write('key=super', () => calls.push('first'));
+      writer.write('-secret', () => calls.push('second'));
+      expect(calls).toEqual([]);
+      writer.write('-value-12345\nsu', () => calls.push('third'));
+      expect(written.join('')).toBe(`key=${REDACTED_SECRET}\n`);
+      expect(calls).toEqual(['first', 'second']);
+      writer.flush();
+      expect(calls).toEqual(['first', 'second', 'third']);
+    });
+
+    it('runs the callback of an empty chunk', () => {
+      const writer = createRedactedStreamWriter(callbackStream);
+      const callback = vi.fn();
+      writer.write('', callback);
+      expect(callback).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns what the stream returned, or undefined when nothing was written', () => {
+      const writer = createRedactedStreamWriter(callbackStream);
+      expect(writer.write('plain\n')).toBe(true);
+      expect(writer.write('super-secr')).toBeUndefined();
+      expect(writer.flush()).toBe(true);
+      expect(writer.flush()).toBeUndefined();
+    });
+  });
 });

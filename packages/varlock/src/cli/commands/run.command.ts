@@ -219,8 +219,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // (the encryption key for blob-only injection is handled by buildInjectedBlobEnv above,
   // which also honors @encryptInjectedEnv)
 
-  // `--no-redact-stdout` has to hold inside the child too: `varlock/auto-load` redacts
-  // writes to a piped or redirected stdout/stderr on its own, and reads this same toggle
+  // `--no-redact-stdout` has to hold in the child too, where `varlock/auto-load` redacts on its own
   if (ctx.values['redact-stdout'] === false) fullInjectedEnv._VARLOCK_REDACT_STDOUT = '0';
 
   // Per-stream TTY auto-detect (interactive terminal -> raw inherit; piped/redirected ->

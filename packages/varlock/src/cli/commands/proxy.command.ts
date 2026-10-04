@@ -434,7 +434,7 @@ function spawnProxiedChild(opts: {
     baseEnv: process.env,
   });
 
-  // `--no-redact-stdout` has to hold inside the child too (see the same line in `varlock run`)
+  // `--no-redact-stdout` has to hold in the child too, where `varlock/auto-load` redacts on its own
   if (opts.redactStdoutFlag === false) fullInjectedEnv._VARLOCK_REDACT_STDOUT = '0';
 
   // Per-stream TTY auto-detect (interactive terminal -> raw inherit so tools like `claude`
