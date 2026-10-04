@@ -434,6 +434,9 @@ function spawnProxiedChild(opts: {
     baseEnv: process.env,
   });
 
+  // `--no-redact-stdout` has to hold inside the child too (see the same line in `varlock run`)
+  if (opts.redactStdoutFlag === false) fullInjectedEnv._VARLOCK_REDACT_STDOUT = '0';
+
   // Per-stream TTY auto-detect (interactive terminal -> raw inherit so tools like `claude`
   // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
   const { redactStdout, redactStderr } = resolveStdoutRedaction({

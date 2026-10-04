@@ -35,7 +35,7 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   },
   {
     name: '_VARLOCK_REDACT_STDOUT',
-    description: 'Overrides `varlock run` output redaction. `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence.',
+    description: 'Overrides `varlock run` output redaction. `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence. `varlock/auto-load` reads it too, for its redaction of `process.stdout` / `process.stderr` writes.',
   },
   {
     name: '_VARLOCK_FILTER',
