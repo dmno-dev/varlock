@@ -1,7 +1,9 @@
 import {
   describe, it, expect, beforeEach, afterEach, vi,
 } from 'vitest';
-import { resetRedactionMap, varlockSettings } from '../env';
+import {
+  resetRedactionMap, varlockSettings, redactSensitiveConfig, redactSensitiveConfigForLogs,
+} from '../env';
 import {
   patchStreamWrite, unpatchStreamWrite, flushStreamWrite, shouldRedactProcessStream,
 } from '../patch-process-streams';
@@ -129,6 +131,29 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
   });
 
+  it('only exempts redactLogs=false values from log redaction, not elsewhere', () => {
+    setSecrets({ PRINTED_TOKEN: { value: 'printed-token-abcdef', redactLogs: false } });
+    expect(redactSensitiveConfigForLogs('printed-token-abcdef')).toBe('printed-token-abcdef');
+    // e.g. response scrubbing and the public API still redact it
+    expect(redactSensitiveConfig('printed-token-abcdef')).toBe('pr▒▒▒▒▒');
+  });
+
+  it('keeps redacting a value shared with an item that is not exempt', () => {
+    setSecrets({
+      API_KEY: { value: SECRET },
+      SAME_VALUE_PRINTED: { value: SECRET, redactLogs: false },
+    });
+    fake.stream.write(`${SECRET}\n`);
+    expect(fake.output()).toBe(`${REDACTED}\n`);
+  });
+
+  it('prints a revealed value split across writes', () => {
+    fake.stream.write('revealed: 👁 ');
+    fake.stream.write(`${SECRET.slice(0, 8)}`);
+    fake.stream.write(`${SECRET.slice(8)} 👁\n`);
+    expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
+  });
+
   it('does not double-patch', () => {
     expect(patchStreamWrite(fake.stream)).toBe(false);
   });
@@ -160,8 +185,18 @@ describe('shouldRedactProcessStream', () => {
 
   it('skips streams a parent `varlock run` is already redacting', () => {
     varlockSettings.redactStdout = true;
-    const env = { __VARLOCK_REDACTED_STREAMS: 'stdout' };
-    expect(shouldRedactProcessStream('stdout', pipe, env)).toBe(false);
-    expect(shouldRedactProcessStream('stderr', pipe, env)).toBe(true);
+    const env = { __VARLOCK_REDACTED_STREAMS: '1234:stdout' };
+    expect(shouldRedactProcessStream('stdout', pipe, env, 1234)).toBe(false);
+    expect(shouldRedactProcessStream('stderr', pipe, env, 1234)).toBe(true);
+  });
+
+  it('only trusts the marker in the direct child of that `varlock run`', () => {
+    varlockSettings.redactStdout = true;
+    // e.g. `varlock run -- sh -c 'node app.js | tee log'`: node's parent is the shell, and its
+    // stdout goes to tee rather than the redacted pipe
+    const env = { __VARLOCK_REDACTED_STREAMS: '1234:stdout' };
+    expect(shouldRedactProcessStream('stdout', pipe, env, 5678)).toBe(true);
+    // a malformed marker is ignored
+    expect(shouldRedactProcessStream('stdout', pipe, { __VARLOCK_REDACTED_STREAMS: 'stdout' }, 1234)).toBe(true);
   });
 });

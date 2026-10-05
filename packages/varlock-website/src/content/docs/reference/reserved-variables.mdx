@@ -90,7 +90,7 @@ A marker set so a child process can detect that it is running under `varlock run
 
 ### `__VARLOCK_REDACTED_STREAMS`
 
-Set by `varlock run` and `varlock proxy run` on the child process to list which of its streams (`stdout`, `stderr`) the parent is already piping through redaction. In-process stdout redaction skips those streams so output isn't redacted twice, unless the stream has been redirected to a file.
+Set by `varlock run` and `varlock proxy run` on the child process as `<parent pid>:<streams>`, listing which of its streams (`stdout`, `stderr`) the parent is already piping through redaction. In-process stdout redaction in that direct child skips those streams so output isn't redacted twice, unless the stream has been redirected to a file. Grandchildren (e.g. `node app.js | tee log` inside a shell) redact their own output, since their stdout may not lead to the redacted pipe.
 
 ### `__VARLOCK_CLI_CHILD`
 

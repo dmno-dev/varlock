@@ -2,7 +2,7 @@ import {
   afterEach, beforeEach, describe, expect, test,
 } from 'vitest';
 
-import { parseEnvToggle, resolveStdoutRedaction } from '../stdout-redaction';
+import { parseEnvToggle, resolveStdoutRedaction, setParentRedactedStreamsEnv } from '../stdout-redaction';
 
 // resolveStdoutRedaction reads process.stdout.isTTY / process.stderr.isTTY and the
 // _VARLOCK_REDACT_STDOUT env var, so we stub those and restore them after each test.
@@ -92,5 +92,21 @@ describe('resolveStdoutRedaction overrides', () => {
     // explicit flag beats the env var
     expect(resolveStdoutRedaction({ redactStdoutFlag: true, redactStdoutSetting: true }))
       .toEqual({ redactStdout: true, redactStderr: true });
+  });
+});
+
+describe('setParentRedactedStreamsEnv', () => {
+  test('lists the redacted streams, tagged with our pid', () => {
+    const env: Record<string, string | undefined> = {};
+    setParentRedactedStreamsEnv(env, { redactStdout: true, redactStderr: false });
+    expect(env.__VARLOCK_REDACTED_STREAMS).toBe(`${process.pid}:stdout`);
+    setParentRedactedStreamsEnv(env, { redactStdout: true, redactStderr: true });
+    expect(env.__VARLOCK_REDACTED_STREAMS).toBe(`${process.pid}:stdout,stderr`);
+  });
+
+  test('removes a marker inherited from an outer run when not redacting', () => {
+    const env: Record<string, string | undefined> = { __VARLOCK_REDACTED_STREAMS: '1:stdout' };
+    setParentRedactedStreamsEnv(env, { redactStdout: false, redactStderr: false });
+    expect(env).not.toHaveProperty('__VARLOCK_REDACTED_STREAMS');
   });
 });

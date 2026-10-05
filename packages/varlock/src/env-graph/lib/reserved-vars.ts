@@ -78,7 +78,7 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
   },
   {
     name: '__VARLOCK_REDACTED_STREAMS',
-    description: 'Set by `varlock run` / `varlock proxy run` on the child to list which of its streams (`stdout`, `stderr`) the parent is already redacting, so in-process stream redaction skips them.',
+    description: 'Set by `varlock run` / `varlock proxy run` on the child as `<parent pid>:<streams>`, listing which of its streams (`stdout`, `stderr`) the parent is already redacting, so in-process stream redaction in that direct child skips them.',
     internal: true,
   },
   {

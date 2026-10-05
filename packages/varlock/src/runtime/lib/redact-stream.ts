@@ -1,4 +1,4 @@
-import { getRedactionHoldbackLength, redactSensitiveConfig } from '../env';
+import { getRedactionHoldbackLength, redactSensitiveConfigForLogs } from '../env';
 
 /**
  * how long to hold back a possible partial secret before giving up and flushing —
@@ -8,10 +8,24 @@ import { getRedactionHoldbackLength, redactSensitiveConfig } from '../env';
 export const FLUSH_TIMEOUT_MS = 100;
 
 /**
- * Set by `varlock run` / `varlock proxy run` on the child's env: comma-separated list of the
- * child's streams (`stdout`, `stderr`) that the parent is piping through redaction.
+ * Set by `varlock run` / `varlock proxy run` on the child's env: `<parent pid>:<streams>`,
+ * where streams is a comma-separated list of the child's streams (`stdout`, `stderr`) that the
+ * parent is piping through redaction. The pid lets a process tell whether it is that direct
+ * child, since a grandchild's stdout may be a pipe to some other process (`node app | tee log`).
  */
 export const PARENT_REDACTED_STREAMS_ENV_VAR = '__VARLOCK_REDACTED_STREAMS';
+
+/** the streams a parent `varlock run` redacts for this process (empty unless we're its direct child) */
+export function getParentRedactedStreams(
+  env: Record<string, string | undefined>,
+  ppid: number | undefined,
+): Array<string> {
+  const marker = env[PARENT_REDACTED_STREAMS_ENV_VAR];
+  if (!marker) return [];
+  const separatorIndex = marker.indexOf(':');
+  if (separatorIndex === -1 || Number(marker.slice(0, separatorIndex)) !== ppid) return [];
+  return marker.slice(separatorIndex + 1).split(',');
+}
 
 /**
  * Creates a writer that pipes a child process output stream through redaction, handling
@@ -33,7 +47,7 @@ export function createRedactedStreamWriter(stream: { write(str: string): any }) 
   const flush = () => {
     clearFlushTimeout();
     if (!pending) return;
-    stream.write(redactSensitiveConfig(pending));
+    stream.write(redactSensitiveConfigForLogs(pending));
     pending = '';
   };
 
@@ -43,7 +57,7 @@ export function createRedactedStreamWriter(stream: { write(str: string): any }) 
     const holdbackLength = getRedactionHoldbackLength(pending);
     const emittable = holdbackLength ? pending.slice(0, -holdbackLength) : pending;
     pending = holdbackLength ? pending.slice(-holdbackLength) : '';
-    if (emittable) stream.write(redactSensitiveConfig(emittable));
+    if (emittable) stream.write(redactSensitiveConfigForLogs(emittable));
     if (pending) {
       flushTimeout = setTimeout(flush, FLUSH_TIMEOUT_MS);
       // don't let a pending flush keep the process alive

@@ -1,10 +1,12 @@
 /* eslint-disable func-names, prefer-rest-params */
 
 import { fstatSync } from 'node:fs';
-import { getRedactionHoldbackLength, redactSensitiveConfigForOutput, varlockSettings } from './env';
+import {
+  getRedactionHoldbackLength, getUnmaskPrefixHoldbackLength, redactSensitiveConfigForOutput, varlockSettings,
+} from './env';
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
-import { FLUSH_TIMEOUT_MS, PARENT_REDACTED_STREAMS_ENV_VAR } from './lib/redact-stream';
+import { FLUSH_TIMEOUT_MS, getParentRedactedStreams } from './lib/redact-stream';
 import { STREAM_PATCH_STATE_KEY as PATCH_STATE_KEY } from './lib/stream-patch-key';
 
 type StreamName = 'stdout' | 'stderr';
@@ -54,12 +56,13 @@ export function shouldRedactProcessStream(
   streamName: StreamName,
   stream: WritableLike,
   env: Record<string, string | undefined> = process.env,
+  ppid: number | undefined = process.ppid,
 ): boolean {
   const override = parseEnvToggle(env._VARLOCK_REDACT_STDOUT);
   if (override === false) return false;
-  // a parent `varlock run` already pipes this stream through redaction - unless something in
-  // between redirected it to a file (e.g. `varlock run -- sh -c 'node app.js > out.log'`)
-  const parentRedacted = env[PARENT_REDACTED_STREAMS_ENV_VAR]?.split(',') ?? [];
+  // our parent `varlock run` already pipes this stream through redaction - unless the stream
+  // was redirected to a file on the way (e.g. `varlock run -- bash -c 'exec node app.js > out.log'`)
+  const parentRedacted = getParentRedactedStreams(env, ppid);
   if (parentRedacted.includes(streamName) && !isRegularFile(stream)) return false;
   if (override === true) return true;
   if (varlockSettings.redactStdout !== true) return false;
@@ -138,7 +141,10 @@ function writeText(
   clearFlushTimer(state);
   state.pendingText += text;
   // hold back a trailing partial match, so a secret split across writes is still caught
-  const holdbackLength = getRedactionHoldbackLength(state.pendingText);
+  // (plus an unmask marker right before it, so a revealed value keeps its marker)
+  let holdbackLength = getRedactionHoldbackLength(state.pendingText);
+  const beforeHoldback = state.pendingText.slice(0, state.pendingText.length - holdbackLength);
+  holdbackLength += getUnmaskPrefixHoldbackLength(beforeHoldback);
   const emittable = holdbackLength ? state.pendingText.slice(0, -holdbackLength) : state.pendingText;
   state.pendingText = holdbackLength ? state.pendingText.slice(-holdbackLength) : '';
   if (cb) state.pendingCallbacks.push(cb);

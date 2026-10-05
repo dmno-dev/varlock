@@ -420,6 +420,29 @@ describe('@redactLogs options object', () => {
       settings: { redactStdout: true },
     },
   }));
+  test('string forms from env overrides are accepted', envFilesTest({
+    envFile: outdent`
+      # @redactLogs=$SHOULD_REDACT
+      # ---
+      SHOULD_REDACT=true
+    `,
+    overrideValues: { SHOULD_REDACT: 'false' },
+    expectSerializedMatches: {
+      settings: { redactLogs: false, redactStdout: false },
+    },
+  }));
+  test('string option values from functions are accepted', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={stdout=$REDACT_STDOUT}
+      # @defaultSensitive=false
+      # ---
+      REDACT_STDOUT=ifs(eq($E, "dev"), "false", "true")
+      E=prod
+    `,
+    expectSerializedMatches: {
+      settings: { redactStdout: true },
+    },
+  }));
   test('unknown options are rejected', envFilesTest({
     envFile: outdent`
       # @redactLogs={stdot=true}

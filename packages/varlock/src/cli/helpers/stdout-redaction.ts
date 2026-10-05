@@ -76,6 +76,7 @@ export function pipeRedactedStreams(
  */
 export function setParentRedactedStreamsEnv(env: Record<string, string | undefined>, plan: StdoutRedactionPlan): void {
   const streams = [plan.redactStdout && 'stdout', plan.redactStderr && 'stderr'].filter(Boolean);
-  if (streams.length) env[PARENT_REDACTED_STREAMS_ENV_VAR] = streams.join(',');
+  // tagged with our pid: only our direct child writes straight into the pipes we redact
+  if (streams.length) env[PARENT_REDACTED_STREAMS_ENV_VAR] = `${process.pid}:${streams.join(',')}`;
   else delete env[PARENT_REDACTED_STREAMS_ENV_VAR];
 }

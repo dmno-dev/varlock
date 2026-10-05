@@ -25,7 +25,11 @@ type RedactionState = {
   // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner;
   // `redactLogs: false` means the reverse (left alone by redaction, still leak-scanned)
   sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
-  redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn },
+  redactorFindReplace: undefined | FindReplace,
+  // same, minus values exempt from log redaction (`@sensitive={redactLogs=false}`), used for
+  // console/stdout output. `builtFrom` is the map it was built for, since a different copy of this
+  // module (sharing this state) may have reset the map without knowing about this field
+  logRedactorFindReplace?: { findReplace: undefined | FindReplace, builtFrom: RedactionState['sensitiveSecretsMap'] },
   // index for the streaming holdback check, built lazily (also optional since state may
   // have been created by an older copy of this module)
   holdbackIndex?: {
@@ -38,6 +42,7 @@ type RedactionState = {
   },
 };
 type ReplaceFn = (match: string, val: string, offset: number, fullStr: string) => string;
+type FindReplace = { find: RegExp, replace: ReplaceFn };
 
 const REDACTION_STATE_KEY = '__varlockRedactionState';
 function getRedactionState(): RedactionState {
@@ -64,6 +69,41 @@ function collectSensitiveStrings(value: any, collected: Array<string> = []): Arr
   return collected;
 }
 
+/**
+ * Builds the find/replace regex+fn used for redacting secrets in strings.
+ *
+ * The pattern is a single group around the alternation. Optional unmask-marker groups around
+ * it made scanning 2-5x slower (it runs on every log line), so the markers are checked in the
+ * replace fn instead. The wrapping group itself is faster than a bare alternation in JSC (bun).
+ */
+function buildFindReplace(state: RedactionState, values: Array<string>): FindReplace | undefined {
+  // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
+  if (!values.length) return undefined;
+  const find = new RegExp(
+    `(${
+      values
+        // Escape special characters
+        .map((s) => s.replace(/[()[\]{}*+?^$|#.,/\\\s-]/g, '\\$&'))
+        // Sort for maximal munch
+        .sort((a, b) => b.length - a.length)
+        .join('|')
+    })`,
+    'g',
+  );
+  const unmaskPrefix = `${UNMASK_STR} `;
+  const unmaskSuffix = ` ${UNMASK_STR}`;
+  const replace: ReplaceFn = (match, _val, offset, fullStr) => {
+    // a value wrapped in unmask markers (see revealSensitiveConfig) is left alone
+    if (
+      offset >= unmaskPrefix.length
+      && fullStr.startsWith(unmaskPrefix, offset - unmaskPrefix.length)
+      && fullStr.startsWith(unmaskSuffix, offset + match.length)
+    ) return match;
+    return state.sensitiveSecretsMap[match].redacted;
+  };
+  return { find, replace };
+}
+
 export function resetRedactionMap(graph: SerializedEnvGraph) {
   const state = getRedactionState();
   // reset map of { [sensitive] => redacted }
@@ -81,54 +121,41 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
       // preventLeaks defaults to true; `@sensitive={preventLeaks=false}` opts the item
       // out of leak scanning while still keeping it redacted in logs
       if (redacted) {
+        const existing = state.sensitiveSecretsMap[sensitiveStr];
+        // when several items share a value, an opt-out on one must not weaken the others
+        const preventLeaks = item.preventLeaks !== false || !!existing?.preventLeaks;
+        const redactLogs = item.redactLogs !== false || (!!existing && existing.redactLogs !== false);
         state.sensitiveSecretsMap[sensitiveStr] = {
-          key: itemKey,
+          key: existing?.key ?? itemKey,
           redacted,
-          preventLeaks: item.preventLeaks !== false,
-          // `@sensitive={redactLogs=false}` leaves the value out of output redaction
-          ...item.redactLogs === false && { redactLogs: false },
+          preventLeaks,
+          // `@sensitive={redactLogs=false}` leaves the value out of log/output redaction
+          ...!redactLogs && { redactLogs: false },
         };
       }
     }
   }
   state.holdbackIndex = undefined;
-  // only values that are actually redacted go into the find/replace regex
-  const redactableValues = Object.keys(state.sensitiveSecretsMap)
-    .filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
-  // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
-  if (!redactableValues.length) {
-    state.redactorFindReplace = undefined;
-    return;
-  }
-
-  // reset find/replace regex+fn used for redacting secrets in strings.
-  // The pattern is a single group around the alternation. Optional unmask-marker groups around
-  // it made scanning 2-5x slower (it runs on every log line), so the markers are checked in
-  // the replace fn instead. The wrapping group itself is faster than a bare alternation in JSC (bun)
-  const findRegex = new RegExp(
-    `(${
-      redactableValues
-        // Escape special characters
-        .map((s) => s.replace(/[()[\]{}*+?^$|#.,/\\\s-]/g, '\\$&'))
-        // Sort for maximal munch
-        .sort((a, b) => b.length - a.length)
-        .join('|')
-    })`,
-    'g',
-  );
-
-  const unmaskPrefix = `${UNMASK_STR} `;
-  const unmaskSuffix = ` ${UNMASK_STR}`;
-  const replaceFn: ReplaceFn = (match, _val, offset, fullStr) => {
-    // a value wrapped in unmask markers (see revealSensitiveConfig) is left alone
-    if (
-      offset >= unmaskPrefix.length
-      && fullStr.startsWith(unmaskPrefix, offset - unmaskPrefix.length)
-      && fullStr.startsWith(unmaskSuffix, offset + match.length)
-    ) return match;
-    return state.sensitiveSecretsMap[match].redacted;
+  const allValues = Object.keys(state.sensitiveSecretsMap);
+  state.redactorFindReplace = buildFindReplace(state, allValues);
+  // values exempt from log redaction are still redacted elsewhere (e.g. response scrubbing)
+  const logValues = allValues.filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
+  state.logRedactorFindReplace = {
+    findReplace: logValues.length === allValues.length ? state.redactorFindReplace : buildFindReplace(state, logValues),
+    builtFrom: state.sensitiveSecretsMap,
   };
-  state.redactorFindReplace = { find: findRegex, replace: replaceFn };
+}
+
+// set while redacting log/console/stdout output, which skips `redactLogs=false` values
+let redactingForLogs = false;
+
+function getActiveFindReplace(): FindReplace | undefined {
+  const state = getRedactionState();
+  if (redactingForLogs) {
+    const forLogs = state.logRedactorFindReplace;
+    if (forLogs && forLogs.builtFrom === state.sensitiveSecretsMap) return forLogs.findReplace;
+  }
+  return state.redactorFindReplace;
 }
 
 function getCodeBucket<T>(ascii: Array<T | undefined>, other: Map<number, T>, code: number): T | undefined {
@@ -336,7 +363,7 @@ function redactError(err: any, seen: Map<any, any>): any {
 }
 
 function redactValue(o: any, seen: Map<any, any>): any {
-  const { redactorFindReplace } = getRedactionState();
+  const redactorFindReplace = getActiveFindReplace();
   if (!redactorFindReplace) return o;
   if (!o) return o;
 
@@ -396,10 +423,36 @@ function redactValue(o: any, seen: Map<any, any>): any {
  * NOTE - must be used only after varlock has loaded config
  * */
 export function redactSensitiveConfig(o: any): any {
-  const { redactorFindReplace } = getRedactionState();
-  if (!redactorFindReplace) return o;
+  if (!getActiveFindReplace()) return o;
   if (!o) return o;
   return redactValue(o, new Map());
+}
+
+/**
+ * Redaction for log/console/stdout output: same as redactSensitiveConfig, but leaves values
+ * marked `@sensitive={redactLogs=false}` alone.
+ */
+export function redactSensitiveConfigForLogs<T>(o: T): T {
+  const wasRedactingForLogs = redactingForLogs;
+  redactingForLogs = true;
+  try {
+    return redactSensitiveConfig(o);
+  } finally {
+    redactingForLogs = wasRedactingForLogs;
+  }
+}
+
+const UNMASK_PREFIX = `${UNMASK_STR} `;
+
+/**
+ * Length of a trailing (possibly partial) unmask prefix (`👁 `). Streaming redaction holds it
+ * back along with any partial secret, so a revealed value split across writes keeps its marker.
+ */
+export function getUnmaskPrefixHoldbackLength(str: string): number {
+  for (let len = Math.min(UNMASK_PREFIX.length, str.length); len > 0; len--) {
+    if (str.endsWith(UNMASK_PREFIX.slice(0, len))) return len;
+  }
+  return 0;
 }
 
 // strips the markers added by revealSensitiveConfig (lazy, so each pair is handled separately)
@@ -407,14 +460,14 @@ const UNMASK_MARKERS_REGEX = new RegExp(`${UNMASK_STR} ([\\s\\S]*?) ${UNMASK_STR
 
 /**
  * Redaction for the layer that writes output last (the stream patch, node's console internals,
- * or the console method wrapper where nothing runs after it). Same as redactSensitiveConfig,
+ * or the console method wrapper where nothing runs after it). Same as redactSensitiveConfigForLogs,
  * then strips the unmask markers so values passed through revealSensitiveConfig print as-is.
  *
  * Earlier layers must leave the markers in place: once stripped, a later layer would see a
  * bare secret and redact it.
  */
 export function redactSensitiveConfigForOutput<T>(o: T): T {
-  const redacted = redactSensitiveConfig(o);
+  const redacted = redactSensitiveConfigForLogs(o);
   if (typeof redacted !== 'string' || !redacted.includes(UNMASK_STR)) return redacted;
   return redacted.replaceAll(UNMASK_MARKERS_REGEX, '$1') as T;
 }
@@ -642,6 +695,11 @@ export function initVarlockEnv(opts?: {
       '',
     ].join('\n'));
     throw new Error('initVarlockEnv failed');
+  }
+  // replaced in place (module instances hold references), dropping settings the new graph no
+  // longer sets - e.g. `redactStdout`, which is only present when set in the schema
+  for (const staleKey of Object.keys(varlockSettings)) {
+    if (!(staleKey in (serializedEnvData.settings ?? {}))) delete (varlockSettings as any)[staleKey];
   }
   Object.assign(varlockSettings, serializedEnvData.settings);
   envState.configHasErrors = !!(serializedEnvData as any).errors;

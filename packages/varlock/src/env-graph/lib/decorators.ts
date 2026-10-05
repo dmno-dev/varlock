@@ -410,6 +410,21 @@ const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 const REDACT_LOGS_OPTIONS = ['console', 'stdout'];
 
 /**
+ * A resolved boolean setting, accepting the string forms `true`/`false` too: a reference to an
+ * item overridden from the environment (`SHOULD_REDACT=false varlock run ...`) resolves to a
+ * string. Static values are still required to be real booleans (checked in `process`).
+ */
+function coerceResolvedBoolean(value: unknown): boolean | undefined {
+  if (_.isBoolean(value)) return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return undefined;
+}
+
+/**
  * Normalize a resolved `@redactLogs` value into the two runtime settings.
  * - `console`: patch console methods (on unless explicitly disabled)
  * - `stdout`: redact process stdout/stderr when not a TTY. `undefined` = not set in the
@@ -419,22 +434,24 @@ const REDACT_LOGS_OPTIONS = ['console', 'stdout'];
  * A bare `false` disables both. Returns an error message for an invalid (dynamic) value.
  */
 export function parseRedactLogsSetting(value: unknown): { console: boolean, stdout?: boolean } | { error: string } {
-  if (value === undefined || value === true) return { console: true };
-  if (value === false) return { console: false, stdout: false };
+  const bool = coerceResolvedBoolean(value);
+  if (value === undefined || bool === true) return { console: true };
+  if (bool === false) return { console: false, stdout: false };
   if (_.isPlainObject(value)) {
     const opts = value as Record<string, unknown>;
+    const parsed: { console: boolean, stdout?: boolean } = { console: true };
     for (const key of Object.keys(opts)) {
       if (!REDACT_LOGS_OPTIONS.includes(key)) {
         return { error: `@redactLogs: unknown option "${key}" (supported: ${REDACT_LOGS_OPTIONS.join(', ')})` };
       }
-      if (opts[key] !== undefined && !_.isBoolean(opts[key])) {
+      if (opts[key] === undefined) continue;
+      const optBool = coerceResolvedBoolean(opts[key]);
+      if (optBool === undefined) {
         return { error: `@redactLogs: ${key} must resolve to a boolean (got ${JSON.stringify(opts[key])})` };
       }
+      parsed[key as 'console' | 'stdout'] = optBool;
     }
-    return {
-      console: opts.console !== false,
-      ...opts.stdout !== undefined && { stdout: opts.stdout as boolean },
-    };
+    return parsed;
   }
   return { error: `@redactLogs must resolve to a boolean or an options object (got ${JSON.stringify(value)})` };
 }
