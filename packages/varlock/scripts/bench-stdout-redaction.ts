@@ -7,6 +7,7 @@
  *   bun run bench:redaction                       # full run
  *   bun run bench:redaction --quick               # fewer runs and smaller workloads
  *   bun run bench:redaction --runtimes node --runs 7
+ *   bun run bench:redaction --secret-every 100    # worst case: a secret in 1% of lines
  *
  * Two parts:
  *
@@ -44,10 +45,14 @@ const { values: args } = parseArgs({
     runtimes: { type: 'string', default: 'node,bun' },
     'skip-micro': { type: 'boolean', default: false },
     'skip-e2e': { type: 'boolean', default: false },
+    // put a secret in 1 of every N lines (worst case); by default only one line per run has
+    // one, since real apps almost never log secrets and redaction is a safety net
+    'secret-every': { type: 'string', default: '0' },
   },
 });
 const RUNS = Number(args.runs ?? (args.quick ? 3 : 5));
 const SCALE = args.quick ? 0.25 : 1;
+const SECRET_EVERY = Number(args['secret-every']);
 
 // --- realistic secrets -------------------------------------------------------------------------
 
@@ -106,8 +111,8 @@ const JSON_LINES = Math.round(200_000 * SCALE);
 const CONSOLE_LINES = Math.round(100_000 * SCALE);
 const BULK_CHUNKS = Math.round(512 * SCALE); // 64KB each
 
-// a pino-style request log line; 1 in 100 carries a secret (an echoed auth header)
-function jsonLogLine(i: number, secret: string) {
+// a pino-style request log line, optionally carrying a secret (an echoed auth header)
+function jsonLogLine(i: number, secret?: string) {
   return `${JSON.stringify({
     level: 30,
     time: 1759500000000 + i,
@@ -118,7 +123,7 @@ function jsonLogLine(i: number, secret: string) {
     res: { statusCode: 200 },
     responseTime: 12.4,
     msg: 'request completed',
-    ...i % 100 === 0 && { authorization: `Bearer ${secret}` },
+    ...secret && { authorization: `Bearer ${secret}` },
   })}\n`;
 }
 
@@ -139,7 +144,7 @@ function runMicro() {
     },
   } as unknown as SerializedEnvGraph);
 
-  const plainLine = jsonLogLine(1, SECRETS.STRIPE_SECRET_KEY);
+  const plainLine = jsonLogLine(1);
   const secretLine = jsonLogLine(0, SECRETS.STRIPE_SECRET_KEY);
   const bulkChunk = Buffer.from(plainLine.repeat(Math.ceil(65536 / plainLine.length)).slice(0, 65536));
 
@@ -150,7 +155,7 @@ function runMicro() {
   const n = Math.round(300_000 * SCALE);
   const rows: Array<[string, number, number]> = [
     ['json line (~330B)', timeIt(n, () => noop.write(plainLine)), timeIt(n, () => patched.write(plainLine))],
-    ['json line with a secret', timeIt(n, () => noop.write(secretLine)), timeIt(n, () => patched.write(secretLine))],
+    ['json line with a secret (rare)', timeIt(n, () => noop.write(secretLine)), timeIt(n, () => patched.write(secretLine))],
     ['64KB buffer chunk', timeIt(2000, () => noop.write(bulkChunk)), timeIt(2000, () => patched.write(bulkChunk))],
   ];
 
@@ -172,19 +177,25 @@ const APP_SOURCE = `import 'varlock/auto-load';
 
 const workload = process.env.BENCH_WORKLOAD;
 const secret = process.env.STRIPE_SECRET_KEY;
+// the last line always carries a secret, so the parent can check redaction actually happened
+const withSecret = (i, last) => i === last || (${SECRET_EVERY} > 0 && i % ${SECRET_EVERY} === 0);
 ${jsonLogLine.toString()}
 
 if (workload === 'json-lines') {
-  for (let i = 0; i < ${JSON_LINES}; i++) process.stdout.write(jsonLogLine(i, secret));
+  for (let i = 0; i < ${JSON_LINES}; i++) {
+    process.stdout.write(jsonLogLine(i, withSecret(i, ${JSON_LINES - 1}) ? secret : undefined));
+  }
 } else if (workload === 'console-log') {
   for (let i = 0; i < ${CONSOLE_LINES}; i++) {
-    console.log(\`[info] order \${i} processed in \${(i % 97) + 3}ms user=usr_\${i.toString(36)}\${i % 100 === 0 ? ' token=' + secret : ''}\`);
+    const token = withSecret(i, ${CONSOLE_LINES - 1}) ? ' token=' + secret : '';
+    console.log(\`[info] order \${i} processed in \${(i % 97) + 3}ms user=usr_\${i.toString(36)}\${token}\`);
   }
 } else if (workload === 'bulk-chunks') {
   // e.g. child.stdout.pipe(process.stdout): 64KB buffers of text
-  const line = jsonLogLine(1, secret);
+  const line = jsonLogLine(1);
   const chunk = Buffer.from(line.repeat(Math.ceil(65536 / line.length)).slice(0, 65536));
   for (let i = 0; i < ${BULK_CHUNKS}; i++) process.stdout.write(chunk);
+  process.stdout.write(jsonLogLine(0, secret));
 }
 `;
 
@@ -266,7 +277,7 @@ async function runE2E() {
             // sanity check that each mode actually does what it claims
             const leaked = output.includes(SECRETS.STRIPE_SECRET_KEY);
             const expectLeak = mode === 'none' || (mode === 'console-only' && workload.name !== 'console-log');
-            if (r === 0 && workload.name !== 'bulk-chunks' && leaked !== expectLeak) {
+            if (r === 0 && leaked !== expectLeak) {
               console.log(`  ! ${mode}/${workload.name}: expected secret ${expectLeak ? 'present' : 'redacted'}`);
             }
           }

@@ -2,6 +2,7 @@
 
 import { redactSensitiveConfig, varlockSettings } from './env';
 import { debug } from './lib/debug';
+import { isStreamRedactionPatched } from './lib/stream-patch-key';
 
 
 /**
@@ -32,6 +33,12 @@ export function patchGlobalConsole() {
   (globalThis as any)._varlockOrigWriteToConsoleFn ||= globalThis.console[kWriteToConsoleSymbol];
   // @ts-ignore
   globalThis.console[kWriteToConsoleSymbol] = function () {
+    // node calls this as (kUseStdout | kUseStderr, string) and writes to this._stdout / this._stderr.
+    // If that stream is already redacted by the process stream patch, skip redacting twice
+    const targetStream = (arguments[0] as symbol)?.description === 'kUseStderr' ? (this as any)._stderr : (this as any)._stdout;
+    if (isStreamRedactionPatched(targetStream)) {
+      return (globalThis as any)._varlockOrigWriteToConsoleFn.apply(this, arguments);
+    }
     (globalThis as any)._varlockOrigWriteToConsoleFn.apply(this, [
       arguments[0],
       redactSensitiveConfig(arguments[1]),

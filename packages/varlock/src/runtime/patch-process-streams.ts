@@ -5,6 +5,7 @@ import { getRedactionHoldbackLength, redactSensitiveConfig, varlockSettings } fr
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
 import { FLUSH_TIMEOUT_MS, PARENT_REDACTED_STREAMS_ENV_VAR } from './lib/redact-stream';
+import { STREAM_PATCH_STATE_KEY as PATCH_STATE_KEY } from './lib/stream-patch-key';
 
 type StreamName = 'stdout' | 'stderr';
 type WriteCallback = (err?: Error | null) => void;
@@ -26,8 +27,6 @@ type StreamPatchState = {
   flushTimer: ReturnType<typeof setTimeout> | undefined,
 };
 
-// shared across module instances (e.g. auto-load + an integration's init-server bundle)
-const PATCH_STATE_KEY = Symbol.for('varlock.streamRedaction');
 
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 const utf8Encoder = new TextEncoder();
