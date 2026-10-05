@@ -21,9 +21,9 @@ This structured data can be used by libraries to provide:
 
 ## How can schema data be used?
 
-This schema information is most valuable when it is shared across team members and machines - so it is intended to be used within a file which is comitted to git.
+This schema information is most valuable when it is shared across team members and machines - so it is intended to be used within a file which is committed to git.
 In most cases, that will mean creating a `.env.schema`, committed to source control, which contains all schema info and possibly some default values.
-It's not very different than a having a `.env.example` file - it's just more useful and actually involving it in the env loading process.
+It's not very different than having a `.env.example` file - it's just more useful and actually involving it in the env loading process.
 
 Then you could use additional files which set values - and of course they could add additional items or overriding properties of existing ones.
 Whether you want to use a single git-ignored `.env` file, or apply a cascade of environment-specific files (e.g., `.env`, `.env.local`, `.env.test`, etc) is up to you.
@@ -55,7 +55,7 @@ For a usable tool which lets you actually use it in your .env files, check out h
 # Language Syntax Reference
 
 This is a reference of the details of the env-spec language itself.
-Here we don't make and assumptions about the meaning of specific decorators, or function calls.
+Here we don't make any assumptions about the meaning of specific decorators, or function calls.
 
 ## Comments
 
@@ -85,7 +85,7 @@ A divider is a comment that serves as a separator, like a horizontal line
 ### `CommentBlock`
 A comment block is a group of continuous comments that is not attached to a specific config item.
 - The comment block is ended by an empty line, a `Divider`, or the end of the file.
-- Both `DecoratorComment`s and `RegularComment`s may be interpersed
+- Both `DecoratorComment`s and `RegularComment`s may be interspersed
 
 ### `DocumentHeader`
 If a `CommentBlock` ends with a `Divider` and is the first element of the document, it will be considered the Header.
@@ -129,7 +129,7 @@ Each has a key, an optional value, and optional attached comments.
 - An empty string is allowed -- `EMPTY_STRING_VAR=""`
 - Single-line values may be wrapped in quotes or not, and will follow the common value-handling rules (see below)
 - Multi-line values may be wrapped in either ``( " | """ | ``` )``
-- Only comments _directly_ preceeding the item will be attached to the item
+- Only comments _directly_ preceding the item will be attached to the item
 - However a `Divider` will break the above comments into a `CommentBlock` that is not attached to the item
 - An additional post-comment can appear after the item `ITEM1=foo # post comment`
 - This post-comment can contain decorators `ITEM1=foo # @required`
@@ -148,7 +148,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 - Unquoted values will coerce `true`, `false`, `undefined` -- `@foo=false`
 - Unquoted values will coerce numeric values -- `@int=123 @float=123.456`
 - Otherwise unquoted values will be treated as a string
-- A value in quotes is _always_ be treated as a string -- `@d1="with spaces" @trueString="true"`, `@numStr="123"`
+- A value in quotes is _always_ treated as a string -- `@d1="with spaces" @trueString="true"`, `@numStr="123"`
 - All quote styles ``[`'"]`` are ok -- ``@dq="c" @bt=`b` @sq='a'``
 - Escaped quotes matching the wrapping quote style are ok -- `@ok="escaped\"quote"`
 - In quote-wrapped values, the string `\n` will be converted to an actual newline

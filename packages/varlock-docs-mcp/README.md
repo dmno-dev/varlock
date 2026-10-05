@@ -2,7 +2,7 @@
 
 >**These are development instructions, for user facing MCP docs see [here](https://varlock.dev/guides/mcp#docs-mcp)**.
 
-This is a MCP server that allows you to search the Varlock docs.
+This is an MCP server that allows you to search the Varlock docs.
 
 Initially based on https://developers.cloudflare.com/agents/guides/remote-mcp-server/.
 
@@ -36,7 +36,7 @@ bun run inspector
 
 ## Cloudflare
 
-The server is deployed automaticaly to cloudlfare workers when you open a PR or merge to `main`.
+The server is deployed automatically to Cloudflare Workers when you open a PR or merge to `main`.
 
 It relies on an AI Gateway and an AI Search (autoRAG) to search the Varlock docs.
 
