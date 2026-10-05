@@ -95,6 +95,8 @@ function takeCallbacks(state: StreamPatchState): WriteCallback | undefined {
   if (!state.pendingCallbacks.length) return undefined;
   const callbacks = state.pendingCallbacks;
   state.pendingCallbacks = [];
+  // the common case (nothing held back): pass the caller's callback straight through
+  if (callbacks.length === 1) return callbacks[0];
   return (err) => {
     for (const cb of callbacks) cb(err);
   };

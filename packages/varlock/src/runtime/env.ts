@@ -36,7 +36,7 @@ type RedactionState = {
     lengthsByEndCharOther: Map<number, Array<number>>,
   },
 };
-type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
+type ReplaceFn = (match: string, val: string, offset: number, fullStr: string) => string;
 
 const REDACTION_STATE_KEY = '__varlockRedactionState';
 function getRedactionState(): RedactionState {
@@ -100,28 +100,32 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     return;
   }
 
-  // reset find/replace regex+fn used for redacting secrets in strings
+  // reset find/replace regex+fn used for redacting secrets in strings.
+  // The pattern is a single group around the alternation. Optional unmask-marker groups around
+  // it made scanning 2-5x slower (it runs on every log line), so the markers are checked in
+  // the replace fn instead. The wrapping group itself is faster than a bare alternation in JSC (bun)
   const findRegex = new RegExp(
-    [
-      `(${UNMASK_STR} )?`,
-      '(',
+    `(${
       redactableValues
         // Escape special characters
         .map((s) => s.replace(/[()[\]{}*+?^$|#.,/\\\s-]/g, '\\$&'))
         // Sort for maximal munch
         .sort((a, b) => b.length - a.length)
-        .join('|'),
-      ')',
-      `( ${UNMASK_STR})?`,
-    ].join(''),
+        .join('|')
+    })`,
     'g',
   );
 
-  const replaceFn: ReplaceFn = (match, pre, val, post) => {
-    // the pre and post matches only will be populated if they were present
-    // and they are used to unmask the secret - so we do not want to replace in this case
-    if (pre && post) return match;
-    return state.sensitiveSecretsMap[val].redacted;
+  const unmaskPrefix = `${UNMASK_STR} `;
+  const unmaskSuffix = ` ${UNMASK_STR}`;
+  const replaceFn: ReplaceFn = (match, _val, offset, fullStr) => {
+    // a value wrapped in unmask markers (see revealSensitiveConfig) is left alone
+    if (
+      offset >= unmaskPrefix.length
+      && fullStr.startsWith(unmaskPrefix, offset - unmaskPrefix.length)
+      && fullStr.startsWith(unmaskSuffix, offset + match.length)
+    ) return match;
+    return state.sensitiveSecretsMap[match].redacted;
   };
   state.redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
