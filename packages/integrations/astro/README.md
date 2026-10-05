@@ -12,7 +12,7 @@ Compared to the [default Astro behavior](https://docs.astro.build/en/guides/envi
 
 - Validation of your env vars against your `.env.schema`
 - Type-generation and type-safe env var access with built-in docs
-- Redaction of sensitive from logs during build time
+- Redaction of sensitive values from logs during build time
 - Automatic leak prevention of sensitive items at build and runtime
 - More flexible multi-env handling, rather than relying on the `--mode` flag
 

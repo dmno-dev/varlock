@@ -55,7 +55,7 @@ For a usable tool which lets you actually use it in your .env files, check out h
 # Language Syntax Reference
 
 This is a reference of the details of the env-spec language itself.
-Here we don't make and assumptions about the meaning of specific decorators, or function calls.
+Here we don't make any assumptions about the meaning of specific decorators, or function calls.
 
 ## Comments
 
@@ -85,7 +85,7 @@ A divider is a comment that serves as a separator, like a horizontal line
 ### `CommentBlock`
 A comment block is a group of continuous comments that is not attached to a specific config item.
 - The comment block is ended by an empty line, a `Divider`, or the end of the file.
-- Both `DecoratorComment`s and `RegularComment`s may be interpersed
+- Both `DecoratorComment`s and `RegularComment`s may be interspersed
 
 ### `DocumentHeader`
 If a `CommentBlock` ends with a `Divider` and is the first element of the document, it will be considered the Header.
@@ -148,7 +148,7 @@ Values are interpreted similarly for config item values, decorator values, and v
 - Unquoted values will coerce `true`, `false`, `undefined` -- `@foo=false`
 - Unquoted values will coerce numeric values -- `@int=123 @float=123.456`
 - Otherwise unquoted values will be treated as a string
-- A value in quotes is _always_ be treated as a string -- `@d1="with spaces" @trueString="true"`, `@numStr="123"`
+- A value in quotes is _always_ treated as a string -- `@d1="with spaces" @trueString="true"`, `@numStr="123"`
 - All quote styles ``[`'"]`` are ok -- ``@dq="c" @bt=`b` @sq='a'``
 - Escaped quotes matching the wrapping quote style are ok -- `@ok="escaped\"quote"`
 - In quote-wrapped values, the string `\n` will be converted to an actual newline

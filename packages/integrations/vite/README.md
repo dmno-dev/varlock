@@ -10,7 +10,7 @@ Compared to the default Vite behavior, this package provides:
 
 - validation of your env vars against your `.env.schema`
 - type-generation and type-safe env var access with built-in docs
-- redaction of sensitive from logs during build time
+- redaction of sensitive values from logs during build time
 - more flexible multi-env handling, rather than relying on the `--mode` flag
 
 See [our docs site](https://varlock.dev/integrations/vite/) for complete installation and usage instructions.

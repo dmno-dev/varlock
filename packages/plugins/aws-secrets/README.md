@@ -118,7 +118,7 @@ If you need to connect to multiple instances with different settings, you can re
 # @initAws(id=eu, region=eu-west-1, profile=eu-prod)
 ```
 
-Or use functions to populate in values:
+Or use functions to populate values:
 
 ```env-spec
 # @initAws(region="${AWS_REGION}")
