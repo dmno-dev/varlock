@@ -947,7 +947,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'op',
   label: 'Fetch single field value from 1Password',
-  icon: OP_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,
@@ -1037,7 +1036,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'opLoadEnvironment',
   label: 'Load all variables from a 1Password environment',
-  icon: OP_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 1,

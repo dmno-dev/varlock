@@ -238,7 +238,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'kp',
   label: 'Fetch a single secret from a KeePass database entry',
-  icon: KP_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -348,7 +347,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'kpBulk',
   label: 'Load all secrets from a KeePass database group as a JSON map',
-  icon: KP_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMaxLength: 2,

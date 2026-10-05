@@ -404,7 +404,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'keeper',
   label: 'Fetch a secret field from Keeper Secrets Manager',
-  icon: KEEPER_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,

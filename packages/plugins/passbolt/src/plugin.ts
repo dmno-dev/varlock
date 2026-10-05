@@ -310,7 +310,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'passbolt',
   label: 'Fetch secret value from Passbolt',
-  icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,
@@ -342,7 +341,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'passboltBulk',
   label: 'Load all secrets from a Passbolt folder',
-  icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -399,7 +397,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'passboltCustomFieldsObj',
   label: 'Load custom fields from a Passbolt resource as a JSON object',
-  icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 1,

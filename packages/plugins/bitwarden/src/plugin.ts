@@ -465,7 +465,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'bitwarden',
   label: 'Fetch secret value from Bitwarden Secrets Manager',
-  icon: BITWARDEN_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 1,
@@ -876,7 +875,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'bwp',
   label: 'Fetch a field from a Bitwarden Password Manager / Vaultwarden vault item via the `bw` CLI',
-  icon: BITWARDEN_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,

@@ -356,7 +356,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'gsm',
   label: 'Fetch secret from Google Secret Manager',
-  icon: GSM_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 0,

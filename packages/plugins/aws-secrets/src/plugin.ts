@@ -629,7 +629,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'awsSecret',
   label: 'Fetch secret from AWS Secrets Manager',
-  icon: AWS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -765,7 +764,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'awsParam',
   label: 'Fetch parameter from AWS Systems Manager Parameter Store',
-  icon: AWS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

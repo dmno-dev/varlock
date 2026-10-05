@@ -613,7 +613,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'k8sSecret',
   label: 'Fetch key from Kubernetes Secret',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -635,7 +634,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'k8sConfigMap',
   label: 'Fetch key from Kubernetes ConfigMap',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -657,7 +655,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'k8sSecretBulk',
   label: 'Load all keys from Kubernetes Secret',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -675,7 +672,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'k8sConfigMapBulk',
   label: 'Load all keys from Kubernetes ConfigMap',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

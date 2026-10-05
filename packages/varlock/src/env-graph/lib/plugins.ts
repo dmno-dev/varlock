@@ -205,7 +205,7 @@ export class VarlockPlugin {
   set version(val: string) { this._version = val; }
 
   private _icon?: string;
-  /** iconify name (e.g. `mdi:key`), also used by the plugin's data types that don't set their own */
+  /** iconify name (e.g. `mdi:key`), also used by the plugin's data types and resolvers that don't set their own */
   get icon(): string | undefined { return this._icon; }
   set icon(val: string | undefined) { this._icon = val; }
 
@@ -583,7 +583,7 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   }
   for (const resolverDef of plugin.resolverFunctions || []) {
     // might want to move into plugin load process
-    graph.registerResolver(createResolver(resolverDef));
+    graph.registerResolver(createResolver(resolverDef, { icon: plugin.icon }));
   }
   Object.assign(graph.bundledIcons, plugin.bundledIcons);
   for (const transformSchemeDef of plugin.proxyTransformSchemes || []) {

@@ -470,7 +470,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'infisical',
   label: 'Fetch secret value from Infisical',
-  icon: INFISICAL_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -611,7 +610,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'infisicalBulk',
   label: 'Load all secrets from an Infisical project environment',
-  icon: INFISICAL_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMaxLength: 1,

@@ -569,7 +569,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'vaultSecret',
   label: 'Fetch secret from HashiCorp Vault KV v2',
-  icon: VAULT_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -730,7 +729,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'vaultToken',
   label: 'HashiCorp Vault client token',
-  icon: VAULT_ICON,
   impliesSensitive: true,
   argsSchema: {
     type: 'array',

@@ -159,7 +159,7 @@ describe('plugins ', () => {
     expect(g.bundledIcons['test-plugin:icon']).toBe('<svg>test</svg>');
   });
 
-  test('plugin data types without an icon inherit the plugin icon', async () => {
+  test('plugin data types and resolvers without an icon inherit the plugin icon', async () => {
     const currentDir = path.dirname(expect.getState().testPath!);
     vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
     const g = new EnvGraph();
@@ -183,6 +183,9 @@ describe('plugins ', () => {
     expect((await g.configSchema.OWN.getTypeGenInfo()).icon).toBe('test-plugin:own-icon');
     expect((await g.configSchema.FN_TYPE.getTypeGenInfo()).icon).toBe('test-plugin:icon');
     expect((await g.configSchema.NO_PLUGIN_ICON.getTypeGenInfo()).icon).toBeUndefined();
+    // resolvers inherit the same way (`test` sets no icon of its own)
+    expect(g.registeredResolverFunctions.test.def.icon).toBe('test-plugin:icon');
+    expect(g.registeredResolverFunctions.cachedRun.def.icon).toBeUndefined();
   });
 
   describe('standardVars warnings', () => {

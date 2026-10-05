@@ -1176,7 +1176,6 @@ async function resolveOptionalString(resolver: Resolver | undefined, label: stri
 plugin.registerResolverFunction({
   name: 'azureSecret',
   label: 'Fetch secret from Azure Key Vault',
-  icon: AZURE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -1260,7 +1259,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'azureAppConfig',
   label: 'Fetch setting from Azure App Configuration',
-  icon: AZURE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -1312,7 +1310,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'azureAppConfigBulk',
   label: 'Load settings from Azure App Configuration as JSON',
-  icon: AZURE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

@@ -36,7 +36,6 @@ plugin.registerRootDecorator({
 plugin.registerResolverFunction({
   name: 'dashlane',
   label: 'Fetch secret from Dashlane by dl:// reference',
-  icon: DASHLANE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,

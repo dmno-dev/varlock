@@ -541,7 +541,6 @@ plugin.registerRootDecorator({
 plugin.registerResolverFunction({
   name: 'protonPass',
   label: 'Fetch secret from Proton Pass',
-  icon: PROTON_PASS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,

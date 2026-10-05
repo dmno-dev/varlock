@@ -284,7 +284,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'doppler',
   label: 'Fetch secret value from Doppler',
-  icon: DOPPLER_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 0,
@@ -399,7 +398,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'dopplerBulk',
   label: 'Load all secrets from a Doppler config',
-  icon: DOPPLER_ICON,
   argsSchema: {
     type: 'array',
     arrayMaxLength: 1,

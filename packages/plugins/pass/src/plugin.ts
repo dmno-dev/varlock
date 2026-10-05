@@ -344,7 +344,6 @@ plugin.registerRootDecorator({
 plugin.registerResolverFunction({
   name: 'pass',
   label: 'Fetch secret from pass (the standard unix password manager)',
-  icon: PASS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -471,7 +470,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'passBulk',
   label: 'Load all secrets from a pass store directory as a JSON map',
-  icon: PASS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMaxLength: 2,
