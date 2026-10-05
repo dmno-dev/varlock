@@ -8,7 +8,7 @@ access. Iconify icons are fetched from [Iconify](https://iconify.design). Genera
 
 - Author: selfh.st (https://github.com/selfhst/icons)
 - License: CC BY 4.0 (CC-BY-4.0), https://github.com/selfhst/icons/blob/main/LICENSE
-- Icons used: `selfhst:doppler-dark`
+- Icons used: `custom:doppler` (modified from `selfhst:doppler-dark`)
 
 ```
 Attribution 4.0 International

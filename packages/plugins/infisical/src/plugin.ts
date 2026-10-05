@@ -8,7 +8,7 @@ import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
-const INFISICAL_ICON = 'selfhst:infisical';
+const INFISICAL_ICON = 'custom:infisical';
 
 plugin.name = 'infisical';
 const { debug } = plugin;

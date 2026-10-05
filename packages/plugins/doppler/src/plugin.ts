@@ -7,7 +7,7 @@ import ky from 'ky';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
-const DOPPLER_ICON = 'selfhst:doppler-dark';
+const DOPPLER_ICON = 'custom:doppler';
 const DOPPLER_API_BASE = 'https://api.doppler.com/v3';
 
 plugin.name = 'doppler';

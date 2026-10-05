@@ -8,7 +8,7 @@ access. Iconify icons are fetched from [Iconify](https://iconify.design). Genera
 
 - Author: selfh.st (https://github.com/selfhst/icons)
 - License: CC BY 4.0 (CC-BY-4.0), https://github.com/selfhst/icons/blob/main/LICENSE
-- Icons used: `selfhst:infisical`
+- Icons used: `custom:infisical` (modified from `selfhst:infisical`)
 
 ```
 Attribution 4.0 International
