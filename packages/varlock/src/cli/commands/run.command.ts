@@ -277,9 +277,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       return;
     }
 
-    if (err.signal || signalForwarder.receivedSignal) {
+    if (err.signal || signalForwarder.receivedShutdownSignal) {
       // the child was terminated by a signal (often one we just forwarded), or it handled
-      // a signal we forwarded and exited non-zero on its own (commonly 128+N, e.g. 130
+      // a shutdown signal we forwarded and exited non-zero on its own (commonly 128+N, e.g. 130
       // after cleaning up on Ctrl+C). either way this is a normal shutdown, not a varlock
       // failure: propagate the child's status without the "varlock may be broken" noise.
       exitCode = err.exitCode || 1;

@@ -7,6 +7,12 @@ import { openSync, closeSync } from 'node:fs';
 export const FORWARDED_SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT'];
 
 /**
+ * Forwarded signals that always mean "shut down". SIGHUP is excluded: children often
+ * treat it as "reload" and keep running, so a later failure is unrelated to it.
+ */
+const SHUTDOWN_SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT', 'SIGQUIT'];
+
+/**
  * By default we forward-and-wait (like tini/dumb-init) and never impose our own kill
  * deadline: the orchestrator/operator owns SIGKILL, and a timer would wrongly assume every
  * forwarded signal is terminal (SIGHUP often means "reload") and could truncate a
@@ -81,11 +87,12 @@ export interface ChildSignalForwarder {
   /** Call once the child has exited and been reaped, so we never signal a recycled pid. */
   detach(): void;
   /**
-   * Whether varlock received (and forwarded) a terminating signal while the child ran.
-   * A child that handles e.g. SIGINT and then exits with a non-zero code (often 128+N)
-   * is shutting down normally, not failing, so callers use this to skip error output.
+   * Whether varlock received (and forwarded) a shutdown signal (SIGINT/SIGTERM/SIGQUIT,
+   * not SIGHUP) while the child ran. A child that handles e.g. SIGINT and then exits with
+   * a non-zero code (often 128+N) is shutting down normally, not failing, so callers use
+   * this to skip error output.
    */
-  readonly receivedSignal: boolean;
+  readonly receivedShutdownSignal: boolean;
 }
 
 /**
@@ -119,7 +126,7 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   let child: ChildLike | undefined;
   let childExited = false;
-  let receivedSignal = false;
+  let receivedShutdownSignal = false;
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
   // signals received before attach(); replayed once we know the child
   const pendingSignals: Array<NodeJS.Signals> = [];
@@ -143,7 +150,7 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   FORWARDED_SIGNALS.forEach((signal) => {
     const forwardSignal = () => {
-      receivedSignal = true;
+      if (SHUTDOWN_SIGNALS.includes(signal)) receivedShutdownSignal = true;
       if (!child) {
         pendingSignals.push(signal);
         return;
@@ -179,8 +186,8 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
       childExited = true;
       if (forceKillTimer) clearTimeout(forceKillTimer);
     },
-    get receivedSignal() {
-      return receivedSignal;
+    get receivedShutdownSignal() {
+      return receivedShutdownSignal;
     },
   };
 }
