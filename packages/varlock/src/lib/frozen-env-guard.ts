@@ -18,7 +18,7 @@ type EnvRecord = Record<string, string | undefined>;
 /**
  * Interpret `_VARLOCK_USE_FROZEN_ENV`:
  *  - unset         -> the default path, used if present
- *  - `1`/`true`    -> the default path, required (assert the pin is actually in effect)
+ *  - `1`/`true`    -> the default path, required (assert the frozen env is actually in effect)
  *  - `0`/`false`   -> off (undefined)
  *  - anything else -> that path, required
  *

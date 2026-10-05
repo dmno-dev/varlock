@@ -154,8 +154,8 @@ describe('@dynamic, @static, and @defaultDynamic', () => {
   });
 });
 
-// `@dynamic=boot`: bound at process start on each instance, so it can be fixed neither at
-// build (like any dynamic item) nor at deploy (`varlock freeze` leaves it out of the pin)
+// `@dynamic=boot`: bound at process start on each instance, so it is never inlined at build
+// (like any dynamic item), and under `varlock freeze` its frozen value is only a default
 describe('@dynamic=boot', () => {
   test('boot items are dynamic', envFilesTest({
     envFile: outdent`
@@ -311,8 +311,8 @@ describe('@dynamic=boot', () => {
       expectValues: { APP_ENV: SchemaError },
     }));
 
-    // root decorators run before any value is available at boot, so under `varlock freeze`
-    // they would resolve a boot item at deploy time and bake the result into the pin
+    // root decorators are settled before boot, so under `varlock freeze` they would keep the
+    // boot item's freeze-time value while the item itself takes a new one at boot
     test('a root decorator cannot reference a boot item', async () => {
       const g = new EnvGraph();
       await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {

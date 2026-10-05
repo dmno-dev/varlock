@@ -9,7 +9,7 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
-import { applyFrozenArg, getPinnedGraphForResolution } from '../helpers/pinned-env';
+import { applyFrozenArg, getExplicitFrozenEnv } from '../helpers/frozen-env-cli';
 import { printFrozenEnv } from '../helpers/print-frozen-env';
 import { formatShellValue } from '../helpers/shell-value';
 import { getFrozenEnvFileInPlay } from '../../lib/frozen-env-file';
@@ -51,8 +51,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // because every framework integration resolves through `load` - but `varlock run` and
   // auto-load WOULD boot from it, so say that rather than silently disagreeing with them.
   applyFrozenArg(ctx.values.frozen);
-  const pinned = getPinnedGraphForResolution();
-  if (pinned) {
+  const frozenEnv = getExplicitFrozenEnv();
+  if (frozenEnv) {
     // these change what a fresh resolution produces, and there is no resolution here.
     // (`--env` is left alone: the Next.js integration always passes it.)
     const resolutionFlags = [
@@ -62,12 +62,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ctx.values['skip-cache'] ? '--skip-cache' : undefined,
     ].filter(Boolean) as Array<string>;
     if (resolutionFlags.length) {
-      const what = pinned.source === 'frozen-file' ? `a frozen env file (${pinned.filePath})` : 'a frozen __VARLOCK_ENV payload';
+      const what = frozenEnv.source === 'frozen-file' ? `a frozen env file (${frozenEnv.filePath})` : 'a frozen __VARLOCK_ENV payload';
       throw new CliExitError(`${what} cannot be combined with ${resolutionFlags.join(', ')}`, {
         suggestion: 'A frozen env is shown as-is, with nothing resolved. Drop them, or drop --frozen / _VARLOCK_USE_FROZEN_ENV.',
       });
     }
-    printFrozenEnv(pinned.graph, {
+    printFrozenEnv(frozenEnv.graph, {
       format: outputFormat, agent: !!agent, compact: !!compact, summaryStderr: !!summaryStderr, summaryFile,
     });
     return;

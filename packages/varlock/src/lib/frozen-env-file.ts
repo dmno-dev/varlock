@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 
 /**
- * A "frozen env" file is a deploy-time pin: `varlock freeze` resolves every value once,
+ * A "frozen env" file is a deploy-time freeze: `varlock freeze` resolves every value once,
  * encrypts the serialized graph, and writes it to a file that ships INSIDE the deploy unit
  * (image layer, deployment bundle). At boot the app consumes that file instead of
  * re-resolving.
@@ -66,7 +66,7 @@ function statFrozenEnvPath(filePath: string): fs.Stats | undefined {
 /**
  * The frozen env file this invocation will consume, if any: a required one (present or
  * not), or one present at the auto-discovered path. Callers use this to reject flags that
- * would change what gets loaded, rather than silently ignoring the pin.
+ * would change what gets loaded, rather than silently ignoring the frozen env.
  */
 export function getFrozenEnvFileInPlay(env: EnvRecord, cwd: string): string | undefined {
   const mode = resolveFrozenEnvFileMode(env, cwd);
@@ -79,13 +79,13 @@ export function getFrozenEnvFileInPlay(env: EnvRecord, cwd: string): string | un
  * Read + decrypt the frozen env file, if one applies. Only ABSENCE of an auto-discovered
  * file returns undefined; any other problem (a required file missing, not a regular file,
  * unreadable, encrypted with no or the wrong key) throws. Falling back would silently
- * un-pin the deploy and re-resolve at boot, which is exactly what freezing exists to
+ * unfreeze the deploy and re-resolve at boot, which is exactly what freezing exists to
  * eliminate.
  */
 export function readFrozenEnvFile(opts: {
   env: EnvRecord,
   cwd?: string,
-  /** skip a file that would only be auto-discovered (see findPinnedGraphForResolution) */
+  /** skip a file that would only be auto-discovered (see findExplicitFrozenEnv) */
   explicitOnly?: boolean,
 }): { filePath: string, blobJson: string } | undefined {
   const { env } = opts;
@@ -109,8 +109,8 @@ export function readFrozenEnvFile(opts: {
 
   // A frozen file is a complete, already-validated snapshot of the graph, so honoring
   // _VARLOCK_FILTER would hand over values the caller expected to exclude (same reasoning as
-  // the blob path). `varlock freeze` deliberately has no --filter: a partial seal would mean
-  // keys outside the scope are neither sealed nor validated, which is the split-validation
+  // the blob path). `varlock freeze` deliberately has no --filter: a partial freeze would mean
+  // keys outside the scope are neither frozen nor validated, which is the split-validation
   // state the whole feature exists to prevent. So the remedy is to drop one or the other,
   // never to re-freeze with a matching filter.
   if (env._VARLOCK_FILTER) {

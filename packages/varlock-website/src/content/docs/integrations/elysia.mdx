@@ -117,7 +117,7 @@ If your platform assigns `PORT` to each instance, mark it [`@dynamic=boot`](/gui
 
 Set `_VARLOCK_USE_FROZEN_ENV=1` in production so a missing frozen file is a hard error instead of a silent fall back to normal resolution.
 
-:::caution[Values are pinned once frozen]
+:::caution[Values are fixed once frozen]
 Rotating a secret takes effect on your next deploy, not on the next restart. Re-run `varlock freeze` and redeploy. See [tradeoffs](/guides/deploy-time-config/#tradeoffs) for the full list, including how key rotation interacts with rollback.
 :::
 

@@ -85,7 +85,7 @@ afterAll(() => {
 });
 
 describe('varlock freeze', () => {
-  // the producer must never read back a pin, or values could never change again
+  // the producer must never read back a frozen env, or values could never change again
   test('re-freezing ignores an existing frozen file, even one explicitly requested', () => {
     const outFile = join(SCENARIO_DIR, '.varlock-frozen-env-refreeze');
     try {
@@ -103,7 +103,7 @@ describe('varlock freeze', () => {
 
   // package.json `varlock.filter` scopes a shared schema to one package; the frozen file holds
   // only that package's keys, and is final from then on
-  test('applies a package.json varlock.filter, and the pin stays scoped at boot', () => {
+  test('applies a package.json varlock.filter, and the frozen env stays scoped at boot', () => {
     const pkgDir = join(SCENARIO_DIR, 'scoped-pkg');
     fs.mkdirSync(pkgDir, { recursive: true });
     try {
@@ -194,7 +194,7 @@ describe('varlock freeze', () => {
 });
 
 // `--out -` is the same payload carried in an env var instead of a file, for platforms that
-// take env vars but give you no way to get a file into the deploy unit. The seal is weaker
+// take env vars but give you no way to get a file into the deploy unit. The guarantee is weaker
 // (the blob lives in platform config rather than inside the release), but it is still
 // resolved and validated once, as one unit.
 describe('varlock freeze --out -', () => {
@@ -342,7 +342,7 @@ describe('booting from a frozen env file', () => {
     });
 
     // this is the case that matters most: the scenario dir HAS .env files, so falling back
-    // would boot happily on re-resolved values and never signal that the pin was lost
+    // would boot happily on re-resolved values and never signal that the frozen env was lost
     test('when the file is broken in a directory that could otherwise resolve', () => {
       const brokenFile = join(SCENARIO_DIR, '.varlock-frozen-env');
       const original = fs.readFileSync(brokenFile, 'utf8');
@@ -358,13 +358,13 @@ describe('booting from a frozen env file', () => {
     });
   });
 
-  // The seal is authoritative: it wins over env supplied at boot, and process.env is kept
+  // A frozen env is authoritative: it wins over env supplied at boot, and process.env is kept
   // in agreement with ENV. This is the opposite of a build-baked snapshot, which sets
   // `injectedAtBuild` so runtime env survives (see PR #1055) - baking is implicit and never
-  // asked for a seal, freezing is opt-in and its whole promise is a validated unit.
-  // These pin the behavior so a later change can't quietly give freeze the baked semantics.
-  describe('the seal is total', () => {
-    test('a value defined in the seal wins over an ambient one', () => {
+  // asked to freeze, freezing is opt-in and its whole promise is a validated unit.
+  // These lock in the behavior so a later change can't quietly give freeze the baked semantics.
+  describe('a frozen env is total', () => {
+    test('a value defined in the frozen env wins over an ambient one', () => {
       const result = runApp({
         env: { _VARLOCK_ENV_KEY: encryptionKey, PUBLIC_VAR: 'from-operator' },
       });
@@ -383,10 +383,10 @@ describe('booting from a frozen env file', () => {
       expect(result.output).toContain('SEALED_UNSET_ENV=undefined');
     });
 
-    // the control: without a seal, the same ambient value acts as an override and is
+    // the control: without a frozen env, the same ambient value acts as an override and is
     // resolved + validated normally. This is what shows the clearing above is specific to
-    // sealed payloads rather than general varlock behavior.
-    test('control: without a seal the same ambient value is honored as an override', () => {
+    // frozen payloads rather than general varlock behavior.
+    test('control: without a frozen env the same ambient value is honored as an override', () => {
       const result = runApp({
         cwd: SCENARIO_DIR,
         env: { _VARLOCK_USE_FROZEN_ENV: '0', APP_ENV: 'production', UNSET_IN_SEAL: 'from-operator' },
@@ -436,8 +436,8 @@ describe('booting from a frozen env file', () => {
     });
 
     // the consumer hands the file on by absolute path, so a child that starts in another
-    // directory reads the same pin rather than missing it (or erroring under a relative `=1`)
-    test('a child process in another directory reads the same pin', () => {
+    // directory reads the same frozen env rather than missing it (or erroring under a relative `=1`)
+    test('a child process in another directory reads the same frozen env', () => {
       const subDir = join(deployDir, 'sub');
       fs.mkdirSync(subDir, { recursive: true });
       fs.copyFileSync(join(deployDir, 'app.mjs'), join(subDir, 'app.mjs'));

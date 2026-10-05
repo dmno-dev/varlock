@@ -59,8 +59,8 @@ export type InjectedEnvReuseDecision = | {
 }
   | { reuse: false, reason: string };
 
-/** A frozen env a fresh view should be shown from (see findPinnedGraphForResolution) */
-export type PinnedGraphInfo = {
+/** A frozen env a fresh view should be shown from (see findExplicitFrozenEnv) */
+export type FrozenEnvInfo = {
   /** with any boot-time values for `@dynamic=boot` items already applied */
   graph: SerializedEnvGraph,
   source: 'env-blob' | 'frozen-file',
@@ -78,7 +78,7 @@ type SanitizedGraph = NonNullable<ReturnType<typeof parseAndSanitizeBlob>>;
  */
 function reuseOrApplyBoot(
   sanitized: SanitizedGraph,
-  source: PinnedGraphInfo['source'],
+  source: FrozenEnvInfo['source'],
   bootEnv: EnvRecord,
   filePath?: string,
 ): InjectedEnvReuseDecision {
@@ -221,14 +221,14 @@ export function evaluateInjectedEnvReuse(opts: {
   const preInjectionEnv = opts.preInjectionEnv ?? env;
   const cwd = opts.cwd ?? process.cwd();
 
-  // A frozen env file (`varlock freeze`) is a deploy-time pin that ships inside the deploy
+  // A frozen env file (`varlock freeze`) is a deploy-time freeze that ships inside the deploy
   // unit. It wins over an ambient __VARLOCK_ENV: a file on disk is the more deliberate act,
   // and the two are governed by separate flags so _VARLOCK_USE_INJECTED_ENV=0 does not
   // disable it (use _VARLOCK_USE_FROZEN_ENV=0).
   //
   // Like the force path it is authoritative with no directory/drift verification, because
   // the checks below compare a blob against local .env files which a frozen deploy by design
-  // does not carry. Any problem with a present or required file throws, so a broken pin can never
+  // does not carry. Any problem with a present or required file throws, so a broken frozen env can never
   // silently degrade into a boot-time re-resolution.
   const frozen = readFrozenEnvFile({ env, cwd, explicitOnly: opts.explicitFrozenOnly });
   if (frozen) {
@@ -416,17 +416,17 @@ export function evaluateInjectedEnvReuse(opts: {
  * The frozen env `varlock load` should show instead of resolving, if any, with boot-time values
  * for `@dynamic=boot` items applied.
  *
- * Unlike `varlock run` and auto-load, only an explicit pin counts: a frozen env file named by
+ * Unlike `varlock run` and auto-load, only an explicitly requested frozen env counts: a frozen env file named by
  * `_VARLOCK_USE_FROZEN_ENV` (`1` or a path) or `--frozen`, or a
  * `varlock freeze --out -` payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`. `load` is what
  * every framework integration shells out to at dev and build time, so a frozen file merely
  * sitting in a project directory must not take over those; `load` says so instead (see
  * load.command). An ordinary blob (a parent `varlock run`, a `load --format json-full`
- * capture) is never a pin.
+ * capture) is never shown as one.
  *
- * Throws the same way evaluateInjectedEnvReuse does when a pin is present but unusable.
+ * Throws the same way evaluateInjectedEnvReuse does when a frozen env is present but unusable.
  */
-export function findPinnedGraphForResolution(opts: { env: EnvRecord, cwd?: string }): PinnedGraphInfo | undefined {
+export function findExplicitFrozenEnv(opts: { env: EnvRecord, cwd?: string }): FrozenEnvInfo | undefined {
   const { env } = opts;
   const cwd = opts.cwd ?? process.cwd();
   const forced = getUseInjectedEnvMode(env) === 'force';

@@ -1,4 +1,4 @@
-import { findPinnedGraphForResolution, type PinnedGraphInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
+import { findExplicitFrozenEnv, type FrozenEnvInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { PreResolvedEnvError, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { CliExitError } from './exit-error';
 
@@ -7,7 +7,7 @@ import { CliExitError } from './exit-error';
  * requested but unusable, as a CliExitError carrying the error's own suggestion. Neither ever
  * falls back to fresh resolution.
  */
-export function pinErrorToCliExitError(err: unknown): CliExitError {
+export function frozenEnvErrorToCliExitError(err: unknown): CliExitError {
   const message = (err as Error).message.replace(/^\[varlock\] /, '');
   return new CliExitError(message, {
     suggestion: err instanceof PreResolvedEnvError
@@ -16,18 +16,18 @@ export function pinErrorToCliExitError(err: unknown): CliExitError {
   });
 }
 
-/** CLI wrapper around findPinnedGraphForResolution, with an unusable pin as a CliExitError */
-export function getPinnedGraphForResolution(): PinnedGraphInfo | undefined {
+/** CLI wrapper around findExplicitFrozenEnv, with an unusable frozen env as a CliExitError */
+export function getExplicitFrozenEnv(): FrozenEnvInfo | undefined {
   try {
-    return findPinnedGraphForResolution({ env: process.env, cwd: process.cwd() });
+    return findExplicitFrozenEnv({ env: process.env, cwd: process.cwd() });
   } catch (err) {
-    throw pinErrorToCliExitError(err);
+    throw frozenEnvErrorToCliExitError(err);
   }
 }
 
 /**
  * Apply `--frozen` (see FROZEN_ARG) by setting `_VARLOCK_USE_FROZEN_ENV`, so the flag behaves
- * exactly like the env var everywhere downstream: the pin lookup, the child env, and any
+ * exactly like the env var everywhere downstream: the frozen env lookup, the child env, and any
  * nested varlock process.
  */
 export function applyFrozenArg(value: string | undefined) {

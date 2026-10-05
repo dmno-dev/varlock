@@ -15,7 +15,7 @@ import {
   resolveFrozenEnvFileMode,
 } from '../frozen-env-file';
 import { assertNoFrozenEnvFileInDev } from '../frozen-env-guard';
-import { evaluateInjectedEnvReuse, findPinnedGraphForResolution, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
+import { evaluateInjectedEnvReuse, findExplicitFrozenEnv, USE_INJECTED_ENV_VAR } from '../injected-env-reuse';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from '../../runtime/crypto';
 
 let tempDir: string;
@@ -85,7 +85,7 @@ describe('resolveFrozenEnvFileMode', () => {
 
   // unlike _VARLOCK_USE_INJECTED_ENV (which maps unknown values back to auto), an
   // unrecognized value here is a path - so a typo hard-errors as a missing file rather than
-  // silently disabling the pin
+  // silently disabling the frozen env
   test('a typo`d disable value becomes a required path rather than disabling', () => {
     expect(resolveFrozenEnvFileMode({ [USE_FROZEN_ENV_VAR]: 'off' }, tempDir))
       .toEqual({ filePath: path.join(tempDir, 'off'), required: true });
@@ -386,51 +386,51 @@ describe('a frozen env with boot keys', () => {
     expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(2222);
   });
 
-  describe('findPinnedGraphForResolution', () => {
-    // load is what integrations resolve through, so a merely-present file is not a pin there
-    test('a present frozen file is a pin only when named explicitly', () => {
+  describe('findExplicitFrozenEnv', () => {
+    // load is what integrations resolve through, so a merely-present file is not used there
+    test('a present frozen file is used only when named explicitly', () => {
       const { key } = writeFrozenFile();
-      expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
+      expect(findExplicitFrozenEnv({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
         .toBeUndefined();
-      expect(findPinnedGraphForResolution({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
+      expect(findExplicitFrozenEnv({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
         .toMatchObject({ source: 'frozen-file' });
     });
 
     test('a discovered file does not shadow a trusted frozen payload', () => {
       writeFrozenFile({ key: null, contents: graphJson({ frozen: {}, config: { FOO: { value: 'from-file' } } }) });
-      const pinned = findPinnedGraphForResolution({
+      const found = findExplicitFrozenEnv({
         env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: {} }) },
         cwd: tempDir,
       });
-      expect(pinned).toMatchObject({ source: 'env-blob' });
-      expect(pinned?.graph.config.FOO.value).toBe('foo-val');
+      expect(found).toMatchObject({ source: 'env-blob' });
+      expect(found?.graph.config.FOO.value).toBe('foo-val');
     });
 
     test('an explicitly named frozen file is returned', () => {
-      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: {} }), fileName: 'pin.env' });
-      const pinned = findPinnedGraphForResolution({
+      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: {} }), fileName: 'frozen.env' });
+      const found = findExplicitFrozenEnv({
         env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: filePath },
         cwd: tempDir,
       });
-      expect(pinned).toMatchObject({ source: 'frozen-file', filePath });
+      expect(found).toMatchObject({ source: 'frozen-file', filePath });
     });
 
     test('a trusted __VARLOCK_ENV counts only when it is a freeze payload', () => {
-      const frozenPayload = findPinnedGraphForResolution({
+      const frozenPayload = findExplicitFrozenEnv({
         env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: {} }) },
         cwd: tempDir,
       });
       expect(frozenPayload).toMatchObject({ source: 'env-blob' });
-      // an ordinary sandbox blob is trusted for reuse, but it is not a pin to resolve on top of
-      const plainBlob = findPinnedGraphForResolution({
+      // an ordinary sandbox blob is trusted for reuse, but it is not a frozen env
+      const plainBlob = findExplicitFrozenEnv({
         env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson() },
         cwd: tempDir,
       });
       expect(plainBlob).toBeUndefined();
     });
 
-    test('nothing is a pin without a frozen file or explicit blob trust', () => {
-      expect(findPinnedGraphForResolution({ env: { __VARLOCK_ENV: graphJson({ frozen: {} }) }, cwd: tempDir }))
+    test('nothing is a frozen env without a frozen file or explicit blob trust', () => {
+      expect(findExplicitFrozenEnv({ env: { __VARLOCK_ENV: graphJson({ frozen: {} }) }, cwd: tempDir }))
         .toBeUndefined();
     });
   });

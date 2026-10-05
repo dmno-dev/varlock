@@ -56,7 +56,7 @@ function autoLoad() {
     });
 
     // Hand any frozen env file we consumed to child processes by absolute path, so one
-    // started in another directory reads the same pin instead of missing it
+    // started in another directory reads the same frozen env instead of missing it
     const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : undefined;
     if (frozenFilePath) process.env[USE_FROZEN_ENV_VAR] = frozenFilePath;
 

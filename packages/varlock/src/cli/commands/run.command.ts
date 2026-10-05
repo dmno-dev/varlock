@@ -17,7 +17,7 @@ import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
-import { applyFrozenArg, pinErrorToCliExitError } from '../helpers/pinned-env';
+import { applyFrozenArg, frozenEnvErrorToCliExitError } from '../helpers/frozen-env-cli';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
@@ -71,7 +71,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   let reuseDecision: ReturnType<typeof evaluateInjectedEnvReuse>;
   if (resolutionFlags.length) {
-    // A frozen env file is a deploy-time pin, so silently ignoring it and re-resolving would
+    // A frozen env file is final, so silently ignoring it and re-resolving would
     // defeat the point just as much as it would for an explicitly-forced blob.
     const requestedFrozenPath = getFrozenEnvFileInPlay(process.env, process.cwd());
     if (requestedFrozenPath) {
@@ -94,9 +94,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
         cwd: process.cwd(),
       });
     } catch (err) {
-      // a requested frozen env file, or explicit trust mode, with a missing/unusable pin -
+      // a requested frozen env file, or explicit trust mode, with a missing/unusable frozen env -
       // neither ever falls back to a fresh resolution
-      throw pinErrorToCliExitError(err);
+      throw frozenEnvErrorToCliExitError(err);
     }
   }
 
@@ -207,7 +207,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   // a consumed frozen env file is handed on by absolute path, so a child that starts in
-  // another directory reads the same pin
+  // another directory reads the same frozen env
   const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : undefined;
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {

@@ -16,7 +16,7 @@ Before adding varlock to a Dockerfile, decide which role it plays:
 | **CI-only validation** | Validate schema and config in pipelines; runtime env comes from the platform | No. Run `varlock load` in CI only |
 | **Runtime injection** | Long-running containers (APIs, workers) that resolve secrets at boot via [plugins](/guides/plugins/) | Yes. Use `varlock run` as the entrypoint |
 | **Build-time** | SSR apps where a [framework integration](/integrations/overview/) injects resolved env into build output | Sometimes. Only in a **builder** stage, not the final runtime image |
-| **Deploy-time freeze** | Apps with no build step that would inline values (Elysia, Hono, Fastify), where you want config pinned to the release | Sometimes. Only in a **builder** stage or CI |
+| **Deploy-time freeze** | Apps with no build step that would inline values (Elysia, Hono, Fastify), where you want config frozen with the release | Sometimes. Only in a **builder** stage or CI |
 
 <Tabs>
   <TabItem label="CI-only validation">
@@ -91,9 +91,9 @@ services:
       _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
 ```
 
-That is a weaker seal, since the payload lives in platform config rather than inside the release. See [carrying the payload in an env var](/guides/deploy-time-config/#carrying-the-payload-in-an-env-var-instead) for the full comparison.
+That is a weaker guarantee, since the payload lives in platform config rather than inside the release. See [carrying the payload in an env var](/guides/deploy-time-config/#carrying-the-payload-in-an-env-var-instead) for the full comparison.
 
-Values are pinned either way: rotating a secret takes effect on your next deploy, not on the next restart.
+Values are fixed either way: rotating a secret takes effect on your next deploy, not on the next restart.
 
   </TabItem>
 </Tabs>

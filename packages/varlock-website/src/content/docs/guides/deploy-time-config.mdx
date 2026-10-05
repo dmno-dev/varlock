@@ -142,7 +142,7 @@ Varlock uses `.varlock-frozen-env` in the working directory automatically when i
 
 Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
 
-Setting `_VARLOCK_USE_FROZEN_ENV=1` (or booting with `varlock run --frozen`) in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
+Setting `_VARLOCK_USE_FROZEN_ENV=1` (or booting with `varlock run --frozen`) in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the frozen env is not in effect.
 
 `varlock load` is different: every framework integration resolves through it at dev and build time, so it uses the file only when told to explicitly (`--frozen`, or `_VARLOCK_USE_FROZEN_ENV` set to `1` or a path). A plain `varlock load` next to a frozen file keeps showing what your .env files resolve to, and prints a warning that `varlock run` and auto-load would boot from the file instead. `varlock load --frozen` in the runtime image shows exactly what the app boots with. If the file is left over from running `varlock freeze` locally, delete it.
 
@@ -185,7 +185,7 @@ For a key that resolved to a value at freeze time, the frozen value wins. For a 
 
 This is deliberate: freezing means the config was resolved and validated as a unit, and a value injected afterwards was part of neither. Accepting it would mean running on config that nothing validated.
 
-If a value genuinely has to come from the container rather than the deploy, say so in the schema with `@dynamic=boot` (next section), so the frozen value becomes a default the container can override. Marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**: it gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
+If a value genuinely has to come from the container rather than the deploy, say so in the schema with `@dynamic=boot` (next section), so the frozen value becomes a default the container can override. Marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**: it gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the frozen env then clears whatever the operator supplied. You end up with no value and no error.
 
 ## Keys supplied at boot
 
@@ -251,7 +251,7 @@ The summary goes to stderr in this mode, so stdout carries the payload and nothi
 
 ### What you give up
 
-This is a weaker seal than a file, and it is worth being clear about why. The payload lives in platform config rather than inside the release, so it does not roll back when you roll back code, and it is a second operation on deploy rather than part of the artifact. That is the split a frozen file exists to close, and the env var transport reopens part of it.
+This is a weaker guarantee than a file, and it is worth being clear about why. The payload lives in platform config rather than inside the release, so it does not roll back when you roll back code, and it is a second operation on deploy rather than part of the artifact. That is the split a frozen file exists to close, and the env var transport reopens part of it.
 
 What you still get over a set of individual environment variables: it resolved and validated once, as a unit; types and sensitivity survive, so `ENV.PORT` is a number and log redaction still knows what is secret; and the runtime needs no .env files, no resolver credentials, and no varlock CLI.
 

@@ -5,7 +5,7 @@
  * `--frozen <path>` / `--frozen=<path>` to the path.
  *
  * Kept in its own module (no imports) so the command spec files stay light - see
- * applyFrozenArg in pinned-env for how the value is applied.
+ * applyFrozenArg in frozen-env-cli for how the value is applied.
  */
 export const FROZEN_ARG = {
   frozen: {

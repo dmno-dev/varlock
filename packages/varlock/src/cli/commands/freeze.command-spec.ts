@@ -49,7 +49,7 @@ At boot, varlock uses the file automatically if it is present at the default pat
 no .env files, and no resolver credentials needed in the runtime image. Set
 _VARLOCK_ENV_KEY on your platform so the file can be decrypted.
 
-The tradeoff: values are pinned. Rotating a secret takes effect on your next deploy, not on
+The tradeoff: values are fixed once frozen. Rotating a secret takes effect on your next deploy, not on
 the next restart.
 
 Examples:
