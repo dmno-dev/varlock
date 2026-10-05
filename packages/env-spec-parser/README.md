@@ -23,7 +23,7 @@ This structured data can be used by libraries to provide:
 
 This schema information is most valuable when it is shared across team members and machines - so it is intended to be used within a file which is committed to git.
 In most cases, that will mean creating a `.env.schema`, committed to source control, which contains all schema info and possibly some default values.
-It's not very different than a having a `.env.example` file - it's just more useful and actually involving it in the env loading process.
+It's not very different than having a `.env.example` file - it's just more useful and actually involving it in the env loading process.
 
 Then you could use additional files which set values - and of course they could add additional items or overriding properties of existing ones.
 Whether you want to use a single git-ignored `.env` file, or apply a cascade of environment-specific files (e.g., `.env`, `.env.local`, `.env.test`, etc) is up to you.
