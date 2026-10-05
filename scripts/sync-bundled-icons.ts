@@ -134,7 +134,16 @@ const setPrefix = (iconName: string) => iconName.split(':')[0];
 // `<!-- based on mdi:web (modified) -->` at the top of a custom icon records where it came from
 const BASED_ON_PATTERN = /<!--\s*based on ([a-z0-9-]+:[a-z0-9-]+)/;
 // comments are only for maintainers - keep them out of the embedded data uri
-const stripComments = (svg: string) => svg.replace(/<!--[\s\S]*?-->/g, '').trim();
+// (repeated until stable, so a comment hidden inside another one can't survive a single pass)
+function stripComments(svg: string) {
+  let result = svg;
+  let previous;
+  do {
+    previous = result;
+    result = result.replace(/<!--[\s\S]*?-->/g, '');
+  } while (result !== previous);
+  return result.trim();
+}
 
 // --- network (never used with --check) ---
 
