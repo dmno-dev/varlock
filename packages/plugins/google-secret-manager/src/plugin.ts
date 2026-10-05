@@ -9,7 +9,7 @@ import { createSubjectTokenSupplier } from './workload-identity';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const GSM_ICON = 'devicon:googlecloud';
+const GSM_ICON = 'simple-icons:googlecloud';
 
 plugin.name = 'gsm';
 const { debug } = plugin;

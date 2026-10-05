@@ -20,7 +20,7 @@ import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const AWS_ICON = 'skill-icons:aws-dark';
+const AWS_ICON = 'simple-icons:amazonwebservices';
 
 plugin.name = 'aws';
 const { debug } = plugin;

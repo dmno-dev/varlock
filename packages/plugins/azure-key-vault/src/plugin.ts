@@ -12,7 +12,7 @@ import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const AZURE_ICON = 'skill-icons:azure-dark';
+const AZURE_ICON = 'simple-icons:microsoftazure';
 
 interface AzureCloud {
   /** Entra ID authority host used to mint tokens */

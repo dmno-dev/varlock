@@ -6,7 +6,7 @@ import { signAwsSigv4Transform } from './sigv4';
 plugin.name = 'aws-sigv4';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
-plugin.icon = 'skill-icons:aws-dark';
+plugin.icon = 'simple-icons:amazonwebservices';
 plugin.bundledIcons = BUNDLED_ICONS;
 
 plugin.registerProxyTransformScheme({

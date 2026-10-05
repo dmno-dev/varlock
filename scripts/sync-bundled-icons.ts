@@ -10,10 +10,13 @@
  *   this script. Don't edit them; they are overwritten by `--update` and deleted once unused.
  * - `custom--<name>.svg` are hand-maintained and never written or deleted by this script. Use them
  *   as `icon: 'custom:<name>'`. Custom names must be unique across all packages, since every
- *   package's icons share one lookup at runtime. Use `currentColor` for fills/strokes (swapped for
- *   gray in generated types) unless the icon has its own colors. If a custom icon is a modified copy
+ *   package's icons share one lookup at runtime. If a custom icon is a modified copy
  *   of an iconify icon, start the file with `<!-- based on <set>:<name> (modified) -->` so the
  *   license notice lists it under that set's license (required for Apache-2.0 sets).
+ *
+ * Every icon must use `currentColor` (swapped for gray in generated types) so all icons look
+ * consistent and follow the editor theme. For a colored icon, pick a monochrome one instead (e.g.
+ * from `simple-icons`) or add a recolored `custom--` copy.
  *
  * Icon set metadata and license text are cached in `scripts/icon-sets/<set>.json`, and each package
  * gets a `BUNDLED_ICONS_LICENSES.md` built from it.
@@ -260,6 +263,12 @@ async function processTarget(target: IconTarget) {
   // a generated icons module does nothing unless the plugin passes it to varlock
   if (target.isPlugin && !target.sourceFiles.some((f) => fs.readFileSync(f, 'utf-8').includes('plugin.bundledIcons'))) {
     problems.push(`${rel(target.pkgDir)} uses icons but never sets \`plugin.bundledIcons\` - add \`import { BUNDLED_ICONS } from './bundled-icons.gen';\` and \`plugin.bundledIcons = BUNDLED_ICONS;\``);
+  }
+
+  for (const icon of icons) {
+    if (!icon.svg.includes('currentColor')) {
+      problems.push(`"${icon.name}" (used by ${rel(target.pkgDir)}) does not use currentColor - pick a monochrome icon or add a recolored custom icon`);
+    }
   }
 
   icons.sort((a, b) => a.name.localeCompare(b.name));
