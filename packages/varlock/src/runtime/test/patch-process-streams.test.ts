@@ -2,7 +2,7 @@ import {
   describe, it, expect, beforeEach, afterEach, vi,
 } from 'vitest';
 import {
-  resetRedactionMap, varlockSettings, redactSensitiveConfig, redactSensitiveConfigForLogs,
+  resetRedactionMap, varlockSettings, redactSensitiveConfig, redactAllSensitiveValues,
 } from '../env';
 import {
   patchStreamWrite, unpatchStreamWrite, flushStreamWrite, shouldRedactProcessStream,
@@ -131,11 +131,10 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
   });
 
-  it('only exempts redactLogs=false values from log redaction, not elsewhere', () => {
+  it('redactLogs=false values are skipped by redactSensitiveConfig but not by leak-prevention scrubbing', () => {
     setSecrets({ PRINTED_TOKEN: { value: 'printed-token-abcdef', redactLogs: false } });
-    expect(redactSensitiveConfigForLogs('printed-token-abcdef')).toBe('printed-token-abcdef');
-    // e.g. response scrubbing and the public API still redact it
-    expect(redactSensitiveConfig('printed-token-abcdef')).toBe('pr▒▒▒▒▒');
+    expect(redactSensitiveConfig('printed-token-abcdef')).toBe('printed-token-abcdef');
+    expect(redactAllSensitiveValues('printed-token-abcdef')).toBe('pr▒▒▒▒▒');
   });
 
   it('keeps redacting a value shared with an item that is not exempt', () => {

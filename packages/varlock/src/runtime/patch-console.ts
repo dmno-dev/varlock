@@ -1,6 +1,6 @@
 /* eslint-disable func-names, no-console, prefer-rest-params */
 
-import { redactSensitiveConfigForLogs, redactSensitiveConfigForOutput, varlockSettings } from './env';
+import { redactSensitiveConfig, redactSensitiveConfigForOutput, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
 
@@ -51,7 +51,7 @@ export function patchGlobalConsole() {
   // when node's internal method is patched, it (or the stream patch after it) writes the final
   // output, so the method wrapper below must leave unmask markers for it to handle. Otherwise
   // (bun, edge runtimes) the wrapper is the last layer
-  const redactArg = kWriteToConsoleSymbol ? redactSensitiveConfigForLogs : redactSensitiveConfigForOutput;
+  const redactArg = kWriteToConsoleSymbol ? redactSensitiveConfig : redactSensitiveConfigForOutput;
 
   // and now we'll wrap console.log (and the other methods) if it looks like they have been patched already ------------------
   // NOTE - this will not fully redact from everything since we can't safely reach deep into objects

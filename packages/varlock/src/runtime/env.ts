@@ -26,8 +26,8 @@ type RedactionState = {
   // `redactLogs: false` means the reverse (left alone by redaction, still leak-scanned)
   sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
   redactorFindReplace: undefined | FindReplace,
-  // same, minus values exempt from log redaction (`@sensitive={redactLogs=false}`), used for
-  // console/stdout output. `builtFrom` is the map it was built for, since a different copy of this
+  // same, minus values exempt from log redaction (`@sensitive={redactLogs=false}`), used by
+  // default (everything except leak-prevention scrubbing). `builtFrom` is the map it was built for, since a different copy of this
   // module (sharing this state) may have reset the map without knowing about this field
   logRedactorFindReplace?: { findReplace: undefined | FindReplace, builtFrom: RedactionState['sensitiveSecretsMap'] },
   // index for the streaming holdback check, built lazily (also optional since state may
@@ -138,7 +138,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   state.holdbackIndex = undefined;
   const allValues = Object.keys(state.sensitiveSecretsMap);
   state.redactorFindReplace = buildFindReplace(state, allValues);
-  // values exempt from log redaction are still redacted elsewhere (e.g. response scrubbing)
+  // values exempt from log redaction are still redacted when scrubbing responses
   const logValues = allValues.filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
   state.logRedactorFindReplace = {
     findReplace: logValues.length === allValues.length ? state.redactorFindReplace : buildFindReplace(state, logValues),
@@ -146,12 +146,12 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   };
 }
 
-// set while redacting log/console/stdout output, which skips `redactLogs=false` values
-let redactingForLogs = false;
+// set while scrubbing for leak prevention, which also redacts `redactLogs=false` values
+let redactingAllValues = false;
 
 function getActiveFindReplace(): FindReplace | undefined {
   const state = getRedactionState();
-  if (redactingForLogs) {
+  if (!redactingAllValues) {
     const forLogs = state.logRedactorFindReplace;
     if (forLogs && forLogs.builtFrom === state.sensitiveSecretsMap) return forLogs.findReplace;
   }
@@ -420,6 +420,8 @@ function redactValue(o: any, seen: Map<any, any>): any {
 /**
  * Redacts senstive config values from any string/array/object/error/etc
  *
+ * Values marked `@sensitive={redactLogs=false}` are left alone (they are still leak-scanned).
+ *
  * NOTE - must be used only after varlock has loaded config
  * */
 export function redactSensitiveConfig(o: any): any {
@@ -429,16 +431,17 @@ export function redactSensitiveConfig(o: any): any {
 }
 
 /**
- * Redaction for log/console/stdout output: same as redactSensitiveConfig, but leaves values
- * marked `@sensitive={redactLogs=false}` alone.
+ * Redaction used by leak prevention to scrub outgoing responses: unlike redactSensitiveConfig,
+ * this also redacts values marked `@sensitive={redactLogs=false}`, since that option only opts
+ * out of log redaction, not leak detection.
  */
-export function redactSensitiveConfigForLogs<T>(o: T): T {
-  const wasRedactingForLogs = redactingForLogs;
-  redactingForLogs = true;
+export function redactAllSensitiveValues<T>(o: T): T {
+  const wasRedactingAllValues = redactingAllValues;
+  redactingAllValues = true;
   try {
     return redactSensitiveConfig(o);
   } finally {
-    redactingForLogs = wasRedactingForLogs;
+    redactingAllValues = wasRedactingAllValues;
   }
 }
 
@@ -460,14 +463,14 @@ const UNMASK_MARKERS_REGEX = new RegExp(`${UNMASK_STR} ([\\s\\S]*?) ${UNMASK_STR
 
 /**
  * Redaction for the layer that writes output last (the stream patch, node's console internals,
- * or the console method wrapper where nothing runs after it). Same as redactSensitiveConfigForLogs,
+ * or the console method wrapper where nothing runs after it). Same as redactSensitiveConfig,
  * then strips the unmask markers so values passed through revealSensitiveConfig print as-is.
  *
  * Earlier layers must leave the markers in place: once stripped, a later layer would see a
  * bare secret and redact it.
  */
 export function redactSensitiveConfigForOutput<T>(o: T): T {
-  const redacted = redactSensitiveConfigForLogs(o);
+  const redacted = redactSensitiveConfig(o);
   if (typeof redacted !== 'string' || !redacted.includes(UNMASK_STR)) return redacted;
   return redacted.replaceAll(UNMASK_MARKERS_REGEX, '$1') as T;
 }

@@ -5,7 +5,7 @@
 import zlib from 'node:zlib';
 import { ServerResponse } from 'node:http';
 import {
-  getRedactionHoldbackLength, redactSensitiveConfig, scanForLeaks, varlockSettings,
+  getRedactionHoldbackLength, redactAllSensitiveValues, scanForLeaks, varlockSettings,
 } from './env';
 import { debug } from './lib/debug';
 
@@ -162,7 +162,7 @@ function scanChunk(state: ScanState, chunkStr: string, o: {
     scanForLeaks(state.carry + emitPart, o.meta);
   } catch (err) {
     if (!o.redactInsteadOfThrow) throw err;
-    emitPart = redactSensitiveConfig(emitPart);
+    emitPart = redactAllSensitiveValues(emitPart);
     // a value straddling `carry` is partly out the door already and can't be scrubbed
     // retroactively, so anything still detectable after redaction fails closed
     scanForLeaks(state.carry + emitPart, o.meta);
