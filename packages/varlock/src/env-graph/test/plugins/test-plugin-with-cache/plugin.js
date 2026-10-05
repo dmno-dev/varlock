@@ -1,7 +1,7 @@
 const { plugin } = require('varlock/plugin-lib');
 
 plugin.name = 'test-plugin-with-cache';
-// no plugin.icon set - data types must not get the `mdi:puzzle` default
+// no plugin.icon set, so its data types get no icon
 plugin.registerDataType({ name: 'testCachePluginType' });
 
 // captured during module execution, which is how real plugins (1password, aws-secrets)

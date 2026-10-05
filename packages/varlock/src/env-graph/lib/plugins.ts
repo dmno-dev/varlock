@@ -205,10 +205,9 @@ export class VarlockPlugin {
   set version(val: string) { this._version = val; }
 
   private _icon?: string;
-  get icon() { return this._icon || 'mdi:puzzle'; }
-  set icon(val: string) { this._icon = val; }
-  /** @internal the icon the plugin set itself (no `mdi:puzzle` default) */
-  get _explicitIcon() { return this._icon; }
+  /** iconify name (e.g. `mdi:key`), also used by the plugin's data types that don't set their own */
+  get icon(): string | undefined { return this._icon; }
+  set icon(val: string | undefined) { this._icon = val; }
 
   /**
    * SVGs for the iconify icons this plugin uses (keyed by iconify name, e.g. `simple-icons:1password`),
@@ -579,8 +578,8 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
     graph.registerItemDecorator(itemDec);
   }
   for (const dataType of plugin.dataTypes || []) {
-    // data types without their own icon use the plugin's icon (only if the plugin set one)
-    graph.registerDataType(createEnvGraphDataType(dataType, { icon: plugin._explicitIcon }));
+    // data types without their own icon use the plugin's icon
+    graph.registerDataType(createEnvGraphDataType(dataType, { icon: plugin.icon }));
   }
   for (const resolverDef of plugin.resolverFunctions || []) {
     // might want to move into plugin load process
