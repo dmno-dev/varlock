@@ -43,9 +43,9 @@ jobs:
           # name and the model's token limits are required: a deployment name
           # carries no catalog metadata, so pullfrog cannot look them up, and
           # without them completions cap at 32000 tokens and auto-compaction
-          # is disabled. Limits per models.dev azure/gpt-5.6-sol.
+          # is disabled. Limits per models.dev azure/gpt-6.1-sol.
           AZURE_RESOURCE_NAME: pullfrog-resource
-          AZURE_DEPLOYMENT: gpt-5.6-sol
+          AZURE_DEPLOYMENT: gpt-6.1-sol
           AZURE_CONTEXT: "1050000"
           AZURE_MAX_OUTPUT: "128000"
-          PULLFROG_MODEL: azure/gpt-5.6-sol
+          PULLFROG_MODEL: azure/gpt-6.1-sol
