@@ -18,13 +18,14 @@
  * consistent and follow the editor theme. For a colored icon, pick a monochrome one instead (e.g.
  * from `simple-icons`) or add a recolored `custom--` copy.
  *
- * Icon set metadata and license text are cached in `scripts/icon-sets/<set>.json`, and each package
- * gets a `BUNDLED_ICONS_LICENSES.md` built from it.
+ * Each package also gets a `BUNDLED_ICONS_LICENSES.md` with the license of every icon set it uses,
+ * fetched from iconify and the set's repo on each sync. `--check` does not verify it, since that
+ * would need network access.
  *
  * Usage:
- *   bun run sync-icons            # fetch missing icons/sets, rebuild generated files
- *   bun run sync-icons --update   # also re-fetch every managed icon and set from iconify
- *   bun run sync-icons --check    # offline: exit 1 if anything is missing or out of date
+ *   bun run sync-icons            # fetch missing icons, rebuild generated files and license notices
+ *   bun run sync-icons --update   # also re-fetch every managed icon from iconify
+ *   bun run sync-icons --check    # offline: exit 1 if any icon file or generated module is out of date
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,7 +33,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ICON_SETS_DIR = path.join(REPO_ROOT, 'scripts/icon-sets');
 const NOTICES_FILENAME = 'BUNDLED_ICONS_LICENSES.md';
 const ICON_DIR_NAME = 'bundled-icons';
 const CUSTOM_PREFIX = 'custom';
@@ -176,25 +176,11 @@ async function fetchIconSetInfo(prefix: string): Promise<IconSetInfo> {
   };
 }
 
-// --- icon set metadata cache (scripts/icon-sets/<set>.json) ---
-
-const iconSetInfoCache = new Map<string, IconSetInfo>();
-async function getIconSetInfo(prefix: string): Promise<IconSetInfo | undefined> {
-  if (iconSetInfoCache.has(prefix)) return iconSetInfoCache.get(prefix);
-  const cachePath = path.join(ICON_SETS_DIR, `${prefix}.json`);
-  let info: IconSetInfo | undefined;
-  if (fs.existsSync(cachePath) && !isUpdate) {
-    info = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-  } else if (!isCheck) {
-    info = await fetchIconSetInfo(prefix);
-  } else {
-    problems.push(`missing icon set metadata: ${rel(cachePath)}`);
-  }
-  if (info) {
-    iconSetInfoCache.set(prefix, info);
-    expectedFiles.push([cachePath, `${JSON.stringify(info, null, 2)}\n`]);
-  }
-  return info;
+// shared icon sets are only fetched once per run
+const iconSetInfoCache = new Map<string, Promise<IconSetInfo>>();
+function getIconSetInfo(prefix: string) {
+  if (!iconSetInfoCache.has(prefix)) iconSetInfoCache.set(prefix, fetchIconSetInfo(prefix));
+  return iconSetInfoCache.get(prefix)!;
 }
 
 // --- per package ---
@@ -286,6 +272,9 @@ async function processTarget(target: IconTarget) {
     ].join('\n'),
   ]);
 
+  // license notices need network access, so they are only rebuilt on a normal sync
+  if (isCheck) return;
+
   // license notices, grouped by the iconify set each icon comes from
   const iconsBySet = new Map<string, Array<string>>();
   const originalIcons: Array<string> = [];
@@ -302,7 +291,6 @@ async function processTarget(target: IconTarget) {
   const sections: Array<string> = [];
   for (const prefix of [...iconsBySet.keys()].sort()) {
     const info = await getIconSetInfo(prefix);
-    if (!info) continue;
     sections.push([
       `## ${info.name} (\`${prefix}\`)`,
       '',
@@ -340,13 +328,6 @@ async function processTarget(target: IconTarget) {
 // --- run ---
 
 for (const target of getTargets()) await processTarget(target);
-
-// cached set metadata nothing uses anymore
-if (fs.existsSync(ICON_SETS_DIR)) {
-  for (const fileName of fs.readdirSync(ICON_SETS_DIR)) {
-    if (!iconSetInfoCache.has(fileName.replace(/\.json$/, ''))) expectedFiles.push([path.join(ICON_SETS_DIR, fileName), undefined]);
-  }
-}
 
 for (const warning of warnings) console.warn(`[sync-bundled-icons] warning: ${warning}`);
 
