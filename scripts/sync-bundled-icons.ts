@@ -19,13 +19,13 @@
  * from `simple-icons`) or add a recolored `custom--` copy.
  *
  * Each package also gets a `BUNDLED_ICONS_LICENSES.md` with the license of every icon set it uses,
- * fetched from iconify and the set's repo on each sync. `--check` does not verify it, since that
- * would need network access.
+ * fetched from iconify and the set's repo on each sync. Rebuilding it needs network access, so
+ * `--check` only verifies that it exists and credits every bundled icon under the right set.
  *
  * Usage:
  *   bun run sync-icons            # fetch missing icons, rebuild generated files and license notices
  *   bun run sync-icons --update   # also re-fetch every managed icon from iconify
- *   bun run sync-icons --check    # offline: exit 1 if any icon file or generated module is out of date
+ *   bun run sync-icons --check    # offline: exit 1 if icon files, generated modules or notices are out of date
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -194,6 +194,8 @@ function getIconSetInfo(prefix: string) {
 
 // --- per package ---
 
+const readOrUndefined = (filePath: string) => (fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : undefined);
+
 type BundledIcon = { name: string; svg: string; basedOn?: string };
 // custom icons across all packages, to catch name clashes in the shared runtime lookup
 const customIconOwners = new Map<string, { svg: string; pkgDir: string }>();
@@ -259,7 +261,9 @@ async function processTarget(target: IconTarget) {
   }
 
   // a generated icons module does nothing unless the plugin passes it to varlock
-  if (target.isPlugin && !target.sourceFiles.some((f) => fs.readFileSync(f, 'utf-8').includes('plugin.bundledIcons'))) {
+  const isWired = (src: string) => /^import \{ BUNDLED_ICONS \} from '\.\/bundled-icons\.gen';$/m.test(src)
+    && /^plugin\.bundledIcons = BUNDLED_ICONS;$/m.test(src);
+  if (target.isPlugin && !target.sourceFiles.some((f) => isWired(fs.readFileSync(f, 'utf-8')))) {
     problems.push(`${rel(target.pkgDir)} uses icons but never sets \`plugin.bundledIcons\` - add \`import { BUNDLED_ICONS } from './bundled-icons.gen';\` and \`plugin.bundledIcons = BUNDLED_ICONS;\``);
   }
 
@@ -281,9 +285,6 @@ async function processTarget(target: IconTarget) {
     ].join('\n'),
   ]);
 
-  // license notices need network access, so they are only rebuilt on a normal sync
-  if (isCheck) return;
-
   // license notices, grouped by the iconify set each icon comes from
   const iconsBySet = new Map<string, Array<string>>();
   const originalIcons: Array<string> = [];
@@ -295,6 +296,24 @@ async function processTarget(target: IconTarget) {
     }
     const label = isCustomIcon(icon.name) ? `\`${icon.name}\` (modified from \`${source}\`)` : `\`${icon.name}\``;
     iconsBySet.set(setPrefix(source), [...iconsBySet.get(setPrefix(source)) ?? [], label]);
+  }
+
+  // rebuilding notices needs network access (license text), so offline we only verify that the
+  // committed notice credits every bundled icon under the right set
+  if (isCheck) {
+    const notes = readOrUndefined(notesPath);
+    if (!notes) {
+      problems.push(`missing license notice: ${rel(notesPath)}`);
+      return;
+    }
+    const expectedEntries = [
+      ...[...iconsBySet].flatMap(([prefix, labels]) => [`(\`${prefix}\`)`, ...labels]),
+      ...originalIcons.map((name) => `\`${name}\``),
+    ];
+    if (expectedEntries.some((entry) => !notes.includes(entry))) {
+      problems.push(`out of date: ${rel(notesPath)} does not credit every bundled icon`);
+    }
+    return;
   }
 
   const sections: Array<string> = [];
@@ -340,7 +359,6 @@ for (const target of getTargets()) await processTarget(target);
 
 for (const warning of warnings) console.warn(`[sync-bundled-icons] warning: ${warning}`);
 
-const readOrUndefined = (filePath: string) => (fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : undefined);
 const stale = expectedFiles.filter(([filePath, content]) => readOrUndefined(filePath) !== content);
 
 if (isCheck) {
