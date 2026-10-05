@@ -25,9 +25,16 @@ type RedactionState = {
   // `redactLogs: false` means the reverse (left alone by redaction, still leak-scanned)
   sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
   redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn },
-  // sensitive values grouped by first character, for the streaming holdback check
-  // (optional since state may have been created by an older copy of this module)
-  holdbackIndex?: { byFirstChar: Map<string, Array<string>>, maxLength: number },
+  // index for the streaming holdback check, built lazily (also optional since state may
+  // have been created by an older copy of this module)
+  holdbackIndex?: {
+    // sensitive values bucketed by first char code (ascii array, Map for the rest)
+    byFirstChar: Array<Array<string> | undefined>,
+    byFirstCharOther: Map<number, Array<string>>,
+    // proper-prefix lengths (longest first) bucketed by the char code each prefix ends with
+    lengthsByEndChar: Array<Array<number> | undefined>,
+    lengthsByEndCharOther: Map<number, Array<number>>,
+  },
 };
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
 
@@ -119,41 +126,74 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   state.redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
 
+function getCodeBucket<T>(ascii: Array<T | undefined>, other: Map<number, T>, code: number): T | undefined {
+  return code < 128 ? ascii[code] : other.get(code);
+}
+
 function buildHoldbackIndex(sensitiveValues: Array<string>): NonNullable<RedactionState['holdbackIndex']> {
-  const byFirstChar = new Map<string, Array<string>>();
-  let maxLength = 0;
+  const index: NonNullable<RedactionState['holdbackIndex']> = {
+    byFirstChar: new Array(128),
+    byFirstCharOther: new Map(),
+    lengthsByEndChar: new Array(128),
+    lengthsByEndCharOther: new Map(),
+  };
+  const lengthSets = new Map<number, Set<number>>();
   for (const v of sensitiveValues) {
     if (!v) continue;
-    const bucket = byFirstChar.get(v[0]);
-    if (bucket) bucket.push(v);
-    else byFirstChar.set(v[0], [v]);
-    if (v.length > maxLength) maxLength = v.length;
+    const firstCode = v.charCodeAt(0);
+    let bucket = getCodeBucket(index.byFirstChar, index.byFirstCharOther, firstCode);
+    if (!bucket) {
+      bucket = [];
+      if (firstCode < 128) index.byFirstChar[firstCode] = bucket;
+      else index.byFirstCharOther.set(firstCode, bucket);
+    }
+    bucket.push(v);
+    // a proper prefix of length `len` ends with v[len - 1]
+    for (let len = 1; len < v.length; len++) {
+      const endCode = v.charCodeAt(len - 1);
+      let lengths = lengthSets.get(endCode);
+      if (!lengths) lengthSets.set(endCode, lengths = new Set());
+      lengths.add(len);
+    }
   }
-  return { byFirstChar, maxLength };
+  for (const [endCode, lengths] of lengthSets) {
+    // longest first, so the first hit is the longest partial match
+    const sorted = [...lengths].sort((a, b) => b - a);
+    if (endCode < 128) index.lengthsByEndChar[endCode] = sorted;
+    else index.lengthsByEndCharOther.set(endCode, sorted);
+  }
+  return index;
 }
 
 /**
  * Returns the length of the longest suffix of `str` that is a partial match (proper prefix)
  * of a sensitive value. Used by streaming redaction to hold back trailing characters that
  * may be the beginning of a secret split across chunk boundaries.
+ *
+ * This runs on every streamed write, so it is indexed rather than scanning every suffix: a
+ * suffix of length `len` can only match a value whose char at `len - 1` equals the last char
+ * of `str`, so only those lengths are tried (often none, e.g. for a line ending in `\n`).
  */
 export function getRedactionHoldbackLength(str: string): number {
   const state = getRedactionState();
   // covers every sensitive value (not just redacted ones), since the response leak scanner
   // also relies on this to carry partial matches across chunk boundaries
   state.holdbackIndex ||= buildHoldbackIndex(Object.keys(state.sensitiveSecretsMap));
-  const { byFirstChar, maxLength } = state.holdbackIndex;
-  if (!byFirstChar.size || !str.length) return 0;
-  // longest suffix worth checking is one char short of a full secret
-  // (a full secret at the end of `str` will be caught by normal redaction)
-  const start = Math.max(0, str.length - (maxLength - 1));
-  // earliest start position first, so the longest partial match wins
-  for (let i = start; i < str.length; i++) {
-    const candidates = byFirstChar.get(str[i]);
+  const index = state.holdbackIndex;
+  const strLength = str.length;
+  if (!strLength) return 0;
+  const lengths = getCodeBucket(index.lengthsByEndChar, index.lengthsByEndCharOther, str.charCodeAt(strLength - 1));
+  if (!lengths) return 0;
+  for (const len of lengths) {
+    if (len > strLength) continue;
+    const start = strLength - len;
+    const candidates = getCodeBucket(index.byFirstChar, index.byFirstCharOther, str.charCodeAt(start));
     if (!candidates) continue;
-    const suffix = str.slice(i);
     for (const v of candidates) {
-      if (v.length > suffix.length && v.startsWith(suffix)) return suffix.length;
+      if (v.length <= len) continue;
+      let k = 1;
+      while (k < len && v.charCodeAt(k) === str.charCodeAt(start + k)) k++;
+      if (k === len) return len;
     }
   }
   return 0;

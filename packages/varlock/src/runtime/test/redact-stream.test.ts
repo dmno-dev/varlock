@@ -17,7 +17,37 @@ function setSecrets(secrets: Record<string, string>) {
 const SECRET_VALUE = 'super-secret-value-12345';
 const REDACTED_SECRET = 'su▒▒▒▒▒';
 
+/** straightforward version of the holdback check, to cross-check the indexed one */
+function naiveHoldbackLength(str: string, secrets: Array<string>) {
+  const longest = Math.max(0, ...secrets.map((s) => s.length));
+  for (let len = Math.min(str.length, longest - 1); len > 0; len--) {
+    const suffix = str.slice(str.length - len);
+    if (secrets.some((s) => s.length > len && s.startsWith(suffix))) return len;
+  }
+  return 0;
+}
+
 describe('getRedactionHoldbackLength', () => {
+  it('matches a naive implementation on random input', () => {
+    // a tiny alphabet makes partial matches (and repeated chars within secrets) common
+    const alphabet = 'ab-\n';
+    let seed = 42;
+    const rand = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const randStr = (len: number) => Array.from({ length: len }, () => alphabet[rand(alphabet.length)]).join('');
+    for (let round = 0; round < 50; round++) {
+      const secrets = Array.from({ length: 1 + rand(5) }, () => randStr(3 + rand(30)));
+      setSecrets(Object.fromEntries(secrets.map((s, i) => [`K${i}`, s])));
+      for (let i = 0; i < 40; i++) {
+        const str = randStr(rand(50));
+        expect(getRedactionHoldbackLength(str), JSON.stringify({ str, secrets }))
+          .toBe(naiveHoldbackLength(str, secrets));
+      }
+    }
+  });
+
   beforeEach(() => {
     setSecrets({ API_KEY: SECRET_VALUE });
   });
