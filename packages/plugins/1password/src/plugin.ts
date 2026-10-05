@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { writeFile, rm } from 'node:fs/promises';
@@ -239,6 +240,7 @@ try {
   // cache not available (e.g., no encryption key)
 }
 plugin.icon = OP_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initOp',
   params: {
@@ -916,7 +918,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Service account token used to authenticate with the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) and [SDKs](https://developer.1password.com/docs/sdks/)',
-  icon: OP_ICON,
   docs: [
     {
       description: '1Password service accounts',
@@ -935,7 +936,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'API token used to authenticate with a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/)',
-  icon: OP_ICON,
   docs: [
     {
       description: '1Password Connect',
@@ -947,7 +947,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'op',
   label: 'Fetch single field value from 1Password',
-  icon: OP_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,
@@ -1037,7 +1036,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'opLoadEnvironment',
   label: 'Load all variables from a 1Password environment',
-  icon: OP_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 1,

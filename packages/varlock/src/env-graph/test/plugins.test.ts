@@ -148,6 +148,46 @@ describe('plugins ', () => {
     expectValues: { WARNED_ITEM: 'some_value', OTHER_ITEM: 'bar' },
   }));
 
+  test('plugin bundled icons are registered on the graph', async () => {
+    const currentDir = path.dirname(expect.getState().testPath!);
+    vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: '# @plugin(./plugins/test-plugin/)\n# ---\nITEM=foo',
+    }));
+    await g.finishLoad();
+    expect(g.bundledIcons['test-plugin:icon']).toBe('<svg>test</svg>');
+  });
+
+  test('plugin data types and resolvers without an icon inherit the plugin icon', async () => {
+    const currentDir = path.dirname(expect.getState().testPath!);
+    vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @plugin(./plugins/test-plugin/)
+        # @plugin(./plugins/test-plugin-with-cache/)
+        # ---
+        # @type=testPluginIconless
+        INHERITED=
+        # @type=testPluginOwnIcon
+        OWN=
+        # @type=testPluginFnType
+        FN_TYPE=
+        # @type=testCachePluginType
+        NO_PLUGIN_ICON=
+      `,
+    }));
+    await g.finishLoad();
+    expect((await g.configSchema.INHERITED.getTypeGenInfo()).icon).toBe('test-plugin:icon');
+    expect((await g.configSchema.OWN.getTypeGenInfo()).icon).toBe('test-plugin:own-icon');
+    expect((await g.configSchema.FN_TYPE.getTypeGenInfo()).icon).toBe('test-plugin:icon');
+    expect((await g.configSchema.NO_PLUGIN_ICON.getTypeGenInfo()).icon).toBeUndefined();
+    // resolvers inherit the same way (`test` sets no icon of its own)
+    expect(g.registeredResolverFunctions.test.def.icon).toBe('test-plugin:icon');
+    expect(g.registeredResolverFunctions.cachedRun.def.icon).toBeUndefined();
+  });
+
   describe('standardVars warnings', () => {
     async function loadGraphWithPlugin(envFile: string, overrideValues: Record<string, string>) {
       const currentDir = path.dirname(expect.getState().testPath!);

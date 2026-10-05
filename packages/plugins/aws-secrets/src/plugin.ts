@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { createHash } from 'node:crypto';
 import {
@@ -19,12 +20,13 @@ import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const AWS_ICON = 'skill-icons:aws-dark';
+const AWS_ICON = 'simple-icons:amazonwebservices';
 
 plugin.name = 'aws';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = AWS_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 // capture cache accessor while the plugin proxy context is active
 // (the `plugin` proxy is only valid during module initialization, not during resolve())
@@ -590,7 +592,6 @@ plugin.registerDataType({
   name: 'awsAccessKey',
   sensitive: false,
   typeDescription: 'AWS access key ID for IAM authentication',
-  icon: AWS_ICON,
   docs: [
     {
       description: 'Managing access keys for IAM users',
@@ -610,7 +611,6 @@ plugin.registerDataType({
   name: 'awsSecretKey',
   sensitive: true,
   typeDescription: 'AWS secret access key for IAM authentication',
-  icon: AWS_ICON,
   docs: [
     {
       description: 'Managing access keys for IAM users',
@@ -629,7 +629,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'awsSecret',
   label: 'Fetch secret from AWS Secrets Manager',
-  icon: AWS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -765,7 +764,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'awsParam',
   label: 'Fetch parameter from AWS Systems Manager Parameter Store',
-  icon: AWS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

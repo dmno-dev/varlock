@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { createHash } from 'node:crypto';
 import { PassboltClient, type UUIDv4String } from './passbolt';
 import type { Resource } from './types';
@@ -20,6 +21,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = PASSBOLT_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initPassbolt',
   params: {
@@ -297,7 +299,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Passbolt accountKit for authentication',
-  icon: PASSBOLT_ICON,
   async validate(val: any): Promise<true> {
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(val)) {
       throw new ValidationError('Must be a valid Passbolt account kit');
@@ -309,7 +310,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'passbolt',
   label: 'Fetch secret value from Passbolt',
-  icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,
@@ -341,7 +341,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'passboltBulk',
   label: 'Load all secrets from a Passbolt folder',
-  icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -398,7 +397,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'passboltCustomFieldsObj',
   label: 'Load custom fields from a Passbolt resource as a JSON object',
-  icon: PASSBOLT_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 1,

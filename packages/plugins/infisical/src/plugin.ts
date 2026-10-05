@@ -1,13 +1,14 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { createHash } from 'node:crypto';
 import { InfisicalSDK } from '@infisical/sdk';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
-const INFISICAL_ICON = 'simple-icons:infisical';
+const INFISICAL_ICON = 'custom:infisical';
 
 plugin.name = 'infisical';
 const { debug } = plugin;
@@ -20,6 +21,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = INFISICAL_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initInfisical',
   params: {
@@ -444,7 +446,6 @@ plugin.registerDataType({
   name: 'infisicalClientId',
   sensitive: false, // Client ID is not typically sensitive
   typeDescription: 'Client ID for Infisical Universal Auth (machine identity)',
-  icon: INFISICAL_ICON,
   docs: [
     {
       description: 'Infisical Machine Identities',
@@ -458,7 +459,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Client Secret for Infisical Universal Auth (machine identity)',
-  icon: INFISICAL_ICON,
   docs: [
     {
       description: 'Infisical Universal Auth',
@@ -470,7 +470,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'infisical',
   label: 'Fetch secret value from Infisical',
-  icon: INFISICAL_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -611,7 +610,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'infisicalBulk',
   label: 'Load all secrets from an Infisical project environment',
-  icon: INFISICAL_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMaxLength: 1,

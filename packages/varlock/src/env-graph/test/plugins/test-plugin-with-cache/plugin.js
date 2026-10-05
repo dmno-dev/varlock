@@ -1,6 +1,8 @@
 const { plugin } = require('varlock/plugin-lib');
 
 plugin.name = 'test-plugin-with-cache';
+// no plugin.icon set, so its data types get no icon
+plugin.registerDataType({ name: 'testCachePluginType' });
 
 // captured during module execution, which is how real plugins (1password, aws-secrets)
 // grab it - the accessor has to keep working after the graph swaps its cache store

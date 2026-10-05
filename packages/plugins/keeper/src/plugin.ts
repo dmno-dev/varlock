@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { createHash } from 'node:crypto';
 import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/defer';
 import {
@@ -28,6 +29,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = KEEPER_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initKeeper',
   params: {
@@ -368,7 +370,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Base64-encoded configuration token for the [Keeper Secrets Manager](https://docs.keeper.io/secrets-manager/) SDK',
-  icon: KEEPER_ICON,
   docs: [
     {
       description: 'Keeper Secrets Manager',
@@ -403,7 +404,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'keeper',
   label: 'Fetch a secret field from Keeper Secrets Manager',
-  icon: KEEPER_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,

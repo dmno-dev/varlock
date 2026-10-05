@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import * as k8s from '@kubernetes/client-node';
 
 const { SchemaError, ResolutionError, ValidationError } = plugin.ERRORS;
@@ -11,6 +12,7 @@ plugin.name = 'kubernetes';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = KUBERNETES_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initKubernetes',
   params: {
@@ -594,7 +596,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Kubernetes bearer token for API authentication',
-  icon: KUBERNETES_ICON,
   docs: [
     {
       description: 'Kubernetes service account tokens',
@@ -612,7 +613,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'k8sSecret',
   label: 'Fetch key from Kubernetes Secret',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -634,7 +634,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'k8sConfigMap',
   label: 'Fetch key from Kubernetes ConfigMap',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -656,7 +655,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'k8sSecretBulk',
   label: 'Load all keys from Kubernetes Secret',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -674,7 +672,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'k8sConfigMapBulk',
   label: 'Load all keys from Kubernetes ConfigMap',
-  icon: KUBERNETES_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

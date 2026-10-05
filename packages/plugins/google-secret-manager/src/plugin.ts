@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { GoogleAuth } from 'google-auth-library';
 
@@ -8,7 +9,7 @@ import { createSubjectTokenSupplier } from './workload-identity';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const GSM_ICON = 'devicon:googlecloud';
+const GSM_ICON = 'simple-icons:googlecloud';
 
 plugin.name = 'gsm';
 const { debug } = plugin;
@@ -22,6 +23,7 @@ try {
   // cache not available (e.g., no encryption key)
 }
 plugin.icon = GSM_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initGsm',
   params: {
@@ -308,7 +310,6 @@ plugin.registerDataType({
   name: 'gcpServiceAccountJson',
   sensitive: true,
   typeDescription: 'Google Cloud service account JSON key for authentication with Secret Manager',
-  icon: GSM_ICON,
   docs: [
     {
       description: 'Creating and managing service accounts',
@@ -355,7 +356,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'gsm',
   label: 'Fetch secret from Google Secret Manager',
-  icon: GSM_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 0,

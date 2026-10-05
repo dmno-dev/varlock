@@ -205,8 +205,16 @@ export class VarlockPlugin {
   set version(val: string) { this._version = val; }
 
   private _icon?: string;
-  get icon() { return this._icon || 'mdi:puzzle'; }
-  set icon(val: string) { this._icon = val; }
+  /** iconify name (e.g. `mdi:key`), also used by the plugin's data types and resolvers that don't set their own */
+  get icon(): string | undefined { return this._icon; }
+  set icon(val: string | undefined) { this._icon = val; }
+
+  /**
+   * SVGs for the iconify icons this plugin uses (keyed by iconify name, e.g. `simple-icons:1password`),
+   * so generated types can embed them without fetching them over the network.
+   * A plain property (not a register method) so a plugin setting it on an older varlock is harmless.
+   */
+  bundledIcons?: Record<string, string>;
 
   loadingError?: VarlockError;
   warnings: Array<SchemaError> = [];
@@ -570,12 +578,14 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
     graph.registerItemDecorator(itemDec);
   }
   for (const dataType of plugin.dataTypes || []) {
-    graph.registerDataType(createEnvGraphDataType(dataType));
+    // data types without their own icon use the plugin's icon
+    graph.registerDataType(createEnvGraphDataType(dataType, { icon: plugin.icon }));
   }
   for (const resolverDef of plugin.resolverFunctions || []) {
     // might want to move into plugin load process
-    graph.registerResolver(createResolver(resolverDef));
+    graph.registerResolver(createResolver(resolverDef, { icon: plugin.icon }));
   }
+  Object.assign(graph.bundledIcons, plugin.bundledIcons);
   for (const transformSchemeDef of plugin.proxyTransformSchemes || []) {
     const { scheme, ...schemeDef } = transformSchemeDef;
     graph.registerProxyTransformScheme(scheme, schemeDef);

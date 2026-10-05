@@ -13,7 +13,10 @@
   "exports": {
     "./plugin": "./dist/plugin.cjs"
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "BUNDLED_ICONS_LICENSES.md"
+  ],
   "scripts": {
     "dev": "bun run copy-wasm && tsdown --watch",
     "build": "tsdown && bun run copy-wasm",

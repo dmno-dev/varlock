@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import ky from 'ky';
 import { createHash, createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
 
-const AZURE_ICON = 'skill-icons:azure-dark';
+const AZURE_ICON = 'simple-icons:microsoftazure';
 
 interface AzureCloud {
   /** Entra ID authority host used to mint tokens */
@@ -74,6 +75,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = AZURE_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initAzure',
   params: {
@@ -1036,7 +1038,6 @@ plugin.registerDataType({
   name: 'azureTenantId',
   sensitive: false,
   typeDescription: 'Azure AD tenant ID (directory ID) for authentication',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'How to find your Azure AD tenant ID',
@@ -1056,7 +1057,6 @@ plugin.registerDataType({
   name: 'azureClientId',
   sensitive: false,
   typeDescription: 'Azure service principal application (client) ID',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'Creating a service principal',
@@ -1076,7 +1076,6 @@ plugin.registerDataType({
   name: 'azureClientSecret',
   sensitive: true,
   typeDescription: 'Azure service principal client secret (password)',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'Creating a service principal',
@@ -1090,7 +1089,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Azure App Configuration access key connection string (Endpoint=...;Id=...;Secret=...)',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'App Configuration access keys',
@@ -1178,7 +1176,6 @@ async function resolveOptionalString(resolver: Resolver | undefined, label: stri
 plugin.registerResolverFunction({
   name: 'azureSecret',
   label: 'Fetch secret from Azure Key Vault',
-  icon: AZURE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -1262,7 +1259,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'azureAppConfig',
   label: 'Fetch setting from Azure App Configuration',
-  icon: AZURE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -1314,7 +1310,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'azureAppConfigBulk',
   label: 'Load settings from Azure App Configuration as JSON',
-  icon: AZURE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,

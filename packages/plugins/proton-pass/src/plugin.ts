@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -9,6 +10,7 @@ plugin.name = 'proton-pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = PROTON_PASS_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 plugin.standardVars = {
   initDecorator: '@initProtonPass',
@@ -408,7 +410,6 @@ plugin.registerDataType({
   name: 'protonPassSecretRef',
   sensitive: false,
   typeDescription: 'Proton Pass secret reference in the format `pass://vault/item/field`',
-  icon: PROTON_PASS_ICON,
   docs: [
     {
       description: 'Secret reference syntax for Proton Pass CLI',
@@ -432,7 +433,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Proton Pass account password used by `pass-cli login --interactive`',
-  icon: PROTON_PASS_ICON,
   docs: [
     {
       description: 'Proton Pass CLI login',
@@ -450,7 +450,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Proton Pass TOTP code used by `pass-cli login --interactive` (if 2FA is enabled)',
-  icon: PROTON_PASS_ICON,
   async validate(val): Promise<true> {
     if (!val || typeof val !== 'string') throw new ValidationError('TOTP must be a non-empty string');
     if (!/^[0-9]{6,8}$/.test(val.trim())) throw new ValidationError('TOTP should be 6-8 digits');
@@ -463,7 +462,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Proton Pass extra password used by `pass-cli login --interactive` (if required by your account)',
-  icon: PROTON_PASS_ICON,
   async validate(val): Promise<true> {
     if (!val || typeof val !== 'string') throw new ValidationError('Extra password must be a non-empty string');
     return true;
@@ -475,7 +473,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Proton Pass personal access token used by `pass-cli login` (non-interactive, recommended for CI)',
-  icon: PROTON_PASS_ICON,
   docs: [
     {
       description: 'Proton Pass CLI personal access token login',
@@ -544,7 +541,6 @@ plugin.registerRootDecorator({
 plugin.registerResolverFunction({
   name: 'protonPass',
   label: 'Fetch secret from Proton Pass',
-  icon: PROTON_PASS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,

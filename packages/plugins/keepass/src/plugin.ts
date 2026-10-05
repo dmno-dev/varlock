@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { KdbxReader, sanitizeEnvKey } from './kdbx-reader';
 import { KpCliReader } from './cli-helper';
@@ -11,6 +12,7 @@ plugin.name = 'keepass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = KP_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 /** Shared interface for both file-mode and CLI-mode readers */
 interface KpReader {
@@ -217,7 +219,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Master password for a KeePass KDBX database file',
-  icon: KP_ICON,
   docs: [
     {
       description: 'KeePassXC documentation',
@@ -237,7 +238,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'kp',
   label: 'Fetch a single secret from a KeePass database entry',
-  icon: KP_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -347,7 +347,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'kpBulk',
   label: 'Load all secrets from a KeePass database group as a JSON map',
-  icon: KP_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMaxLength: 2,

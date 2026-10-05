@@ -1,12 +1,13 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { createHash } from 'node:crypto';
 import ky from 'ky';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
 
-const DOPPLER_ICON = 'simple-icons:doppler';
+const DOPPLER_ICON = 'custom:doppler';
 const DOPPLER_API_BASE = 'https://api.doppler.com/v3';
 
 plugin.name = 'doppler';
@@ -20,6 +21,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = DOPPLER_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initDoppler',
   params: {
@@ -271,7 +273,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Doppler service token for API access',
-  icon: DOPPLER_ICON,
   docs: [
     {
       description: 'Doppler Service Tokens',
@@ -283,7 +284,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'doppler',
   label: 'Fetch secret value from Doppler',
-  icon: DOPPLER_ICON,
   argsSchema: {
     type: 'array',
     arrayMinLength: 0,
@@ -398,7 +398,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'dopplerBulk',
   label: 'Load all secrets from a Doppler config',
-  icon: DOPPLER_ICON,
   argsSchema: {
     type: 'array',
     arrayMaxLength: 1,

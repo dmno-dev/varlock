@@ -418,6 +418,9 @@ export class EnvGraph {
 
   /** Registered code generators, keyed by the root decorator name that triggers them. */
   codeGeneratorsRegistry: Record<string, CodeGeneratorDef> = {};
+
+  /** icon SVGs bundled by plugins (`plugin.bundledIcons`), keyed by iconify name */
+  bundledIcons: Record<string, string> = {};
   registerCodeGenerator(generatorDef: CodeGeneratorDef) {
     const name = generatorDef.decoratorName;
     // code-gen decorators must be `@generate*` — a consistent, self-documenting convention that

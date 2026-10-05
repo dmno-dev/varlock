@@ -1,6 +1,7 @@
 import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import ky from 'ky';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -23,6 +24,7 @@ try {
   // cache unavailable in this runtime context
 }
 plugin.icon = VAULT_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initHcpVault',
   params: {
@@ -556,7 +558,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'HashiCorp Vault authentication token',
-  icon: VAULT_ICON,
   docs: [
     {
       description: 'Vault Tokens',
@@ -568,7 +569,6 @@ plugin.registerDataType({
 plugin.registerResolverFunction({
   name: 'vaultSecret',
   label: 'Fetch secret from HashiCorp Vault KV v2',
-  icon: VAULT_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -729,7 +729,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'vaultToken',
   label: 'HashiCorp Vault client token',
-  icon: VAULT_ICON,
   impliesSensitive: true,
   argsSchema: {
     type: 'array',

@@ -442,9 +442,13 @@ export class ErrorResolver extends Resolver {
   }
 }
 
-export function createResolver<T>(def: ResolverDef<T>) {
+export function createResolver<T>(
+  def: ResolverDef<T>,
+  /** used when the def doesn't set its own, e.g. a plugin's icon for the resolvers it registers */
+  defaults?: { icon?: string },
+) {
   const ResolverClass = class extends Resolver {};
-  ResolverClass.def = def;
+  ResolverClass.def = def.icon || !defaults?.icon ? def : { ...def, icon: defaults.icon };
   return ResolverClass as typeof Resolver;
 }
 

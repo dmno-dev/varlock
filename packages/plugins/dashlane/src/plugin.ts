@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { DashlaneManager } from './dashlane-manager';
 import { validateDeviceKeys } from './validators';
 
@@ -10,6 +11,7 @@ plugin.name = 'dashlane';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = DASHLANE_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 plugin.standardVars = {
   initDecorator: '@initDashlane',
   params: {
@@ -34,7 +36,6 @@ plugin.registerRootDecorator({
 plugin.registerResolverFunction({
   name: 'dashlane',
   label: 'Fetch secret from Dashlane by dl:// reference',
-  icon: DASHLANE_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 1,
@@ -85,7 +86,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Service device keys for non-interactive Dashlane CLI authentication',
-  icon: DASHLANE_ICON,
   docs: [
     {
       description: 'Dashlane CLI device registration',

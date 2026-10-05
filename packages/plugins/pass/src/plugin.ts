@@ -1,4 +1,5 @@
 import { type Resolver, plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 
 const { SchemaError, ResolutionError } = plugin.ERRORS;
@@ -9,6 +10,7 @@ plugin.name = 'pass';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
 plugin.icon = PASS_ICON;
+plugin.bundledIcons = BUNDLED_ICONS;
 
 const FIX_INSTALL_TIP = [
   'The `pass` command was not found on your system.',
@@ -342,7 +344,6 @@ plugin.registerRootDecorator({
 plugin.registerResolverFunction({
   name: 'pass',
   label: 'Fetch secret from pass (the standard unix password manager)',
-  icon: PASS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMinLength: 0,
@@ -469,7 +470,6 @@ plugin.registerResolverFunction({
 plugin.registerResolverFunction({
   name: 'passBulk',
   label: 'Load all secrets from a pass store directory as a JSON map',
-  icon: PASS_ICON,
   argsSchema: {
     type: 'mixed',
     arrayMaxLength: 2,

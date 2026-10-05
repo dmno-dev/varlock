@@ -1,11 +1,13 @@
 import { plugin } from 'varlock/plugin-lib';
+import { BUNDLED_ICONS } from './bundled-icons.gen';
 
 import { signAwsSigv4Transform } from './sigv4';
 
 plugin.name = 'aws-sigv4';
 const { debug } = plugin;
 debug('init - version =', plugin.version);
-plugin.icon = 'skill-icons:aws-dark';
+plugin.icon = 'simple-icons:amazonwebservices';
+plugin.bundledIcons = BUNDLED_ICONS;
 
 plugin.registerProxyTransformScheme({
   scheme: 'aws-sigv4',
