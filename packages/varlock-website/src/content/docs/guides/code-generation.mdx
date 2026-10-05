@@ -102,12 +102,13 @@ The `decoratorName` must start with `generate` (e.g. `generateZodSchema`), a sha
 
 ### Bundling icons
 
-If your plugin's data types set an `icon`, TypeScript generation embeds it in the JSDoc for each matching item. Icons it doesn't have locally are fetched from Iconify at generation time. To avoid that network request, ship the SVGs with your plugin, keyed by Iconify name:
+TypeScript generation embeds each data type's `icon` in the JSDoc for matching items. Data types that don't set an `icon` use your plugin's `plugin.icon`. Icons varlock doesn't have locally are fetched from Iconify at generation time. To avoid that network request, ship the SVGs with your plugin, keyed by Iconify name:
 
 ```ts title="my-plugin.ts"
+plugin.icon = 'mdi:shield-key';
+// no `icon` here, so it uses the plugin icon
 plugin.registerDataType({
   name: 'myServiceToken',
-  icon: 'mdi:shield-key',
   // ...
 });
 plugin.bundledIcons = {

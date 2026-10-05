@@ -151,10 +151,13 @@ export function createEnvGraphDataType<TsType, InstanceSettingsArgs extends Arra
   dataTypeDef:
     EnvGraphDataTypeDef<TsType>
     | ((...args: InstanceSettingsArgs) => EnvGraphDataTypeDef<TsType>),
+  /** used when the def doesn't set its own, e.g. a plugin's icon for the data types it registers */
+  defaults?: { icon?: string },
 ) {
   const typeFactoryFn = (...usageOpts: InstanceSettingsArgs) => {
+    const def = _.isFunction(dataTypeDef) ? dataTypeDef(...usageOpts) : dataTypeDef;
     return new EnvGraphDataType(
-      _.isFunction(dataTypeDef) ? dataTypeDef(...usageOpts) : dataTypeDef,
+      def.icon || !defaults?.icon ? def : { ...def, icon: defaults.icon },
       typeFactoryFn,
     );
   };

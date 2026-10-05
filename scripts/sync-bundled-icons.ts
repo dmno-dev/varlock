@@ -105,18 +105,21 @@ function getTargets(): Array<IconTarget> {
   return targets;
 }
 
-// iconify names in icon contexts, like `icon: 'mdi:web'` or `const X_ICON = 'mdi:web'`
-const ICON_NAME_PATTERNS = [
-  /\bicon\s*[:=]\s*['"]([a-z0-9-]+:[a-z0-9-]+)['"]/g,
-  /\b[A-Z0-9_]*ICON\s*=\s*['"]([a-z0-9-]+:[a-z0-9-]+)['"]/g,
-];
+// iconify names used by data types (`icon: 'mdi:web'`) or set as the plugin's own icon
+// (`plugin.icon = 'mdi:web'`, which data types without an icon inherit), either as a literal or via
+// a constant like `const SOME_ICON = 'mdi:web'`
+const ICON_NAME = '[a-z0-9-]+:[a-z0-9-]+';
+const ICON_LITERAL_PATTERN = new RegExp(`\\b(?:icon\\s*:|plugin\\.icon\\s*=)\\s*['"](${ICON_NAME})['"]`, 'g');
+const ICON_CONST_PATTERN = /\b(?:icon\s*:|plugin\.icon\s*=)\s*([A-Za-z_$][\w$]*)\s*[,;}\n]/g;
 
 function collectIconNames(files: Array<string>): Array<string> {
   const names = new Set<string>();
   for (const file of files) {
     const src = fs.readFileSync(file, 'utf-8');
-    for (const pattern of ICON_NAME_PATTERNS) {
-      for (const match of src.matchAll(pattern)) names.add(match[1]);
+    for (const match of src.matchAll(ICON_LITERAL_PATTERN)) names.add(match[1]);
+    for (const match of src.matchAll(ICON_CONST_PATTERN)) {
+      const constValue = src.match(new RegExp(`\\bconst\\s+${match[1]}\\s*=\\s*['"](${ICON_NAME})['"]`))?.[1];
+      if (constValue) names.add(constValue);
     }
   }
   return [...names].sort();

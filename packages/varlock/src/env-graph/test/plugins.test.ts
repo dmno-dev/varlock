@@ -159,6 +159,32 @@ describe('plugins ', () => {
     expect(g.bundledIcons['test-plugin:icon']).toBe('<svg>test</svg>');
   });
 
+  test('plugin data types without an icon inherit the plugin icon', async () => {
+    const currentDir = path.dirname(expect.getState().testPath!);
+    vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @plugin(./plugins/test-plugin/)
+        # @plugin(./plugins/test-plugin-with-cache/)
+        # ---
+        # @type=testPluginIconless
+        INHERITED=
+        # @type=testPluginOwnIcon
+        OWN=
+        # @type=testPluginFnType
+        FN_TYPE=
+        # @type=testCachePluginType
+        NO_PLUGIN_ICON=
+      `,
+    }));
+    await g.finishLoad();
+    expect((await g.configSchema.INHERITED.getTypeGenInfo()).icon).toBe('test-plugin:icon');
+    expect((await g.configSchema.OWN.getTypeGenInfo()).icon).toBe('test-plugin:own-icon');
+    expect((await g.configSchema.FN_TYPE.getTypeGenInfo()).icon).toBe('test-plugin:icon');
+    expect((await g.configSchema.NO_PLUGIN_ICON.getTypeGenInfo()).icon).toBeUndefined();
+  });
+
   describe('standardVars warnings', () => {
     async function loadGraphWithPlugin(envFile: string, overrideValues: Record<string, string>) {
       const currentDir = path.dirname(expect.getState().testPath!);
