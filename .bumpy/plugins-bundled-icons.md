@@ -17,4 +17,4 @@
 "@varlock/infisical-plugin": patch
 ---
 
-Bundle this plugin's icon so generated types include it without a network request
+Bundle this plugin's icon so generated types include it without a network request. The AWS, Azure, Google Cloud, Doppler, and Infisical icons are now monochrome so they follow the editor theme.
