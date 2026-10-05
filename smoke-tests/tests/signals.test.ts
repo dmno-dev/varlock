@@ -77,6 +77,31 @@ describe.skipIf(process.platform === 'win32')('Signal handling', () => {
     expect(result.code).toBe(0);
   });
 
+  // many CLIs (Effect's runMain, alchemy) clean up on SIGINT and then exit(130) rather
+  // than re-raising the signal: that is a normal shutdown, not a command failure
+  test('treats a non-zero exit after a handled forwarded signal as a clean shutdown', async () => {
+    const result = await runAndSignal(
+      ['bash', '-c', 'trap "echo cleaning-up; exit 130" INT; echo ready; sleep 60 & wait'],
+      'SIGINT',
+    );
+
+    expect(result.output).toContain('cleaning-up');
+    expect(result.output).not.toContain('varlock may be the problem');
+    expect(result.code).toBe(130);
+  });
+
+  // SIGHUP is often a reload, so a later failure is still a real command failure
+  test('still reports a failure after a handled SIGHUP', async () => {
+    const result = await runAndSignal(
+      ['bash', '-c', 'trap "echo reloaded" HUP; echo ready; sleep 1; exit 7'],
+      'SIGHUP',
+    );
+
+    expect(result.output).toContain('reloaded');
+    expect(result.output).toContain('varlock may be the problem');
+    expect(result.code).toBe(7);
+  });
+
   test('propagates 128+N when the child is killed by a signal (SIGTERM -> 143)', () => {
     const result = varlockRun(['bash', '-c', 'kill -TERM $$'], { cwd: 'smoke-test-basic' });
     expect(result.exitCode).toBe(143);
