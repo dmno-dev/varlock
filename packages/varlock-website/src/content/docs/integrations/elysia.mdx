@@ -113,6 +113,8 @@ Locally, varlock resolves your `.env` files on every boot. In a deploy that is u
 
 That image needs nothing else: no `.env` files, no `node_modules`, and no varlock CLI. Values, coerced types, and sensitivity all travel inside the frozen file, so `ENV.PORT` is still a number and log redaction still works.
 
+If your platform assigns `PORT` to each instance, mark it [`@dynamic=boot`](/guides/deploy-time-config/#keys-supplied-at-boot) in your schema. Otherwise the frozen value wins over the one the platform sets.
+
 Set `_VARLOCK_USE_FROZEN_ENV=1` in production so a missing frozen file is a hard error instead of a silent fall back to normal resolution.
 
 :::caution[Values are pinned once frozen]

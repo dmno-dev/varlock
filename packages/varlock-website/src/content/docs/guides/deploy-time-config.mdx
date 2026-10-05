@@ -91,7 +91,7 @@ The framework integrations have done this for a long time. `varlock freeze` gene
     bun server.js
     ```
 
-    As long as your app imports `varlock/auto-load` (or you launch it with `varlock run`), varlock finds the file and uses it. No varlock CLI, no .env files, and no resolver credentials are needed in the runtime image, unless the schema has [keys supplied at boot](#keys-supplied-at-boot).
+    As long as your app imports `varlock/auto-load` (or you launch it with `varlock run`), varlock finds the file and uses it. No varlock CLI, no .env files, and no resolver credentials are needed in the runtime image.
 
 </Steps>
 
@@ -127,7 +127,7 @@ new Elysia()
   .listen(ENV.PORT);
 ```
 
-Types and sensitivity travel in the file, so `ENV.PORT` is still a number and log redaction still knows which values are secret.
+Types and sensitivity travel in the file, so `ENV.PORT` is still a number and log redaction still knows which values are secret. If your platform assigns `PORT` to each instance, mark it [`@dynamic=boot`](#keys-supplied-at-boot) so the platform's value wins over the frozen one.
 
 ### Controlling the file
 
@@ -140,13 +140,14 @@ Varlock uses `.varlock-frozen-env` in the working directory automatically when i
 | `0` / `false` | Never use a frozen env file |
 | any path | Require a frozen env file at that path, relative to the working directory unless absolute |
 
+Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
+
 Setting `_VARLOCK_USE_FROZEN_ENV=1` (or booting with `varlock run --frozen`) in production is worth doing. Without it, a pipeline that failed to produce the file, or an image that failed to copy it, boots and resolves normally instead, and you have no signal that the pin is not in effect.
 
 `varlock load` is different: every framework integration resolves through it at dev and build time, so it uses the file only when told to explicitly (`--frozen`, or `_VARLOCK_USE_FROZEN_ENV` set to `1` or a path). A plain `varlock load` next to a frozen file keeps showing what your .env files resolve to, and prints a warning that `varlock run` and auto-load would boot from the file instead. `varlock load --frozen` in the runtime image shows exactly what the app boots with. If the file is left over from running `varlock freeze` locally, delete it.
 
 A frozen file is a deploy artifact, so `vite dev` and `next dev` refuse to start when one is present in the project directory, rather than quietly disagreeing with `varlock run`. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0` if you need to keep it there.
 
-Note that any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails. Only `0` and `false` disable it.
 
 ### Freeze options
 
@@ -198,7 +199,7 @@ PORT=3000
 INSTANCE_ID=
 ```
 
-A boot key is frozen like everything else, and whatever it resolves to at freeze time becomes its default. At boot, a value set in the environment overrides that default. The override is checked against what the freeze recorded about the key (its type and whether it is required), so a missing required `INSTANCE_ID`, or `PORT=abc` against `@type=port`, fails the boot. Every other key keeps its frozen value.
+A boot key is frozen like everything else, and whatever it resolves to at freeze time becomes its default. When the app starts, a value for that key in the process environment (set by the platform, `docker run -e`, and so on) overrides the default. A variable that is set but empty counts as set. The override is checked against what the freeze recorded about the key (its type and whether it is required), so a missing required `INSTANCE_ID`, or `PORT=abc` against `@type=port`, fails the boot. Every other key keeps its frozen value.
 
 Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine: it just has to be set at boot.
 
@@ -267,7 +268,7 @@ The payload holds every resolved value, so it can outgrow what a platform accept
 
 **A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, `varlock run` and `varlock/auto-load` use it even after you edit your .env files. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`. (`vite dev` and `next dev` refuse to start next to one.) A frozen file is final: keys added to the schema since the freeze are not part of it until you re-freeze.
 
-**Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Mark those [`@dynamic=boot`](#keys-supplied-at-boot) so they are resolved at boot, which does mean the runtime needs the credentials that resolver uses.
+**Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Resolvers never run at boot, not even for [boot keys](#keys-supplied-at-boot), so freezing is the wrong tool for a service that needs fresh credentials. Use [`varlock run`](/reference/cli/load-and-run/#run) for it, or have the platform supply the value in the environment at boot and mark the key `@dynamic=boot`.
 
 **None of this applies to local development.** Resolve from your `.env` files on every run, which is what varlock does by default.
 

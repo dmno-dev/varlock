@@ -161,7 +161,14 @@ Sets whether the item is _dynamic_ - meaning integrations should avoid replacing
 
 By default, dynamic behavior follows sensitivity (sensitive items are dynamic, non-sensitive items are static), but this can be overridden globally with [`@defaultDynamic`](/reference/root-decorators/#defaultdynamic).
 
-`@dynamic=boot` marks a stricter subset: the value is bound at process start on each instance. Use it for a platform-assigned `PORT`, pod or machine identity, or anything an operator sets with `docker run -e`. Under [`varlock freeze`](/guides/deploy-time-config/#keys-supplied-at-boot) the item is frozen like everything else, but its frozen value is only a default: a value set in the environment at boot overrides it, checked against the item's type and `@required` as recorded at freeze time. Everywhere else it behaves like `@dynamic`. It must be written literally, and it is per item (there is no root default). Its type must be a built-in, non-composite type with plain settings, so it can be checked at boot without the schema. Nothing may reference a boot item, including another boot item, since the reference would keep the freeze-time value: an item whose value or decorators reference one is a schema error on every load. Root decorators cannot reference a boot item either (`@redactLogs=$X`, `@cache`, `@disable`, `@import(enabled=...)`, plugin init), since they are settled before boot, and the [`@currentEnv`](/reference/root-decorators/#currentenv) item cannot be boot, since it decides which env files load.
+`@dynamic=boot` marks a stricter subset: the value is bound at process start on each instance. Use it for a platform-assigned `PORT`, pod or machine identity, or anything an operator sets with `docker run -e`. Under [`varlock freeze`](/guides/deploy-time-config/#keys-supplied-at-boot) the item is frozen like everything else, but its frozen value is only a default: a value in the environment when the app starts overrides it, checked against the item's type and `@required` as recorded at freeze time. Everywhere else it behaves like `@dynamic`.
+
+Rules, each a schema error on every load:
+
+- It must be written literally, and it is per item (there is no root default).
+- Its type must be a built-in, non-composite type with plain settings, so it can be checked at boot without the schema.
+- Nothing may reference a boot item, including another boot item, since the reference would keep the freeze-time value. This covers values and decorator functions.
+- Root decorators cannot reference a boot item (`@redactLogs=$X`, `@cache`, `@disable`, `@import(enabled=...)`, plugin init), since they are settled before boot, and the [`@currentEnv`](/reference/root-decorators/#currentenv) item cannot be boot, since it decides which env files load.
 
 | Value | Bound at | Meaning |
 | --- | --- | --- |
