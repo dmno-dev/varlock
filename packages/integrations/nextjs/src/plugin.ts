@@ -5,10 +5,11 @@ import path from 'node:path';
 import type { NextConfig } from 'next';
 
 import {
-  getRedactionMapInfo, initVarlockEnv, redactSensitiveConfig, scanForLeaks, varlockSettings,
+  getRedactionMapInfo, initVarlockEnv, scanForLeaks, varlockSettings,
 } from 'varlock/env';
 import { patchGlobalConsole } from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
+import { scrubLeakedSecrets } from './leak-scrub';
 
 import type { SerializedEnvGraph } from 'varlock';
 import { createWebpackConfigFn } from './webpack-plugin';
@@ -175,7 +176,7 @@ async function scanBuildOutputForLeaks(nextDirPath: string, opts?: { failBuild?:
     } catch (err) {
       leakedFiles.push(file);
       // redact the file so the leak doesn't ship
-      await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
+      await fs.promises.writeFile(file, scrubLeakedSecrets(fileContents));
     }
   }
 
@@ -195,7 +196,7 @@ async function scanBuildOutputForLeaks(nextDirPath: string, opts?: { failBuild?:
         });
       } catch (err) {
         leakedFiles.push(file);
-        await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
+        await fs.promises.writeFile(file, scrubLeakedSecrets(fileContents));
       }
     }
   }

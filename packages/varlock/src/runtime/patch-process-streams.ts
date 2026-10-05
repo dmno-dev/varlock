@@ -13,6 +13,7 @@ type StreamName = 'stdout' | 'stderr';
 type WriteCallback = (err?: Error | null) => void;
 type WritableLike = {
   write: (...args: Array<any>) => boolean,
+  end?: (...args: Array<any>) => any,
   isTTY?: boolean,
   fd?: number,
   writableNeedDrain?: boolean,
@@ -20,6 +21,7 @@ type WritableLike = {
 
 type StreamPatchState = {
   originalWrite: WritableLike['write'],
+  originalEnd: WritableLike['end'],
   /** text held back because it ends with what may be the start of a secret */
   pendingText: string,
   /** trailing bytes of an incomplete UTF-8 sequence, waiting for the rest of the character */
@@ -173,6 +175,7 @@ export function patchStreamWrite(stream: WritableLike): boolean {
   if ((stream as any)[PATCH_STATE_KEY]) return false;
   const state: StreamPatchState = {
     originalWrite: stream.write,
+    originalEnd: stream.end,
     pendingText: '',
     pendingBytes: undefined,
     pendingCallbacks: [],
@@ -210,6 +213,27 @@ export function patchStreamWrite(stream: WritableLike): boolean {
     flushPending(stream, state);
     return state.originalWrite.apply(stream, arguments as any);
   };
+
+  // held-back output must go out before the stream ends (otherwise it is lost, or flushed
+  // after the end and errors with ERR_STREAM_WRITE_AFTER_END)
+  if (typeof state.originalEnd === 'function') {
+    stream.end = function (this: WritableLike, chunk?: any, encodingOrCb?: any, maybeCb?: any) {
+      let cb = maybeCb;
+      let encoding = encodingOrCb;
+      if (typeof chunk === 'function') {
+        cb = chunk;
+        chunk = undefined;
+        encoding = undefined;
+      } else if (typeof encodingOrCb === 'function') {
+        cb = encodingOrCb;
+        encoding = undefined;
+      }
+      // the final chunk goes through the redacting write like any other
+      if (chunk !== undefined && chunk !== null) stream.write(chunk, encoding);
+      flushPending(stream, state);
+      return state.originalEnd!.call(stream, cb);
+    };
+  }
   return true;
 }
 
@@ -219,6 +243,7 @@ export function unpatchStreamWrite(stream: WritableLike) {
   if (!state) return;
   flushPending(stream, state);
   stream.write = state.originalWrite;
+  if (state.originalEnd) stream.end = state.originalEnd;
   delete (stream as any)[PATCH_STATE_KEY];
 }
 

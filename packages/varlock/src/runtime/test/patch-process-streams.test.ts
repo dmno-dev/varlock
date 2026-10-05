@@ -7,6 +7,7 @@ import {
 import {
   patchStreamWrite, unpatchStreamWrite, flushStreamWrite, shouldRedactProcessStream,
 } from '../patch-process-streams';
+import { Writable } from 'node:stream';
 import type { SerializedEnvGraph } from '../../env-graph';
 
 const SECRET = 'super-secret-value-12345';
@@ -197,5 +198,52 @@ describe('shouldRedactProcessStream', () => {
     expect(shouldRedactProcessStream('stdout', pipe, env, 5678)).toBe(true);
     // a malformed marker is ignored
     expect(shouldRedactProcessStream('stdout', pipe, { __VARLOCK_REDACTED_STREAMS: 'stdout' }, 1234)).toBe(true);
+  });
+});
+
+describe('patchStreamWrite with a real Writable', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: { value: SECRET } });
+  });
+
+  it('writes held-back text before end(), and the write callback succeeds', async () => {
+    const chunks: Array<string> = [];
+    const stream = new Writable({
+      write(chunk, _encoding, done) {
+        chunks.push(chunk.toString());
+        done();
+      },
+    });
+    patchStreamWrite(stream as any);
+    const writeCb = vi.fn();
+    stream.write('ends with super-sec', writeCb);
+    stream.end('ret-value-12345 tail\n');
+    await new Promise((resolve) => {
+      stream.on('finish', resolve);
+    });
+    expect(chunks.join('')).toBe(`ends with ${REDACTED} tail\n`);
+    expect(writeCb).toHaveBeenCalledTimes(1);
+    expect(writeCb.mock.calls[0][0]).toBeFalsy(); // no error
+    // the flush timer must not fire after the stream ended
+    await new Promise((resolve) => {
+      setTimeout(resolve, 150);
+    });
+    expect(writeCb).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports end(cb) with held-back text', async () => {
+    const chunks: Array<string> = [];
+    const stream = new Writable({
+      write(chunk, _encoding, done) {
+        chunks.push(chunk.toString());
+        done();
+      },
+    });
+    patchStreamWrite(stream as any);
+    stream.write('ends with super-sec');
+    await new Promise((resolve) => {
+      stream.end(resolve);
+    });
+    expect(chunks.join('')).toBe('ends with super-sec');
   });
 });
