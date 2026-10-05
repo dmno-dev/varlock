@@ -121,7 +121,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [depot-ubuntu-24.04-4, depot-macos-latest, depot-windows-2025]
+        os: [depot-ubuntu-24.04-4, depot-macos-latest, depot-windows-2025-4]
         node-version: ['24.x']
         include:
           - os: depot-ubuntu-24.04-4
@@ -130,7 +130,7 @@ jobs:
           - os: depot-macos-latest
             binary-artifact: varlock-binary-macos-arm64
             binary-name: varlock
-          - os: depot-windows-2025
+          - os: depot-windows-2025-4
             binary-artifact: varlock-binary-win-x64
             binary-name: varlock.exe
 
