@@ -115,7 +115,7 @@ plugin.bundledIcons = {
 };
 ```
 
-Use the SVG Iconify serves at a height of 20 (`https://api.iconify.design/mdi/shield-key.svg?height=20`) so the output matches a fetched icon. Older varlock versions ignore `bundledIcons`, so setting it is safe.
+Use the SVG Iconify serves at a height of 20 (`https://api.iconify.design/mdi/shield-key.svg?height=20`) so the output matches a fetched icon. You can also bundle icons that are not on Iconify under any name your data types use. Older varlock versions ignore `bundledIcons`, so setting it is safe.
 
 Plugins that register custom data types can also declare `coercedType` (what their `coerce()` function outputs: `'string'`, `'int'`, `'number'`, `'boolean'`, `'object'`, or `{ enum: [...] }`) so generated code types those fields correctly in every language:
 

@@ -1,0 +1,13 @@
+{
+  "name": "Material Design Icons",
+  "author": {
+    "name": "Pictogrammers",
+    "url": "https://github.com/Templarian/MaterialDesign"
+  },
+  "license": {
+    "title": "Apache 2.0",
+    "spdx": "Apache-2.0",
+    "url": "https://github.com/Templarian/MaterialDesign/blob/master/LICENSE"
+  },
+  "licenseText": "Pictogrammers Free License\n--------------------------\n\nThis icon collection is released as free, open source, and GPL friendly by\nthe [Pictogrammers](http://pictogrammers.com/) icon group. You may use it\nfor commercial projects, open source projects, or anything really.\n\n# Icons: Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0)\nSome of the icons are redistributed under the Apache 2.0 license. All other\nicons are either redistributed under their respective licenses or are\ndistributed under the Apache 2.0 license.\n\n# Fonts: Apache 2.0 (https://www.apache.org/licenses/LICENSE-2.0)\nAll web and desktop fonts are distributed under the Apache 2.0 license. Web\nand desktop fonts contain some icons that are redistributed under the Apache\n2.0 license. All other icons are either redistributed under their respective\nlicenses or are distributed under the Apache 2.0 license.\n\n# Code: MIT (https://opensource.org/licenses/MIT)\nThe MIT license applies to all non-font and non-icon files."
+}

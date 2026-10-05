@@ -1,19 +1,27 @@
 /**
- * Fetches the iconify icons used by varlock's built-in data types and by each first-party plugin,
- * and writes them into generated modules so type generation can embed them without a network
- * request. varlock core bundles its own icons; each plugin bundles its own and hands them to
- * varlock via `plugin.bundledIcons`. Custom `@icon` values in user schemas are still fetched at
- * generation time.
+ * Maintains the icons bundled with varlock (for built-in data types) and with each first-party
+ * plugin, so type generation can embed them without a network request. Custom `@icon` values in
+ * user schemas are still fetched at generation time.
  *
- * Each icon is also written as a plain `.svg` file in a `bundled-icons/` folder next to the
- * generated module, so the bundled icons can be viewed (and show up in diffs).
+ * Each package has a `bundled-icons/` folder next to its generated `bundled-icons.gen.ts`. The
+ * `.svg` files in that folder are the source of truth: the generated module is built from them.
  *
- * Each package also gets a `BUNDLED_ICONS_LICENSES.md` with the license notices for the icon sets
- * it ships.
+ * - `<set>--<name>.svg` (e.g. `mdi--web.svg` for `mdi:web`) are fetched from iconify and managed by
+ *   this script. Don't edit them; they are overwritten by `--update` and deleted once unused.
+ * - `custom--<name>.svg` are hand-maintained and never written or deleted by this script. Use them
+ *   as `icon: 'custom:<name>'`. Custom names must be unique across all packages, since every
+ *   package's icons share one lookup at runtime. Use `currentColor` for fills/strokes (swapped for
+ *   gray in generated types) unless the icon has its own colors. If a custom icon is a modified copy
+ *   of an iconify icon, start the file with `<!-- based on <set>:<name> (modified) -->` so the
+ *   license notice lists it under that set's license (required for Apache-2.0 sets).
+ *
+ * Icon set metadata and license text are cached in `scripts/icon-sets/<set>.json`, and each package
+ * gets a `BUNDLED_ICONS_LICENSES.md` built from it.
  *
  * Usage:
- *   bun run scripts/sync-bundled-icons.ts          # regenerate files
- *   bun run scripts/sync-bundled-icons.ts --check  # exit 1 if any file is out of date
+ *   bun run sync-icons            # fetch missing icons/sets, rebuild generated files
+ *   bun run sync-icons --update   # also re-fetch every managed icon and set from iconify
+ *   bun run sync-icons --check    # offline: exit 1 if anything is missing or out of date
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,7 +29,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ICON_SETS_DIR = path.join(REPO_ROOT, 'scripts/icon-sets');
 const NOTICES_FILENAME = 'BUNDLED_ICONS_LICENSES.md';
+const ICON_DIR_NAME = 'bundled-icons';
+const CUSTOM_PREFIX = 'custom';
 
 // must match ICON_SIZE in packages/varlock/src/env-graph/lib/type-generation/emitters/ts.ts
 const ICON_SIZE = 20;
@@ -32,6 +43,8 @@ const LICENSE_URL_OVERRIDES: Record<string, string> = {
 };
 
 const isCheck = process.argv.includes('--check');
+const isUpdate = process.argv.includes('--update');
+if (isCheck && isUpdate) throw new Error('--check and --update cannot be combined');
 
 type IconTarget = {
   /** package dir, where the notices file is written */
@@ -43,6 +56,21 @@ type IconTarget = {
   /** plugins must hand the generated icons to varlock via `plugin.bundledIcons` */
   isPlugin: boolean;
 };
+
+type IconSetInfo = {
+  name: string;
+  author?: { name: string; url?: string };
+  license: { title: string; spdx?: string; url: string };
+  licenseText: string;
+};
+
+const problems: Array<string> = [];
+const warnings: Array<string> = [];
+// [path, expected content] - undefined content means the file should not exist
+const expectedFiles: Array<[filePath: string, content: string | undefined]> = [];
+const rel = (p: string) => path.relative(REPO_ROOT, p);
+
+// --- discovery ---
 
 function listTsFiles(dir: string): Array<string> {
   return fs.readdirSync(dir, { recursive: true, encoding: 'utf-8' })
@@ -91,6 +119,19 @@ function collectIconNames(files: Array<string>): Array<string> {
   return [...names].sort();
 }
 
+// `:` is not allowed in windows filenames, so `mdi:web` <-> `mdi--web.svg`
+const iconFileName = (iconName: string) => `${iconName.replace(':', '--')}.svg`;
+const iconNameFromFile = (fileName: string) => fileName.replace(/\.svg$/, '').replace('--', ':');
+const isCustomIcon = (iconName: string) => iconName.startsWith(`${CUSTOM_PREFIX}:`);
+const setPrefix = (iconName: string) => iconName.split(':')[0];
+
+// `<!-- based on mdi:web (modified) -->` at the top of a custom icon records where it came from
+const BASED_ON_PATTERN = /<!--\s*based on ([a-z0-9-]+:[a-z0-9-]+)/;
+// comments are only for maintainers - keep them out of the embedded data uri
+const stripComments = (svg: string) => svg.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+// --- network (never used with --check) ---
+
 // returns undefined only for a 404 - any other failure (rate limit, outage) throws, so a flaky
 // network can never silently drop icons from the generated files
 async function fetchText(url: string): Promise<string | undefined> {
@@ -107,139 +148,201 @@ async function fetchText(url: string): Promise<string | undefined> {
   return res.text();
 }
 
-// memoized so icons and licenses shared across packages are only fetched once
-const fetchCache = new Map<string, Promise<string | undefined>>();
-function fetchTextCached(url: string) {
-  if (!fetchCache.has(url)) fetchCache.set(url, fetchText(url));
-  return fetchCache.get(url)!;
-}
-
 function githubBlobToRaw(url: string) {
   return url
     .replace('https://github.com/', 'https://raw.githubusercontent.com/')
     .replace('/blob/', '/');
 }
 
-type CollectionInfo = {
-  name: string;
-  author?: { name: string; url?: string };
-  license?: { title: string; spdx?: string; url?: string };
-};
+async function fetchIconSetInfo(prefix: string): Promise<IconSetInfo> {
+  const json = await fetchText(`https://api.iconify.design/collections?prefixes=${prefix}`);
+  const info = JSON.parse(json ?? '{}')[prefix] as Omit<IconSetInfo, 'licenseText'> | undefined;
+  if (!info?.license) throw new Error(`no license info on iconify for icon set "${prefix}"`);
+  const licenseUrl = LICENSE_URL_OVERRIDES[prefix] ?? info.license.url;
+  if (!licenseUrl) throw new Error(`no license url for icon set "${prefix}", add one to LICENSE_URL_OVERRIDES`);
+  const licenseText = await fetchText(githubBlobToRaw(licenseUrl));
+  if (!licenseText) throw new Error(`license text for "${prefix}" not found at ${licenseUrl}`);
+  return {
+    name: info.name,
+    author: info.author,
+    license: { title: info.license.title, spdx: info.license.spdx, url: licenseUrl },
+    licenseText: licenseText.trim(),
+  };
+}
 
-const targets = getTargets();
-const targetIconNames = new Map(targets.map((t) => [t, collectIconNames(t.sourceFiles)]));
+// --- icon set metadata cache (scripts/icon-sets/<set>.json) ---
 
-const allPrefixes = [...new Set([...targetIconNames.values()].flat().map((name) => name.split(':')[0]))].sort();
-const collectionsJson = await fetchText(`https://api.iconify.design/collections?prefixes=${allPrefixes.join(',')}`);
-const collections = JSON.parse(collectionsJson ?? '{}') as Record<string, CollectionInfo>;
-
-const missing = new Set<string>();
-const unwiredPlugins: Array<string> = [];
-const expectedFiles: Array<[filePath: string, content: string | undefined]> = [];
-
-for (const target of targets) {
-  const icons: Record<string, string> = {};
-  for (const name of targetIconNames.get(target)!) {
-    const svg = await fetchTextCached(`https://api.iconify.design/${name.replace(':', '/')}.svg?height=${ICON_SIZE}`);
-    if (svg) icons[name] = svg;
-    else missing.add(name);
+const iconSetInfoCache = new Map<string, IconSetInfo>();
+async function getIconSetInfo(prefix: string): Promise<IconSetInfo | undefined> {
+  if (iconSetInfoCache.has(prefix)) return iconSetInfoCache.get(prefix);
+  const cachePath = path.join(ICON_SETS_DIR, `${prefix}.json`);
+  let info: IconSetInfo | undefined;
+  if (fs.existsSync(cachePath) && !isUpdate) {
+    info = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+  } else if (!isCheck) {
+    info = await fetchIconSetInfo(prefix);
+  } else {
+    problems.push(`missing icon set metadata: ${rel(cachePath)}`);
   }
-
-  // viewable copies of each icon - `:` is not allowed in windows filenames, so `mdi:web` -> `mdi--web.svg`
-  const svgDir = path.join(path.dirname(target.outputPath), 'bundled-icons');
-  const svgPaths = new Set<string>();
-  for (const [name, svg] of Object.entries(icons)) {
-    const svgPath = path.join(svgDir, `${name.replace(':', '--')}.svg`);
-    svgPaths.add(svgPath);
-    expectedFiles.push([svgPath, svg]);
+  if (info) {
+    iconSetInfoCache.set(prefix, info);
+    expectedFiles.push([cachePath, `${JSON.stringify(info, null, 2)}\n`]);
   }
-  if (fs.existsSync(svgDir)) {
-    for (const entry of fs.readdirSync(svgDir)) {
-      const existingPath = path.join(svgDir, entry);
-      if (!svgPaths.has(existingPath)) expectedFiles.push([existingPath, undefined]);
+  return info;
+}
+
+// --- per package ---
+
+type BundledIcon = { name: string; svg: string; basedOn?: string };
+// custom icons across all packages, to catch name clashes in the shared runtime lookup
+const customIconOwners = new Map<string, { svg: string; pkgDir: string }>();
+
+async function processTarget(target: IconTarget) {
+  const iconDir = path.join(path.dirname(target.outputPath), ICON_DIR_NAME);
+  const existingFiles = fs.existsSync(iconDir) ? fs.readdirSync(iconDir).filter((f) => f.endsWith('.svg')) : [];
+  const usedNames = collectIconNames(target.sourceFiles);
+  const icons: Array<BundledIcon> = [];
+
+  // custom icons - read as-is, never written or removed
+  for (const fileName of existingFiles.filter((f) => f.startsWith(`${CUSTOM_PREFIX}--`))) {
+    const name = iconNameFromFile(fileName);
+    const svg = fs.readFileSync(path.join(iconDir, fileName), 'utf-8');
+    const owner = customIconOwners.get(name);
+    if (owner && owner.svg !== svg) {
+      problems.push(`"${name}" is defined differently in ${rel(owner.pkgDir)} and ${rel(target.pkgDir)}; custom icon names must be unique`);
     }
+    customIconOwners.set(name, { svg, pkgDir: target.pkgDir });
+    if (!usedNames.includes(name)) {
+      warnings.push(`${rel(path.join(iconDir, fileName))} is not used by ${rel(target.pkgDir)}`);
+      continue;
+    }
+    icons.push({ name, svg, basedOn: svg.match(BASED_ON_PATTERN)?.[1] });
+  }
+
+  // managed icons - fetched from iconify when missing (or on --update)
+  for (const name of usedNames) {
+    if (isCustomIcon(name)) {
+      if (!icons.some((icon) => icon.name === name)) {
+        problems.push(`${rel(target.pkgDir)} uses "${name}" but ${rel(path.join(iconDir, iconFileName(name)))} does not exist`);
+      }
+      continue;
+    }
+    const filePath = path.join(iconDir, iconFileName(name));
+    let svg: string | undefined;
+    if (fs.existsSync(filePath) && !isUpdate) {
+      svg = fs.readFileSync(filePath, 'utf-8');
+    } else if (isCheck) {
+      problems.push(`missing icon file: ${rel(filePath)}`);
+      continue;
+    } else {
+      svg = await fetchText(`https://api.iconify.design/${name.replace(':', '/')}.svg?height=${ICON_SIZE}`);
+      if (!svg) {
+        warnings.push(`"${name}" (used by ${rel(target.pkgDir)}) was not found on iconify and is skipped`);
+        continue;
+      }
+    }
+    expectedFiles.push([filePath, svg]);
+    icons.push({ name, svg });
+  }
+
+  // managed icons nothing uses anymore
+  for (const fileName of existingFiles) {
+    if (fileName.startsWith(`${CUSTOM_PREFIX}--`)) continue;
+    if (!usedNames.includes(iconNameFromFile(fileName))) expectedFiles.push([path.join(iconDir, fileName), undefined]);
   }
 
   const notesPath = path.join(target.pkgDir, NOTICES_FILENAME);
-  // nothing to bundle - make sure no stale generated files are left behind
-  if (!Object.keys(icons).length) {
+  if (!icons.length) {
     expectedFiles.push([target.outputPath, undefined], [notesPath, undefined]);
-    continue;
+    return;
   }
 
   // a generated icons module does nothing unless the plugin passes it to varlock
   if (target.isPlugin && !target.sourceFiles.some((f) => fs.readFileSync(f, 'utf-8').includes('plugin.bundledIcons'))) {
-    unwiredPlugins.push(path.relative(REPO_ROOT, target.pkgDir));
+    problems.push(`${rel(target.pkgDir)} uses icons but never sets \`plugin.bundledIcons\` - add \`import { BUNDLED_ICONS } from './bundled-icons.gen';\` and \`plugin.bundledIcons = BUNDLED_ICONS;\``);
   }
 
-  const prefixes = [...new Set(Object.keys(icons).map((name) => name.split(':')[0]))].sort();
-  const noticeSections: Array<string> = [];
-  for (const prefix of prefixes) {
-    const info = collections[prefix];
-    if (!info?.license) throw new Error(`no license info for icon set "${prefix}"`);
-    const licenseUrl = LICENSE_URL_OVERRIDES[prefix] ?? info.license.url;
-    if (!licenseUrl) throw new Error(`no license url for icon set "${prefix}", add one to LICENSE_URL_OVERRIDES`);
-    const licenseText = await fetchTextCached(githubBlobToRaw(licenseUrl));
-    if (!licenseText) throw new Error(`license text for "${prefix}" not found at ${licenseUrl}`);
-    const usedIcons = Object.keys(icons).filter((name) => name.startsWith(`${prefix}:`));
-    noticeSections.push([
-      `## ${info.name} (\`${prefix}\`)`,
-      '',
-      `- Author: ${info.author?.name ?? 'unknown'}${info.author?.url ? ` (${info.author.url})` : ''}`,
-      `- License: ${info.license.title}${info.license.spdx ? ` (${info.license.spdx})` : ''}, ${licenseUrl}`,
-      `- Icons used: ${usedIcons.map((name) => `\`${name}\``).join(', ')}`,
-      '',
-      '```',
-      licenseText.trim(),
-      '```',
-    ].join('\n'));
-  }
-
+  icons.sort((a, b) => a.name.localeCompare(b.name));
+  const iconMap = Object.fromEntries(icons.map((icon) => [icon.name, stripComments(icon.svg)]));
   expectedFiles.push([
     target.outputPath, [
-      '// Generated by scripts/sync-bundled-icons.ts (repo root) - do not edit by hand.',
-      '// Icons embedded in generated types without a network request. Viewable copies are in',
-      `// ./bundled-icons/, license notices in ${NOTICES_FILENAME}`,
+      '// Generated by scripts/sync-bundled-icons.ts (repo root) from ./bundled-icons/ - do not edit by hand.',
+      `// Icons embedded in generated types without a network request. License notices: ${NOTICES_FILENAME}`,
       '/* eslint-disable */',
-      `export const BUNDLED_ICONS: Record<string, string> = ${JSON.stringify(icons, null, 2)};`,
+      `export const BUNDLED_ICONS: Record<string, string> = ${JSON.stringify(iconMap, null, 2)};`,
       '',
     ].join('\n'),
   ]);
+
+  // license notices, grouped by the iconify set each icon comes from
+  const iconsBySet = new Map<string, Array<string>>();
+  const originalIcons: Array<string> = [];
+  for (const icon of icons) {
+    const source = isCustomIcon(icon.name) ? icon.basedOn : icon.name;
+    if (!source) {
+      originalIcons.push(icon.name);
+      continue;
+    }
+    const label = isCustomIcon(icon.name) ? `\`${icon.name}\` (modified from \`${source}\`)` : `\`${icon.name}\``;
+    iconsBySet.set(setPrefix(source), [...iconsBySet.get(setPrefix(source)) ?? [], label]);
+  }
+
+  const sections: Array<string> = [];
+  for (const prefix of [...iconsBySet.keys()].sort()) {
+    const info = await getIconSetInfo(prefix);
+    if (!info) continue;
+    sections.push([
+      `## ${info.name} (\`${prefix}\`)`,
+      '',
+      `- Author: ${info.author?.name ?? 'unknown'}${info.author?.url ? ` (${info.author.url})` : ''}`,
+      `- License: ${info.license.title}${info.license.spdx ? ` (${info.license.spdx})` : ''}, ${info.license.url}`,
+      `- Icons used: ${iconsBySet.get(prefix)!.join(', ')}`,
+      '',
+      '```',
+      info.licenseText,
+      '```',
+    ].join('\n'));
+  }
+  if (originalIcons.length) {
+    sections.push([
+      '## Original icons',
+      '',
+      `Made for varlock and covered by this package's license: ${originalIcons.map((n) => `\`${n}\``).join(', ')}`,
+    ].join('\n'));
+  }
 
   expectedFiles.push([
     notesPath, [
       '# Bundled icon licenses',
       '',
-      'This package bundles the following icons (fetched from [Iconify](https://iconify.design)) so',
-      'generated types can include them without network access. Generated by',
+      'This package bundles the following icons so generated types can include them without network',
+      'access. Iconify icons are fetched from [Iconify](https://iconify.design). Generated by',
       '`scripts/sync-bundled-icons.ts` in the varlock repo.',
       '',
-      noticeSections.join('\n\n'),
+      sections.join('\n\n'),
       '',
     ].join('\n'),
   ]);
 }
 
-if (missing.size) {
-  console.warn(`[sync-bundled-icons] not found on iconify, skipped: ${[...missing].join(', ')}`);
+// --- run ---
+
+for (const target of getTargets()) await processTarget(target);
+
+// cached set metadata nothing uses anymore
+if (fs.existsSync(ICON_SETS_DIR)) {
+  for (const fileName of fs.readdirSync(ICON_SETS_DIR)) {
+    if (!iconSetInfoCache.has(fileName.replace(/\.json$/, ''))) expectedFiles.push([path.join(ICON_SETS_DIR, fileName), undefined]);
+  }
 }
 
-if (unwiredPlugins.length) {
-  console.error(`[sync-bundled-icons] these plugins use icons but never set \`plugin.bundledIcons\`:\n${unwiredPlugins.map((p) => `  ${p}`).join('\n')}`);
-  console.error("add `import { BUNDLED_ICONS } from './bundled-icons.gen';` and `plugin.bundledIcons = BUNDLED_ICONS;` to each");
-  process.exitCode = 1;
-}
+for (const warning of warnings) console.warn(`[sync-bundled-icons] warning: ${warning}`);
 
 const readOrUndefined = (filePath: string) => (fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf-8') : undefined);
 const stale = expectedFiles.filter(([filePath, content]) => readOrUndefined(filePath) !== content);
 
 if (isCheck) {
-  if (stale.length) {
-    console.error(`[sync-bundled-icons] out of date:\n${stale.map(([p]) => `  ${path.relative(REPO_ROOT, p)}`).join('\n')}`);
-    console.error('run `bun run sync-icons` to update');
-    process.exit(1);
-  }
-  console.log('[sync-bundled-icons] up to date');
+  problems.push(...stale.map(([p, content]) => `${content === undefined ? 'should be removed' : 'out of date'}: ${rel(p)}`));
 } else {
   for (const [filePath, content] of stale) {
     if (content === undefined) {
@@ -250,7 +353,13 @@ if (isCheck) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
       fs.writeFileSync(filePath, content);
     }
-    console.log(`[sync-bundled-icons] ${content === undefined ? 'removed' : 'wrote'} ${path.relative(REPO_ROOT, filePath)}`);
+    console.log(`[sync-bundled-icons] ${content === undefined ? 'removed' : 'wrote'} ${rel(filePath)}`);
   }
-  if (!stale.length) console.log('[sync-bundled-icons] already up to date');
 }
+
+if (problems.length) {
+  console.error(`[sync-bundled-icons] problems:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
+  if (isCheck) console.error('run `bun run sync-icons` to fix missing/out-of-date files');
+  process.exit(1);
+}
+console.log(`[sync-bundled-icons] ${isCheck ? 'up to date' : 'done'}`);

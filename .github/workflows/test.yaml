@@ -50,6 +50,9 @@ jobs:
         run: bun run lint
       - name: TypeScript type check
         run: bun run typecheck:all
+      # offline - verifies generated icon modules/notices match the committed svg files
+      - name: Check bundled icons are up to date
+        run: bun run sync-icons --check
       - name: Build libraries
         run: bun run build:libs
       - name: Check plugin bundles are single-file
