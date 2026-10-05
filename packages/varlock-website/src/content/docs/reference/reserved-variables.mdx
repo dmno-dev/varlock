@@ -29,12 +29,12 @@ Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secr
 
 ### `_VARLOCK_REDACT_STDOUT`
 
-Overrides [`varlock run`](/reference/cli/load-and-run/#run) output redaction:
+Overrides stdout/stderr redaction, both for [`varlock run`](/reference/cli/load-and-run/#run) output and for in-process redaction in `varlock/auto-load` and framework integrations (see [`@redactLogs`](/reference/root-decorators/#redactlogs)):
 
-- `true` / `1`: force redaction on (only applies to piped/redirected output; errors if attached to an interactive terminal)
+- `true` / `1`: force redaction on. For `varlock run` this only applies to piped/redirected output and errors if attached to an interactive terminal. In-process, it also enables redaction when the schema does not set `@redactLogs={stdout=true}`, and applies even to a terminal.
 - `false` / `0`: disable redaction entirely
 
-The `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run, for example in a wrapper script or CI config.
+For `varlock run`, the `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run, for example in a wrapper script or CI config.
 
 ### `_VARLOCK_FILTER`
 
@@ -87,6 +87,10 @@ The serialized env graph (resolved config values plus metadata) injected by [`va
 ### `__VARLOCK_RUN`
 
 A marker set so a child process can detect that it is running under `varlock run`. Scripts that re-exec themselves under `varlock run` should check this first so they do not recurse. On macOS with Homebrew Python, do not pass `sys.executable` into that re-exec: see [Auto-invoking varlock run from Python](/integrations/python/#auto-invoking-varlock-run-from-python).
+
+### `__VARLOCK_REDACTED_STREAMS`
+
+Set by `varlock run` and `varlock proxy run` on the child process to list which of its streams (`stdout`, `stderr`) the parent is already piping through redaction. In-process stdout redaction skips those streams so output isn't redacted twice, unless the stream has been redirected to a file.
 
 ### `__VARLOCK_CLI_CHILD`
 

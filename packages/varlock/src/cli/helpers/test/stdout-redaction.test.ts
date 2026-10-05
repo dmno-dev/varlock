@@ -44,22 +44,22 @@ describe('parseEnvToggle', () => {
 describe('resolveStdoutRedaction auto-detect (no override)', () => {
   test('piped streams are redacted, TTY streams are inherited (per stream)', () => {
     setTTY(false, false);
-    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactLogs: true }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactStdoutSetting: true }))
       .toEqual({ redactStdout: true, redactStderr: true });
 
     setTTY(true, true);
-    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactLogs: true }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactStdoutSetting: true }))
       .toEqual({ redactStdout: false, redactStderr: false });
 
     // mixed: interactive stdout, captured stderr
     setTTY(true, false);
-    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactLogs: true }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactStdoutSetting: true }))
       .toEqual({ redactStdout: false, redactStderr: true });
   });
 
   test('@redactLogs=false disables auto redaction even when piped', () => {
     setTTY(false, false);
-    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactLogs: false }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactStdoutSetting: false }))
       .toEqual({ redactStdout: false, redactStderr: false });
   });
 });
@@ -67,19 +67,19 @@ describe('resolveStdoutRedaction auto-detect (no override)', () => {
 describe('resolveStdoutRedaction overrides', () => {
   test('--no-redact-stdout (false) disables redaction on piped output', () => {
     setTTY(false, false);
-    expect(resolveStdoutRedaction({ redactStdoutFlag: false, redactLogs: true }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: false, redactStdoutSetting: true }))
       .toEqual({ redactStdout: false, redactStderr: false });
   });
 
   test('--redact-stdout (true) forces redaction, overriding @redactLogs=false', () => {
     setTTY(false, false);
-    expect(resolveStdoutRedaction({ redactStdoutFlag: true, redactLogs: false }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: true, redactStdoutSetting: false }))
       .toEqual({ redactStdout: true, redactStderr: true });
   });
 
   test('--redact-stdout errors when any stream is a TTY (cannot redact a raw TTY)', () => {
     setTTY(true, false);
-    expect(() => resolveStdoutRedaction({ redactStdoutFlag: true, redactLogs: true }))
+    expect(() => resolveStdoutRedaction({ redactStdoutFlag: true, redactStdoutSetting: true }))
       .toThrow(/interactive terminal/i);
   });
 
@@ -87,10 +87,10 @@ describe('resolveStdoutRedaction overrides', () => {
     setTTY(false, false);
     process.env._VARLOCK_REDACT_STDOUT = '0';
     // env says off
-    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactLogs: true }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: undefined, redactStdoutSetting: true }))
       .toEqual({ redactStdout: false, redactStderr: false });
     // explicit flag beats the env var
-    expect(resolveStdoutRedaction({ redactStdoutFlag: true, redactLogs: true }))
+    expect(resolveStdoutRedaction({ redactStdoutFlag: true, redactStdoutSetting: true }))
       .toEqual({ redactStdout: true, redactStderr: true });
   });
 });

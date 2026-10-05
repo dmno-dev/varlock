@@ -21,9 +21,13 @@ const UNMASK_STR = '👁';
 // Without this, the module instance that patches console.log may have an empty map
 // while a different instance has the populated one.
 type RedactionState = {
-  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner
-  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean }>,
+  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner;
+  // `redactLogs: false` means the reverse (left alone by redaction, still leak-scanned)
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
   redactorFindReplace: undefined | { find: RegExp, replace: ReplaceFn },
+  // sensitive values grouped by first character, for the streaming holdback check
+  // (optional since state may have been created by an older copy of this module)
+  holdbackIndex?: { byFirstChar: Map<string, Array<string>>, maxLength: number },
 };
 type ReplaceFn = (match: string, pre: string, val: string, post: string) => string;
 
@@ -70,13 +74,21 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
       // out of leak scanning while still keeping it redacted in logs
       if (redacted) {
         state.sensitiveSecretsMap[sensitiveStr] = {
-          key: itemKey, redacted, preventLeaks: item.preventLeaks !== false,
+          key: itemKey,
+          redacted,
+          preventLeaks: item.preventLeaks !== false,
+          // `@sensitive={redactLogs=false}` leaves the value out of output redaction
+          ...item.redactLogs === false && { redactLogs: false },
         };
       }
     }
   }
+  state.holdbackIndex = undefined;
+  // only values that are actually redacted go into the find/replace regex
+  const redactableValues = Object.keys(state.sensitiveSecretsMap)
+    .filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
   // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
-  if (!Object.keys(state.sensitiveSecretsMap).length) {
+  if (!redactableValues.length) {
     state.redactorFindReplace = undefined;
     return;
   }
@@ -86,7 +98,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
     [
       `(${UNMASK_STR} )?`,
       '(',
-      Object.keys(state.sensitiveSecretsMap)
+      redactableValues
         // Escape special characters
         .map((s) => s.replace(/[()[\]{}*+?^$|#.,/\\\s-]/g, '\\$&'))
         // Sort for maximal munch
@@ -107,26 +119,41 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   state.redactorFindReplace = { find: findRegex, replace: replaceFn };
 }
 
+function buildHoldbackIndex(sensitiveValues: Array<string>): NonNullable<RedactionState['holdbackIndex']> {
+  const byFirstChar = new Map<string, Array<string>>();
+  let maxLength = 0;
+  for (const v of sensitiveValues) {
+    if (!v) continue;
+    const bucket = byFirstChar.get(v[0]);
+    if (bucket) bucket.push(v);
+    else byFirstChar.set(v[0], [v]);
+    if (v.length > maxLength) maxLength = v.length;
+  }
+  return { byFirstChar, maxLength };
+}
+
 /**
  * Returns the length of the longest suffix of `str` that is a partial match (proper prefix)
  * of a sensitive value. Used by streaming redaction to hold back trailing characters that
  * may be the beginning of a secret split across chunk boundaries.
  */
 export function getRedactionHoldbackLength(str: string): number {
-  const { sensitiveSecretsMap } = getRedactionState();
-  const sensitiveValues = Object.keys(sensitiveSecretsMap);
-  if (!sensitiveValues.length || !str.length) return 0;
-  let longestValueLength = 0;
-  for (const v of sensitiveValues) {
-    if (v.length > longestValueLength) longestValueLength = v.length;
-  }
+  const state = getRedactionState();
+  // covers every sensitive value (not just redacted ones), since the response leak scanner
+  // also relies on this to carry partial matches across chunk boundaries
+  state.holdbackIndex ||= buildHoldbackIndex(Object.keys(state.sensitiveSecretsMap));
+  const { byFirstChar, maxLength } = state.holdbackIndex;
+  if (!byFirstChar.size || !str.length) return 0;
   // longest suffix worth checking is one char short of a full secret
   // (a full secret at the end of `str` will be caught by normal redaction)
-  const maxCheckLength = Math.min(str.length, longestValueLength - 1);
-  for (let len = maxCheckLength; len > 0; len--) {
-    const suffix = str.slice(str.length - len);
-    for (const v of sensitiveValues) {
-      if (v.length > len && v.startsWith(suffix)) return len;
+  const start = Math.max(0, str.length - (maxLength - 1));
+  // earliest start position first, so the longest partial match wins
+  for (let i = start; i < str.length; i++) {
+    const candidates = byFirstChar.get(str[i]);
+    if (!candidates) continue;
+    const suffix = str.slice(i);
+    for (const v of candidates) {
+      if (v.length > suffix.length && v.startsWith(suffix)) return suffix.length;
     }
   }
   return 0;

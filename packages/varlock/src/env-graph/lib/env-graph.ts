@@ -16,7 +16,7 @@ import {
 
 import {
   builtInItemDecorators, builtInRootDecorators,
-  RootDecoratorInstance,
+  RootDecoratorInstance, parseRedactLogsSetting,
   type ItemDecoratorDef,
   type RootDecoratorDef,
 } from './decorators';
@@ -115,7 +115,14 @@ export type SerializedEnvGraph = {
     contentHash?: string;
   }>,
   settings: {
+    /** console method redaction (`@redactLogs` / `@redactLogs={console=...}`) */
     redactLogs?: boolean;
+    /**
+     * stdout/stderr redaction when not a TTY (`@redactLogs={stdout=...}`, or false via
+     * `@redactLogs=false`). Absent when not set in the schema: `varlock run` then redacts,
+     * while in-process stream patching (auto-load) stays off.
+     */
+    redactStdout?: boolean;
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
@@ -136,6 +143,8 @@ export type SerializedEnvGraph = {
     isSensitive: boolean;
     /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
     preventLeaks?: boolean;
+    /** false = not redacted in console/stdout/stderr output (still leak-scanned). Omitted when true (the default). */
+    redactLogs?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
     /**
@@ -762,7 +771,12 @@ export class EnvGraph {
     }
 
     // maybe should be part of a _resolve all root decorators_ step?
-    await this.getRootDec('redactLogs')?.resolve();
+    const redactLogsDec = this.getRootDec('redactLogs');
+    if (redactLogsDec) {
+      const redactLogsSetting = parseRedactLogsSetting(await redactLogsDec.resolve());
+      // static values already failed in process(); this catches dynamic ones
+      if ('error' in redactLogsSetting) redactLogsDec._errors.push(new SchemaError(redactLogsSetting.error));
+    }
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
@@ -1160,6 +1174,7 @@ export class EnvGraph {
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
+        ...item.isSensitive && !item.redactLogs ? { redactLogs: false } : {},
         // only emit when it diverges from the sensitivity linkage (the default), so
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
@@ -1180,7 +1195,15 @@ export class EnvGraph {
     );
 
     // expose a few root level settings
-    serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
+    const redactLogsSetting = parseRedactLogsSetting(this.getRootDec('redactLogs')?.resolvedValue);
+    if (!('error' in redactLogsSetting)) {
+      serializedGraph.settings.redactLogs = redactLogsSetting.console;
+      // only emitted when set explicitly, since `varlock run` and in-process stream
+      // patching currently default differently when it is absent
+      if (redactLogsSetting.stdout !== undefined) serializedGraph.settings.redactStdout = redactLogsSetting.stdout;
+    } else {
+      serializedGraph.settings.redactLogs = true;
+    }
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;

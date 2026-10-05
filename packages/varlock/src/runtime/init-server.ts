@@ -1,9 +1,10 @@
 // Self-contained server runtime init bundle.
-// Initializes varlock env and applies all patches (console, server-response, response).
+// Initializes varlock env and applies all patches (console, process streams, server-response, response).
 // Built with noExternal so it can be injected as raw JS or imported from any location.
 
 import { initVarlockEnv } from '../runtime/env';
 import { patchGlobalConsole } from '../runtime/patch-console';
+import { patchProcessStreams } from '../runtime/patch-process-streams';
 import { patchGlobalServerResponse } from '../runtime/patch-server-response';
 import { patchGlobalResponse } from '../runtime/patch-response';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
@@ -17,6 +18,7 @@ if (process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV)) {
 
 initVarlockEnv();
 patchGlobalConsole();
+patchProcessStreams();
 patchGlobalServerResponse();
 patchGlobalResponse();
 

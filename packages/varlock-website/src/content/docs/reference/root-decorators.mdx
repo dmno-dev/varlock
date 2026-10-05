@@ -361,14 +361,14 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 
 <div>
 ### `@redactLogs`
-**Value type:** `boolean`
+**Value type:** `boolean` or options object
 
-Controls whether sensitive config values are automatically redacted from console output. When enabled, any sensitive values will be replaced with `▒▒▒▒▒` in logs.
+Controls whether sensitive config values are automatically redacted from log output. When enabled, any sensitive values will be replaced with `▒▒▒▒▒` in logs.
 
-_Only applies in JavaScript based projects where varlock runtime code is imported._
+_Only applies in JavaScript based projects where varlock runtime code is imported, plus the output of [`varlock run`](/reference/cli/load-and-run/#run)._
 
 - `true` (default): Console logs are automatically redacted
-- `false`: Console logs are not redacted (useful for debugging)
+- `false`: Turns off all log redaction, including `varlock run` output (useful for debugging)
 
 ```env-spec
 # @redactLogs=false
@@ -380,6 +380,25 @@ SECRET_KEY=my-secret-value # @sensitive
 console.log(process.env.SECRET_KEY)
 // This will log "my▒▒▒▒▒" instead of "my-secret-value" when @redactLogs=true
 ```
+
+**Options:** pass an object to control each kind of redaction separately:
+
+- `console` (`boolean`, default `true`): redact values passed to `console` methods.
+- `stdout` (`boolean`): redact everything written to the process's stdout and stderr, including `process.stdout.write`, loggers like pino that write to the stream directly, and `Bun.write(Bun.stdout, ...)`. Only applies to streams that are not attached to an interactive terminal (piped output, files, CI logs, agent tool calls). [`varlock run`](/reference/cli/load-and-run/#run) already redacts its child's output this way unless set to `false`. In-process redaction (`varlock/auto-load` and framework integrations) is currently opt-in with `stdout=true`, and will become the default in the next major version.
+
+```env-spec
+# @redactLogs={stdout=true}
+# ---
+SECRET_KEY=my-secret-value # @sensitive
+```
+
+```js
+import 'varlock/auto-load';
+process.stdout.write(`${process.env.SECRET_KEY}\n`);
+// `node app.js | cat` prints "my▒▒▒▒▒"
+```
+
+See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover. To let a specific value through (for example a script that prints a token for another tool), use [`@sensitive={redactLogs=false}`](/reference/item-decorators/#sensitive) on that item.
 
 
 :::caution

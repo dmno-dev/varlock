@@ -373,6 +373,88 @@ describe('@redactLogs and @preventLeaks', () => {
   }));
 });
 
+describe('@redactLogs options object', () => {
+  test('bare @redactLogs keeps console redaction on', envFilesTest({
+    envFile: outdent`
+      # @redactLogs
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redactLogs: true },
+    },
+  }));
+  test('@redactLogs=false turns off stdout redaction too', envFilesTest({
+    envFile: outdent`
+      # @redactLogs=false
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redactLogs: false, redactStdout: false },
+    },
+  }));
+  test('stdout=true opts in to stdout/stderr redaction', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={stdout=true}
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redactLogs: true, redactStdout: true },
+    },
+  }));
+  test('console and stdout are independent', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={console=false, stdout=true}
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redactLogs: false, redactStdout: true },
+    },
+  }));
+  test('dynamic option values are resolved', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={stdout=$REDACT}
+      # ---
+      REDACT=true
+    `,
+    expectSerializedMatches: {
+      settings: { redactStdout: true },
+    },
+  }));
+  test('unknown options are rejected', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={stdot=true}
+      # ---
+    `,
+    expectError: SchemaError,
+  }));
+  test('non-boolean option values are rejected', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={stdout="auto"}
+      # ---
+    `,
+    expectError: SchemaError,
+  }));
+});
+
+describe('per-item @sensitive={redactLogs=false}', () => {
+  test('opts an item out of output redaction while keeping it sensitive', envFilesTest({
+    envFile: outdent`
+      PRINTED=val    # @sensitive={redactLogs=false}
+      NORMAL=val     # @sensitive
+    `,
+    expectSensitive: { PRINTED: true, NORMAL: true },
+    expectSerializedMatches: {
+      config: {
+        PRINTED: { isSensitive: true, redactLogs: false },
+      },
+    },
+  }));
+  test('non-boolean redactLogs is rejected', envFilesTest({
+    envFile: 'FOO=val   # @sensitive={redactLogs=nope}',
+    expectValues: { FOO: SchemaError },
+  }));
+});
+
 describe('per-item @sensitive={preventLeaks=false}', () => {
   test('opts an item out of leak detection while keeping it sensitive', envFilesTest({
     envFile: outdent`
@@ -442,7 +524,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
   }));
 
   test('unknown options are rejected', envFilesTest({
-    envFile: 'FOO=val   # @sensitive={redactLogs=false}',
+    envFile: 'FOO=val   # @sensitive={redactLog=false}',
     expectValues: { FOO: SchemaError },
   }));
 

@@ -35,7 +35,7 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   },
   {
     name: '_VARLOCK_REDACT_STDOUT',
-    description: 'Overrides `varlock run` output redaction. `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence.',
+    description: 'Overrides stdout/stderr redaction, both in `varlock run` and in-process (`varlock/auto-load`). `true`/`1` forces redaction on, `false`/`0` forces it off. The `--redact-stdout` / `--no-redact-stdout` flags take precedence for `varlock run`.',
   },
   {
     name: '_VARLOCK_FILTER',
@@ -74,6 +74,11 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '__VARLOCK_RUN',
     description: 'Marker set so a child process can detect it is running under `varlock run`.',
+    internal: true,
+  },
+  {
+    name: '__VARLOCK_REDACTED_STREAMS',
+    description: 'Set by `varlock run` / `varlock proxy run` on the child to list which of its streams (`stdout`, `stderr`) the parent is already redacting, so in-process stream redaction skips them.',
     internal: true,
   },
   {

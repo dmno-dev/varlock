@@ -5,7 +5,13 @@ import { getRedactionHoldbackLength, redactSensitiveConfig } from '../env';
  * chunks split mid-secret (e.g. at pipe buffer boundaries) arrive back-to-back in
  * practice, so this only triggers when output genuinely ends with a secret-prefix lookalike
  */
-const FLUSH_TIMEOUT_MS = 100;
+export const FLUSH_TIMEOUT_MS = 100;
+
+/**
+ * Set by `varlock run` / `varlock proxy run` on the child's env: comma-separated list of the
+ * child's streams (`stdout`, `stderr`) that the parent is piping through redaction.
+ */
+export const PARENT_REDACTED_STREAMS_ENV_VAR = '__VARLOCK_REDACTED_STREAMS';
 
 /**
  * Creates a writer that pipes a child process output stream through redaction, handling

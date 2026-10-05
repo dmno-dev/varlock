@@ -90,7 +90,7 @@ import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../..
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
-import { resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
+import { resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv } from '../helpers/stdout-redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
@@ -439,8 +439,9 @@ function spawnProxiedChild(opts: {
   // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
   const { redactStdout, redactStderr } = resolveStdoutRedaction({
     redactStdoutFlag: opts.redactStdoutFlag,
-    redactLogs: opts.payload.serializedGraph.settings?.redactLogs ?? true,
+    redactStdoutSetting: opts.payload.serializedGraph.settings?.redactStdout ?? true,
   });
+  setParentRedactedStreamsEnv(fullInjectedEnv, { redactStdout, redactStderr });
 
   // Seed the redaction map from the child-view graph (placeholders + passthrough
   // values), plus the REAL values the proxy injects at the wire when this run owns
