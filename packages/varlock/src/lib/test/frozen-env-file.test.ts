@@ -289,41 +289,87 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
   });
 });
 
-// A pin that leaves `@dynamic=boot` keys to the runtime is not a complete graph: it has to
-// be applied on top of the schema, with those keys resolved live (see loadVarlockEnvGraph)
-describe('a pin with boot keys', () => {
-  const withBootKeys = () => graphJson({ frozen: { bootKeys: ['PORT'], currentEnv: 'production' } });
+// `@dynamic=boot` items are frozen with a default, and a value set at boot overrides it after
+// being checked against the type the freeze recorded - no schema, no CLI (see frozen-boot-keys)
+describe('a frozen env with boot keys', () => {
+  const withBootKeys = (overrides?: Record<string, any>) => graphJson({
+    config: {
+      FOO: { value: 'foo-val', isSensitive: false },
+      PORT: { value: 3000, isSensitive: false },
+      INSTANCE_ID: { value: undefined, isSensitive: false },
+    },
+    frozen: {
+      boot: {
+        PORT: { type: 'port', required: true },
+        INSTANCE_ID: { type: 'string', required: false },
+      },
+    },
+    ...overrides,
+  });
 
-  test('a frozen file is handed back for schema resolution instead of reused', () => {
-    const { key, filePath } = writeFrozenFile({ contents: withBootKeys() });
-    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
-    expect(decision.reuse).toBe(false);
-    if (!decision.reuse) {
-      expect(decision.reason).toContain('leaves 1 key to boot (PORT)');
-      expect(decision.pinned).toMatchObject({ source: 'frozen-file', filePath });
-      expect(decision.pinned?.graph.config.SECRET.value).toBe('secret-val');
+  test('a boot-time value overrides the frozen default, coerced to the recorded type', () => {
+    const { key } = writeFrozenFile({ contents: withBootKeys() });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key!, PORT: '8080' }, cwd: tempDir });
+    expect(decision.reuse).toBe(true);
+    if (decision.reuse) {
+      expect(decision.parsedEnv.config.PORT.value).toBe(8080);
+      expect(JSON.parse(decision.blobJson).config.PORT.value).toBe(8080);
+      expect(decision.parsedEnv.config.FOO.value).toBe('foo-val');
     }
   });
 
-  test('so is a frozen payload trusted via _VARLOCK_USE_INJECTED_ENV=1', () => {
-    const decision = evaluateInjectedEnvReuse({
-      env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: withBootKeys() },
-      cwd: tempDir,
-    });
-    expect(decision.reuse).toBe(false);
-    if (!decision.reuse) expect(decision.pinned).toMatchObject({ source: 'env-blob' });
+  test('without a boot-time value the frozen default stays', () => {
+    const { key } = writeFrozenFile({ contents: withBootKeys() });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
+    expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(3000);
   });
 
-  test('a pin without boot keys is still reused as-is', () => {
-    const { key } = writeFrozenFile({ contents: graphJson({ frozen: { bootKeys: [] } }) });
-    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir });
-    expect(decision.reuse).toBe(true);
+  test('only boot keys read the boot environment - everything else stays frozen', () => {
+    const { key } = writeFrozenFile({ contents: withBootKeys() });
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key!, FOO: 'ambient' }, cwd: tempDir });
+    expect(decision.reuse && decision.parsedEnv.config.FOO.value).toBe('foo-val');
+  });
+
+  test('an invalid boot-time value fails closed, naming the key', () => {
+    const { key } = writeFrozenFile({ contents: withBootKeys() });
+    expect(() => evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key!, PORT: 'abc' }, cwd: tempDir }))
+      .toThrow(/invalid @dynamic=boot value[\s\S]*PORT/);
+  });
+
+  test('a required boot key with no default must be set at boot', () => {
+    const { key } = writeFrozenFile({
+      contents: withBootKeys({
+        frozen: { boot: { INSTANCE_ID: { type: 'string', required: true } } },
+      }),
+    });
+    expect(() => evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
+      .toThrow(/INSTANCE_ID is required, but it is not set at boot/);
+    const decision = evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key!, INSTANCE_ID: 'i-1' }, cwd: tempDir });
+    expect(decision.reuse && decision.parsedEnv.config.INSTANCE_ID.value).toBe('i-1');
+  });
+
+  test('a frozen payload trusted via _VARLOCK_USE_INJECTED_ENV=1 works the same way', () => {
+    const decision = evaluateInjectedEnvReuse({
+      env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: withBootKeys(), PORT: '9000' },
+      cwd: tempDir,
+    });
+    expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(9000);
+  });
+
+  test('boot values come from the pre-injection env, not one varlock injected', () => {
+    const { key } = writeFrozenFile({ contents: withBootKeys() });
+    const decision = evaluateInjectedEnvReuse({
+      env: { ...ON, _VARLOCK_ENV_KEY: key!, PORT: '1111' },
+      preInjectionEnv: { PORT: '2222' },
+      cwd: tempDir,
+    });
+    expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(2222);
   });
 
   describe('findPinnedGraphForResolution', () => {
     // load is what integrations resolve through, so a merely-present file is not a pin there
     test('a present frozen file is a pin only when named explicitly', () => {
-      const { key } = writeFrozenFile({ contents: withBootKeys() });
+      const { key } = writeFrozenFile();
       expect(findPinnedGraphForResolution({ env: { _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
         .toBeUndefined();
       expect(findPinnedGraphForResolution({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
@@ -331,17 +377,17 @@ describe('a pin with boot keys', () => {
     });
 
     test('a discovered file does not shadow a trusted frozen payload', () => {
-      writeFrozenFile({ key: null, contents: graphJson({ frozen: { bootKeys: [] }, config: { FOO: { value: 'from-file' } } }) });
+      writeFrozenFile({ key: null, contents: graphJson({ frozen: {}, config: { FOO: { value: 'from-file' } } }) });
       const pinned = findPinnedGraphForResolution({
-        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: { bootKeys: [] } }) },
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: {} }) },
         cwd: tempDir,
       });
       expect(pinned).toMatchObject({ source: 'env-blob' });
       expect(pinned?.graph.config.FOO.value).toBe('foo-val');
     });
 
-    test('an explicitly named frozen file is returned, with or without boot keys', () => {
-      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: { bootKeys: [] } }), fileName: 'pin.env' });
+    test('an explicitly named frozen file is returned', () => {
+      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: {} }), fileName: 'pin.env' });
       const pinned = findPinnedGraphForResolution({
         env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: filePath },
         cwd: tempDir,
@@ -351,7 +397,7 @@ describe('a pin with boot keys', () => {
 
     test('a trusted __VARLOCK_ENV counts only when it is a freeze payload', () => {
       const frozenPayload = findPinnedGraphForResolution({
-        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: { bootKeys: [] } }) },
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: {} }) },
         cwd: tempDir,
       });
       expect(frozenPayload).toMatchObject({ source: 'env-blob' });
@@ -364,7 +410,7 @@ describe('a pin with boot keys', () => {
     });
 
     test('nothing is a pin without a frozen file or explicit blob trust', () => {
-      expect(findPinnedGraphForResolution({ env: { __VARLOCK_ENV: graphJson({ frozen: { bootKeys: ['PORT'] } }) }, cwd: tempDir }))
+      expect(findPinnedGraphForResolution({ env: { __VARLOCK_ENV: graphJson({ frozen: {} }) }, cwd: tempDir }))
         .toBeUndefined();
     });
   });

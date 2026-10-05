@@ -1,4 +1,5 @@
 import _ from '@env-spec/utils/my-dash';
+import { getBootDataTypeProblem } from '../../lib/frozen-boot-keys';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ConfigItem, type TypeGenItemInfo } from './config-item';
@@ -163,12 +164,13 @@ export type SerializedEnvGraph = {
   injectedAtBuild?: boolean;
   /**
    * Present only in a payload written by `varlock freeze`, never set by the graph serializer.
-   * `bootKeys` are the schema's `@dynamic=boot` items: left out of `config`, they are resolved
-   * and validated against the schema at boot while every key in `config` stays pinned.
-   * `currentEnv` is the environment that was frozen, so a boot-time resolution selects the
-   * same env files when the schema relies on `--env` rather than `@currentEnv`.
+   * `boot` records the `@dynamic=boot` items: their entries in `config` hold the freeze-time
+   * value (the default), and a value supplied at boot overrides it after being checked
+   * against the recorded type (see lib/frozen-boot-keys).
    */
-  frozen?: { bootKeys: Array<string>, currentEnv?: string };
+  frozen?: {
+    boot?: Record<string, { type: string, typeArgs?: Array<any>, required: boolean }>,
+  };
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
@@ -812,11 +814,12 @@ export class EnvGraph {
   }
 
   /**
-   * A `@dynamic=boot` value does not exist until each instance starts, so nothing bound
-   * earlier may depend on it: a static value would be inlined at build with whatever the
-   * build machine had, and a frozen value would carry the CI-time result forever. This is a
-   * schema-level inconsistency, so it errors on every load (not just under `varlock freeze`),
-   * and the fix is explicit rather than inferred: mark the dependent item boot too.
+   * A `@dynamic=boot` value can change when each instance starts, so nothing may depend on
+   * it, not even another boot item: a static value would be inlined at build with whatever
+   * the build machine had, and a frozen value would keep the freeze-time result while the
+   * boot item moves on. Boot items also need a type a frozen env can record and check at
+   * boot. This is a schema-level inconsistency, so it errors on every load (not just under
+   * `varlock freeze`), and the fix is explicit rather than inferred.
    *
    * Uses the same dependency list as the cycle check, so decorator-function references
    * (`@required=eq($PORT, ...)`) count as well as value references. Only structural because
@@ -843,15 +846,29 @@ export class EnvGraph {
       ));
     }
 
+    // A boot item's type must be one a frozen env can record and check at boot without the
+    // schema (see lib/frozen-boot-keys)
+    for (const bootKey of bootKeys) {
+      const item = this.configSchema[bootKey];
+      const typeProblem = getBootDataTypeProblem(item.dataType, { hasComputedType: item.hasComputedType });
+      if (typeProblem) {
+        item._schemaErrors.push(new SchemaError(
+          `${bootKey} is @dynamic=boot, but ${typeProblem}`,
+          { tip: 'A boot value is checked at boot without the schema, so it needs a built-in, non-composite type with plain settings. Use one, or remove @dynamic=boot.' },
+        ));
+      }
+    }
+
+    // Nothing may reference a boot item, including another boot item: whatever references it
+    // would keep the freeze-time value while the boot item takes a new one at boot
     const adjList = this.graphAdjacencyList;
     for (const itemKey in this.configSchema) {
-      if (bootKeys.has(itemKey)) continue;
       const bootDeps = getTransitiveDeps(itemKey, adjList).filter((k) => bootKeys.has(k));
       if (!bootDeps.length) continue;
       const depList = bootDeps.join(', ');
       this.configSchema[itemKey]._schemaErrors.push(new SchemaError(
-        `${itemKey} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, so its value cannot be fixed before boot`,
-        { tip: `Mark ${itemKey} @dynamic=boot too, so it is resolved at boot alongside ${depList}` },
+        `${itemKey} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, so its value could go stale at boot`,
+        { tip: `Derive ${itemKey} from ${depList} in your app code at boot, or remove @dynamic=boot from ${depList}` },
       ));
     }
 
@@ -1113,19 +1130,13 @@ export class EnvGraph {
    *    (plus transitive deps) get their values resolved and validated
    */
   async resolveEnvValuesForFilter(filter: ParsedItemFilter): Promise<void> {
-    const matchedKeys = await this.computeFilterKeys(filter);
-    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
-  }
-
-  /**
-   * Steps 1-2 of {@link resolveEnvValuesForFilter}: the keys a filter selects, resolving only
-   * what evaluating it needs (no matched item's value resolver runs). For callers that need
-   * the selection before deciding what to resolve, e.g. `varlock freeze` splitting it into
-   * pinned and `@dynamic=boot` keys.
-   */
-  async computeFilterKeys(filter: ParsedItemFilter): Promise<Set<string>> {
     const allItems = Object.values(this.configSchema);
-    if (!filter.usesDecoratorSelector) return filter.computeKeys(allItems);
+
+    if (!filter.usesDecoratorSelector) {
+      const matchedKeys = filter.computeKeys(allItems);
+      await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
+      return;
+    }
 
     // pre-evaluate with decorator state unknown - definite yes/no verdicts need no metadata
     const definitelyIncluded: Array<string> = [];
@@ -1146,10 +1157,11 @@ export class EnvGraph {
       await item.resolveMetadata();
     }
 
-    return new Set([
+    const matchedKeys = new Set([
       ...definitelyIncluded,
       ...undecidedItems.filter((item) => filter.matches(item)).map((item) => item.key),
     ]);
+    await this.resolveEnvValues([...this.expandKeysWithTransitiveDeps(matchedKeys)]);
   }
 
   /** config keys with builtin vars first, then user-defined in schema order */

@@ -5,6 +5,7 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
+import { applyFrozenBootKeys, getFrozenBootKeys } from './frozen-boot-keys';
 import {
   FrozenEnvFileError, PreResolvedEnvError, readFrozenEnvFile, resolveFrozenEnvFileMode,
 } from './frozen-env-file';
@@ -49,55 +50,50 @@ export type InjectedEnvReuseDecision = | {
   /** path of the consumed `varlock freeze` file (frozen-file source only) */
   filePath?: string,
 }
-  | {
-    reuse: false,
-    reason: string,
-    /**
-     * Set when a pinned graph was found but cannot be consumed as-is because it leaves keys
-     * to boot (`@dynamic=boot`). The consumer must resolve with the schema instead, keeping
-     * every pinned value and resolving/validating only the boot keys - see
-     * `loadVarlockEnvGraph({ pinned })`.
-     */
-    pinned?: PinnedGraphInfo,
-  };
+  | { reuse: false, reason: string };
 
-/** A pinned (pre-resolved) graph and where it came from */
+/** A frozen env a fresh view should be shown from (see findPinnedGraphForResolution) */
 export type PinnedGraphInfo = {
+  /** with any boot-time values for `@dynamic=boot` items already applied */
   graph: SerializedEnvGraph,
   source: 'env-blob' | 'frozen-file',
   /** frozen-file source only */
   filePath?: string,
 };
 
-/** Keys a pinned graph leaves to boot (`@dynamic=boot`), if any */
-export function getPinnedBootKeys(graph: SerializedEnvGraph): Array<string> {
-  const keys = graph.frozen?.bootKeys;
-  return Array.isArray(keys) ? keys.filter((k) => typeof k === 'string') : [];
-}
-
 type SanitizedGraph = NonNullable<ReturnType<typeof parseAndSanitizeBlob>>;
 
 /**
- * The final step for any usable pre-resolved graph: reuse it as-is, unless it is a
- * `varlock freeze` payload that leaves `@dynamic=boot` keys out. Such a graph is not
- * complete, so it has to be applied on top of the schema with those keys resolved live.
+ * The final step for any usable pre-resolved graph. A `varlock freeze` payload with
+ * `@dynamic=boot` items gets their boot-time values applied first (checked against the types
+ * the freeze recorded, no schema needed), so the result is always complete. Invalid boot
+ * values fail closed, like any other unusable frozen env.
  */
-function reuseOrPin(
+function reuseOrApplyBoot(
   sanitized: SanitizedGraph,
   source: PinnedGraphInfo['source'],
+  bootEnv: EnvRecord,
   filePath?: string,
 ): InjectedEnvReuseDecision {
-  const bootKeys = getPinnedBootKeys(sanitized.parsedEnv);
-  if (bootKeys.length) {
-    const what = source === 'frozen-file' ? 'frozen env file' : '__VARLOCK_ENV frozen payload';
+  if (!Object.keys(getFrozenBootKeys(sanitized.parsedEnv)).length) {
     return {
-      reuse: false,
-      reason: `${what} leaves ${bootKeys.length} key${bootKeys.length === 1 ? '' : 's'} to boot (${bootKeys.join(', ')})`,
-      pinned: { graph: sanitized.parsedEnv, source, filePath },
+      reuse: true, ...sanitized, source, filePath,
     };
   }
+  const { graph, problems } = applyFrozenBootKeys(sanitized.parsedEnv, bootEnv);
+  if (problems.length) {
+    const what = source === 'frozen-file' ? `frozen env file ${filePath}` : 'frozen __VARLOCK_ENV payload';
+    const message = `invalid @dynamic=boot value${problems.length === 1 ? '' : 's'} for the ${what}:\n${problems.map((p) => `  - ${p}`).join('\n')}`;
+    const suggestion = 'Fix the value set in the environment at boot. It is checked against the type recorded when the env was frozen.';
+    throw source === 'frozen-file' ? new FrozenEnvFileError(message, suggestion) : new PreResolvedEnvError(message, suggestion);
+  }
   return {
-    reuse: true, ...sanitized, source, filePath,
+    reuse: true,
+    parsedEnv: graph,
+    blobJson: JSON.stringify(graph),
+    strippedInternalKeys: sanitized.strippedInternalKeys,
+    source,
+    filePath,
   };
 }
 
@@ -231,7 +227,7 @@ export function evaluateInjectedEnvReuse(opts: {
     if (sanitizedFrozen.parsedEnv.errors) {
       throw new FrozenEnvFileError(`frozen env file ${frozen.filePath} was created from a failed resolution and contains errors`);
     }
-    return reuseOrPin(sanitizedFrozen, 'frozen-file', frozen.filePath);
+    return reuseOrApplyBoot(sanitizedFrozen, 'frozen-file', preInjectionEnv, frozen.filePath);
   }
 
   const mode = getUseInjectedEnvMode(env);
@@ -330,7 +326,7 @@ export function evaluateInjectedEnvReuse(opts: {
   // explicit trust - the sandbox path. The blob is authoritative regardless of where it
   // was resolved; directory/drift checks make no sense for a blob from another machine.
   if (mode === 'force') {
-    return reuseOrPin(sanitized, 'env-blob');
+    return reuseOrApplyBoot(sanitized, 'env-blob', preInjectionEnv);
   }
 
   // -- automatic path: reuse only when a fresh resolution would clearly produce the same result
@@ -399,15 +395,15 @@ export function evaluateInjectedEnvReuse(opts: {
     }
   }
 
-  return reuseOrPin(sanitized, 'env-blob');
+  return reuseOrApplyBoot(sanitized, 'env-blob', preInjectionEnv);
 }
 
 /**
- * The pinned graph a fresh resolution should be applied on top of, if any - for `varlock
- * load`, which always loads the schema rather than deciding between reuse and resolution.
+ * The frozen env `varlock load` should show instead of resolving, if any, with boot-time values
+ * for `@dynamic=boot` items applied.
  *
  * Unlike `varlock run` and auto-load, only an explicit pin counts: a frozen env file named by
- * `_VARLOCK_USE_FROZEN_ENV` (`1` or a path - auto-load passes the path it found), or a
+ * `_VARLOCK_USE_FROZEN_ENV` (`1` or a path) or `--frozen`, or a
  * `varlock freeze --out -` payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`. `load` is what
  * every framework integration shells out to at dev and build time, so a frozen file merely
  * sitting in a project directory must not take over those; `load` says so instead (see
@@ -423,9 +419,7 @@ export function findPinnedGraphForResolution(opts: { env: EnvRecord, cwd?: strin
   if (!forced && !resolveFrozenEnvFileMode(env, cwd)?.required) return undefined;
 
   const decision = evaluateInjectedEnvReuse({ env, cwd, explicitFrozenOnly: true });
-  const pinned = decision.reuse
-    ? { graph: decision.parsedEnv, source: decision.source, filePath: decision.filePath }
-    : decision.pinned;
-  if (pinned?.source === 'env-blob' && (!forced || !pinned.graph.frozen)) return undefined;
-  return pinned;
+  if (!decision.reuse) return undefined;
+  if (decision.source === 'env-blob' && (!forced || !decision.parsedEnv.frozen)) return undefined;
+  return { graph: decision.parsedEnv, source: decision.source, filePath: decision.filePath };
 }

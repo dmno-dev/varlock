@@ -15,8 +15,6 @@ export type CliItemFilter = {
    * item metadata first (cheap), then match exactly — excluded items' value resolvers never run.
    */
   resolveScoped(graph: EnvGraph): Promise<void>;
-  /** the keys the filter selects, without resolving their values (see `EnvGraph.computeFilterKeys()`) */
-  computeKeys(graph: EnvGraph): Promise<Set<string>>;
   /** the keys passing the filter — call after resolution, when decorator getters are accurate */
   getFilterKeys(items: Array<ConfigItem>): Set<string>;
 };
@@ -95,9 +93,6 @@ export function getCliItemFilter(
   return {
     async resolveScoped(graph) {
       await graph.resolveEnvValuesForFilter(parsed);
-    },
-    computeKeys(graph) {
-      return graph.computeFilterKeys(parsed);
     },
     getFilterKeys(items) {
       const keys = parsed.computeKeys(items);

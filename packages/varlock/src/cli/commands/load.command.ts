@@ -9,7 +9,9 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
-import { applyFrozenArg, getPinnedGraphForResolution, getPinnedItemFilter } from '../helpers/pinned-env';
+import { applyFrozenArg, getPinnedGraphForResolution } from '../helpers/pinned-env';
+import { printFrozenEnv } from '../helpers/print-frozen-env';
+import { formatShellValue } from '../helpers/shell-value';
 import { getFrozenEnvFileInPlay } from '../../lib/frozen-env-file';
 import { CliExitError } from '../helpers/exit-error';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -25,14 +27,7 @@ import { commandSpec } from './load.command-spec';
 export { commandSpec };
 
 
-/**
- * Formats a string value for safe use in a shell export statement.
- * Uses single-quoted strings to prevent shell injection via backticks, `$`, etc.
- * Single quotes within the value are escaped using the `'\''` sequence.
- */
-export function formatShellValue(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
+export { formatShellValue };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
@@ -49,18 +44,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
   }
 
-  // A `varlock freeze` pin is applied only when named explicitly (`--frozen`,
-  // `_VARLOCK_USE_FROZEN_ENV=1` or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`), showing the
-  // pinned values plus any `@dynamic=boot` keys resolved live. That is also how
-  // `varlock/auto-load` hands a pin to the CLI. A file that is merely present is left alone,
+  // A frozen env is shown only when named explicitly (`--frozen`, `_VARLOCK_USE_FROZEN_ENV=1`
+  // or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`): its values, with
+  // any boot-time values for `@dynamic=boot` items applied. It is complete on its own, so this
+  // reads neither the schema nor any .env files. A file that is merely present is left alone,
   // because every framework integration resolves through `load` - but `varlock run` and
   // auto-load WOULD boot from it, so say that rather than silently disagreeing with them.
   applyFrozenArg(ctx.values.frozen);
   const pinned = getPinnedGraphForResolution();
   if (pinned) {
-    // same contradiction `varlock run` rejects: these change what a fresh resolution
-    // produces, but the pin fixes it. (`--env` is left alone: the Next.js integration always
-    // passes it, and a pin applies its own recorded environment as the fallback.)
+    // these change what a fresh resolution produces, and there is no resolution here.
+    // (`--env` is left alone: the Next.js integration always passes it.)
     const resolutionFlags = [
       ctx.values.path?.length ? '--path' : undefined,
       ctx.values.filter ? '--filter' : undefined,
@@ -70,28 +64,31 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     if (resolutionFlags.length) {
       const what = pinned.source === 'frozen-file' ? `a frozen env file (${pinned.filePath})` : 'a frozen __VARLOCK_ENV payload';
       throw new CliExitError(`${what} cannot be combined with ${resolutionFlags.join(', ')}`, {
-        suggestion: 'These flags change what a fresh resolution produces, but the pin fixes it. Drop them, or drop --frozen / _VARLOCK_USE_FROZEN_ENV.',
+        suggestion: 'A frozen env is shown as-is, with nothing resolved. Drop them, or drop --frozen / _VARLOCK_USE_FROZEN_ENV.',
       });
     }
+    printFrozenEnv(pinned.graph, {
+      format: outputFormat, agent: !!agent, compact: !!compact, summaryStderr: !!summaryStderr, summaryFile,
+    });
+    return;
   }
-  // a pin is final, so it defines the item set rather than any filter
-  const itemFilter = pinned ? getPinnedItemFilter(pinned) : cliItemFilter;
-  const ignoredFrozenFile = pinned ? undefined : getFrozenEnvFileInPlay(process.env, process.cwd());
+
+  const ignoredFrozenFile = getFrozenEnvFileInPlay(process.env, process.cwd());
   if (ignoredFrozenFile) {
     const relPath = path.relative(process.cwd(), ignoredFrozenFile) || ignoredFrozenFile;
     console.error(ansis.yellow(
       `⚠ ${relPath} is present: \`varlock run\` and \`varlock/auto-load\` boot from it, but this shows resolution from .env files.`,
     ));
     console.error(ansis.gray(
-      '  Use `varlock load --frozen` to see the pinned values, or delete the file if it is left over from a local freeze.',
+      '  Use `varlock load --frozen` to see the frozen values, or delete the file if it is left over from a local freeze.',
     ));
   }
+  const itemFilter = cliItemFilter;
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,
     clearCache: ctx.values['clear-cache'],
     skipCache: ctx.values['skip-cache'],
-    pinned,
   });
 
   // For json-full, still run the checks so their pretty output goes to stderr,

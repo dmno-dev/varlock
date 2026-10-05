@@ -11,6 +11,8 @@ import {
 } from '../helpers/error-checks';
 import { CliExitError } from '../helpers/exit-error';
 import { getCliItemFilter } from '../helpers/item-filter';
+import { describeFrozenBootKey } from '../../lib/frozen-boot-keys';
+import { EmptyRequiredValueError } from '../../env-graph/lib/errors';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { commandSpec } from './freeze.command-spec';
 
@@ -42,27 +44,32 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   checkForNoEnvFiles(envGraph);
 
   // A package.json `varlock.filter` scopes a shared schema to this package, so the frozen file
-  // holds only this package's keys. Applied here and never again: a pin is final, so at boot it
-  // defines the item set itself. `_VARLOCK_FILTER` is deliberately not applied (it is a
-  // per-invocation knob, and a frozen file refuses to boot under one).
+  // holds only this package's keys. Applied here and never again: a frozen env is final.
+  // `_VARLOCK_FILTER` is deliberately not applied (it is a per-invocation knob, and a frozen
+  // file refuses to boot under one).
   const scopeFilter = getCliItemFilter(undefined, { cliPaths: ctx.values.path, ignoreEnvFilter: true });
-  const inScope = scopeFilter ? await scopeFilter.computeKeys(envGraph) : new Set(envGraph.sortedConfigKeys);
-
-  // `@dynamic=boot` items are bound at process start on each instance (a platform-assigned
-  // PORT, pod identity), so they are left out of the pin entirely: their resolvers never run
-  // here, and they are resolved and validated against the schema at boot instead. The graph
-  // already guarantees nothing pinned depends on them (see checkBootDynamicDependencies).
-  // What a boot key depends on is pinned too, even if the filter left it out, so resolving the
-  // boot key at boot never has to resolve anything fresh.
-  const isBoot = (k: string) => envGraph.configSchema[k].isBootDynamic;
-  const bootKeys = envGraph.sortedConfigKeys.filter((k) => inScope.has(k) && isBoot(k));
-  const bootDeps = envGraph.expandKeysWithTransitiveDeps(bootKeys);
-  const pinnedKeys = envGraph.sortedConfigKeys.filter((k) => !isBoot(k) && (inScope.has(k) || bootDeps.has(k)));
-  const isScoped = !!scopeFilter || bootKeys.length > 0;
 
   // Generate types before resolving values: uses only non-env-specific schema info
   await envGraph.runCodeGeneratorsIfNeeded();
-  await envGraph.resolveEnvValues(isScoped ? [...envGraph.expandKeysWithTransitiveDeps(pinnedKeys)] : undefined);
+  if (scopeFilter) await scopeFilter.resolveScoped(envGraph);
+  else await envGraph.resolveEnvValues();
+  const frozenKeys = scopeFilter
+    ? scopeFilter.getFilterKeys(Object.values(envGraph.configSchema))
+    : undefined;
+
+  // `@dynamic=boot` items (a platform-assigned PORT, pod identity) are frozen like everything
+  // else, and the freeze-time value is their default, but the environment at boot may override
+  // them (see lib/frozen-boot-keys). So a required one may legitimately be unset here: its value
+  // just has to arrive at boot.
+  const bootKeys = envGraph.sortedConfigKeys.filter((k) => (
+    envGraph.configSchema[k].isBootDynamic && (!frozenKeys || frozenKeys.has(k))
+  ));
+  for (const key of bootKeys) {
+    const item = envGraph.configSchema[key];
+    item.validationErrors = item.validationErrors?.filter((e) => !(e instanceof EmptyRequiredValueError));
+    if (!item.validationErrors?.length) item.validationErrors = undefined;
+  }
+
   // a frozen file is consumed without re-resolution, so a partially-broken graph must never
   // be written - there would be no opportunity to surface the failure later
   checkForConfigErrors(envGraph);
@@ -85,12 +92,16 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     );
   }
 
-  const serialized = envGraph.getSerializedGraph(isScoped ? { filterKeys: new Set(pinnedKeys) } : undefined);
-  // marks the payload as a freeze (consumers apply it on top of the schema when it leaves
-  // keys to boot) and records what was frozen - see the SerializedEnvGraph type
+  const serialized = envGraph.getSerializedGraph(frozenKeys ? { filterKeys: frozenKeys } : undefined);
+  // marks the payload as a freeze, and records what boot needs to check a boot-time value for
+  // each `@dynamic=boot` item without the schema - see the SerializedEnvGraph type
   serialized.frozen = {
-    bootKeys,
-    ...(frozenEnv !== undefined ? { currentEnv: String(frozenEnv) } : {}),
+    ...(bootKeys.length ? {
+      boot: Object.fromEntries(bootKeys.map((key) => {
+        const item = envGraph.configSchema[key];
+        return [key, describeFrozenBootKey(item.dataType, item.isRequired)];
+      })),
+    } : {}),
   };
 
   // Override provenance describes process.env overrides at the ORIGINAL invocation, so
@@ -109,15 +120,17 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   const scopeSummaryLine = scopeFilter
     ? ansis.gray('  scoped by package.json varlock.filter')
     : undefined;
+  // boot keys can take a new value at boot, so say what each one falls back to and where that
+  // came from - a default picked up from the build machine's env is easy to miss otherwise
+  const describeBootDefault = (key: string) => {
+    const item = envGraph.configSchema[key];
+    if (item.resolvedValue === undefined) return `${key} (no default, must be set at boot)`;
+    const shown = item.isSensitive ? 'a sensitive value' : JSON.stringify(item.resolvedValue);
+    return `${key} (default ${shown}${item.isOverridden ? ', from the build environment' : ''})`;
+  };
   const bootSummaryLine = bootKeys.length
-    ? ansis.gray(`  left to boot (@dynamic=boot): ${ansis.bold(bootKeys.join(', '))}`)
+    ? ansis.gray(`  can be set at boot (@dynamic=boot): ${ansis.bold(bootKeys.map(describeBootDefault).join(', '))}`)
     : undefined;
-  const bootNextStepLines = bootKeys.length ? [
-    `${bootKeys.join(', ')} ${bootKeys.length === 1 ? 'is' : 'are'} resolved and validated against the schema at boot, so the runtime`,
-    'needs the varlock CLI and your .env.schema alongside the app (boot via `varlock run`, or',
-    '`varlock/auto-load` with the CLI installed). Everything else stays pinned.',
-  ] : [];
-
   // `--out -` emits the payload on stdout instead of writing a file, for platforms that
   // accept env vars but give you no way to get a file into the deploy unit (a compose file
   // pulling an image tag it does not rebuild, an ECS task definition, Heroku config vars).
@@ -153,8 +166,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       console.error(ansis.gray('  3. Boot your app as usual - `varlock/auto-load` hydrates from the blob.'));
     }
     console.error('');
-    for (const line of bootNextStepLines) console.error(ansis.gray(line));
-    if (bootNextStepLines.length) console.error('');
     console.error(ansis.gray('Values are now pinned: rotating a secret takes effect on your next deploy, not on restart.'));
     return;
   }
@@ -205,8 +216,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     console.log(ansis.gray('  2. Boot your app as usual - varlock picks the file up automatically.'));
   }
   console.log('');
-  for (const line of bootNextStepLines) console.log(ansis.gray(line));
-  if (bootNextStepLines.length) console.log('');
   console.log(ansis.gray(`Add ${relOutPath} to your .gitignore - it is a generated artifact holding resolved values.`));
   console.log(ansis.gray('Values are now pinned: rotating a secret takes effect on your next deploy, not on restart.'));
   console.log(ansis.gray(`Set ${USE_FROZEN_ENV_VAR}=1 at runtime to make a missing file a hard error rather than falling back to normal resolution.`));

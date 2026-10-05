@@ -184,7 +184,7 @@ For a key that resolved to a value at freeze time, the frozen value wins. For a 
 
 This is deliberate: freezing means the config was resolved and validated as a unit, and a value injected afterwards was part of neither. Accepting it would mean running on config that nothing validated.
 
-If a value genuinely has to come from the container rather than the deploy, say so in the schema with `@dynamic=boot` (next section). Marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**: it gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
+If a value genuinely has to come from the container rather than the deploy, say so in the schema with `@dynamic=boot` (next section), so the frozen value becomes a default the container can override. Marking such a key `@optional` so that `varlock freeze` stops refusing to write is the **wrong fix**: it gets the freeze to succeed, but it permanently weakens the schema, so nothing enforces the value at boot either, and the seal then clears whatever the operator supplied. You end up with no value and no error.
 
 ## Keys supplied at boot
 
@@ -192,24 +192,26 @@ Some values only exist once each instance starts: a `PORT` the platform assigns,
 
 ```env-spec title=".env.schema"
 # @type=port @required @dynamic=boot
-PORT=
+PORT=3000
 
-# @optional @dynamic=boot
+# @required @dynamic=boot
 INSTANCE_ID=
 ```
 
-`varlock freeze` leaves boot keys out of the pin. Their resolvers never run at freeze time, and a required boot key does not have to be set there. At boot, varlock resolves and validates them against the schema like any other value, with the runtime environment as the override source, while every pinned key keeps its frozen value and its resolver stays off, so no resolver credentials are needed. Validation is exactly what the schema says: a missing required `PORT`, or `PORT=abc` against `@type=port`, fails the boot.
+A boot key is frozen like everything else, and whatever it resolves to at freeze time becomes its default. At boot, a value set in the environment overrides that default. The override is checked against what the freeze recorded about the key (its type and whether it is required), so a missing required `INSTANCE_ID`, or `PORT=abc` against `@type=port`, fails the boot. Every other key keeps its frozen value.
 
-This changes what the runtime image needs. The varlock CLI and your `.env.schema` must be alongside the app, because the schema is what validates the boot keys. Boot with `varlock run -- ...`, or keep the CLI installed where `varlock/auto-load` can find it. A pin with no boot keys still needs neither.
+Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine: it just has to be set at boot.
 
-A few rules follow from the fact that a boot value does not exist before boot:
+The freeze summary lists each boot key and its default, and says when a default came from the build machine's environment rather than your .env files (`PORT (default 8080, from the build environment)`), since that is easy to miss. `varlock load --frozen` in the runtime image shows the values the app boots with, boot values included.
 
-- **Nothing pinned may depend on it.** `PUBLIC_URL=http://localhost:${PORT}` with a boot `PORT` is a schema error on every load, not just under `freeze`. The fix is to mark `PUBLIC_URL` `@dynamic=boot` as well. The reverse is fine: a boot key can be built from pinned values.
-- **Root decorators cannot reference it**, and the `@currentEnv` item cannot be boot. Anything that decides how the schema loads or how varlock behaves (`@currentEnv`, `@disable`, `@import`, `@cache`, `@redactLogs`, plugin init) is evaluated before boot, so a boot value there is a schema error.
+A few rules keep a boot value checkable without the schema, and keep it from going stale:
+
+- **Nothing may reference a boot key**, not even another boot key. With `PUBLIC_URL=http://localhost:${PORT}`, the frozen `PUBLIC_URL` would keep the freeze-time `PORT` after the platform assigns a new one at boot. This is a schema error on every load, not just under `freeze`. Build such values in your app code at boot. A boot key can itself be built from non-boot values, since those never change after the freeze.
+- **The type must be a built-in, non-composite type with plain settings** (`string`, `port`, `number`, `boolean`, `enum`, `url`, and so on). A plugin-defined type, an `array` or `record`, a computed `@type`, or a setting like `matches=regex(...)` cannot be recorded, so it is a schema error.
+- **Root decorators cannot reference it**, and the `@currentEnv` item cannot be boot. Anything that decides how the schema loads or how varlock behaves (`@currentEnv`, `@disable`, `@import`, `@cache`, `@redactLogs`, plugin init) is settled before boot.
 - **`boot` is per item and written literally.** There is no root default, and a computed value is an error.
-- **The pin defines the item set.** Schema items outside it are never resolved at boot, including keys added to the schema since the freeze, so their resolvers never need credentials at runtime. A pinned key that has since been removed from the schema, or a key whose boot marking changed, fails the boot with a message naming the drift. Re-run `varlock freeze` and redeploy.
 
-The freeze summary lists what was left out (`left to boot (@dynamic=boot): PORT, INSTANCE_ID`), and `varlock load --frozen` in the runtime image shows the same pinned-plus-boot view the app gets.
+Outside of freezing, `@dynamic=boot` behaves like `@dynamic`: the value is never inlined at build time, and every value is resolved at boot anyway.
 
 If you find yourself marking more than a handful of keys `boot`, freezing is the wrong tool for that service. Use [`varlock run`](/reference/cli/load-and-run/#run) and resolve everything at boot.
 
@@ -263,7 +265,7 @@ The payload holds every resolved value, so it can outgrow what a platform accept
 
 **Rotating `_VARLOCK_ENV_KEY` breaks rollback.** Releases frozen under the old key cannot be decrypted with the new one, which is a problem precisely when you want to roll back. Keep the key stable, or plan to re-freeze and redeploy the releases you want to keep rollable.
 
-**A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, `varlock run` and `varlock/auto-load` use it even after you edit your .env files. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`. The one exception is a pin with [boot keys](#keys-supplied-at-boot), which is checked against the schema at boot.
+**A frozen file is used as-is, with no drift checking.** If one is sitting in your project directory during local development, `varlock run` and `varlock/auto-load` use it even after you edit your .env files. Delete it, or set `_VARLOCK_USE_FROZEN_ENV=0`. (`vite dev` and `next dev` refuse to start next to one.) A frozen file is final: keys added to the schema since the freeze are not part of it until you re-freeze.
 
 **Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at deploy time and it will expire while the deploy is still running. Mark those [`@dynamic=boot`](#keys-supplied-at-boot) so they are resolved at boot, which does mean the runtime needs the credentials that resolver uses.
 

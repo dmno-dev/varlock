@@ -208,7 +208,44 @@ describe('@dynamic=boot', () => {
     expectValues: { PORT: SchemaError },
   }));
 
-  describe('nothing bound earlier may depend on a boot item', () => {
+  // a frozen env checks a boot-time value without the schema, from what freeze recorded
+  describe('a boot item needs a type a frozen env can check at boot', () => {
+    test('built-in types with plain settings are fine', envFilesTest({
+      envFile: outdent`
+        PORT=3000          # @dynamic=boot @type=port
+        LEVEL=info         # @dynamic=boot @type=enum(debug, info)
+        WORKERS=2          # @dynamic=boot @type=number(min=1, isInt=true)
+        NAME=web           # @dynamic=boot
+      `,
+      expectValues: {
+        PORT: 3000, LEVEL: 'info', WORKERS: 2, NAME: 'web',
+      },
+    }));
+
+    test('a composite type is a schema error', envFilesTest({
+      envFile: outdent`
+        HOSTS=a,b   # @dynamic=boot @type=array
+      `,
+      expectValues: { HOSTS: SchemaError },
+    }));
+
+    test('settings that cannot be recorded as data are a schema error', envFilesTest({
+      envFile: outdent`
+        CODE=abc   # @public @dynamic=boot @type=string(matches=regex("^a"))
+      `,
+      expectValues: { CODE: SchemaError },
+    }));
+
+    test('a computed type is a schema error', envFilesTest({
+      envFile: outdent`
+        STRICT=true                 # @public
+        LEVEL=info                  # @dynamic=boot @type=enum(debug, info, ifs(\$STRICT, warn, error))
+      `,
+      expectValues: { LEVEL: SchemaError },
+    }));
+  });
+
+  describe('nothing may depend on a boot item', () => {
     test('a value reference is a schema error, transitively', envFilesTest({
       envFile: outdent`
         PORT=3000                       # @dynamic=boot
@@ -243,18 +280,26 @@ describe('@dynamic=boot', () => {
       const err = g.configSchema.PUBLIC_URL.errors[0];
       expect(err).toBeInstanceOf(SchemaError);
       expect(err.message).toContain('PUBLIC_URL depends on PORT, which is @dynamic=boot');
-      expect(err.more?.tip).toContain('Mark PUBLIC_URL @dynamic=boot too');
+      expect(err.more?.tip).toContain('Derive PUBLIC_URL from PORT in your app code at boot');
     });
 
-    // the rule is one-directional - a boot item built from pinned values is the common case
-    test('a boot item may depend on pinned items', envFilesTest({
+    // a boot item built from frozen values is fine: those never change after the freeze
+    test('a boot item may depend on non-boot items', envFilesTest({
       envFile: outdent`
         DB_HOST=db.internal                       # @public
-        DB_URL=postgres://\${DB_HOST}:\${DB_PORT}   # @dynamic=boot
-        DB_PORT=5432                              # @dynamic=boot
+        DB_URL=postgres://\${DB_HOST}:5432         # @dynamic=boot
       `,
       expectValues: { DB_URL: 'postgres://db.internal:5432' },
       expectDynamic: { DB_URL: true, DB_HOST: false },
+    }));
+
+    // but not on another boot item: it would keep the freeze-time value of what it references
+    test('a boot item may not depend on another boot item', envFilesTest({
+      envFile: outdent`
+        DB_URL=postgres://db:\${DB_PORT}   # @dynamic=boot
+        DB_PORT=5432                      # @dynamic=boot
+      `,
+      expectValues: { DB_URL: SchemaError, DB_PORT: 5432 },
     }));
 
     test('the @currentEnv item selects env files, so it cannot be boot', envFilesTest({

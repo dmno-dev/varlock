@@ -17,7 +17,8 @@ import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
-import { applyFrozenArg, getPinnedItemFilter, pinErrorToCliExitError } from '../helpers/pinned-env';
+import { applyFrozenArg, pinErrorToCliExitError } from '../helpers/pinned-env';
+import { getFrozenBootKeys } from '../../lib/frozen-boot-keys';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
@@ -123,14 +124,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   } else {
     debug('resolving env (%s)', reuseDecision.reason);
-    // A pin that leaves `@dynamic=boot` keys to the runtime is applied on top of the schema:
-    // pinned values stay sealed (their resolvers never run) and only the boot keys are
-    // resolved and validated here. The child then gets a complete, fresh blob.
     envGraph = await loadVarlockEnvGraph({
       entryFilePaths: ctx.values.path,
       clearCache: ctx.values['clear-cache'],
       skipCache: ctx.values['skip-cache'],
-      pinned: reuseDecision.pinned,
     });
     checkForSchemaErrors(envGraph);
     checkForNoEnvFiles(envGraph, { allowOptOut: true });
@@ -142,10 +139,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // unrelated broken item outside the filter won't block this run, and excluded items'
     // value resolvers never run. Decorator selectors resolve item metadata first, then match
     // exactly (see EnvGraph.resolveEnvValuesForFilter).
-    // a pin is final, so it defines the item set rather than any filter
-    const itemFilter = reuseDecision.pinned
-      ? getPinnedItemFilter(reuseDecision.pinned)
-      : getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
+    const itemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
     if (itemFilter) await itemFilter.resolveScoped(envGraph);
     else await envGraph.resolveEnvValues();
     checkForConfigErrors(envGraph);
@@ -207,11 +201,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       childBlob = ambientKey ? encryptEnvBlobSync(reuseDecision.blobJson, ambientKey) : reuseDecision.blobJson;
     } else {
       // normally the ambient blob is forwarded byte-for-byte; if @internal items were
-      // stripped from it on consumption, forward the sanitized form instead (re-encrypted
-      // with the ambient key when the original was encrypted - the key must have been
-      // present for decryption to have succeeded)
+      // stripped from it on consumption, or boot-time values applied to a frozen payload,
+      // forward the rewritten form instead (re-encrypted with the ambient key when the
+      // original was encrypted - the key must have been present for decryption to succeed)
       childBlob = process.env.__VARLOCK_ENV!;
-      if (reuseDecision.strippedInternalKeys.length) {
+      if (reuseDecision.strippedInternalKeys.length || Object.keys(getFrozenBootKeys(reuseDecision.parsedEnv)).length) {
         childBlob = isEncryptedBlob(childBlob)
           ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
           : reuseDecision.blobJson;
@@ -225,7 +219,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // a consumed frozen env file is handed on by absolute path, so a child that starts in
   // another directory reads the same pin
-  const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : reuseDecision.pinned?.filePath;
+  const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : undefined;
 
   const fullInjectedEnv: NodeJS.ProcessEnv = {
     ...process.env,

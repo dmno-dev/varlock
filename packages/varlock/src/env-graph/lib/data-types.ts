@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError } from './errors';
-import { parseRegexLikeString } from './resolver';
+import { parseRegexLikeString } from './regex-like-string';
 import {
   parseDuration, convertDurationFromMs, type DurationUnit,
 } from '../../lib/duration';
@@ -111,7 +111,15 @@ export class EnvGraphDataType {
     private def: EnvGraphDataTypeDef<any, any>,
     /** reference back to the factory function, which we can use like a constructor to check the type of the instance */
     private factory: any,
+    /**
+     * the settings this instance was created with (e.g. `[{ min: 1 }]` for `number(min=1)`),
+     * so it can be rebuilt elsewhere - a frozen env records them for `@dynamic=boot` items
+     */
+    readonly usageArgs: Array<any> = [],
   ) {}
+
+  /** @internal the factory this instance was created from */
+  get _factory() { return this.factory; }
 
   get name() { return this.def.name; }
   get icon() { return this.def.icon; }
@@ -159,6 +167,7 @@ export function createEnvGraphDataType<TsType, InstanceSettingsArgs extends Arra
     return new EnvGraphDataType(
       def.icon || !defaults?.icon ? def : { ...def, icon: defaults.icon },
       typeFactoryFn,
+      usageOpts,
     );
   };
   typeFactoryFn._isEnvGraphDataTypeFactory = true;

@@ -859,6 +859,11 @@ export class ConfigItem {
    * `boot` must be written literally, so this is knowable from the schema alone (before any
    * resolution) - the graph relies on that for its frozen-depends-on-boot check.
    */
+  /** whether any part of this item's `@type` is computed rather than written literally */
+  get hasComputedType(): boolean {
+    return !!this._typeSpecPlan?.deferred.length;
+  }
+
   get isBootDynamic(): boolean {
     const dynamicDec = this.getExplicitDynamicDecorator();
     if (!dynamicDec || dynamicDec.name !== 'dynamic') return false;
