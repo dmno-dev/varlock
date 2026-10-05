@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     outputs:
       includes-varlock: ${{ steps.check-release.outputs.includes-varlock }}
       release-packages: ${{ steps.check-release.outputs.packages }}
@@ -187,7 +187,7 @@ jobs:
       && needs.build-native-rust.result != 'cancelled'
       && needs.build-and-test.outputs.release-packages != ''
       && needs.build-and-test.outputs.release-packages != '[]'
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:

@@ -18,7 +18,7 @@ permissions:
 jobs:
   check-if-release-pr:
     name: Check if Release PR
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     permissions: {}
     outputs:
       is-release-pr: ${{ steps.check.outputs.is-release-pr }}
@@ -39,7 +39,7 @@ jobs:
     name: Build and Pack Libraries
     needs: check-if-release-pr
     if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-latest
     permissions:
       contents: read
       actions: write
@@ -121,16 +121,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [depot-ubuntu-latest, depot-macos-latest, depot-windows-2025]
         node-version: ['24.x']
         include:
-          - os: ubuntu-latest
+          - os: depot-ubuntu-latest
             binary-artifact: varlock-binary-linux-x64
             binary-name: varlock
-          - os: macos-latest
+          - os: depot-macos-latest
             binary-artifact: varlock-binary-macos-arm64
             binary-name: varlock
-          - os: windows-latest
+          - os: depot-windows-2025
             binary-artifact: varlock-binary-win-x64
             binary-name: varlock.exe
 
