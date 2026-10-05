@@ -80,6 +80,12 @@ export interface ChildSignalForwarder {
   attach(child: ChildLike): void;
   /** Call once the child has exited and been reaped, so we never signal a recycled pid. */
   detach(): void;
+  /**
+   * Whether varlock received (and forwarded) a terminating signal while the child ran.
+   * A child that handles e.g. SIGINT and then exits with a non-zero code (often 128+N)
+   * is shutting down normally, not failing, so callers use this to skip error output.
+   */
+  readonly receivedSignal: boolean;
 }
 
 /**
@@ -113,6 +119,7 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   let child: ChildLike | undefined;
   let childExited = false;
+  let receivedSignal = false;
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
   // signals received before attach(); replayed once we know the child
   const pendingSignals: Array<NodeJS.Signals> = [];
@@ -136,6 +143,7 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   FORWARDED_SIGNALS.forEach((signal) => {
     const forwardSignal = () => {
+      receivedSignal = true;
       if (!child) {
         pendingSignals.push(signal);
         return;
@@ -170,6 +178,9 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
     detach() {
       childExited = true;
       if (forceKillTimer) clearTimeout(forceKillTimer);
+    },
+    get receivedSignal() {
+      return receivedSignal;
     },
   };
 }
