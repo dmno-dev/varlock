@@ -167,6 +167,7 @@ Rules, each a schema error on every load:
 
 - It must be written literally, and it is per item (there is no root default).
 - Its type must be a built-in, non-composite type with plain settings, so it can be checked at boot without the schema.
+- It cannot be `@internal`, since internal items are never handed to the app.
 - Nothing may reference a boot item, including another boot item, since the reference would keep the freeze-time value. This covers values and decorator functions.
 - Root decorators cannot reference a boot item (`@redactLogs=$X`, `@cache`, `@disable`, `@import(enabled=...)`, plugin init), since they are settled before boot, and the [`@currentEnv`](/reference/root-decorators/#currentenv) item cannot be boot, since it decides which env files load.
 

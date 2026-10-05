@@ -47,6 +47,13 @@ export type InjectedEnvReuseDecision = | {
    * these keys before handing env to a child.
    */
   strippedInternalKeys: Array<string>,
+  /**
+   * Whether parsedEnv/blobJson differ from the ambient `__VARLOCK_ENV` - it came from a frozen
+   * file, had `@internal` items stripped, or had boot-time values applied. When false the
+   * ambient blob can be forwarded byte-for-byte; when true it must be re-serialized, or a child
+   * would see a different graph than this process.
+   */
+  rewritten: boolean,
   /** path of the consumed `varlock freeze` file (frozen-file source only) */
   filePath?: string,
 }
@@ -77,7 +84,11 @@ function reuseOrApplyBoot(
 ): InjectedEnvReuseDecision {
   if (!Object.keys(getFrozenBootKeys(sanitized.parsedEnv)).length) {
     return {
-      reuse: true, ...sanitized, source, filePath,
+      reuse: true,
+      ...sanitized,
+      rewritten: source === 'frozen-file' || sanitized.strippedInternalKeys.length > 0,
+      source,
+      filePath,
     };
   }
   const { graph, problems } = applyFrozenBootKeys(sanitized.parsedEnv, bootEnv);
@@ -92,6 +103,7 @@ function reuseOrApplyBoot(
     parsedEnv: graph,
     blobJson: JSON.stringify(graph),
     strippedInternalKeys: sanitized.strippedInternalKeys,
+    rewritten: true,
     source,
     filePath,
   };

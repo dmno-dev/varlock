@@ -201,7 +201,7 @@ INSTANCE_ID=
 
 A boot key is frozen like everything else, and whatever it resolves to at freeze time becomes its default. When the app starts, a value for that key in the process environment (set by the platform, `docker run -e`, and so on) overrides the default. A variable that is set but empty counts as set. The override is checked against what the freeze recorded about the key (its type and whether it is required), so a missing required `INSTANCE_ID`, or `PORT=abc` against `@type=port`, fails the boot. Every other key keeps its frozen value.
 
-Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine, and so is one whose resolver fails there (say it reads instance metadata that only exists on a real instance): there is no default, and the value has to be set at boot.
+Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine: it has no default, and the value has to be set at boot. Otherwise its default resolves and validates like any other value, so if it cannot resolve in CI, leave it empty in the schema.
 
 The freeze summary lists each boot key and its default, and says when a default came from the build machine's environment rather than your .env files (`PORT (default 8080, from the build environment)`), since that is easy to miss. `varlock load --frozen` in the runtime image shows the values the app boots with, boot values included.
 
@@ -209,6 +209,7 @@ A few rules keep a boot value checkable without the schema, and keep it from goi
 
 - **Nothing may reference a boot key**, not even another boot key. With `PUBLIC_URL=http://localhost:${PORT}`, the frozen `PUBLIC_URL` would keep the freeze-time `PORT` after the platform assigns a new one at boot. This is a schema error on every load, not just under `freeze`. Build such values in your app code at boot. A boot key can itself be built from non-boot values, since those never change after the freeze.
 - **The type must be a built-in, non-composite type with plain settings** (`string`, `port`, `number`, `boolean`, `enum`, `url`, and so on). A plugin-defined type, an `array` or `record`, a computed `@type`, or a setting like `matches=regex(...)` cannot be recorded, so it is a schema error.
+- **It cannot be `@internal`**, since internal items are never handed to the app.
 - **Root decorators cannot reference it**, and the `@currentEnv` item cannot be boot. Anything that decides how the schema loads or how varlock behaves (`@currentEnv`, `@disable`, `@import`, `@cache`, `@redactLogs`, plugin init) is settled before boot.
 - **`boot` is per item and written literally.** There is no root default, and a computed value is an error.
 

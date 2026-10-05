@@ -59,24 +59,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // `@dynamic=boot` items (a platform-assigned PORT, pod identity) are frozen like everything
   // else, and the freeze-time value is their default, but the environment at boot may override
-  // them (see lib/frozen-boot-keys). So a required one may legitimately be unset here, and a
-  // resolver that only works on a real instance (instance metadata, say) may fail here: either
-  // way there is just no default, and the value has to arrive at boot. A default that resolved
-  // but is invalid still fails the freeze. `@internal` items never reach the app, so they are
-  // not boot items in a frozen env.
+  // them (see lib/frozen-boot-keys). So a required one may legitimately be unset here: its value
+  // just has to arrive at boot. Its default must otherwise resolve and validate like any value.
   const bootKeys = envGraph.sortedConfigKeys.filter((k) => (
-    envGraph.configSchema[k].isBootDynamic
-    && !envGraph.configSchema[k].isInternal
-    && (!frozenKeys || frozenKeys.has(k))
+    envGraph.configSchema[k].isBootDynamic && (!frozenKeys || frozenKeys.has(k))
   ));
-  const bootDefaultFailures: Record<string, string> = {};
   for (const key of bootKeys) {
     const item = envGraph.configSchema[key];
-    if (item.resolutionError) {
-      bootDefaultFailures[key] = item.resolutionError.message;
-      item.resolutionError = undefined;
-      item.resolvedValue = undefined;
-    }
     item.validationErrors = item.validationErrors?.filter((e) => !(e instanceof EmptyRequiredValueError));
     if (!item.validationErrors?.length) item.validationErrors = undefined;
   }
@@ -135,7 +124,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // came from - a default picked up from the build machine's env is easy to miss otherwise
   const describeBootDefault = (key: string) => {
     const item = envGraph.configSchema[key];
-    if (bootDefaultFailures[key]) return `${key} (no default, its resolver failed here: ${bootDefaultFailures[key]})`;
     if (item.resolvedValue === undefined) return `${key} (no default, must be set at boot)`;
     const shown = item.isSensitive ? 'a sensitive value' : JSON.stringify(item.resolvedValue);
     return `${key} (default ${shown}${item.isOverridden ? ', from the build environment' : ''})`;

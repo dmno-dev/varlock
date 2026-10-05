@@ -1,7 +1,6 @@
 import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex, isEncryptedBlob } from './runtime/crypto';
 import { evaluateInjectedEnvReuse } from './lib/injected-env-reuse';
-import { getFrozenBootKeys } from './lib/frozen-boot-keys';
 import { PreResolvedEnvError, USE_FROZEN_ENV_VAR } from './lib/frozen-env-file';
 import { createDebug } from './lib/debug';
 import { isVarlockCliChild } from './lib/cli-child-marker';
@@ -95,15 +94,11 @@ function autoLoad() {
     // in plaintext in process.env.__VARLOCK_ENV
     // (a REUSED blob that arrived already encrypted stays exactly as-is - never write the
     // decrypted form back into process.env. after a fresh resolution the env blob is always
-    // replaced, even if a stale encrypted parent blob was sitting there. a reused blob that
-    // had @internal items stripped must also be re-written, so children never inherit them -
-    // the ambient key is guaranteed present in that case, since decryption succeeded. so must
-    // one that came from a frozen file, or had boot-time values applied: it is not the ambient
-    // blob any more)
+    // replaced, even if a stale encrypted parent blob was sitting there, and so is a reused
+    // graph that was rewritten (see InjectedEnvReuseDecision.rewritten), so children see the
+    // same graph as this process)
     const reusedEncryptedBlob = reuseDecision.reuse
-      && reuseDecision.source === 'env-blob'
-      && reuseDecision.strippedInternalKeys.length === 0
-      && !Object.keys(getFrozenBootKeys(reuseDecision.parsedEnv)).length
+      && !reuseDecision.rewritten
       && !!process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV);
     if (!reusedEncryptedBlob) {
       let encryptionKey = process.env._VARLOCK_ENV_KEY;

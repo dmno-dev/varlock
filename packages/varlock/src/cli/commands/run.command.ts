@@ -18,9 +18,8 @@ import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { applyFrozenArg, pinErrorToCliExitError } from '../helpers/pinned-env';
-import { getFrozenBootKeys } from '../../lib/frozen-boot-keys';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
-import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
+import { encryptEnvBlobSync } from '../../runtime/crypto';
 import { getPreInjectionProcessEnv } from '../../runtime/env';
 import { createDebug } from '../../lib/debug';
 import { commandSpec } from './run.command-spec';
@@ -191,25 +190,15 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       ambientEnvKey: process.env._VARLOCK_ENV_KEY,
     });
   } else if (injectBlob) {
-    let childBlob: string;
-    if (reuseDecision.source === 'frozen-file') {
-      // the graph came from disk, so there is no ambient blob to forward (and any that is
-      // present lost to the file, so it must not leak through): hand the child the frozen
-      // graph itself, encrypted whenever a key is available - it always is when the file
-      // was encrypted, since decryption succeeded
-      const ambientKey = process.env._VARLOCK_ENV_KEY;
+    // the ambient blob is forwarded byte-for-byte unless the graph was rewritten on
+    // consumption (came from a frozen file, @internal items stripped, boot values applied -
+    // see InjectedEnvReuseDecision.rewritten). Then the child gets the rewritten graph,
+    // encrypted whenever a key is available, which it always is when the source was
+    // encrypted, since decryption succeeded.
+    const ambientKey = process.env._VARLOCK_ENV_KEY;
+    let childBlob = process.env.__VARLOCK_ENV!;
+    if (reuseDecision.rewritten) {
       childBlob = ambientKey ? encryptEnvBlobSync(reuseDecision.blobJson, ambientKey) : reuseDecision.blobJson;
-    } else {
-      // normally the ambient blob is forwarded byte-for-byte; if @internal items were
-      // stripped from it on consumption, or boot-time values applied to a frozen payload,
-      // forward the rewritten form instead (re-encrypted with the ambient key when the
-      // original was encrypted - the key must have been present for decryption to succeed)
-      childBlob = process.env.__VARLOCK_ENV!;
-      if (reuseDecision.strippedInternalKeys.length || Object.keys(getFrozenBootKeys(reuseDecision.parsedEnv)).length) {
-        childBlob = isEncryptedBlob(childBlob)
-          ? encryptEnvBlobSync(reuseDecision.blobJson, process.env._VARLOCK_ENV_KEY!)
-          : reuseDecision.blobJson;
-      }
     }
     injectedBlobEnv = {
       __VARLOCK_ENV: childBlob,

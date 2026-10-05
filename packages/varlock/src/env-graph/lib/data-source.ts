@@ -345,10 +345,9 @@ export abstract class EnvGraphDataSource {
       // early resolve any dependencies needed by @disable condition (e.g. $AUTH_MODE in `not(eq($AUTH_MODE, "azure"))`)
       await disabledDec.process();
       if (disabledDec.decValueResolver) {
-        const bootError = await this.graph.earlyResolveDecoratorDeps('disable', disabledDec.decValueResolver.deps);
-        if (bootError) {
-          disabledDec._errors.push(bootError);
-          return;
+        for (const depKey of disabledDec.decValueResolver.deps) {
+          const depItem = this.graph.configSchema[depKey];
+          if (depItem) await depItem.earlyResolve();
         }
       }
 
@@ -521,12 +520,17 @@ export abstract class EnvGraphDataSource {
 
           // Early resolve any dependencies in the enabled parameter
           if (importDec.decValueResolver?.objArgs?.enabled) {
-            const bootError = await this.graph.earlyResolveDecoratorDeps(
-              'import',
-              importDec.decValueResolver.objArgs.enabled.deps,
-              { requireExists: true },
-            );
-            if (bootError) throw bootError;
+            const enabledResolver = importDec.decValueResolver.objArgs.enabled;
+            const enabledDeps = enabledResolver.deps;
+
+            // Early resolve all dependencies
+            for (const depKey of enabledDeps) {
+              const depItem = this.graph.configSchema[depKey];
+              if (!depItem) {
+                throw new Error(`@import enabled parameter depends on non-existent item: ${depKey}`);
+              }
+              await depItem.earlyResolve();
+            }
           }
 
           const importArgs = await importDec.resolve();

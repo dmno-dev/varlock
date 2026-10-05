@@ -326,9 +326,6 @@ describe('@dynamic=boot', () => {
       const source = g.rootDataSource!;
       expect(source.isValid).toBe(false);
       expect(source.errors[0].message).toContain('@redactLogs depends on BOOT, which is @dynamic=boot');
-      // refused before executing, so the boot item's resolver never ran
-      expect(g.configSchema.BOOT.isResolved).toBe(false);
-      expect(g.getRootDec('redactLogs')?.resolvedValue).toBeUndefined();
     });
 
     test('the decorators that resolve even earlier (@disable, @cache) are refused too', envFilesTest({
@@ -348,7 +345,8 @@ describe('@dynamic=boot', () => {
       expectError: true,
     }));
 
-    test('@disable names the rule rather than failing on an unresolved value', async () => {
+    // a disabled source is checked too: `@disable=$BOOT` is itself the reference
+    test('@disable names the rule', async () => {
       const g = new EnvGraph();
       g.setVirtualImports(process.cwd(), {
         '.env.extra': outdent`
@@ -367,10 +365,9 @@ describe('@dynamic=boot', () => {
       await g.finishLoad();
       const messages = g.sortedDataSources.flatMap((s) => s.errors.map((e) => e.message));
       expect(messages.some((m) => m.includes('@disable depends on BOOT, which is @dynamic=boot'))).toBe(true);
-      expect(g.configSchema.BOOT.isResolved).toBe(false);
     });
 
-    test('an early-resolved boot item is never resolved', async () => {
+    test('@cache names the rule', async () => {
       const g = new EnvGraph();
       await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
         overrideContents: outdent`
@@ -380,8 +377,15 @@ describe('@dynamic=boot', () => {
         `,
       }));
       await g.finishLoad();
-      expect(g.configSchema.BOOT.isResolved).toBe(false);
-      expect(g.configSchema.BOOT.errors[0].message).toContain('BOOT is @dynamic=boot, so it cannot be used by @currentEnv, @disable, @import, or @cache');
+      const messages = g.sortedDataSources.flatMap((s) => s.errors.map((e) => e.message));
+      expect(messages.some((m) => m.includes('@cache depends on BOOT, which is @dynamic=boot'))).toBe(true);
     });
+
+    test('an @internal item cannot be boot', envFilesTest({
+      envFile: outdent`
+        TOKEN=abc   # @internal @dynamic=boot
+      `,
+      expectValues: { TOKEN: SchemaError },
+    }));
   });
 });
