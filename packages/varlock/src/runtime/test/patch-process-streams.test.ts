@@ -124,6 +124,11 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`${REDACTED} printed-token-abcdef\n`);
   });
 
+  it('prints values revealed with revealSensitiveConfig (strips the markers)', () => {
+    fake.stream.write(`revealed: 👁 ${SECRET} 👁\n`);
+    expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
+  });
+
   it('does not double-patch', () => {
     expect(patchStreamWrite(fake.stream)).toBe(false);
   });

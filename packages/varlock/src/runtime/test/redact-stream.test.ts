@@ -1,7 +1,9 @@
 import {
   describe, it, expect, beforeEach, afterEach, vi,
 } from 'vitest';
-import { resetRedactionMap, getRedactionHoldbackLength, redactSensitiveConfig } from '../env';
+import {
+  resetRedactionMap, getRedactionHoldbackLength, redactSensitiveConfig, redactSensitiveConfigForOutput,
+} from '../env';
 import { createRedactedStreamWriter } from '../lib/redact-stream';
 import type { SerializedEnvGraph } from '../../env-graph';
 
@@ -166,5 +168,27 @@ describe('unmask markers', () => {
 
   it('redacts other occurrences next to an unmasked one', () => {
     expect(redactSensitiveConfig(`👁 ${SECRET_VALUE} 👁 ${SECRET_VALUE}`)).toBe(`👁 ${SECRET_VALUE} 👁 ${REDACTED_SECRET}`);
+  });
+});
+
+describe('redactSensitiveConfigForOutput', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: SECRET_VALUE });
+  });
+
+  it('strips unmask markers so the revealed value prints as-is', () => {
+    expect(redactSensitiveConfigForOutput(`key=👁 ${SECRET_VALUE} 👁!`)).toBe(`key=${SECRET_VALUE}!`);
+  });
+
+  it('still redacts values that are not wrapped', () => {
+    expect(redactSensitiveConfigForOutput(`👁 ${SECRET_VALUE} 👁 ${SECRET_VALUE}`)).toBe(`${SECRET_VALUE} ${REDACTED_SECRET}`);
+  });
+
+  it('strips markers around non-sensitive values too', () => {
+    expect(redactSensitiveConfigForOutput('👁 hello 👁')).toBe('hello');
+  });
+
+  it('leaves non-strings alone', () => {
+    expect(redactSensitiveConfigForOutput(123)).toBe(123);
   });
 });

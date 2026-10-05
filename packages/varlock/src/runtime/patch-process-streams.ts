@@ -1,7 +1,7 @@
 /* eslint-disable func-names, prefer-rest-params */
 
 import { fstatSync } from 'node:fs';
-import { getRedactionHoldbackLength, redactSensitiveConfig, varlockSettings } from './env';
+import { getRedactionHoldbackLength, redactSensitiveConfigForOutput, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
 import { FLUSH_TIMEOUT_MS, PARENT_REDACTED_STREAMS_ENV_VAR } from './lib/redact-stream';
@@ -117,7 +117,7 @@ function flushPending(stream: WritableLike, state: StreamPatchState) {
   state.pendingText = '';
   state.pendingBytes = undefined;
   const done = takeCallbacks(state);
-  if (text) state.originalWrite.call(stream, redactSensitiveConfig(text), bytes?.length ? undefined : done);
+  if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text), bytes?.length ? undefined : done);
   if (bytes?.length) state.originalWrite.call(stream, bytes, done);
   if (!text && !bytes?.length && done) queueMicrotask(() => done());
 }
@@ -147,7 +147,7 @@ function writeText(
   const done = !state.pendingText && !state.pendingBytes ? takeCallbacks(state) : undefined;
   let result = true;
   if (emittable) {
-    result = state.originalWrite.call(stream, redactSensitiveConfig(emittable), done);
+    result = state.originalWrite.call(stream, redactSensitiveConfigForOutput(emittable), done);
   } else {
     if (done) queueMicrotask(() => done());
     result = !stream.writableNeedDrain;
@@ -237,10 +237,10 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
       flushStreamWrite(stream);
       const args = Array.from(arguments);
       if (typeof data === 'string') {
-        args[1] = redactSensitiveConfig(data);
+        args[1] = redactSensitiveConfigForOutput(data);
       } else if (data instanceof Uint8Array) {
         try {
-          const redacted = redactSensitiveConfig(utf8Decoder.decode(data));
+          const redacted = redactSensitiveConfigForOutput(utf8Decoder.decode(data));
           args[1] = utf8Encoder.encode(redacted);
         } catch {
           // binary - leave untouched

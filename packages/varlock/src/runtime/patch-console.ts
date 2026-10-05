@@ -1,6 +1,6 @@
 /* eslint-disable func-names, no-console, prefer-rest-params */
 
-import { redactSensitiveConfig, varlockSettings } from './env';
+import { redactSensitiveConfig, redactSensitiveConfigForOutput, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
 
@@ -26,25 +26,32 @@ export function patchGlobalConsole() {
 
   // so first we'll just patch the internal method do deal with normal stdout/stderr logs -------------------------------------
 
-  // we need the internal symbol name to access the internal method
+  // we need the internal symbol name to access the internal method (node only - bun and edge
+  // runtimes don't have it)
   const kWriteToConsoleSymbol = Object.getOwnPropertySymbols(globalThis.console).find((s) => s.description === 'kWriteToConsole');
 
-  // @ts-ignore
-  (globalThis as any)._varlockOrigWriteToConsoleFn ||= globalThis.console[kWriteToConsoleSymbol];
-  // @ts-ignore
-  globalThis.console[kWriteToConsoleSymbol] = function () {
-    // node calls this as (kUseStdout | kUseStderr, string) and writes to this._stdout / this._stderr.
-    // If that stream is already redacted by the process stream patch, skip redacting twice
-    const targetStream = (arguments[0] as symbol)?.description === 'kUseStderr' ? (this as any)._stderr : (this as any)._stdout;
-    if (isStreamRedactionPatched(targetStream)) {
-      return (globalThis as any)._varlockOrigWriteToConsoleFn.apply(this, arguments);
-    }
-    (globalThis as any)._varlockOrigWriteToConsoleFn.apply(this, [
-      arguments[0],
-      redactSensitiveConfig(arguments[1]),
-      arguments[2],
-    ]);
-  };
+  if (kWriteToConsoleSymbol) {
+    const nodeConsole = globalThis.console as any;
+    (globalThis as any)._varlockOrigWriteToConsoleFn ||= nodeConsole[kWriteToConsoleSymbol];
+    nodeConsole[kWriteToConsoleSymbol] = function () {
+      // node calls this as (kUseStdout | kUseStderr, string) and writes to this._stdout / this._stderr.
+      // If that stream is already redacted by the process stream patch, skip redacting twice
+      const targetStream = (arguments[0] as symbol)?.description === 'kUseStderr' ? (this as any)._stderr : (this as any)._stdout;
+      if (isStreamRedactionPatched(targetStream)) {
+        return (globalThis as any)._varlockOrigWriteToConsoleFn.apply(this, arguments);
+      }
+      (globalThis as any)._varlockOrigWriteToConsoleFn.apply(this, [
+        arguments[0],
+        redactSensitiveConfigForOutput(arguments[1]),
+        arguments[2],
+      ]);
+    };
+  }
+
+  // when node's internal method is patched, it (or the stream patch after it) writes the final
+  // output, so the method wrapper below must leave unmask markers for it to handle. Otherwise
+  // (bun, edge runtimes) the wrapper is the last layer
+  const redactArg = kWriteToConsoleSymbol ? redactSensitiveConfig : redactSensitiveConfigForOutput;
 
   // and now we'll wrap console.log (and the other methods) if it looks like they have been patched already ------------------
   // NOTE - this will not fully redact from everything since we can't safely reach deep into objects
@@ -57,7 +64,7 @@ export function patchGlobalConsole() {
 
     const patchedFn = function () {
       // @ts-ignore
-      originalLogMethod.apply(this, Array.from(arguments).map(redactSensitiveConfig));
+      originalLogMethod.apply(this, Array.from(arguments).map(redactArg));
     };
     patchedFn._varlockPatchedFn = true;
 
