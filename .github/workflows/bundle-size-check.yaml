@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   measure:
-    runs-on: depot-ubuntu-latest
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v7
         with:

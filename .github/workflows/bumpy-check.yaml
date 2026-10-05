@@ -27,7 +27,7 @@ jobs:
   # "Bumpy check / bumpy-check" and doesn't collide with other `check` jobs —
   # this is the context to require in branch protection.
   bumpy-check:
-    runs-on: depot-ubuntu-latest
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v7
         with:
