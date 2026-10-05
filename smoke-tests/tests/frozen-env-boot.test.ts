@@ -121,6 +121,33 @@ describe('varlock freeze with @dynamic=boot items', () => {
     }
   });
 
+  // a resolver that only works on a real instance just leaves no default at freeze time
+  test('a boot item whose resolver fails at freeze time has no default, and boot supplies it', () => {
+    const dir = join(SCENARIO_DIR, 'instance-only');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(join(dir, '.env.schema'), [
+      '# @defaultSensitive=false',
+      '# ---',
+      'APP_NAME=web',
+      '# @required @dynamic=boot',
+      'INSTANCE_ID=exec("exit 1")',
+      '',
+    ].join('\n'));
+    try {
+      const frozen = runVarlock(['freeze', '--allow-plaintext'], { cwd: `${SCENARIO}/instance-only`, env: isolatedEnv() });
+      expect(frozen.exitCode, frozen.output).toBe(0);
+      expect(frozen.output).toContain('INSTANCE_ID (no default, its resolver failed here');
+      const loaded = runVarlock(['load', '--frozen', '--format', 'json'], {
+        cwd: `${SCENARIO}/instance-only`,
+        env: isolatedEnv({ INSTANCE_ID: 'i-42' }),
+      });
+      expect(loaded.exitCode, loaded.output).toBe(0);
+      expect(JSON.parse(loaded.stdout)).toEqual({ APP_NAME: 'web', INSTANCE_ID: 'i-42' });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('anything referencing a boot item is a schema error on any load, with the fix', () => {
     const badDir = join(SCENARIO_DIR, 'bad-dep');
     fs.mkdirSync(badDir, { recursive: true });

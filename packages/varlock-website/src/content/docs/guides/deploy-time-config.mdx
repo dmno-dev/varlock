@@ -201,7 +201,7 @@ INSTANCE_ID=
 
 A boot key is frozen like everything else, and whatever it resolves to at freeze time becomes its default. When the app starts, a value for that key in the process environment (set by the platform, `docker run -e`, and so on) overrides the default. A variable that is set but empty counts as set. The override is checked against what the freeze recorded about the key (its type and whether it is required), so a missing required `INSTANCE_ID`, or `PORT=abc` against `@type=port`, fails the boot. Every other key keeps its frozen value.
 
-Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine: it just has to be set at boot.
+Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine, and so is one whose resolver fails there (say it reads instance metadata that only exists on a real instance): there is no default, and the value has to be set at boot.
 
 The freeze summary lists each boot key and its default, and says when a default came from the build machine's environment rather than your .env files (`PORT (default 8080, from the build environment)`), since that is easy to miss. `varlock load --frozen` in the runtime image shows the values the app boots with, boot values included.
 

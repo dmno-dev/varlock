@@ -98,7 +98,10 @@ export function applyFrozenBootKeys(
   const config = { ...graph.config };
 
   for (const [key, spec] of Object.entries(bootKeys)) {
-    const item = config[key] ?? { isSensitive: false };
+    const item = config[key];
+    // a boot key always has a config entry (its frozen default, even if undefined); without
+    // one there is no sensitivity to go on, so never let the env introduce it
+    if (!item) continue;
     if (!(key in env)) {
       if (spec.required && item.value === undefined) {
         problems.push(`${key} is required, but it is not set at boot and has no frozen default`);

@@ -356,6 +356,26 @@ describe('a frozen env with boot keys', () => {
     expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(9000);
   });
 
+  // the automatic same-directory path checks ambient env for drift; a boot key differing
+  // from its frozen default is the point, not drift
+  test('an ambient frozen payload applies boot values instead of treating them as drift', () => {
+    const decision = evaluateInjectedEnvReuse({ env: { __VARLOCK_ENV: withBootKeys(), PORT: '7000' }, cwd: tempDir });
+    expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(7000);
+  });
+
+  // e.g. an @internal item: freeze never records one, and the env must not introduce it
+  test('a boot key with no frozen entry is never introduced from the env', () => {
+    const decision = evaluateInjectedEnvReuse({
+      env: {
+        [USE_INJECTED_ENV_VAR]: '1',
+        __VARLOCK_ENV: withBootKeys({ frozen: { boot: { SECRET_ZERO: { type: 'string', required: true } } } }),
+        SECRET_ZERO: 'nope',
+      },
+      cwd: tempDir,
+    });
+    expect(decision.reuse && decision.parsedEnv.config.SECRET_ZERO).toBeUndefined();
+  });
+
   test('boot values come from the pre-injection env, not one varlock injected', () => {
     const { key } = writeFrozenFile({ contents: withBootKeys() });
     const decision = evaluateInjectedEnvReuse({

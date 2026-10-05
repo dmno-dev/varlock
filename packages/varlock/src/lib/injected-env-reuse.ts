@@ -388,8 +388,10 @@ export function evaluateInjectedEnvReuse(opts: {
   // (injected form, or the raw pre-coercion override string the parent recorded), and a
   // key *absent* from the env is not drift (`--inject blob` mode injects no individual
   // vars at all).
+  // (`@dynamic=boot` keys of a frozen payload are meant to differ - they are applied below)
+  const bootKeys = getFrozenBootKeys(parsedEnv);
   for (const itemKey of Object.keys(parsedEnv.config)) {
-    if (!(itemKey in preInjectionEnv)) continue;
+    if (!(itemKey in preInjectionEnv) || itemKey in bootKeys) continue;
     if (!envValueMatchesBlobItem(preInjectionEnv[itemKey], parsedEnv.config[itemKey], parsedEnv.settings)) {
       return { reuse: false, reason: `env value for ${itemKey} changed since the blob was created` };
     }

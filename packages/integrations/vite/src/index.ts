@@ -703,8 +703,10 @@ See https://varlock.dev/integrations/vite/ for more details.
       // root when a framework CLI is pointed elsewhere (`nuxt build --cwd`).
       const rootDiffersFromLoaded = !!(projectRoot && projectRoot !== loadedConfigDir);
 
-      // a `varlock freeze` artifact in a dev checkout is always a leftover - see the helper
-      if (isDevCommand && !env.isPreview) {
+      // a `varlock freeze` artifact in a dev checkout is always a leftover - see the helper.
+      // vitest also runs vite as `serve`, but tests commonly run in CI after a freeze, so it
+      // is not a dev server for this purpose
+      if (isDevCommand && !env.isPreview && !process.env.VITEST) {
         assertNoFrozenEnvFileInDev({ cwd: projectRoot ?? loadedConfigDir ?? process.cwd(), devCommand: 'vite dev' });
       }
 
