@@ -176,8 +176,17 @@ jobs:
   # Publish preview packages via pkg-pr-new
   release-preview-packages:
     needs: [build-and-test, build-native-macos, build-native-rust]
-    # Run even if native builds were skipped (source unchanged), but not if anything failed. Skip on main.
-    if: always() && !failure() && !cancelled() && github.ref_name != 'main'
+    # Run even if native builds were skipped (source unchanged), but not if anything failed or was cancelled.
+    # `!cancelled()` only covers whole-workflow cancellation, so build-and-test must explicitly be a success
+    # (a cancelled job leaves its outputs empty). Skip on main, and when there is nothing to release.
+    if: >-
+      always() && !failure() && !cancelled()
+      && github.ref_name != 'main'
+      && needs.build-and-test.result == 'success'
+      && needs.build-native-macos.result != 'cancelled'
+      && needs.build-native-rust.result != 'cancelled'
+      && needs.build-and-test.outputs.release-packages != ''
+      && needs.build-and-test.outputs.release-packages != '[]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -277,12 +286,10 @@ jobs:
           fi
 
       - name: Build publishable npm packages
-        if: needs.build-and-test.outputs.release-packages != '[]'
         run: bun run build:libs
         env:
           BUILD_TYPE: preview
       - name: Release preview packages
-        if: needs.build-and-test.outputs.release-packages != '[]'
         run: bun run scripts/release-preview.ts
         env:
           RELEASE_PACKAGES: ${{ needs.build-and-test.outputs.release-packages }}
