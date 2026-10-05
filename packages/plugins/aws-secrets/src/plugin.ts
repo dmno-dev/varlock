@@ -592,7 +592,6 @@ plugin.registerDataType({
   name: 'awsAccessKey',
   sensitive: false,
   typeDescription: 'AWS access key ID for IAM authentication',
-  icon: AWS_ICON,
   docs: [
     {
       description: 'Managing access keys for IAM users',
@@ -612,7 +611,6 @@ plugin.registerDataType({
   name: 'awsSecretKey',
   sensitive: true,
   typeDescription: 'AWS secret access key for IAM authentication',
-  icon: AWS_ICON,
   docs: [
     {
       description: 'Managing access keys for IAM users',

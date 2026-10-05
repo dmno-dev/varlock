@@ -87,7 +87,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Service device keys for non-interactive Dashlane CLI authentication',
-  icon: DASHLANE_ICON,
   docs: [
     {
       description: 'Dashlane CLI device registration',

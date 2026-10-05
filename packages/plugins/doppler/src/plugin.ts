@@ -273,7 +273,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Doppler service token for API access',
-  icon: DOPPLER_ICON,
   docs: [
     {
       description: 'Doppler Service Tokens',

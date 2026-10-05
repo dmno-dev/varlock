@@ -310,7 +310,6 @@ plugin.registerDataType({
   name: 'gcpServiceAccountJson',
   sensitive: true,
   typeDescription: 'Google Cloud service account JSON key for authentication with Secret Manager',
-  icon: GSM_ICON,
   docs: [
     {
       description: 'Creating and managing service accounts',

@@ -408,7 +408,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Access token for a Bitwarden Secrets Manager machine account',
-  icon: BITWARDEN_ICON,
   docs: [
     {
       description: 'Bitwarden Machine Accounts',
@@ -431,7 +430,6 @@ plugin.registerDataType({
   name: 'bitwardenSecretId',
   sensitive: false,
   typeDescription: 'UUID that identifies a secret in Bitwarden Secrets Manager',
-  icon: BITWARDEN_ICON,
   docs: [
     {
       description: 'Bitwarden Secrets Manager',
@@ -450,7 +448,6 @@ plugin.registerDataType({
   name: 'bitwardenOrganizationId',
   sensitive: false,
   typeDescription: 'UUID that identifies an organization in Bitwarden',
-  icon: BITWARDEN_ICON,
   docs: [
     {
       description: 'Bitwarden Organizations',
@@ -863,7 +860,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Bitwarden CLI session token (output of `bw unlock`)',
-  icon: BITWARDEN_ICON,
   docs: [
     {
       description: 'Bitwarden CLI authentication',

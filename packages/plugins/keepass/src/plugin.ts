@@ -219,7 +219,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Master password for a KeePass KDBX database file',
-  icon: KP_ICON,
   docs: [
     {
       description: 'KeePassXC documentation',

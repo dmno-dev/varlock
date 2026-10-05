@@ -918,7 +918,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Service account token used to authenticate with the [1Password CLI](https://developer.1password.com/docs/cli/get-started/) and [SDKs](https://developer.1password.com/docs/sdks/)',
-  icon: OP_ICON,
   docs: [
     {
       description: '1Password service accounts',
@@ -937,7 +936,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'API token used to authenticate with a self-hosted [1Password Connect server](https://developer.1password.com/docs/connect/)',
-  icon: OP_ICON,
   docs: [
     {
       description: '1Password Connect',

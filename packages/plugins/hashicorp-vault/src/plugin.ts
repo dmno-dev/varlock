@@ -558,7 +558,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'HashiCorp Vault authentication token',
-  icon: VAULT_ICON,
   docs: [
     {
       description: 'Vault Tokens',

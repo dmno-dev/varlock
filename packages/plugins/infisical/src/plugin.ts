@@ -446,7 +446,6 @@ plugin.registerDataType({
   name: 'infisicalClientId',
   sensitive: false, // Client ID is not typically sensitive
   typeDescription: 'Client ID for Infisical Universal Auth (machine identity)',
-  icon: INFISICAL_ICON,
   docs: [
     {
       description: 'Infisical Machine Identities',
@@ -460,7 +459,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Client Secret for Infisical Universal Auth (machine identity)',
-  icon: INFISICAL_ICON,
   docs: [
     {
       description: 'Infisical Universal Auth',

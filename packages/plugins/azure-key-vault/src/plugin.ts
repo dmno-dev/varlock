@@ -1038,7 +1038,6 @@ plugin.registerDataType({
   name: 'azureTenantId',
   sensitive: false,
   typeDescription: 'Azure AD tenant ID (directory ID) for authentication',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'How to find your Azure AD tenant ID',
@@ -1058,7 +1057,6 @@ plugin.registerDataType({
   name: 'azureClientId',
   sensitive: false,
   typeDescription: 'Azure service principal application (client) ID',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'Creating a service principal',
@@ -1078,7 +1076,6 @@ plugin.registerDataType({
   name: 'azureClientSecret',
   sensitive: true,
   typeDescription: 'Azure service principal client secret (password)',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'Creating a service principal',
@@ -1092,7 +1089,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Azure App Configuration access key connection string (Endpoint=...;Id=...;Secret=...)',
-  icon: AZURE_ICON,
   docs: [
     {
       description: 'App Configuration access keys',

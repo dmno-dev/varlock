@@ -299,7 +299,6 @@ plugin.registerDataType({
   sensitive: true,
   internal: true,
   typeDescription: 'Passbolt accountKit for authentication',
-  icon: PASSBOLT_ICON,
   async validate(val: any): Promise<true> {
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(val)) {
       throw new ValidationError('Must be a valid Passbolt account kit');
