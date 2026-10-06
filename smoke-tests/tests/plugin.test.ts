@@ -105,4 +105,29 @@ describe('CLI plugin loading (non-binary)', () => {
       expect(env.RESULT).toContain('sep=');
     });
   });
+  describe('resolver that never settles', () => {
+    let cwd: string;
+
+    beforeAll(() => {
+      cwd = createPluginTestProject('never-settles', [
+        '# @plugin(./plugins/never-settles-plugin.js)',
+        '# ---',
+        'OK=1',
+        'STUCK=neverSettles()',
+      ].join('\n'));
+    });
+
+    test('load fails and names the stuck item', () => {
+      const result = runVarlock(['load'], { cwd });
+      expect(result.exitCode, result.output).toBe(1);
+      expect(result.stderr).toContain('STUCK');
+    });
+
+    test('run fails without starting the child', () => {
+      const result = runVarlock(['run', '--', 'node', '-e', 'console.log("child-ran")'], { cwd });
+      expect(result.exitCode, result.output).toBe(1);
+      expect(result.output).not.toContain('child-ran');
+      expect(result.stderr).toContain('STUCK');
+    });
+  });
 });

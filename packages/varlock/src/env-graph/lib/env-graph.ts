@@ -44,6 +44,7 @@ import { BUILT_IN_TRANSFORM_SCHEMES } from '../../proxy/request-transform';
 import { parseDuration } from '../../lib/duration';
 import { hashEnvSourceContents } from '../../lib/env-source-fingerprint';
 import { MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, collectLeaves } from '../../lib/sensitive-value';
+import { markItemResolutionStarted, markItemResolutionFinished } from './pending-resolutions';
 
 /**
  * Credential options written as `$ITEM`, mapped to the referenced item name.
@@ -850,18 +851,24 @@ export class EnvGraph {
 
         // mark item as beginning to actually resolve
         itemsToResolveStatus[itemKey] = true; // true means in progress
-        await runWithResolutionContext({
-          cacheStore: this._cacheStore,
-          skipCache: this._skipCacheMode,
-          cacheHits: [],
-          currentItem: item,
-        }, async () => {
-          await item.resolve();
-          const ctx = getResolutionContext();
-          if (ctx?.cacheHits.length) {
-            item._cacheHits = ctx.cacheHits;
-          }
-        });
+        // tracked globally so the CLI can name items whose resolver never settles (see cli-executable)
+        markItemResolutionStarted(itemKey);
+        try {
+          await runWithResolutionContext({
+            cacheStore: this._cacheStore,
+            skipCache: this._skipCacheMode,
+            cacheHits: [],
+            currentItem: item,
+          }, async () => {
+            await item.resolve();
+            const ctx = getResolutionContext();
+            if (ctx?.cacheHits.length) {
+              item._cacheHits = ctx.cacheHits;
+            }
+          });
+        } finally {
+          markItemResolutionFinished(itemKey);
+        }
         markItemCompleted(itemKey);
       };
 

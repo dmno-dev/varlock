@@ -19,6 +19,7 @@ import { checkBunVersion } from '../lib/check-bun-version';
 import { checkLocalVersionMismatch } from '../lib/check-local-version';
 import { VARLOCK_VERSION, VARLOCK_VERSION_ID } from '../lib/varlock-version';
 import { enforceProxyContextGuards } from './helpers/proxy-context-guard';
+import { getInProgressResolutionKeys } from '../env-graph/lib/pending-resolutions';
 
 // Only the spec (name/description/args/examples) is imported eagerly - each command's
 // implementation lives in a sibling `*.command.ts` that is pulled in via a dynamic
@@ -78,6 +79,28 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
 // subCommands.set('login', lazy(async () => (await import('./commands/login.command')).commandFn, loginCommandSpec));
 // subCommands.set('plugin', lazy(async () => (await import('./commands/plugin.command')).commandFn, pluginCommandSpec));
 
+// Every normal path ends in gracefulExit(), which exits via process.exit() and so never emits
+// `beforeExit`. If it fires before the command finished, the event loop drained while the
+// command was still awaiting something that can never settle (e.g. a plugin resolver returning a
+// promise that never resolves). Without this the process would silently exit 0.
+// Must be prepended so it runs before exit-hook's own `beforeExit` listener (registered by
+// telemetry), which reads process.exitCode to decide the exit code.
+let commandFinished = false;
+process.prependOnceListener('beforeExit', () => {
+  if (commandFinished) return;
+  const pendingKeys = getInProgressResolutionKeys();
+  const err = new CliExitError('varlock stopped before the command finished', {
+    details: pendingKeys.length
+      ? `Resolution never completed for: ${pendingKeys.join(', ')}`
+      : undefined,
+    suggestion: pendingKeys.length
+      ? 'A resolver (likely from a plugin) returned a promise that never settles.'
+      : undefined,
+  });
+  console.error(err.getFormattedOutput());
+  process.exitCode = 1;
+});
+
 (async function go() {
   try {
     try {
@@ -99,6 +122,7 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
         await trackInstall(args[1] as 'brew' | 'curl');
         //! this ouput is used by homebrew formula to check installed version is correct
         console.log(VARLOCK_VERSION_ID);
+        commandFinished = true;
         gracefulExit();
       }
     }
@@ -149,6 +173,7 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
         setTimeout(resolve, 100);
       });
     }
+    commandFinished = true;
     gracefulExit();
   } catch (error) {
     if (isArgError(error)) {
@@ -174,6 +199,7 @@ subCommands.set('proxy', lazy(async () => (await import('./commands/proxy.comman
         setTimeout(resolve, 100);
       });
     }
+    commandFinished = true;
     gracefulExit(1);
   }
 }());
