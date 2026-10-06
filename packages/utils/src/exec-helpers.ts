@@ -45,7 +45,7 @@ export function spawnAsyncHelper(
         reject(new ExecError(
           exitCode ?? 1,
           signal,
-          stderrData || (signal ? `command terminated by ${signal}` : undefined),
+          stderrData || (signal ? `command terminated by ${signal}` : ''),
         ));
       }
     });
