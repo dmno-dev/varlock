@@ -102,15 +102,24 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`é ${REDACTED}\n`);
   });
 
-  it('fires callbacks only once the data is written', async () => {
+  it('fires a callback once the writable part is out, without waiting on held-back text', async () => {
+    // writers that wait on each callback before writing more must not force the held prefix
+    // out (unredacted) before the rest of the value arrives
     const cb = vi.fn();
     fake.stream.write('ends with super-sec', cb);
     await Promise.resolve();
-    expect(cb).not.toHaveBeenCalled();
-    fake.stream.write('ret-value-12345\n');
-    await vi.runAllTimersAsync();
     expect(cb).toHaveBeenCalledTimes(1);
+    expect(fake.output()).toBe('ends with ');
+    fake.stream.write('ret-value-12345\n');
     expect(fake.output()).toBe(`ends with ${REDACTED}\n`);
+  });
+
+  it('fires the callback of a write that is entirely held back', async () => {
+    const cb = vi.fn();
+    fake.stream.write('super-sec', cb);
+    await Promise.resolve();
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(fake.output()).toBe('');
   });
 
   it('supports the (chunk, encoding, cb) signature', async () => {

@@ -23,8 +23,6 @@ type StreamPatchState = {
   pendingText: string,
   /** trailing bytes of an incomplete UTF-8 sequence, waiting for the rest of the character */
   pendingBytes: Uint8Array | undefined,
-  /** callbacks of writes whose data is not fully written yet */
-  pendingCallbacks: Array<WriteCallback>,
   flushTimer: ReturnType<typeof setTimeout> | undefined,
 };
 
@@ -94,18 +92,6 @@ function concatBytes(a: Uint8Array | undefined, b: Uint8Array): Uint8Array {
   return joined;
 }
 
-/** combine queued callbacks into one, clearing the queue */
-function takeCallbacks(state: StreamPatchState): WriteCallback | undefined {
-  if (!state.pendingCallbacks.length) return undefined;
-  const callbacks = state.pendingCallbacks;
-  state.pendingCallbacks = [];
-  // the common case (nothing held back): pass the caller's callback straight through
-  if (callbacks.length === 1) return callbacks[0];
-  return (err) => {
-    for (const cb of callbacks) cb(err);
-  };
-}
-
 function clearFlushTimer(state: StreamPatchState) {
   if (state.flushTimer !== undefined) {
     clearTimeout(state.flushTimer);
@@ -114,31 +100,17 @@ function clearFlushTimer(state: StreamPatchState) {
 }
 
 /**
- * Callback for a write that only emits part of what callers are waiting on (the rest is held
- * back): if it fails, the waiting callbacks get that error right away, rather than a later
- * write's error (or never, if the stream does not auto-destroy)
+ * Write out everything held back. Held text is the stream's own buffer: the writes it came
+ * from have already been acknowledged, so a failure here surfaces as the stream's error event.
  */
-function settleWaitingOnError(state: StreamPatchState): WriteCallback {
-  return (err) => {
-    if (err) takeCallbacks(state)?.(err);
-  };
-}
-
-/** write out everything held back, firing any callbacks waiting on it */
 function flushPending(stream: WritableLike, state: StreamPatchState) {
   clearFlushTimer(state);
   const text = state.pendingText;
   const bytes = state.pendingBytes;
   state.pendingText = '';
   state.pendingBytes = undefined;
-  if (bytes?.length) {
-    if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text), settleWaitingOnError(state));
-    state.originalWrite.call(stream, bytes, takeCallbacks(state));
-    return;
-  }
-  const done = takeCallbacks(state);
-  if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text), done);
-  else if (done) queueMicrotask(() => done());
+  if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text));
+  if (bytes?.length) state.originalWrite.call(stream, bytes);
 }
 
 function scheduleFlush(stream: WritableLike, state: StreamPatchState) {
@@ -162,11 +134,13 @@ function takeEmittableText(stream: WritableLike, state: StreamPatchState, text: 
   return emittable && redactSensitiveConfigForOutput(emittable);
 }
 
-/** callbacks fire once everything written so far is out, i.e. once nothing is held back */
-function takeCallbacksIfNothingHeld(state: StreamPatchState): WriteCallback | undefined {
-  return !state.pendingText && !state.pendingBytes ? takeCallbacks(state) : undefined;
-}
-
+/**
+ * A write's callback fires once the part of it that could be written has been (with that
+ * write's error, if any). Waiting for held-back text instead would make writers that wait on
+ * each callback before writing more (e.g. `await Bun.write(...)` in a loop) force every held
+ * prefix out by timeout, unredacted, before the rest of the value arrives. Held text still
+ * goes out on the next write, `end()`, the flush timer, or process exit.
+ */
 function writeText(
   stream: WritableLike,
   state: StreamPatchState,
@@ -174,10 +148,8 @@ function writeText(
   cb: WriteCallback | undefined,
 ): boolean {
   const emittable = takeEmittableText(stream, state, text);
-  if (cb) state.pendingCallbacks.push(cb);
-  const done = takeCallbacksIfNothingHeld(state);
-  if (emittable) return state.originalWrite.call(stream, emittable, done ?? settleWaitingOnError(state));
-  if (done) queueMicrotask(() => done());
+  if (emittable) return state.originalWrite.call(stream, emittable, cb);
+  if (cb) queueMicrotask(() => cb());
   return !stream.writableNeedDrain;
 }
 
@@ -195,7 +167,6 @@ export function patchStreamWrite(stream: WritableLike): boolean {
     originalEnd: stream.end,
     pendingText: '',
     pendingBytes: undefined,
-    pendingCallbacks: [],
     flushTimer: undefined,
   };
   (stream as any)[PATCH_STATE_KEY] = state;
@@ -299,20 +270,17 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
       return originalBunWrite.apply(this, arguments);
     }
 
-    // share holdback state with process.stdout.write, so a value split across writes (of
-    // either kind) is still caught
-    if (state.pendingBytes) flushPending(stream, state);
-    const emittable = takeEmittableText(stream, state, text);
-    const done = takeCallbacksIfNothingHeld(state);
+    // goes through the patched process stream rather than the original Bun.write: it shares the
+    // holdback state (so a value split across writes of either kind is still caught) and the
+    // stream's write queue (so ordering and errors match process.stdout.write). Bun.write
+    // resolves to the bytes written; report the caller's own byte count
     const byteLength = typeof data === 'string' ? utf8Encoder.encode(data).length : data.length;
-    const written = emittable ? originalBunWrite.call(this, destination, emittable) : Promise.resolve(0);
-    // Bun.write resolves to the bytes written; report the caller's own byte count
-    return Promise.resolve(written).then(() => {
-      done?.();
-      return byteLength;
-    }, (err: Error) => {
-      (done ?? settleWaitingOnError(state))(err);
-      throw err;
+    return new Promise<number>((resolve, reject) => {
+      if (state.pendingBytes) flushPending(stream, state);
+      writeText(stream, state, text, (err) => {
+        if (err) reject(err);
+        else resolve(byteLength);
+      });
     });
   };
   patchedBunWrite._varlockPatchedFn = true;
