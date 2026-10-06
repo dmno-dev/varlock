@@ -1,4 +1,4 @@
-import { getRedactionHoldbackLength, redactSensitiveConfig } from '../env';
+import { getStreamHoldbackLength, redactSensitiveConfig } from '../env';
 
 /**
  * how long to hold back a possible partial secret before giving up and flushing —
@@ -54,7 +54,7 @@ export function createRedactedStreamWriter(stream: { write(str: string): any }) 
   const write = (chunk: Buffer | string) => {
     clearFlushTimeout();
     pending += chunk.toString();
-    const holdbackLength = getRedactionHoldbackLength(pending);
+    const holdbackLength = getStreamHoldbackLength(pending);
     const emittable = holdbackLength ? pending.slice(0, -holdbackLength) : pending;
     pending = holdbackLength ? pending.slice(-holdbackLength) : '';
     if (emittable) stream.write(redactSensitiveConfig(emittable));

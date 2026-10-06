@@ -6,7 +6,6 @@ import { isVarlockCliChild } from './lib/cli-child-marker';
 
 import { initVarlockEnv, getPreInjectionProcessEnv } from './runtime/env';
 import { patchGlobalConsole } from './runtime/patch-console';
-import { patchProcessStreams } from './runtime/patch-process-streams';
 import { patchGlobalServerResponse } from './runtime/patch-server-response';
 import { patchGlobalResponse } from './runtime/patch-response';
 
@@ -189,8 +188,7 @@ function autoLoad() {
     delete getPreInjectionProcessEnv()[internalKey];
   }
   // these will be no-ops if these are disabled by settings
-  patchGlobalConsole();
-  patchProcessStreams();
+  patchGlobalConsole(); // also patches process stdout/stderr when opted in
   patchGlobalServerResponse();
   patchGlobalResponse();
 }

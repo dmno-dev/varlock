@@ -1,9 +1,6 @@
 /* eslint-disable func-names, prefer-rest-params */
 
-import { fstatSync } from 'node:fs';
-import {
-  getRedactionHoldbackLength, getUnmaskPrefixHoldbackLength, redactSensitiveConfigForOutput, varlockSettings,
-} from './env';
+import { getStreamHoldbackLength, redactSensitiveConfigForOutput, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
 import { FLUSH_TIMEOUT_MS, getParentRedactedStreams } from './lib/redact-stream';
@@ -38,7 +35,9 @@ const utf8Encoder = new TextEncoder();
 function isRegularFile(stream: WritableLike): boolean {
   if (typeof stream.fd !== 'number') return false;
   try {
-    return fstatSync(stream.fd).isFile();
+    // no static node:fs import - this module is also bundled into edge runtimes via patch-console
+    const fs = (globalThis.process as any)?.getBuiltinModule?.('node:fs');
+    return !!fs?.fstatSync(stream.fd).isFile();
   } catch {
     return false;
   }
@@ -114,6 +113,17 @@ function clearFlushTimer(state: StreamPatchState) {
   }
 }
 
+/**
+ * Callback for a write that only emits part of what callers are waiting on (the rest is held
+ * back): if it fails, the waiting callbacks get that error right away, rather than a later
+ * write's error (or never, if the stream does not auto-destroy)
+ */
+function settleWaitingOnError(state: StreamPatchState): WriteCallback {
+  return (err) => {
+    if (err) takeCallbacks(state)?.(err);
+  };
+}
+
 /** write out everything held back, firing any callbacks waiting on it */
 function flushPending(stream: WritableLike, state: StreamPatchState) {
   clearFlushTimer(state);
@@ -121,10 +131,14 @@ function flushPending(stream: WritableLike, state: StreamPatchState) {
   const bytes = state.pendingBytes;
   state.pendingText = '';
   state.pendingBytes = undefined;
+  if (bytes?.length) {
+    if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text), settleWaitingOnError(state));
+    state.originalWrite.call(stream, bytes, takeCallbacks(state));
+    return;
+  }
   const done = takeCallbacks(state);
-  if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text), bytes?.length ? undefined : done);
-  if (bytes?.length) state.originalWrite.call(stream, bytes, done);
-  if (!text && !bytes?.length && done) queueMicrotask(() => done());
+  if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text), done);
+  else if (done) queueMicrotask(() => done());
 }
 
 function scheduleFlush(stream: WritableLike, state: StreamPatchState) {
@@ -134,34 +148,37 @@ function scheduleFlush(stream: WritableLike, state: StreamPatchState) {
   state.flushTimer.unref?.();
 }
 
+/**
+ * Adds text to what the stream is holding back and returns the redacted part that can be
+ * written now. A trailing partial match stays held (see getStreamHoldbackLength).
+ */
+function takeEmittableText(stream: WritableLike, state: StreamPatchState, text: string): string {
+  clearFlushTimer(state);
+  state.pendingText += text;
+  const holdbackLength = getStreamHoldbackLength(state.pendingText);
+  const emittable = holdbackLength ? state.pendingText.slice(0, -holdbackLength) : state.pendingText;
+  state.pendingText = holdbackLength ? state.pendingText.slice(-holdbackLength) : '';
+  scheduleFlush(stream, state);
+  return emittable && redactSensitiveConfigForOutput(emittable);
+}
+
+/** callbacks fire once everything written so far is out, i.e. once nothing is held back */
+function takeCallbacksIfNothingHeld(state: StreamPatchState): WriteCallback | undefined {
+  return !state.pendingText && !state.pendingBytes ? takeCallbacks(state) : undefined;
+}
+
 function writeText(
   stream: WritableLike,
   state: StreamPatchState,
   text: string,
   cb: WriteCallback | undefined,
 ): boolean {
-  clearFlushTimer(state);
-  state.pendingText += text;
-  // hold back a trailing partial match, so a secret split across writes is still caught
-  // (plus an unmask marker right before it, so a revealed value keeps its marker)
-  let holdbackLength = getRedactionHoldbackLength(state.pendingText);
-  const beforeHoldback = state.pendingText.slice(0, state.pendingText.length - holdbackLength);
-  holdbackLength += getUnmaskPrefixHoldbackLength(beforeHoldback);
-  const emittable = holdbackLength ? state.pendingText.slice(0, -holdbackLength) : state.pendingText;
-  state.pendingText = holdbackLength ? state.pendingText.slice(-holdbackLength) : '';
+  const emittable = takeEmittableText(stream, state, text);
   if (cb) state.pendingCallbacks.push(cb);
-
-  // a write's callback fires once all of its data (and everything before it) is out
-  const done = !state.pendingText && !state.pendingBytes ? takeCallbacks(state) : undefined;
-  let result = true;
-  if (emittable) {
-    result = state.originalWrite.call(stream, redactSensitiveConfigForOutput(emittable), done);
-  } else {
-    if (done) queueMicrotask(() => done());
-    result = !stream.writableNeedDrain;
-  }
-  scheduleFlush(stream, state);
-  return result;
+  const done = takeCallbacksIfNothingHeld(state);
+  if (emittable) return state.originalWrite.call(stream, emittable, done ?? settleWaitingOnError(state));
+  if (done) queueMicrotask(() => done());
+  return !stream.writableNeedDrain;
 }
 
 /**
@@ -263,23 +280,40 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
     if (destination === bun.stdout) streamName = 'stdout';
     else if (destination === bun.stderr) streamName = 'stderr';
     const stream = streamName && patchedStreams[streamName];
-    if (stream) {
-      // keep ordering with anything held back by the process.stdout patch
-      flushStreamWrite(stream);
-      const args = Array.from(arguments);
-      if (typeof data === 'string') {
-        args[1] = redactSensitiveConfigForOutput(data);
-      } else if (data instanceof Uint8Array) {
-        try {
-          const redacted = redactSensitiveConfigForOutput(utf8Decoder.decode(data));
-          args[1] = utf8Encoder.encode(redacted);
-        } catch {
-          // binary - leave untouched
-        }
+    const state: StreamPatchState | undefined = stream && (stream as any)[PATCH_STATE_KEY];
+    if (!stream || !state) return originalBunWrite.apply(this, arguments);
+
+    let text: string | undefined;
+    if (typeof data === 'string') {
+      text = data;
+    } else if (data instanceof Uint8Array) {
+      try {
+        text = utf8Decoder.decode(data);
+      } catch {
+        // binary - leave untouched
       }
-      return originalBunWrite.apply(this, args);
     }
-    return originalBunWrite.apply(this, arguments);
+    if (text === undefined) {
+      // keep ordering with anything held back
+      flushPending(stream, state);
+      return originalBunWrite.apply(this, arguments);
+    }
+
+    // share holdback state with process.stdout.write, so a value split across writes (of
+    // either kind) is still caught
+    if (state.pendingBytes) flushPending(stream, state);
+    const emittable = takeEmittableText(stream, state, text);
+    const done = takeCallbacksIfNothingHeld(state);
+    const byteLength = typeof data === 'string' ? utf8Encoder.encode(data).length : data.length;
+    const written = emittable ? originalBunWrite.call(this, destination, emittable) : Promise.resolve(0);
+    // Bun.write resolves to the bytes written; report the caller's own byte count
+    return Promise.resolve(written).then(() => {
+      done?.();
+      return byteLength;
+    }, (err: Error) => {
+      (done ?? settleWaitingOnError(state))(err);
+      throw err;
+    });
   };
   patchedBunWrite._varlockPatchedFn = true;
   bun.write = patchedBunWrite;

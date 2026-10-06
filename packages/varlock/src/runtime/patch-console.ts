@@ -3,6 +3,7 @@
 import { redactSensitiveConfig, redactSensitiveConfigForOutput, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
+import { patchProcessStreams } from './patch-process-streams';
 
 
 /**
@@ -11,6 +12,11 @@ import { isStreamRedactionPatched } from './lib/stream-patch-key';
  * NOTE - this may not be 100% foolproof depending on the platform
  * */
 export function patchGlobalConsole() {
+  // stdout/stderr redaction is part of log redaction, and patching it here means every
+  // integration that patches the console gets it too. A no-op unless opted in (and wherever
+  // there are no process streams, e.g. edge runtimes)
+  patchProcessStreams();
+
   debug('⚡️ PATCHING global console methods');
   if ((console.log as any)._varlockPatchedFn) {
     debug('> already patched');

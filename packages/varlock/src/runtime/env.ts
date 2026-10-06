@@ -231,6 +231,44 @@ export function getRedactionHoldbackLength(str: string): number {
   return 0;
 }
 
+/** end index of a complete sensitive value that starts before `boundary` and ends after it */
+function findMatchCrossing(str: string, boundary: number): number | undefined {
+  const find = getRedactionState().redactorFindReplace?.find;
+  if (!find) return undefined;
+  find.lastIndex = 0;
+  try {
+    for (let match = find.exec(str); match && match.index < boundary; match = find.exec(str)) {
+      const end = match.index + match[0].length;
+      if (end > boundary) return end;
+    }
+    return undefined;
+  } finally {
+    find.lastIndex = 0;
+  }
+}
+
+/**
+ * How much of the end of buffered stream text to hold back before emitting the rest: a
+ * trailing partial match of a sensitive value (so a value split across writes is still caught),
+ * plus an unmask marker right before it (so a revealed value keeps its marker).
+ *
+ * The cut never goes through a complete value: a value whose ending is also the start of a
+ * value (itself or another, e.g. `secret-token-s`) looks like a partial match at its own end,
+ * and cutting there would emit both halves unredacted.
+ */
+export function getStreamHoldbackLength(str: string): number {
+  let boundary = str.length - getRedactionHoldbackLength(str);
+  while (boundary < str.length) {
+    const crossingEnd = findMatchCrossing(str, boundary);
+    if (crossingEnd === undefined) break;
+    // keep the complete value whole, then look for a partial match after it
+    boundary = str.length - getRedactionHoldbackLength(str.slice(crossingEnd));
+  }
+  // eslint-disable-next-line no-use-before-define
+  boundary -= getUnmaskPrefixHoldbackLength(str.slice(0, boundary));
+  return str.length - boundary;
+}
+
 /** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */
 export function getRedactionMapInfo() {
   const state = getRedactionState();

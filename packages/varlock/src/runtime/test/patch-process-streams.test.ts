@@ -154,6 +154,26 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
   });
 
+  it('redacts a complete value whose ending is also the start of a value (self-overlap)', () => {
+    // `secret-token-s` ends with `s`, which is the start of itself
+    setSecrets({ SELF_OVERLAP: { value: 'secret-token-s' } });
+    fake.stream.write('secret-token-s');
+    flushStreamWrite(fake.stream);
+    expect(fake.output()).toBe('se▒▒▒▒▒');
+  });
+
+  it('redacts a complete value whose ending is the start of another value', () => {
+    setSecrets({ A: { value: 'token-aaaa-xy' }, B: { value: 'xy-other-value-1' } });
+    fake.stream.write('token-aaaa-xy');
+    flushStreamWrite(fake.stream);
+    expect(fake.output()).toBe('to▒▒▒▒▒');
+    // and the other value is still caught when it completes
+    fake.writes.length = 0;
+    fake.stream.write('x');
+    fake.stream.write('y-other-value-1\n');
+    expect(fake.output()).toBe('xy▒▒▒▒▒\n');
+  });
+
   it('does not double-patch', () => {
     expect(patchStreamWrite(fake.stream)).toBe(false);
   });
@@ -246,4 +266,33 @@ describe('patchStreamWrite with a real Writable', () => {
     });
     expect(chunks.join('')).toBe('ends with super-sec');
   });
+});
+
+describe('write errors while text is held back', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: { value: SECRET } });
+  });
+
+  for (const autoDestroy of [true, false]) {
+    it(`passes the original error to the waiting callback (autoDestroy: ${autoDestroy})`, async () => {
+      const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      const stream = new Writable({
+        autoDestroy,
+        write(_chunk, _encoding, done) {
+          setImmediate(() => done(epipe));
+        },
+      });
+      // the stream emits the error too; only the callback is under test
+      stream.on('error', () => undefined);
+      patchStreamWrite(stream as any);
+      const cb = vi.fn();
+      // the prefix is written now (and fails), `super-sec` is held back
+      stream.write('prefix super-sec', cb);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 150);
+      });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0]).toBe(epipe);
+    });
+  }
 });

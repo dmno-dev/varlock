@@ -53,6 +53,8 @@ describe('in-process stdout/stderr redaction', () => {
     const result = runApp('bun');
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('bun.write: sk▒▒▒▒▒');
+    expect(result.output).toContain('bun split: sk▒▒▒▒▒');
+    expect(result.output).toContain('mixed split: sk▒▒▒▒▒');
     expect(result.output).not.toContain(SECRET);
   });
 

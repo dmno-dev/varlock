@@ -192,3 +192,14 @@ describe('redactSensitiveConfigForOutput', () => {
     expect(redactSensitiveConfigForOutput(123)).toBe(123);
   });
 });
+
+describe('createRedactedStreamWriter with overlapping values', () => {
+  it('redacts a complete value whose ending is also the start of a value', () => {
+    setSecrets({ SELF_OVERLAP: 'secret-token-s' });
+    const chunks: Array<string> = [];
+    const writer = createRedactedStreamWriter({ write: (c: string) => chunks.push(c) });
+    writer.write('secret-token-s');
+    writer.flush();
+    expect(chunks.join('')).toBe('se▒▒▒▒▒');
+  });
+});

@@ -4,7 +4,6 @@
 
 import { initVarlockEnv } from '../runtime/env';
 import { patchGlobalConsole } from '../runtime/patch-console';
-import { patchProcessStreams } from '../runtime/patch-process-streams';
 import { patchGlobalServerResponse } from '../runtime/patch-server-response';
 import { patchGlobalResponse } from '../runtime/patch-response';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
@@ -17,8 +16,7 @@ if (process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV)) {
 }
 
 initVarlockEnv();
-patchGlobalConsole();
-patchProcessStreams();
+patchGlobalConsole(); // also patches process stdout/stderr when opted in
 patchGlobalServerResponse();
 patchGlobalResponse();
 
