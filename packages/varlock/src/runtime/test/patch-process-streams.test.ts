@@ -277,6 +277,35 @@ describe('patchStreamWrite with a real Writable', () => {
   });
 });
 
+describe('writes to a stream that can no longer accept them', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: { value: SECRET } });
+  });
+
+  for (const [label, close, code] of [
+    ['ended', (stream: Writable) => stream.end(), 'ERR_STREAM_WRITE_AFTER_END'],
+    ['destroyed', (stream: Writable) => stream.destroy(), 'ERR_STREAM_DESTROYED'],
+  ] as const) {
+    it(`reports the error for a fully held write after the stream is ${label}`, async () => {
+      const stream = new Writable({
+        write(_chunk, _encoding, done) {
+          done();
+        },
+      });
+      stream.on('error', () => undefined);
+      patchStreamWrite(stream as any);
+      close(stream);
+      const cb = vi.fn();
+      stream.write('super-sec', cb);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0]).toMatchObject({ code });
+    });
+  }
+});
+
 describe('write errors while text is held back', () => {
   beforeEach(() => {
     setSecrets({ API_KEY: { value: SECRET } });

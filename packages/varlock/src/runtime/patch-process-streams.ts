@@ -14,6 +14,9 @@ type WritableLike = {
   isTTY?: boolean,
   fd?: number,
   writableNeedDrain?: boolean,
+  writableEnded?: boolean,
+  destroyed?: boolean,
+  errored?: Error | null,
 };
 
 type StreamPatchState = {
@@ -172,6 +175,12 @@ export function patchStreamWrite(stream: WritableLike): boolean {
   (stream as any)[PATCH_STATE_KEY] = state;
 
   stream.write = function (this: WritableLike, chunk: any, encodingOrCb?: any, maybeCb?: any) {
+    // a stream that can no longer accept writes rejects this one (ERR_STREAM_WRITE_AFTER_END,
+    // ERR_STREAM_DESTROYED, ...) without writing anything, so let it report that itself rather
+    // than buffering the text and acknowledging it
+    if (stream.writableEnded || stream.destroyed || stream.errored) {
+      return state.originalWrite.apply(stream, arguments as any);
+    }
     const cb: WriteCallback | undefined = typeof encodingOrCb === 'function' ? encodingOrCb : maybeCb;
     const encoding = typeof encodingOrCb === 'string' ? encodingOrCb.toLowerCase() : undefined;
 
@@ -270,18 +279,15 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
       return originalBunWrite.apply(this, arguments);
     }
 
-    // goes through the patched process stream rather than the original Bun.write: it shares the
-    // holdback state (so a value split across writes of either kind is still caught) and the
-    // stream's write queue (so ordering and errors match process.stdout.write). Bun.write
-    // resolves to the bytes written; report the caller's own byte count
+    // shares holdback state with process.stdout.write, so a value split across writes of either
+    // kind is still caught, but writes with Bun's own writer: its failures only reject the
+    // promise, while the process stream would also emit an (often unhandled) error event.
+    // Bun.write resolves to the bytes written; report the caller's own byte count
+    if (state.pendingBytes) flushPending(stream, state);
+    const emittable = takeEmittableText(stream, state, text);
     const byteLength = typeof data === 'string' ? utf8Encoder.encode(data).length : data.length;
-    return new Promise<number>((resolve, reject) => {
-      if (state.pendingBytes) flushPending(stream, state);
-      writeText(stream, state, text, (err) => {
-        if (err) reject(err);
-        else resolve(byteLength);
-      });
-    });
+    if (!emittable) return Promise.resolve(byteLength);
+    return Promise.resolve(originalBunWrite.call(this, destination, emittable)).then(() => byteLength);
   };
   patchedBunWrite._varlockPatchedFn = true;
   bun.write = patchedBunWrite;
