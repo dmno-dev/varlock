@@ -74,7 +74,7 @@ We never track who you are. To count distinct users and projects, events include
 - **Org ID**: a SHA-256 hash of `host/owner`.
 - **Git host**: e.g. `github.com`, only for well-known public hosts. Anything else is reported as `self-hosted`.
 
-Project and org IDs are not salted, since a salt would give every user a different ID for the same repo. This means someone who already knows a repo name could hash it and check for a match, but the IDs reveal nothing on their own. We do not attempt to reverse them and only use them to count and group usage.
+Project and org IDs are not salted, since a salt would give every user a different ID for the same repo. This means someone who already knows a repo or org name could hash it and check for a match, but the IDs reveal nothing on their own. We do not attempt to reverse them and only use them to count and group usage.
 
 ## Privacy
 
