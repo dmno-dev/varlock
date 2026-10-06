@@ -43,6 +43,11 @@ case "$1" in
       const errors = cfg.errors || {};
       const template = require('fs').readFileSync('$TEMPLATE_FILE', 'utf-8');
 
+      // refs listed in omit are dropped from the output entirely, to simulate op exiting 0
+      // without printing a requested ref
+      const omit = cfg.omit || [];
+      if (cfg.emptyOutput) process.exit(0);
+
       const refs = [...template.matchAll(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g)].map((m) => m[1]);
 
       // Check for errors first (real op fails entire batch on first error)
@@ -53,7 +58,11 @@ case "$1" in
         }
       }
 
-      const output = template.replace(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g, (match, ref) => {
+      const keptTemplate = template
+        .split(/(?<=__VARLOCK_1P_SEP_[0-9a-f-]+__)/)
+        .filter((seg) => !omit.some((ref) => seg.includes('{{ ' + ref + ' }}')))
+        .join('');
+      const output = keptTemplate.replace(/\{\{\s*(op:\/\/[^}]+?)\s*\}\}/g, (match, ref) => {
         return ref in responses ? responses[ref] : match;
       });
       process.stdout.write(output.replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '') + '\n');

@@ -84,6 +84,28 @@ function parseInjectResult(result: string, separator: string, keyToRef: Record<s
   return valuesByRef;
 }
 
+/**
+ * Settle every deferred in an `op inject` batch from its output. A ref missing from the output
+ * (e.g. `op` exited 0 without printing it) is rejected, otherwise its promise would never settle.
+ */
+function settleInjectBatch(
+  batch: Record<string, { deferredPromises: Array<DeferredPromise<string>> }>,
+  result: string,
+  separator: string,
+  keyToRef: Record<string, string>,
+) {
+  const valuesByRef = parseInjectResult(result, separator, keyToRef);
+  for (const [opRef, { deferredPromises }] of Object.entries(batch)) {
+    if (opRef in valuesByRef) {
+      deferredPromises.forEach((p) => p.resolve(valuesByRef[opRef]));
+    } else {
+      deferredPromises.forEach((p) => p.reject(
+        new ResolutionError(`1Password CLI error - no value returned for reference: ${opRef}`),
+      ));
+    }
+  }
+}
+
 /*
   ! IMPORTANT INFO ON CLI APP AUTH
 
@@ -137,12 +159,7 @@ async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatc
       authCompletedFn?.(true);
       debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-      const valuesByRef = parseInjectResult(result, separator, keyToRef);
-      for (const [opRef, val] of Object.entries(valuesByRef)) {
-        batchToExecute[opRef]?.deferredPromises.forEach((p) => {
-          p.resolve(val);
-        });
-      }
+      settleInjectBatch(batchToExecute, result, separator, keyToRef);
     })
     .catch(async (err) => {
       authCompletedFn?.(false);
@@ -452,13 +469,7 @@ class OpPluginInstance {
         authCompletedFn?.(true);
         debug(`batched OP request took ${+new Date() - +startAt}ms`);
 
-        const valuesByRef = parseInjectResult(result, separator, keyToRef);
-        for (const [opRef, val] of Object.entries(valuesByRef)) {
-          // resolve the deferred promises with the value
-          batchToExecute[opRef]?.deferredPromises.forEach((p) => {
-            p.resolve(val);
-          });
-        }
+        settleInjectBatch(batchToExecute, result, separator, keyToRef);
       })
       .catch(async (err) => {
         authCompletedFn?.(false);
