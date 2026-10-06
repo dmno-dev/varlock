@@ -1,25 +1,25 @@
 ---
 title: Telemetry
-description: Learn about varlock's anonymous usage analytics and how to opt out
+description: What usage data the varlock CLI collects, how project IDs are derived, and how to opt out
 ---
 
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 
-The `varlock` CLI collects **anonymous telemetry data** about usage to help us understand how the tool is being used and to make it better. Participation is optional, and you may opt-out at any time.
+The `varlock` CLI collects **usage telemetry** to help us understand how the tool is being used and to make it better. Participation is optional, and you may opt-out at any time.
 
 ## What We Collect
 
-We track general usage information, and the environment in which `varlock` is being used. Specifically we collect _anonymous_ information about:
+We track general usage information, and the environment in which `varlock` is being used. Specifically we collect information about:
 - Which varlock command is being invoked
 - Which framework integration invoked the CLI (if any), such as Vite, Next.js, or Astro: official `@varlock/*` package name and version only
 - Which plugins are installed in the project: `@varlock/*` plugin names and versions are sent as-is; third-party plugin names are hashed (SHA-256) and versions are omitted
-- Anonymous, non-sensitive usage attributes that official `@varlock/*` plugins report about how they are used (for example which authentication mode is active, or whether a feature is enabled): booleans, short enum strings, and counts only; collected for official plugins only and strictly sanitized (never secret values, item references, hostnames, or paths)
-- Anonymous schema feature signals when a project is loaded: for example root settings like `@redactLogs`, cache mode, safe resolver/decorator identifiers in use, and data source type counts (not config keys, values, file paths, or error messages)
+- Non-sensitive usage attributes that official `@varlock/*` plugins report about how they are used (for example which authentication mode is active, or whether a feature is enabled): booleans, short enum strings, and counts only; collected for official plugins only and strictly sanitized (never secret values, item references, hostnames, or paths)
+- Schema feature signals when a project is loaded: for example root settings like `@redactLogs`, cache mode, safe resolver/decorator identifiers in use, and data source type counts (not config keys, values, file paths, or error messages)
 - Whether the env graph was loaded (`graph_loaded`) and a coarse error category when the run failed (`error_code`: e.g. `parse_error`, `plugin_error`, `schema_error`, `validation_error`, `resolution_error`, `load_error`): no error messages or file paths
 - Version information for varlock and Node.js
 - JavaScript package manager in use (if detectable from lockfiles or runtime env): `npm`, `pnpm`, `yarn`, `bun`, or `deno` only
 - General system/machine information
-- Anonymous user + project ID
+- A random install ID and hashed project/org IDs (see [Identifiers](#identifiers) below)
 - A random per-run ID, so the events from a single command can be grouped together. It is generated fresh in memory each time the CLI starts, is never written to disk, and cannot be used to link one run to another
 
 **We will never collect any of your config files or environment variables.**
@@ -65,17 +65,33 @@ You can also opt out at the project level by creating a `.varlock/config.json` f
 }
 ```
 
+## Identifiers
+
+Telemetry is pseudonymous, not fully anonymous. Events carry no names, emails, or file contents, but they do carry stable IDs so we can count distinct users and projects:
+
+| Field | Derived from |
+|---|---|
+| `distinct_id` | A random UUID generated on first run and saved in your user config file (`ci-` prefixed in CI). Not derived from anything about you or your machine. |
+| `anonymous_project_id_v2` | SHA-256 of the normalized repo slug, `host/owner/repo` (for example `github.com/acme/web`) |
+| `anonymous_org_id` | SHA-256 of `host/owner` (for example `github.com/acme`) |
+| `anonymous_project_id` | SHA-256 of the raw git remote URL (older form of the project ID, kept for continuity) |
+| `git_host` | The git host in clear text, only when it is a well-known public host (`github.com`, `gitlab.com`, `bitbucket.org`, etc.). Any other host is reported as `self-hosted`. |
+
+The repo slug comes from your git remote (`upstream` if set, otherwise `origin`). In CI it comes from the CI provider's repo variables instead (`GITHUB_REPOSITORY`, `CI_PROJECT_PATH`, `BITBUCKET_REPO_FULL_NAME`), so no remote is needed there. Outside a git repo with a remote, the project and org IDs are not sent.
+
+These hashes are not salted, because the same repo has to produce the same ID for every person and CI run that uses it. That means they are not secret: anyone holding the data could check whether a given repo or org name matches by hashing candidate names. That is straightforward for public repos, and also possible for private repos whose names are easy to guess. We do not attempt to reverse these IDs, and we only use them to count and group usage. If you do not want your repo or org name to be checkable this way, opt out using one of the methods above.
+
 ## Privacy
 
-- All analytics data is completely anonymous
-- No personal or sensitive information is collected
+- No config keys, env var values, secrets, file paths, error messages, or personal information are collected
 - Data is only used to improve the product
 - You can opt out at any time
-- Analytics are handled by [PostHog](https://posthog.com/), a privacy-friendly analytics platform
+- Events are sent to our own endpoint (`ph.varlock.dev`), which runs on Cloudflare and stores them in our analytics database. Cloudflare's request geolocation (country, region, city, timezone) is recorded alongside each event; your IP address is not stored.
+- A sample of installs is also forwarded to [PostHog](https://posthog.com/) for analysis
 
 ## Data Usage
 
-The anonymous usage data helps us:
+The usage data helps us:
 - Understand which features are most used
 - Identify areas for improvement
 - Make informed decisions about future development
