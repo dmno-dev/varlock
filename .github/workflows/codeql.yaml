@@ -20,7 +20,7 @@ permissions:
 jobs:
   check-changes:
     name: Check changed languages
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     outputs:
       js-changed: ${{ steps.check.outputs.js-changed }}
       actions-changed: ${{ steps.check.outputs.actions-changed }}

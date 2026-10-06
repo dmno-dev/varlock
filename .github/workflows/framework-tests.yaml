@@ -20,7 +20,7 @@ permissions:
 jobs:
   detect-integrations:
     name: Detect Changed Integrations
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     permissions: {}
     outputs:
       any-changed: ${{ steps.detect.outputs.any-changed }}
