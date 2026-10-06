@@ -592,7 +592,39 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
   }
 }
 
-async function isPluginCached(url: string): Promise<boolean> {
+/**
+ * The tarball URL npm uses for a published version. It follows a fixed pattern, so we can
+ * compute it (and use it as the cache key) without a registry round trip.
+ * ex: `@varlock/foo@1.2.3` -> https://registry.npmjs.org/@varlock/foo/-/foo-1.2.3.tgz
+ */
+function getNpmTarballUrl(moduleName: string, version: string) {
+  const baseName = moduleName.split('/').pop();
+  return `https://registry.npmjs.org/${moduleName}/-/${baseName}-${version}.tgz`;
+}
+
+/** Looks up the registry metadata for a fixed version and returns its tarball URL */
+async function fetchNpmTarballUrl(moduleName: string, version: string) {
+  // ex: https://registry.npmjs.org/@varlock/plugin-name/1.2.3
+  const npmInfoUrl = `https://registry.npmjs.org/${moduleName}/${version}`;
+  let npmInfoReq: Response;
+  try {
+    npmInfoReq = await fetch(npmInfoUrl);
+  } catch (err) {
+    throw new Error(`Failed to fetch plugin "${moduleName}@${version}" from npm (${npmInfoUrl}): ${(err as Error).message}`);
+  }
+  if (!npmInfoReq.ok) {
+    // TODO: new error type? check for 404 vs others and give better message
+    throw new Error(`Failed to fetch plugin "${moduleName}@${version}" from npm: ${npmInfoReq.status} ${npmInfoReq.statusText}`);
+  }
+  const npmInfo = await npmInfoReq.json() as { dist?: { tarball?: string } };
+  const tarballUrl = npmInfo?.dist?.tarball;
+  if (!tarballUrl) {
+    throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${version}" from npm`);
+  }
+  return tarballUrl;
+}
+
+async function getCachedPluginDir(url: string): Promise<string | undefined> {
   const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
   const indexPath = path.join(cacheDir, 'index.json');
   try {
@@ -600,15 +632,20 @@ async function isPluginCached(url: string): Promise<boolean> {
     const index = JSON.parse(indexRaw) as Record<string, string>;
     if (index[url]) {
       const pluginDir = path.join(cacheDir, index[url]);
-      return fs.stat(pluginDir).then(() => true, () => false);
+      if (await fs.stat(pluginDir).then(() => true, () => false)) return pluginDir;
     }
   } catch {
     // ignore
   }
-  return false;
+  return undefined;
 }
 
-async function downloadPlugin(url: string) {
+/**
+ * Downloads and extracts a tarball into the plugin cache (or returns the existing cache dir).
+ * `aliasKey` is an extra index key for the same dir - we pass the computed npm tarball URL so
+ * later loads hit the cache without asking the registry, even if npm reported a different URL.
+ */
+async function downloadPlugin(url: string, aliasKey?: string) {
   const cacheDir = path.join(getUserVarlockDir(), 'plugins-cache');
   const indexPath = path.join(cacheDir, 'index.json');
   await fs.mkdir(cacheDir, { recursive: true });
@@ -625,6 +662,10 @@ async function downloadPlugin(url: string) {
   if (index[url]) {
     const pluginDir = path.join(cacheDir, index[url]);
     if (await fs.stat(pluginDir).then(() => true, () => false)) {
+      if (aliasKey && index[aliasKey] !== index[url]) {
+        index[aliasKey] = index[url];
+        await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
+      }
       return pluginDir;
     }
     // If mapping exists but folder is missing, fall through to re-download
@@ -677,6 +718,7 @@ async function downloadPlugin(url: string) {
 
   // Update index.json file with mapping b/w url and new folder
   index[url] = dirName;
+  if (aliasKey) index[aliasKey] = dirName;
   await fs.writeFile(indexPath, JSON.stringify(index, null, 2));
 
   return finalDir;
@@ -695,20 +737,56 @@ export async function downloadPluginToCache(moduleName: string, versionDescripto
     throw new Error(`"${versionDescriptor}" is not a fixed version — use an exact version like 1.2.3`);
   }
 
-  const npmInfoUrl = `https://registry.npmjs.org/${moduleName}/${versionDescriptor}`;
-  const npmInfoReq = await fetch(npmInfoUrl);
-  if (!npmInfoReq.ok) {
-    throw new Error(`Failed to fetch plugin "${moduleName}@${versionDescriptor}" from npm: ${npmInfoReq.status} ${npmInfoReq.statusText}`);
-  }
-  const npmInfo = await npmInfoReq.json() as { dist?: { tarball?: string } };
-  const tarballUrl = npmInfo?.dist?.tarball;
-  if (!tarballUrl) {
-    throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${versionDescriptor}" from npm`);
-  }
+  // published npm versions are immutable, so a cached copy never needs a registry lookup
+  const expectedTarballUrl = getNpmTarballUrl(moduleName, versionDescriptor);
+  const cachedDir = await getCachedPluginDir(expectedTarballUrl);
+  if (cachedDir) return cachedDir;
 
-  return downloadPlugin(tarballUrl);
+  const tarballUrl = await fetchNpmTarballUrl(moduleName, versionDescriptor);
+  return downloadPlugin(tarballUrl, expectedTarballUrl);
 }
 
+
+/**
+ * Fetches a fixed plugin version from npm into the local cache, confirming first for third-party plugins
+ */
+async function installPluginFromNpm(moduleName: string, versionDescriptor: string, expectedTarballUrl: string) {
+  const tarballUrl = await fetchNpmTarballUrl(moduleName, versionDescriptor);
+
+  // Third-party plugins (non-@varlock) require user confirmation before downloading.
+  // Official @varlock plugins are always trusted. If already cached (previously confirmed),
+  // skip the prompt — the user has already blessed this specific version.
+  if (!moduleName.startsWith('@varlock/') && !(await getCachedPluginDir(tarballUrl))) {
+    if (!process.stdout.isTTY || !process.stdin.isTTY) {
+      throw new SchemaError(
+        `Third-party plugin "${moduleName}@${versionDescriptor}" must be confirmed before downloading, `
+        + 'but no interactive terminal (TTY) is available. '
+        + 'Run `varlock install-plugin` to pre-cache the plugin, or install it via your package.json.',
+      );
+    }
+
+    process.stdout.write(
+      `\n${ansis.yellow('⚠')}  Third-party plugin download requested\n`
+      + `   Package: ${ansis.bold(`${moduleName}@${versionDescriptor}`)}\n`
+      + '   Source:  npm registry (https://registry.npmjs.org)\n\n'
+      + `   ${ansis.italic('Only install plugins from sources you trust.')}\n\n`,
+    );
+
+    const confirmed = await confirm({
+      message: `Allow downloading "${moduleName}@${versionDescriptor}" from npm?`,
+      active: 'Yes, download it',
+      inactive: 'No, cancel',
+      initialValue: false,
+    });
+
+    if (isCancel(confirmed) || !confirmed) {
+      throw new SchemaError(`Third-party plugin "${moduleName}" download cancelled`);
+    }
+  }
+
+  // downloads into local cache folder (user varlock config dir / plugins-cache/)
+  return downloadPlugin(tarballUrl, expectedTarballUrl);
+}
 
 export async function processPluginInstallDecorators(dataSource: EnvGraphDataSource) {
   const graph = dataSource.graph;
@@ -824,53 +902,11 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
               });
             }
 
-            // ex: https://registry.npmjs.org/@varlock/plugin-name/1.2.3
-            const npmInfoUrl = `https://registry.npmjs.org/${moduleName}/${versionDescriptor}`;
-            const npmInfoReq = await fetch(npmInfoUrl);
-            if (!npmInfoReq.ok) {
-              // TODO: new error type? check for 404 vs others and give better message
-              throw new Error(`Failed to fetch plugin "${moduleName}@${versionDescriptor}" from npm: ${npmInfoReq.status} ${npmInfoReq.statusText}`);
-            }
-            const npmInfo = await npmInfoReq.json() as { dist?: { tarball?: string } };
-            const tarballUrl = npmInfo?.dist?.tarball;
-            if (!tarballUrl) {
-              throw new Error(`Failed to find tarball URL for plugin "${moduleName}@${versionDescriptor}" from npm`);
-            }
-
-            // Third-party plugins (non-@varlock) require user confirmation before downloading.
-            // Official @varlock plugins are always trusted. If already cached (previously confirmed),
-            // skip the prompt — the user has already blessed this specific version.
-            if (!moduleName.startsWith('@varlock/') && !(await isPluginCached(tarballUrl))) {
-              if (!process.stdout.isTTY || !process.stdin.isTTY) {
-                throw new SchemaError(
-                  `Third-party plugin "${moduleName}@${versionDescriptor}" must be confirmed before downloading, `
-                  + 'but no interactive terminal (TTY) is available. '
-                  + 'Run `varlock install-plugin` to pre-cache the plugin, or install it via your package.json.',
-                );
-              }
-
-              process.stdout.write(
-                `\n${ansis.yellow('⚠')}  Third-party plugin download requested\n`
-                + `   Package: ${ansis.bold(`${moduleName}@${versionDescriptor}`)}\n`
-                + '   Source:  npm registry (https://registry.npmjs.org)\n\n'
-                + `   ${ansis.italic('Only install plugins from sources you trust.')}\n\n`,
-              );
-
-              const confirmed = await confirm({
-                message: `Allow downloading "${moduleName}@${versionDescriptor}" from npm?`,
-                active: 'Yes, download it',
-                inactive: 'No, cancel',
-                initialValue: false,
-              });
-
-              if (isCancel(confirmed) || !confirmed) {
-                throw new SchemaError(`Third-party plugin "${moduleName}" download cancelled`);
-              }
-            }
-
-            // downloads into local cache folder (user varlock config dir / plugins-cache/)
-            const downloadedPluginPath = await downloadPlugin(tarballUrl);
-            pluginSrcPath = downloadedPluginPath;
+            // published npm versions are immutable, so check the cache before asking the registry.
+            // This keeps loads fast and lets pre-cached plugins work offline.
+            const expectedTarballUrl = getNpmTarballUrl(moduleName, versionDescriptor);
+            pluginSrcPath = await getCachedPluginDir(expectedTarballUrl)
+              ?? await installPluginFromNpm(moduleName, versionDescriptor, expectedTarballUrl);
           }
         }
 
