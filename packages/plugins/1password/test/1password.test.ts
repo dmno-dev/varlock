@@ -130,6 +130,10 @@ type OpConfig = {
    * (matching real `op` behaviour). The plugin then retries the remaining refs.
    */
   errors?: Record<string, string>;
+  /** Refs dropped from `op inject` output (op exits 0 without printing them) */
+  omit?: Array<string>;
+  /** `op inject` exits 0 without printing anything */
+  emptyOutput?: boolean;
   /** Map of environment ID to raw env-format output (KEY=value lines) */
   environments?: Record<string, string>;
 };
@@ -327,6 +331,23 @@ describe('1password plugin', () => {
       `,
       expectValues: { GOOD: 'good-value', BAD: Error },
     }));
+    test('ref missing from op inject output rejects that item', opTest({
+      opConfig: {
+        responses: { 'op://vault/item/a': 'value-a', 'op://vault/item/b': 'value-b' },
+        omit: ['op://vault/item/b'],
+      },
+      schema: outdent`
+        A=op("op://vault/item/a")
+        B=op("op://vault/item/b")
+      `,
+      expectValues: { A: 'value-a', B: Error },
+    }));
+
+    test('empty op inject output rejects all items', opTest({
+      opConfig: { emptyOutput: true },
+      schema: 'SECRET=op("op://vault/item/field")',
+      expectValues: { SECRET: Error },
+    }));
   });
 
   // ── App auth CLI path ─────────────────────────────────────
@@ -366,6 +387,26 @@ describe('1password plugin', () => {
         BAD=op("op://bad-vault/item/field")
       `,
       expectValues: { GOOD: 'good-value', BAD: Error },
+    }));
+
+    test('ref missing from op inject output rejects that item', opTest({
+      authMode: 'appAuth',
+      opConfig: {
+        responses: { 'op://vault/item/a': 'value-a', 'op://vault/item/b': 'value-b' },
+        omit: ['op://vault/item/b'],
+      },
+      schema: outdent`
+        A=op("op://vault/item/a")
+        B=op("op://vault/item/b")
+      `,
+      expectValues: { A: 'value-a', B: Error },
+    }));
+
+    test('empty op inject output rejects all items', opTest({
+      authMode: 'appAuth',
+      opConfig: { emptyOutput: true },
+      schema: 'SECRET=op("op://vault/item/field")',
+      expectValues: { SECRET: Error },
     }));
   });
 
