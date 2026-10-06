@@ -22,7 +22,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.action == 'labeled' && github.event.label.name == 'preview:standalone') ||
       (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview:standalone'))
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: ubuntu-latest
     steps:
       - run: echo "preview:standalone label detected — building preview binaries"
 
@@ -50,7 +50,7 @@ jobs:
   # Build SEA binaries for all platforms and upload as artifacts
   build-sea-binaries:
     needs: [build-native-macos, build-native-rust]
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v7
       - name: Setup Bun

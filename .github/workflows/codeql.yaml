@@ -20,7 +20,7 @@ permissions:
 jobs:
   check-changes:
     name: Check changed languages
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: ubuntu-latest
     outputs:
       js-changed: ${{ steps.check.outputs.js-changed }}
       actions-changed: ${{ steps.check.outputs.actions-changed }}
@@ -63,7 +63,7 @@ jobs:
     name: Analyze JavaScript/TypeScript
     needs: check-changes
     if: needs.check-changes.outputs.js-changed == 'true'
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v7
       - name: Initialize CodeQL
@@ -80,7 +80,7 @@ jobs:
     name: Analyze Actions
     needs: check-changes
     if: needs.check-changes.outputs.actions-changed == 'true'
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Initialize CodeQL
@@ -97,7 +97,7 @@ jobs:
     name: Analyze Swift
     needs: check-changes
     if: needs.check-changes.outputs.swift-changed == 'true'
-    runs-on: depot-macos-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
       - name: Initialize CodeQL
@@ -118,7 +118,7 @@ jobs:
     name: Analyze Rust
     needs: check-changes
     if: needs.check-changes.outputs.rust-changed == 'true'
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v7
       - name: Initialize CodeQL

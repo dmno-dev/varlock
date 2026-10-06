@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   swift-test:
-    runs-on: depot-macos-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
