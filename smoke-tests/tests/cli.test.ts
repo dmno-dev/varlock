@@ -275,6 +275,23 @@ describe('CLI Commands', () => {
       expect(result.exitCode).toBe(42);
     });
 
+    test('varlock run adds nothing to stdout or stderr when the child exits non-zero', () => {
+      const result = varlockRun(
+        ['node', '-e', 'console.log(JSON.stringify({ ok: false })); process.exit(3)'],
+        { cwd: 'smoke-test-basic' },
+      );
+      expect(result.exitCode).toBe(3);
+      expect(result.stdout).toBe('{"ok":false}\n');
+      expect(result.stderr).toBe('');
+    });
+
+    test('varlock run reports a missing command on stderr with exit code 127', () => {
+      const result = varlockRun(['varlock-smoke-no-such-command'], { cwd: 'smoke-test-basic' });
+      expect(result.exitCode).toBe(127);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('command not found: varlock-smoke-no-such-command');
+    });
+
     test('varlock run should forward child stderr', () => {
       const result = varlockRun(
         ['node', '-e', "process.stderr.write('error-output\\n')"],

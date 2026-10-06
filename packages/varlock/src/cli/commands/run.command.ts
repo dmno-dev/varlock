@@ -12,6 +12,7 @@ import { flushSchemaLoadedEvent } from '../helpers/telemetry';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
+import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { isEncryptedBlob, encryptEnvBlobSync } from '../../runtime/crypto';
@@ -284,12 +285,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       // failure: propagate the child's status without the "varlock may be broken" noise.
       exitCode = err.exitCode || 1;
     } else {
-      console.log((error as Error).message);
-      console.log(`command [${commandToRunStr}] failed`);
-      console.log('try running the same command without varlock');
-      console.log('if you get a different result, varlock may be the problem...');
-      // console.log(`Please report issue here: <${REPORT_ISSUE_LINK}>`);
-      exitCode = err.exitCode || 1;
+      exitCode = reportChildCommandError(error, commandToRunStr);
     }
   } finally {
     // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
@@ -299,9 +295,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   if (isWatchEnabled) {
     if (!childCommandKilledFromRestart) {
       if (exitCode === 0) {
-        console.log('\n✅ command completed successfully');
+        console.error('\n✅ command completed successfully');
       } else {
-        console.log(`\n💥 command failed - exit code = ${exitCode}`);
+        console.error(`\n💥 command failed - exit code = ${exitCode}`);
       }
     }
   }
@@ -309,6 +305,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   if (!isWatchEnabled) {
     return gracefulExit(exitCode);
   } else {
-    console.log('... watching for changes ...');
+    console.error('... watching for changes ...');
   }
 };

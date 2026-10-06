@@ -93,6 +93,7 @@ import { resetRedactionMap } from '../../runtime/env';
 import { resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
+import { reportChildCommandError } from '../helpers/child-exit';
 import {
   checkForConfigErrors,
   checkForNoEnvFiles,
@@ -1659,11 +1660,7 @@ async function awaitProxiedChild(
       // failure: propagate the child's status without the "varlock may be broken" noise.
       exitCode = err.exitCode || 1;
     } else {
-      console.log((error as Error).message);
-      console.log(`command [${opts.commandToRunStr}] failed`);
-      console.log('try running the same command without varlock');
-      console.log('if you get a different result, varlock may be the problem...');
-      exitCode = err.exitCode || 1;
+      exitCode = reportChildCommandError(error, opts.commandToRunStr);
     }
   } finally {
     // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
