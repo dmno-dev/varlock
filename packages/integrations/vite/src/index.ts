@@ -35,6 +35,19 @@ export function buildErrorPageHtml(ansiError?: string): string {
 }
 
 
+/** Whether a raw (unflattened, possibly async) vite `plugins` option includes SvelteKit */
+export async function hasSvelteKitPlugin(plugins: unknown): Promise<boolean> {
+  const resolved = await plugins;
+  if (Array.isArray(resolved)) {
+    for (const p of resolved) {
+      if (await hasSvelteKitPlugin(p)) return true;
+    }
+    return false;
+  }
+  const name = (resolved as { name?: unknown } | null | undefined)?.name;
+  return typeof name === 'string' && name.startsWith('vite-plugin-sveltekit');
+}
+
 // enables throwing when user accesses a bad key on ENV
 (globalThis as any).__varlockThrowOnMissingKeys = true;
 
@@ -656,6 +669,14 @@ See https://varlock.dev/integrations/vite/ for more details.
           + 'and must be set as real environment variables, not `define` entries. The encryption key is never baked '
           + 'into the build.\nSee https://varlock.dev/guides/encrypted-deployments/\x1b[0m',
         );
+      }
+
+      // SvelteKit never serves an index.html, and warns about any plugin that
+      // defines `transformIndexHtml` (checked in its `configResolved`, which runs
+      // before ours), so drop the hook entirely when SvelteKit is present.
+      // `sveltekit()` returns a promise, so the raw plugin list must be awaited.
+      if (await hasSvelteKitPlugin(config.plugins)) {
+        delete (mainPlugin as Partial<typeof mainPlugin>).transformIndexHtml;
       }
 
       isDevCommand = env.command === 'serve';

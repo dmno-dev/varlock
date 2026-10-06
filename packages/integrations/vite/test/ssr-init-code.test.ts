@@ -256,3 +256,25 @@ describe('config hook - reserved vars in vite `define`', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('transformIndexHtml + SvelteKit', () => {
+  // SvelteKit warns about any resolved plugin with `transformIndexHtml` (#1177)
+  async function resolvedHasHtmlHook(extraPlugins: Array<any>) {
+    const { varlockVitePlugin } = await importPlugin();
+    const resolved = await resolveConfig({
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [...varlockVitePlugin(), ...extraPlugins],
+    }, 'serve');
+    return !!findPlugin(resolved.plugins as Array<any>, 'inject-varlock-config').transformIndexHtml;
+  }
+
+  it('keeps the hook in non-SvelteKit projects', async () => {
+    expect(await resolvedHasHtmlHook([])).toBe(true);
+  });
+
+  it('drops the hook when SvelteKit plugins are present (async plugin array)', async () => {
+    const fakeSvelteKit = Promise.resolve([{ name: 'vite-plugin-sveltekit-setup' }]);
+    expect(await resolvedHasHtmlHook([fakeSvelteKit])).toBe(false);
+  });
+});
