@@ -5,7 +5,7 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
-import { applyFrozenBootKeys, getFrozenBootKeys } from './frozen-boot-keys';
+import { applyFrozenBootKeys, getBootItems } from './frozen-boot-keys';
 import {
   FrozenEnvFileError, PreResolvedEnvError, readFrozenEnvFile, resolveFrozenEnvFileMode,
 } from './frozen-env-file';
@@ -82,7 +82,7 @@ function reuseOrApplyBoot(
   bootEnv: EnvRecord,
   filePath?: string,
 ): InjectedEnvReuseDecision {
-  if (!Object.keys(getFrozenBootKeys(sanitized.parsedEnv)).length) {
+  if (!Object.keys(getBootItems(sanitized.parsedEnv)).length) {
     return {
       reuse: true,
       ...sanitized,
@@ -401,7 +401,7 @@ export function evaluateInjectedEnvReuse(opts: {
   // key *absent* from the env is not drift (`--inject blob` mode injects no individual
   // vars at all).
   // (`@dynamic=boot` keys of a frozen payload are meant to differ - they are applied below)
-  const bootKeys = getFrozenBootKeys(parsedEnv);
+  const bootKeys = getBootItems(parsedEnv);
   for (const itemKey of Object.keys(parsedEnv.config)) {
     if (!(itemKey in preInjectionEnv) || itemKey in bootKeys) continue;
     if (!envValueMatchesBlobItem(preInjectionEnv[itemKey], parsedEnv.config[itemKey], parsedEnv.settings)) {

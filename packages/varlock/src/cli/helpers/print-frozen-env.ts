@@ -5,7 +5,7 @@ import type { SerializedEnvGraph } from '../../env-graph';
 import { formattedValue } from '../../lib/formatting';
 import { redactSensitiveDisplayValue } from '../../lib/sensitive-value';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
-import { getFrozenBootKeys } from '../../lib/frozen-boot-keys';
+import { getBootItems } from '../../lib/frozen-boot-keys';
 import { redactString } from '../../runtime/lib/redaction';
 import { formatShellValue } from './shell-value';
 
@@ -23,7 +23,7 @@ export function printFrozenEnv(graph: SerializedEnvGraph, opts: {
   summaryFile?: string,
 }) {
   const keys = Object.keys(graph.config);
-  const bootKeys = getFrozenBootKeys(graph);
+  const bootKeys = getBootItems(graph);
 
   const redact = (value: unknown) => {
     if (typeof value === 'string') return redactString(value);
@@ -35,7 +35,7 @@ export function printFrozenEnv(graph: SerializedEnvGraph, opts: {
       ? (redactSensitiveDisplayValue(item.value) ?? formattedValue(item.value, false))
       : formattedValue(item.value, false);
     return [
-      `${key}${item.isSensitive ? ` 🔐${ansis.gray.italic('sensitive')}` : ''}${key in bootKeys ? ansis.gray.italic(' (boot)') : ''}`,
+      `${key}${item.isSensitive ? ` 🔐${ansis.gray.italic('sensitive')}` : ''}${key in bootKeys ? ` ⏱${ansis.gray.italic('boot')}` : ''}`,
       `  └ ${display}`,
     ].join('\n');
   };

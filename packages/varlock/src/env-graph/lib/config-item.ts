@@ -838,6 +838,23 @@ export class ConfigItem {
     return undefined;
   }
 
+  /**
+   * Record the error for a required item with no value. A `@dynamic=boot` item is exempt when
+   * the graph is resolving for a freeze (`deferBootRequired`): its value arrives at boot, where
+   * the frozen env checks it. Otherwise the error says what kind of item it is, since "required
+   * but empty" alone doesn't explain why a per-instance value is expected here.
+   */
+  private checkRequiredWhenEmpty() {
+    if (!this.isRequired) return;
+    if (this.isBootDynamic && this.envGraph.deferBootRequired) return;
+    this.validationErrors = [
+      new EmptyRequiredValueError(undefined, this.isBootDynamic ? {
+        tip: `${this.key} is @dynamic=boot: it is set on each instance at process start. `
+        + 'Set it in your environment to run locally, or give it a default in the schema.',
+      } : undefined),
+    ];
+  }
+
   /** whether any part of this item's `@type` is computed rather than written literally */
   get hasComputedType(): boolean {
     return !!this._typeSpecPlan?.deferred.length;
@@ -1091,9 +1108,7 @@ export class ConfigItem {
       } else {
         this.resolvedValue = this.resolvedRawValue;
       }
-      if (this.isRequired) {
-        this.validationErrors = [new EmptyRequiredValueError(undefined)];
-      }
+      this.checkRequiredWhenEmpty();
       return;
     }
 
@@ -1141,9 +1156,7 @@ export class ConfigItem {
       // string on a composite type) - treat like the empty short-circuit above instead
       // of running validation against undefined
       if (this.resolvedValue === undefined) {
-        if (this.isRequired) {
-          this.validationErrors = [new EmptyRequiredValueError(undefined)];
-        }
+        this.checkRequiredWhenEmpty();
         return;
       }
     } catch (err) {

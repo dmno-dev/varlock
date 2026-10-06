@@ -2,25 +2,25 @@ import { BaseDataTypes, isCompositeCoercedType, type EnvGraphDataType } from '..
 import type { SerializedEnvGraph } from '../env-graph';
 
 /**
- * `@dynamic=boot` items in a frozen env.
+ * `@dynamic=boot` items in a serialized graph.
  *
- * A boot item is frozen like everything else - its freeze-time value is the default - but the
- * environment at boot may override it. The override is checked against what `varlock freeze`
- * recorded about the item (its type and whether it is required), using the same built-in data
- * type implementations the schema uses, rebuilt from the recorded settings. So every consumer
- * (auto-load, `varlock run`, `varlock load`) can apply it in-process: a frozen env never needs
- * the varlock CLI or a schema at runtime.
+ * Every serialized graph records, on each boot item, what is needed to check a value supplied
+ * at boot without the schema (`config[key].boot`: built-in type, its settings, required). In a
+ * frozen env the item's value is then its default, and the environment at boot may override it
+ * after a check with the same built-in data type implementations the schema uses, rebuilt from
+ * the recorded settings. Every consumer (auto-load, `varlock run`, `varlock load --frozen`)
+ * applies this in-process, so a frozen env never needs the varlock CLI or a schema at runtime.
  *
  * Kept free of the graph engine (data-types loads on its own) because auto-load imports it.
  */
 
-/** What a frozen env records about one `@dynamic=boot` item */
-export type FrozenBootKey = {
+/** What a serialized graph records about one `@dynamic=boot` item (`config[key].boot`) */
+export type BootItemSpec = {
   /** built-in data type name, e.g. `port` */
   type: string,
   /** the settings the type was created with, e.g. `[{ min: 1 }]`, when there are any */
   typeArgs?: Array<any>,
-  /** whether a value is required (resolved at freeze time, so `forEnv(...)` etc. are fine) */
+  /** whether a value is required (resolved when serialized, so `forEnv(...)` etc. are fine) */
   required: boolean,
 };
 
@@ -57,8 +57,8 @@ export function getBootDataTypeProblem(
   return undefined;
 }
 
-/** The record for one `@dynamic=boot` item (its type must have passed getBootDataTypeProblem) */
-export function describeFrozenBootKey(dataType: EnvGraphDataType | undefined, required: boolean): FrozenBootKey {
+/** The spec for one `@dynamic=boot` item (its type must have passed getBootDataTypeProblem) */
+export function describeBootItem(dataType: EnvGraphDataType | undefined, required: boolean): BootItemSpec {
   const args = [...(dataType?.usageArgs ?? [])];
   while (args.length && args[args.length - 1] === undefined) args.pop();
   const typeArgs = args.length ? args : undefined;
@@ -69,10 +69,13 @@ export function describeFrozenBootKey(dataType: EnvGraphDataType | undefined, re
   };
 }
 
-/** The `@dynamic=boot` items a frozen env records, if any */
-export function getFrozenBootKeys(graph: SerializedEnvGraph): Record<string, FrozenBootKey> {
-  const boot = graph.frozen?.boot;
-  return boot && typeof boot === 'object' ? boot : {};
+/** The `@dynamic=boot` items a serialized graph records, keyed by item */
+export function getBootItems(graph: SerializedEnvGraph): Record<string, BootItemSpec> {
+  const items: Record<string, BootItemSpec> = {};
+  for (const [key, item] of Object.entries(graph.config)) {
+    if (item.boot && typeof item.boot === 'object') items[key] = item.boot;
+  }
+  return items;
 }
 
 function errorMessages(result: unknown): Array<string> {
@@ -93,15 +96,11 @@ export function applyFrozenBootKeys(
   graph: SerializedEnvGraph,
   env: EnvRecord,
 ): { graph: SerializedEnvGraph, problems: Array<string> } {
-  const bootKeys = getFrozenBootKeys(graph);
   const problems: Array<string> = [];
   const config = { ...graph.config };
 
-  for (const [key, spec] of Object.entries(bootKeys)) {
+  for (const [key, spec] of Object.entries(getBootItems(graph))) {
     const item = config[key];
-    // a boot key always has a config entry (its frozen default, even if undefined); without
-    // one there is no sensitivity to go on, so never let the env introduce it
-    if (!item) continue;
     if (!(key in env)) {
       if (spec.required && item.value === undefined) {
         problems.push(`${key} is required, but it is not set at boot and has no frozen default`);

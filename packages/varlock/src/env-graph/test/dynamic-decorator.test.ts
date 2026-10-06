@@ -194,6 +194,52 @@ describe('@dynamic=boot', () => {
     expectValues: { PORT: SchemaError },
   }));
 
+  // every serialized graph records what a consumer needs to check a boot value later
+  test('serialized output carries each boot item\'s spec', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        PORT=3000         # @public @dynamic=boot @type=port
+        LEVEL=info        # @public @dynamic=boot @type=enum(debug, info) @optional
+        NAME=web          # @public
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const { config } = g.getSerializedGraph();
+    expect(config.PORT.boot).toEqual({ type: 'port', required: true });
+    expect(config.LEVEL.boot).toEqual({ type: 'enum', typeArgs: ['debug', 'info'], required: false });
+    expect(config.NAME.boot).toBeUndefined();
+  });
+
+  test('a required boot item with no value explains why it is expected', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: 'INSTANCE_ID=   # @public @required @dynamic=boot',
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const [err] = g.configSchema.INSTANCE_ID.errors;
+    expect(err.message).toContain('required');
+    expect(err.more?.tip).toContain('INSTANCE_ID is @dynamic=boot: it is set on each instance at process start');
+  });
+
+  // a freeze resolves with this set: the value arrives at boot, where the frozen env checks it
+  test('deferBootRequired lets a required boot item be unset, and nothing else', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        INSTANCE_ID=   # @public @required @dynamic=boot
+        OTHER=         # @public @required
+      `,
+    }));
+    await g.finishLoad();
+    g.deferBootRequired = true;
+    await g.resolveEnvValues();
+    expect(g.configSchema.INSTANCE_ID.errors).toEqual([]);
+    expect(g.configSchema.OTHER.errors.length).toBe(1);
+  });
+
   test('boot must be written literally, not computed', envFilesTest({
     envFile: outdent`
       PORT= # @dynamic=if(yes, boot, boot)

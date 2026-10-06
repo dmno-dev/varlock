@@ -1,5 +1,5 @@
 import _ from '@env-spec/utils/my-dash';
-import { getBootDataTypeProblem } from '../../lib/frozen-boot-keys';
+import { describeBootItem, getBootDataTypeProblem } from '../../lib/frozen-boot-keys';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ConfigItem, type TypeGenItemInfo } from './config-item';
@@ -150,6 +150,12 @@ export type SerializedEnvGraph = {
     overrideStr?: string;
     /** whether the value must stay runtime-resolved (never inlined at build time). Omitted when it matches `isSensitive` (the default linkage), so consumers should read `isDynamic ?? isSensitive`. */
     isDynamic?: boolean;
+    /**
+     * Present only for `@dynamic=boot` items: what a consumer needs to check a value supplied
+     * at boot without the schema (built-in type name, its settings, and whether a value is
+     * required). `value` is then the default (see lib/frozen-boot-keys).
+     */
+    boot?: { type: string, typeArgs?: Array<any>, required: boolean };
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
@@ -163,14 +169,10 @@ export type SerializedEnvGraph = {
    */
   injectedAtBuild?: boolean;
   /**
-   * Present only in a payload written by `varlock freeze`, never set by the graph serializer.
-   * `boot` records the `@dynamic=boot` items: their entries in `config` hold the freeze-time
-   * value (the default), and a value supplied at boot overrides it after being checked
-   * against the recorded type (see lib/frozen-boot-keys).
+   * true = a frozen env (see lib/build-frozen-env): resolved and validated once, as a unit, and
+   * total wherever it runs. Never set by the graph serializer itself.
    */
-  frozen?: {
-    boot?: Record<string, { type: string, typeArgs?: Array<any>, required: boolean }>,
-  };
+  frozen?: boolean;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
@@ -215,6 +217,11 @@ export class EnvGraph {
 
   /** place to store process.env overrides */
   overrideValues: Record<string, string | undefined> = {};
+  /**
+   * Resolving for a freeze: a required `@dynamic=boot` item may be unset, since its value
+   * arrives at boot (see ConfigItem.checkRequiredWhenEmpty). Set before resolution.
+   */
+  deferBootRequired = false;
 
   /**
    * Proxy-child resolution view: when a graph is loaded inside a `varlock proxy`
@@ -1247,6 +1254,7 @@ export class EnvGraph {
         // only emit when it diverges from the sensitivity linkage (the default), so
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
+        ...item.isBootDynamic ? { boot: describeBootItem(item.dataType, item.isRequired) } : {},
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.

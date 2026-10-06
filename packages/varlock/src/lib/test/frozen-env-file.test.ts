@@ -292,19 +292,14 @@ describe('evaluateInjectedEnvReuse with a frozen env file', () => {
 // `@dynamic=boot` items are frozen with a default, and a value set at boot overrides it after
 // being checked against the type the freeze recorded - no schema, no CLI (see frozen-boot-keys)
 describe('a frozen env with boot keys', () => {
-  const withBootKeys = (overrides?: Record<string, any>) => graphJson({
+  // boot specs live on the items (`config[key].boot`), the value being the frozen default
+  const withBootKeys = (opts?: { instanceIdRequired?: boolean }) => graphJson({
     config: {
       FOO: { value: 'foo-val', isSensitive: false },
-      PORT: { value: 3000, isSensitive: false },
-      INSTANCE_ID: { value: undefined, isSensitive: false },
+      PORT: { value: 3000, isSensitive: false, boot: { type: 'port', required: true } },
+      INSTANCE_ID: { value: undefined, isSensitive: false, boot: { type: 'string', required: !!opts?.instanceIdRequired } },
     },
-    frozen: {
-      boot: {
-        PORT: { type: 'port', required: true },
-        INSTANCE_ID: { type: 'string', required: false },
-      },
-    },
-    ...overrides,
+    frozen: true,
   });
 
   test('a boot-time value overrides the frozen default, coerced to the recorded type', () => {
@@ -338,9 +333,7 @@ describe('a frozen env with boot keys', () => {
 
   test('a required boot key with no default must be set at boot', () => {
     const { key } = writeFrozenFile({
-      contents: withBootKeys({
-        frozen: { boot: { INSTANCE_ID: { type: 'string', required: true } } },
-      }),
+      contents: withBootKeys({ instanceIdRequired: true }),
     });
     expect(() => evaluateInjectedEnvReuse({ env: { ...ON, _VARLOCK_ENV_KEY: key! }, cwd: tempDir }))
       .toThrow(/INSTANCE_ID is required, but it is not set at boot/);
@@ -361,19 +354,6 @@ describe('a frozen env with boot keys', () => {
   test('an ambient frozen payload applies boot values instead of treating them as drift', () => {
     const decision = evaluateInjectedEnvReuse({ env: { __VARLOCK_ENV: withBootKeys(), PORT: '7000' }, cwd: tempDir });
     expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(7000);
-  });
-
-  // e.g. an @internal item: freeze never records one, and the env must not introduce it
-  test('a boot key with no frozen entry is never introduced from the env', () => {
-    const decision = evaluateInjectedEnvReuse({
-      env: {
-        [USE_INJECTED_ENV_VAR]: '1',
-        __VARLOCK_ENV: withBootKeys({ frozen: { boot: { SECRET_ZERO: { type: 'string', required: true } } } }),
-        SECRET_ZERO: 'nope',
-      },
-      cwd: tempDir,
-    });
-    expect(decision.reuse && decision.parsedEnv.config.SECRET_ZERO).toBeUndefined();
   });
 
   test('boot values come from the pre-injection env, not one varlock injected', () => {
@@ -397,9 +377,9 @@ describe('a frozen env with boot keys', () => {
     });
 
     test('a discovered file does not shadow a trusted frozen payload', () => {
-      writeFrozenFile({ key: null, contents: graphJson({ frozen: {}, config: { FOO: { value: 'from-file' } } }) });
+      writeFrozenFile({ key: null, contents: graphJson({ frozen: true, config: { FOO: { value: 'from-file' } } }) });
       const found = findExplicitFrozenEnv({
-        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: {} }) },
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: true }) },
         cwd: tempDir,
       });
       expect(found).toMatchObject({ source: 'env-blob' });
@@ -407,7 +387,7 @@ describe('a frozen env with boot keys', () => {
     });
 
     test('an explicitly named frozen file is returned', () => {
-      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: {} }), fileName: 'frozen.env' });
+      const { key, filePath } = writeFrozenFile({ contents: graphJson({ frozen: true }), fileName: 'frozen.env' });
       const found = findExplicitFrozenEnv({
         env: { _VARLOCK_ENV_KEY: key!, [USE_FROZEN_ENV_VAR]: filePath },
         cwd: tempDir,
@@ -417,7 +397,7 @@ describe('a frozen env with boot keys', () => {
 
     test('a trusted __VARLOCK_ENV counts only when it is a freeze payload', () => {
       const frozenPayload = findExplicitFrozenEnv({
-        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: {} }) },
+        env: { [USE_INJECTED_ENV_VAR]: '1', __VARLOCK_ENV: graphJson({ frozen: true }) },
         cwd: tempDir,
       });
       expect(frozenPayload).toMatchObject({ source: 'env-blob' });
@@ -430,7 +410,7 @@ describe('a frozen env with boot keys', () => {
     });
 
     test('nothing is a frozen env without a frozen file or explicit blob trust', () => {
-      expect(findExplicitFrozenEnv({ env: { __VARLOCK_ENV: graphJson({ frozen: {} }) }, cwd: tempDir }))
+      expect(findExplicitFrozenEnv({ env: { __VARLOCK_ENV: graphJson({ frozen: true }) }, cwd: tempDir }))
         .toBeUndefined();
     });
   });

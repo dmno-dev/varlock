@@ -111,11 +111,12 @@ describe('varlock freeze with @dynamic=boot items', () => {
       expect(result.output).toContain('PORT (default 9999, from the build environment)');
       const payload = JSON.parse(fs.readFileSync(join(SCENARIO_DIR, outFile), 'utf8'));
       expect(payload.config.PORT.value).toBe(9999);
-      expect(payload.frozen.boot).toEqual({
-        PORT: { type: 'port', required: true },
-        INSTANCE_ID: { type: 'string', required: true },
-        LOG_TAG: { type: 'string', required: true },
-      });
+      expect(payload.frozen).toBe(true);
+      // each boot item carries its own spec, the value being its default
+      expect(payload.config.PORT.boot).toEqual({ type: 'port', required: true });
+      expect(payload.config.INSTANCE_ID.boot).toEqual({ type: 'string', required: true });
+      expect(payload.config.LOG_TAG.boot).toEqual({ type: 'string', required: true });
+      expect(payload.config.APP_ENV.boot).toBeUndefined();
     } finally {
       fs.rmSync(join(SCENARIO_DIR, outFile), { force: true });
     }
