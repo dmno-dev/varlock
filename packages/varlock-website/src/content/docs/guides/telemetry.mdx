@@ -19,7 +19,7 @@ We track general usage information, and the environment in which `varlock` is be
 - Version information for varlock and Node.js
 - JavaScript package manager in use (if detectable from lockfiles or runtime env): `npm`, `pnpm`, `yarn`, `bun`, or `deno` only
 - General system/machine information
-- Anonymous user + project ID
+- Anonymous user, project, and org IDs (see [Anonymous IDs](#anonymous-ids) below)
 - A random per-run ID, so the events from a single command can be grouped together. It is generated fresh in memory each time the CLI starts, is never written to disk, and cannot be used to link one run to another
 
 **We will never collect any of your config files or environment variables.**
@@ -65,13 +65,24 @@ You can also opt out at the project level by creating a `.varlock/config.json` f
 }
 ```
 
+## Anonymous IDs
+
+We never track who you are. To count distinct users and projects, events include a few IDs:
+
+- **User ID**: a random UUID generated on first run and saved in your user config file. It is not derived from anything about you or your machine.
+- **Project ID**: a SHA-256 hash of your repo's `host/owner/repo` (from the git remote, or from CI env vars like `GITHUB_REPOSITORY`), so all clones and CI runs of the same repo share one ID.
+- **Org ID**: a SHA-256 hash of `host/owner`.
+- **Git host**: e.g. `github.com`, only for well-known public hosts. Anything else is reported as `self-hosted`.
+
+Project and org IDs are not salted, since a salt would give every user a different ID for the same repo. This means someone who already knows a repo or org name could hash it and check for a match, but the IDs reveal nothing on their own. We do not attempt to reverse them and only use them to count and group usage.
+
 ## Privacy
 
-- All analytics data is completely anonymous
+- All analytics data is anonymous
 - No personal or sensitive information is collected
 - Data is only used to improve the product
 - You can opt out at any time
-- Analytics are handled by [PostHog](https://posthog.com/), a privacy-friendly analytics platform
+- Events are sent to our own endpoint on Cloudflare, and a sample is forwarded to [PostHog](https://posthog.com/), a privacy-friendly analytics platform
 
 ## Data Usage
 
