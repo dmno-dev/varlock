@@ -44,16 +44,20 @@ const QUICK_TEST_PATHS: Record<string, string> = {
 };
 
 // Full suites slow enough to split into parallel matrix jobs — each part
-// becomes its own matrix entry and runs on its own runner.
-const SPLIT_TEST_PATHS: Record<string, Record<string, string>> = {
+// becomes its own matrix entry and runs on its own runner. Next.js v15/v16 are
+// further split by bundler (passed to the tests as NEXTJS_BUNDLER); v14 only
+// runs webpack scenarios, so there is nothing to split.
+const SPLIT_TEST_PATHS: Record<string, Record<string, { testPath: string; bundler?: string }>> = {
   nextjs: {
-    v14: 'nextjs/nextjs-v14.test.ts',
-    v15: 'nextjs/nextjs-v15.test.ts',
-    v16: 'nextjs/nextjs-v16.test.ts',
+    v14: { testPath: 'nextjs/nextjs-v14.test.ts' },
+    'v15 webpack': { testPath: 'nextjs/nextjs-v15.test.ts', bundler: 'webpack' },
+    'v15 turbopack': { testPath: 'nextjs/nextjs-v15.test.ts', bundler: 'turbopack' },
+    'v16 webpack': { testPath: 'nextjs/nextjs-v16.test.ts', bundler: 'webpack' },
+    'v16 turbopack': { testPath: 'nextjs/nextjs-v16.test.ts', bundler: 'turbopack' },
   },
 };
 
-type IntegrationEntry = { name: string; testPath: string };
+type IntegrationEntry = { name: string; testPath: string; bundler?: string };
 
 const ALL_INTEGRATIONS = Object.keys(INTEGRATION_PACKAGES);
 const forceAll = process.argv.includes('--all');
@@ -74,7 +78,7 @@ function toEntries(name: string, mode: 'full' | 'quick' = 'full'): Array<Integra
   }
   if (SPLIT_TEST_PATHS[name]) {
     return Object.entries(SPLIT_TEST_PATHS[name])
-      .map(([part, testPath]) => ({ name: `${name} (${part})`, testPath }));
+      .map(([part, entry]) => ({ name: `${name} (${part})`, ...entry }));
   }
   return [{ name, testPath: `${name}/` }];
 }
