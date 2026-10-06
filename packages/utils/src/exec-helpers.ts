@@ -37,12 +37,16 @@ export function spawnAsyncHelper(
       reject(err);
     });
     childProcess.on('exit', (exitCode, signal) => {
-      if (!exitCode) {
+      // A child killed by a signal exits with a null code, so only an explicit 0 counts as
+      // success. Otherwise whatever partial stdout arrived before the kill would be returned.
+      if (exitCode === 0) {
         resolve(stdoutData);
       } else {
-        reject(
-          new ExecError(exitCode, signal, stderrData),
-        );
+        reject(new ExecError(
+          exitCode ?? 1,
+          signal,
+          stderrData || (signal ? `command terminated by ${signal}` : undefined),
+        ));
       }
     });
   });

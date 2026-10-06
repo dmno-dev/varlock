@@ -25,4 +25,16 @@ describe('spawnAsync', () => {
     expect(result).toBeInstanceOf(ExecError);
     expect((result as ExecError).exitCode).toBe(1);
   });
+
+  test('rejects when the child is killed by a signal after partial output', async () => {
+    const result = await spawnAsync(
+      process.execPath,
+      ['-e', 'process.stdout.write("PARTIAL_", () => process.kill(process.pid, "SIGTERM"))'],
+    ).catch((err) => err);
+
+    expect(result).toBeInstanceOf(ExecError);
+    expect((result as ExecError).signal).toBe('SIGTERM');
+    expect((result as ExecError).exitCode).not.toBe(0);
+    expect((result as ExecError).data).toContain('SIGTERM');
+  });
 });
