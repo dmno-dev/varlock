@@ -43,7 +43,10 @@ describe('in-process stdout/stderr redaction', () => {
     expect(result.output).toContain('stdout.write: sk▒▒▒▒▒');
     expect(result.output).toContain('stderr.write: sk▒▒▒▒▒');
     expect(result.output).toContain('buffer: sk▒▒▒▒▒');
-    expect(result.output).toContain('split: sk▒▒▒▒▒');
+    // a value split across writes: the part after the split is masked, and a warning says the
+    // first part was already printed
+    expect(result.output).toContain(`split: ${SECRET.slice(0, 10)}▒▒▒▒▒`);
+    expect(result.output).toContain('[varlock] the sensitive value of API_KEY was split across separate writes');
     expect(result.output).not.toContain(SECRET);
     // @sensitive={redactLogs=false} lets a value through
     expect(result.output).toContain(`printed: ${PRINTED}`);
@@ -53,8 +56,8 @@ describe('in-process stdout/stderr redaction', () => {
     const result = runApp('bun');
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('bun.write: sk▒▒▒▒▒');
-    expect(result.output).toContain('bun split: sk▒▒▒▒▒');
-    expect(result.output).toContain('mixed split: sk▒▒▒▒▒');
+    expect(result.output).toContain(`bun split: ${SECRET.slice(0, 10)}▒▒▒▒▒`);
+    expect(result.output).toContain(`mixed split: ${SECRET.slice(0, 10)}▒▒▒▒▒`);
     expect(result.output).not.toContain(SECRET);
   });
 

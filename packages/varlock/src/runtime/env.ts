@@ -489,7 +489,7 @@ const UNMASK_PREFIX = `${UNMASK_STR} `;
  * Length of a trailing (possibly partial) unmask prefix (`👁 `). Streaming redaction holds it
  * back along with any partial secret, so a revealed value split across writes keeps its marker.
  */
-export function getUnmaskPrefixHoldbackLength(str: string): number {
+function getUnmaskPrefixHoldbackLength(str: string): number {
   for (let len = Math.min(UNMASK_PREFIX.length, str.length); len > 0; len--) {
     if (str.endsWith(UNMASK_PREFIX.slice(0, len))) return len;
   }
@@ -511,6 +511,53 @@ export function redactSensitiveConfigForOutput<T>(o: T): T {
   const redacted = redactSensitiveConfig(o);
   if (typeof redacted !== 'string' || !redacted.includes(UNMASK_STR)) return redacted;
   return redacted.replaceAll(UNMASK_MARKERS_REGEX, '$1') as T;
+}
+
+// replaces the part of a split value that arrives in a later write (see redactStreamWrite)
+const SPLIT_VALUE_MASK = '▒▒▒▒▒';
+
+/**
+ * Redacts one write to a stream without holding anything back: the write goes out right away,
+ * so the stream's own behavior (callbacks, errors, `end()`, ordering) is untouched.
+ *
+ * `carry` is the end of the previous write that could be the start of a sensitive value. If this
+ * write completes one, its part in this write is masked and `splitKey` names the item, since
+ * the part already written can't be recalled. Returns the carry for the next write.
+ */
+export function redactStreamWrite(carry: string, text: string): {
+  output: string,
+  carry: string,
+  splitKey?: string,
+} {
+  const state = getRedactionState();
+  const region = carry + text;
+  let output: string | undefined;
+  let splitKey: string | undefined;
+  const findReplace = carry ? getActiveFindReplace() : undefined;
+  if (findReplace) {
+    const { find } = findReplace;
+    find.lastIndex = 0;
+    try {
+      for (let match = find.exec(region); match && match.index < carry.length; match = find.exec(region)) {
+        const splitAt = match.index + match[0].length - carry.length;
+        if (splitAt > 0) {
+          splitKey = state.sensitiveSecretsMap[match[0]]?.key;
+          output = SPLIT_VALUE_MASK + redactSensitiveConfigForOutput(text.slice(splitAt));
+          break;
+        }
+      }
+    } finally {
+      find.lastIndex = 0;
+    }
+  }
+  output ??= redactSensitiveConfigForOutput(text);
+  // only the end that could be the start of a value is worth carrying (usually nothing)
+  const nextCarryLength = getRedactionHoldbackLength(region);
+  return {
+    output,
+    carry: nextCarryLength ? region.slice(-nextCarryLength) : '',
+    ...splitKey && { splitKey },
+  };
 }
 
 /** whether varlock is redacting console or process stream output in this process */

@@ -1,17 +1,18 @@
 import {
   describe, it, expect, beforeEach, afterEach, vi,
 } from 'vitest';
+import { Writable } from 'node:stream';
 import {
   resetRedactionMap, varlockSettings, redactSensitiveConfig, redactAllSensitiveValues,
 } from '../env';
-import {
-  patchStreamWrite, unpatchStreamWrite, flushStreamWrite, shouldRedactProcessStream,
-} from '../patch-process-streams';
-import { Writable } from 'node:stream';
+import { patchStreamWrite, unpatchStreamWrite, shouldRedactProcessStream } from '../patch-process-streams';
 import type { SerializedEnvGraph } from '../../env-graph';
 
 const SECRET = 'super-secret-value-12345';
 const REDACTED = 'su▒▒▒▒▒';
+// what replaces the part of a split value that arrives in the later write
+const SPLIT_MASK = '▒▒▒▒▒';
+const SPLIT_WARNED_KEY = Symbol.for('varlock.splitValueWarned');
 
 function setSecrets(config: Record<string, { value: string, redactLogs?: boolean }>) {
   resetRedactionMap({
@@ -21,35 +22,41 @@ function setSecrets(config: Record<string, { value: string, redactLogs?: boolean
   } as unknown as SerializedEnvGraph);
 }
 
-/** a fake stream recording what reaches the underlying write */
+/** a fake stream recording the arguments each write reaches the underlying write with */
 function createFakeStream() {
-  const writes: Array<string | Uint8Array> = [];
+  const calls: Array<Array<any>> = [];
   const stream = {
     isTTY: false,
-    write(chunk: string | Uint8Array, encodingOrCb?: any, maybeCb?: any) {
-      writes.push(chunk);
-      const cb = typeof encodingOrCb === 'function' ? encodingOrCb : maybeCb;
-      if (cb) queueMicrotask(() => cb());
-      return true;
+    write(...args: Array<any>) {
+      calls.push(args);
+      return 'original-return-value' as any;
+    },
+    end(...args: Array<any>) {
+      calls.push(['END', ...args]);
     },
   };
-  const output = () => writes.map((w) => (typeof w === 'string' ? w : Buffer.from(w).toString('latin1'))).join('');
-  return { stream, writes, output };
+  const output = () => calls
+    .filter((args) => args[0] !== 'END')
+    .map(([chunk]) => (typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')))
+    .join('');
+  return { stream, calls, output };
 }
 
 describe('patchStreamWrite', () => {
   let fake: ReturnType<typeof createFakeStream>;
+  let warn: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     setSecrets({ API_KEY: { value: SECRET } });
     fake = createFakeStream();
     patchStreamWrite(fake.stream);
+    delete (globalThis as any)[SPLIT_WARNED_KEY];
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     unpatchStreamWrite(fake.stream);
-    vi.useRealTimers();
+    warn.mockRestore();
   });
 
   it('redacts strings', () => {
@@ -57,88 +64,89 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`key=${REDACTED}\n`);
   });
 
-  it('redacts utf8 buffers', () => {
+  it('redacts utf8 buffers (and keeps them buffers)', () => {
     fake.stream.write(Buffer.from(`key=${SECRET}\n`));
+    expect(Buffer.isBuffer(fake.calls[0][0])).toBe(true);
     expect(fake.output()).toBe(`key=${REDACTED}\n`);
   });
 
-  it('redacts a secret split across writes', () => {
+  it('passes the arguments, callback and return value through unchanged', () => {
+    const cb = vi.fn();
+    expect(fake.stream.write('hello\n', 'utf8', cb)).toBe('original-return-value');
+    expect(fake.calls[0]).toEqual(['hello\n', 'utf8', cb]);
+    fake.stream.write(`${SECRET}\n`, cb);
+    expect(fake.calls[1]).toEqual([`${REDACTED}\n`, cb]);
+  });
+
+  it('holds nothing back: each write goes out right away', () => {
+    fake.stream.write('ends with super-sec');
+    expect(fake.output()).toBe('ends with super-sec');
+  });
+
+  it('masks the rest of a value split across writes, and warns once', () => {
     fake.stream.write('key=super-sec');
     fake.stream.write('ret-value-12345\n');
-    expect(fake.output()).toBe(`key=${REDACTED}\n`);
+    expect(fake.output()).toBe(`key=super-sec${SPLIT_MASK}\n`);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('API_KEY');
+    expect(warn.mock.calls[0][0]).not.toContain(SECRET);
+
+    fake.stream.write('again: super-sec');
+    fake.stream.write('ret-value-12345\n');
+    expect(fake.output()).toContain(`again: super-sec${SPLIT_MASK}\n`);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it('flushes held-back text after a timeout', () => {
-    fake.stream.write('ends with super-sec');
-    expect(fake.output()).toBe('ends with ');
-    vi.advanceTimersByTime(200);
-    expect(fake.output()).toBe('ends with super-sec');
+  it('catches a value split across several writes', () => {
+    for (const char of SECRET) fake.stream.write(char);
+    fake.stream.write('\n');
+    // the whole value is never written contiguously
+    expect(fake.output()).not.toContain(SECRET);
   });
 
-  it('flushes held-back text on demand (e.g. on exit)', () => {
-    fake.stream.write('ends with super-sec');
-    flushStreamWrite(fake.stream);
-    expect(fake.output()).toBe('ends with super-sec');
+  it('does not treat a lookalike prefix as a split value', () => {
+    fake.stream.write('super-sec');
+    fake.stream.write('tion of the docs\n');
+    expect(fake.output()).toBe('super-section of the docs\n');
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it('passes binary buffers through untouched, keeping order', () => {
+  it('redacts a complete value whose ending is also the start of a value (self-overlap)', () => {
+    setSecrets({ SELF_OVERLAP: { value: 'secret-token-s' } });
+    fake.stream.write('secret-token-s');
+    expect(fake.output()).toBe('se▒▒▒▒▒');
+  });
+
+  it('passes binary buffers through untouched', () => {
     const binary = Uint8Array.from([0xFF, 0xFE, 0x00, 0x80]);
-    fake.stream.write('text super-sec');
     fake.stream.write(binary);
-    expect(fake.writes.at(-1)).toBe(binary);
-    expect(fake.output().startsWith('text super-sec')).toBe(true);
+    expect(fake.calls[0][0]).toBe(binary);
   });
 
   it('passes non-utf8 string encodings through untouched', () => {
     const encoded = Buffer.from(SECRET).toString('base64');
     fake.stream.write(encoded, 'base64');
-    expect(fake.writes).toEqual([encoded]);
+    expect(fake.calls[0]).toEqual([encoded, 'base64']);
   });
 
-  it('keeps a multi-byte character split across buffers intact', () => {
+  it('redacts around a multi-byte character split across buffers, keeping its bytes', () => {
     const bytes = Buffer.from(`é ${SECRET}\n`);
     fake.stream.write(bytes.subarray(0, 1)); // first byte of `é`
     fake.stream.write(bytes.subarray(1));
-    expect(fake.output()).toBe(`é ${REDACTED}\n`);
+    const written = Buffer.concat(fake.calls.map(([chunk]) => Buffer.from(chunk)));
+    expect(written.toString('utf8')).toBe(`é ${REDACTED}\n`);
   });
 
-  it('fires a callback once the writable part is out, without waiting on held-back text', async () => {
-    // writers that wait on each callback before writing more must not force the held prefix
-    // out (unredacted) before the rest of the value arrives
+  it('redacts the final chunk passed to end()', () => {
     const cb = vi.fn();
-    fake.stream.write('ends with super-sec', cb);
-    await Promise.resolve();
-    expect(cb).toHaveBeenCalledTimes(1);
-    expect(fake.output()).toBe('ends with ');
-    fake.stream.write('ret-value-12345\n');
-    expect(fake.output()).toBe(`ends with ${REDACTED}\n`);
-  });
-
-  it('fires the callback of a write that is entirely held back', async () => {
-    const cb = vi.fn();
-    fake.stream.write('super-sec', cb);
-    await Promise.resolve();
-    expect(cb).toHaveBeenCalledTimes(1);
-    expect(fake.output()).toBe('');
-  });
-
-  it('supports the (chunk, encoding, cb) signature', async () => {
-    const cb = vi.fn();
-    fake.stream.write(`${SECRET}\n`, 'utf8', cb);
-    await vi.runAllTimersAsync();
-    expect(cb).toHaveBeenCalledTimes(1);
-    expect(fake.output()).toBe(`${REDACTED}\n`);
+    fake.stream.end(`bye ${SECRET}\n`, cb);
+    expect(fake.calls[0]).toEqual(['END', `bye ${REDACTED}\n`, cb]);
   });
 
   it('skips items marked @sensitive={redactLogs=false}', () => {
     setSecrets({ API_KEY: { value: SECRET }, PRINTED_TOKEN: { value: 'printed-token-abcdef', redactLogs: false } });
     fake.stream.write(`${SECRET} printed-token-abcdef\n`);
     expect(fake.output()).toBe(`${REDACTED} printed-token-abcdef\n`);
-  });
-
-  it('prints values revealed with revealSensitiveConfig (strips the markers)', () => {
-    fake.stream.write(`revealed: 👁 ${SECRET} 👁\n`);
-    expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
   });
 
   it('redactLogs=false values are skipped by redactSensitiveConfig but not by leak-prevention scrubbing', () => {
@@ -156,36 +164,78 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`${REDACTED}\n`);
   });
 
-  it('prints a revealed value split across writes', () => {
-    fake.stream.write('revealed: 👁 ');
-    fake.stream.write(`${SECRET.slice(0, 8)}`);
-    fake.stream.write(`${SECRET.slice(8)} 👁\n`);
+  it('prints values revealed with revealSensitiveConfig (strips the markers)', () => {
+    fake.stream.write(`revealed: 👁 ${SECRET} 👁\n`);
     expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
-  });
-
-  it('redacts a complete value whose ending is also the start of a value (self-overlap)', () => {
-    // `secret-token-s` ends with `s`, which is the start of itself
-    setSecrets({ SELF_OVERLAP: { value: 'secret-token-s' } });
-    fake.stream.write('secret-token-s');
-    flushStreamWrite(fake.stream);
-    expect(fake.output()).toBe('se▒▒▒▒▒');
-  });
-
-  it('redacts a complete value whose ending is the start of another value', () => {
-    setSecrets({ A: { value: 'token-aaaa-xy' }, B: { value: 'xy-other-value-1' } });
-    fake.stream.write('token-aaaa-xy');
-    flushStreamWrite(fake.stream);
-    expect(fake.output()).toBe('to▒▒▒▒▒');
-    // and the other value is still caught when it completes
-    fake.writes.length = 0;
-    fake.stream.write('x');
-    fake.stream.write('y-other-value-1\n');
-    expect(fake.output()).toBe('xy▒▒▒▒▒\n');
   });
 
   it('does not double-patch', () => {
     expect(patchStreamWrite(fake.stream)).toBe(false);
   });
+});
+
+describe('patchStreamWrite with a real Writable', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: { value: SECRET } });
+  });
+
+  function createWritable(opts: { autoDestroy?: boolean, failWith?: Error } = {}) {
+    const chunks: Array<string> = [];
+    const stream = new Writable({
+      autoDestroy: opts.autoDestroy ?? true,
+      write(chunk, _encoding, done) {
+        chunks.push(chunk.toString());
+        setImmediate(() => done(opts.failWith));
+      },
+    });
+    stream.on('error', () => undefined);
+    patchStreamWrite(stream as any);
+    return { stream, chunks };
+  }
+
+  it('redacts writes and end(), with callbacks behaving as usual', async () => {
+    const { stream, chunks } = createWritable();
+    const writeCb = vi.fn();
+    stream.write(`a ${SECRET}\n`, writeCb);
+    stream.end(`b ${SECRET}\n`);
+    await new Promise((resolve) => {
+      stream.on('finish', resolve);
+    });
+    expect(chunks.join('')).toBe(`a ${REDACTED}\nb ${REDACTED}\n`);
+    expect(writeCb).toHaveBeenCalledTimes(1);
+    expect(writeCb.mock.calls[0][0]).toBeFalsy();
+  });
+
+  for (const autoDestroy of [true, false]) {
+    it(`passes write errors to the callback (autoDestroy: ${autoDestroy})`, async () => {
+      const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      const { stream } = createWritable({ autoDestroy, failWith: epipe });
+      const cb = vi.fn();
+      stream.write('prefix super-sec', cb);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0]).toBe(epipe);
+    });
+  }
+
+  for (const [label, close, code] of [
+    ['ended', (stream: Writable) => stream.end(), 'ERR_STREAM_WRITE_AFTER_END'],
+    ['destroyed', (stream: Writable) => stream.destroy(), 'ERR_STREAM_DESTROYED'],
+  ] as const) {
+    it(`reports the usual error for a write after the stream is ${label}`, async () => {
+      const { stream } = createWritable();
+      close(stream);
+      const cb = vi.fn();
+      stream.write('super-sec', cb);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      expect(cb).toHaveBeenCalledTimes(1);
+      expect(cb.mock.calls[0][0]).toMatchObject({ code });
+    });
+  }
 });
 
 describe('shouldRedactProcessStream', () => {
@@ -228,109 +278,4 @@ describe('shouldRedactProcessStream', () => {
     // a malformed marker is ignored
     expect(shouldRedactProcessStream('stdout', pipe, { __VARLOCK_REDACTED_STREAMS: 'stdout' }, 1234)).toBe(true);
   });
-});
-
-describe('patchStreamWrite with a real Writable', () => {
-  beforeEach(() => {
-    setSecrets({ API_KEY: { value: SECRET } });
-  });
-
-  it('writes held-back text before end(), and the write callback succeeds', async () => {
-    const chunks: Array<string> = [];
-    const stream = new Writable({
-      write(chunk, _encoding, done) {
-        chunks.push(chunk.toString());
-        done();
-      },
-    });
-    patchStreamWrite(stream as any);
-    const writeCb = vi.fn();
-    stream.write('ends with super-sec', writeCb);
-    stream.end('ret-value-12345 tail\n');
-    await new Promise((resolve) => {
-      stream.on('finish', resolve);
-    });
-    expect(chunks.join('')).toBe(`ends with ${REDACTED} tail\n`);
-    expect(writeCb).toHaveBeenCalledTimes(1);
-    expect(writeCb.mock.calls[0][0]).toBeFalsy(); // no error
-    // the flush timer must not fire after the stream ended
-    await new Promise((resolve) => {
-      setTimeout(resolve, 150);
-    });
-    expect(writeCb).toHaveBeenCalledTimes(1);
-  });
-
-  it('supports end(cb) with held-back text', async () => {
-    const chunks: Array<string> = [];
-    const stream = new Writable({
-      write(chunk, _encoding, done) {
-        chunks.push(chunk.toString());
-        done();
-      },
-    });
-    patchStreamWrite(stream as any);
-    stream.write('ends with super-sec');
-    await new Promise((resolve) => {
-      stream.end(resolve);
-    });
-    expect(chunks.join('')).toBe('ends with super-sec');
-  });
-});
-
-describe('writes to a stream that can no longer accept them', () => {
-  beforeEach(() => {
-    setSecrets({ API_KEY: { value: SECRET } });
-  });
-
-  for (const [label, close, code] of [
-    ['ended', (stream: Writable) => stream.end(), 'ERR_STREAM_WRITE_AFTER_END'],
-    ['destroyed', (stream: Writable) => stream.destroy(), 'ERR_STREAM_DESTROYED'],
-  ] as const) {
-    it(`reports the error for a fully held write after the stream is ${label}`, async () => {
-      const stream = new Writable({
-        write(_chunk, _encoding, done) {
-          done();
-        },
-      });
-      stream.on('error', () => undefined);
-      patchStreamWrite(stream as any);
-      close(stream);
-      const cb = vi.fn();
-      stream.write('super-sec', cb);
-      await new Promise((resolve) => {
-        setTimeout(resolve, 20);
-      });
-      expect(cb).toHaveBeenCalledTimes(1);
-      expect(cb.mock.calls[0][0]).toMatchObject({ code });
-    });
-  }
-});
-
-describe('write errors while text is held back', () => {
-  beforeEach(() => {
-    setSecrets({ API_KEY: { value: SECRET } });
-  });
-
-  for (const autoDestroy of [true, false]) {
-    it(`passes the original error to the waiting callback (autoDestroy: ${autoDestroy})`, async () => {
-      const epipe = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
-      const stream = new Writable({
-        autoDestroy,
-        write(_chunk, _encoding, done) {
-          setImmediate(() => done(epipe));
-        },
-      });
-      // the stream emits the error too; only the callback is under test
-      stream.on('error', () => undefined);
-      patchStreamWrite(stream as any);
-      const cb = vi.fn();
-      // the prefix is written now (and fails), `super-sec` is held back
-      stream.write('prefix super-sec', cb);
-      await new Promise((resolve) => {
-        setTimeout(resolve, 150);
-      });
-      expect(cb).toHaveBeenCalledTimes(1);
-      expect(cb.mock.calls[0][0]).toBe(epipe);
-    });
-  }
 });

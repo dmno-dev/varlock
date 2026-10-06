@@ -1,6 +1,6 @@
 /*
-  Bun.write(Bun.stdout, ...) shares holdback state with the patched process stream, but still
-  writes with Bun's own writer (so its failures only reject the promise). Bun is stubbed (vitest runs
+  Bun.write(Bun.stdout, ...) shares split-value detection with the patched process stream, and
+  still writes with Bun's own writer (so its failures only reject the promise). Bun is stubbed (vitest runs
   on node); process.stdout is swapped for a real Writable. Separate file since it replaces
   globals.
 */
@@ -53,13 +53,23 @@ describe('Bun.write to a redacted stream', () => {
     delete varlockSettings.redactStdout;
   });
 
+  it('redacts Bun.write text', async () => {
+    const { bun, chunks } = setup();
+    await bun.write(bun.stdout, `key=${SECRET}\n`);
+    expect(chunks.join('')).toBe('key=su▒▒▒▒▒\n');
+  });
+
   it('catches a value split across Bun.write calls and process.stdout.write', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { bun, chunks } = setup();
     await bun.write(bun.stdout, 'a: super-sec');
     await bun.write(bun.stdout, 'ret-value-12345\n');
     process.stdout.write('b: super-sec');
-    await expect(bun.write(bun.stdout, 'ret-value-12345\n')).resolves.toBe('ret-value-12345\n'.length);
-    expect(chunks.join('')).toBe('a: su▒▒▒▒▒\nb: su▒▒▒▒▒\n');
+    await bun.write(bun.stdout, 'ret-value-12345\n');
+    // the part after the split is masked; the first part had already gone out
+    expect(chunks.join('')).toBe('a: super-sec▒▒▒▒▒\nb: super-sec▒▒▒▒▒\n');
+    expect(chunks.join('')).not.toContain(SECRET);
+    warn.mockRestore();
   });
 
   it('a failed Bun.write only rejects its promise (no stream error event)', async () => {

@@ -1,34 +1,25 @@
 /* eslint-disable func-names, prefer-rest-params */
 
-import { getStreamHoldbackLength, redactSensitiveConfigForOutput, varlockSettings } from './env';
+import { redactStreamWrite, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
-import { FLUSH_TIMEOUT_MS, getParentRedactedStreams } from './lib/redact-stream';
+import { getParentRedactedStreams } from './lib/redact-stream';
 import { STREAM_PATCH_STATE_KEY as PATCH_STATE_KEY } from './lib/stream-patch-key';
 
 type StreamName = 'stdout' | 'stderr';
-type WriteCallback = (err?: Error | null) => void;
 type WritableLike = {
   write: (...args: Array<any>) => boolean,
   end?: (...args: Array<any>) => any,
   isTTY?: boolean,
   fd?: number,
-  writableNeedDrain?: boolean,
-  writableEnded?: boolean,
-  destroyed?: boolean,
-  errored?: Error | null,
 };
 
 type StreamPatchState = {
   originalWrite: WritableLike['write'],
   originalEnd: WritableLike['end'],
-  /** text held back because it ends with what may be the start of a secret */
-  pendingText: string,
-  /** trailing bytes of an incomplete UTF-8 sequence, waiting for the rest of the character */
-  pendingBytes: Uint8Array | undefined,
-  flushTimer: ReturnType<typeof setTimeout> | undefined,
+  /** end of the previous write that could be the start of a sensitive value */
+  carry: string,
 };
-
 
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 const utf8Encoder = new TextEncoder();
@@ -71,6 +62,34 @@ export function shouldRedactProcessStream(
   return !stream.isTTY;
 }
 
+const SPLIT_WARNED_KEY = Symbol.for('varlock.splitValueWarned');
+
+/** once per process: a value split across writes had its first part printed */
+function warnSplitValue(key: string) {
+  if ((globalThis as any)[SPLIT_WARNED_KEY]) return;
+  (globalThis as any)[SPLIT_WARNED_KEY] = true;
+  // eslint-disable-next-line no-console
+  console.warn([
+    `[varlock] the sensitive value of ${key} was split across separate writes to stdout/stderr,`,
+    'so its first part was printed before it could be recognized (the rest was redacted).',
+    'Run under `varlock run` to redact output split across writes.',
+  ].join(' '));
+}
+
+function redactText(state: StreamPatchState, text: string): string {
+  const { output, carry, splitKey } = redactStreamWrite(state.carry, text);
+  state.carry = carry;
+  if (splitKey) warnSplitValue(splitKey);
+  return output;
+}
+
+/** count of leading UTF-8 continuation bytes (the rest of a character split off a previous write) */
+function leadingContinuationBytes(bytes: Uint8Array): number {
+  let count = 0;
+  while (count < Math.min(3, bytes.length) && bytes[count] >= 0x80 && bytes[count] < 0xC0) count++;
+  return count;
+}
+
 /** length of a trailing incomplete UTF-8 sequence (0 if the bytes end on a character boundary) */
 function incompleteUtf8TailLength(bytes: Uint8Array): number {
   for (let i = bytes.length - 1; i >= Math.max(0, bytes.length - 3); i--) {
@@ -87,79 +106,52 @@ function incompleteUtf8TailLength(bytes: Uint8Array): number {
   return 0;
 }
 
-function concatBytes(a: Uint8Array | undefined, b: Uint8Array): Uint8Array {
-  if (!a?.length) return b;
-  const joined = new Uint8Array(a.length + b.length);
-  joined.set(a);
-  joined.set(b, a.length);
-  return joined;
-}
-
-function clearFlushTimer(state: StreamPatchState) {
-  if (state.flushTimer !== undefined) {
-    clearTimeout(state.flushTimer);
-    state.flushTimer = undefined;
+/**
+ * Redacts the UTF-8 text in a buffer. Bytes of a character split across writes stay as they
+ * are at either end; anything that is not valid UTF-8 is binary and is returned untouched.
+ */
+function redactBytes(state: StreamPatchState, bytes: Uint8Array): Uint8Array {
+  const start = leadingContinuationBytes(bytes);
+  const end = bytes.length - incompleteUtf8TailLength(bytes.subarray(start));
+  let text: string;
+  try {
+    text = utf8Decoder.decode(bytes.subarray(start, end));
+  } catch {
+    // binary: breaks the text, so nothing carries over
+    state.carry = '';
+    return bytes;
   }
+  const redacted = redactText(state, text);
+  if (redacted === text) return bytes;
+  const encoded = utf8Encoder.encode(redacted);
+  const out = new Uint8Array(start + encoded.length + (bytes.length - end));
+  out.set(bytes.subarray(0, start));
+  out.set(encoded, start);
+  out.set(bytes.subarray(end), start + encoded.length);
+  // keep Buffer methods for code that inspects what was written
+  return typeof Buffer !== 'undefined' ? Buffer.from(out.buffer, out.byteOffset, out.length) : out;
+}
+
+/** the redacted version of a chunk, or the chunk itself if it isn't UTF-8 text */
+function redactChunk(state: StreamPatchState, chunk: unknown, encoding: unknown): unknown {
+  if (typeof chunk === 'string') {
+    const normalized = typeof encoding === 'string' ? encoding.toLowerCase() : undefined;
+    // other encodings (base64, hex, ...) are data, not text we can safely rewrite
+    if (normalized === undefined || normalized === 'utf8' || normalized === 'utf-8') return redactText(state, chunk);
+    state.carry = '';
+    return chunk;
+  }
+  if (chunk instanceof Uint8Array) return redactBytes(state, chunk);
+  return chunk;
 }
 
 /**
- * Write out everything held back. Held text is the stream's own buffer: the writes it came
- * from have already been acknowledged, so a failure here surfaces as the stream's error event.
- */
-function flushPending(stream: WritableLike, state: StreamPatchState) {
-  clearFlushTimer(state);
-  const text = state.pendingText;
-  const bytes = state.pendingBytes;
-  state.pendingText = '';
-  state.pendingBytes = undefined;
-  if (text) state.originalWrite.call(stream, redactSensitiveConfigForOutput(text));
-  if (bytes?.length) state.originalWrite.call(stream, bytes);
-}
-
-function scheduleFlush(stream: WritableLike, state: StreamPatchState) {
-  if (!state.pendingText && !state.pendingBytes) return;
-  state.flushTimer = setTimeout(() => flushPending(stream, state), FLUSH_TIMEOUT_MS);
-  // don't let a pending flush keep the process alive (held text is flushed on exit)
-  state.flushTimer.unref?.();
-}
-
-/**
- * Adds text to what the stream is holding back and returns the redacted part that can be
- * written now. A trailing partial match stays held (see getStreamHoldbackLength).
- */
-function takeEmittableText(stream: WritableLike, state: StreamPatchState, text: string): string {
-  clearFlushTimer(state);
-  state.pendingText += text;
-  const holdbackLength = getStreamHoldbackLength(state.pendingText);
-  const emittable = holdbackLength ? state.pendingText.slice(0, -holdbackLength) : state.pendingText;
-  state.pendingText = holdbackLength ? state.pendingText.slice(-holdbackLength) : '';
-  scheduleFlush(stream, state);
-  return emittable && redactSensitiveConfigForOutput(emittable);
-}
-
-/**
- * A write's callback fires once the part of it that could be written has been (with that
- * write's error, if any). Waiting for held-back text instead would make writers that wait on
- * each callback before writing more (e.g. `await Bun.write(...)` in a loop) force every held
- * prefix out by timeout, unredacted, before the rest of the value arrives. Held text still
- * goes out on the next write, `end()`, the flush timer, or process exit.
- */
-function writeText(
-  stream: WritableLike,
-  state: StreamPatchState,
-  text: string,
-  cb: WriteCallback | undefined,
-): boolean {
-  const emittable = takeEmittableText(stream, state, text);
-  if (emittable) return state.originalWrite.call(stream, emittable, cb);
-  if (cb) queueMicrotask(() => cb());
-  return !stream.writableNeedDrain;
-}
-
-/**
- * Replaces `stream.write` with a version that redacts sensitive values. Only UTF-8 text is
- * rewritten: strings (with no or a utf8 encoding) and buffers that decode as valid UTF-8.
- * Anything else (binary data, base64/hex strings) passes through untouched.
+ * Replaces `stream.write` (and `stream.end`, which can carry a final chunk) with versions that
+ * redact sensitive values in UTF-8 text and otherwise pass the call through unchanged: same
+ * arguments, callback, and return value, and nothing is held back.
+ *
+ * A value split across two writes is caught when the second write arrives: its part in that
+ * write is masked, and a one-time warning says the first part was already printed.
  *
  * Returns false if the stream was already patched.
  */
@@ -168,86 +160,35 @@ export function patchStreamWrite(stream: WritableLike): boolean {
   const state: StreamPatchState = {
     originalWrite: stream.write,
     originalEnd: stream.end,
-    pendingText: '',
-    pendingBytes: undefined,
-    flushTimer: undefined,
+    carry: '',
   };
   (stream as any)[PATCH_STATE_KEY] = state;
 
-  stream.write = function (this: WritableLike, chunk: any, encodingOrCb?: any, maybeCb?: any) {
-    // a stream that can no longer accept writes rejects this one (ERR_STREAM_WRITE_AFTER_END,
-    // ERR_STREAM_DESTROYED, ...) without writing anything, so let it report that itself rather
-    // than buffering the text and acknowledging it
-    if (stream.writableEnded || stream.destroyed || stream.errored) {
-      return state.originalWrite.apply(stream, arguments as any);
-    }
-    const cb: WriteCallback | undefined = typeof encodingOrCb === 'function' ? encodingOrCb : maybeCb;
-    const encoding = typeof encodingOrCb === 'string' ? encodingOrCb.toLowerCase() : undefined;
-
-    if (typeof chunk === 'string' && (encoding === undefined || encoding === 'utf8' || encoding === 'utf-8')) {
-      // an incomplete character from a previous buffer can't join a string - emit it as-is
-      if (state.pendingBytes) flushPending(stream, state);
-      return writeText(stream, state, chunk, cb);
-    }
-
-    if (chunk instanceof Uint8Array) {
-      const bytes = concatBytes(state.pendingBytes, chunk);
-      const tailLength = incompleteUtf8TailLength(bytes);
-      let text: string | undefined;
-      try {
-        text = utf8Decoder.decode(tailLength ? bytes.subarray(0, bytes.length - tailLength) : bytes);
-      } catch {
-        // not valid UTF-8 - treat as binary
-      }
-      if (text !== undefined) {
-        state.pendingBytes = tailLength ? bytes.slice(bytes.length - tailLength) : undefined;
-        return writeText(stream, state, text, cb);
-      }
-    }
-
-    // not text we can safely rewrite - flush anything held back (to keep ordering), then pass
-    // the write through untouched
-    flushPending(stream, state);
-    return state.originalWrite.apply(stream, arguments as any);
+  stream.write = function (this: WritableLike, chunk: any) {
+    const args = Array.from(arguments);
+    args[0] = redactChunk(state, chunk, args[1]);
+    return state.originalWrite.apply(stream, args);
   };
 
-  // held-back output must go out before the stream ends (otherwise it is lost, or flushed
-  // after the end and errors with ERR_STREAM_WRITE_AFTER_END)
   if (typeof state.originalEnd === 'function') {
-    stream.end = function (this: WritableLike, chunk?: any, encodingOrCb?: any, maybeCb?: any) {
-      let cb = maybeCb;
-      let encoding = encodingOrCb;
-      if (typeof chunk === 'function') {
-        cb = chunk;
-        chunk = undefined;
-        encoding = undefined;
-      } else if (typeof encodingOrCb === 'function') {
-        cb = encodingOrCb;
-        encoding = undefined;
+    stream.end = function (this: WritableLike, chunk?: any) {
+      const args = Array.from(arguments);
+      if (chunk !== undefined && chunk !== null && typeof chunk !== 'function') {
+        args[0] = redactChunk(state, chunk, args[1]);
       }
-      // the final chunk goes through the redacting write like any other
-      if (chunk !== undefined && chunk !== null) stream.write(chunk, encoding);
-      flushPending(stream, state);
-      return state.originalEnd!.call(stream, cb);
+      return state.originalEnd!.apply(stream, args);
     };
   }
   return true;
 }
 
-/** restores the original `write` (flushing anything held back). Mostly for tests. */
+/** restores the original `write` and `end`. Mostly for tests. */
 export function unpatchStreamWrite(stream: WritableLike) {
   const state: StreamPatchState | undefined = (stream as any)[PATCH_STATE_KEY];
   if (!state) return;
-  flushPending(stream, state);
   stream.write = state.originalWrite;
   if (state.originalEnd) stream.end = state.originalEnd;
   delete (stream as any)[PATCH_STATE_KEY];
-}
-
-/** flush anything a patched stream is holding back (e.g. right before exiting) */
-export function flushStreamWrite(stream: WritableLike) {
-  const state: StreamPatchState | undefined = (stream as any)[PATCH_STATE_KEY];
-  if (state) flushPending(stream, state);
 }
 
 /** wrap `Bun.write(Bun.stdout | Bun.stderr, ...)`, which bypasses `process.stdout.write` */
@@ -261,33 +202,12 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
     else if (destination === bun.stderr) streamName = 'stderr';
     const stream = streamName && patchedStreams[streamName];
     const state: StreamPatchState | undefined = stream && (stream as any)[PATCH_STATE_KEY];
-    if (!stream || !state) return originalBunWrite.apply(this, arguments);
-
-    let text: string | undefined;
-    if (typeof data === 'string') {
-      text = data;
-    } else if (data instanceof Uint8Array) {
-      try {
-        text = utf8Decoder.decode(data);
-      } catch {
-        // binary - leave untouched
-      }
-    }
-    if (text === undefined) {
-      // keep ordering with anything held back
-      flushPending(stream, state);
-      return originalBunWrite.apply(this, arguments);
-    }
-
-    // shares holdback state with process.stdout.write, so a value split across writes of either
-    // kind is still caught, but writes with Bun's own writer: its failures only reject the
-    // promise, while the process stream would also emit an (often unhandled) error event.
-    // Bun.write resolves to the bytes written; report the caller's own byte count
-    if (state.pendingBytes) flushPending(stream, state);
-    const emittable = takeEmittableText(stream, state, text);
-    const byteLength = typeof data === 'string' ? utf8Encoder.encode(data).length : data.length;
-    if (!emittable) return Promise.resolve(byteLength);
-    return Promise.resolve(originalBunWrite.call(this, destination, emittable)).then(() => byteLength);
+    if (!state) return originalBunWrite.apply(this, arguments);
+    // shares the carry with process.stdout.write, so a value split across writes of either kind
+    // is still caught. Other data (Blob, Response, ...) passes through
+    const args = Array.from(arguments);
+    args[1] = redactChunk(state, data, undefined);
+    return originalBunWrite.apply(this, args);
   };
   patchedBunWrite._varlockPatchedFn = true;
   bun.write = patchedBunWrite;
@@ -316,8 +236,6 @@ export function patchProcessStreams() {
     debug(`⚡️ PATCHING process.${streamName}.write`);
     patchStreamWrite(stream);
     patchedStreams[streamName] = stream;
-    // anything still held back must go out before the process exits
-    process.on('exit', () => flushStreamWrite(stream));
   }
   if (patchedStreams.stdout || patchedStreams.stderr) patchBunWrite(patchedStreams);
 }
