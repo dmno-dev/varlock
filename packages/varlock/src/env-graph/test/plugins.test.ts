@@ -277,7 +277,7 @@ describe('cached npm plugins', () => {
     return g;
   }
 
-  test('loads a cached plugin without calling the registry', async () => {
+  function seedCache() {
     const cacheDir = path.join(tmpDir, 'config', 'varlock', 'plugins-cache');
     const dirName = 'varlock-test-plugin_1.2.3_abcd1234';
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -285,9 +285,12 @@ describe('cached npm plugins', () => {
     fs.writeFileSync(path.join(cacheDir, 'index.json'), JSON.stringify({
       'https://registry.npmjs.org/@varlock/test-plugin/-/test-plugin-1.2.3.tgz': dirName,
     }));
+  }
 
+  test.each(['1.2.3', 'v1.2.3'])('loads a cached plugin pinned as %s without calling the registry', async (version) => {
+    seedCache();
     const g = await loadGraph(outdent`
-      # @plugin(@varlock/test-plugin@1.2.3)
+      # @plugin(@varlock/test-plugin@${version})
       # ---
       PLUGIN_RESOLVER_TEST=test(foo)
     `);

@@ -9,6 +9,7 @@ import https from 'node:https';
 import ansis from 'ansis';
 import {
   isValid as semverIsValid,
+  normalize as semverNormalize,
   normalizeRange as semverNormalizeRange,
   satisfies as semverSatisfies,
 } from 'verkit';
@@ -596,10 +597,11 @@ async function registerPluginInGraph(graph: EnvGraph, plugin: VarlockPlugin, plu
  * The tarball URL npm uses for a published version. It follows a fixed pattern, so we can
  * compute it (and use it as the cache key) without a registry round trip.
  * ex: `@varlock/foo@1.2.3` -> https://registry.npmjs.org/@varlock/foo/-/foo-1.2.3.tgz
+ * The version is normalized so equivalent pins (e.g. `v1.2.3`) share one cache entry.
  */
 function getNpmTarballUrl(moduleName: string, version: string) {
   const baseName = moduleName.split('/').pop();
-  return `https://registry.npmjs.org/${moduleName}/-/${baseName}-${version}.tgz`;
+  return `https://registry.npmjs.org/${moduleName}/-/${baseName}-${semverNormalize(version)}.tgz`;
 }
 
 /** Looks up the registry metadata for a fixed version and returns its tarball URL */
