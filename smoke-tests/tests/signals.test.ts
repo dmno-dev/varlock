@@ -90,15 +90,15 @@ describe.skipIf(process.platform === 'win32')('Signal handling', () => {
     expect(result.code).toBe(130);
   });
 
-  // SIGHUP is often a reload, so a later failure is still a real command failure
-  test('still reports a failure after a handled SIGHUP', async () => {
+  // SIGHUP is often a reload: the child keeps running and its later exit status passes through
+  test('propagates the exit code after a handled SIGHUP', async () => {
     const result = await runAndSignal(
       ['bash', '-c', 'trap "echo reloaded" HUP; echo ready; sleep 1; exit 7'],
       'SIGHUP',
     );
 
     expect(result.output).toContain('reloaded');
-    expect(result.output).toContain('varlock may be the problem');
+    expect(result.output).not.toContain('varlock may be the problem');
     expect(result.code).toBe(7);
   });
 
