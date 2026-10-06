@@ -50,10 +50,10 @@ const QUICK_TEST_PATHS: Record<string, string> = {
 const SPLIT_TEST_PATHS: Record<string, Record<string, { testPath: string; bundler?: string }>> = {
   nextjs: {
     v14: { testPath: 'nextjs/nextjs-v14.test.ts' },
-    'v15, webpack': { testPath: 'nextjs/nextjs-v15.test.ts', bundler: 'webpack' },
-    'v15, turbopack': { testPath: 'nextjs/nextjs-v15.test.ts', bundler: 'turbopack' },
-    'v16, webpack': { testPath: 'nextjs/nextjs-v16.test.ts', bundler: 'webpack' },
-    'v16, turbopack': { testPath: 'nextjs/nextjs-v16.test.ts', bundler: 'turbopack' },
+    'v15 webpack': { testPath: 'nextjs/nextjs-v15.test.ts', bundler: 'webpack' },
+    'v15 turbopack': { testPath: 'nextjs/nextjs-v15.test.ts', bundler: 'turbopack' },
+    'v16 webpack': { testPath: 'nextjs/nextjs-v16.test.ts', bundler: 'webpack' },
+    'v16 turbopack': { testPath: 'nextjs/nextjs-v16.test.ts', bundler: 'turbopack' },
   },
 };
 
