@@ -1,7 +1,8 @@
 import {
-  describe, test, expect, vi, beforeAll, afterAll,
+  describe, test, expect, vi, beforeAll, afterAll, beforeEach, afterEach,
 } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import outdent from 'outdent';
 import { envFilesTest } from './helpers/generic-test';
@@ -246,5 +247,67 @@ describe('plugins ', () => {
       expect(plugin).toBeDefined();
       expect(plugin!.warnings.length).toBe(0);
     });
+  });
+});
+
+// published npm versions are immutable, so a cached pinned plugin must load without asking
+// the registry - otherwise offline loads fail even after `varlock install-plugin` (#1189)
+describe('cached npm plugins', () => {
+  let tmpDir: string;
+  let originalXdg: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-plugin-cache-test-'));
+    originalXdg = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = path.join(tmpDir, 'config');
+    vi.spyOn(process, 'cwd').mockReturnValue(path.join(tmpDir));
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unable to connect'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdg;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function loadGraph(envFile: string) {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: envFile }));
+    await g.finishLoad();
+    return g;
+  }
+
+  function seedCache() {
+    const cacheDir = path.join(tmpDir, 'config', 'varlock', 'plugins-cache');
+    const dirName = 'varlock-test-plugin_1.2.3_abcd1234';
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.cpSync(path.join(__dirname, 'plugins/test-plugin'), path.join(cacheDir, dirName), { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, 'index.json'), JSON.stringify({
+      'https://registry.npmjs.org/@varlock/test-plugin/-/test-plugin-1.2.3.tgz': dirName,
+    }));
+  }
+
+  test.each(['1.2.3', 'v1.2.3'])('loads a cached plugin pinned as %s without calling the registry', async (version) => {
+    seedCache();
+    const g = await loadGraph(outdent`
+      # @plugin(@varlock/test-plugin@${version})
+      # ---
+      PLUGIN_RESOLVER_TEST=test(foo)
+    `);
+    await g.resolveEnvValues();
+    expect(g.configSchema.PLUGIN_RESOLVER_TEST.resolvedValue).toBe('foo');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('registry failure on a cache miss names the plugin and url', async () => {
+    const g = await loadGraph(outdent`
+      # @plugin(@varlock/test-plugin@1.2.3)
+      # ---
+      FOO=bar
+    `);
+    const errors = g.rootDataSource!.getRootDecFns('plugin')[0]._errors;
+    expect(errors[0].message).toContain('@varlock/test-plugin@1.2.3');
+    expect(errors[0].message).toContain('https://registry.npmjs.org/@varlock/test-plugin/1.2.3');
+    expect(errors[0].message).toContain('Unable to connect');
   });
 });
