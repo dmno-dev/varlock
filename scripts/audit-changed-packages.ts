@@ -95,9 +95,19 @@ function shouldAuditRoot(changedFiles: Array<string>) {
   return changedFiles.some((filePath) => rootTriggers.has(filePath));
 }
 
+// Advisories with no fix reachable from our dependency ranges. Each entry needs a reason;
+// remove it once upstream ships a compatible fix.
+const IGNORED_ADVISORIES: Record<string, string> = {
+  // simple-git via @nuxt/devtools (dev-only). Fixed only in simple-git 4, which drops the
+  // default export that @nuxt/devtools 3.x imports, so an override would break devtools.
+  'GHSA-v5rq-49vh-5v5c': 'simple-git VISUAL editor detection',
+  'GHSA-x6jw-m9v5-85vh': 'simple-git trailer command config',
+};
+
 function runAudit(cwd: string, label: string, auditLevel: string) {
   console.log(`\n--- bun audit (${label}) ---`);
-  const result = spawnSync('bun', ['audit', `--audit-level=${auditLevel}`], {
+  const ignoreArgs = Object.keys(IGNORED_ADVISORIES).map((id) => `--ignore=${id}`);
+  const result = spawnSync('bun', ['audit', `--audit-level=${auditLevel}`, ...ignoreArgs], {
     cwd,
     stdio: 'inherit',
   });
