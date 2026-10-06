@@ -124,4 +124,5 @@ jobs:
         timeout-minutes: 15
         env:
           NEXTJS_TURBO_ONLY: ${{ contains(matrix.integration.name, '(quick)') && '1' || '' }}
+          NEXTJS_BUNDLER: ${{ matrix.integration.bundler || '' }}
           NEXT_TELEMETRY_DISABLED: '1'

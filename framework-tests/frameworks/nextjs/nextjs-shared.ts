@@ -9,9 +9,15 @@ const ALL_BUNDLERS = [
   'turbopack',
 ];
 
-// When running quick mode (just v16), skip webpack to cut build time in half
-const BUNDLERS = process.env.NEXTJS_TURBO_ONLY
-  ? ALL_BUNDLERS.filter((b) => b === 'turbopack')
+// CI splits each version's full suite into one job per bundler via NEXTJS_BUNDLER.
+// Quick mode (just v16) skips webpack to cut build time in half.
+const BUNDLER_FILTER = process.env.NEXTJS_BUNDLER
+  || (process.env.NEXTJS_TURBO_ONLY ? 'turbopack' : undefined);
+if (BUNDLER_FILTER && !ALL_BUNDLERS.includes(BUNDLER_FILTER)) {
+  throw new Error(`Unknown NEXTJS_BUNDLER "${BUNDLER_FILTER}" (expected ${ALL_BUNDLERS.join(' or ')})`);
+}
+const BUNDLERS = BUNDLER_FILTER
+  ? ALL_BUNDLERS.filter((b) => b === BUNDLER_FILTER)
   : ALL_BUNDLERS;
 
 const EXPORT_CONFIG = {
@@ -32,6 +38,9 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
   // 99 keeps the version-derived dev ports out of the pinned versions' range
   const nextVersion = isCanary ? 99 : versionOrCanary;
   const label = isCanary ? 'canary' : `v${versionOrCanary}`;
+  const defaultBundler = nextVersion >= 16 ? 'turbopack' : 'webpack';
+  // Scenarios outside the per-bundler loop run once, in the default bundler's job
+  const runSharedScenarios = BUNDLERS.includes(defaultBundler);
 
   describe(`Next.js ${label}`, () => {
     const nextEnv = new FrameworkTestEnv({
@@ -62,7 +71,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
     beforeAll(() => nextEnv.setup(), 180_000);
     afterAll(() => nextEnv.teardown());
 
-    describe('invalid config', () => {
+    describe.skipIf(!runSharedScenarios)('invalid config', () => {
       nextEnv.describeScenario('invalid schema causes build failure', {
         command: 'next build',
         expectSuccess: false,
@@ -111,7 +120,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
     // require() varlock's ESM-only entry points ("exports is not defined in ES
     // module scope" regression).
     nextEnv.describeDevScenario('dev: next.config.ts config loading', {
-      skip: nextVersion < 15,
+      skip: nextVersion < 15 || !runSharedScenarios,
       command: `next dev ${getBuildToolFlag(nextVersion, 'turbopack')} --port ${13800 + nextVersion}`,
       readyPattern: /Ready in|Starting\.\.\./,
       readyTimeout: 40_000,
@@ -153,8 +162,6 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
       // (25-54s each vs 5-10s on v16). Real-world v15 turbopack usage is dev-only,
       // so only run the dev scenarios there.
       const runBuildScenarios = !(nextVersion === 15 && webpackOrTurbo === 'turbopack');
-
-      const defaultBundler = nextVersion >= 16 ? 'turbopack' : 'webpack';
 
       describe(`bundler=${webpackOrTurbo}`, () => {
         const devPort = 14000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 1 : 0);
