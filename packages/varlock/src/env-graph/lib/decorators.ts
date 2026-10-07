@@ -407,7 +407,7 @@ function assertNoRemovedProxyOptions(keys: Array<string>): void {
 /** Inner options of the `approval={...}` object form. */
 const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
-const REDACT_LOGS_OPTIONS = ['stdout'];
+const REDACT_LOGS_OPTIONS = ['console', 'stdout'];
 
 /**
  * A resolved boolean setting, accepting the string forms `true`/`false` too: a reference to an
@@ -426,7 +426,7 @@ function coerceResolvedBoolean(value: unknown): boolean | undefined {
 
 /**
  * Normalize a resolved `@redactLogs` value into the two runtime settings.
- * - `console`: patch console methods (on unless the whole decorator is `false`)
+ * - `console`: patch console methods (on unless explicitly disabled)
  * - `stdout`: redact process stdout/stderr when not a TTY. `undefined` = not set in the
  *   schema, which `varlock run` treats as on and in-process stream patching treats as off
  *   (for now - this becomes on by default in a future major)
@@ -439,16 +439,19 @@ export function parseRedactLogsSetting(value: unknown): { console: boolean, stdo
   if (bool === false) return { console: false, stdout: false };
   if (_.isPlainObject(value)) {
     const opts = value as Record<string, unknown>;
-    const unknownKey = Object.keys(opts).find((key) => !REDACT_LOGS_OPTIONS.includes(key));
-    if (unknownKey) {
-      return { error: `@redactLogs: unknown option "${unknownKey}" (supported: ${REDACT_LOGS_OPTIONS.join(', ')})` };
+    const parsed: { console: boolean, stdout?: boolean } = { console: true };
+    for (const key of Object.keys(opts)) {
+      if (!REDACT_LOGS_OPTIONS.includes(key)) {
+        return { error: `@redactLogs: unknown option "${key}" (supported: ${REDACT_LOGS_OPTIONS.join(', ')})` };
+      }
+      if (opts[key] === undefined) continue;
+      const optBool = coerceResolvedBoolean(opts[key]);
+      if (optBool === undefined) {
+        return { error: `@redactLogs: ${key} must resolve to a boolean (got ${JSON.stringify(opts[key])})` };
+      }
+      parsed[key as 'console' | 'stdout'] = optBool;
     }
-    if (opts.stdout === undefined) return { console: true };
-    const stdout = coerceResolvedBoolean(opts.stdout);
-    if (stdout === undefined) {
-      return { error: `@redactLogs: stdout must resolve to a boolean (got ${JSON.stringify(opts.stdout)})` };
-    }
-    return { console: true, stdout };
+    return parsed;
   }
   return { error: `@redactLogs must resolve to a boolean or an options object (got ${JSON.stringify(value)})` };
 }
@@ -704,8 +707,8 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   },
   {
     // boolean (all log/output redaction on or off) or an options object, e.g.
-    // @redactLogs={stdout=true}. Dynamic values are validated after resolution
-    // (see parseRedactLogsSetting)
+    // @redactLogs={console=true, stdout=true}. Dynamic values are validated after
+    // resolution (see parseRedactLogsSetting)
     name: 'redactLogs',
     objectValueExample: '{stdout=true}',
     process: (decVal) => {

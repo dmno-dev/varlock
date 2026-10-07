@@ -22,9 +22,15 @@ const UNMASK_STR = '👁';
 // Without this, the module instance that patches console.log may have an empty map
 // while a different instance has the populated one.
 type RedactionState = {
-  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner
-  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean }>,
+  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner;
+  // `redactLogs: false` means the reverse (left alone by log/output redaction, still leak-scanned)
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
+  // every sensitive value, used when scrubbing a detected leak
   redactorFindReplace: undefined | FindReplace,
+  // the values redacted from logs and output: the same object as `redactorFindReplace` unless
+  // some items are `@sensitive={redactLogs=false}`, and null when every value is exempt
+  // (optional since state may have been created by an older copy of this module)
+  logRedactorFindReplace?: FindReplace | null,
   // index for the streaming holdback check, built lazily (also optional since state may
   // have been created by an older copy of this module)
   holdbackIndex?: HoldbackIndex,
@@ -116,17 +122,32 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
       // out of leak scanning while still keeping it redacted in logs
       if (redacted) {
         const existing = state.sensitiveSecretsMap[sensitiveStr];
+        // when several items share a value, an opt-out on one must not weaken the others
+        const preventLeaks = item.preventLeaks !== false || !!existing?.preventLeaks;
+        const redactLogs = item.redactLogs !== false || (!!existing && existing.redactLogs !== false);
         state.sensitiveSecretsMap[sensitiveStr] = {
           key: existing?.key ?? itemKey,
           redacted,
-          // when several items share a value, an opt-out on one must not weaken the others
-          preventLeaks: item.preventLeaks !== false || !!existing?.preventLeaks,
+          preventLeaks,
+          // `@sensitive={redactLogs=false}` leaves the value out of log/output redaction
+          ...!redactLogs && { redactLogs: false },
         };
       }
     }
   }
   state.holdbackIndex = undefined;
-  state.redactorFindReplace = buildFindReplace(state, Object.keys(state.sensitiveSecretsMap));
+  const allValues = Object.keys(state.sensitiveSecretsMap);
+  state.redactorFindReplace = buildFindReplace(state, allValues);
+  const logValues = allValues.filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
+  if (logValues.length === allValues.length) state.logRedactorFindReplace = state.redactorFindReplace;
+  else state.logRedactorFindReplace = buildFindReplace(state, logValues) ?? null;
+}
+
+/** the find/replace for log and output redaction (undefined when there is nothing to redact) */
+function getLogFindReplace(): FindReplace | undefined {
+  const state = getRedactionState();
+  if (state.logRedactorFindReplace === undefined) return state.redactorFindReplace;
+  return state.logRedactorFindReplace ?? undefined;
 }
 
 function buildHoldbackIndex(sensitiveValues: Array<string>): HoldbackIndex {
@@ -191,7 +212,7 @@ export function getRedactionHoldbackLength(str: string): number {
  * Used by streaming redaction so a holdback cut never goes through a complete value.
  */
 export function findMatchCrossing(str: string, boundary: number): number | undefined {
-  const find = getRedactionState().redactorFindReplace?.find;
+  const find = getLogFindReplace()?.find;
   if (!find) return undefined;
   find.lastIndex = 0;
   try {
@@ -211,9 +232,10 @@ export function findMatchCrossing(str: string, boundary: number): number | undef
  */
 export function findSplitValueCompletion(carry: string, text: string): { length: number, key?: string } | undefined {
   if (!carry) return undefined;
-  const { redactorFindReplace, sensitiveSecretsMap } = getRedactionState();
-  if (!redactorFindReplace) return undefined;
-  const { find } = redactorFindReplace;
+  const findReplace = getLogFindReplace();
+  if (!findReplace) return undefined;
+  const { find } = findReplace;
+  const { sensitiveSecretsMap } = getRedactionState();
   const region = carry + text;
   find.lastIndex = 0;
   try {
@@ -260,18 +282,24 @@ function isErrorLike(o: any) {
   return false;
 }
 
-function redactPropertyKey(key: string | symbol, seen: Map<any, any>): string | symbol {
-  if (typeof key === 'string') return redactValue(key, seen); // eslint-disable-line no-use-before-define
+function redactPropertyKey(key: string | symbol, seen: Map<any, any>, findReplace: FindReplace): string | symbol {
+  if (typeof key === 'string') return redactValue(key, seen, findReplace); // eslint-disable-line no-use-before-define
   if (key.description === undefined) return key;
-  const redactedDescription = redactValue(key.description, seen); // eslint-disable-line no-use-before-define
+  const redactedDescription = redactValue(key.description, seen, findReplace); // eslint-disable-line no-use-before-define
   return redactedDescription === key.description ? key : Symbol(redactedDescription);
 }
 
 /** copies own props from source to target, redacting keys and values - returns whether anything changed */
-function redactAssignProps(source: any, target: any, keys: Array<string | symbol>, seen: Map<any, any>): boolean {
+function redactAssignProps(
+  source: any,
+  target: any,
+  keys: Array<string | symbol>,
+  seen: Map<any, any>,
+  findReplace: FindReplace,
+): boolean {
   let changed = false;
   for (const key of keys) {
-    const redactedKey = redactPropertyKey(key, seen);
+    const redactedKey = redactPropertyKey(key, seen, findReplace);
     if (redactedKey !== key) changed = true;
     let value: any;
     try {
@@ -279,7 +307,7 @@ function redactAssignProps(source: any, target: any, keys: Array<string | symbol
     } catch (getterError) {
       continue; // a getter that throws - nothing we can safely read or copy
     }
-    const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
+    const redactedValue = redactValue(value, seen, findReplace); // eslint-disable-line no-use-before-define
     if (redactedValue !== value) changed = true;
     target[redactedKey] = redactedValue;
   }
@@ -309,7 +337,7 @@ function inspectableOwnKeys(o: any, skipIndices: boolean): Array<string | symbol
  * using it. The copy is a real Error carrying the original prototype, so `instanceof` checks
  * and console formatting keep working.
  * */
-function redactError(err: any, seen: Map<any, any>): any {
+function redactError(err: any, seen: Map<any, any>, findReplace: FindReplace): any {
   // registered up front so circular `cause` chains (and repeat references) resolve
   // to the copy rather than recursing forever or falling back to the raw error
   if (seen.has(err)) return seen.get(err);
@@ -328,7 +356,7 @@ function redactError(err: any, seen: Map<any, any>): any {
 
   let changed = false;
   for (const key of keys) {
-    const redactedKey = redactPropertyKey(key, seen);
+    const redactedKey = redactPropertyKey(key, seen, findReplace);
     if (redactedKey !== key) changed = true;
     let value: any;
     try {
@@ -336,7 +364,7 @@ function redactError(err: any, seen: Map<any, any>): any {
     } catch (getterError) {
       continue; // a getter that throws - nothing we can safely read or copy
     }
-    const redactedValue = redactValue(value, seen); // eslint-disable-line no-use-before-define
+    const redactedValue = redactValue(value, seen, findReplace); // eslint-disable-line no-use-before-define
     if (redactedValue !== value) changed = true;
     try {
       Object.defineProperty(copy, redactedKey, {
@@ -358,9 +386,8 @@ function redactError(err: any, seen: Map<any, any>): any {
   return copy;
 }
 
-function redactValue(o: any, seen: Map<any, any>): any {
-  const { redactorFindReplace } = getRedactionState();
-  if (!redactorFindReplace) return o;
+/** `findReplace` decides which values are redacted: the log set, or every value when scrubbing a leak */
+function redactValue(o: any, seen: Map<any, any>, findReplace: FindReplace): any {
   if (!o) return o;
 
   // TODO: handle more cases?
@@ -373,11 +400,11 @@ function redactValue(o: any, seen: Map<any, any>): any {
     seen.set(o, copy);
     let changed = false;
     for (let i = 0; i < o.length; i++) {
-      copy[i] = redactValue(o[i], seen);
+      copy[i] = redactValue(o[i], seen, findReplace);
       if (copy[i] !== o[i]) changed = true;
     }
     // custom props hung off the array are printed by console inspectors too
-    if (redactAssignProps(o, copy, inspectableOwnKeys(o, true), seen)) changed = true;
+    if (redactAssignProps(o, copy, inspectableOwnKeys(o, true), seen, findReplace)) changed = true;
     if (!changed) {
       seen.set(o, o);
       return o;
@@ -385,7 +412,7 @@ function redactValue(o: any, seen: Map<any, any>): any {
     return copy;
   }
   if (isErrorLike(o)) {
-    return redactError(o, seen);
+    return redactError(o, seen, findReplace);
   }
   // walk plain objects structurally rather than JSON round-tripping - JSON.stringify
   // drops non-enumerable props (hollowing out nested errors), mangles dates/undefined,
@@ -396,7 +423,7 @@ function redactValue(o: any, seen: Map<any, any>): any {
     if (seen.has(o)) return seen.get(o);
     const copy: Record<string | symbol, any> = objectPrototype === null ? Object.create(null) : {};
     seen.set(o, copy);
-    const changed = redactAssignProps(o, copy, inspectableOwnKeys(o, false), seen);
+    const changed = redactAssignProps(o, copy, inspectableOwnKeys(o, false), seen, findReplace);
     // nothing sensitive in here - hand back the original untouched
     if (!changed) {
       seen.set(o, o);
@@ -407,7 +434,7 @@ function redactValue(o: any, seen: Map<any, any>): any {
 
   const type = typeof o;
   if (type === 'string' || (type === 'object' && Object.prototype.toString.call(o) === '[object String]')) {
-    return (o as string).replaceAll(redactorFindReplace.find, redactorFindReplace.replace);
+    return (o as string).replaceAll(findReplace.find, findReplace.replace);
   }
 
   return o;
@@ -416,13 +443,25 @@ function redactValue(o: any, seen: Map<any, any>): any {
 /**
  * Redacts senstive config values from any string/array/object/error/etc
  *
+ * Values marked `@sensitive={redactLogs=false}` are left alone (they are still leak-scanned).
+ *
  * NOTE - must be used only after varlock has loaded config
  * */
 export function redactSensitiveConfig(o: any): any {
+  const findReplace = getLogFindReplace();
+  if (!findReplace || !o) return o;
+  return redactValue(o, new Map(), findReplace);
+}
+
+/**
+ * Redaction used by leak prevention to scrub a detected leak (responses, built files): unlike
+ * redactSensitiveConfig, this also redacts values marked `@sensitive={redactLogs=false}`, since
+ * that option only opts out of log redaction, not leak detection.
+ */
+export function redactAllSensitiveValues<T>(o: T): T {
   const { redactorFindReplace } = getRedactionState();
-  if (!redactorFindReplace) return o;
-  if (!o) return o;
-  return redactValue(o, new Map());
+  if (!redactorFindReplace || !o) return o;
+  return redactValue(o, new Map(), redactorFindReplace);
 }
 
 /** the marker revealSensitiveConfig puts before a value (streaming redaction holds it back with a partial value) */
