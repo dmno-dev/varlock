@@ -24,12 +24,18 @@ const proxyCommand = define({
 });
 const loadCommand = define({ name: 'load', run: () => { /* no-op */ } });
 const completeCommand = define({ name: 'complete', run: () => { /* no-op */ } });
+const telemetryCommand = define({
+  name: 'telemetry',
+  args: { mode: { type: 'positional' } },
+  run: () => { /* no-op */ },
+});
 
 async function invoke(args: Array<string>) {
   const subCommands = new Map<string, any>([
     ['proxy', proxyCommand],
     ['load', loadCommand],
     ['complete', completeCommand],
+    ['telemetry', telemetryCommand],
   ]);
   try {
     await cli(args, { run: () => { /* no-op */ } }, {
@@ -83,5 +89,12 @@ describe('command telemetry plugin', () => {
     // registered by @gunshi/plugin-completion and invoked on every tab-press
     await invoke(['complete']);
     expect(trackedCommands()).toEqual([]);
+  });
+
+  it('does not track `telemetry disable`, but still tracks `telemetry enable`', async () => {
+    await invoke(['telemetry', 'disable']);
+    expect(trackedCommands()).toEqual([]);
+    await invoke(['telemetry', 'enable']);
+    expect(trackedCommands()).toEqual(['telemetry']);
   });
 });
