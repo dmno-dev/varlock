@@ -5,13 +5,25 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-import { runVarlock, varlockRun } from '../helpers/run-varlock.js';
+import { runVarlock as runVarlockRaw, varlockRun as varlockRunRaw } from '../helpers/run-varlock.js';
 
 // End-to-end tests for `varlock freeze` + booting from the resulting `.varlock-frozen-env`:
 //  - the artifact is consumed in a directory with NO .env files and no varlock CLI
 //  - values, coerced types, and sensitivity all survive the round trip
 //  - a file that is present but unusable fails closed rather than re-resolving
 // See https://varlock.dev/guides/frozen-env/
+
+// CI runners force colored output, which splits phrases like `environment: production` with
+// escape codes - assert on the plain text
+// eslint-disable-next-line no-control-regex
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+function plain<T extends { stdout: string, stderr: string, output: string }>(r: T): T {
+  return {
+    ...r, stdout: stripAnsi(r.stdout), stderr: stripAnsi(r.stderr), output: stripAnsi(r.output),
+  };
+}
+const runVarlock = (...args: Parameters<typeof runVarlockRaw>) => plain(runVarlockRaw(...args));
+const varlockRun = (...args: Parameters<typeof varlockRunRaw>) => plain(varlockRunRaw(...args));
 
 const SCENARIO = 'smoke-test-frozen-env';
 const SCENARIO_DIR = join(import.meta.dirname, '..', SCENARIO);
@@ -47,7 +59,7 @@ function runApp(opts: { cwd?: string, env?: Record<string, string | undefined> }
   });
   return {
     exitCode: result.status ?? 1,
-    output: (result.stdout ?? '') + (result.stderr ?? ''),
+    output: stripAnsi((result.stdout ?? '') + (result.stderr ?? '')),
   };
 }
 

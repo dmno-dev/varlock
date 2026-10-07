@@ -5,13 +5,24 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-import { runVarlock, VARLOCK_CLI } from '../helpers/run-varlock.js';
+import { runVarlock as runVarlockRaw, VARLOCK_CLI } from '../helpers/run-varlock.js';
 
 // End-to-end tests for `@dynamic=boot` under `varlock freeze`:
 //  - boot items are frozen like everything else, their freeze-time value is the default
 //  - at boot the environment may override them, checked against the type the freeze recorded
 //  - so booting never needs the schema or the CLI, even with boot items
 // See https://varlock.dev/guides/deploy-time-config/#keys-supplied-at-boot
+
+// CI runners force colored output, which splits phrases like `environment: production` with
+// escape codes - assert on the plain text
+// eslint-disable-next-line no-control-regex
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+function plain<T extends { stdout: string, stderr: string, output: string }>(r: T): T {
+  return {
+    ...r, stdout: stripAnsi(r.stdout), stderr: stripAnsi(r.stderr), output: stripAnsi(r.output),
+  };
+}
+const runVarlock = (...args: Parameters<typeof runVarlockRaw>) => plain(runVarlockRaw(...args));
 
 const SCENARIO = 'smoke-test-frozen-env-boot';
 const SCENARIO_DIR = join(import.meta.dirname, '..', SCENARIO);
@@ -52,7 +63,7 @@ function spawnIn(cwd: string, args: Array<string>, env?: Record<string, string |
   return {
     exitCode: result.status ?? 1,
     stdout: result.stdout ?? '',
-    output: (result.stdout ?? '') + (result.stderr ?? ''),
+    output: stripAnsi((result.stdout ?? '') + (result.stderr ?? '')),
   };
 }
 

@@ -130,6 +130,21 @@ describe('readFrozenEnvFile', () => {
     expect(result?.filePath).toBe(filePath);
   });
 
+  // e.g. `varlock run` from a cwd it cannot enter: there is nothing to discover there
+  test('an unreadable directory counts as no file when auto-discovering, but not when required', () => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return;
+    const lockedDir = path.join(tempDir, 'locked');
+    fs.mkdirSync(lockedDir);
+    fs.chmodSync(lockedDir, 0o000);
+    try {
+      expect(readFrozenEnvFile({ env: {}, cwd: lockedDir })).toBeUndefined();
+      expect(getFrozenEnvFileInPlay({}, lockedDir)).toBeUndefined();
+      expect(() => readFrozenEnvFile({ env: ON, cwd: lockedDir })).toThrow(/EACCES/);
+    } finally {
+      fs.chmodSync(lockedDir, 0o700);
+    }
+  });
+
   test('throws when requested but missing', () => {
     expect(() => readFrozenEnvFile({ env: ON, cwd: tempDir }))
       .toThrow(FrozenEnvFileError);

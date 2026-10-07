@@ -52,13 +52,19 @@ export class FrozenEnvFileError extends PreResolvedEnvError {
   }
 }
 
-/** `fs.statSync` without throwing on absence: undefined when nothing is at the path */
-function statFrozenEnvPath(filePath: string): fs.Stats | undefined {
+/**
+ * `fs.statSync` without throwing on absence: undefined when nothing is at the path. When the
+ * file is only being auto-discovered, a path we are not allowed to look at counts as absent
+ * too: `varlock run` from a cwd it cannot enter (EACCES) has nothing to discover there, and
+ * must not fail on a frozen file nobody asked for. A required file still errors.
+ */
+function statFrozenEnvPath(filePath: string, required: boolean): fs.Stats | undefined {
   try {
     return fs.statSync(filePath);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    if (!required && (code === 'EACCES' || code === 'EPERM')) return undefined;
     throw new FrozenEnvFileError(`failed to read frozen env file ${filePath}: ${(err as Error).message}`);
   }
 }
@@ -71,7 +77,7 @@ function statFrozenEnvPath(filePath: string): fs.Stats | undefined {
 export function getFrozenEnvFileInPlay(env: EnvRecord, cwd: string): string | undefined {
   const mode = resolveFrozenEnvFileMode(env, cwd);
   if (!mode) return undefined;
-  if (mode.required || statFrozenEnvPath(mode.filePath)) return mode.filePath;
+  if (mode.required || statFrozenEnvPath(mode.filePath, false)) return mode.filePath;
   return undefined;
 }
 
@@ -93,7 +99,7 @@ export function readFrozenEnvFile(opts: {
   if (!mode || (opts.explicitOnly && !mode.required)) return undefined;
   const { filePath } = mode;
 
-  const stat = statFrozenEnvPath(filePath);
+  const stat = statFrozenEnvPath(filePath, mode.required);
   if (!stat) {
     if (!mode.required) return undefined;
     throw new FrozenEnvFileError(
