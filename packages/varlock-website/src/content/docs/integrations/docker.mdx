@@ -75,10 +75,11 @@ FROM gcr.io/distroless/base-debian13:nonroot
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/.varlock-frozen-env ./
+ENV _VARLOCK_USE_FROZEN_ENV=1
 CMD ["/app/dist/index.js"]
 ```
 
-Set `_VARLOCK_ENV_KEY` in the runtime environment so the file can be decrypted, and `_VARLOCK_USE_FROZEN_ENV=1` so a missing file is an error rather than a silent fall back to normal resolution.
+`_VARLOCK_USE_FROZEN_ENV=1` is what makes varlock boot from the file (it is never read otherwise), and a missing file is then an error rather than a silent fall back to normal resolution. Set `_VARLOCK_ENV_KEY` in the runtime environment so the file can be decrypted.
 
 If you cannot copy a file into the image (a Compose file that pulls a tag it does not rebuild, say), `varlock freeze --out -` writes the same payload to stdout and you carry it in one variable instead:
 

@@ -80,7 +80,7 @@ Locally, varlock resolves your `.env` files on every boot. In a deploy that is u
 
     <ExecCommandWidget command="varlock generate-key" showBinary={false} />
 
-    Set the result as `_VARLOCK_ENV_KEY` in your deploy pipeline and your runtime environment.
+    Set the result as `_VARLOCK_ENV_KEY` in your deploy pipeline and your runtime environment, and set `_VARLOCK_USE_FROZEN_ENV=1` in the runtime environment next to it so the app boots from the frozen file.
 
 1. **Bundle and freeze at deploy time**
 
@@ -98,6 +98,7 @@ Locally, varlock resolves your `.env` files on every boot. In a deploy that is u
     WORKDIR /app
     COPY dist/server.js bunfig.toml ./
     COPY .varlock-frozen-env ./
+    ENV _VARLOCK_USE_FROZEN_ENV=1
     CMD ["bun", "server.js"]
     ```
 
@@ -115,7 +116,7 @@ That image needs nothing else: no `.env` files, no `node_modules`, and no varloc
 
 If your platform assigns `PORT` to each instance, mark it [`@dynamic=boot`](/guides/deploy-time-config/#keys-supplied-at-boot) in your schema. Otherwise the frozen value wins over the one the platform sets.
 
-Set `_VARLOCK_USE_FROZEN_ENV=1` in production so a missing frozen file is a hard error instead of a silent fall back to normal resolution.
+The file is only read when `_VARLOCK_USE_FROZEN_ENV` is set, so a missing frozen file is a hard error instead of a silent fall back to normal resolution, and a leftover file in your dev checkout changes nothing.
 
 :::caution[Values are fixed once frozen]
 Rotating a secret takes effect on your next deploy, not on the next restart. Re-run `varlock freeze` and redeploy. See [tradeoffs](/guides/deploy-time-config/#tradeoffs) for the full list, including how key rotation interacts with rollback.
@@ -123,7 +124,7 @@ Rotating a secret takes effect on your next deploy, not on the next restart. Re-
 
 ### Standalone binaries
 
-`bun build --compile` works the same way. The binary reads `.varlock-frozen-env` from its working directory, so ship the two together:
+`bun build --compile` works the same way. With `_VARLOCK_USE_FROZEN_ENV=1` the binary reads `.varlock-frozen-env` from its working directory, so ship the two together:
 
 ```bash
 bun build ./src/server.ts --compile --outfile server --no-compile-autoload-dotenv

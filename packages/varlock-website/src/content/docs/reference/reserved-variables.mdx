@@ -70,16 +70,15 @@ See [Reusing an injected env blob](/integrations/javascript/#reusing-an-injected
 
 ### `_VARLOCK_USE_FROZEN_ENV`
 
-Controls whether [`varlock/auto-load`](/integrations/javascript/) and [`varlock run`](/reference/cli/load-and-run/#run) boot from a [frozen env file](/guides/deploy-time-config/) produced by [`varlock freeze`](/reference/cli/project/#freeze):
+Boots [`varlock/auto-load`](/integrations/javascript/), [`varlock run`](/reference/cli/load-and-run/#run), and [`varlock load`](/reference/cli/load-and-run/#load) from a [frozen env file](/guides/deploy-time-config/) produced by [`varlock freeze`](/reference/cli/project/#freeze) instead of resolving:
 
-- unset (default): use `.varlock-frozen-env` in the working directory if it is present, otherwise resolve normally
-- `1` / `true`: require `.varlock-frozen-env`. A missing file is a hard error, so a pipeline that failed to produce it cannot silently fall back to resolving at boot
-- `0` / `false`: never use a frozen env file
-- any other value: treated as a path to a frozen env file, relative to the working directory unless absolute, and required
+- unset (default): never read a frozen env file, even when one is present. Resolve normally
+- `1` / `true`: use `.varlock-frozen-env` in the working directory. A missing file is a hard error, so a pipeline that failed to produce it cannot silently fall back to resolving at boot
+- any other value: the path to the frozen env file, relative to the working directory unless absolute
 
-A frozen env file that is present but unusable (unreadable, encrypted with no `_VARLOCK_ENV_KEY`, or encrypted with a different key) is always an error, never a fallback to fresh resolution. Note that `1`/`true`/`0`/`false` are the only recognized toggles, so a value like `off` is read as a path and fails as a missing file.
+A frozen env file that is asked for but unusable (missing, unreadable, encrypted with no `_VARLOCK_ENV_KEY`, or encrypted with a different key) is always an error, never a fallback to fresh resolution. `1`/`true` is the only recognized toggle (`0`/`false` are accepted as unset), so a value like `off` is read as a path and fails as a missing file.
 
-[`varlock load`](/reference/cli/load-and-run/#load) uses the file only when this is set explicitly (`1`/`true` or a path), showing the frozen values with any boot-time values for [`@dynamic=boot`](/reference/item-decorators/#dynamic) keys applied, without reading the schema. Framework integrations resolve through `varlock load`, so a file that is merely present does not affect dev servers or builds. A plain `varlock load` next to one prints a warning and resolves from the .env files.
+`--frozen [path]` on `run` and `load` is the flag form. `varlock load --frozen` shows the frozen values with any boot-time values for [`@dynamic=boot`](/reference/item-decorators/#dynamic) keys applied, without reading the schema.
 
 This takes precedence over an ambient [`__VARLOCK_ENV`](#__varlock_env) blob, and is independent of [`_VARLOCK_USE_INJECTED_ENV`](#_varlock_use_injected_env): setting that to `0` does not disable frozen env files. `varlock run` flags that change what a resolution produces (`--path`, `--filter`, `--clear-cache`, `--skip-cache`, `--include-internal`) are rejected when a frozen env file is in play.
 
