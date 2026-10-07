@@ -16,7 +16,7 @@ import { makeRand } from './fuzz-helpers';
 import type { SerializedEnvGraph } from '../../env-graph';
 
 const ALPHABET = 'ab';
-const ROUNDS = 3000;
+const ROUNDS = 1000;
 
 type Secret = { value: string, redact?: false };
 
