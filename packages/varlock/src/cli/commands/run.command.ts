@@ -224,7 +224,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // redact). Shared with `varlock proxy run` so the two commands can't diverge.
   const { redactStdout, redactStderr } = resolveStdoutRedaction({
     redactStdoutFlag: ctx.values['redact-stdout'],
-    redactStdoutSetting: serializedGraph.settings?.redactStdout ?? true,
+    redactStdoutSetting: serializedGraph.settings?.redact?.stdout ?? true,
   });
   setParentRedactedStreamsEnv(fullInjectedEnv, { redactStdout, redactStderr });
 

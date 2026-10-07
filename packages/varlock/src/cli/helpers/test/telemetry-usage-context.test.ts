@@ -242,6 +242,7 @@ describe('captureUsageContextFromEnvGraph', () => {
     expect(ctx.plugins[0].name_is_hashed).toBe(false);
     expect(ctx.features?.resolver_names).toContain('test');
     expect(ctx.features?.root_decorator_names).toContain('plugin');
+    expect(ctx.features?.settings.redact).toEqual({ console: true });
     expect(ctx.features?.settings.redactLogs).toBe(true);
     expect(ctx.features?.config_item_count).toBeGreaterThan(0);
     expect(ctx.features?.source_type_counts.schema).toBeGreaterThan(0);

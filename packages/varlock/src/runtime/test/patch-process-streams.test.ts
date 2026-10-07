@@ -245,7 +245,7 @@ describe('shouldRedactProcessStream', () => {
   const tty = { isTTY: true, write: () => true };
 
   afterEach(() => {
-    delete varlockSettings.redactStdout;
+    delete varlockSettings.redact;
   });
 
   it('is off unless opted in', () => {
@@ -253,26 +253,26 @@ describe('shouldRedactProcessStream', () => {
   });
 
   it('@redactLogs={stdout=true} redacts non-TTY streams only', () => {
-    varlockSettings.redactStdout = true;
+    varlockSettings.redact = { console: true, stdout: true };
     expect(shouldRedactProcessStream('stdout', pipe, {})).toBe(true);
     expect(shouldRedactProcessStream('stdout', tty, {})).toBe(false);
   });
 
   it('_VARLOCK_REDACT_STDOUT forces it on or off', () => {
     expect(shouldRedactProcessStream('stdout', tty, { _VARLOCK_REDACT_STDOUT: '1' })).toBe(true);
-    varlockSettings.redactStdout = true;
+    varlockSettings.redact = { console: true, stdout: true };
     expect(shouldRedactProcessStream('stdout', pipe, { _VARLOCK_REDACT_STDOUT: '0' })).toBe(false);
   });
 
   it('skips streams a parent `varlock run` is already redacting', () => {
-    varlockSettings.redactStdout = true;
+    varlockSettings.redact = { console: true, stdout: true };
     const env = { __VARLOCK_REDACTED_STREAMS: '1234:stdout' };
     expect(shouldRedactProcessStream('stdout', pipe, env, 1234)).toBe(false);
     expect(shouldRedactProcessStream('stderr', pipe, env, 1234)).toBe(true);
   });
 
   it('only trusts the marker in the direct child of that `varlock run`', () => {
-    varlockSettings.redactStdout = true;
+    varlockSettings.redact = { console: true, stdout: true };
     // e.g. `varlock run -- sh -c 'node app.js | tee log'`: node's parent is the shell, and its
     // stdout goes to tee rather than the redacted pipe
     const env = { __VARLOCK_REDACTED_STREAMS: '1234:stdout' };

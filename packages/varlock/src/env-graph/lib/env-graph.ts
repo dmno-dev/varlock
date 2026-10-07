@@ -116,16 +116,16 @@ export type SerializedEnvGraph = {
   }>,
   settings: {
     /**
-     * console method redaction (`@redact` / `@redact={console=...}`). The key keeps its old
-     * name (the decorator used to be `@redactLogs`) so blobs stay readable across versions.
+     * `@redact`, as written: `console` is console method redaction; `stdout` is stdout/stderr
+     * redaction when not a TTY. `stdout` is absent when not set in the schema, in which case
+     * `varlock run` redacts while in-process stream patching (auto-load) stays off.
+     */
+    redact?: { console: boolean, stdout?: boolean };
+    /**
+     * @deprecated mirror of `redact.console`, still written because runtimes older than 1.22
+     * only read this key (the decorator used to be `@redactLogs`). Dropped in the next major.
      */
     redactLogs?: boolean;
-    /**
-     * stdout/stderr redaction when not a TTY (`@redact={stdout=...}`, or false via
-     * `@redact=false`). Absent when not set in the schema: `varlock run` then redacts,
-     * while in-process stream patching (auto-load) stays off.
-     */
-    redactStdout?: boolean;
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
     disableProcessEnvInjection?: boolean;
@@ -1199,14 +1199,10 @@ export class EnvGraph {
 
     // expose a few root level settings
     const redactSetting = parseRedactSetting(this.getRedactRootDec()?.resolvedValue);
-    if (!('error' in redactSetting)) {
-      serializedGraph.settings.redactLogs = redactSetting.console;
-      // only emitted when set explicitly, since `varlock run` and in-process stream
-      // patching currently default differently when it is absent
-      if (redactSetting.stdout !== undefined) serializedGraph.settings.redactStdout = redactSetting.stdout;
-    } else {
-      serializedGraph.settings.redactLogs = true;
-    }
+    // `stdout` is only emitted when set explicitly, since `varlock run` and in-process
+    // stream patching currently default differently when it is absent
+    serializedGraph.settings.redact = 'error' in redactSetting ? { console: true } : redactSetting;
+    serializedGraph.settings.redactLogs = serializedGraph.settings.redact.console;
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;

@@ -349,11 +349,12 @@ describe('@sensitive and @defaultSensitive tests', () => {
 
 // maybe not the right spot, but it is related to sensitivity and decorators
 // we are checking redact/preventLeaks are serialized correctly and can be disabled
-// (`settings.redactLogs` keeps the old key name for blob compatibility)
+// (`settings.redactLogs` is still written as a mirror of `redact.console` for older runtimes)
 describe('@redact and @preventLeaks', () => {
   test('redact and preventLeaks are on by default', envFilesTest({
     expectSerializedMatches: {
       settings: {
+        redact: { console: true },
         redactLogs: true,
         preventLeaks: true,
       },
@@ -367,6 +368,7 @@ describe('@redact and @preventLeaks', () => {
     `,
     expectSerializedMatches: {
       settings: {
+        redact: { console: false, stdout: false },
         redactLogs: false,
         preventLeaks: false,
       },
@@ -381,7 +383,7 @@ describe('@redactLogs (deprecated alias of @redact)', () => {
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: true, redactStdout: true },
+      settings: { redact: { console: true, stdout: true }, redactLogs: true },
     },
   }));
   test('cannot be combined with @redact', envFilesTest({
@@ -408,7 +410,7 @@ describe('@redact options object', () => {
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: true },
+      settings: { redact: { console: true }, redactLogs: true },
     },
   }));
   test('@redact=false turns off stdout redaction too', envFilesTest({
@@ -417,7 +419,7 @@ describe('@redact options object', () => {
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: false, redactStdout: false },
+      settings: { redact: { console: false, stdout: false }, redactLogs: false },
     },
   }));
   test('stdout=true opts in to stdout/stderr redaction', envFilesTest({
@@ -426,7 +428,7 @@ describe('@redact options object', () => {
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: true, redactStdout: true },
+      settings: { redact: { console: true, stdout: true }, redactLogs: true },
     },
   }));
   test('console and stdout are independent', envFilesTest({
@@ -435,7 +437,7 @@ describe('@redact options object', () => {
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: false, redactStdout: true },
+      settings: { redact: { console: false, stdout: true }, redactLogs: false },
     },
   }));
   test('stdout=false keeps console redaction on', envFilesTest({
@@ -444,7 +446,7 @@ describe('@redact options object', () => {
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: true, redactStdout: false },
+      settings: { redact: { console: true, stdout: false }, redactLogs: true },
     },
   }));
   test('dynamic option values are resolved', envFilesTest({
@@ -454,7 +456,7 @@ describe('@redact options object', () => {
       REDACT=true
     `,
     expectSerializedMatches: {
-      settings: { redactStdout: true },
+      settings: { redact: { stdout: true } },
     },
   }));
   test('string forms from env overrides are accepted', envFilesTest({
@@ -465,7 +467,7 @@ describe('@redact options object', () => {
     `,
     overrideValues: { SHOULD_REDACT: 'false' },
     expectSerializedMatches: {
-      settings: { redactLogs: false, redactStdout: false },
+      settings: { redact: { console: false, stdout: false }, redactLogs: false },
     },
   }));
   test('string option values from functions are accepted', envFilesTest({
@@ -477,7 +479,7 @@ describe('@redact options object', () => {
       E=prod
     `,
     expectSerializedMatches: {
-      settings: { redactStdout: true },
+      settings: { redact: { stdout: true } },
     },
   }));
   test('unknown options are rejected', envFilesTest({

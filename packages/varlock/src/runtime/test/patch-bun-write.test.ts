@@ -42,7 +42,7 @@ function setup(opts: { bunWriteError?: Error } = {}) {
 describe('Bun.write to a redacted stream', () => {
   beforeEach(() => {
     resetRedactionMap({ config: { API_KEY: { value: SECRET, isSensitive: true } } } as any);
-    varlockSettings.redactStdout = true;
+    varlockSettings.redact = { console: true, stdout: true };
     delete process.env.__VARLOCK_REDACTED_STREAMS;
     delete process.env._VARLOCK_REDACT_STDOUT;
   });
@@ -50,7 +50,7 @@ describe('Bun.write to a redacted stream', () => {
   afterEach(() => {
     Object.defineProperty(process, 'stdout', originalStdout);
     delete (globalThis as any).Bun;
-    delete varlockSettings.redactStdout;
+    delete varlockSettings.redact;
   });
 
   it('redacts Bun.write text', async () => {

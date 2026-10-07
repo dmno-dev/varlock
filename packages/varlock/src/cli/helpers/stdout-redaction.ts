@@ -22,7 +22,7 @@ export type StdoutRedactionPlan = { redactStdout: boolean; redactStderr: boolean
  */
 export function resolveStdoutRedaction(opts: {
   redactStdoutFlag: boolean | undefined;
-  /** the schema's `@redact` stdout setting (`settings.redactStdout`), on when unset */
+  /** the schema's `@redact` stdout setting (`settings.redact.stdout`), on when unset */
   redactStdoutSetting: boolean;
 }): StdoutRedactionPlan {
   const redactOverride = opts.redactStdoutFlag ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);

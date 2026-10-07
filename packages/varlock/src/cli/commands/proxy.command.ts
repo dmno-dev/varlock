@@ -439,7 +439,7 @@ function spawnProxiedChild(opts: {
   // work; piped/redirected -> redact). Shared with `varlock run` so they can't diverge.
   const { redactStdout, redactStderr } = resolveStdoutRedaction({
     redactStdoutFlag: opts.redactStdoutFlag,
-    redactStdoutSetting: opts.payload.serializedGraph.settings?.redactStdout ?? true,
+    redactStdoutSetting: opts.payload.serializedGraph.settings?.redact?.stdout ?? true,
   });
   setParentRedactedStreamsEnv(fullInjectedEnv, { redactStdout, redactStderr });
 

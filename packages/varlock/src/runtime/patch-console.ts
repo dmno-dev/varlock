@@ -1,6 +1,6 @@
 /* eslint-disable func-names, no-console, prefer-rest-params */
 
-import { redactSensitiveConfig, redactSensitiveConfigForOutput, varlockSettings } from './env';
+import { getRedactSettings, redactSensitiveConfig, redactSensitiveConfigForOutput } from './env';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
 
@@ -20,7 +20,7 @@ export function patchGlobalConsole() {
     debug('> already patched');
     return;
   }
-  if (varlockSettings.redactLogs === false) {
+  if (getRedactSettings().console === false) {
     debug('> disabled by settings');
     return;
   }

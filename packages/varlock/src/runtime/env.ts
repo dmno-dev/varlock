@@ -641,6 +641,14 @@ const envValues = envState.values;
 export const varlockSettings = envState.settings;
 
 /**
+ * The `@redact` setting from the loaded graph. Falls back to the `redactLogs` key that blobs
+ * from CLIs older than 1.22 carry instead of `redact`.
+ */
+export function getRedactSettings(): { console: boolean, stdout?: boolean } {
+  return varlockSettings.redact ?? { console: varlockSettings.redactLogs ?? true };
+}
+
+/**
  * Snapshot of process.env as it was before varlock injected any resolved values
  * into it (captured on first load, before the module-level auto-init below).
  *
@@ -709,7 +717,7 @@ export function initVarlockEnv(opts?: {
     throw new Error('initVarlockEnv failed');
   }
   // replaced in place (module instances hold references), dropping settings the new graph no
-  // longer sets - e.g. `redactStdout`, which is only present when set in the schema
+  // longer sets
   for (const staleKey of Object.keys(varlockSettings)) {
     if (!(staleKey in (serializedEnvData.settings ?? {}))) delete (varlockSettings as any)[staleKey];
   }

@@ -1,6 +1,6 @@
 /* eslint-disable func-names, prefer-rest-params */
 
-import { varlockSettings } from './env';
+import { getRedactSettings } from './env';
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
 import { getParentRedactedStreams, redactStreamWrite } from './lib/redact-stream';
@@ -58,7 +58,7 @@ export function shouldRedactProcessStream(
   const parentRedacted = getParentRedactedStreams(env, ppid);
   if (parentRedacted.includes(streamName) && !isRegularFile(stream)) return false;
   if (override === true) return true;
-  if (varlockSettings.redactStdout !== true) return false;
+  if (getRedactSettings().stdout !== true) return false;
   return !stream.isTTY;
 }
 
