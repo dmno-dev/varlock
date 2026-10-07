@@ -173,6 +173,35 @@ describe('createRedactedStreamWriter', () => {
     expect(onSplitValue).not.toHaveBeenCalled();
   });
 
+  it('flushes a continuous overlap chain every interval instead of buffering it', () => {
+    // `secret-token-s` followed by `ecret-token-s` forever: every write ends in a value that
+    // overlaps the previous one, so nothing can be cut without splitting a value. The deadline
+    // flushes the whole chain through single-shot redaction instead
+    setSecrets({ TOKEN: 'secret-token-s' });
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    writer.write('secret-token-s');
+    for (let i = 0; i < 30; i++) {
+      vi.advanceTimersByTime(10);
+      writer.write('ecret-token-s');
+    }
+    // 300ms of continuous output: flushed at least twice, never allowed to pile up
+    expect(written.length).toBeGreaterThanOrEqual(2);
+    expect(written.join('')).not.toContain('secret-token-s');
+    writer.flush();
+    expect(written.join('')).not.toContain('secret-token-s');
+  });
+
+  it('the deadline is not pushed back by later writes', () => {
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue: () => undefined });
+    writer.write('a: super-s');
+    vi.advanceTimersByTime(60);
+    writer.write('ecr'); // still a partial match, held along with the earlier part
+    vi.advanceTimersByTime(60);
+    // 120ms after the first held byte: flushed even though the last write was 60ms ago
+    expect(written.join('')).toBe('a: super-secr');
+  });
+
   it('flush() emits any held-back output', () => {
     const writer = createRedactedStreamWriter(fakeStream);
     writer.write('key=super-secr');

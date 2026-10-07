@@ -4,9 +4,12 @@ import {
 } from '../env';
 
 /**
- * how long to hold back a possible partial secret before giving up and flushing —
- * chunks split mid-secret (e.g. at pipe buffer boundaries) arrive back-to-back in
- * practice, so this only triggers when output genuinely ends with a secret-prefix lookalike
+ * the longest a possible partial secret is held back before it is flushed. Chunks split
+ * mid-secret (e.g. at pipe buffer boundaries) arrive back-to-back in practice, so this only
+ * triggers when output genuinely ends with a secret-prefix lookalike, or when a child pauses
+ * mid-value. It is a deadline from the first held byte, not a debounce: continuous output that
+ * keeps ending in a holdback (an overlap chain of a value with itself) is still flushed every
+ * interval instead of being buffered until the child goes quiet.
  */
 export const FLUSH_TIMEOUT_MS = 100;
 
@@ -115,10 +118,11 @@ function warnSplitValueOnce(key: string) {
  * of a sensitive value, those characters are held back until more data arrives (or a short
  * timeout passes) so the reassembled secret can still be redacted.
  *
- * After a timeout the held text is written as-is: it is only a partial match (maybe just a
- * lookalike), and holding it longer would stall prompts. It is remembered though, so if the
- * rest of a value arrives next (e.g. a child that block-buffers piped output pauses mid-value),
- * that part is masked and a one-time warning names the item.
+ * After a timeout the held text is written through single-shot redaction: a partial match
+ * (maybe just a lookalike) goes out as-is, since holding it longer would stall prompts, and a
+ * complete value held back whole (see getStreamHoldbackLength) is redacted. The flushed tail is
+ * remembered though, so if the rest of a value arrives next (e.g. a child that block-buffers
+ * piped output pauses mid-value), that part is masked and a one-time warning names the item.
  */
 export function createRedactedStreamWriter(
   stream: { write(str: string): any },
@@ -146,7 +150,6 @@ export function createRedactedStreamWriter(
   };
 
   const write = (chunk: Buffer | string) => {
-    clearFlushTimeout();
     let text = pending + chunk.toString();
     pending = '';
     let output = '';
@@ -172,7 +175,11 @@ export function createRedactedStreamWriter(
     }
 
     if (output) stream.write(output);
-    if (pending) {
+    if (!pending) {
+      clearFlushTimeout();
+    } else if (flushTimeout === undefined) {
+      // a deadline from the first held byte (not reset by later writes), so held output is
+      // bounded by one interval of the child's output however it keeps coming
       flushTimeout = setTimeout(flush, FLUSH_TIMEOUT_MS);
       // don't let a pending flush keep the process alive
       flushTimeout.unref?.();
