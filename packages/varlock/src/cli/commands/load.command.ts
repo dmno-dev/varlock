@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { gracefulExit } from 'exit-hook';
 
@@ -9,10 +8,9 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
-import { applyFrozenArg, getExplicitFrozenEnv } from '../helpers/frozen-env-cli';
+import { applyFrozenArg, getFrozenEnv } from '../helpers/frozen-env-cli';
 import { printFrozenEnv } from '../helpers/print-frozen-env';
 import { formatShellValue } from '../helpers/shell-value';
-import { getFrozenEnvFileInPlay } from '../../lib/frozen-env-file';
 import { CliExitError } from '../helpers/exit-error';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
@@ -36,7 +34,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } = ctx.values;
   // parse --filter (or the _VARLOCK_FILTER env var) up front, so a bad filter string errors
   // before any loading/resolution work happens
-  const cliItemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
+  const itemFilter = getCliItemFilter(ctx.values.filter, { cliPaths: ctx.values.path });
   // --agent defaults to json if no explicit --format was set, but respects --format if provided
   const outputFormat = agent && format === 'pretty' ? 'json' : format;
 
@@ -44,14 +42,12 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
   }
 
-  // A frozen env is shown only when named explicitly (`--frozen`, `_VARLOCK_USE_FROZEN_ENV=1`
-  // or a path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`): its values, with
-  // any boot-time values for `@dynamic=boot` items applied. It is complete on its own, so this
-  // reads neither the schema nor any .env files. A file that is merely present is left alone,
-  // because every framework integration resolves through `load` - but `varlock run` and
-  // auto-load WOULD boot from it, so say that rather than silently disagreeing with them.
+  // A frozen env is shown when asked for (`--frozen`, `_VARLOCK_USE_FROZEN_ENV` set to `1` or a
+  // path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`): its values, with any
+  // boot-time values for `@dynamic=boot` items applied. It is complete on its own, so this
+  // reads neither the schema nor any .env files.
   applyFrozenArg(ctx.values.frozen);
-  const frozenEnv = getExplicitFrozenEnv();
+  const frozenEnv = getFrozenEnv();
   if (frozenEnv) {
     // these change what a fresh resolution produces, and there is no resolution here.
     // (`--env` is left alone: the Next.js integration always passes it.)
@@ -73,17 +69,6 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     return;
   }
 
-  const ignoredFrozenFile = getFrozenEnvFileInPlay(process.env, process.cwd());
-  if (ignoredFrozenFile) {
-    const relPath = path.relative(process.cwd(), ignoredFrozenFile) || ignoredFrozenFile;
-    console.error(ansis.yellow(
-      `⚠ ${relPath} is present: \`varlock run\` and \`varlock/auto-load\` boot from it, but this shows resolution from .env files.`,
-    ));
-    console.error(ansis.gray(
-      '  Use `varlock load --frozen` to see the frozen values, or delete the file if it is left over from a local freeze.',
-    ));
-  }
-  const itemFilter = cliItemFilter;
   const envGraph = await loadVarlockEnvGraph({
     currentEnvFallback: ctx.values.env,
     entryFilePaths: ctx.values.path,

@@ -45,8 +45,8 @@ This is aimed at platforms where you can control the boot command but can't feed
 in atomically with a deploy, and at apps without a build step that would otherwise inline
 them (Elysia/Hono/Fastify on Bun or Node, distroless Docker images).
 
-At boot, varlock uses the file automatically if it is present at the default path - no CLI,
-no .env files, and no resolver credentials needed in the runtime image. Set
+At boot, set _VARLOCK_USE_FROZEN_ENV=1 (or \`varlock run --frozen\`) and varlock boots from the
+file - no CLI, no .env files, and no resolver credentials needed in the runtime image. Set
 _VARLOCK_ENV_KEY on your platform so the file can be decrypted.
 
 The tradeoff: values are fixed once frozen. Rotating a secret takes effect on your next deploy, not on
@@ -64,7 +64,8 @@ Typical CI usage:
   varlock freeze --env production       # in your deploy job, with resolver credentials present
   docker build .                        # the file is copied into the image
 
-Then boot the app normally (\`bun server.js\`) with _VARLOCK_ENV_KEY set in the runtime env.
+Then boot the app normally (\`bun server.js\`) with _VARLOCK_USE_FROZEN_ENV=1 and _VARLOCK_ENV_KEY
+set in the runtime env.
 
 If your platform takes env vars but gives you no way to get a file into the deploy unit,
 --out - writes the same payload to stdout so you can carry it in one variable instead:

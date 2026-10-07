@@ -1,4 +1,4 @@
-import { findExplicitFrozenEnv, type FrozenEnvInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
+import { findFrozenEnv, type FrozenEnvInfo, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { PreResolvedEnvError, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { CliExitError } from './exit-error';
 
@@ -16,10 +16,10 @@ export function frozenEnvErrorToCliExitError(err: unknown): CliExitError {
   });
 }
 
-/** CLI wrapper around findExplicitFrozenEnv, with an unusable frozen env as a CliExitError */
-export function getExplicitFrozenEnv(): FrozenEnvInfo | undefined {
+/** CLI wrapper around findFrozenEnv, with an unusable frozen env as a CliExitError */
+export function getFrozenEnv(): FrozenEnvInfo | undefined {
   try {
-    return findExplicitFrozenEnv({ env: process.env, cwd: process.cwd() });
+    return findFrozenEnv({ env: process.env, cwd: process.cwd() });
   } catch (err) {
     throw frozenEnvErrorToCliExitError(err);
   }

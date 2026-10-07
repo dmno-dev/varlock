@@ -11,7 +11,7 @@ import { runVarlock as runVarlockRaw, varlockRun as varlockRunRaw } from '../hel
 //  - the artifact is consumed in a directory with NO .env files and no varlock CLI
 //  - values, coerced types, and sensitivity all survive the round trip
 //  - a file that is present but unusable fails closed rather than re-resolving
-// See https://varlock.dev/guides/frozen-env/
+// See https://varlock.dev/guides/deploy-time-config/
 
 // CI runners force colored output, which splits phrases like `environment: production` with
 // escape codes - assert on the plain text
@@ -149,7 +149,7 @@ describe('varlock freeze', () => {
       const result = runVarlock(['scan', 'plain-frozen'], { cwd: SCENARIO });
       expect(result.exitCode).not.toBe(0);
       expect(result.output).toContain('unencrypted frozen env file');
-      expect(result.output).toContain('plain-frozen/.varlock-frozen-env');
+      expect(result.output).toContain(join('plain-frozen', '.varlock-frozen-env'));
 
       // an encrypted one is fine
       expect(freeze({ args: ['--out', 'plain-frozen/.varlock-frozen-env'] }).exitCode).toBe(0);
@@ -327,7 +327,8 @@ describe('booting from a frozen env file', () => {
 
   // With `--inject blob` nothing is injected as individual vars, so the child can only see
   // the frozen values through the __VARLOCK_ENV it is handed. The child is told to ignore
-  // the file on disk so it cannot mask a missing blob by re-reading it.
+  // the file on disk (the parent hands it on by path) so it cannot mask a missing blob by
+  // re-reading it.
   test('varlock run --inject blob hands the child the frozen graph', () => {
     const result = runVarlock(['run', '--inject', 'blob', '--', 'sh', '-c', '_VARLOCK_USE_FROZEN_ENV=0 node app.mjs'], {
       cwd: SCENARIO,
@@ -432,19 +433,14 @@ describe('booting from a frozen env file', () => {
       expect(result.output).toContain('APP_ENV=production');
     });
 
-    test('=0 ignores a present file', () => {
+    // a frozen file is only used when asked for: a leftover one next to .env files is inert
+    test.each([undefined, '0'])('unset or =0 (%s) ignores a present file', (flagValue) => {
       const result = runApp({
         cwd: SCENARIO_DIR,
-        env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '0' },
+        env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: flagValue },
       });
       expect(result.exitCode, result.output).toBe(0);
       expect(result.output).toContain('APP_ENV=development');
-    });
-
-    test('a present file is discovered without the flag', () => {
-      const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: undefined } });
-      expect(result.exitCode, result.output).toBe(0);
-      expect(result.output).toContain('APP_ENV=production');
     });
 
     // the consumer hands the file on by absolute path, so a child that starts in another

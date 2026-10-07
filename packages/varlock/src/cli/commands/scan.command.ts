@@ -14,7 +14,7 @@ import { fmt, logLines } from '../helpers/pretty-format';
 import { detectJsPackageManager } from '../helpers/js-package-manager-utils';
 import { isBundledSEA } from '../helpers/install-detection';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { FROZEN_ENV_FILE_NAME } from '../../lib/frozen-env-guard';
+import { FROZEN_ENV_FILE_NAME } from '../../lib/frozen-env-file';
 import { isEncryptedBlob } from '../../runtime/crypto';
 import { commandSpec } from './scan.command-spec';
 

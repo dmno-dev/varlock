@@ -211,24 +211,13 @@ describe('booting with boot items, no schema present', () => {
 });
 
 describe('varlock load next to a frozen file', () => {
-  // every integration resolves through `load`, so a merely-present file doesn't take over -
-  // but the disagreement with `varlock run` is called out rather than silent
-  test('a plain varlock load resolves from .env files and says a frozen file is being ignored', () => {
+  // a frozen file is only used when asked for, so a plain load is unaffected by one
+  test('a plain varlock load resolves from .env files', () => {
     const result = runVarlock(['load', '--format', 'json'], { cwd: SCENARIO, env: isolatedEnv({ INSTANCE_ID: 'i-1' }) });
     expect(result.exitCode, result.output).toBe(0);
     // resolved from the .env files: no APP_ENV set, so development
     expect(JSON.parse(result.stdout).APP_ENV).toBe('development');
-    expect(result.stderr).toContain('.varlock-frozen-env is present');
-    expect(result.stderr).toContain('varlock load --frozen');
-  });
-
-  test('_VARLOCK_USE_FROZEN_ENV=0 silences the notice', () => {
-    const result = runVarlock(['load', '--format', 'json'], {
-      cwd: SCENARIO,
-      env: isolatedEnv({ _VARLOCK_USE_FROZEN_ENV: '0', INSTANCE_ID: 'i-1' }),
-    });
-    expect(result.exitCode, result.output).toBe(0);
-    expect(result.stderr).not.toContain('is present');
+    expect(result.stderr).not.toContain('frozen');
   });
 
   test('--frozen is the flag form of _VARLOCK_USE_FROZEN_ENV', () => {

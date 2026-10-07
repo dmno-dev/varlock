@@ -16,7 +16,7 @@ import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
-import { getFrozenEnvFileInPlay, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { getFrozenEnvFilePath, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { applyFrozenArg, frozenEnvErrorToCliExitError } from '../helpers/frozen-env-cli';
 import { injectedEnvStringForm } from '../../lib/injected-env-provenance';
 import { encryptEnvBlobSync } from '../../runtime/crypto';
@@ -73,11 +73,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   if (resolutionFlags.length) {
     // A frozen env file is final, so silently ignoring it and re-resolving would
     // defeat the point just as much as it would for an explicitly-forced blob.
-    const requestedFrozenPath = getFrozenEnvFileInPlay(process.env, process.cwd());
+    const requestedFrozenPath = getFrozenEnvFilePath(process.env, process.cwd());
     if (requestedFrozenPath) {
       throw new CliExitError(`a frozen env file (${requestedFrozenPath}) cannot be combined with ${resolutionFlags.join(', ')}`, {
         suggestion: 'These flags change what a fresh resolution produces, so there is nothing to reuse. Drop them, '
-          + `re-run \`varlock freeze\` with them, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files.`,
+          + `re-run \`varlock freeze\` with them, or unset ${USE_FROZEN_ENV_VAR} to resolve from .env files.`,
       });
     }
     if (getUseInjectedEnvMode(process.env) === 'force') {

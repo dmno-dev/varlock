@@ -35,7 +35,6 @@ export default defineConfig([
 
       'src/cli/cli-executable.ts', // cli that gets run via `dmno` command
       'src/lib/exec-sync-varlock.ts', // helper to call varlock cli from code
-      'src/lib/frozen-env-guard.ts', // frozen env file checks for framework integrations
 
       'src/plugin-lib.ts',
     ],
@@ -112,7 +111,6 @@ export default defineConfig([
       'src/runtime/patch-console.ts',
       'src/runtime/crypto.ts',
       'src/lib/exec-sync-varlock.ts',
-      'src/lib/frozen-env-guard.ts',
     ],
 
     noExternal: ['@env-spec/utils'],

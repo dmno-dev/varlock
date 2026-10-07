@@ -7,7 +7,7 @@ import { envValueMatchesBlobItem } from './injected-env-provenance';
 import { hashEnvSourceContents } from './env-source-fingerprint';
 import { applyFrozenBootKeys, getBootItems } from './frozen-boot-keys';
 import {
-  FrozenEnvFileError, PreResolvedEnvError, readFrozenEnvFile, resolveFrozenEnvFileMode,
+  FrozenEnvFileError, PreResolvedEnvError, readFrozenEnvFile, getFrozenEnvFilePath,
 } from './frozen-env-file';
 
 /**
@@ -59,7 +59,7 @@ export type InjectedEnvReuseDecision = | {
 }
   | { reuse: false, reason: string };
 
-/** A frozen env a fresh view should be shown from (see findExplicitFrozenEnv) */
+/** A frozen env a fresh view should be shown from (see findFrozenEnv) */
 export type FrozenEnvInfo = {
   /** with any boot-time values for `@dynamic=boot` items already applied */
   graph: SerializedEnvGraph,
@@ -214,23 +214,21 @@ export function evaluateInjectedEnvReuse(opts: {
    */
   preInjectionEnv?: EnvRecord,
   cwd?: string,
-  /** only consume a frozen env file named by `_VARLOCK_USE_FROZEN_ENV`, never a discovered one */
-  explicitFrozenOnly?: boolean,
 }): InjectedEnvReuseDecision {
   const { env } = opts;
   const preInjectionEnv = opts.preInjectionEnv ?? env;
   const cwd = opts.cwd ?? process.cwd();
 
   // A frozen env file (`varlock freeze`) is a deploy-time freeze that ships inside the deploy
-  // unit. It wins over an ambient __VARLOCK_ENV: a file on disk is the more deliberate act,
-  // and the two are governed by separate flags so _VARLOCK_USE_INJECTED_ENV=0 does not
-  // disable it (use _VARLOCK_USE_FROZEN_ENV=0).
+  // unit, and is only read when `_VARLOCK_USE_FROZEN_ENV` asks for it. It wins over an ambient
+  // __VARLOCK_ENV, and the two are governed by separate flags so _VARLOCK_USE_INJECTED_ENV=0
+  // does not disable it.
   //
   // Like the force path it is authoritative with no directory/drift verification, because
   // the checks below compare a blob against local .env files which a frozen deploy by design
-  // does not carry. Any problem with a present or required file throws, so a broken frozen env can never
+  // does not carry. Any problem with the file throws, so a broken frozen env can never
   // silently degrade into a boot-time re-resolution.
-  const frozen = readFrozenEnvFile({ env, cwd, explicitOnly: opts.explicitFrozenOnly });
+  const frozen = readFrozenEnvFile({ env, cwd });
   if (frozen) {
     const sanitizedFrozen = parseAndSanitizeBlob(frozen.blobJson);
     if (!sanitizedFrozen) {
@@ -414,25 +412,20 @@ export function evaluateInjectedEnvReuse(opts: {
 
 /**
  * The frozen env `varlock load` should show instead of resolving, if any, with boot-time values
- * for `@dynamic=boot` items applied.
+ * for `@dynamic=boot` items applied: a frozen env file asked for by `_VARLOCK_USE_FROZEN_ENV`
+ * (`1` or a path, or `--frozen`), or a `varlock freeze --out -` payload trusted via
+ * `_VARLOCK_USE_INJECTED_ENV=1`. An ordinary blob (a parent `varlock run`, a
+ * `load --format json-full` capture) is never shown as one.
  *
- * Unlike `varlock run` and auto-load, only an explicitly requested frozen env counts: a frozen env file named by
- * `_VARLOCK_USE_FROZEN_ENV` (`1` or a path) or `--frozen`, or a
- * `varlock freeze --out -` payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`. `load` is what
- * every framework integration shells out to at dev and build time, so a frozen file merely
- * sitting in a project directory must not take over those; `load` says so instead (see
- * load.command). An ordinary blob (a parent `varlock run`, a `load --format json-full`
- * capture) is never shown as one.
- *
- * Throws the same way evaluateInjectedEnvReuse does when a frozen env is present but unusable.
+ * Throws the same way evaluateInjectedEnvReuse does when a frozen env is asked for but unusable.
  */
-export function findExplicitFrozenEnv(opts: { env: EnvRecord, cwd?: string }): FrozenEnvInfo | undefined {
+export function findFrozenEnv(opts: { env: EnvRecord, cwd?: string }): FrozenEnvInfo | undefined {
   const { env } = opts;
   const cwd = opts.cwd ?? process.cwd();
   const forced = getUseInjectedEnvMode(env) === 'force';
-  if (!forced && !resolveFrozenEnvFileMode(env, cwd)?.required) return undefined;
+  if (!forced && !getFrozenEnvFilePath(env, cwd)) return undefined;
 
-  const decision = evaluateInjectedEnvReuse({ env, cwd, explicitFrozenOnly: true });
+  const decision = evaluateInjectedEnvReuse({ env, cwd });
   if (!decision.reuse) return undefined;
   if (decision.source === 'env-blob' && (!forced || !decision.parsedEnv.frozen)) return undefined;
   return { graph: decision.parsedEnv, source: decision.source, filePath: decision.filePath };

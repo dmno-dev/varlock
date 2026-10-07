@@ -4,7 +4,7 @@ import ansis from 'ansis';
 
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { encryptEnvBlobSync } from '../../runtime/crypto';
-import { USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
+import { FROZEN_ENV_FILE_NAME, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
@@ -168,14 +168,14 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   console.log('Next steps:');
   console.log(ansis.gray(`  1. Ship ${relOutPath} inside your deploy artifact (it must be present at boot).`));
+  console.log(ansis.gray(`  2. Set ${USE_FROZEN_ENV_VAR}=1 in the runtime environment${relOutPath === FROZEN_ENV_FILE_NAME ? '' : ' (or to the file\'s path)'}, so the file is used.`));
   if (encryptionKey) {
-    console.log(ansis.gray('  2. Set _VARLOCK_ENV_KEY in the runtime environment so it can be decrypted.'));
-    console.log(ansis.gray('  3. Boot your app as usual - varlock picks the file up automatically.'));
+    console.log(ansis.gray('  3. Set _VARLOCK_ENV_KEY in the runtime environment so it can be decrypted.'));
+    console.log(ansis.gray('  4. Boot your app as usual - `varlock/auto-load` and `varlock run` boot from the file.'));
   } else {
-    console.log(ansis.gray('  2. Boot your app as usual - varlock picks the file up automatically.'));
+    console.log(ansis.gray('  3. Boot your app as usual - `varlock/auto-load` and `varlock run` boot from the file.'));
   }
   console.log('');
   console.log(ansis.gray(`Add ${relOutPath} to your .gitignore - it is a generated artifact holding resolved values.`));
   console.log(ansis.gray('Values are now frozen: rotating a secret takes effect on your next deploy, not on restart.'));
-  console.log(ansis.gray(`Set ${USE_FROZEN_ENV_VAR}=1 at runtime to make a missing file a hard error rather than falling back to normal resolution.`));
 };

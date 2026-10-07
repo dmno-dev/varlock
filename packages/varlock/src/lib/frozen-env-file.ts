@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 
 /**
@@ -16,15 +17,39 @@ import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
  *
  * The tradeoff is the whole point, and needs to be understood before using this: rotating a
  * secret no longer takes effect on restart. It takes effect on the next deploy.
+ *
+ * A frozen env file is only ever used when asked for (`_VARLOCK_USE_FROZEN_ENV`, or the
+ * `--frozen` flag that sets it). A file that merely exists is inert everywhere, so a leftover
+ * from a local `varlock freeze` can never change what a dev server, `varlock run`, or
+ * `varlock load` resolves.
  */
 
-import {
-  FROZEN_ENV_FILE_NAME, USE_FROZEN_ENV_VAR, resolveFrozenEnvFileMode,
-} from './frozen-env-guard';
+/** Default filename, resolved relative to cwd (the app dir at boot, per-package in a monorepo). */
+export const FROZEN_ENV_FILE_NAME = '.varlock-frozen-env';
 
-export { FROZEN_ENV_FILE_NAME, USE_FROZEN_ENV_VAR, resolveFrozenEnvFileMode };
+/** user-controllable behavior flag (leading single underscore per convention) */
+export const USE_FROZEN_ENV_VAR = '_VARLOCK_USE_FROZEN_ENV';
 
 type EnvRecord = Record<string, string | undefined>;
+
+/**
+ * The frozen env file `_VARLOCK_USE_FROZEN_ENV` asks for, if any:
+ *  - unset, `0`, `false` -> none (undefined)
+ *  - `1`/`true`          -> the default path
+ *  - anything else       -> that path
+ *
+ * The file is required whenever this returns a path. Unlike `getUseInjectedEnvMode`, an
+ * unrecognized value is a path, so `=off` names a file called `off` and hard-errors as missing.
+ * A typo is still never silently permissive.
+ */
+export function getFrozenEnvFilePath(env: EnvRecord, cwd: string): string | undefined {
+  const rawValue = env[USE_FROZEN_ENV_VAR]?.trim();
+  if (!rawValue) return undefined;
+  const normalized = rawValue.toLowerCase();
+  if (normalized === '0' || normalized === 'false') return undefined;
+  if (normalized === '1' || normalized === 'true') return path.resolve(cwd, FROZEN_ENV_FILE_NAME);
+  return path.resolve(cwd, rawValue);
+}
 
 /**
  * A pre-resolved env (a frozen env file, or a `__VARLOCK_ENV` payload trusted via
@@ -44,7 +69,7 @@ export class PreResolvedEnvError extends Error {
 const RECREATE_FROZEN_FILE = 'Re-create it with `varlock freeze`.';
 const FROZEN_KEY_MISMATCH = '_VARLOCK_ENV_KEY must be the key it was frozen with.';
 
-/** A frozen env file that is in play but cannot be used */
+/** A frozen env file that was asked for but cannot be used */
 export class FrozenEnvFileError extends PreResolvedEnvError {
   constructor(message: string, suggestion = RECREATE_FROZEN_FILE) {
     super(message, suggestion);
@@ -53,60 +78,32 @@ export class FrozenEnvFileError extends PreResolvedEnvError {
 }
 
 /**
- * `fs.statSync` without throwing on absence: undefined when nothing is at the path. When the
- * file is only being auto-discovered, a path we are not allowed to look at counts as absent
- * too: `varlock run` from a cwd it cannot enter (EACCES) has nothing to discover there, and
- * must not fail on a frozen file nobody asked for. A required file still errors.
- */
-function statFrozenEnvPath(filePath: string, required: boolean): fs.Stats | undefined {
-  try {
-    return fs.statSync(filePath);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
-    if (!required && (code === 'EACCES' || code === 'EPERM')) return undefined;
-    throw new FrozenEnvFileError(`failed to read frozen env file ${filePath}: ${(err as Error).message}`);
-  }
-}
-
-/**
- * The frozen env file this invocation will consume, if any: a required one (present or
- * not), or one present at the auto-discovered path. Callers use this to reject flags that
- * would change what gets loaded, rather than silently ignoring the frozen env.
- */
-export function getFrozenEnvFileInPlay(env: EnvRecord, cwd: string): string | undefined {
-  const mode = resolveFrozenEnvFileMode(env, cwd);
-  if (!mode) return undefined;
-  if (mode.required || statFrozenEnvPath(mode.filePath, false)) return mode.filePath;
-  return undefined;
-}
-
-/**
- * Read + decrypt the frozen env file, if one applies. Only ABSENCE of an auto-discovered
- * file returns undefined; any other problem (a required file missing, not a regular file,
- * unreadable, encrypted with no or the wrong key) throws. Falling back would silently
- * unfreeze the deploy and re-resolve at boot, which is exactly what freezing exists to
- * eliminate.
+ * Read + decrypt the frozen env file `_VARLOCK_USE_FROZEN_ENV` asks for, or undefined when it
+ * asks for none. Any problem with the file (missing, not a regular file, unreadable, encrypted
+ * with no or the wrong key) throws. Falling back would silently unfreeze the deploy and
+ * re-resolve at boot, which is exactly what freezing exists to eliminate.
  */
 export function readFrozenEnvFile(opts: {
   env: EnvRecord,
   cwd?: string,
-  /** skip a file that would only be auto-discovered (see findExplicitFrozenEnv) */
-  explicitOnly?: boolean,
 }): { filePath: string, blobJson: string } | undefined {
   const { env } = opts;
-  const mode = resolveFrozenEnvFileMode(env, opts.cwd ?? process.cwd());
-  if (!mode || (opts.explicitOnly && !mode.required)) return undefined;
-  const { filePath } = mode;
+  const filePath = getFrozenEnvFilePath(env, opts.cwd ?? process.cwd());
+  if (!filePath) return undefined;
 
-  const stat = statFrozenEnvPath(filePath, mode.required);
-  if (!stat) {
-    if (!mode.required) return undefined;
-    throw new FrozenEnvFileError(
-      `${USE_FROZEN_ENV_VAR} requires a frozen env file at ${filePath}, but none is present`,
-      'The file did not make it into this deploy: check that your build copies it and that the path is right '
-        + `(relative paths resolve against the working directory). To resolve from .env files instead, unset ${USE_FROZEN_ENV_VAR} and drop --frozen.`,
-    );
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw new FrozenEnvFileError(
+        `${USE_FROZEN_ENV_VAR} requires a frozen env file at ${filePath}, but none is present`,
+        'The file did not make it into this deploy: check that your build copies it and that the path is right '
+          + `(relative paths resolve against the working directory). To resolve from .env files instead, unset ${USE_FROZEN_ENV_VAR} and drop --frozen.`,
+      );
+    }
+    throw new FrozenEnvFileError(`failed to read frozen env file ${filePath}: ${(err as Error).message}`);
   }
   // only a regular file is readable: `readFileSync` on a FIFO with no writer blocks forever
   if (!stat.isFile()) {
@@ -122,7 +119,7 @@ export function readFrozenEnvFile(opts: {
   if (env._VARLOCK_FILTER) {
     throw new FrozenEnvFileError(
       `a frozen env file (${filePath}) cannot be combined with _VARLOCK_FILTER`,
-      `Unset _VARLOCK_FILTER to use the frozen env, or set ${USE_FROZEN_ENV_VAR}=0 to resolve from .env files instead.`,
+      `Unset _VARLOCK_FILTER to use the frozen env, or unset ${USE_FROZEN_ENV_VAR} to resolve from .env files instead.`,
     );
   }
 
