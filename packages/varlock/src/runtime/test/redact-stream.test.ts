@@ -230,6 +230,16 @@ describe('redactSensitiveConfigForOutput', () => {
 });
 
 describe('createRedactedStreamWriter with overlapping values', () => {
+  it('never emits a protected value that overlaps another value across chunks', () => {
+    setSecrets({ A: 'aabaa', B: 'aabaabXYZ' });
+    const chunks: Array<string> = [];
+    const writer = createRedactedStreamWriter({ write: (c: string) => chunks.push(c) });
+    writer.write('aabaabaa');
+    writer.write('baa\n');
+    writer.flush();
+    expect(chunks.join('')).not.toContain('aabaa');
+  });
+
   it('redacts a complete value whose ending is also the start of a value', () => {
     setSecrets({ SELF_OVERLAP: 'secret-token-s' });
     const chunks: Array<string> = [];

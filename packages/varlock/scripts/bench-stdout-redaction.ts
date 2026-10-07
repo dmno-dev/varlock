@@ -57,10 +57,9 @@ const SECRET_EVERY = Number(args['secret-every']);
 // --- realistic secrets -------------------------------------------------------------------------
 
 const BASE62 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-// Math.random is fine here: these are throwaway benchmark values, not secrets
 function rand(length: number, alphabet = BASE62) {
   let out = '';
-  for (let i = 0; i < length; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  for (let i = 0; i < length; i++) out += alphabet[crypto.randomInt(alphabet.length)];
   return out;
 }
 const hex = (bytes: number) => crypto.randomBytes(bytes).toString('hex');

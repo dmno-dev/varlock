@@ -1,5 +1,5 @@
 import {
-  findMatchCrossing, findSplitValueCompletion, getRedactionHoldbackLength,
+  findSplitValueCompletion, findValueStartCrossing, getRedactionHoldbackLength,
   redactSensitiveConfig, redactSensitiveConfigForOutput, UNMASK_PREFIX,
 } from '../env';
 
@@ -57,15 +57,17 @@ function getUnmaskPrefixHoldbackLength(str: string): number {
  *
  * The cut never goes through a complete value: a value whose ending is also the start of a
  * value (itself or another, e.g. `secret-token-s`) looks like a partial match at its own end,
- * and cutting there would emit both halves unredacted.
+ * and cutting there would emit both halves unredacted. Such a value is held back whole (the
+ * cut moves to its start) rather than emitted early, since redaction only replaces
+ * non-overlapping matches and an occurrence overlapping an emitted one could otherwise be
+ * completed by the next chunk unnoticed.
  */
 export function getStreamHoldbackLength(str: string): number {
   let boundary = str.length - getRedactionHoldbackLength(str);
-  while (boundary < str.length) {
-    const crossingEnd = findMatchCrossing(str, boundary);
-    if (crossingEnd === undefined) break;
-    // keep the complete value whole, then look for a partial match after it
-    boundary = str.length - getRedactionHoldbackLength(str.slice(crossingEnd));
+  for (;;) {
+    const start = findValueStartCrossing(str, boundary);
+    if (start === undefined) break;
+    boundary = start;
   }
   boundary -= getUnmaskPrefixHoldbackLength(str.slice(0, boundary));
   return str.length - boundary;

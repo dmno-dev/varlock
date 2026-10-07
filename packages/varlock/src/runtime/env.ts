@@ -42,6 +42,7 @@ type HoldbackIndex = {
   byFirstChar: Map<number, Array<string>>,
   // proper-prefix lengths (longest first) by the char code each prefix ends with
   lengthsByEndChar: Map<number, Array<number>>,
+  maxLength: number,
 };
 
 const REDACTION_STATE_KEY = '__varlockRedactionState';
@@ -153,8 +154,10 @@ function getLogFindReplace(): FindReplace | undefined {
 function buildHoldbackIndex(sensitiveValues: Array<string>): HoldbackIndex {
   const byFirstChar = new Map<number, Array<string>>();
   const lengthSets = new Map<number, Set<number>>();
+  let maxLength = 0;
   for (const v of sensitiveValues) {
     if (!v) continue;
+    if (v.length > maxLength) maxLength = v.length;
     const firstCode = v.charCodeAt(0);
     let bucket = byFirstChar.get(firstCode);
     if (!bucket) byFirstChar.set(firstCode, bucket = []);
@@ -170,7 +173,35 @@ function buildHoldbackIndex(sensitiveValues: Array<string>): HoldbackIndex {
   // longest first, so the first hit is the longest partial match
   const lengthsByEndChar = new Map<number, Array<number>>();
   for (const [endCode, lengths] of lengthSets) lengthsByEndChar.set(endCode, [...lengths].sort((a, b) => b - a));
-  return { byFirstChar, lengthsByEndChar };
+  return { byFirstChar, lengthsByEndChar, maxLength };
+}
+
+function getHoldbackIndex(): HoldbackIndex {
+  const state = getRedactionState();
+  // covers every sensitive value (not just redacted ones), since the response leak scanner
+  // also relies on this to carry partial matches across chunk boundaries
+  state.holdbackIndex ||= buildHoldbackIndex(Object.keys(state.sensitiveSecretsMap));
+  return state.holdbackIndex;
+}
+
+/**
+ * The longest value redacted from logs that occurs in `str` at exactly `pos`, if any.
+ *
+ * Streaming checks use this instead of walking the redaction regex: `exec` only yields
+ * non-overlapping matches, so a complete value sitting inside already-written text would hide
+ * an overlapping one that extends into the current write (e.g. values `aabaa` and `aabaab`
+ * in `aabaabaa|baa`).
+ */
+function findLogValueAt(str: string, pos: number): string | undefined {
+  const candidates = getHoldbackIndex().byFirstChar.get(str.charCodeAt(pos));
+  if (!candidates) return undefined;
+  const { sensitiveSecretsMap } = getRedactionState();
+  let longest: string | undefined;
+  for (const v of candidates) {
+    if (longest && v.length <= longest.length) continue;
+    if (sensitiveSecretsMap[v].redact !== false && str.startsWith(v, pos)) longest = v;
+  }
+  return longest;
 }
 
 /**
@@ -183,11 +214,7 @@ function buildHoldbackIndex(sensitiveValues: Array<string>): HoldbackIndex {
  * of `str`, so only those lengths are tried (often none, e.g. for a line ending in `\n`).
  */
 export function getRedactionHoldbackLength(str: string): number {
-  const state = getRedactionState();
-  // covers every sensitive value (not just redacted ones), since the response leak scanner
-  // also relies on this to carry partial matches across chunk boundaries
-  state.holdbackIndex ||= buildHoldbackIndex(Object.keys(state.sensitiveSecretsMap));
-  const index = state.holdbackIndex;
+  const index = getHoldbackIndex();
   const strLength = str.length;
   if (!strLength) return 0;
   const lengths = index.lengthsByEndChar.get(str.charCodeAt(strLength - 1));
@@ -208,22 +235,17 @@ export function getRedactionHoldbackLength(str: string): number {
 }
 
 /**
- * End index of a complete sensitive value that starts before `boundary` and ends after it.
- * Used by streaming redaction so a holdback cut never goes through a complete value.
+ * Start index of the earliest complete sensitive value that starts before `boundary` and ends
+ * after it. Used by streaming redaction so a holdback cut never goes through a complete value.
  */
-export function findMatchCrossing(str: string, boundary: number): number | undefined {
-  const find = getLogFindReplace()?.find;
-  if (!find) return undefined;
-  find.lastIndex = 0;
-  try {
-    for (let match = find.exec(str); match && match.index < boundary; match = find.exec(str)) {
-      const end = match.index + match[0].length;
-      if (end > boundary) return end;
-    }
-    return undefined;
-  } finally {
-    find.lastIndex = 0;
+export function findValueStartCrossing(str: string, boundary: number): number | undefined {
+  // a value crossing `boundary` starts within one value-length before it
+  const from = Math.max(0, boundary - getHoldbackIndex().maxLength + 1);
+  for (let pos = from; pos < boundary; pos++) {
+    const value = findLogValueAt(str, pos);
+    if (value && pos + value.length > boundary) return pos;
   }
+  return undefined;
 }
 
 /**
@@ -232,21 +254,14 @@ export function findMatchCrossing(str: string, boundary: number): number | undef
  */
 export function findSplitValueCompletion(carry: string, text: string): { length: number, key?: string } | undefined {
   if (!carry) return undefined;
-  const findReplace = getLogFindReplace();
-  if (!findReplace) return undefined;
-  const { find } = findReplace;
-  const { sensitiveSecretsMap } = getRedactionState();
   const region = carry + text;
-  find.lastIndex = 0;
-  try {
-    for (let match = find.exec(region); match && match.index < carry.length; match = find.exec(region)) {
-      const length = match.index + match[0].length - carry.length;
-      if (length > 0) return { length, key: sensitiveSecretsMap[match[0]]?.key };
+  for (let pos = 0; pos < carry.length; pos++) {
+    const value = findLogValueAt(region, pos);
+    if (value && pos + value.length > carry.length) {
+      return { length: pos + value.length - carry.length, key: getRedactionState().sensitiveSecretsMap[value]?.key };
     }
-    return undefined;
-  } finally {
-    find.lastIndex = 0;
   }
+  return undefined;
 }
 
 /** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */

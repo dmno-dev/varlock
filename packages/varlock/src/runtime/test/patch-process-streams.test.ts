@@ -166,6 +166,27 @@ describe('patchStreamWrite', () => {
     expect(fake.output()).toBe(`${REDACTED}\n`);
   });
 
+  it('catches a split value that overlaps a complete value already written (two protected values)', () => {
+    // `aabaa` occurs at 0 and again at 3 in `aabaabaa|baa`; the first is redacted in write 1,
+    // the second is completed by write 2 and must be masked
+    setSecrets({ A: { value: 'aabaa' }, B: { value: 'aabaabXYZ' } });
+    fake.stream.write('aabaabaa');
+    fake.stream.write('baa\n');
+    expect(fake.output()).toBe(`aa▒▒▒▒▒baa${SPLIT_MASK}\n`);
+    expect(fake.output()).not.toContain('aabaa');
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('an exempt value overlapping a protected one does not hide its split completion', () => {
+    setSecrets({ SECRET: { value: 'aabaa' }, PRINTED: { value: 'aabaab', redact: false } });
+    fake.stream.write('aabaabaa');
+    fake.stream.write('baa\n');
+    expect(fake.output()).toBe(`aa▒▒▒▒▒baa${SPLIT_MASK}\n`);
+    expect(fake.output()).not.toContain('aabaa');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('SECRET');
+  });
+
   it('prints values revealed with revealSensitiveConfig (strips the markers)', () => {
     fake.stream.write(`revealed: 👁 ${SECRET} 👁\n`);
     expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
