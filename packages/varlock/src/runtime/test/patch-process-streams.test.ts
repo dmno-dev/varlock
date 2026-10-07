@@ -129,6 +129,31 @@ describe('patchStreamWrite', () => {
     expect(fake.calls[0]).toEqual([encoded, 'base64']);
   });
 
+  it('catches a value split inside one of its own multi-byte characters', () => {
+    const accented = 'super-sécret-value-12345';
+    setSecrets({ API_KEY: { value: accented } });
+    const bytes = Buffer.from(`${accented}\n`);
+    const cut = bytes.indexOf(0xC3) + 1; // between the two bytes of `é`
+    fake.stream.write(bytes.subarray(0, cut));
+    fake.stream.write(bytes.subarray(cut));
+    const written = Buffer.concat(fake.calls.map(([chunk]) => Buffer.from(chunk))).toString('utf8');
+    expect(written).toBe(`super-sé${SPLIT_MASK}\n`);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('API_KEY');
+  });
+
+  it('catches a value split inside a three-byte character spread over three writes', () => {
+    const value = 'tok€n-value-12345';
+    setSecrets({ API_KEY: { value } });
+    const bytes = Buffer.from(`${value}\n`);
+    const euro = bytes.indexOf(0xE2);
+    fake.stream.write(bytes.subarray(0, euro + 1));
+    fake.stream.write(bytes.subarray(euro + 1, euro + 2));
+    fake.stream.write(bytes.subarray(euro + 2));
+    const written = Buffer.concat(fake.calls.map(([chunk]) => Buffer.from(chunk))).toString('utf8');
+    expect(written).toBe(`tok€${SPLIT_MASK}\n`);
+  });
+
   it('redacts around a multi-byte character split across buffers, keeping its bytes', () => {
     const bytes = Buffer.from(`é ${SECRET}\n`);
     fake.stream.write(bytes.subarray(0, 1)); // first byte of `é`

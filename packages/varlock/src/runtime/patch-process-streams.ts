@@ -19,7 +19,15 @@ type StreamPatchState = {
   originalEnd: WritableLike['end'],
   /** end of the previous write that could be the start of a sensitive value */
   carry: string,
+  /**
+   * the incomplete UTF-8 sequence a previous byte write ended with (already written raw). The
+   * next write completes the character, which then counts as written text for matching, so a
+   * value split inside a multi-byte character is still recognized.
+   */
+  pendingBytes: Uint8Array,
 };
+
+const NO_BYTES = new Uint8Array(0);
 
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
 const utf8Encoder = new TextEncoder();
@@ -76,8 +84,9 @@ function warnSplitValue(key: string) {
   ].join(' '));
 }
 
-function redactText(state: StreamPatchState, text: string): string {
-  const { output, carry, splitKey } = redactStreamWrite(state.carry, text);
+/** `written` is text that already went out before `text` (a character completed by this write) */
+function redactText(state: StreamPatchState, text: string, written = ''): string {
+  const { output, carry, splitKey } = redactStreamWrite(state.carry + written, text);
   state.carry = carry;
   if (splitKey) warnSplitValue(splitKey);
   return output;
@@ -108,20 +117,39 @@ function incompleteUtf8TailLength(bytes: Uint8Array): number {
 
 /**
  * Redacts the UTF-8 text in a buffer. Bytes of a character split across writes stay as they
- * are at either end; anything that is not valid UTF-8 is binary and is returned untouched.
+ * are at either end (the character is completed on the next write and matched as written
+ * text); anything that is not valid UTF-8 is binary and is returned untouched.
  */
 function redactBytes(state: StreamPatchState, bytes: Uint8Array): Uint8Array {
   const start = leadingContinuationBytes(bytes);
   const end = bytes.length - incompleteUtf8TailLength(bytes.subarray(start));
+  // the character the previous write ended in the middle of, now complete
+  let completedChar = '';
+  if (state.pendingBytes.length) {
+    const sequence = new Uint8Array(state.pendingBytes.length + start);
+    sequence.set(state.pendingBytes);
+    sequence.set(bytes.subarray(0, start), state.pendingBytes.length);
+    try {
+      completedChar = utf8Decoder.decode(sequence);
+    } catch {
+      // still incomplete (a character spread over three writes), or not a character at all
+      if (sequence.length < 4 && start === bytes.length) {
+        state.pendingBytes = sequence;
+        return bytes;
+      }
+    }
+  }
+  state.pendingBytes = end < bytes.length ? bytes.slice(end) : NO_BYTES;
   let text: string;
   try {
     text = utf8Decoder.decode(bytes.subarray(start, end));
   } catch {
     // binary: breaks the text, so nothing carries over
     state.carry = '';
+    state.pendingBytes = NO_BYTES;
     return bytes;
   }
-  const redacted = redactText(state, text);
+  const redacted = redactText(state, text, completedChar);
   if (redacted === text) return bytes;
   const encoded = utf8Encoder.encode(redacted);
   const out = new Uint8Array(start + encoded.length + (bytes.length - end));
@@ -137,6 +165,8 @@ function redactChunk(state: StreamPatchState, chunk: unknown, encoding: unknown)
   if (typeof chunk === 'string') {
     const normalized = typeof encoding === 'string' ? encoding.toLowerCase() : undefined;
     // other encodings (base64, hex, ...) are data, not text we can safely rewrite
+    // a string write ends any byte sequence a previous buffer left open
+    state.pendingBytes = NO_BYTES;
     if (normalized === undefined || normalized === 'utf8' || normalized === 'utf-8') return redactText(state, chunk);
     state.carry = '';
     return chunk;
@@ -161,6 +191,7 @@ export function patchStreamWrite(stream: WritableLike): boolean {
     originalWrite: stream.write,
     originalEnd: stream.end,
     carry: '',
+    pendingBytes: NO_BYTES,
   };
   (stream as any)[PATCH_STATE_KEY] = state;
 
