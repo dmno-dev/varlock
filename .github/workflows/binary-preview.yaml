@@ -61,8 +61,10 @@ jobs:
           node-version: "24.x"
       - name: Install node deps
         run: bun install
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Enable turborepo remote cache
+        uses: ./.github/actions/depot-turbo-cache
+        with:
+          token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
       # Download macOS native binary
       - name: Download macOS native binary

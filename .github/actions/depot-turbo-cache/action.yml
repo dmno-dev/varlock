@@ -1,0 +1,31 @@
+name: Depot turbo remote cache
+description: >
+  Point turbo at Depot Cache when a token is available. Depot Cache is shared
+  across branches, so access is gated on a repo secret: fork PRs never receive
+  it, and build without any remote cache instead of being able to read or
+  poison artifacts used by our own branches.
+
+inputs:
+  token:
+    description: Depot organization token (pass secrets.DEPOT_TURBO_TOKEN)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Configure turbo remote cache
+      shell: bash
+      env:
+        DEPOT_TURBO_TOKEN: ${{ inputs.token }}
+      run: |
+        if [ -n "$DEPOT_TURBO_TOKEN" ]; then
+          echo "TURBO_API=https://cache.depot.dev" >> "$GITHUB_ENV"
+          echo "TURBO_TEAM=957gnc6qxf" >> "$GITHUB_ENV"
+          echo "TURBO_TOKEN=$DEPOT_TURBO_TOKEN" >> "$GITHUB_ENV"
+          echo "Using Depot turbo remote cache"
+        else
+          # also overrides any remote cache config the runner may provide
+          echo "TURBO_CACHE=local:rw" >> "$GITHUB_ENV"
+          echo "No Depot cache token (e.g. fork PR), building without a remote cache"
+        fi
