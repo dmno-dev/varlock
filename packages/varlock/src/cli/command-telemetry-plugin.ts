@@ -28,7 +28,9 @@ export function commandTelemetry() {
         // no path means bare `varlock` (the entry command), which just prints a pointer
         // to --help; `--help` and `--version` never reach here at all, since gunshi's
         // builtin global-options decorator wraps this one and returns before it.
-        if (command && !SKIP_COMMANDS.has(command)) {
+        // opting out must not send an event (or mint and save an anonymousId first)
+        const isOptOut = command === 'telemetry' && (cmdCtx.values as any).mode === 'disable';
+        if (command && !SKIP_COMMANDS.has(command) && !isOptOut) {
           // fired before the command runs so it is recorded even if the command never
           // returns (a long-lived child, a daemon, a hard exit) - see trackCommand
           await trackCommand(command);
