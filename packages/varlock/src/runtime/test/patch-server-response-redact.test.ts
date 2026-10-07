@@ -17,7 +17,7 @@ import { redactSensitiveConfig, resetRedactionMap } from '../env';
 import { makeRand, randomChunks, writeChunks } from './fuzz-helpers';
 
 const SECRET = 'redact-mode-secret-xyz789';
-// `@sensitive={redactLogs=false}`: exempt from log redaction, but still leak-scanned
+// `@sensitive={redact=false}`: exempt from log redaction, but still leak-scanned
 const PRINTED_SECRET = 'printed-secret-abc123456';
 
 const FAKE_GRAPH = {
@@ -25,7 +25,7 @@ const FAKE_GRAPH = {
   settings: {},
   config: {
     SECRET_KEY: { value: SECRET, isSensitive: true },
-    PRINTED_KEY: { value: PRINTED_SECRET, isSensitive: true, redactLogs: false },
+    PRINTED_KEY: { value: PRINTED_SECRET, isSensitive: true, redact: false },
   },
 } as any;
 
@@ -130,7 +130,7 @@ describe('patchGlobalServerResponse with redactInsteadOfThrow', () => {
     expect(body).toContain('▒'); // redaction marker in place of the secret
   });
 
-  it('still scrubs values exempt from log redaction (redactLogs=false)', async () => {
+  it('still scrubs values exempt from log redaction (redact=false)', async () => {
     const body = await (await fetch(`${baseUrl}/log-exempt-leak`)).text();
     expect(body).not.toContain(PRINTED_SECRET);
     expect(body).toContain('▒');

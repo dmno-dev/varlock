@@ -66,7 +66,7 @@ Examples:
 💡 Tip: Output redaction applies automatically when output is piped/redirected (e.g., CI logs);
    interactive terminals get raw TTY pass-through, so tools like psql and claude just work.
    Use --no-redact-stdout to disable redaction for piped output, or --redact-stdout to
-   force it (e.g., to override @redactLogs=false).
+   force it (e.g., to override @redact=false).
 💡 Tip: Use --inject vars to prevent __VARLOCK_ENV from being visible in child process env
 💡 Tip: Use --inject blob when your app uses the ENV proxy and doesn't need individual process.env vars
   `.trim(),

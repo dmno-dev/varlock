@@ -26,7 +26,7 @@ bun run smoke-test
 - **tests/cli.test.ts** - CLI commands (help, load, formats, printenv/explain/scan/audit, run)
 - **tests/cache.test.ts** - `cache()` end-to-end and the `varlock cache` command
 - **tests/redaction.test.ts** - Log redaction in various scenarios
-- **tests/stream-redaction.test.ts** - In-process stdout/stderr redaction (`@redactLogs={stdout=true}`)
+- **tests/stream-redaction.test.ts** - In-process stdout/stderr redaction (`@redact={stdout=true}`)
 - **tests/runtime.test.ts** - Runtime compatibility (Node, Bun, error handling)
 - **tests/frameworks.test.ts** - Framework integrations (Astro, Next.js)
 - **tests/plugin.test.ts** - Plugin resolution end-to-end

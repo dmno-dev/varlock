@@ -93,7 +93,7 @@ function schemaContents() {
   const lines = [
     '# @defaultSensitive=false',
     // `none` mode turns all redaction off via this item
-    '# @redactLogs=$REDACT_LOGS',
+    '# @redact=$REDACT_LOGS',
     '# ---',
     'REDACT_LOGS=true # @type=boolean',
   ];

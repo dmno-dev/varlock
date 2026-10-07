@@ -16,7 +16,7 @@ import {
 
 import {
   builtInItemDecorators, builtInRootDecorators,
-  RootDecoratorInstance, parseRedactLogsSetting,
+  RootDecoratorInstance, parseRedactSetting,
   type ItemDecoratorDef,
   type RootDecoratorDef,
 } from './decorators';
@@ -115,11 +115,14 @@ export type SerializedEnvGraph = {
     contentHash?: string;
   }>,
   settings: {
-    /** console method redaction (`@redactLogs` / `@redactLogs={console=...}`) */
+    /**
+     * console method redaction (`@redact` / `@redact={console=...}`). The key keeps its old
+     * name (the decorator used to be `@redactLogs`) so blobs stay readable across versions.
+     */
     redactLogs?: boolean;
     /**
-     * stdout/stderr redaction when not a TTY (`@redactLogs={stdout=...}`, or false via
-     * `@redactLogs=false`). Absent when not set in the schema: `varlock run` then redacts,
+     * stdout/stderr redaction when not a TTY (`@redact={stdout=...}`, or false via
+     * `@redact=false`). Absent when not set in the schema: `varlock run` then redacts,
      * while in-process stream patching (auto-load) stays off.
      */
     redactStdout?: boolean;
@@ -144,7 +147,7 @@ export type SerializedEnvGraph = {
     /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
     preventLeaks?: boolean;
     /** false = not redacted in console/stdout/stderr output (still leak-scanned). Omitted when true (the default). */
-    redactLogs?: boolean;
+    redact?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
     /**
@@ -771,11 +774,11 @@ export class EnvGraph {
     }
 
     // maybe should be part of a _resolve all root decorators_ step?
-    const redactLogsDec = this.getRootDec('redactLogs');
-    if (redactLogsDec) {
-      const redactLogsSetting = parseRedactLogsSetting(await redactLogsDec.resolve());
+    const redactDec = this.getRedactRootDec();
+    if (redactDec) {
+      const redactSetting = parseRedactSetting(await redactDec.resolve(), redactDec.name);
       // static values already failed in process(); this catches dynamic ones
-      if ('error' in redactLogsSetting) redactLogsDec._errors.push(new SchemaError(redactLogsSetting.error));
+      if ('error' in redactSetting) redactDec._errors.push(new SchemaError(redactSetting.error));
     }
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
@@ -1174,7 +1177,7 @@ export class EnvGraph {
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
-        ...item.isSensitive && !item.redactLogs ? { redactLogs: false } : {},
+        ...item.isSensitive && !item.redact ? { redact: false } : {},
         // only emit when it diverges from the sensitivity linkage (the default), so
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
@@ -1195,12 +1198,12 @@ export class EnvGraph {
     );
 
     // expose a few root level settings
-    const redactLogsSetting = parseRedactLogsSetting(this.getRootDec('redactLogs')?.resolvedValue);
-    if (!('error' in redactLogsSetting)) {
-      serializedGraph.settings.redactLogs = redactLogsSetting.console;
+    const redactSetting = parseRedactSetting(this.getRedactRootDec()?.resolvedValue);
+    if (!('error' in redactSetting)) {
+      serializedGraph.settings.redactLogs = redactSetting.console;
       // only emitted when set explicitly, since `varlock run` and in-process stream
       // patching currently default differently when it is absent
-      if (redactLogsSetting.stdout !== undefined) serializedGraph.settings.redactStdout = redactLogsSetting.stdout;
+      if (redactSetting.stdout !== undefined) serializedGraph.settings.redactStdout = redactSetting.stdout;
     } else {
       serializedGraph.settings.redactLogs = true;
     }
@@ -1371,6 +1374,21 @@ export class EnvGraph {
       }
     }
     return { generatedCount, skippedImportOnlyCount };
+  }
+
+  /**
+   * The `@redact` root decorator, or its deprecated alias `@redactLogs`. Using the alias
+   * warns; using both is an error (on the alias), and `@redact` wins.
+   */
+  private getRedactRootDec() {
+    const redactDec = this.getRootDec('redact');
+    const redactLogsDec = this.getRootDec('redactLogs');
+    if (redactLogsDec && !redactLogsDec._errors.length) {
+      redactLogsDec._errors.push(redactDec
+        ? new SchemaError('Cannot use both @redact and @redactLogs (its deprecated alias)')
+        : new SchemaError('@redactLogs is deprecated, use @redact instead', { isWarning: true }));
+    }
+    return redactDec ?? redactLogsDec;
   }
 
   getRootDec(decoratorName: string) {

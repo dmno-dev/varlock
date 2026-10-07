@@ -23,12 +23,12 @@ const UNMASK_STR = '👁';
 // while a different instance has the populated one.
 type RedactionState = {
   // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner;
-  // `redactLogs: false` means the reverse (left alone by log/output redaction, still leak-scanned)
-  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
+  // `redact: false` means the reverse (left alone by log/output redaction, still leak-scanned)
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redact?: boolean }>,
   // every sensitive value, used when scrubbing a detected leak
   redactorFindReplace: undefined | FindReplace,
   // the values redacted from logs and output: the same object as `redactorFindReplace` unless
-  // some items are `@sensitive={redactLogs=false}`, and null when every value is exempt
+  // some items are `@sensitive={redact=false}`, and null when every value is exempt
   // (optional since state may have been created by an older copy of this module)
   logRedactorFindReplace?: FindReplace | null,
   // index for the streaming holdback check, built lazily (also optional since state may
@@ -124,13 +124,13 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
         const existing = state.sensitiveSecretsMap[sensitiveStr];
         // when several items share a value, an opt-out on one must not weaken the others
         const preventLeaks = item.preventLeaks !== false || !!existing?.preventLeaks;
-        const redactLogs = item.redactLogs !== false || (!!existing && existing.redactLogs !== false);
+        const redact = item.redact !== false || (!!existing && existing.redact !== false);
         state.sensitiveSecretsMap[sensitiveStr] = {
           key: existing?.key ?? itemKey,
           redacted,
           preventLeaks,
-          // `@sensitive={redactLogs=false}` leaves the value out of log/output redaction
-          ...!redactLogs && { redactLogs: false },
+          // `@sensitive={redact=false}` leaves the value out of log/output redaction
+          ...!redact && { redact: false },
         };
       }
     }
@@ -138,7 +138,7 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
   state.holdbackIndex = undefined;
   const allValues = Object.keys(state.sensitiveSecretsMap);
   state.redactorFindReplace = buildFindReplace(state, allValues);
-  const logValues = allValues.filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
+  const logValues = allValues.filter((s) => state.sensitiveSecretsMap[s].redact !== false);
   if (logValues.length === allValues.length) state.logRedactorFindReplace = state.redactorFindReplace;
   else state.logRedactorFindReplace = buildFindReplace(state, logValues) ?? null;
 }
@@ -443,7 +443,7 @@ function redactValue(o: any, seen: Map<any, any>, findReplace: FindReplace): any
 /**
  * Redacts senstive config values from any string/array/object/error/etc
  *
- * Values marked `@sensitive={redactLogs=false}` are left alone (they are still leak-scanned).
+ * Values marked `@sensitive={redact=false}` are left alone (they are still leak-scanned).
  *
  * NOTE - must be used only after varlock has loaded config
  * */
@@ -455,7 +455,7 @@ export function redactSensitiveConfig(o: any): any {
 
 /**
  * Redaction used by leak prevention to scrub a detected leak (responses, built files): unlike
- * redactSensitiveConfig, this also redacts values marked `@sensitive={redactLogs=false}`, since
+ * redactSensitiveConfig, this also redacts values marked `@sensitive={redact=false}`, since
  * that option only opts out of log redaction, not leak detection.
  */
 export function redactAllSensitiveValues<T>(o: T): T {

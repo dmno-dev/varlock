@@ -4,7 +4,7 @@ import { redactSensitiveConfig, redactSensitiveConfigForOutput, varlockSettings 
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
 
-// stdout/stderr redaction (`@redactLogs={stdout=true}`) lives next to the console patch so node
+// stdout/stderr redaction (`@redact={stdout=true}`) lives next to the console patch so node
 // consumers get both from one import, but is not called from patchGlobalConsole: the edge
 // bundles patch the console too and have no process streams to patch
 export { patchProcessStreams } from './patch-process-streams';

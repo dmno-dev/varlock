@@ -29,9 +29,9 @@ Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secr
 
 ### `_VARLOCK_REDACT_STDOUT`
 
-Overrides stdout/stderr redaction, both for [`varlock run`](/reference/cli/load-and-run/#run) output and for in-process redaction in `varlock/auto-load` and framework integrations (see [`@redactLogs`](/reference/root-decorators/#redactlogs)):
+Overrides stdout/stderr redaction, both for [`varlock run`](/reference/cli/load-and-run/#run) output and for in-process redaction in `varlock/auto-load` and framework integrations (see [`@redact`](/reference/root-decorators/#redact)):
 
-- `true` / `1`: force redaction on. For `varlock run` this only applies to piped/redirected output and errors if attached to an interactive terminal. In-process, it also enables redaction when the schema does not set `@redactLogs={stdout=true}`, and applies even to a terminal.
+- `true` / `1`: force redaction on. For `varlock run` this only applies to piped/redirected output and errors if attached to an interactive terminal. In-process, it also enables redaction when the schema does not set `@redact={stdout=true}`, and applies even to a terminal.
 - `false` / `0`: disable redaction entirely
 
 For `varlock run`, the `--redact-stdout` / `--no-redact-stdout` flags take precedence over this env var. Useful when you can't easily change the command being run, for example in a wrapper script or CI config.

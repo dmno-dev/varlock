@@ -224,7 +224,7 @@ describe('captureUsageContextFromEnvGraph', () => {
     const source = new DotEnvFileDataSource('.env.schema', {
       overrideContents: outdent`
         # @plugin(./plugins/test-plugin/)
-        # @redactLogs
+        # @redact
         # ---
         PLUGIN_RESOLVER_TEST=test(foo)
       `,

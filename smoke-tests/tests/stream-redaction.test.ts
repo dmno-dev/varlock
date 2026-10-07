@@ -3,7 +3,7 @@ import { execSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { varlockRun } from '../helpers/run-varlock.js';
 
-// `varlock/auto-load` with `@redactLogs={stdout=true}` patches process.stdout/stderr, so writes
+// `varlock/auto-load` with `@redact={stdout=true}` patches process.stdout/stderr, so writes
 // that bypass `console` are redacted too, without a `varlock run` parent. Output is captured
 // through pipes here, so the streams are not a TTY and redaction applies.
 
@@ -48,7 +48,7 @@ describe('in-process stdout/stderr redaction', () => {
     expect(result.output).toContain(`split: ${SECRET.slice(0, 10)}▒▒▒▒▒`);
     expect(result.output).toContain('[varlock] the sensitive value of API_KEY was split across separate writes');
     expect(result.output).not.toContain(SECRET);
-    // @sensitive={redactLogs=false} lets a value through
+    // @sensitive={redact=false} lets a value through
     expect(result.output).toContain(`printed: ${PRINTED}`);
   });
 

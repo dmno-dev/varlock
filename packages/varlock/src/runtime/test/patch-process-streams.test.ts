@@ -14,7 +14,7 @@ const REDACTED = 'su▒▒▒▒▒';
 const SPLIT_MASK = '▒▒▒▒▒';
 const SPLIT_WARNED_KEY = Symbol.for('varlock.splitValueWarned');
 
-function setSecrets(config: Record<string, { value: string, redactLogs?: boolean }>) {
+function setSecrets(config: Record<string, { value: string, redact?: boolean }>) {
   resetRedactionMap({
     config: Object.fromEntries(
       Object.entries(config).map(([key, item]) => [key, { isSensitive: true, ...item }]),
@@ -143,14 +143,14 @@ describe('patchStreamWrite', () => {
     expect(fake.calls[0]).toEqual(['END', `bye ${REDACTED}\n`, cb]);
   });
 
-  it('skips items marked @sensitive={redactLogs=false}', () => {
-    setSecrets({ API_KEY: { value: SECRET }, PRINTED_TOKEN: { value: 'printed-token-abcdef', redactLogs: false } });
+  it('skips items marked @sensitive={redact=false}', () => {
+    setSecrets({ API_KEY: { value: SECRET }, PRINTED_TOKEN: { value: 'printed-token-abcdef', redact: false } });
     fake.stream.write(`${SECRET} printed-token-abcdef\n`);
     expect(fake.output()).toBe(`${REDACTED} printed-token-abcdef\n`);
   });
 
-  it('redactLogs=false values are skipped by redactSensitiveConfig but not by leak-prevention scrubbing', () => {
-    setSecrets({ PRINTED_TOKEN: { value: 'printed-token-abcdef', redactLogs: false } });
+  it('redact=false values are skipped by redactSensitiveConfig but not by leak-prevention scrubbing', () => {
+    setSecrets({ PRINTED_TOKEN: { value: 'printed-token-abcdef', redact: false } });
     expect(redactSensitiveConfig('printed-token-abcdef')).toBe('printed-token-abcdef');
     expect(redactSensitiveConfig({ nested: ['printed-token-abcdef'] })).toEqual({ nested: ['printed-token-abcdef'] });
     expect(redactAllSensitiveValues('printed-token-abcdef')).toBe('pr▒▒▒▒▒');
@@ -160,7 +160,7 @@ describe('patchStreamWrite', () => {
   it('keeps redacting a value shared with an item that is not exempt', () => {
     setSecrets({
       API_KEY: { value: SECRET },
-      SAME_VALUE_PRINTED: { value: SECRET, redactLogs: false },
+      SAME_VALUE_PRINTED: { value: SECRET, redact: false },
     });
     fake.stream.write(`${SECRET}\n`);
     expect(fake.output()).toBe(`${REDACTED}\n`);

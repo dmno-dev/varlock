@@ -22,7 +22,7 @@ export type StdoutRedactionPlan = { redactStdout: boolean; redactStderr: boolean
  */
 export function resolveStdoutRedaction(opts: {
   redactStdoutFlag: boolean | undefined;
-  /** the schema's `@redactLogs` stdout setting (`settings.redactStdout`), on when unset */
+  /** the schema's `@redact` stdout setting (`settings.redactStdout`), on when unset */
   redactStdoutSetting: boolean;
 }): StdoutRedactionPlan {
   const redactOverride = opts.redactStdoutFlag ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
@@ -70,7 +70,7 @@ export function pipeRedactedStreams(
 
 /**
  * Tell the child which of its streams this process is already redacting, so an in-process
- * stream patch (`varlock/auto-load` with `@redactLogs={stdout=true}`) can skip them instead
+ * stream patch (`varlock/auto-load` with `@redact={stdout=true}`) can skip them instead
  * of redacting (and holding back partial matches) twice. Always rewritten, so a marker
  * inherited from an outer `varlock run` never outlives the pipe it described.
  */

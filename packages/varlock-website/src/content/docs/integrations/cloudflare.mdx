@@ -277,7 +277,7 @@ Most Worker templates enable `skipLibCheck`, which suppresses `TS2320` in `.d.ts
 Both integration approaches automatically enable **log redaction** (sensitive values are masked in console output) and **response leak detection** (responses are scanned for accidentally exposed secrets). These are enabled by default and can be disabled in your `.env.schema` using root decorators:
 
 ```env-spec title=".env.schema"
-# @redactLogs=false
+# @redact=false
 # @preventLeaks=false
 ```
 

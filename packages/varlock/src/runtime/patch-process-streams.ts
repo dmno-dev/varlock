@@ -42,7 +42,7 @@ function isRegularFile(stream: WritableLike): boolean {
  * already see the values; piped/redirected output is what persists and what agents read).
  * `_VARLOCK_REDACT_STDOUT` forces it on or off.
  *
- * Opt-in for now via `@redactLogs={stdout=true}` (or the env var). Planned to become the
+ * Opt-in for now via `@redact={stdout=true}` (or the env var). Planned to become the
  * default (when unset) in the next major, matching `varlock run`.
  */
 export function shouldRedactProcessStream(

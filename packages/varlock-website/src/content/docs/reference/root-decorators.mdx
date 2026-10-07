@@ -360,8 +360,10 @@ See the [Caching guide](/guides/caching/) for mode selection guidance by environ
 
 
 <div>
-### `@redactLogs`
+### `@redact`
 **Value type:** `boolean` or options object
+
+_Called `@redactLogs` before varlock 1.22. The old name still works as a deprecated alias (with a warning) and will be removed in the next major._
 
 Controls whether sensitive config values are automatically redacted from log output. When enabled, any sensitive values will be replaced with `▒▒▒▒▒` in logs.
 
@@ -371,23 +373,23 @@ _Only applies in JavaScript based projects where varlock runtime code is importe
 - `false`: Turns off all log redaction, including `varlock run` output (useful for debugging)
 
 ```env-spec
-# @redactLogs=false
+# @redact=false
 # ---
 SECRET_KEY=my-secret-value # @sensitive
 ```
 
 ```js
 console.log(process.env.SECRET_KEY)
-// This will log "my▒▒▒▒▒" instead of "my-secret-value" when @redactLogs=true
+// This will log "my▒▒▒▒▒" instead of "my-secret-value" when @redact=true
 ```
 
 **Options:** pass an object to control each kind of redaction separately:
 
-- `console` (`boolean`, default `true`): redact values passed to `console` methods. Unlike `stdout`, this applies even when output goes to an interactive terminal. `@redactLogs={console=false, stdout=true}` shows sensitive values in your own terminal while still redacting anything piped, redirected or captured.
+- `console` (`boolean`, default `true`): redact values passed to `console` methods. Unlike `stdout`, this applies even when output goes to an interactive terminal. `@redact={console=false, stdout=true}` shows sensitive values in your own terminal while still redacting anything piped, redirected or captured.
 - `stdout` (`boolean`): redact everything written to the process's stdout and stderr, including `process.stdout.write`, loggers like pino that write to the stream directly, and `Bun.write(Bun.stdout, ...)`. Only applies to streams that are not attached to an interactive terminal (piped output, files, CI logs, agent tool calls). [`varlock run`](/reference/cli/load-and-run/#run) already redacts its child's output this way unless set to `false`. In-process redaction (`varlock/auto-load` and framework integrations) is currently opt-in with `stdout=true`, and will become the default in the next major version.
 
 ```env-spec
-# @redactLogs={stdout=true}
+# @redact={stdout=true}
 # ---
 SECRET_KEY=my-secret-value # @sensitive
 ```
@@ -398,15 +400,24 @@ process.stdout.write(`${process.env.SECRET_KEY}\n`);
 // `node app.js | cat` prints "my▒▒▒▒▒"
 ```
 
-See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover. To let a specific value through (for example a script that prints a token for another tool), use [`@sensitive={redactLogs=false}`](/reference/item-decorators/#sensitive) on that item.
+See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover. To let a specific value through (for example a script that prints a token for another tool), use [`@sensitive={redact=false}`](/reference/item-decorators/#sensitive) on that item.
 
 
 :::caution
-There is a potential performance impact for both `@preventLeaks` and `@redactLogs` when enabled. It depends on the integration and how your application is served. Please [reach out](https://chat.dmno.dev) if you have any questions.
+There is a potential performance impact for both `@preventLeaks` and `@redact` when enabled. It depends on the integration and how your application is served. Please [reach out](https://chat.dmno.dev) if you have any questions.
 
 We feel that they are beneficial enough to have them on by default but you can always opt out if you prefer.
 :::
 
+</div>
+
+<div>
+### `@redactLogs` (deprecated) ||redactlogs||
+**Value type:** `boolean` or options object
+
+⚠️ Deprecated alias of [`@redact`](#redact). Same values and options; using it warns, and using both in one schema is an error.
+
+`@redactLogs=false` -> `@redact=false`
 </div>
 
 
@@ -435,7 +446,7 @@ _a sample leak detection warning in an [Astro project](/integrations/astro/)_
 
 
 :::caution
-See note on [`@redactLogs`](#redactlogs) about potential performance impact.
+See note on [`@redact`](#redact) about potential performance impact.
 :::
 
 </div>
