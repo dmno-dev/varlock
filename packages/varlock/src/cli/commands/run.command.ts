@@ -4,7 +4,9 @@ import { exec } from '../../lib/exec';
 import { createChildSignalForwarder } from '../../lib/child-signals';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
-import { checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
+import {
+  checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showUnredactableSensitiveWarnings,
+} from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
@@ -96,6 +98,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   let filterKeys: Set<string> | undefined;
   let resolvedEnv: Record<string, string | undefined>;
   let serializedGraph: SerializedEnvGraph;
+  // seeds output redaction when it must cover more than the injected blob does
+  let redactionGraph: SerializedEnvGraph | undefined;
 
   if (reuseDecision.reuse) {
     debug('reusing injected env blob - skipping resolution');
@@ -136,6 +140,13 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // these are injected directly into the child's process.env
     resolvedEnv = envGraph.getResolvedEnvStringObject({ includeInternal, filterKeys });
     serializedGraph = envGraph.getSerializedGraph({ filterKeys });
+    // the blob above never carries @internal items, but --include-internal still injects
+    // them as vars, so their sensitive values must be in the redaction map too
+    if (includeInternal) {
+      redactionGraph = envGraph.getSerializedGraph({ includeInternal: true, filterKeys });
+    }
+
+    showUnredactableSensitiveWarnings(envGraph, Object.keys(resolvedEnv));
   }
 
   // `@injectUndefinedAsEmpty` opts into dotenv-style behavior: unset items become empty strings
@@ -249,7 +260,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
       detached: useProcessGroup,
     });
   } else {
-    resetRedactionMap(serializedGraph);
+    resetRedactionMap(redactionGraph ?? serializedGraph);
 
     commandProcess = exec(rawCommand, commandArgsOnly, {
       stdin: 'inherit',

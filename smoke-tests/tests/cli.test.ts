@@ -389,6 +389,25 @@ describe('CLI Commands', () => {
       expect(result.exitCode).toBe(0);
     });
 
+    test('--include-internal redacts @internal sensitive values in piped output', () => {
+      const result = runVarlock(['run', '--include-internal', '--', 'node', '-e', 'console.log("token=" + process.env.OP_TOKEN)'], {
+        cwd: 'smoke-test-internal',
+        env: { OP_TOKEN: 'secret-zero-value' },
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('token=');
+      expect(result.stdout).not.toContain('secret-zero-value');
+    });
+
+    test('warns about sensitive numbers, which are never redacted', () => {
+      const result = runVarlock(['run', '--', 'node', '-e', 'console.log(process.env.SECRET_NUMBER)'], {
+        cwd: 'smoke-test-sensitive-number',
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain('SECRET_NUMBER - sensitive, but a number is never redacted');
+      expect(result.stderr).not.toContain('PUBLIC_NUMBER');
+    });
+
     test('--format json-full excludes @internal vars by default', () => {
       // framework integrations shell out to exactly this command to get their injected config -
       // an @internal secret-zero credential must not appear here unless explicitly requested

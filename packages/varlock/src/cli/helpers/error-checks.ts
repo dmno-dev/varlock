@@ -2,7 +2,7 @@ import ansis from 'ansis';
 import { EnvGraph, FileBasedDataSource } from '../../env-graph';
 import { getItemSummary, joinAndCompact } from '../../lib/formatting';
 import {
-  LoadingError, ParseError, VarlockError,
+  LoadingError, ParseError, VarlockError, SENSITIVE_NUMBER_NOT_REDACTED,
 } from '../../env-graph/lib/errors';
 import { isEmptyConfigAllowed } from '../../lib/empty-config-check';
 import { CliExitError } from './exit-error';
@@ -149,6 +149,20 @@ export function showPluginWarnings(envGraph: EnvGraph) {
   }
 }
 
+/**
+ * `varlock load` shows every item warning in its summary, but `varlock run` prints no summary.
+ * Surface the one warning that matters for its output: a sensitive number that the child's
+ * output redaction will never mask.
+ */
+export function showUnredactableSensitiveWarnings(envGraph: EnvGraph, itemKeys: Array<string>) {
+  for (const itemKey of itemKeys) {
+    const item = envGraph.configSchema[itemKey];
+    const warning = item?.errors.find((err) => err.isWarning && err.code === SENSITIVE_NUMBER_NOT_REDACTED);
+    if (!warning) continue;
+    console.error(ansis.yellow(`[WARNING] ${itemKey} - ${warning.message}`));
+    showErrorTip(warning);
+  }
+}
 
 export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
   showAll?: boolean;
