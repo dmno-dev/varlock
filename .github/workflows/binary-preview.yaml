@@ -35,6 +35,7 @@ jobs:
       artifact-name: native-bin-macos-preview
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+      DEPOT_TURBO_TOKEN: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
   # Build Rust native binaries for Linux and Windows
   build-native-rust:
