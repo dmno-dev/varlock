@@ -18,7 +18,7 @@ permissions:
 jobs:
   check-if-release-pr:
     name: Check if Release PR
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     permissions: {}
     outputs:
       is-release-pr: ${{ steps.check.outputs.is-release-pr }}
@@ -39,7 +39,7 @@ jobs:
     name: Build and Pack Libraries
     needs: check-if-release-pr
     if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-8
     permissions:
       contents: read
       actions: write
@@ -59,8 +59,10 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Enable turborepo remote cache
+        uses: ./.github/actions/depot-turbo-cache
+        with:
+          token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
       - name: Build varlock and integrations
         run: bun run build:libs
@@ -121,10 +123,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [depot-ubuntu-24.04-8, macos-latest, windows-latest]
         node-version: ['24.x']
         include:
-          - os: ubuntu-latest
+          - os: depot-ubuntu-24.04-8
             binary-artifact: varlock-binary-linux-x64
             binary-name: varlock
           - os: macos-latest

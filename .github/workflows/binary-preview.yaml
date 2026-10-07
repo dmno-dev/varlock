@@ -22,7 +22,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.action == 'labeled' && github.event.label.name == 'preview:standalone') ||
       (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview:standalone'))
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     steps:
       - run: echo "preview:standalone label detected — building preview binaries"
 
@@ -50,7 +50,7 @@ jobs:
   # Build SEA binaries for all platforms and upload as artifacts
   build-sea-binaries:
     needs: [build-native-macos, build-native-rust]
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-8
     steps:
       - uses: actions/checkout@v7
       - name: Setup Bun
@@ -61,8 +61,10 @@ jobs:
           node-version: "24.x"
       - name: Install node deps
         run: bun install
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Enable turborepo remote cache
+        uses: ./.github/actions/depot-turbo-cache
+        with:
+          token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
       # Download macOS native binary
       - name: Download macOS native binary

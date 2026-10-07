@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-8
     outputs:
       includes-varlock: ${{ steps.check-release.outputs.includes-varlock }}
       release-packages: ${{ steps.check-release.outputs.packages }}
@@ -37,8 +37,10 @@ jobs:
         run: bun install
       - name: Audit dependencies
         run: bun run audit:changed
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Enable turborepo remote cache
+        uses: ./.github/actions/depot-turbo-cache
+        with:
+          token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
       # Note: the bumpy release-plan check + comment live in their own workflows
       # (bumpy-check.yaml emits the comment on `pull_request`; bumpy-comment.yaml
@@ -187,7 +189,7 @@ jobs:
       && needs.build-native-rust.result != 'cancelled'
       && needs.build-and-test.outputs.release-packages != ''
       && needs.build-and-test.outputs.release-packages != '[]'
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-8
     steps:
       - uses: actions/checkout@v7
         with:
@@ -200,8 +202,10 @@ jobs:
           node-version: "24.x"
       - name: Install node deps
         run: bun install
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Enable turborepo remote cache
+        uses: ./.github/actions/depot-turbo-cache
+        with:
+          token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
       # Get signed macOS .app if varlock is being released
       # If the macOS build ran this run, download the artifact directly

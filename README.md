@@ -10,6 +10,7 @@
   <a href="https://nodejs.org/en/about/previous-releases"><img src="https://img.shields.io/node/v/varlock.svg" alt="node compatibility"></a>
   <a href="https://github.com/dmno-dev/varlock/actions/workflows/test.yaml"><img src="https://img.shields.io/github/actions/workflow/status/dmno-dev/varlock/test.yaml?style=flat&logo=github&label=CI" alt="build status"></a>
   <a href="https://chat.dmno.dev"><img src="https://img.shields.io/badge/chat-discord-5865F2?style=flat&logo=discord" alt="discord chat"></a>
+  <a href="https://depot.dev"><img src="https://img.shields.io/badge/CI%20powered%20by-Depot-46A75A?style=flat" alt="CI powered by Depot"></a>
 </p>
 <br/>
 
@@ -157,3 +158,15 @@ Examples of integrating varlock in various frameworks and situations can be foun
 ## Development & Contribution
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for more information.
+
+## Thanks to
+
+<a href="https://depot.dev">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg">
+    <img alt="Depot" src="https://depot.dev/assets/brand/1693758816/depot-logo-horizontal-on-light.svg" width="150">
+  </picture>
+</a>
+
+CI infrastructure sponsored by [Depot](https://depot.dev), fast GitHub Actions runners.
