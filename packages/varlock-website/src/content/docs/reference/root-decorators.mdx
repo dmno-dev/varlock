@@ -400,7 +400,7 @@ process.stdout.write(`${process.env.SECRET_KEY}\n`);
 // `node app.js | cat` prints "my▒▒▒▒▒"
 ```
 
-See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover. To let a specific value through (for example a script that prints a token for another tool), use [`@sensitive={redact=false}`](/reference/item-decorators/#sensitive) on that item.
+See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover, and [scope and known limitations](/guides/secrets/#redaction-scope) for what redaction as a whole does not protect against. To let a specific value through (for example a script that prints a token for another tool), use [`@sensitive={redact=false}`](/reference/item-decorators/#sensitive) on that item.
 
 
 :::caution
