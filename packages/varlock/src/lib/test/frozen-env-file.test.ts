@@ -340,6 +340,25 @@ describe('a frozen env with boot keys', () => {
     expect(decision.reuse && decision.parsedEnv.config.PORT.value).toBe(7000);
   });
 
+  // every serialized graph carries boot specs, but only a frozen payload gives them boot
+  // semantics: in a parent `varlock run` blob a changed boot value is drift, so the child
+  // re-resolves and the value gets the full validation a fresh load does
+  test('an ordinary (non-frozen) blob treats a changed boot value as drift', () => {
+    const plainBlob = JSON.parse(withBootKeys());
+    delete plainBlob.frozen;
+    const decision = evaluateInjectedEnvReuse({
+      env: { __VARLOCK_ENV: JSON.stringify(plainBlob), PORT: '7000' },
+      cwd: tempDir,
+    });
+    expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('PORT changed') });
+    // and when forced, the blob is reused as-is with no boot substitution
+    const forced = evaluateInjectedEnvReuse({
+      env: { __VARLOCK_ENV: JSON.stringify(plainBlob), PORT: '7000', [USE_INJECTED_ENV_VAR]: '1' },
+      cwd: tempDir,
+    });
+    expect(forced.reuse && forced.parsedEnv.config.PORT.value).toBe(3000);
+  });
+
   test('boot values come from the pre-injection env, not one varlock injected', () => {
     const { key } = writeFrozenFile({ contents: withBootKeys() });
     const decision = evaluateInjectedEnvReuse({

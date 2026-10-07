@@ -75,6 +75,10 @@ type SanitizedGraph = NonNullable<ReturnType<typeof parseAndSanitizeBlob>>;
  * `@dynamic=boot` items gets their boot-time values applied first (checked against the types
  * the freeze recorded, no schema needed), so the result is always complete. Invalid boot
  * values fail closed, like any other unusable frozen env.
+ *
+ * Only a frozen payload gets this: every serialized graph records boot specs, but in an
+ * ordinary blob (a parent `varlock run`) a changed boot value is drift like any other, and a
+ * fresh resolution validates it in full.
  */
 function reuseOrApplyBoot(
   sanitized: SanitizedGraph,
@@ -82,7 +86,7 @@ function reuseOrApplyBoot(
   bootEnv: EnvRecord,
   filePath?: string,
 ): InjectedEnvReuseDecision {
-  if (!Object.keys(getBootItems(sanitized.parsedEnv)).length) {
+  if (!sanitized.parsedEnv.frozen || !Object.keys(getBootItems(sanitized.parsedEnv)).length) {
     return {
       reuse: true,
       ...sanitized,
@@ -398,8 +402,9 @@ export function evaluateInjectedEnvReuse(opts: {
   // (injected form, or the raw pre-coercion override string the parent recorded), and a
   // key *absent* from the env is not drift (`--inject blob` mode injects no individual
   // vars at all).
-  // (`@dynamic=boot` keys of a frozen payload are meant to differ - they are applied below)
-  const bootKeys = getBootItems(parsedEnv);
+  // (`@dynamic=boot` keys of a FROZEN payload are meant to differ - they are applied below;
+  // in any other blob they drift like every other key)
+  const bootKeys = parsedEnv.frozen ? getBootItems(parsedEnv) : {};
   for (const itemKey of Object.keys(parsedEnv.config)) {
     if (!(itemKey in preInjectionEnv) || itemKey in bootKeys) continue;
     if (!envValueMatchesBlobItem(preInjectionEnv[itemKey], parsedEnv.config[itemKey], parsedEnv.settings)) {
