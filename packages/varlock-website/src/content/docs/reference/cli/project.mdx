@@ -175,7 +175,7 @@ The output directory is a generated artifact: add it to `.gitignore`, and rerun 
 
 Resolves every value once and writes the result to an encrypted file, so your app can boot from those exact values without re-resolving. Run it at deploy time, and ship the file inside your deploy artifact so config and code travel and roll back as one unit. See [the frozen env guide](/guides/deploy-time-config/) for the full workflow.
 
-This is aimed at apps where you control the boot command but have no build step that would inline values (Elysia, Hono, Fastify, Express on Bun or Node, distroless images). Framework integrations already do the equivalent, so you do not need this with Next.js, Vite, Astro, Nuxt, or Cloudflare Workers.
+Use it wherever a framework integration is not already baking values at build time (Elysia, Hono, Fastify, Express on Bun or Node, distroless images). On a platform that runs your app for you (Heroku, Railway, Render, Fly), run it in the build or release phase: the boot command is not yours to wrap in `varlock run`, so resolving at deploy time is the only option. Where you do own the boot command, it is the explicit choice to resolve once per release instead of on every boot. You do not need this with Next.js, Vite, Astro, Nuxt, or Cloudflare Workers, whose integrations do the equivalent.
 
 At boot, set [`_VARLOCK_USE_FROZEN_ENV=1`](/reference/reserved-variables/#_varlock_use_frozen_env) (or a path to the file) and `_VARLOCK_ENV_KEY` in the runtime environment, and `varlock/auto-load` or `varlock run` boots from the file. Nothing else is needed in the runtime image: no varlock CLI, no `.env` files, and no resolver credentials. The file is never read unless asked for, so one left over from a local freeze changes nothing.
 

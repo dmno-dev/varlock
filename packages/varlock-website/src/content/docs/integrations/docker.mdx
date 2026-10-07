@@ -16,7 +16,7 @@ Before adding varlock to a Dockerfile, decide which role it plays:
 | **CI-only validation** | Validate schema and config in pipelines; runtime env comes from the platform | No. Run `varlock load` in CI only |
 | **Runtime injection** | Long-running containers (APIs, workers) that resolve secrets at boot via [plugins](/guides/plugins/) | Yes. Use `varlock run` as the entrypoint |
 | **Build-time** | SSR apps where a [framework integration](/integrations/overview/) injects resolved env into build output | Sometimes. Only in a **builder** stage, not the final runtime image |
-| **Deploy-time freeze** | Apps with no build step that would inline values (Elysia, Hono, Fastify), where you want config frozen with the release | Sometimes. Only in a **builder** stage or CI |
+| **Deploy-time freeze** | Apps without a framework integration baking values (Elysia, Hono, Fastify), where you want config frozen with the release instead of resolved on every container boot | Sometimes. Only in a **builder** stage or CI |
 
 <Tabs>
   <TabItem label="CI-only validation">
@@ -59,7 +59,7 @@ For serverless SSR, prefer [encrypted deployments](/guides/encrypted-deployments
   </TabItem>
   <TabItem label="Deploy-time freeze">
 
-Use when your app has no build step to inline values, but you still want config resolved once per release rather than on every container boot. [`varlock freeze`](/guides/deploy-time-config/) resolves everything at deploy time and encrypts it; the runtime image needs no varlock CLI, no `.env` files, and no resolver credentials, so this works in distroless.
+Use when no framework integration is baking values at build time, and you want config resolved once per release rather than on every container boot. [`varlock freeze`](/guides/deploy-time-config/) resolves everything at deploy time and encrypts it; the runtime image needs no varlock CLI, no `.env` files, and no resolver credentials, so this works in distroless.
 
 ```dockerfile title="Dockerfile"
 FROM oven/bun:1 AS builder

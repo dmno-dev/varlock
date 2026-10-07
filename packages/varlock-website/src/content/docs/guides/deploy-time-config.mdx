@@ -51,13 +51,14 @@ Resolve once, at deploy time, and hand the result to the runtime. Which mechanis
 | --- | --- | --- |
 | Use a framework integration (Next.js, Vite, Astro, Nuxt) | [`ssrInjectMode: 'resolved-env'`](/guides/encrypted-deployments/) | Build |
 | Deploy to Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Deploy, as a versioned secret binding |
-| Have no build step (Elysia, Hono, Fastify, Express) | [`varlock freeze`](#freezing-with-varlock-freeze) | Deploy, into a file in your artifact |
+| Deploy to a platform that runs the app for you (Heroku, Railway, Render, Fly) | [`varlock freeze`](#freezing-with-varlock-freeze), in the build or release phase | Deploy, into a file in the slug or image |
+| Own the boot command (your own containers, VMs) but want config fixed per release | [`varlock freeze`](#freezing-with-varlock-freeze) | Deploy, into a file in your artifact |
 | Cannot ship a file into the deploy unit | [`varlock freeze --out -`](#carrying-the-payload-in-an-env-var-instead) | Deploy, into one env var |
-| Want values resolved fresh on every boot | [`varlock run`](/reference/cli/load-and-run/#run) | Boot |
+| Own the boot command and want values resolved fresh on every boot | [`varlock run`](/reference/cli/load-and-run/#run) | Boot |
 
 All but the last produce the same thing: a resolved, validated snapshot the runtime consumes without re-resolving. The runtime then needs no `.env` files, no resolver credentials, and no varlock CLI, which is a smaller attack surface as well as a faster boot.
 
-The framework integrations have done this for a long time. `varlock freeze` generalizes it to apps with no build step to bake values into. The rest of this guide is about `freeze`; if a row above already covers you, follow that link instead.
+The framework integrations have done this for a long time. `varlock freeze` is the same idea for everything else. On a platform that runs your app for you, the boot command is not yours to wrap in `varlock run`, and the runtime has no resolver credentials anyway, so resolving at deploy time is the only option, not a tradeoff. Where you do own the boot command, you could resolve on every boot with `varlock run`, and `freeze` is the explicit choice not to. The rest of this guide is about `freeze`; if a row above already covers you, follow that link instead.
 
 ## Freezing with `varlock freeze`
 

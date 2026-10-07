@@ -41,9 +41,12 @@ from those exact values without re-resolving. Run it at deploy time, and ship th
 inside your deploy artifact (image layer, deployment bundle) so config and code travel and
 roll back as one unit.
 
-This is aimed at platforms where you can control the boot command but can't feed env vars
-in atomically with a deploy, and at apps without a build step that would otherwise inline
-them (Elysia/Hono/Fastify on Bun or Node, distroless Docker images).
+Use it wherever a framework integration is not already baking values at build time
+(Elysia/Hono/Fastify on Bun or Node, distroless Docker images). On a platform that runs the
+app for you (Heroku, Railway, Render, Fly) run it in the build or release phase: the boot
+command is not yours to wrap in \`varlock run\`, so resolving at deploy time is the only option.
+Where you do own the boot command, it is the explicit choice to resolve once per release
+instead of on every boot.
 
 At boot, set _VARLOCK_USE_FROZEN_ENV=1 (or \`varlock run --frozen\`) and varlock boots from the
 file - no CLI, no .env files, and no resolver credentials needed in the runtime image. Set
