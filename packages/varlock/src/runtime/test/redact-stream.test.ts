@@ -129,12 +129,48 @@ describe('createRedactedStreamWriter', () => {
     expect(written.join('')).toBe('prompt> ');
   });
 
-  it('flushes held-back output after the timeout', () => {
-    const writer = createRedactedStreamWriter(fakeStream);
+  it('flushes held-back output after the timeout (so prompts are not stalled)', () => {
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue: () => undefined });
     writer.write('key=super-secr');
     expect(written.join('')).toBe('key=');
     vi.runAllTimers();
     expect(written.join('')).toBe('key=super-secr');
+  });
+
+  it('masks the rest of a value that arrives after the timeout, and reports the item', () => {
+    // e.g. a child that block-buffers piped stdout, pausing mid-value
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    writer.write(`key=${SECRET_VALUE.slice(0, 10)}`);
+    vi.runAllTimers();
+    writer.write(`${SECRET_VALUE.slice(10)}\n`);
+    expect(written.join('')).toBe(`key=${SECRET_VALUE.slice(0, 10)}▒▒▒▒▒\n`);
+    expect(written.join('')).not.toContain(SECRET_VALUE);
+    expect(onSplitValue).toHaveBeenCalledWith('API_KEY');
+  });
+
+  it('masks the rest of a value split across several timeouts', () => {
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    writer.write(`key=${SECRET_VALUE.slice(0, 5)}`);
+    vi.runAllTimers();
+    writer.write(SECRET_VALUE.slice(5, 12));
+    vi.runAllTimers();
+    writer.write(`${SECRET_VALUE.slice(12)}\n`);
+    expect(written.join('')).not.toContain(SECRET_VALUE);
+    expect(written.join('').endsWith('▒▒▒▒▒\n')).toBe(true);
+    expect(onSplitValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mask text after a flushed lookalike that never completes a value', () => {
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    // `s` only resembles the start of the secret
+    writer.write('prompt: s');
+    vi.runAllTimers();
+    writer.write('tatus ok\n');
+    expect(written.join('')).toBe('prompt: status ok\n');
+    expect(onSplitValue).not.toHaveBeenCalled();
   });
 
   it('flush() emits any held-back output', () => {

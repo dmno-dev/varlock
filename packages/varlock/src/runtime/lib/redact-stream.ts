@@ -1,4 +1,6 @@
-import { getStreamHoldbackLength, redactSensitiveConfig } from '../env';
+import {
+  findSplitValueCompletion, getPartialValueCarry, getStreamHoldbackLength, redactSensitiveConfig, SPLIT_VALUE_MASK,
+} from '../env';
 
 /**
  * how long to hold back a possible partial secret before giving up and flushing —
@@ -27,14 +29,37 @@ export function getParentRedactedStreams(
   return marker.slice(separatorIndex + 1).split(',');
 }
 
+const SPLIT_WARNED_KEY = Symbol.for('varlock.runSplitValueWarned');
+
+function warnSplitValueOnce(key: string) {
+  if ((globalThis as any)[SPLIT_WARNED_KEY]) return;
+  (globalThis as any)[SPLIT_WARNED_KEY] = true;
+  // eslint-disable-next-line no-console
+  console.warn([
+    `[varlock] the sensitive value of ${key} was split across output chunks with a pause between them,`,
+    'so its first part was printed before it could be recognized (the rest was redacted).',
+  ].join(' '));
+}
+
 /**
  * Creates a writer that pipes a child process output stream through redaction, handling
  * secrets that may be split across chunk boundaries. If a chunk ends with a partial match
  * of a sensitive value, those characters are held back until more data arrives (or a short
  * timeout passes) so the reassembled secret can still be redacted.
+ *
+ * After a timeout the held text is written as-is: it is only a partial match (maybe just a
+ * lookalike), and holding it longer would stall prompts. It is remembered though, so if the
+ * rest of a value arrives next (e.g. a child that block-buffers piped output pauses mid-value),
+ * that part is masked and a one-time warning names the item.
  */
-export function createRedactedStreamWriter(stream: { write(str: string): any }) {
+export function createRedactedStreamWriter(
+  stream: { write(str: string): any },
+  opts?: { onSplitValue?: (key: string) => void },
+) {
+  const onSplitValue = opts?.onSplitValue ?? warnSplitValueOnce;
   let pending = '';
+  // end of output already flushed (raw, on timeout) that could be the start of a value
+  let carry = '';
   let flushTimeout: ReturnType<typeof setTimeout> | undefined;
 
   const clearFlushTimeout = () => {
@@ -47,17 +72,38 @@ export function createRedactedStreamWriter(stream: { write(str: string): any }) 
   const flush = () => {
     clearFlushTimeout();
     if (!pending) return;
+    carry = getPartialValueCarry(carry + pending);
     stream.write(redactSensitiveConfig(pending));
     pending = '';
   };
 
   const write = (chunk: Buffer | string) => {
     clearFlushTimeout();
-    pending += chunk.toString();
-    const holdbackLength = getStreamHoldbackLength(pending);
-    const emittable = holdbackLength ? pending.slice(0, -holdbackLength) : pending;
-    pending = holdbackLength ? pending.slice(-holdbackLength) : '';
-    if (emittable) stream.write(redactSensitiveConfig(emittable));
+    let text = pending + chunk.toString();
+    pending = '';
+    let output = '';
+
+    // the rest of a value whose first part was already flushed
+    const split = findSplitValueCompletion(carry, text);
+    if (split) {
+      output = SPLIT_VALUE_MASK;
+      text = text.slice(split.length);
+      carry = '';
+      if (split.key) onSplitValue(split.key);
+    }
+
+    // hold back a trailing partial match, including one that started in already-flushed output
+    const holdbackLength = getStreamHoldbackLength(carry + text);
+    if (holdbackLength > text.length) {
+      pending = text;
+    } else {
+      carry = '';
+      pending = holdbackLength ? text.slice(-holdbackLength) : '';
+      const emittable = holdbackLength ? text.slice(0, -holdbackLength) : text;
+      if (emittable) output += redactSensitiveConfig(emittable);
+    }
+
+    if (output) stream.write(output);
     if (pending) {
       flushTimeout = setTimeout(flush, FLUSH_TIMEOUT_MS);
       // don't let a pending flush keep the process alive
