@@ -166,6 +166,9 @@ export class LoadingError extends VarlockError {
 export class ParseError extends VarlockError {
   static defaultIcon = '😵‍💫';
 }
+/** code on the warning for a sensitive number value, which redaction cannot mask */
+export const SENSITIVE_NUMBER_NOT_REDACTED = 'SENSITIVE_NUMBER_NOT_REDACTED';
+
 export class SchemaError extends VarlockError {
   static defaultIcon = '🧰';
 }

@@ -11,7 +11,7 @@ import { EnvGraphDataType, isCompositeCoercedType } from './data-types';
 import { EnvGraph } from './env-graph';
 import {
   CoercionError, EmptyRequiredValueError, ResolutionError, SchemaError,
-  ValidationError,
+  ValidationError, SENSITIVE_NUMBER_NOT_REDACTED,
 } from './errors';
 import { TAG_NAME_REGEX, TAG_NAME_RULES } from './item-filter';
 import type { CacheHitInfo } from './resolution-context';
@@ -662,6 +662,7 @@ export class ConfigItem {
         }),
         new SchemaError('sensitive, but a number is never redacted', {
           isWarning: true,
+          code: SENSITIVE_NUMBER_NOT_REDACTED,
           tip: 'Redaction only replaces strings, so this value appears as-is in logs and proxied responses.\nIf it is not a secret, mark it `@sensitive=false` (or `@public`) - `@defaultSensitive` is what made it sensitive.\nIf it is, make it a string: add `@type=string`, or quote the value.',
         }),
       );
