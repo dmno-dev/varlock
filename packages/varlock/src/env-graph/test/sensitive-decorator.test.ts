@@ -348,28 +348,172 @@ describe('@sensitive and @defaultSensitive tests', () => {
 });
 
 // maybe not the right spot, but it is related to sensitivity and decorators
-// we are checking redactLogs/preventLeaks are serialized correctly and can be disabled
-describe('@redactLogs and @preventLeaks', () => {
-  test('redactLogs and preventLeaks is on by default', envFilesTest({
+// we are checking redact/preventLeaks are serialized correctly and can be disabled
+// (`settings.redactLogs` is still written as a mirror of `redact.console` for older runtimes)
+describe('@redact and @preventLeaks', () => {
+  test('redact and preventLeaks are on by default', envFilesTest({
     expectSerializedMatches: {
       settings: {
+        redact: { console: true },
         redactLogs: true,
         preventLeaks: true,
       },
     },
   }));
-  test('redactLogs and preventLeaks is on by default', envFilesTest({
+  test('redact and preventLeaks can be disabled', envFilesTest({
     envFile: outdent`
-      # @redactLogs=false
+      # @redact=false
       # @preventLeaks=false
       # ---
     `,
     expectSerializedMatches: {
       settings: {
+        redact: { console: false, stdout: false },
         redactLogs: false,
         preventLeaks: false,
       },
     },
+  }));
+});
+
+describe('@redactLogs (deprecated alias of @redact)', () => {
+  test('still works, as a warning', envFilesTest({
+    envFile: outdent`
+      # @redactLogs={stdout=true}
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { console: true, stdout: true }, redactLogs: true },
+    },
+  }));
+  test('cannot be combined with @redact', envFilesTest({
+    envFile: outdent`
+      # @redact=false
+      # @redactLogs=false
+      # ---
+    `,
+    expectError: SchemaError,
+  }));
+  test('@sensitive={redactLogs=false} still works as an alias of redact=false', envFilesTest({
+    envFile: 'PRINTED=val   # @sensitive={redactLogs=false}',
+    expectSensitive: { PRINTED: true },
+    expectSerializedMatches: {
+      config: { PRINTED: { isSensitive: true, redact: false } },
+    },
+  }));
+});
+
+describe('@redact options object', () => {
+  test('bare @redact keeps console redaction on', envFilesTest({
+    envFile: outdent`
+      # @redact
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { console: true }, redactLogs: true },
+    },
+  }));
+  test('@redact=false turns off stdout redaction too', envFilesTest({
+    envFile: outdent`
+      # @redact=false
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { console: false, stdout: false }, redactLogs: false },
+    },
+  }));
+  test('stdout=true opts in to stdout/stderr redaction', envFilesTest({
+    envFile: outdent`
+      # @redact={stdout=true}
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { console: true, stdout: true }, redactLogs: true },
+    },
+  }));
+  test('console and stdout are independent', envFilesTest({
+    envFile: outdent`
+      # @redact={console=false, stdout=true}
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { console: false, stdout: true }, redactLogs: false },
+    },
+  }));
+  test('stdout=false keeps console redaction on', envFilesTest({
+    envFile: outdent`
+      # @redact={stdout=false}
+      # ---
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { console: true, stdout: false }, redactLogs: true },
+    },
+  }));
+  test('dynamic option values are resolved', envFilesTest({
+    envFile: outdent`
+      # @redact={stdout=$REDACT}
+      # ---
+      REDACT=true
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { stdout: true } },
+    },
+  }));
+  test('string forms from env overrides are accepted', envFilesTest({
+    envFile: outdent`
+      # @redact=$SHOULD_REDACT
+      # ---
+      SHOULD_REDACT=true
+    `,
+    overrideValues: { SHOULD_REDACT: 'false' },
+    expectSerializedMatches: {
+      settings: { redact: { console: false, stdout: false }, redactLogs: false },
+    },
+  }));
+  test('string option values from functions are accepted', envFilesTest({
+    envFile: outdent`
+      # @redact={stdout=$REDACT_STDOUT}
+      # @defaultSensitive=false
+      # ---
+      REDACT_STDOUT=ifs(eq($E, "dev"), "false", "true")
+      E=prod
+    `,
+    expectSerializedMatches: {
+      settings: { redact: { stdout: true } },
+    },
+  }));
+  test('unknown options are rejected', envFilesTest({
+    envFile: outdent`
+      # @redact={stdot=true}
+      # ---
+    `,
+    expectError: SchemaError,
+  }));
+  test('non-boolean option values are rejected', envFilesTest({
+    envFile: outdent`
+      # @redact={stdout="auto"}
+      # ---
+    `,
+    expectError: SchemaError,
+  }));
+});
+
+describe('per-item @sensitive={redact=false}', () => {
+  test('opts an item out of output redaction while keeping it sensitive', envFilesTest({
+    envFile: outdent`
+      PRINTED=val    # @sensitive={redact=false}
+      NORMAL=val     # @sensitive
+    `,
+    expectSensitive: { PRINTED: true, NORMAL: true },
+    expectSerializedMatches: {
+      config: {
+        PRINTED: { isSensitive: true, redact: false },
+      },
+    },
+  }));
+  test('non-boolean redact is rejected', envFilesTest({
+    envFile: 'FOO=val   # @sensitive={redact=nope}',
+    expectValues: { FOO: SchemaError },
   }));
 });
 
@@ -442,7 +586,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
   }));
 
   test('unknown options are rejected', envFilesTest({
-    envFile: 'FOO=val   # @sensitive={redactLogs=false}',
+    envFile: 'FOO=val   # @sensitive={redactLog=false}',
     expectValues: { FOO: SchemaError },
   }));
 

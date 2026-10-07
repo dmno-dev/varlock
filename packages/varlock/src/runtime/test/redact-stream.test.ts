@@ -1,7 +1,9 @@
 import {
   describe, it, expect, beforeEach, afterEach, vi,
 } from 'vitest';
-import { resetRedactionMap, getRedactionHoldbackLength } from '../env';
+import {
+  resetRedactionMap, getRedactionHoldbackLength, redactSensitiveConfig, redactSensitiveConfigForOutput,
+} from '../env';
 import { createRedactedStreamWriter } from '../lib/redact-stream';
 import type { SerializedEnvGraph } from '../../env-graph';
 
@@ -17,7 +19,37 @@ function setSecrets(secrets: Record<string, string>) {
 const SECRET_VALUE = 'super-secret-value-12345';
 const REDACTED_SECRET = 'su▒▒▒▒▒';
 
+/** straightforward version of the holdback check, to cross-check the indexed one */
+function naiveHoldbackLength(str: string, secrets: Array<string>) {
+  const longest = Math.max(0, ...secrets.map((s) => s.length));
+  for (let len = Math.min(str.length, longest - 1); len > 0; len--) {
+    const suffix = str.slice(str.length - len);
+    if (secrets.some((s) => s.length > len && s.startsWith(suffix))) return len;
+  }
+  return 0;
+}
+
 describe('getRedactionHoldbackLength', () => {
+  it('matches a naive implementation on random input', () => {
+    // a tiny alphabet makes partial matches (and repeated chars within secrets) common
+    const alphabet = 'ab-\n';
+    let seed = 42;
+    const rand = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const randStr = (len: number) => Array.from({ length: len }, () => alphabet[rand(alphabet.length)]).join('');
+    for (let round = 0; round < 50; round++) {
+      const secrets = Array.from({ length: 1 + rand(5) }, () => randStr(3 + rand(30)));
+      setSecrets(Object.fromEntries(secrets.map((s, i) => [`K${i}`, s])));
+      for (let i = 0; i < 40; i++) {
+        const str = randStr(rand(50));
+        expect(getRedactionHoldbackLength(str), JSON.stringify({ str, secrets }))
+          .toBe(naiveHoldbackLength(str, secrets));
+      }
+    }
+  });
+
   beforeEach(() => {
     setSecrets({ API_KEY: SECRET_VALUE });
   });
@@ -97,12 +129,77 @@ describe('createRedactedStreamWriter', () => {
     expect(written.join('')).toBe('prompt> ');
   });
 
-  it('flushes held-back output after the timeout', () => {
-    const writer = createRedactedStreamWriter(fakeStream);
+  it('flushes held-back output after the timeout (so prompts are not stalled)', () => {
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue: () => undefined });
     writer.write('key=super-secr');
     expect(written.join('')).toBe('key=');
     vi.runAllTimers();
     expect(written.join('')).toBe('key=super-secr');
+  });
+
+  it('masks the rest of a value that arrives after the timeout, and reports the item', () => {
+    // e.g. a child that block-buffers piped stdout, pausing mid-value
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    writer.write(`key=${SECRET_VALUE.slice(0, 10)}`);
+    vi.runAllTimers();
+    writer.write(`${SECRET_VALUE.slice(10)}\n`);
+    expect(written.join('')).toBe(`key=${SECRET_VALUE.slice(0, 10)}▒▒▒▒▒\n`);
+    expect(written.join('')).not.toContain(SECRET_VALUE);
+    expect(onSplitValue).toHaveBeenCalledWith('API_KEY');
+  });
+
+  it('masks the rest of a value split across several timeouts', () => {
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    writer.write(`key=${SECRET_VALUE.slice(0, 5)}`);
+    vi.runAllTimers();
+    writer.write(SECRET_VALUE.slice(5, 12));
+    vi.runAllTimers();
+    writer.write(`${SECRET_VALUE.slice(12)}\n`);
+    expect(written.join('')).not.toContain(SECRET_VALUE);
+    expect(written.join('').endsWith('▒▒▒▒▒\n')).toBe(true);
+    expect(onSplitValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mask text after a flushed lookalike that never completes a value', () => {
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    // `s` only resembles the start of the secret
+    writer.write('prompt: s');
+    vi.runAllTimers();
+    writer.write('tatus ok\n');
+    expect(written.join('')).toBe('prompt: status ok\n');
+    expect(onSplitValue).not.toHaveBeenCalled();
+  });
+
+  it('flushes a continuous overlap chain every interval instead of buffering it', () => {
+    // `secret-token-s` followed by `ecret-token-s` forever: every write ends in a value that
+    // overlaps the previous one, so nothing can be cut without splitting a value. The deadline
+    // flushes the whole chain through single-shot redaction instead
+    setSecrets({ TOKEN: 'secret-token-s' });
+    const onSplitValue = vi.fn();
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue });
+    writer.write('secret-token-s');
+    for (let i = 0; i < 30; i++) {
+      vi.advanceTimersByTime(10);
+      writer.write('ecret-token-s');
+    }
+    // 300ms of continuous output: flushed at least twice, never allowed to pile up
+    expect(written.length).toBeGreaterThanOrEqual(2);
+    expect(written.join('')).not.toContain('secret-token-s');
+    writer.flush();
+    expect(written.join('')).not.toContain('secret-token-s');
+  });
+
+  it('the deadline is not pushed back by later writes', () => {
+    const writer = createRedactedStreamWriter(fakeStream, { onSplitValue: () => undefined });
+    writer.write('a: super-s');
+    vi.advanceTimersByTime(60);
+    writer.write('ecr'); // still a partial match, held along with the earlier part
+    vi.advanceTimersByTime(60);
+    // 120ms after the first held byte: flushed even though the last write was 60ms ago
+    expect(written.join('')).toBe('a: super-secr');
   });
 
   it('flush() emits any held-back output', () => {
@@ -117,5 +214,67 @@ describe('createRedactedStreamWriter', () => {
     const writer = createRedactedStreamWriter(fakeStream);
     writer.write(`key=${SECRET_VALUE}\n`);
     expect(written.join('')).toBe(`key=${SECRET_VALUE}\n`);
+  });
+});
+
+describe('unmask markers', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: SECRET_VALUE });
+  });
+
+  it('leaves a value wrapped in unmask markers alone', () => {
+    expect(redactSensitiveConfig(`key=👁 ${SECRET_VALUE} 👁!`)).toBe(`key=👁 ${SECRET_VALUE} 👁!`);
+  });
+
+  it('still redacts when only one marker is present', () => {
+    expect(redactSensitiveConfig(`👁 ${SECRET_VALUE}`)).toBe(`👁 ${REDACTED_SECRET}`);
+    expect(redactSensitiveConfig(`${SECRET_VALUE} 👁`)).toBe(`${REDACTED_SECRET} 👁`);
+  });
+
+  it('redacts other occurrences next to an unmasked one', () => {
+    expect(redactSensitiveConfig(`👁 ${SECRET_VALUE} 👁 ${SECRET_VALUE}`)).toBe(`👁 ${SECRET_VALUE} 👁 ${REDACTED_SECRET}`);
+  });
+});
+
+describe('redactSensitiveConfigForOutput', () => {
+  beforeEach(() => {
+    setSecrets({ API_KEY: SECRET_VALUE });
+  });
+
+  it('strips unmask markers so the revealed value prints as-is', () => {
+    expect(redactSensitiveConfigForOutput(`key=👁 ${SECRET_VALUE} 👁!`)).toBe(`key=${SECRET_VALUE}!`);
+  });
+
+  it('still redacts values that are not wrapped', () => {
+    expect(redactSensitiveConfigForOutput(`👁 ${SECRET_VALUE} 👁 ${SECRET_VALUE}`)).toBe(`${SECRET_VALUE} ${REDACTED_SECRET}`);
+  });
+
+  it('strips markers around non-sensitive values too', () => {
+    expect(redactSensitiveConfigForOutput('👁 hello 👁')).toBe('hello');
+  });
+
+  it('leaves non-strings alone', () => {
+    expect(redactSensitiveConfigForOutput(123)).toBe(123);
+  });
+});
+
+describe('createRedactedStreamWriter with overlapping values', () => {
+  it('never emits a protected value that overlaps another value across chunks', () => {
+    setSecrets({ A: 'aabaa', B: 'aabaabXYZ' });
+    const chunks: Array<string> = [];
+    const writer = createRedactedStreamWriter({ write: (c: string) => chunks.push(c) });
+    writer.write('aabaabaa');
+    writer.write('baa\n');
+    writer.flush();
+    expect(chunks.join('')).not.toContain('aabaa');
+  });
+
+  it('redacts a complete value whose ending is also the start of a value', () => {
+    setSecrets({ SELF_OVERLAP: 'secret-token-s' });
+    const chunks: Array<string> = [];
+    const writer = createRedactedStreamWriter({ write: (c: string) => chunks.push(c) });
+    writer.write('secret-token-s');
+    writer.flush();
+    expect(chunks.join('')).toBe('se▒▒▒▒▒');
   });
 });

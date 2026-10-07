@@ -19,6 +19,7 @@ vi.mock('varlock/env', () => ({
 
 vi.mock('varlock/patch-console', () => ({
   patchGlobalConsole: mockPatchGlobalConsole,
+  patchProcessStreams: vi.fn(),
 }));
 
 import { withVarlockMetroConfig } from '../src/metro-config';

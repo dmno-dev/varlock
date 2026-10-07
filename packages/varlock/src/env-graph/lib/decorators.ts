@@ -407,6 +407,59 @@ function assertNoRemovedProxyOptions(keys: Array<string>): void {
 /** Inner options of the `approval={...}` object form. */
 const VALID_APPROVAL_OPTIONS = ['enabled', 'each', 'maxDuration'] as const;
 
+const REDACT_OPTIONS = ['console', 'stdout'];
+
+/**
+ * A resolved boolean setting, accepting the string forms `true`/`false` too: a reference to an
+ * item overridden from the environment (`SHOULD_REDACT=false varlock run ...`) resolves to a
+ * string. Static values are still required to be real booleans (checked in `process`).
+ */
+function coerceResolvedBoolean(value: unknown): boolean | undefined {
+  if (_.isBoolean(value)) return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return undefined;
+}
+
+/**
+ * Normalize a resolved `@redact` value (or its deprecated alias `@redactLogs`) into the two
+ * runtime settings.
+ * - `console`: patch console methods (on unless explicitly disabled)
+ * - `stdout`: redact process stdout/stderr when not a TTY. `undefined` = not set in the
+ *   schema, which `varlock run` treats as on and in-process stream patching treats as off
+ *   (for now - this becomes on by default in a future major)
+ *
+ * A bare `false` disables both. Returns an error message for an invalid (dynamic) value.
+ */
+export function parseRedactSetting(
+  value: unknown,
+  decoratorName = 'redact',
+): { console: boolean, stdout?: boolean } | { error: string } {
+  const bool = coerceResolvedBoolean(value);
+  if (value === undefined || bool === true) return { console: true };
+  if (bool === false) return { console: false, stdout: false };
+  if (_.isPlainObject(value)) {
+    const opts = value as Record<string, unknown>;
+    const parsed: { console: boolean, stdout?: boolean } = { console: true };
+    for (const key of Object.keys(opts)) {
+      if (!REDACT_OPTIONS.includes(key)) {
+        return { error: `@${decoratorName}: unknown option "${key}" (supported: ${REDACT_OPTIONS.join(', ')})` };
+      }
+      if (opts[key] === undefined) continue;
+      const optBool = coerceResolvedBoolean(opts[key]);
+      if (optBool === undefined) {
+        return { error: `@${decoratorName}: ${key} must resolve to a boolean (got ${JSON.stringify(opts[key])})` };
+      }
+      parsed[key as 'console' | 'stdout'] = optBool;
+    }
+    return parsed;
+  }
+  return { error: `@${decoratorName} must resolve to a boolean or an options object (got ${JSON.stringify(value)})` };
+}
+
 /** A static boolean option (`block`) must be a real boolean — a quoted `"true"`
  * or `1` is a misconfiguration that would otherwise silently drop the option
  * (turning a deny rule into a plain allow). Dynamic expressions are validated at
@@ -581,6 +634,34 @@ function validateProxyFunctionArgs(argsVal: Resolver): void {
   }
 }
 
+/**
+ * `@redact`: boolean (all log/output redaction on or off) or an options object, e.g.
+ * `@redact={console=true, stdout=true}`. Static values are checked here; dynamic values are
+ * validated after resolution (see parseRedactSetting).
+ */
+function redactRootDecorator(name: string, extra: Partial<RootDecoratorDef>): RootDecoratorDef {
+  return {
+    name,
+    objectValueExample: '{stdout=true}',
+    process: (decVal) => {
+      if (decVal.objArgs) {
+        for (const key in decVal.objArgs) {
+          if (!REDACT_OPTIONS.includes(key)) {
+            throw new SchemaError(`@${name}: unknown option "${key}" (supported: ${REDACT_OPTIONS.join(', ')})`);
+          }
+          const optResolver = decVal.objArgs[key];
+          if (optResolver?.isStatic && !_.isBoolean(optResolver.staticValue)) {
+            throw new SchemaError(`@${name}: ${key} must be a boolean (true or false)`);
+          }
+        }
+      } else if (decVal.isStatic && !_.isBoolean(decVal.staticValue)) {
+        throw new SchemaError(`@${name} must be a boolean, or an options object like @${name}={stdout=true}`);
+      }
+    },
+    ...extra,
+  };
+}
+
 // root decorators
 export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
@@ -656,9 +737,10 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       throw new Error('@cache decorator value must be one of: "auto", "memory", "disk", "disabled"');
     },
   },
-  {
-    name: 'redactLogs',
-  },
+  // `@redact`, plus `@redactLogs` as its deprecated alias (the env graph warns on the alias
+  // and errors when both are present)
+  redactRootDecorator('redact', { incompatibleWith: ['redactLogs'] }),
+  redactRootDecorator('redactLogs', { deprecated: 'use @redact instead', incompatibleWith: ['redact'] }),
   {
     name: 'preventLeaks',
   },

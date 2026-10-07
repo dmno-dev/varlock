@@ -15,7 +15,7 @@ import { envFilesTest } from './helpers/generic-test';
 describe('root decorator arg dependencies', () => {
   test('resolves direct deps of a root decorator value', envFilesTest({
     envFile: outdent`
-      # @redactLogs=$SHOULD_REDACT
+      # @redact=$SHOULD_REDACT
       # ---
       SHOULD_REDACT=false
     `,
@@ -24,7 +24,7 @@ describe('root decorator arg dependencies', () => {
 
   test('resolves transitive deps of a root decorator value', envFilesTest({
     envFile: outdent`
-      # @redactLogs=$SHOULD_REDACT
+      # @redact=$SHOULD_REDACT
       # @defaultSensitive=false
       # ---
       SHOULD_REDACT=ifs(eq($DEPLOY_ENV, "dev"), "false", "true")
@@ -38,7 +38,7 @@ describe('root decorator arg dependencies', () => {
 
   test('resolves multi-level transitive deps of a root decorator value', envFilesTest({
     envFile: outdent`
-      # @redactLogs=$SHOULD_REDACT
+      # @redact=$SHOULD_REDACT
       # @defaultSensitive=false
       # ---
       SHOULD_REDACT=concat($REDACT_PREFIX, "alse")

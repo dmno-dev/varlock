@@ -6,6 +6,7 @@ import { isVarlockCliChild } from './lib/cli-child-marker';
 
 import { initVarlockEnv, getPreInjectionProcessEnv } from './runtime/env';
 import { patchGlobalConsole } from './runtime/patch-console';
+import { patchProcessStreams } from './runtime/patch-process-streams';
 import { patchGlobalServerResponse } from './runtime/patch-server-response';
 import { patchGlobalResponse } from './runtime/patch-response';
 
@@ -189,6 +190,7 @@ function autoLoad() {
   }
   // these will be no-ops if these are disabled by settings
   patchGlobalConsole();
+  patchProcessStreams();
   patchGlobalServerResponse();
   patchGlobalResponse();
 }

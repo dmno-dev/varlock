@@ -10,7 +10,9 @@ import { execSync } from 'child_process';
 import { createHash } from 'crypto';
 import type { SerializedEnvGraph } from 'varlock';
 import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
-import { patchGlobalConsole } from 'varlock/patch-console';
+// namespace import: `patchProcessStreams` is missing from older varlock versions, and a missing
+// named import would fail at link time rather than degrade to console-only redaction
+import * as varlockPatchConsole from 'varlock/patch-console';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 
 export type Env = { [key: string]: string | undefined };
@@ -605,7 +607,8 @@ export function loadEnvConfig(
 
       resetRedactionMap(varlockLoadedEnv);
       debug('patching console with varlock redactor');
-      patchGlobalConsole();
+      varlockPatchConsole.patchGlobalConsole();
+      varlockPatchConsole.patchProcessStreams?.();
       lastLoadedSourceStateHash = computeSourceStateHash(varlockLoadedEnv.sources, varlockLoadedEnv.basePath);
     }
 
@@ -746,7 +749,8 @@ export function loadEnvConfig(
 
   resetRedactionMap(varlockLoadedEnv);
   debug('patching console with varlock redactor');
-  patchGlobalConsole();
+  varlockPatchConsole.patchGlobalConsole();
+  varlockPatchConsole.patchProcessStreams?.();
 
   combinedEnv = { ...initialEnv, ...parsedEnv };
   loadedEnvFiles = getVarlockSourcesAsLoadedEnvFiles();

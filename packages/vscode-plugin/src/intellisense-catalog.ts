@@ -158,11 +158,19 @@ export const ROOT_DECORATORS: Array<DecoratorInfo> = [
     isFunction: true,
   },
   {
+    name: 'redact',
+    scope: 'root',
+    summary: 'Controls whether sensitive values are redacted from logs and output.',
+    documentation: 'Boolean or options object (`@redact={console=true, stdout=true}`). Sensitive values are replaced with redacted output in console logs, and with `stdout=true` in everything written to stdout/stderr.',
+    insertText: `@redact=${booleanChoiceSnippet()}`,
+  },
+  {
     name: 'redactLogs',
     scope: 'root',
-    summary: 'Controls whether sensitive values are redacted in logs.',
-    documentation: 'Boolean decorator. Sensitive values are replaced with redacted output when enabled.',
+    summary: 'Deprecated alias of @redact.',
+    documentation: 'Deprecated. Use `@redact` instead.',
     insertText: `@redactLogs=${booleanChoiceSnippet()}`,
+    deprecated: 'Use @redact instead.',
   },
   {
     name: 'preventLeaks',

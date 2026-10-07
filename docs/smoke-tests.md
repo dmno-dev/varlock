@@ -141,7 +141,7 @@ Redaction is auto-detected per output stream. When a stream is attached to an in
 To override the auto-detection:
 ```bash
 varlock run --no-redact-stdout -- node app.js > log.txt  # force-disable redaction even when piped
-varlock run --redact-stdout -- node app.js > log.txt     # force redaction of piped output (e.g., @redactLogs=false)
+varlock run --redact-stdout -- node app.js > log.txt     # force redaction of piped output (e.g., @redact=false)
 ```
 
 `--redact-stdout` errors if output is attached to an interactive terminal — redacting a TTY-attached stream requires piping it, which would break TTY-dependent tools.

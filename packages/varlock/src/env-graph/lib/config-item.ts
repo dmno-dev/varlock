@@ -611,6 +611,18 @@ export class ConfigItem {
   }
 
   /**
+   * Whether this item's value is redacted from console and stdout/stderr output.
+   * Defaults to true for sensitive items; can be disabled per-item via
+   * `@sensitive={redact=false}` for values a program legitimately prints
+   * (e.g. a script that outputs a token for another tool).
+   * Note: this only opts out of output redaction - leak detection still applies.
+   */
+  _redact: boolean = true;
+  get redact(): boolean {
+    return this._redact;
+  }
+
+  /**
    * Acknowledges that this item's value is short enough to collide with ordinary
    * text, silencing that warning. For secrets that are short by nature and cannot
    * be lengthened (a one-time code, a PIN), where the collision risk is real but
@@ -807,6 +819,16 @@ export class ConfigItem {
           continue;
         }
         this._preventLeaks = opts[optKey];
+      } else if (optKey === 'redact' || optKey === 'redactLogs') {
+        // `redactLogs` is the deprecated alias (the root decorator was renamed to @redact)
+        if (optKey === 'redactLogs') {
+          this._schemaErrors.push(new SchemaError('@sensitive option "redactLogs" is deprecated, use "redact" instead', { isWarning: true }));
+        }
+        if (typeof opts[optKey] !== 'boolean') {
+          this._schemaErrors.push(new SchemaError(`@sensitive ${optKey} option must be a boolean`));
+          continue;
+        }
+        this._redact = opts[optKey];
       } else if (optKey === 'allowShortValue') {
         if (typeof opts[optKey] !== 'boolean') {
           this._schemaErrors.push(new SchemaError('@sensitive allowShortValue option must be a boolean'));
@@ -814,7 +836,7 @@ export class ConfigItem {
         }
         this._allowShortValue = opts[optKey];
       } else {
-        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: enabled, preventLeaks, allowShortValue`));
+        this._schemaErrors.push(new SchemaError(`@sensitive: unknown option "${optKey}". Valid options: enabled, preventLeaks, redact, allowShortValue`));
       }
     }
     return enabled;

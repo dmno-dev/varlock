@@ -9,7 +9,7 @@ import {
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { resolveStdoutRedaction, pipeRedactedStreams } from '../helpers/stdout-redaction';
+import { resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv } from '../helpers/stdout-redaction';
 import { flushSchemaLoadedEvent } from '../helpers/telemetry';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
@@ -235,8 +235,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   // redact). Shared with `varlock proxy run` so the two commands can't diverge.
   const { redactStdout, redactStderr } = resolveStdoutRedaction({
     redactStdoutFlag: ctx.values['redact-stdout'],
-    redactLogs: serializedGraph.settings?.redactLogs ?? true,
+    redactStdoutSetting: serializedGraph.settings?.redact?.stdout ?? true,
   });
+  setParentRedactedStreamsEnv(fullInjectedEnv, { redactStdout, redactStderr });
 
   // The schema is resolved and validated by now, and nothing in this process changes it
   // afterwards, so send the schema usage event here rather than at exit. A long-running

@@ -1,6 +1,8 @@
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
-import { patchGlobalConsole } from 'varlock/patch-console';
+// namespace import: `patchProcessStreams` is missing from older varlock versions, and a missing
+// named import would fail at link time rather than degrade to console-only redaction
+import * as varlockPatchConsole from 'varlock/patch-console';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 
 const debug = createDebug('varlock:expo-integration');
@@ -34,8 +36,9 @@ function loadVarlockConfig() {
 
     // initialize varlock and patch globals as necessary
     initVarlockEnv();
-    // this will be a no-op if disabled by settings
-    patchGlobalConsole();
+    // these will be no-ops if disabled by settings
+    varlockPatchConsole.patchGlobalConsole();
+    varlockPatchConsole.patchProcessStreams?.();
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) {
       process.stderr.write(err.stderr);

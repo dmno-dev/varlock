@@ -16,7 +16,7 @@ import {
 
 import {
   builtInItemDecorators, builtInRootDecorators,
-  RootDecoratorInstance,
+  RootDecoratorInstance, parseRedactSetting,
   type ItemDecoratorDef,
   type RootDecoratorDef,
 } from './decorators';
@@ -115,6 +115,16 @@ export type SerializedEnvGraph = {
     contentHash?: string;
   }>,
   settings: {
+    /**
+     * `@redact`, as written: `console` is console method redaction; `stdout` is stdout/stderr
+     * redaction when not a TTY. `stdout` is absent when not set in the schema, in which case
+     * `varlock run` redacts while in-process stream patching (auto-load) stays off.
+     */
+    redact?: { console: boolean, stdout?: boolean };
+    /**
+     * @deprecated mirror of `redact.console`, still written because runtimes older than 1.22
+     * only read this key (the decorator used to be `@redactLogs`). Dropped in the next major.
+     */
     redactLogs?: boolean;
     preventLeaks?: boolean;
     encryptInjectedEnv?: boolean;
@@ -136,6 +146,8 @@ export type SerializedEnvGraph = {
     isSensitive: boolean;
     /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
     preventLeaks?: boolean;
+    /** false = not redacted in console/stdout/stderr output (still leak-scanned). Omitted when true (the default). */
+    redact?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
     /**
@@ -762,7 +774,12 @@ export class EnvGraph {
     }
 
     // maybe should be part of a _resolve all root decorators_ step?
-    await this.getRootDec('redactLogs')?.resolve();
+    const redactDec = this.getRedactRootDec();
+    if (redactDec) {
+      const redactSetting = parseRedactSetting(await redactDec.resolve(), redactDec.name);
+      // static values already failed in process(); this catches dynamic ones
+      if ('error' in redactSetting) redactDec._errors.push(new SchemaError(redactSetting.error));
+    }
     await this.getRootDec('preventLeaks')?.resolve();
     await this.getRootDec('encryptInjectedEnv')?.resolve();
     await this.getRootDec('disableProcessEnvInjection')?.resolve();
@@ -1160,6 +1177,7 @@ export class EnvGraph {
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
+        ...item.isSensitive && !item.redact ? { redact: false } : {},
         // only emit when it diverges from the sensitivity linkage (the default), so
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
@@ -1180,7 +1198,11 @@ export class EnvGraph {
     );
 
     // expose a few root level settings
-    serializedGraph.settings.redactLogs = this.getRootDec('redactLogs')?.resolvedValue ?? true;
+    const redactSetting = parseRedactSetting(this.getRedactRootDec()?.resolvedValue);
+    // `stdout` is only emitted when set explicitly, since `varlock run` and in-process
+    // stream patching currently default differently when it is absent
+    serializedGraph.settings.redact = 'error' in redactSetting ? { console: true } : redactSetting;
+    serializedGraph.settings.redactLogs = serializedGraph.settings.redact.console;
     serializedGraph.settings.preventLeaks = this.getRootDec('preventLeaks')?.resolvedValue ?? true;
     serializedGraph.settings.encryptInjectedEnv = this.getRootDec('encryptInjectedEnv')?.resolvedValue ?? false;
     serializedGraph.settings.disableProcessEnvInjection = this.getRootDec('disableProcessEnvInjection')?.resolvedValue ?? false;
@@ -1348,6 +1370,21 @@ export class EnvGraph {
       }
     }
     return { generatedCount, skippedImportOnlyCount };
+  }
+
+  /**
+   * The `@redact` root decorator, or its deprecated alias `@redactLogs`. Using the alias
+   * warns; using both is an error (on the alias), and `@redact` wins.
+   */
+  private getRedactRootDec() {
+    const redactDec = this.getRootDec('redact');
+    const redactLogsDec = this.getRootDec('redactLogs');
+    if (redactLogsDec && !redactLogsDec._errors.length) {
+      redactLogsDec._errors.push(redactDec
+        ? new SchemaError('Cannot use both @redact and @redactLogs (its deprecated alias)')
+        : new SchemaError('@redactLogs is deprecated, use @redact instead', { isWarning: true }));
+    }
+    return redactDec ?? redactLogsDec;
   }
 
   getRootDec(decoratorName: string) {

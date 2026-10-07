@@ -1,7 +1,9 @@
 import { resolve, dirname } from 'node:path';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { initVarlockEnv } from 'varlock/env';
-import { patchGlobalConsole } from 'varlock/patch-console';
+// namespace import: `patchProcessStreams` is missing from older varlock versions, and a missing
+// named import would fail at link time rather than degrade to console-only redaction
+import * as varlockPatchConsole from 'varlock/patch-console';
 import type { SerializedEnvGraph } from 'varlock';
 
 const VARLOCK_SUBPATHS = [
@@ -90,7 +92,8 @@ export function withVarlockMetroConfig<T extends Record<string, any>>(config: T)
     (globalThis as any).__varlockLoadedEnv = parsed;
 
     initVarlockEnv();
-    patchGlobalConsole();
+    varlockPatchConsole.patchGlobalConsole();
+    varlockPatchConsole.patchProcessStreams?.();
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) {
       process.stderr.write(err.stderr);

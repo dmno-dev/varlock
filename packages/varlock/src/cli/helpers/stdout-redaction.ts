@@ -1,16 +1,9 @@
 import { CliExitError } from './exit-error';
-import { createRedactedStreamWriter } from '../../runtime/lib/redact-stream';
+import { createRedactedStreamWriter, PARENT_REDACTED_STREAMS_ENV_VAR } from '../../runtime/lib/redact-stream';
+import { parseEnvToggle } from '../../runtime/lib/env-toggle';
 
 export { REDACT_STDOUT_ARG } from './redact-stdout-arg';
-
-/** Parse a tri-state on/off/unset env toggle (e.g. `_VARLOCK_REDACT_STDOUT`). */
-export function parseEnvToggle(value: string | undefined): boolean | undefined {
-  if (value === undefined) return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true') return true;
-  if (normalized === '0' || normalized === 'false') return false;
-  return undefined;
-}
+export { parseEnvToggle };
 
 export type StdoutRedactionPlan = { redactStdout: boolean; redactStderr: boolean };
 
@@ -29,7 +22,8 @@ export type StdoutRedactionPlan = { redactStdout: boolean; redactStderr: boolean
  */
 export function resolveStdoutRedaction(opts: {
   redactStdoutFlag: boolean | undefined;
-  redactLogs: boolean;
+  /** the schema's `@redact` stdout setting (`settings.redact.stdout`), on when unset */
+  redactStdoutSetting: boolean;
 }): StdoutRedactionPlan {
   const redactOverride = opts.redactStdoutFlag ?? parseEnvToggle(process.env._VARLOCK_REDACT_STDOUT);
   const forceRedact = redactOverride === true;
@@ -46,7 +40,7 @@ export function resolveStdoutRedaction(opts: {
     });
   }
 
-  const redactionEnabled = !forceNoRedact && (opts.redactLogs || forceRedact);
+  const redactionEnabled = !forceNoRedact && (opts.redactStdoutSetting || forceRedact);
   return {
     redactStdout: redactionEnabled && (forceRedact || !process.stdout.isTTY),
     redactStderr: redactionEnabled && (forceRedact || !process.stderr.isTTY),
@@ -72,4 +66,17 @@ export function pipeRedactedStreams(
     commandProcess.stderr.on('data', writer.write);
     commandProcess.stderr.on('close', writer.flush);
   }
+}
+
+/**
+ * Tell the child which of its streams this process is already redacting, so an in-process
+ * stream patch (`varlock/auto-load` with `@redact={stdout=true}`) can skip them instead
+ * of redacting (and holding back partial matches) twice. Always rewritten, so a marker
+ * inherited from an outer `varlock run` never outlives the pipe it described.
+ */
+export function setParentRedactedStreamsEnv(env: Record<string, string | undefined>, plan: StdoutRedactionPlan): void {
+  const streams = [plan.redactStdout && 'stdout', plan.redactStderr && 'stderr'].filter(Boolean);
+  // tagged with our pid: only our direct child writes straight into the pipes we redact
+  if (streams.length) env[PARENT_REDACTED_STREAMS_ENV_VAR] = `${process.pid}:${streams.join(',')}`;
+  else delete env[PARENT_REDACTED_STREAMS_ENV_VAR];
 }
