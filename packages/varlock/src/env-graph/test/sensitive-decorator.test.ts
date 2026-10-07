@@ -401,13 +401,13 @@ describe('@redactLogs options object', () => {
       settings: { redactLogs: true, redactStdout: true },
     },
   }));
-  test('console and stdout are independent', envFilesTest({
+  test('stdout=false keeps console redaction on', envFilesTest({
     envFile: outdent`
-      # @redactLogs={console=false, stdout=true}
+      # @redactLogs={stdout=false}
       # ---
     `,
     expectSerializedMatches: {
-      settings: { redactLogs: false, redactStdout: true },
+      settings: { redactLogs: true, redactStdout: false },
     },
   }));
   test('dynamic option values are resolved', envFilesTest({
@@ -456,25 +456,6 @@ describe('@redactLogs options object', () => {
       # ---
     `,
     expectError: SchemaError,
-  }));
-});
-
-describe('per-item @sensitive={redactLogs=false}', () => {
-  test('opts an item out of output redaction while keeping it sensitive', envFilesTest({
-    envFile: outdent`
-      PRINTED=val    # @sensitive={redactLogs=false}
-      NORMAL=val     # @sensitive
-    `,
-    expectSensitive: { PRINTED: true, NORMAL: true },
-    expectSerializedMatches: {
-      config: {
-        PRINTED: { isSensitive: true, redactLogs: false },
-      },
-    },
-  }));
-  test('non-boolean redactLogs is rejected', envFilesTest({
-    envFile: 'FOO=val   # @sensitive={redactLogs=nope}',
-    expectValues: { FOO: SchemaError },
   }));
 });
 
@@ -547,7 +528,7 @@ describe('per-item @sensitive={preventLeaks=false}', () => {
   }));
 
   test('unknown options are rejected', envFilesTest({
-    envFile: 'FOO=val   # @sensitive={redactLog=false}',
+    envFile: 'FOO=val   # @sensitive={redactLogs=false}',
     expectValues: { FOO: SchemaError },
   }));
 

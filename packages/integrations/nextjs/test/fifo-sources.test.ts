@@ -30,6 +30,7 @@ vi.mock('varlock/env', () => ({
 
 vi.mock('varlock/patch-console', () => ({
   patchGlobalConsole: vi.fn(),
+  patchProcessStreams: vi.fn(),
 }));
 
 // next-env-compat uses `import * as fs from 'fs'`. We mock watchFile/unwatchFile

@@ -3,8 +3,11 @@
 import { redactSensitiveConfig, redactSensitiveConfigForOutput, varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
-import { patchProcessStreams } from './patch-process-streams';
 
+// stdout/stderr redaction (`@redactLogs={stdout=true}`) lives next to the console patch so node
+// consumers get both from one import, but is not called from patchGlobalConsole: the edge
+// bundles patch the console too and have no process streams to patch
+export { patchProcessStreams } from './patch-process-streams';
 
 /**
  * patches global console methods to redact sensitive config
@@ -12,11 +15,6 @@ import { patchProcessStreams } from './patch-process-streams';
  * NOTE - this may not be 100% foolproof depending on the platform
  * */
 export function patchGlobalConsole() {
-  // stdout/stderr redaction is part of log redaction, and patching it here means every
-  // integration that patches the console gets it too. A no-op unless opted in (and wherever
-  // there are no process streams, e.g. edge runtimes)
-  patchProcessStreams();
-
   debug('⚡️ PATCHING global console methods');
   if ((console.log as any)._varlockPatchedFn) {
     debug('> already patched');

@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 
 import {
-  scanForLeaks, varlockSettings,
+  redactSensitiveConfig, scanForLeaks, varlockSettings,
 } from 'varlock/env';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
-import { scrubLeakedSecrets } from './leak-scrub';
 
 import type { SerializedEnvGraph } from 'varlock';
 import { encryptEnvBlobSync } from 'varlock/encrypt-env';
@@ -159,7 +158,7 @@ export function createWebpackConfigFn(
               } catch (err) {
                 if (dev) {
                   // overwrite file with redacted version
-                  fs.writeFileSync(targetPath, scrubLeakedSecrets(content.toString()));
+                  fs.writeFileSync(targetPath, redactSensitiveConfig(content.toString()));
                 } else {
                   throw err;
                 }

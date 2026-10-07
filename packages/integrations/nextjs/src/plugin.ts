@@ -5,11 +5,12 @@ import path from 'node:path';
 import type { NextConfig } from 'next';
 
 import {
-  getRedactionMapInfo, initVarlockEnv, scanForLeaks, varlockSettings,
+  getRedactionMapInfo, initVarlockEnv, redactSensitiveConfig, scanForLeaks, varlockSettings,
 } from 'varlock/env';
-import { patchGlobalConsole } from 'varlock/patch-console';
+// namespace import: `patchProcessStreams` is missing from older varlock versions, and a missing
+// named import would fail at link time rather than degrade to console-only redaction
+import * as varlockPatchConsole from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
-import { scrubLeakedSecrets } from './leak-scrub';
 
 import type { SerializedEnvGraph } from 'varlock';
 import { createWebpackConfigFn } from './webpack-plugin';
@@ -29,7 +30,8 @@ if (!process.env.__VARLOCK_ENV) {
   throw new Error('VarlockNextWebpackPlugin: __VARLOCK_ENV is not set');
 }
 
-patchGlobalConsole();
+varlockPatchConsole.patchGlobalConsole();
+varlockPatchConsole.patchProcessStreams?.();
 
 // Turbopack detection at module level — needed to apply patches in worker processes
 // (the config function only runs in the main process, but workers also load this module)
@@ -176,7 +178,7 @@ async function scanBuildOutputForLeaks(nextDirPath: string, opts?: { failBuild?:
     } catch (err) {
       leakedFiles.push(file);
       // redact the file so the leak doesn't ship
-      await fs.promises.writeFile(file, scrubLeakedSecrets(fileContents));
+      await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
     }
   }
 
@@ -196,7 +198,7 @@ async function scanBuildOutputForLeaks(nextDirPath: string, opts?: { failBuild?:
         });
       } catch (err) {
         leakedFiles.push(file);
-        await fs.promises.writeFile(file, scrubLeakedSecrets(fileContents));
+        await fs.promises.writeFile(file, redactSensitiveConfig(fileContents));
       }
     }
   }

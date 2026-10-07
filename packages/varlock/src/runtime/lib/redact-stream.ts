@@ -1,5 +1,6 @@
 import {
-  findSplitValueCompletion, getPartialValueCarry, getStreamHoldbackLength, redactSensitiveConfig, SPLIT_VALUE_MASK,
+  findMatchCrossing, findSplitValueCompletion, getRedactionHoldbackLength,
+  redactSensitiveConfig, redactSensitiveConfigForOutput, UNMASK_PREFIX,
 } from '../env';
 
 /**
@@ -8,6 +9,9 @@ import {
  * practice, so this only triggers when output genuinely ends with a secret-prefix lookalike
  */
 export const FLUSH_TIMEOUT_MS = 100;
+
+/** mask for the part of a split value that arrives after its first part was already written */
+export const SPLIT_VALUE_MASK = '▒▒▒▒▒';
 
 /**
  * Set by `varlock run` / `varlock proxy run` on the child's env: `<parent pid>:<streams>`,
@@ -27,6 +31,68 @@ export function getParentRedactedStreams(
   const separatorIndex = marker.indexOf(':');
   if (separatorIndex === -1 || Number(marker.slice(0, separatorIndex)) !== ppid) return [];
   return marker.slice(separatorIndex + 1).split(',');
+}
+
+/** the end of already-written output that could be the start of a sensitive value (usually '') */
+export function getPartialValueCarry(written: string): string {
+  const length = getRedactionHoldbackLength(written);
+  return length ? written.slice(-length) : '';
+}
+
+/**
+ * Length of a trailing (possibly partial) unmask prefix (`👁 `). Streaming redaction holds it
+ * back along with any partial secret, so a revealed value split across writes keeps its marker.
+ */
+function getUnmaskPrefixHoldbackLength(str: string): number {
+  for (let len = Math.min(UNMASK_PREFIX.length, str.length); len > 0; len--) {
+    if (str.endsWith(UNMASK_PREFIX.slice(0, len))) return len;
+  }
+  return 0;
+}
+
+/**
+ * How much of the end of buffered stream text to hold back before emitting the rest: a
+ * trailing partial match of a sensitive value (so a value split across writes is still caught),
+ * plus an unmask marker right before it (so a revealed value keeps its marker).
+ *
+ * The cut never goes through a complete value: a value whose ending is also the start of a
+ * value (itself or another, e.g. `secret-token-s`) looks like a partial match at its own end,
+ * and cutting there would emit both halves unredacted.
+ */
+export function getStreamHoldbackLength(str: string): number {
+  let boundary = str.length - getRedactionHoldbackLength(str);
+  while (boundary < str.length) {
+    const crossingEnd = findMatchCrossing(str, boundary);
+    if (crossingEnd === undefined) break;
+    // keep the complete value whole, then look for a partial match after it
+    boundary = str.length - getRedactionHoldbackLength(str.slice(crossingEnd));
+  }
+  boundary -= getUnmaskPrefixHoldbackLength(str.slice(0, boundary));
+  return str.length - boundary;
+}
+
+/**
+ * Redacts one write to a stream without holding anything back: the write goes out right away,
+ * so the stream's own behavior (callbacks, errors, `end()`, ordering) is untouched.
+ *
+ * `carry` is the end of the previous write that could be the start of a sensitive value. If this
+ * write completes one, its part in this write is masked and `splitKey` names the item, since
+ * the part already written can't be recalled. Returns the carry for the next write.
+ */
+export function redactStreamWrite(carry: string, text: string): {
+  output: string,
+  carry: string,
+  splitKey?: string,
+} {
+  const split = findSplitValueCompletion(carry, text);
+  const output = split
+    ? SPLIT_VALUE_MASK + redactSensitiveConfigForOutput(text.slice(split.length))
+    : redactSensitiveConfigForOutput(text);
+  return {
+    output,
+    carry: getPartialValueCarry(carry + text),
+    ...split?.key && { splitKey: split.key },
+  };
 }
 
 const SPLIT_WARNED_KEY = Symbol.for('varlock.runSplitValueWarned');

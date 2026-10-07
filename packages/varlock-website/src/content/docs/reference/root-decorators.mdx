@@ -381,9 +381,8 @@ console.log(process.env.SECRET_KEY)
 // This will log "my▒▒▒▒▒" instead of "my-secret-value" when @redactLogs=true
 ```
 
-**Options:** pass an object to control each kind of redaction separately:
+**Options:** pass an object to control stdout/stderr redaction separately from console redaction, which stays on unless the whole decorator is `false`:
 
-- `console` (`boolean`, default `true`): redact values passed to `console` methods.
 - `stdout` (`boolean`): redact everything written to the process's stdout and stderr, including `process.stdout.write`, loggers like pino that write to the stream directly, and `Bun.write(Bun.stdout, ...)`. Only applies to streams that are not attached to an interactive terminal (piped output, files, CI logs, agent tool calls). [`varlock run`](/reference/cli/load-and-run/#run) already redacts its child's output this way unless set to `false`. In-process redaction (`varlock/auto-load` and framework integrations) is currently opt-in with `stdout=true`, and will become the default in the next major version.
 
 ```env-spec
@@ -398,7 +397,7 @@ process.stdout.write(`${process.env.SECRET_KEY}\n`);
 // `node app.js | cat` prints "my▒▒▒▒▒"
 ```
 
-See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover. To let a specific value through (for example a script that prints a token for another tool), use [`@sensitive={redactLogs=false}`](/reference/item-decorators/#sensitive) on that item.
+See [runtime log redaction](/guides/secrets/#runtime-log-redaction) for what in-process stdout redaction does and does not cover. For a process whose stdout is a data channel (for example a script that prints a token for another tool), set `@redactLogs={stdout=false}`, or run it with [`_VARLOCK_REDACT_STDOUT=0`](/reference/reserved-variables/#_varlock_redact_stdout).
 
 
 :::caution

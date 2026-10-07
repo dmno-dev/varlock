@@ -1,9 +1,9 @@
 /* eslint-disable func-names, prefer-rest-params */
 
-import { redactStreamWrite, varlockSettings } from './env';
+import { varlockSettings } from './env';
 import { debug } from './lib/debug';
 import { parseEnvToggle } from './lib/env-toggle';
-import { getParentRedactedStreams } from './lib/redact-stream';
+import { getParentRedactedStreams, redactStreamWrite } from './lib/redact-stream';
 import { STREAM_PATCH_STATE_KEY as PATCH_STATE_KEY } from './lib/stream-patch-key';
 
 type StreamName = 'stdout' | 'stderr';
@@ -221,6 +221,10 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
  * streams directly (pino, CLI frameworks, `child.stdout.pipe(process.stdout)`). Writes that
  * bypass the stream objects entirely (e.g. `fs.writeSync(1, ...)`, pino destinations and
  * worker-thread transports) are only covered by running under `varlock run`.
+ *
+ * Called alongside `patchGlobalConsole` by the node entry points (auto-load, init-server, the
+ * framework integrations). Kept out of `patchGlobalConsole` itself so the edge bundles, which
+ * have no process streams, don't carry this code. A no-op unless opted in.
  */
 export function patchProcessStreams() {
   if (typeof process === 'undefined') return;

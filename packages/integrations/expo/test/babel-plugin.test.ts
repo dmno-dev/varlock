@@ -42,6 +42,7 @@ vi.mock('varlock/env', () => ({
 
 vi.mock('varlock/patch-console', () => ({
   patchGlobalConsole: vi.fn(),
+  patchProcessStreams: vi.fn(),
 }));
 
 vi.mock('varlock', () => ({

@@ -9,7 +9,6 @@ import { varlockRun } from '../helpers/run-varlock.js';
 
 const SCENARIO_DIR = join(import.meta.dirname, '..', 'smoke-test-stream-redaction');
 const SECRET = 'sk-live-abcdef1234567890';
-const PRINTED = 'tok-printed-abcdef123456';
 
 function hasBun(): boolean {
   try {
@@ -48,8 +47,6 @@ describe('in-process stdout/stderr redaction', () => {
     expect(result.output).toContain(`split: ${SECRET.slice(0, 10)}▒▒▒▒▒`);
     expect(result.output).toContain('[varlock] the sensitive value of API_KEY was split across separate writes');
     expect(result.output).not.toContain(SECRET);
-    // @sensitive={redactLogs=false} lets a value through
-    expect(result.output).toContain(`printed: ${PRINTED}`);
   });
 
   test.skipIf(!hasBun())('redacts direct stream writes and Bun.write under bun', () => {
@@ -78,6 +75,5 @@ describe('in-process stdout/stderr redaction', () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain('stdout.write: sk▒▒▒▒▒');
     expect(result.output).not.toContain(SECRET);
-    expect(result.output).toContain(`printed: ${PRINTED}`);
   });
 });

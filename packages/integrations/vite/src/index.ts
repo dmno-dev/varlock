@@ -6,7 +6,9 @@ import type { Plugin } from 'vite';
 import MagicString from 'magic-string';
 
 import { initVarlockEnv } from 'varlock/env';
-import { patchGlobalConsole } from 'varlock/patch-console';
+// namespace import: `patchProcessStreams` is missing from older varlock versions, and a missing
+// named import would fail at link time rather than degrade to console-only redaction
+import * as varlockPatchConsole from 'varlock/patch-console';
 import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { patchGlobalResponse } from 'varlock/patch-response';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
@@ -207,7 +209,8 @@ function reloadConfig(cwd?: string) {
   // initialize varlock and patch globals as necessary
   initVarlockEnv();
   // these will be no-ops if these are disabled by settings
-  patchGlobalConsole();
+  varlockPatchConsole.patchGlobalConsole();
+  varlockPatchConsole.patchProcessStreams?.();
   patchGlobalServerResponse();
   patchGlobalResponse();
 
@@ -479,7 +482,7 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
     // decrypt the encrypted env blob before initVarlockEnv runs
     lines.push(
       "import { initVarlockEnv } from 'varlock/env';",
-      "import { patchGlobalConsole } from 'varlock/patch-console';",
+      "import * as __varlockPatchConsole from 'varlock/patch-console';",
       "import { patchGlobalResponse } from 'varlock/patch-response';",
     );
     // always include decryption support — the blob may be encrypted at build time
@@ -498,10 +501,13 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
     }
     lines.push(
       'initVarlockEnv();',
-      'patchGlobalConsole();',
+      '__varlockPatchConsole.patchGlobalConsole();',
     );
     if (!isEdgeRuntime) {
-      lines.push('patchGlobalServerResponse();');
+      lines.push(
+        '__varlockPatchConsole.patchProcessStreams?.();',
+        'patchGlobalServerResponse();',
+      );
     }
     lines.push('patchGlobalResponse();');
   }

@@ -22,27 +22,21 @@ const UNMASK_STR = '👁';
 // Without this, the module instance that patches console.log may have an empty map
 // while a different instance has the populated one.
 type RedactionState = {
-  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner;
-  // `redactLogs: false` means the reverse (left alone by redaction, still leak-scanned)
-  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean, redactLogs?: boolean }>,
+  // `preventLeaks: false` means the value is still redacted in logs but skipped by the leak scanner
+  sensitiveSecretsMap: Record<string, { key: string, redacted: string, preventLeaks: boolean }>,
   redactorFindReplace: undefined | FindReplace,
-  // same, minus values exempt from log redaction (`@sensitive={redactLogs=false}`), used by
-  // default (everything except leak-prevention scrubbing). `builtFrom` is the map it was built for, since a different copy of this
-  // module (sharing this state) may have reset the map without knowing about this field
-  logRedactorFindReplace?: { findReplace: undefined | FindReplace, builtFrom: RedactionState['sensitiveSecretsMap'] },
   // index for the streaming holdback check, built lazily (also optional since state may
   // have been created by an older copy of this module)
-  holdbackIndex?: {
-    // sensitive values bucketed by first char code (ascii array, Map for the rest)
-    byFirstChar: Array<Array<string> | undefined>,
-    byFirstCharOther: Map<number, Array<string>>,
-    // proper-prefix lengths (longest first) bucketed by the char code each prefix ends with
-    lengthsByEndChar: Array<Array<number> | undefined>,
-    lengthsByEndCharOther: Map<number, Array<number>>,
-  },
+  holdbackIndex?: HoldbackIndex,
 };
 type ReplaceFn = (match: string, val: string, offset: number, fullStr: string) => string;
 type FindReplace = { find: RegExp, replace: ReplaceFn };
+type HoldbackIndex = {
+  // sensitive values by their first char code
+  byFirstChar: Map<number, Array<string>>,
+  // proper-prefix lengths (longest first) by the char code each prefix ends with
+  lengthsByEndChar: Map<number, Array<number>>,
+};
 
 const REDACTION_STATE_KEY = '__varlockRedactionState';
 function getRedactionState(): RedactionState {
@@ -122,63 +116,27 @@ export function resetRedactionMap(graph: SerializedEnvGraph) {
       // out of leak scanning while still keeping it redacted in logs
       if (redacted) {
         const existing = state.sensitiveSecretsMap[sensitiveStr];
-        // when several items share a value, an opt-out on one must not weaken the others
-        const preventLeaks = item.preventLeaks !== false || !!existing?.preventLeaks;
-        const redactLogs = item.redactLogs !== false || (!!existing && existing.redactLogs !== false);
         state.sensitiveSecretsMap[sensitiveStr] = {
           key: existing?.key ?? itemKey,
           redacted,
-          preventLeaks,
-          // `@sensitive={redactLogs=false}` leaves the value out of log/output redaction
-          ...!redactLogs && { redactLogs: false },
+          // when several items share a value, an opt-out on one must not weaken the others
+          preventLeaks: item.preventLeaks !== false || !!existing?.preventLeaks,
         };
       }
     }
   }
   state.holdbackIndex = undefined;
-  const allValues = Object.keys(state.sensitiveSecretsMap);
-  state.redactorFindReplace = buildFindReplace(state, allValues);
-  // values exempt from log redaction are still redacted when scrubbing responses
-  const logValues = allValues.filter((s) => state.sensitiveSecretsMap[s].redactLogs !== false);
-  state.logRedactorFindReplace = {
-    findReplace: logValues.length === allValues.length ? state.redactorFindReplace : buildFindReplace(state, logValues),
-    builtFrom: state.sensitiveSecretsMap,
-  };
+  state.redactorFindReplace = buildFindReplace(state, Object.keys(state.sensitiveSecretsMap));
 }
 
-// set while scrubbing for leak prevention, which also redacts `redactLogs=false` values
-let redactingAllValues = false;
-
-function getActiveFindReplace(): FindReplace | undefined {
-  const state = getRedactionState();
-  if (!redactingAllValues) {
-    const forLogs = state.logRedactorFindReplace;
-    if (forLogs && forLogs.builtFrom === state.sensitiveSecretsMap) return forLogs.findReplace;
-  }
-  return state.redactorFindReplace;
-}
-
-function getCodeBucket<T>(ascii: Array<T | undefined>, other: Map<number, T>, code: number): T | undefined {
-  return code < 128 ? ascii[code] : other.get(code);
-}
-
-function buildHoldbackIndex(sensitiveValues: Array<string>): NonNullable<RedactionState['holdbackIndex']> {
-  const index: NonNullable<RedactionState['holdbackIndex']> = {
-    byFirstChar: new Array(128),
-    byFirstCharOther: new Map(),
-    lengthsByEndChar: new Array(128),
-    lengthsByEndCharOther: new Map(),
-  };
+function buildHoldbackIndex(sensitiveValues: Array<string>): HoldbackIndex {
+  const byFirstChar = new Map<number, Array<string>>();
   const lengthSets = new Map<number, Set<number>>();
   for (const v of sensitiveValues) {
     if (!v) continue;
     const firstCode = v.charCodeAt(0);
-    let bucket = getCodeBucket(index.byFirstChar, index.byFirstCharOther, firstCode);
-    if (!bucket) {
-      bucket = [];
-      if (firstCode < 128) index.byFirstChar[firstCode] = bucket;
-      else index.byFirstCharOther.set(firstCode, bucket);
-    }
+    let bucket = byFirstChar.get(firstCode);
+    if (!bucket) byFirstChar.set(firstCode, bucket = []);
     bucket.push(v);
     // a proper prefix of length `len` ends with v[len - 1]
     for (let len = 1; len < v.length; len++) {
@@ -188,13 +146,10 @@ function buildHoldbackIndex(sensitiveValues: Array<string>): NonNullable<Redacti
       lengths.add(len);
     }
   }
-  for (const [endCode, lengths] of lengthSets) {
-    // longest first, so the first hit is the longest partial match
-    const sorted = [...lengths].sort((a, b) => b - a);
-    if (endCode < 128) index.lengthsByEndChar[endCode] = sorted;
-    else index.lengthsByEndCharOther.set(endCode, sorted);
-  }
-  return index;
+  // longest first, so the first hit is the longest partial match
+  const lengthsByEndChar = new Map<number, Array<number>>();
+  for (const [endCode, lengths] of lengthSets) lengthsByEndChar.set(endCode, [...lengths].sort((a, b) => b - a));
+  return { byFirstChar, lengthsByEndChar };
 }
 
 /**
@@ -214,12 +169,12 @@ export function getRedactionHoldbackLength(str: string): number {
   const index = state.holdbackIndex;
   const strLength = str.length;
   if (!strLength) return 0;
-  const lengths = getCodeBucket(index.lengthsByEndChar, index.lengthsByEndCharOther, str.charCodeAt(strLength - 1));
+  const lengths = index.lengthsByEndChar.get(str.charCodeAt(strLength - 1));
   if (!lengths) return 0;
   for (const len of lengths) {
     if (len > strLength) continue;
     const start = strLength - len;
-    const candidates = getCodeBucket(index.byFirstChar, index.byFirstCharOther, str.charCodeAt(start));
+    const candidates = index.byFirstChar.get(str.charCodeAt(start));
     if (!candidates) continue;
     for (const v of candidates) {
       if (v.length <= len) continue;
@@ -231,8 +186,11 @@ export function getRedactionHoldbackLength(str: string): number {
   return 0;
 }
 
-/** end index of a complete sensitive value that starts before `boundary` and ends after it */
-function findMatchCrossing(str: string, boundary: number): number | undefined {
+/**
+ * End index of a complete sensitive value that starts before `boundary` and ends after it.
+ * Used by streaming redaction so a holdback cut never goes through a complete value.
+ */
+export function findMatchCrossing(str: string, boundary: number): number | undefined {
   const find = getRedactionState().redactorFindReplace?.find;
   if (!find) return undefined;
   find.lastIndex = 0;
@@ -248,25 +206,25 @@ function findMatchCrossing(str: string, boundary: number): number | undefined {
 }
 
 /**
- * How much of the end of buffered stream text to hold back before emitting the rest: a
- * trailing partial match of a sensitive value (so a value split across writes is still caught),
- * plus an unmask marker right before it (so a revealed value keeps its marker).
- *
- * The cut never goes through a complete value: a value whose ending is also the start of a
- * value (itself or another, e.g. `secret-token-s`) looks like a partial match at its own end,
- * and cutting there would emit both halves unredacted.
+ * If `text` completes a sensitive value that started in `carry` (output already written),
+ * how many chars of `text` belong to it, and which item it is.
  */
-export function getStreamHoldbackLength(str: string): number {
-  let boundary = str.length - getRedactionHoldbackLength(str);
-  while (boundary < str.length) {
-    const crossingEnd = findMatchCrossing(str, boundary);
-    if (crossingEnd === undefined) break;
-    // keep the complete value whole, then look for a partial match after it
-    boundary = str.length - getRedactionHoldbackLength(str.slice(crossingEnd));
+export function findSplitValueCompletion(carry: string, text: string): { length: number, key?: string } | undefined {
+  if (!carry) return undefined;
+  const { redactorFindReplace, sensitiveSecretsMap } = getRedactionState();
+  if (!redactorFindReplace) return undefined;
+  const { find } = redactorFindReplace;
+  const region = carry + text;
+  find.lastIndex = 0;
+  try {
+    for (let match = find.exec(region); match && match.index < carry.length; match = find.exec(region)) {
+      const length = match.index + match[0].length - carry.length;
+      if (length > 0) return { length, key: sensitiveSecretsMap[match[0]]?.key };
+    }
+    return undefined;
+  } finally {
+    find.lastIndex = 0;
   }
-  // eslint-disable-next-line no-use-before-define
-  boundary -= getUnmaskPrefixHoldbackLength(str.slice(0, boundary));
-  return str.length - boundary;
 }
 
 /** Returns diagnostic info about the current redaction state (safe to expose — no secrets) */
@@ -401,7 +359,7 @@ function redactError(err: any, seen: Map<any, any>): any {
 }
 
 function redactValue(o: any, seen: Map<any, any>): any {
-  const redactorFindReplace = getActiveFindReplace();
+  const { redactorFindReplace } = getRedactionState();
   if (!redactorFindReplace) return o;
   if (!o) return o;
 
@@ -458,43 +416,17 @@ function redactValue(o: any, seen: Map<any, any>): any {
 /**
  * Redacts senstive config values from any string/array/object/error/etc
  *
- * Values marked `@sensitive={redactLogs=false}` are left alone (they are still leak-scanned).
- *
  * NOTE - must be used only after varlock has loaded config
  * */
 export function redactSensitiveConfig(o: any): any {
-  if (!getActiveFindReplace()) return o;
+  const { redactorFindReplace } = getRedactionState();
+  if (!redactorFindReplace) return o;
   if (!o) return o;
   return redactValue(o, new Map());
 }
 
-/**
- * Redaction used by leak prevention to scrub outgoing responses: unlike redactSensitiveConfig,
- * this also redacts values marked `@sensitive={redactLogs=false}`, since that option only opts
- * out of log redaction, not leak detection.
- */
-export function redactAllSensitiveValues<T>(o: T): T {
-  const wasRedactingAllValues = redactingAllValues;
-  redactingAllValues = true;
-  try {
-    return redactSensitiveConfig(o);
-  } finally {
-    redactingAllValues = wasRedactingAllValues;
-  }
-}
-
-const UNMASK_PREFIX = `${UNMASK_STR} `;
-
-/**
- * Length of a trailing (possibly partial) unmask prefix (`👁 `). Streaming redaction holds it
- * back along with any partial secret, so a revealed value split across writes keeps its marker.
- */
-function getUnmaskPrefixHoldbackLength(str: string): number {
-  for (let len = Math.min(UNMASK_PREFIX.length, str.length); len > 0; len--) {
-    if (str.endsWith(UNMASK_PREFIX.slice(0, len))) return len;
-  }
-  return 0;
-}
+/** the marker revealSensitiveConfig puts before a value (streaming redaction holds it back with a partial value) */
+export const UNMASK_PREFIX = `${UNMASK_STR} `;
 
 // strips the markers added by revealSensitiveConfig (lazy, so each pair is handled separately)
 const UNMASK_MARKERS_REGEX = new RegExp(`${UNMASK_STR} ([\\s\\S]*?) ${UNMASK_STR}`, 'g');
@@ -512,64 +444,6 @@ export function redactSensitiveConfigForOutput<T>(o: T): T {
   if (typeof redacted !== 'string' || !redacted.includes(UNMASK_STR)) return redacted;
   return redacted.replaceAll(UNMASK_MARKERS_REGEX, '$1') as T;
 }
-
-// replaces the part of a split value that arrives in a later write (see redactStreamWrite)
-const SPLIT_VALUE_MASK = '▒▒▒▒▒';
-
-/**
- * If `text` completes a sensitive value that started in `carry` (output already written),
- * how many chars of `text` belong to it, and which item it is.
- */
-export function findSplitValueCompletion(carry: string, text: string): { length: number, key?: string } | undefined {
-  if (!carry) return undefined;
-  const findReplace = getActiveFindReplace();
-  if (!findReplace) return undefined;
-  const { find } = findReplace;
-  const region = carry + text;
-  find.lastIndex = 0;
-  try {
-    for (let match = find.exec(region); match && match.index < carry.length; match = find.exec(region)) {
-      const length = match.index + match[0].length - carry.length;
-      if (length > 0) return { length, key: getRedactionState().sensitiveSecretsMap[match[0]]?.key };
-    }
-    return undefined;
-  } finally {
-    find.lastIndex = 0;
-  }
-}
-
-/** the end of already-written output that could be the start of a sensitive value (usually '') */
-export function getPartialValueCarry(written: string): string {
-  const length = getRedactionHoldbackLength(written);
-  return length ? written.slice(-length) : '';
-}
-
-/**
- * Redacts one write to a stream without holding anything back: the write goes out right away,
- * so the stream's own behavior (callbacks, errors, `end()`, ordering) is untouched.
- *
- * `carry` is the end of the previous write that could be the start of a sensitive value. If this
- * write completes one, its part in this write is masked and `splitKey` names the item, since
- * the part already written can't be recalled. Returns the carry for the next write.
- */
-export function redactStreamWrite(carry: string, text: string): {
-  output: string,
-  carry: string,
-  splitKey?: string,
-} {
-  const split = findSplitValueCompletion(carry, text);
-  const output = split
-    ? SPLIT_VALUE_MASK + redactSensitiveConfigForOutput(text.slice(split.length))
-    : redactSensitiveConfigForOutput(text);
-  return {
-    output,
-    carry: getPartialValueCarry(carry + text),
-    ...split?.key && { splitKey: split.key },
-  };
-}
-
-/** mask for the part of a split value that arrives after its first part was already written */
-export { SPLIT_VALUE_MASK };
 
 /** whether varlock is redacting console or process stream output in this process */
 function isOutputRedactionActive() {

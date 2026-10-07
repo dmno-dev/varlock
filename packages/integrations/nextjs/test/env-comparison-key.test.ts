@@ -12,6 +12,7 @@ vi.mock('varlock/env', () => ({
 }));
 vi.mock('varlock/patch-console', () => ({
   patchGlobalConsole: vi.fn(),
+  patchProcessStreams: vi.fn(),
 }));
 
 const { envComparisonKey } = await import('../src/next-env-compat');

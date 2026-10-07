@@ -115,7 +115,7 @@ export type SerializedEnvGraph = {
     contentHash?: string;
   }>,
   settings: {
-    /** console method redaction (`@redactLogs` / `@redactLogs={console=...}`) */
+    /** console method redaction (`@redactLogs`, false only via `@redactLogs=false`) */
     redactLogs?: boolean;
     /**
      * stdout/stderr redaction when not a TTY (`@redactLogs={stdout=...}`, or false via
@@ -143,8 +143,6 @@ export type SerializedEnvGraph = {
     isSensitive: boolean;
     /** false = opted out of runtime leak detection (still redacted in logs). Omitted when true (the default). */
     preventLeaks?: boolean;
-    /** false = not redacted in console/stdout/stderr output (still leak-scanned). Omitted when true (the default). */
-    redactLogs?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
     /**
@@ -1174,7 +1172,6 @@ export class EnvGraph {
         ...item.isInternal ? { isInternal: true } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
-        ...item.isSensitive && !item.redactLogs ? { redactLogs: false } : {},
         // only emit when it diverges from the sensitivity linkage (the default), so
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},

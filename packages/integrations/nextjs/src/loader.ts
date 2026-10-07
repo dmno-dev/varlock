@@ -296,18 +296,19 @@ function webpackLoader(this: LoaderContext, source: string) {
       // still evaluate first, guard runs before any module statements).
       initGuard = [
         'import {initVarlockEnv as __varlock$init} from \'varlock/env\';',
-        'import {patchGlobalConsole as __varlock$patchConsole} from \'varlock/patch-console\';',
+        // namespace import: patchProcessStreams is missing from older varlock versions
+        'import * as __varlock$pc from \'varlock/patch-console\';',
         'import {initVarlockNextDynamicAccess as __varlock$initDynAccess} from \'@varlock/nextjs-integration/dynamic-access\';',
-        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$patchConsole();__varlock$initDynAccess();}',
+        'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;__varlock$init();__varlock$pc.patchGlobalConsole();__varlock$pc.patchProcessStreams?.();__varlock$initDynAccess();}',
         // React wraps console for RSC dev replay AFTER our initial patch in the
         // runtime file. Re-patching outside the once-guard ensures our redaction
         // wraps React's wrapper so secrets are redacted before React captures them.
         // patchGlobalConsole() no-ops if console.log still has _varlockPatchedFn.
-        '__varlock$patchConsole();',
+        '__varlock$pc.patchGlobalConsole();',
       ].join('');
       result = prependAfterDirectives(result, initGuard);
     } else {
-      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();require(\'varlock/patch-console\').patchGlobalConsole();require(\'@varlock/nextjs-integration/dynamic-access\').initVarlockNextDynamicAccess();}';
+      initGuard = 'if(!globalThis.__varlockBuildInit){globalThis.__varlockBuildInit=true;require(\'varlock/env\').initVarlockEnv();const __varlock$pc=require(\'varlock/patch-console\');__varlock$pc.patchGlobalConsole();__varlock$pc.patchProcessStreams?.();require(\'@varlock/nextjs-integration/dynamic-access\').initVarlockNextDynamicAccess();}';
       // (see comment above about re-patching console for webpack RSC dev replay)
       if (isWebpack) {
         initGuard += 'require(\'varlock/patch-console\').patchGlobalConsole();';
