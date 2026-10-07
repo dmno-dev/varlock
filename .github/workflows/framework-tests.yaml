@@ -46,7 +46,7 @@ jobs:
     name: Build Libraries
     needs: detect-integrations
     if: needs.detect-integrations.outputs.any-changed == 'true'
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-8
     steps:
       - uses: actions/checkout@v7
 
@@ -82,7 +82,7 @@ jobs:
     name: Framework Tests (${{ matrix.integration.name }})
     needs: [detect-integrations, build]
     if: needs.detect-integrations.outputs.any-changed == 'true'
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-8
     strategy:
       fail-fast: false
       matrix:

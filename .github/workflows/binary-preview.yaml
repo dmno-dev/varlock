@@ -50,7 +50,7 @@ jobs:
   # Build SEA binaries for all platforms and upload as artifacts
   build-sea-binaries:
     needs: [build-native-macos, build-native-rust]
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-8
     steps:
       - uses: actions/checkout@v7
       - name: Setup Bun

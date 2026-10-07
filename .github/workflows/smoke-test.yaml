@@ -39,7 +39,7 @@ jobs:
     name: Build and Pack Libraries
     needs: check-if-release-pr
     if: needs.check-if-release-pr.outputs.is-release-pr == 'true'
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-8
     permissions:
       contents: read
       actions: write
@@ -123,10 +123,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [depot-ubuntu-24.04-4, macos-latest, windows-latest]
+        os: [depot-ubuntu-24.04-8, macos-latest, windows-latest]
         node-version: ['24.x']
         include:
-          - os: depot-ubuntu-24.04-4
+          - os: depot-ubuntu-24.04-8
             binary-artifact: varlock-binary-linux-x64
             binary-name: varlock
           - os: macos-latest
