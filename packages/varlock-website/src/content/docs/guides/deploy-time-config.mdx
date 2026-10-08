@@ -7,7 +7,9 @@ import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
 Most deployment platforms already treat configuration as part of an immutable, versioned release. If you deploy to Vercel, Heroku, AWS Lambda, or Cloud Run, you are relying on this whether or not you have thought about it.
 
-Varlock's resolvers can be the exception. A schema that pulls a value from 1Password, Vault, or AWS Secrets Manager resolves it every time a process starts, if that is when varlock runs. That puts you back in the shape those platforms moved away from. This guide covers why that matters, and how **freezing** fixes it: resolve once per release and ship the result inside the release. Framework integrations freeze for you in your build output. [`varlock freeze`](#freezing-with-varlock-freeze) does it for everything else.
+A varlock schema that pulls values from 1Password, Vault, or AWS Secrets Manager has to resolve them somewhere, with varlock installed and the resolver credentials present. On most platforms that somewhere cannot be boot: the platform runs your app, there is no varlock in the runtime, and you would not want your secret backend credentials there anyway. And where varlock can run at boot, doing so re-resolves on every process start, which puts you back in the shape those platforms moved away from.
+
+The answer in both cases is the same: **freeze**. Resolve once, at build or deploy time, and ship the result inside the release. Framework integrations do this for you in your build output. [`varlock freeze`](#freezing-with-varlock-freeze) does it for everything else. This guide covers why the property matters and how each route works.
 
 ## Config belongs to the release
 
@@ -39,7 +41,7 @@ Kubernetes has the same property in a sharper form. A running Pod never sees a C
 
 Now add autoscaling. You scale out at 3am. The new replica resolves config fresh, picks up a value that changed since the deploy, and starts serving on it. Nothing failed, nothing logged, and the only signal is that some fraction of your traffic behaves differently depending on which instance answers. When you scale back in, it disappears.
 
-**A varlock schema that resolves from a secret backend has exactly this property wherever varlock resolves at boot.** `varlock run` and `varlock/auto-load` resolve on every process start. That is the right behavior in development, where you want an edited `.env` file to take effect on restart. In production it means your config is only as stable as the last time something restarted.
+**A varlock schema that resolves from a secret backend has exactly this property if you let varlock resolve at boot.** `varlock run` and `varlock/auto-load` resolve on every process start when they have `.env` files and resolver credentials to work from. That is the right behavior in development, where you want an edited `.env` file to take effect on restart. In production it means your config is only as stable as the last time something restarted.
 
 Boot resolution costs two other things under scale-out. Every new instance waits on your secret backend before it can serve, which is cold-start latency paid per instance. And a scale-out event sends a burst of identical requests at that backend, which is where rate limits find you.
 
