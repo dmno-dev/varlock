@@ -58,7 +58,13 @@ Two routes produce one. Which applies depends on whether a framework integration
 Then there is the question of whether freezing is optional at all:
 
 - **The platform runs your app for you** (Vercel, Netlify, Heroku, Railway, Render, Fly). The boot command is not yours to wrap in `varlock run`, and the runtime has no resolver credentials. Freezing is the only way to use resolvers at all, and it is what you want anyway. For a framework integration this happens in the build the platform runs. For `varlock freeze`, run it in the platform's build or release phase so the file lands in the slug or image.
-- **You own the boot command** (your own containers, VMs, Kubernetes). You could resolve fresh on every boot with [`varlock run`](/reference/cli/load-and-run/#run) or `varlock/auto-load`. Freezing is the explicit choice not to, for the atomicity, rollback, and replica-agreement reasons above. With an integration that means choosing the build-output mode; otherwise it means `varlock freeze`.
+- **You own the boot command** (your own containers, VMs, Kubernetes). You could resolve fresh on every boot with [`varlock run`](/reference/cli/load-and-run/#run) or `varlock/auto-load`, and that works. Freezing is the explicit choice not to, and it is worth making even here, because it is what turns a container plus a secret backend into a release:
+  - Every replica runs the same values. The one that autoscales up at 3am boots from the same snapshot as the one that booted at deploy, instead of resolving whatever the backend holds now.
+  - Rolling back the image rolls back the config with it, because the config is inside the image.
+  - Resolution and validation happen once, in the deploy, where a failure stops the pipeline. At boot, the same failure takes a replica down, and a secret backend that is slow or rate-limiting makes every new instance wait on it.
+  - The runtime image carries no varlock CLI, no `.env` files, and no resolver credentials. A compromised container cannot reach your secret backend with the credentials varlock would otherwise need there.
+
+  With an integration that means choosing the build-output mode; otherwise it means `varlock freeze`.
 
 Whichever route, the tradeoffs at the [end of this guide](#tradeoffs) apply: a rotated secret takes effect on the next build or deploy, not the next restart.
 
