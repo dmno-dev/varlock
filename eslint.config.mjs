@@ -47,6 +47,11 @@ export default tseslint.config(
       '**/.turbo',
       // cargo build output (json fingerprints) in the rust native helper
       'packages/encryption-binary-rust/target',
+      // compiler output left behind by the compile-run smoke tests (cargo json fingerprints,
+      // maven/dotnet build dirs); all gitignored in smoke-tests/.gitignore
+      'smoke-tests/*/target',
+      'smoke-tests/*/bin',
+      'smoke-tests/*/obj',
       'packages/eslint-custom-rules',
       'packages/env-spec-parser/src/grammar.js',
       'packages/varlock-website/.astro',
