@@ -156,7 +156,7 @@ services:
 
 ### Choosing an environment
 
-If your schema sets [`@currentEnv`](/reference/root-decorators/#currentenv), the `--env` flag does not apply, and `varlock freeze` errors rather than silently capturing the wrong environment. Set the flag item instead:
+The environment comes from whatever your schema's [`@currentEnv`](/reference/root-decorators/#currentenv) reads, so set that when you freeze. The summary names the environment it captured, since freezing the wrong one is the easiest mistake to make and the hardest to notice:
 
 ```bash
 APP_ENV=production varlock freeze

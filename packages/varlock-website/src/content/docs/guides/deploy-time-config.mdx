@@ -102,14 +102,16 @@ If an integration covers you, the rest of this guide is background. The sections
     Run this wherever your .env files and resolver credentials are available, usually a CI job:
 
     ```bash
-    varlock freeze --env production
+    APP_ENV=production varlock freeze
     ```
 
-    This writes `.varlock-frozen-env` in the current directory. Add it to your `.gitignore`. [`varlock scan`](/reference/cli/project/#scan) reports an unencrypted one if it ever gets committed.
+    `APP_ENV` is whatever your schema's [`@currentEnv`](/reference/root-decorators/#currentenv) reads, and the summary names the environment it froze, so check it. This writes `.varlock-frozen-env` in the current directory. Add it to your `.gitignore` yourself: `varlock init` does not, and [`varlock scan`](/reference/cli/project/#scan) only reports an unencrypted one, so an encrypted file can still be committed by accident.
 
 3. **Ship the file inside your deploy artifact**
 
     It must be present at boot, in the app's working directory. In Docker that means copying it into the image, not mounting it at runtime. Mounting it separately reintroduces the split this is meant to remove.
+
+    The file is written with mode `0600`, and `COPY` keeps the mode and the owner. If your runtime runs as a non-root user, copy it with `COPY --chown=<user>` or it will be unreadable at boot.
 
 4. **Boot your app normally**
 
@@ -129,9 +131,10 @@ WORKDIR /app
 COPY . .
 RUN bun install --frozen-lockfile
 RUN bun build ./src/index.ts --target=bun --outdir dist
-# resolver credentials and .env files are only present in this stage
+# .env files and resolver credentials exist only in this stage. Mount any resolver
+# credential (a 1Password service account token, say) the same way as the key.
 RUN --mount=type=secret,id=varlock_key \
-    _VARLOCK_ENV_KEY=$(cat /run/secrets/varlock_key) bunx varlock freeze --env production
+    _VARLOCK_ENV_KEY=$(cat /run/secrets/varlock_key) APP_ENV=production bunx varlock freeze
 
 FROM oven/bun:1
 WORKDIR /app
@@ -168,7 +171,7 @@ A frozen file is used only when `_VARLOCK_USE_FROZEN_ENV` asks for it:
 
 A file that is asked for but missing or unusable (unreadable, encrypted with no key or the wrong key) is always an error, never a fall back to resolving at boot. Any unrecognized value is treated as a path, so `_VARLOCK_USE_FROZEN_ENV=off` looks for a file named `off` and fails (`0` and `false` are accepted as unset).
 
-`varlock run --frozen` and `varlock load --frozen` are the flag form, taking an optional path. `varlock load --frozen` in the runtime image shows exactly what the app boots with, and reads neither the schema nor any .env files.
+`varlock run --frozen` and `varlock load --frozen` are the flag form, taking an optional path. `varlock load --frozen`, run where the file is (with the CLI available, e.g. `bunx varlock load --frozen`), shows exactly what the app boots with, and reads neither the schema nor any .env files.
 
 Because the file is inert unless asked for, one left over from running `varlock freeze` locally changes nothing: dev servers, `varlock run`, and `varlock load` all keep resolving from your .env files. Delete it when you notice it, or leave it. It is gitignored either way.
 
@@ -178,7 +181,6 @@ Because the file is inert unless asked for, one left over from running `varlock 
 | Flag | Description |
 | --- | --- |
 | `--out`, `-o` | Output path (default `.varlock-frozen-env`), or `-` to write the payload to stdout |
-| `--env` | Environment to resolve for (e.g. `production`) |
 | `--path`, `-p` | Entry .env file or directory, repeatable |
 | `--allow-plaintext` | Write unencrypted when `_VARLOCK_ENV_KEY` is not set |
 | `--clear-cache` | Clear the cache and re-resolve everything |
@@ -227,7 +229,7 @@ A boot key is frozen like everything else, and whatever it resolves to at freeze
 
 Because the frozen file records everything boot needs, booting still needs no varlock CLI, no `.env.schema`, and no resolver credentials, with or without boot keys. A required boot key with no value at freeze time is fine: it has no default, and the value has to be set at boot. Otherwise its default resolves and validates like any other value, so if it cannot resolve in CI, leave it empty in the schema.
 
-The freeze summary lists each boot key and its default, and says when a default came from the build machine's environment rather than your .env files (`PORT (default 8080, from the build environment)`), since that is easy to miss. `varlock load --frozen` in the runtime image shows the values the app boots with, boot values included.
+The freeze summary lists each boot key and its default, and says when a default came from the build machine's environment rather than your .env files (`PORT (default 8080, from the build environment)`), since that is easy to miss. `varlock load --frozen` next to the file shows the values the app boots with, boot values included.
 
 A few rules keep a boot value checkable without the schema, and keep it from going stale:
 

@@ -191,7 +191,6 @@ varlock freeze [options]
 
 **Options:**
 - `--out <path>`, `-o`: Output file path, relative to the current directory unless absolute (default `.varlock-frozen-env`). Pass `-` to write the payload to stdout instead of a file
-- `--env <env>`: Environment to resolve for (e.g. `production`). Overridden by [`@currentEnv`](/reference/root-decorators/#currentenv) if the schema sets it
 - `--path <path>`, `-p`: Entry `.env` file or directory, can be passed multiple times
 - `--allow-plaintext`: Write the file unencrypted when `_VARLOCK_ENV_KEY` is not set
 - `--clear-cache`: Clear the cache and re-resolve all values
@@ -202,8 +201,8 @@ varlock freeze [options]
 # Write .varlock-frozen-env in the current directory
 varlock freeze
 
-# Resolve for a specific environment
-varlock freeze --env production
+# Resolve for a specific environment (whatever your schema's @currentEnv reads)
+APP_ENV=production varlock freeze
 
 # Custom output location, bypassing the cache
 varlock freeze --out dist/env.frozen --skip-cache

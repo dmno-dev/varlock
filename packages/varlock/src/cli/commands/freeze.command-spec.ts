@@ -13,7 +13,11 @@ export const commandSpec = define({
     },
     env: {
       type: 'string',
-      description: 'Set the environment (e.g., production, development, etc) - will be overridden by @currentEnv in the schema if present',
+      // kept for parity with `load`, but the environment should come from the schema's
+      // @currentEnv item (`APP_ENV=production varlock freeze`); the command refuses a
+      // mismatch rather than baking the wrong environment into an artifact
+      description: 'Set the environment - prefer setting the @currentEnv item instead (e.g. APP_ENV=production varlock freeze)',
+      hidden: true,
     },
     path: {
       type: 'string',
@@ -57,14 +61,14 @@ the next restart.
 
 Examples:
   varlock freeze                        # write ${FROZEN_ENV_FILE_NAME} in the current directory
-  varlock freeze --env production       # resolve for a specific environment
+  APP_ENV=production varlock freeze     # resolve for a specific environment
   varlock freeze --out dist/env.frozen  # custom output location
   varlock freeze --out -                # write the payload to stdout instead of a file
   varlock freeze --skip-cache           # bypass the cache so values are freshly resolved
 
 Typical CI usage:
   varlock generate-key --plain          # once - set the result as _VARLOCK_ENV_KEY everywhere
-  varlock freeze --env production       # in your deploy job, with resolver credentials present
+  APP_ENV=production varlock freeze     # in your deploy job, with resolver credentials present
   docker build .                        # the file is copied into the image
 
 Then boot the app normally (\`bun server.js\`) with _VARLOCK_USE_FROZEN_ENV=1 and _VARLOCK_ENV_KEY
