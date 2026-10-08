@@ -5,6 +5,8 @@
  * - turbo's build hash of `varlock` and the suite's integration packages. Turbo
  *   only hashes build inputs (src, config) and folds in each package's workspace
  *   deps, so docs edits don't change it and core changes reach every suite.
+ * - git tree hashes of committed files those packages publish that aren't build
+ *   inputs (e.g. `bin/` wrappers), since the tests install the packed packages
  * - git tree hashes of the suite's test files and the shared test infrastructure
  * - the matrix entry itself (test path, bundler)
  *
@@ -45,7 +47,9 @@ function getTurboVersion(): string {
   return match[1];
 }
 
-function getTurboBuildHashes(): Record<string, string> {
+type TurboTask = { hash: string; directory: string };
+
+function getTurboBuildTasks(): Record<string, TurboTask> {
   // No install needed: a dry run only reads package.json files, the lockfile and git
   const json = execSync(`bunx turbo@${getTurboVersion()} run build --dry=json`, {
     cwd: REPO_ROOT,
@@ -53,20 +57,37 @@ function getTurboBuildHashes(): Record<string, string> {
     stdio: ['pipe', 'pipe', 'pipe'],
     maxBuffer: 64 * 1024 * 1024,
   });
-  const tasks: Array<{ package: string; hash: string }> = JSON.parse(json).tasks;
-  return Object.fromEntries(tasks.map((t) => [t.package, t.hash]));
+  const tasks: Array<TurboTask & { package: string }> = JSON.parse(json).tasks;
+  return Object.fromEntries(tasks.map((t) => [t.package, { hash: t.hash, directory: t.directory }]));
 }
 
 function gitTreeHash(path: string): string {
-  return execSync(`git rev-parse HEAD:${path}`, { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
+  return execSync(`git rev-parse HEAD:${path}`, { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 }
 
-function fingerprint(entry: Entry, packages: Array<string>, turboHashes: Record<string, string>): string {
+// `files` entries that are committed (bin/, skills/, ...) get packed and run by
+// the tests without being turbo build inputs. Build outputs like dist/ aren't
+// committed, so they're skipped here and covered by the turbo hash instead.
+function publishedSourceHashes(directory: string): Array<string> {
+  const { files = [] } = JSON.parse(readFileSync(join(REPO_ROOT, directory, 'package.json'), 'utf-8'));
+  return (files as Array<string>).flatMap((entry) => {
+    const rel = entry.replace(/^\//, '').replace(/\/$/, '');
+    // a glob could match anything in the package, so hash the whole package
+    const path = /[*?[]/.test(rel) ? directory : `${directory}/${rel}`;
+    try {
+      return [`${path}=${gitTreeHash(path)}`];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function fingerprint(entry: Entry, packages: Array<string>, turboTasks: Record<string, TurboTask>): string {
   const parts = [JSON.stringify(entry)];
   for (const pkg of ['varlock', ...packages]) {
-    const hash = turboHashes[pkg];
-    if (!hash) throw new Error(`No turbo build hash for ${pkg}`);
-    parts.push(`${pkg}=${hash}`);
+    const task = turboTasks[pkg];
+    if (!task) throw new Error(`No turbo build hash for ${pkg}`);
+    parts.push(`${pkg}=${task.hash}`, ...publishedSourceHashes(task.directory));
   }
   for (const path of [...SHARED_INPUT_PATHS, `framework-tests/frameworks/${entry.integration}`]) {
     parts.push(`${path}=${gitTreeHash(path)}`);
@@ -119,10 +140,10 @@ export async function skipAlreadyPassed<T extends Entry>(
     return entries;
   }
   try {
-    const turboHashes = getTurboBuildHashes();
+    const turboTasks = getTurboBuildTasks();
     const withFingerprints = entries.map((entry) => ({
       ...entry,
-      fingerprint: fingerprint(entry, integrationPackages[entry.integration] ?? [], turboHashes),
+      fingerprint: fingerprint(entry, integrationPackages[entry.integration] ?? [], turboTasks),
     }));
 
     if (opts.skip === false) return withFingerprints;
