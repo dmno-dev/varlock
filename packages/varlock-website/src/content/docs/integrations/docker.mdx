@@ -59,7 +59,7 @@ For serverless SSR, prefer [encrypted deployments](/guides/encrypted-deployments
   </TabItem>
   <TabItem label="Deploy-time freeze">
 
-Use when no framework integration is baking values at build time, and you want config resolved once per release rather than on every container boot. [`varlock freeze`](/guides/deploy-time-config/) resolves everything at deploy time and encrypts it; the runtime image needs no varlock CLI, no `.env` files, and no resolver credentials, so this works in distroless.
+Use when no framework integration is baking values at build time, and you want config resolved once per release rather than on every container boot. [`varlock freeze`](/guides/frozen-env/) resolves everything at deploy time and encrypts it; the runtime image needs no varlock CLI, no `.env` files, and no resolver credentials, so this works in distroless.
 
 ```dockerfile title="Dockerfile"
 FROM oven/bun:1 AS builder
@@ -91,7 +91,7 @@ services:
       _VARLOCK_ENV_KEY: ${_VARLOCK_ENV_KEY:?}
 ```
 
-That is a weaker guarantee, since the payload lives in platform config rather than inside the release. See [carrying the payload in an env var](/guides/deploy-time-config/#carrying-the-payload-in-an-env-var-instead) for the full comparison.
+That is a weaker guarantee, since the payload lives in platform config rather than inside the release. See [carrying the payload in an env var](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead) for the full comparison.
 
 Values are fixed either way: rotating a secret takes effect on your next deploy, not on the next restart.
 

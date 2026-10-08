@@ -357,7 +357,7 @@ See [Schema](https://varlock.dev/guides/schema/), [Secrets](https://varlock.dev/
 ## Advanced
 
 - Multiple environments: https://varlock.dev/guides/environments/
-- Deploying: framework integrations bake resolved values at build; apps with no build step (Elysia, Hono, Fastify) use `varlock freeze`: https://varlock.dev/guides/deploy-time-config/
+- Deploying: framework integrations bake resolved values at build; apps with no build step (Elysia, Hono, Fastify) use `varlock freeze`: https://varlock.dev/guides/frozen-env/
 - Split large schemas with `@import`: https://varlock.dev/guides/import/
 - Device-local encryption: https://varlock.dev/guides/local-encryption/
 - `package.json` config (`varlock.loadPath`): https://varlock.dev/reference/cli-commands/

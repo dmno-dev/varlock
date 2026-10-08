@@ -1,49 +1,17 @@
 ---
-title: Deploy-time config
-description: Freeze env values once per release and ship them inside the release, whether a framework integration does it in your build output or you run varlock freeze
+title: Frozen env
+description: Resolve env values once per release and ship them inside it, from a framework build or with varlock freeze
 ---
 import { Steps } from '@astrojs/starlight/components';
 import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
-Most deployment platforms already treat configuration as part of an immutable, versioned release. If you deploy to Vercel, Heroku, AWS Lambda, or Cloud Run, you are relying on this whether or not you have thought about it.
+:::note[Most people need to do nothing]
+If you use Next.js, a Vite-based framework (Astro, Nuxt, SvelteKit, TanStack Start), or Cloudflare Workers, the integration already freezes your env for you. Nothing on this page needs setting up. It is here for apps with no integration doing it (Elysia, Hono, Fastify, Express, compiled binaries), and as background on what the integrations do.
+:::
 
-A varlock schema that pulls values from 1Password, Vault, or AWS Secrets Manager has to resolve them somewhere, with varlock installed and the resolver credentials present. On most platforms that somewhere cannot be boot: the platform runs your app, there is no varlock in the runtime, and you would not want your secret backend credentials there anyway. And where varlock can run at boot, doing so re-resolves on every process start, which puts you back in the shape those platforms moved away from.
+A schema that pulls values from 1Password, Vault, or AWS Secrets Manager has to resolve them somewhere, with varlock installed and resolver credentials present. On most platforms that cannot be boot: the platform runs your app, there is no varlock in the runtime, and your secret backend credentials should not be there anyway. Where varlock can run at boot, doing so re-resolves on every process start, so replicas can disagree and config does not roll back with code.
 
-The answer in both cases is the same: **freeze**. Resolve once, at build or deploy time, and ship the result inside the release. Framework integrations do this for you in your build output. [`varlock freeze`](#freezing-with-varlock-freeze) does it for everything else. This guide covers why the property matters and how each route works.
-
-## Config belongs to the release
-
-The mechanism differs per platform, but the property is the same: the config a running instance sees was fixed when the release was created, not when the instance started.
-
-**Vercel** applies env vars to a deployment when it is built. A change "[is] not applied to previous deployments, they only apply to new deployments." To change config you redeploy.
-
-**Heroku** makes config vars part of the release object, alongside the slug or image and the add-ons. Setting one creates a new release and restarts your dynos, and `heroku rollback` "copies the compiled slug or OCI image and config vars" of the release you roll back to. Code and config move together in both directions.
-
-**AWS Lambda** freezes both when you publish a version: "Lambda creates an immutable snapshot of your function's code and configuration." Environment variables are on the list of changes that qualify a function for a new version.
-
-**Cloud Run** puts env vars in the revision, which is immutable once created. **Cloudflare Workers** attach secrets to a Worker version, which is what [`varlock-wrangler deploy`](/integrations/cloudflare/) uploads.
-
-That is not five independent designs arriving at the same place by accident. Config and code are one artifact because a release that changes both is otherwise two operations that can each succeed alone. What it buys you:
-
-- **Changes are atomic.** Otherwise there is a window where one is live and the other is not, and you find out which combination your app tolerates.
-- **Rollbacks actually roll back.** If config lives in a store the release does not reference, rolling back code leaves the new config in place. You roll back to a known-good version and it is not the version you tested.
-- **Every replica agrees.** People notice this one last and care about it most, because it only shows up under load.
-
-## The 3am replica
-
-A versioned release fixes atomicity and rollback. Replica agreement has a second failure mode that survives even on a platform that versions its config, and it is the one worth understanding.
-
-If your config is a *reference* to a secret rather than a value, the reference is resolved when the instance starts. Two instances of the same release, started at different times, can see different values.
-
-Google says this directly in the Cloud Run docs. Secrets exposed as env vars are fetched "prior to starting the instance", and because "environment variables are resolved at instance startup time", Google recommends "that you pin the secret to a particular version instead of using `latest`."
-
-Kubernetes has the same property in a sharper form. A running Pod never sees a ConfigMap or Secret change, because the kubelet reads the data when it launches the container. A Pod created afterwards reads the current value. So a rotation at 2am leaves you with a Deployment whose old Pods hold the old value and whose new Pods hold the new one, indefinitely, with nothing reporting the split.
-
-Now add autoscaling. You scale out at 3am. The new replica resolves config fresh, picks up a value that changed since the deploy, and starts serving on it. Nothing failed, nothing logged, and the only signal is that some fraction of your traffic behaves differently depending on which instance answers. When you scale back in, it disappears.
-
-**A varlock schema that resolves from a secret backend has exactly this property if you let varlock resolve at boot.** `varlock run` and `varlock/auto-load` resolve on every process start when they have `.env` files and resolver credentials to work from. That is the right behavior in development, where you want an edited `.env` file to take effect on restart. In production it means your config is only as stable as the last time something restarted.
-
-Boot resolution costs two other things under scale-out. Every new instance waits on your secret backend before it can serve, which is cold-start latency paid per instance. And a scale-out event sends a burst of identical requests at that backend, which is where rate limits find you.
+The answer in both cases is to **freeze**: resolve once, at build or deploy time, and ship the result inside the release. Framework integrations do this in your build output. [`varlock freeze`](#freezing-with-varlock-freeze) does it for everything else. The [background](#background-config-belongs-to-the-release) section at the end explains why every major platform already works this way.
 
 ## What freezing means
 
@@ -314,6 +282,40 @@ These apply to every route, not just `varlock freeze`.
 **Values that expire are frozen too.** If your schema resolves a short-lived credential (an OIDC-exchanged token, an STS credential), freezing captures it at build or deploy time and it will expire while the release is still running. Resolvers never run at boot, not even for [boot keys](#keys-supplied-at-boot), so freezing is the wrong tool for a service that needs fresh credentials. Use [`varlock run`](/reference/cli/load-and-run/#run) for it where you own the boot command, or have the platform supply the value in the environment at boot (and, under `varlock freeze`, mark the key `@dynamic=boot`).
 
 **None of this applies to local development.** Resolve from your `.env` files on every run, which is what varlock does by default.
+
+## Background: config belongs to the release
+
+The mechanism differs per platform, but the property is the same: the config a running instance sees was fixed when the release was created, not when the instance started.
+
+**Vercel** applies env vars to a deployment when it is built. A change "[is] not applied to previous deployments, they only apply to new deployments." To change config you redeploy.
+
+**Heroku** makes config vars part of the release object, alongside the slug or image and the add-ons. Setting one creates a new release and restarts your dynos, and `heroku rollback` "copies the compiled slug or OCI image and config vars" of the release you roll back to. Code and config move together in both directions.
+
+**AWS Lambda** freezes both when you publish a version: "Lambda creates an immutable snapshot of your function's code and configuration." Environment variables are on the list of changes that qualify a function for a new version.
+
+**Cloud Run** puts env vars in the revision, which is immutable once created. **Cloudflare Workers** attach secrets to a Worker version, which is what [`varlock-wrangler deploy`](/integrations/cloudflare/) uploads.
+
+That is not five independent designs arriving at the same place by accident. Config and code are one artifact because a release that changes both is otherwise two operations that can each succeed alone. What it buys you:
+
+- **Changes are atomic.** Otherwise there is a window where one is live and the other is not, and you find out which combination your app tolerates.
+- **Rollbacks actually roll back.** If config lives in a store the release does not reference, rolling back code leaves the new config in place. You roll back to a known-good version and it is not the version you tested.
+- **Every replica agrees.** People notice this one last and care about it most, because it only shows up under load.
+
+### The 3am replica
+
+A versioned release fixes atomicity and rollback. Replica agreement has a second failure mode that survives even on a platform that versions its config, and it is the one worth understanding.
+
+If your config is a *reference* to a secret rather than a value, the reference is resolved when the instance starts. Two instances of the same release, started at different times, can see different values.
+
+Google says this directly in the Cloud Run docs. Secrets exposed as env vars are fetched "prior to starting the instance", and because "environment variables are resolved at instance startup time", Google recommends "that you pin the secret to a particular version instead of using `latest`."
+
+Kubernetes has the same property in a sharper form. A running Pod never sees a ConfigMap or Secret change, because the kubelet reads the data when it launches the container. A Pod created afterwards reads the current value. So a rotation at 2am leaves you with a Deployment whose old Pods hold the old value and whose new Pods hold the new one, indefinitely, with nothing reporting the split.
+
+Now add autoscaling. You scale out at 3am. The new replica resolves config fresh, picks up a value that changed since the deploy, and starts serving on it. Nothing failed, nothing logged, and the only signal is that some fraction of your traffic behaves differently depending on which instance answers. When you scale back in, it disappears.
+
+**A varlock schema that resolves from a secret backend has exactly this property if you let varlock resolve at boot.** `varlock run` and `varlock/auto-load` resolve on every process start when they have `.env` files and resolver credentials to work from. That is the right behavior in development, where you want an edited `.env` file to take effect on restart. In production it means your config is only as stable as the last time something restarted.
+
+Boot resolution costs two other things under scale-out. Every new instance waits on your secret backend before it can serve, which is cold-start latency paid per instance. And a scale-out event sends a burst of identical requests at that backend, which is where rate limits find you.
 
 ## Related
 

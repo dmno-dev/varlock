@@ -173,17 +173,9 @@ The output directory is a generated artifact: add it to `.gitignore`, and rerun 
 
 ## `varlock freeze` ||freeze||
 
-Resolves every value once and writes the result to an encrypted file, so your app can boot from those exact values without re-resolving. Run it at deploy time, and ship the file inside your deploy artifact so config and code travel and roll back as one unit. See [the frozen env guide](/guides/deploy-time-config/) for the full workflow.
+Resolves every value once and writes the result to an encrypted file that ships inside your deploy artifact, so the app boots from those exact values without re-resolving. For apps with no framework integration doing this in the build (Elysia, Hono, Fastify, Express, compiled binaries). Next.js, Vite-based frameworks, and Cloudflare Workers do not need it. See the [frozen env guide](/guides/frozen-env/) for the full workflow, including [`@dynamic=boot`](/guides/frozen-env/#keys-supplied-at-boot) for values the platform sets per instance.
 
-Use it wherever a framework integration is not already baking values at build time (Elysia, Hono, Fastify, Express on Bun or Node, distroless images). On a platform that runs your app for you (Heroku, Railway, Render, Fly), run it in the build or release phase: the boot command is not yours to wrap in `varlock run`, so resolving at deploy time is the only option. Where you do own the boot command, it is the explicit choice to resolve once per release instead of on every boot. You do not need this with Next.js, Vite, Astro, Nuxt, or Cloudflare Workers, whose integrations do the equivalent.
-
-At boot, set [`_VARLOCK_USE_FROZEN_ENV=1`](/reference/reserved-variables/#_varlock_use_frozen_env) (or a path to the file) and `_VARLOCK_ENV_KEY` in the runtime environment, and `varlock/auto-load` or `varlock run` boots from the file. Nothing else is needed in the runtime image: no varlock CLI, no `.env` files, and no resolver credentials. The file is never read unless asked for, so one left over from a local freeze changes nothing.
-
-Keys marked [`@dynamic=boot`](/reference/item-decorators/#dynamic) (a platform-assigned `PORT`, say) are frozen too, but their frozen value is only a default: a value set in the environment at boot overrides it, checked against the type recorded at freeze time, still with no CLI or schema needed. `freeze` lists them in its summary with their defaults. See [keys supplied at boot](/guides/deploy-time-config/#keys-supplied-at-boot).
-
-Encryption is required: `freeze` errors when `_VARLOCK_ENV_KEY` is not set, since the file holds every resolved value and travels through image layers, registries, and CI artifacts. `--allow-plaintext` opts out for schemas with nothing sensitive in them.
-
-Values are fixed once frozen. Rotating a secret takes effect on your next deploy, not on the next restart.
+At runtime, set [`_VARLOCK_USE_FROZEN_ENV=1`](/reference/reserved-variables/#_varlock_use_frozen_env) and `_VARLOCK_ENV_KEY`, and `varlock/auto-load` or `varlock run` boots from the file with no CLI, `.env` files, or resolver credentials in the image. The file is never read unless asked for. Encryption is required unless you pass `--allow-plaintext`. Values are fixed once frozen: rotating a secret takes effect on the next deploy, not the next restart.
 
 ```bash
 varlock freeze [options]
@@ -213,7 +205,7 @@ export __VARLOCK_ENV=$(varlock freeze --out -)
 
 The output file is a generated artifact holding resolved values: add it to `.gitignore`, and rerun `freeze` whenever your env values change.
 
-With `--out -` the payload goes to stdout and the summary to stderr, so a `$(...)` capture gets the payload and nothing else. Set it as `__VARLOCK_ENV` on your platform, along with [`_VARLOCK_USE_INJECTED_ENV=1`](/reference/reserved-variables/#_varlock_use_injected_env) and `_VARLOCK_ENV_KEY`. This is a weaker guarantee than a file, since the payload then lives in platform config rather than inside the release: see [carrying the payload in an env var](/guides/deploy-time-config/#carrying-the-payload-in-an-env-var-instead).
+With `--out -` the payload goes to stdout and the summary to stderr, so a `$(...)` capture gets the payload and nothing else. Set it as `__VARLOCK_ENV` on your platform, along with [`_VARLOCK_USE_INJECTED_ENV=1`](/reference/reserved-variables/#_varlock_use_injected_env) and `_VARLOCK_ENV_KEY`. This is a weaker guarantee than a file, since the payload then lives in platform config rather than inside the release: see [carrying the payload in an env var](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead).
 
 </div>
 
