@@ -1,5 +1,5 @@
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
+import path from 'node:path';
 import {
   createHash, randomBytes, randomUUID, randomInt as cryptoRandomInt,
 } from 'node:crypto';
@@ -26,7 +26,61 @@ import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
 import { REGEX_LIKE_STRING, parseRegexLikeString } from './regex-like-string';
 
-const execAsync = promisify(exec);
+type ExecChildOptions = {
+  shell: boolean;
+  cwd?: string;
+  env?: Record<string, string>;
+  timeoutMs?: number;
+  stdin?: string;
+};
+type ExecChildFailure = {
+  code?: number | string | null;
+  signal?: NodeJS.Signals | null;
+  killed?: boolean;
+  stderr?: string;
+};
+
+/**
+ * Run a child for `exec()`. The string form passes the whole command as `file`
+ * with `shell: true` (same as `child_process.exec`); the argv form passes the
+ * program and its arguments with no shell. Unlike the promisified helpers this
+ * exposes the child so a value can be written to its stdin.
+ */
+function runExecChild(file: string, args: Array<string>, opts: ExecChildOptions): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(file, args, {
+      shell: opts.shell,
+      cwd: opts.cwd,
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      timeout: opts.timeoutMs,
+      encoding: 'utf8',
+    }, (err, stdout, stderr) => {
+      if (err) {
+        reject(Object.assign(err, { stderr }));
+      } else {
+        resolve({ stdout });
+      }
+    });
+    if (child.stdin) {
+      // a stdin write can fail if the child exits before reading it (EPIPE); the
+      // exit error is the one that matters, so this one is swallowed
+      child.stdin.on('error', () => undefined);
+      if (opts.stdin !== undefined) child.stdin.write(opts.stdin);
+      child.stdin.end();
+    }
+  });
+}
+
+/** Resolve a `key=value` option of `exec()` and check its type. */
+async function resolveExecOption(
+  objArgs: Record<string, Resolver> | undefined,
+  key: string,
+): Promise<ResolvedValue> {
+  const resolver = objArgs?.[key];
+  return resolver ? await resolver.resolve() : undefined;
+}
+
+const EXEC_OPTION_KEYS = ['cwd', 'env', 'timeout', 'stdin'];
 
 export { parseRegexLikeString };
 /** Whether a string has the `/pattern/flags` shape that consumers read as a regex. */
@@ -482,35 +536,290 @@ export const FallbackResolver: typeof Resolver = createResolver({
 });
 
 const execQueue = new SimpleQueue();
+
+/** `$1`..`$9`, `${10}`, `$@`, `$*`: how a shell command reads the values passed after it */
+const SHELL_POSITIONAL_REF = /\$(?:[1-9]|\{\d+\}|[@*])/;
+
+/** How an `exec()` value arg would be written as a positional value, or undefined if it can't be */
+function execValueSource(part: Resolver): string | undefined {
+  if (part.fnName === 'ref' && part.arrArgs?.[0] instanceof StaticValueResolver) {
+    return `$${String(part.arrArgs[0].staticValue)}`;
+  }
+  return part._parsedNode?.toString();
+}
+
+/** Static command text the array-form rewrite can handle: plain words, spaces and double quotes */
+const EXEC_PLAIN_TEXT = /^[A-Za-z0-9_\-./:=@%+, "]*$/;
+
+/**
+ * Rewrite a shell command made of plain words, double quotes and values as an
+ * array-form `exec()`, e.g. `./load.sh --env ${APP_ENV}` becomes
+ * `exec(["./load.sh", "--env", $APP_ENV])`. A word that mixes text and refs
+ * becomes one string using env-spec's own `${}` expansion. Returns undefined
+ * if any part can't be written that way.
+ */
+function execArrayFormSuggestion(parts: Array<Resolver>): string | undefined {
+  type Piece = { text: string } | { value: Resolver };
+  const words: Array<Array<Piece>> = [];
+  let current: Array<Piece> | undefined;
+  let inQuotes = false;
+  for (const part of parts) {
+    if (!(part instanceof StaticValueResolver)) {
+      current ??= [];
+      if (!words.includes(current)) words.push(current);
+      current.push({ value: part });
+      continue;
+    }
+    const text = String(part.staticValue ?? '');
+    if (!EXEC_PLAIN_TEXT.test(text)) return;
+    for (const char of text) {
+      if (char === ' ' && !inQuotes) {
+        current = undefined;
+        continue;
+      }
+      current ??= [];
+      if (!words.includes(current)) words.push(current);
+      if (char === '"') inQuotes = !inQuotes;
+      else current.push({ text: char });
+    }
+  }
+  if (inQuotes) return;
+
+  const elements: Array<string> = [];
+  for (const word of words) {
+    if (word.length === 1 && 'value' in word[0]) {
+      const source = execValueSource(word[0].value);
+      if (!source) return;
+      elements.push(source);
+      continue;
+    }
+    let str = '';
+    for (const piece of word) {
+      if ('text' in piece) str += piece.text;
+      else if (piece.value.fnName === 'ref' && piece.value.arrArgs?.[0] instanceof StaticValueResolver) {
+        str += `\${${String(piece.value.arrArgs[0].staticValue)}}`;
+      } else return; // a function inside a word has no string-expansion form
+    }
+    elements.push(`"${str}"`);
+  }
+  return elements.length ? `exec([${elements.join(', ')}])` : undefined;
+}
+
+/**
+ * Tips for a shell-form `exec()` whose command is not fixed text. When the
+ * command is a template (`${REF}`s in static text), spell out the rewrite:
+ * the array form if the text has no shell syntax, otherwise the same command
+ * reading `"$1"`, `"$2"`... with the values passed after it.
+ */
+function execShellCommandTips(arg: Resolver): Array<string> {
+  const posix = process.platform !== 'win32';
+  if (arg.fnName !== 'concat' || !arg.arrArgs?.length) {
+    // a value or function as the whole command: exec($CMD), exec(if(...))
+    return [
+      'to pick the program from a value, use the array form, which runs it with no shell: exec([$CLI, "get", $ITEM])',
+      'to switch between fixed commands, wrap the calls instead: if($IS_PROD, exec(`prod-cli get`), exec(`dev-cli get`))',
+    ];
+  }
+
+  const tips: Array<string> = [];
+  const arrayForm = execArrayFormSuggestion(arg.arrArgs);
+  if (arrayForm) tips.push(`use the array form, which runs the program with no shell: ${arrayForm}`);
+
+  // otherwise keep the shell command, reading each value as "$1", "$2"... That is only
+  // a mechanical rewrite when the text has no quotes or escapes of its own, which would
+  // change what the inserted "$1" means.
+  let command = '';
+  const values: Array<string> = [];
+  let canRewrite = true;
+  let hasRef = false;
+  for (const part of arg.arrArgs) {
+    if (part instanceof StaticValueResolver) {
+      const text = String(part.staticValue ?? '');
+      if (/['"`\\]/.test(text)) canRewrite = false;
+      command += text;
+    } else {
+      const source = execValueSource(part);
+      if (!source) canRewrite = false;
+      if (part.fnName === 'ref') hasRef = true;
+      values.push(source ?? '');
+      command += `"$${values.length}"`;
+    }
+  }
+  if (!tips.length && canRewrite && posix) {
+    tips.push(`keep the shell command and pass the values after it, where it reads them as "$1", "$2"...: exec(\`${command}\`, ${values.join(', ')})`);
+  }
+  if (!tips.length) {
+    tips.push(posix
+      ? 'use the array form, which runs the program with no shell (exec(["my-cli", "get", $ITEM])), or pass values after the shell command and read them as "$1", "$2"... (exec(`my-cli get "$1" | jq -r .value`, $ITEM))'
+      : 'use the array form, which runs the program with no shell: exec(["my-cli", "get", $ITEM])');
+  }
+  if (hasRef && posix) {
+    tips.push('if you meant a shell variable (for example one set with env=), write the command in single quotes: env-spec reads $NAME inside backticks and double quotes as a reference to another item');
+  }
+  return tips;
+}
+
 export const ExecResolver: typeof Resolver = createResolver({
   name: 'exec',
   icon: 'iconoir:terminal',
   argsSchema: {
-    type: 'array',
-    arrayExactLength: 1,
+    type: 'mixed',
+    arrayMinLength: 1,
+  },
+  process() {
+    for (const key of Object.keys(this.objArgs ?? {})) {
+      if (!EXEC_OPTION_KEYS.includes(key)) {
+        throw new SchemaError(`does not accept a "${key}" option (expected one of ${EXEC_OPTION_KEYS.join(', ')})`);
+      }
+    }
+    const [command, ...values] = this.arrArgs!;
+
+    // array form: exec(["./script", "--env", $APP_ENV]) runs the program directly, no shell
+    if (command instanceof ArrayLiteralResolver) {
+      if (!command.arrArgs?.length) throw new SchemaError('array form needs at least the program: exec(["my-cli", "arg"])');
+      if (values.length) {
+        const sources = [...command.arrArgs, ...values].map((r) => (
+          r instanceof StaticValueResolver ? JSON.stringify(String(r.staticValue ?? '')) : execValueSource(r)
+        ));
+        throw new SchemaError('the array form takes all of its arguments inside the array', {
+          tip: `move them into the array: ${sources.every(Boolean) ? `exec([${sources.join(', ')}])` : 'exec(["my-cli", "get", $ITEM])'}`,
+        });
+      }
+      return;
+    }
+
+    // shell form: the command runs through the shell, so it must be fixed text. A value
+    // (`${REF}`, `$CMD`, a nested call) can come from the process environment or a
+    // .env.local, and spliced into the command it would be read as shell syntax.
+    if (!(command instanceof StaticValueResolver) || typeof command.staticValue !== 'string') {
+      throw new SchemaError('a shell command must be fixed text: a value inserted into it could run as shell code', {
+        tip: execShellCommandTips(command),
+      });
+    }
+    if (values.length) {
+      if (process.platform === 'win32') {
+        throw new SchemaError('values after a shell command ("$1", "$2"...) need a POSIX shell, which Windows does not have', {
+          tip: 'use the array form, which works everywhere: exec(["my-cli", "get", $ITEM])',
+        });
+      }
+      if (!SHELL_POSITIONAL_REF.test(command.staticValue)) {
+        // most likely meant as program + arguments, so spell out the array form for it
+        const asArray = EXEC_PLAIN_TEXT.test(command.staticValue) && !command.staticValue.includes('"')
+          ? execArrayFormSuggestion([command, ...values].flatMap((v, i) => (i ? [new StaticValueResolver(' '), v] : [v])))
+          : undefined;
+        throw new SchemaError('values after a shell command are passed to it as "$1", "$2"..., but this command does not use them', {
+          tip: [
+            `to pass arguments to a program, use the array form: ${asArray ?? 'exec(["my-cli", "get", $ITEM])'}`,
+            'or read the values in the command: exec(`my-cli get "$1"`, $ITEM)',
+          ],
+        });
+      }
+    }
   },
   async resolve() {
-    const commandStr = await this.arrArgs?.[0].resolve();
-    if (typeof commandStr !== 'string') {
-      throw new ResolutionError('exec() expects a string arg');
+    const args = this.arrArgs!;
+
+    // options: cwd= (relative to the env file), env= (object literal, added to the
+    // child's environment), timeout= (duration), stdin= (written to the child's stdin).
+    // env and stdin exist so a secret can reach a CLI without going through argv,
+    // which every process on the machine can read via `ps`.
+    const childOpts: ExecChildOptions = { shell: false };
+
+    const cwdVal = await resolveExecOption(this.objArgs, 'cwd');
+    if (cwdVal !== undefined) {
+      if (typeof cwdVal !== 'string' || !cwdVal) throw new ResolutionError('cwd= must be a non-empty string');
+      const ds = this.dataSource as { fullPath?: string } | undefined;
+      const baseDir = ds?.fullPath ? path.dirname(ds.fullPath) : process.cwd();
+      childOpts.cwd = path.resolve(baseDir, cwdVal);
+    }
+
+    const envVal = await resolveExecOption(this.objArgs, 'env');
+    if (envVal !== undefined) {
+      if (!_.isPlainObject(envVal)) throw new ResolutionError('env= must be an object literal, e.g. env={TOKEN=$TOKEN}');
+      childOpts.env = {};
+      for (const [k, v] of Object.entries(envVal as Record<string, ResolvedValue>)) {
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+          throw new ResolutionError(`env= value for "${k}" must resolve to a string`);
+        }
+        childOpts.env[k] = String(v);
+      }
+    }
+
+    const timeoutVal = await resolveExecOption(this.objArgs, 'timeout');
+    if (timeoutVal !== undefined) {
+      if (typeof timeoutVal !== 'string' && typeof timeoutVal !== 'number') {
+        throw new ResolutionError('timeout= must be a duration like "30s" or "2m"');
+      }
+      try {
+        childOpts.timeoutMs = parseDuration(timeoutVal);
+      } catch (err) {
+        throw new ResolutionError(`timeout= is not a valid duration: ${(err as Error).message}`);
+      }
+      if (childOpts.timeoutMs <= 0) throw new ResolutionError('timeout= must be greater than 0');
+    }
+
+    const stdinVal = await resolveExecOption(this.objArgs, 'stdin');
+    if (stdinVal !== undefined && stdinVal !== null) {
+      if (typeof stdinVal !== 'string' && typeof stdinVal !== 'number' && typeof stdinVal !== 'boolean') {
+        throw new ResolutionError('stdin= must resolve to a string');
+      }
+      childOpts.stdin = String(stdinVal);
+    }
+
+    const toArgString = (v: ResolvedValue, what: string) => {
+      if (v === undefined || v === null) return '';
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      throw new ResolutionError(`${what} must resolve to strings`);
+    };
+
+    let run: () => Promise<{ stdout: string }>;
+    const [command, ...values] = args;
+    if (command instanceof ArrayLiteralResolver) {
+      // array form: no shell, each element is exactly one argument to the program
+      const argv: Array<string> = [];
+      for (const el of command.arrArgs ?? []) argv.push(toArgString(await el.resolve(), 'array elements'));
+      const [file, ...fileArgs] = argv;
+      if (!file) throw new ResolutionError('array form needs a non-empty program as its first element');
+      run = () => runExecChild(file, fileArgs, childOpts);
+    } else {
+      const commandStr = (command as StaticValueResolver).staticValue as string;
+      if (!commandStr) throw new ResolutionError('needs a non-empty command');
+      if (values.length) {
+        // shell form with values: `sh -c <command> sh <values...>`, so the command reads
+        // them as "$1", "$2"... The shell expands a parameter as data and never
+        // re-parses it, so a value cannot add commands.
+        const positional: Array<string> = [];
+        for (const v of values) positional.push(toArgString(await v.resolve(), 'values'));
+        run = () => runExecChild('/bin/sh', ['-c', commandStr, 'sh', ...positional], childOpts);
+      } else {
+        run = () => runExecChild(commandStr, [], { ...childOpts, shell: true });
+      }
     }
 
     try {
       // ? NOTE - putting these calls through a simple queue for now
       // this avoids multiple 1password auth popups, but it also makes multiple 1p calls very slow
       // we likely want to remove this once we have the specific 1Password plugin re-implemented
-      const { stdout } = await execQueue.enqueue(() => execAsync(commandStr));
+      const { stdout } = await execQueue.enqueue(run);
       // trim trailing newline by default
       // we could allow options here?
       return stdout.replace(/\n$/, '');
     } catch (err) {
       // surface the exit code and stderr on the error itself rather than logging here -
       // a stray log would land in stdout and corrupt machine-readable output (e.g. json-full).
-      // stdout is left out since it may contain a partially-printed secret
-      const execErr = err as { code?: number | string, stderr?: string };
-      const exitInfo = execErr.code !== undefined ? ` (exit code ${execErr.code})` : '';
+      // stdout is left out since it may contain a partially-printed secret, and the command
+      // is reported as written in the schema (not with values filled in) for the same
+      // reason: a $SECRET passed as an argument must not land in error output.
+      const execErr = err as ExecChildFailure;
+      const timedOut = execErr.killed && childOpts.timeoutMs !== undefined;
+      let exitInfo = '';
+      if (timedOut) exitInfo = ` (timed out after ${timeoutVal})`;
+      else if (execErr.code !== undefined && execErr.code !== null) exitInfo = ` (exit code ${execErr.code})`;
       const stderr = execErr.stderr?.trim();
-      throw new ResolutionError(`command failed${exitInfo}: ${commandStr}`, {
+      const asWritten = this._parsedNode?.toString();
+      throw new ResolutionError(`command failed${exitInfo}${asWritten ? `: ${asWritten}` : ''}`, {
         ...stderr && { tip: `stderr:\n${stderr}` },
       });
     }
