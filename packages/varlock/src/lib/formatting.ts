@@ -129,6 +129,8 @@ export function getItemSummary(item: ConfigItem) {
     // ansis.gray(`[type = ${item.type.typeLabel}]`),
     isSensitive && ` 🔐${ansis.gray.italic('sensitive')}`,
     item.isInternal && ` 🔩${ansis.gray.italic('internal')}`,
+    // set on each instance at process start: under `varlock freeze` the value shown is a default
+    item.isBootDynamic && ` ⏱${ansis.gray.italic('boot')}`,
     item.isDeprecated && ` 😵${ansis.yellow.dim.italic('deprecated')}`,
 
     // item.useAt ? ansis.gray.italic(`(${item.useAt?.join(', ')})`) : undefined,

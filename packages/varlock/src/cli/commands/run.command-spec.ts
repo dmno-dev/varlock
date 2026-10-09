@@ -1,6 +1,7 @@
 import { define } from 'gunshi';
 
 import { REDACT_STDOUT_ARG } from '../helpers/redact-stdout-arg';
+import { FROZEN_ARG } from '../helpers/frozen-arg';
 
 export const commandSpec = define({
   name: 'run',
@@ -12,6 +13,7 @@ export const commandSpec = define({
     //   description: 'Watch mode',
     // },
     ...REDACT_STDOUT_ARG,
+    ...FROZEN_ARG,
     inject: {
       type: 'string',
       short: 'i',

@@ -1,6 +1,7 @@
 import { execSyncVarlock, VarlockExecError } from './lib/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex, isEncryptedBlob } from './runtime/crypto';
 import { evaluateInjectedEnvReuse } from './lib/injected-env-reuse';
+import { PreResolvedEnvError, USE_FROZEN_ENV_VAR } from './lib/frozen-env-file';
 import { createDebug } from './lib/debug';
 import { isVarlockCliChild } from './lib/cli-child-marker';
 
@@ -43,21 +44,27 @@ function autoLoad() {
   let strippedInternalKeys: Array<string> = [];
 
   try {
-    // An already-injected __VARLOCK_ENV blob (e.g. from a parent `varlock run`, or handed
-    // into a sandbox) can be reused directly instead of re-resolving via the CLI - see
-    // evaluateInjectedEnvReuse for the conditions. Throws in explicit-trust mode
-    // (_VARLOCK_USE_INJECTED_ENV=1) when the blob is missing/unusable, which flows into
-    // the same load-failure handling below.
+    // A pre-resolved env graph can be consumed directly instead of re-resolving via the CLI:
+    // either a `varlock freeze` file shipped inside the deploy artifact, or an already-injected
+    // __VARLOCK_ENV blob (e.g. from a parent `varlock run`, or handed into a sandbox) - see
+    // evaluateInjectedEnvReuse for the conditions. Throws when a frozen env file is present but
+    // unusable, or in explicit-trust mode (_VARLOCK_USE_INJECTED_ENV=1) when the blob is
+    // missing/unusable, which flows into the same load-failure handling below.
     const reuseDecision = evaluateInjectedEnvReuse({
       env: process.env,
       preInjectionEnv: getPreInjectionProcessEnv(),
       cwd: process.cwd(),
     });
 
+    // Hand any frozen env file we consumed to child processes by absolute path, so one
+    // started in another directory reads the same frozen env instead of missing it
+    const frozenFilePath = reuseDecision.reuse ? reuseDecision.filePath : undefined;
+    if (frozenFilePath) process.env[USE_FROZEN_ENV_VAR] = frozenFilePath;
+
     let parsed: any;
     let parsedJsonStr: string;
     if (reuseDecision.reuse) {
-      debug('reusing injected env blob - skipping resolution');
+      debug('reusing pre-resolved env from %s - skipping resolution', reuseDecision.source);
       parsed = reuseDecision.parsedEnv;
       parsedJsonStr = reuseDecision.blobJson;
       strippedInternalKeys = reuseDecision.strippedInternalKeys;
@@ -88,11 +95,11 @@ function autoLoad() {
     // in plaintext in process.env.__VARLOCK_ENV
     // (a REUSED blob that arrived already encrypted stays exactly as-is - never write the
     // decrypted form back into process.env. after a fresh resolution the env blob is always
-    // replaced, even if a stale encrypted parent blob was sitting there. a reused blob that
-    // had @internal items stripped must also be re-written, so children never inherit them -
-    // the ambient key is guaranteed present in that case, since decryption succeeded)
+    // replaced, even if a stale encrypted parent blob was sitting there, and so is a reused
+    // graph that was rewritten (see InjectedEnvReuseDecision.rewritten), so children see the
+    // same graph as this process)
     const reusedEncryptedBlob = reuseDecision.reuse
-      && reuseDecision.strippedInternalKeys.length === 0
+      && !reuseDecision.rewritten
       && !!process.env.__VARLOCK_ENV && isEncryptedBlob(process.env.__VARLOCK_ENV);
     if (!reusedEncryptedBlob) {
       let encryptionKey = process.env._VARLOCK_ENV_KEY;
@@ -109,6 +116,9 @@ function autoLoad() {
   } catch (err) {
     if (err instanceof VarlockExecError && err.stderr) {
       process.stderr.write(err.stderr);
+    } else if (err instanceof PreResolvedEnvError) {
+      // a setup/config problem, not a crash - a stack trace here is noise
+      process.stderr.write(`${err.message}\n[varlock] ${err.suggestion}\n`);
     } else {
       // eslint-disable-next-line no-console
       console.error(err);

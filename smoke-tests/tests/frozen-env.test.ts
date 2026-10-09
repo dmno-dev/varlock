@@ -1,0 +1,470 @@
+import {
+  describe, test, expect, beforeAll, afterAll, afterEach,
+} from 'vitest';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import { join } from 'node:path';
+import { runVarlock as runVarlockRaw, varlockRun as varlockRunRaw } from '../helpers/run-varlock.js';
+
+// End-to-end tests for `varlock freeze` + booting from the resulting `.varlock-frozen-env`:
+//  - the artifact is consumed in a directory with NO .env files and no varlock CLI
+//  - values, coerced types, and sensitivity all survive the round trip
+//  - a file that is present but unusable fails closed rather than re-resolving
+// See https://varlock.dev/guides/deploy-time-config/
+
+// CI runners force colored output, which splits phrases like `environment: production` with
+// escape codes - assert on the plain text
+// eslint-disable-next-line no-control-regex
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+function plain<T extends { stdout: string, stderr: string, output: string }>(r: T): T {
+  return {
+    ...r, stdout: stripAnsi(r.stdout), stderr: stripAnsi(r.stderr), output: stripAnsi(r.output),
+  };
+}
+const runVarlock = (...args: Parameters<typeof runVarlockRaw>) => plain(runVarlockRaw(...args));
+const varlockRun = (...args: Parameters<typeof varlockRunRaw>) => plain(varlockRunRaw(...args));
+
+const SCENARIO = 'smoke-test-frozen-env';
+const SCENARIO_DIR = join(import.meta.dirname, '..', SCENARIO);
+const FROZEN_FILE = join(SCENARIO_DIR, '.varlock-frozen-env');
+
+let encryptionKey: string;
+/** a deploy-like dir: the app + the frozen artifact, and nothing else */
+let deployDir: string;
+
+/** env vars that could leak in from the test runner's own environment and mask a failure */
+const ISOLATED_KEYS = [
+  '__VARLOCK_ENV',
+  '_VARLOCK_ENV_KEY',
+  '_VARLOCK_USE_INJECTED_ENV',
+  '_VARLOCK_USE_FROZEN_ENV',
+  'APP_ENV',
+  'PUBLIC_VAR',
+  'SECRET_TOKEN',
+  'COERCED_FLAG',
+  'UNSET_IN_SEAL',
+];
+
+/** boots the app, opted into the frozen env file unless `env` sets the flag itself */
+function runApp(opts: { cwd?: string, env?: Record<string, string | undefined> } = {}) {
+  const env: Record<string, string | undefined> = { ...process.env, _VARLOCK_USE_FROZEN_ENV: '1', ...opts.env };
+  for (const key of ISOLATED_KEYS) {
+    if (!(opts.env && key in opts.env) && key !== '_VARLOCK_USE_FROZEN_ENV') delete env[key];
+  }
+  const result = spawnSync(process.execPath, ['app.mjs'], {
+    cwd: opts.cwd ?? deployDir,
+    env: env as NodeJS.ProcessEnv,
+    encoding: 'utf-8',
+  });
+  return {
+    exitCode: result.status ?? 1,
+    output: stripAnsi((result.stdout ?? '') + (result.stderr ?? '')),
+  };
+}
+
+function freeze(opts?: { args?: Array<string>, env?: Record<string, string> }) {
+  return runVarlock(['freeze', ...(opts?.args ?? [])], {
+    cwd: SCENARIO,
+    env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: encryptionKey, ...opts?.env },
+  });
+}
+
+beforeAll(() => {
+  const keyResult = runVarlock(['generate-key', '--plain']);
+  expect(keyResult.exitCode).toBe(0);
+  encryptionKey = keyResult.stdout.trim();
+
+  const result = freeze();
+  expect(result.exitCode, result.output).toBe(0);
+  expect(result.output).toContain('environment: production');
+
+  // node_modules is symlinked so `varlock/auto-load` resolves, but there are no .env files
+  // here at all - everything the app sees has to come out of the frozen artifact
+  deployDir = fs.mkdtempSync(join(os.tmpdir(), 'varlock-frozen-deploy-'));
+  fs.copyFileSync(join(SCENARIO_DIR, 'app.mjs'), join(deployDir, 'app.mjs'));
+  fs.copyFileSync(FROZEN_FILE, join(deployDir, '.varlock-frozen-env'));
+  fs.symlinkSync(
+    join(import.meta.dirname, '..', 'node_modules'),
+    join(deployDir, 'node_modules'),
+    'dir',
+  );
+});
+
+afterAll(() => {
+  fs.rmSync(FROZEN_FILE, { force: true });
+  if (deployDir) fs.rmSync(deployDir, { recursive: true, force: true });
+});
+
+describe('varlock freeze', () => {
+  // the producer must never read back a frozen env, or values could never change again
+  test('re-freezing ignores an existing frozen file, even one explicitly requested', () => {
+    const outFile = join(SCENARIO_DIR, '.varlock-frozen-env-refreeze');
+    try {
+      expect(freeze({ args: ['--out', outFile, '--allow-plaintext'], env: { _VARLOCK_ENV_KEY: '' } }).exitCode).toBe(0);
+      const refrozen = freeze({
+        args: ['--out', outFile, '--allow-plaintext'],
+        env: { APP_ENV: 'development', _VARLOCK_ENV_KEY: '', _VARLOCK_USE_FROZEN_ENV: outFile },
+      });
+      expect(refrozen.exitCode, refrozen.output).toBe(0);
+      expect(JSON.parse(fs.readFileSync(outFile, 'utf8')).config.PUBLIC_VAR.value).toBe('public-value');
+    } finally {
+      fs.rmSync(outFile, { force: true });
+    }
+  });
+
+  // package.json `varlock.filter` scopes a shared schema to one package; the frozen file holds
+  // only that package's keys, and is final from then on
+  test('applies a package.json varlock.filter, and the frozen env stays scoped at boot', () => {
+    const pkgDir = join(SCENARIO_DIR, 'scoped-pkg');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    try {
+      fs.writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+        name: 'scoped-pkg', private: true, varlock: { loadPath: '../', filter: 'APP_ENV,PUBLIC_VAR' },
+      }));
+      const result = runVarlock(['freeze', '--allow-plaintext'], {
+        cwd: `${SCENARIO}/scoped-pkg`,
+        env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('scoped by package.json varlock.filter');
+      const frozen = JSON.parse(fs.readFileSync(join(pkgDir, '.varlock-frozen-env'), 'utf8'));
+      expect(frozen.config.PUBLIC_VAR.value).toBe('public-value-prod');
+      expect(frozen.config.SECRET_TOKEN).toBeUndefined();
+
+      // booting from it neither re-applies the filter nor resolves the scoped-out keys
+      const loaded = runVarlock(['load', '--frozen', '--format', 'json'], { cwd: `${SCENARIO}/scoped-pkg`, env: { _VARLOCK_ENV_KEY: '' } });
+      expect(loaded.exitCode, loaded.output).toBe(0);
+      expect(JSON.parse(loaded.stdout)).toEqual({ APP_ENV: 'production', PUBLIC_VAR: 'public-value-prod' });
+    } finally {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
+  });
+
+  test('varlock scan flags an unencrypted frozen file even when its values differ from the local ones', () => {
+    const plainDir = join(SCENARIO_DIR, 'plain-frozen');
+    try {
+      // production values, while scan resolves development ones
+      expect(freeze({ args: ['--out', 'plain-frozen/.varlock-frozen-env', '--allow-plaintext'], env: { _VARLOCK_ENV_KEY: '' } }).exitCode).toBe(0);
+      const result = runVarlock(['scan', 'plain-frozen'], { cwd: SCENARIO });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('unencrypted frozen env file');
+      expect(result.output).toContain(join('plain-frozen', '.varlock-frozen-env'));
+
+      // an encrypted one is fine
+      expect(freeze({ args: ['--out', 'plain-frozen/.varlock-frozen-env'] }).exitCode).toBe(0);
+      expect(runVarlock(['scan', 'plain-frozen'], { cwd: SCENARIO }).exitCode).toBe(0);
+    } finally {
+      fs.rmSync(plainDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses to write an unencrypted file without a key', () => {
+    const result = runVarlock(['freeze', '--out', '.varlock-frozen-env-nokey'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('_VARLOCK_ENV_KEY is not set');
+    expect(fs.existsSync(join(SCENARIO_DIR, '.varlock-frozen-env-nokey'))).toBe(false);
+  });
+
+  test('tightens the mode of an existing file it overwrites', () => {
+    if (process.platform === 'win32') return;
+    const outFile = '.varlock-frozen-env-mode';
+    const outPath = join(SCENARIO_DIR, outFile);
+    fs.writeFileSync(outPath, 'stale\n', { mode: 0o644 });
+    try {
+      const result = freeze({ args: ['--out', outFile] });
+      expect(result.exitCode, result.output).toBe(0);
+      // eslint-disable-next-line no-bitwise
+      expect(fs.statSync(outPath).mode & 0o777).toBe(0o600);
+    } finally {
+      fs.rmSync(outPath, { force: true });
+    }
+  });
+
+  test('writes an encrypted file', () => {
+    const contents = fs.readFileSync(FROZEN_FILE, 'utf8');
+    expect(contents.startsWith('varlock:v1:')).toBe(true);
+    // no resolved value should be greppable in the artifact
+    expect(contents).not.toContain('prod-token');
+  });
+
+  // --env is only a fallback, so a @currentEnv schema ignores it - silently freezing the
+  // wrong environment into a deploy artifact is the failure this command exists to prevent
+  test('refuses --env when the schema sets @currentEnv', () => {
+    const result = runVarlock(['freeze', '--out', '.varlock-frozen-env-badenv', '--env', 'production'], {
+      cwd: SCENARIO,
+      env: { _VARLOCK_ENV_KEY: encryptionKey, APP_ENV: 'development' },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('was ignored');
+    expect(result.output).toContain('APP_ENV');
+    expect(fs.existsSync(join(SCENARIO_DIR, '.varlock-frozen-env-badenv'))).toBe(false);
+  });
+});
+
+// `--out -` is the same payload carried in an env var instead of a file, for platforms that
+// take env vars but give you no way to get a file into the deploy unit. The guarantee is weaker
+// (the blob lives in platform config rather than inside the release), but it is still
+// resolved and validated once, as one unit.
+describe('varlock freeze --out -', () => {
+  /** a deploy-like dir with the app and NO frozen artifact - the blob is the only input */
+  let blobDeployDir: string;
+
+  beforeAll(() => {
+    blobDeployDir = fs.mkdtempSync(join(os.tmpdir(), 'varlock-frozen-blob-deploy-'));
+    fs.copyFileSync(join(SCENARIO_DIR, 'app.mjs'), join(blobDeployDir, 'app.mjs'));
+    fs.symlinkSync(
+      join(import.meta.dirname, '..', 'node_modules'),
+      join(blobDeployDir, 'node_modules'),
+      'dir',
+    );
+  });
+
+  afterAll(() => {
+    if (blobDeployDir) fs.rmSync(blobDeployDir, { recursive: true, force: true });
+  });
+
+  test('writes only the payload to stdout, and the summary to stderr', () => {
+    const result = freeze({ args: ['--out', '-'] });
+    expect(result.exitCode, result.output).toBe(0);
+    // a `$(...)` capture gets the payload and nothing else - for an encrypted blob the
+    // leading byte is load-bearing, so a stray banner line would break consumption
+    expect(result.stdout.trim().startsWith('varlock:v1:')).toBe(true);
+    expect(result.stdout.trim().split('\n')).toHaveLength(1);
+    expect(result.stdout).not.toContain('prod-token');
+    expect(result.stderr).toContain('environment: production');
+    expect(result.stderr).toContain('_VARLOCK_USE_INJECTED_ENV=1');
+    // no file written as a side effect
+    expect(fs.existsSync(join(SCENARIO_DIR, '-'))).toBe(false);
+  });
+
+  // auto-load used to print these as a raw stack trace with no remedy
+  test('a missing payload fails with a remedy, not a stack trace', () => {
+    const result = runApp({
+      cwd: blobDeployDir,
+      env: { _VARLOCK_USE_INJECTED_ENV: '1', _VARLOCK_USE_FROZEN_ENV: undefined, _VARLOCK_ENV_KEY: encryptionKey },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('no __VARLOCK_ENV blob is present');
+    expect(result.output).toContain('varlock freeze --out -');
+    expect(result.output).not.toMatch(/\n\s+at /);
+  });
+
+  test('the payload boots an app with no .env files, no CLI, and no artifact on disk', () => {
+    const blob = freeze({ args: ['--out', '-'] }).stdout.trim();
+    const result = runApp({
+      cwd: blobDeployDir,
+      env: {
+        __VARLOCK_ENV: blob,
+        _VARLOCK_USE_INJECTED_ENV: '1',
+        _VARLOCK_USE_FROZEN_ENV: undefined,
+        _VARLOCK_ENV_KEY: encryptionKey,
+      },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).toContain('PUBLIC_VAR=public-value-prod');
+    expect(result.output).toContain('SECRET_OK=true');
+    expect(result.output).toContain('COERCED_FLAG_IS_BOOL=true');
+  });
+
+  test('refuses to emit an unencrypted payload without a key', () => {
+    const result = runVarlock(['freeze', '--out', '-'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).toContain('_VARLOCK_ENV_KEY is not set');
+    expect(result.stdout).not.toContain('prod-token');
+  });
+
+  test('--allow-plaintext emits the raw graph', () => {
+    const result = runVarlock(['freeze', '--out', '-', '--allow-plaintext'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(JSON.parse(result.stdout).config.PUBLIC_VAR.value).toBe('public-value-prod');
+    expect(result.stderr).toContain('UNENCRYPTED');
+  });
+
+  // Override provenance is cleared for the same reason it is in the file: it would make any
+  // schema key that happened to be set in CI a key the platform can override at runtime.
+  test('carries no override provenance', () => {
+    const result = runVarlock(['freeze', '--out', '-', '--allow-plaintext'], {
+      cwd: SCENARIO,
+      env: { APP_ENV: 'production', _VARLOCK_ENV_KEY: '', PUBLIC_VAR: 'from-ci' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(JSON.parse(result.stdout).overrideKeys).toEqual([]);
+  });
+});
+
+describe('booting from a frozen env file', () => {
+  test('hydrates everything with no .env files and no CLI present', () => {
+    const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey } });
+    expect(result.exitCode, result.output).toBe(0);
+    // the production values, not the schema defaults
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).toContain('PUBLIC_VAR=public-value-prod');
+    expect(result.output).toContain('SECRET_OK=true');
+    // coerced types survive the round trip (a string "true" would fail this)
+    expect(result.output).toContain('COERCED_FLAG_IS_BOOL=true');
+  });
+
+  test('varlock run consumes it too', () => {
+    const result = varlockRun(['node', 'app.mjs'], {
+      cwd: SCENARIO,
+      env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', DEBUG: 'varlock:auto-load' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('reusing pre-resolved env from frozen-file');
+    expect(result.output).toContain('APP_ENV=production');
+  });
+
+  // With `--inject blob` nothing is injected as individual vars, so the child can only see
+  // the frozen values through the __VARLOCK_ENV it is handed. The child is told to ignore
+  // the file on disk (the parent hands it on by path) so it cannot mask a missing blob by
+  // re-reading it.
+  test('varlock run --inject blob hands the child the frozen graph', () => {
+    const result = runVarlock(['run', '--inject', 'blob', '--', 'sh', '-c', '_VARLOCK_USE_FROZEN_ENV=0 node app.mjs'], {
+      cwd: SCENARIO,
+      env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1', DEBUG: 'varlock:auto-load' },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('reusing pre-resolved env from env-blob');
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).toContain('SECRET_OK=true');
+  });
+
+  describe('fails closed rather than silently re-resolving', () => {
+    test('when the key is missing', () => {
+      const result = runApp();
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('_VARLOCK_ENV_KEY is not set');
+    });
+
+    test('when the key is wrong', () => {
+      const otherKey = runVarlock(['generate-key', '--plain']).stdout.trim();
+      const result = runApp({ env: { _VARLOCK_ENV_KEY: otherKey } });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('failed to decrypt');
+    });
+
+    // this is the case that matters most: the scenario dir HAS .env files, so falling back
+    // would boot happily on re-resolved values and never signal that the frozen env was lost
+    test('when the file is broken in a directory that could otherwise resolve', () => {
+      const brokenFile = join(SCENARIO_DIR, '.varlock-frozen-env');
+      const original = fs.readFileSync(brokenFile, 'utf8');
+      fs.writeFileSync(brokenFile, 'varlock:v1:not-a-real-blob\n');
+      try {
+        const result = runApp({ cwd: SCENARIO_DIR, env: { _VARLOCK_ENV_KEY: encryptionKey } });
+        expect(result.exitCode).not.toBe(0);
+        expect(result.output).toContain('failed to decrypt');
+        expect(result.output).not.toContain('APP_ENV=development');
+      } finally {
+        fs.writeFileSync(brokenFile, original);
+      }
+    });
+  });
+
+  // A frozen env is authoritative: it wins over env supplied at boot, and process.env is kept
+  // in agreement with ENV. This is the opposite of a build-baked snapshot, which sets
+  // `injectedAtBuild` so runtime env survives (see PR #1055) - baking is implicit and never
+  // asked to freeze, freezing is opt-in and its whole promise is a validated unit.
+  // These lock in the behavior so a later change can't quietly give freeze the baked semantics.
+  describe('a frozen env is total', () => {
+    test('a value defined in the frozen env wins over an ambient one', () => {
+      const result = runApp({
+        env: { _VARLOCK_ENV_KEY: encryptionKey, PUBLIC_VAR: 'from-operator' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('PUBLIC_VAR=public-value-prod');
+      // process.env agrees with ENV rather than keeping the operator's value
+      expect(result.output).toContain('SEALED_SET_env="public-value-prod"');
+    });
+
+    test('a key that resolved to nothing clears an ambient value', () => {
+      const result = runApp({
+        env: { _VARLOCK_ENV_KEY: encryptionKey, UNSET_IN_SEAL: 'from-operator' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('SEALED_UNSET_env=undefined');
+      expect(result.output).toContain('SEALED_UNSET_ENV=undefined');
+    });
+
+    // the control: without a frozen env, the same ambient value acts as an override and is
+    // resolved + validated normally. This is what shows the clearing above is specific to
+    // frozen payloads rather than general varlock behavior.
+    test('control: without a frozen env the same ambient value is honored as an override', () => {
+      const result = runApp({
+        cwd: SCENARIO_DIR,
+        env: { _VARLOCK_USE_FROZEN_ENV: '0', APP_ENV: 'production', UNSET_IN_SEAL: 'from-operator' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('SEALED_UNSET_env="from-operator"');
+      expect(result.output).toContain('SEALED_UNSET_ENV="from-operator"');
+    });
+  });
+
+  describe('_VARLOCK_USE_FROZEN_ENV', () => {
+    afterEach(() => {
+      const movedFile = `${join(deployDir, '.varlock-frozen-env')}.bak`;
+      if (fs.existsSync(movedFile)) fs.renameSync(movedFile, join(deployDir, '.varlock-frozen-env'));
+    });
+
+    test('=1 makes a missing file a hard error', () => {
+      fs.renameSync(join(deployDir, '.varlock-frozen-env'), `${join(deployDir, '.varlock-frozen-env')}.bak`);
+      const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1' } });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.output).toContain('requires a frozen env file');
+      expect(result.output).toContain('did not make it into this deploy');
+    });
+
+    test('accepts an explicit path', () => {
+      fs.renameSync(join(deployDir, '.varlock-frozen-env'), `${join(deployDir, '.varlock-frozen-env')}.bak`);
+      const result = runApp({
+        env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '.varlock-frozen-env.bak' },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('APP_ENV=production');
+    });
+
+    // a frozen file is only used when asked for: a leftover one next to .env files is inert
+    test.each([undefined, '0'])('unset or =0 (%s) ignores a present file', (flagValue) => {
+      const result = runApp({
+        cwd: SCENARIO_DIR,
+        env: { _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: flagValue },
+      });
+      expect(result.exitCode, result.output).toBe(0);
+      expect(result.output).toContain('APP_ENV=development');
+    });
+
+    // the consumer hands the file on by absolute path, so a child that starts in another
+    // directory reads the same frozen env rather than missing it (or erroring under a relative `=1`)
+    test('a child process in another directory reads the same frozen env', () => {
+      const subDir = join(deployDir, 'sub');
+      fs.mkdirSync(subDir, { recursive: true });
+      fs.copyFileSync(join(deployDir, 'app.mjs'), join(subDir, 'app.mjs'));
+      fs.writeFileSync(join(deployDir, 'spawn-child.mjs'), [
+        "import 'varlock/auto-load';",
+        "import { spawnSync } from 'node:child_process';",
+        "const r = spawnSync(process.execPath, ['app.mjs'], { cwd: 'sub', encoding: 'utf-8' });",
+        'process.stdout.write(r.stdout + r.stderr);',
+        'process.exit(r.status ?? 1);',
+      ].join('\n'));
+      const result = spawnSync(process.execPath, ['spawn-child.mjs'], {
+        cwd: deployDir,
+        env: { PATH: process.env.PATH, _VARLOCK_ENV_KEY: encryptionKey, _VARLOCK_USE_FROZEN_ENV: '1' },
+        encoding: 'utf-8',
+      });
+      const output = (result.stdout ?? '') + (result.stderr ?? '');
+      expect(result.status, output).toBe(0);
+      expect(output).toContain('APP_ENV=production');
+      expect(output).toContain('SECRET_OK=true');
+    });
+  });
+});

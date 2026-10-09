@@ -58,6 +58,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'When set (`1`/`true`), allows loading an empty config (no .env files found, or no items defined). `varlock load`/`run` succeed with an empty config instead of erroring, and `varlock/auto-load` and the framework integrations skip their empty-config warning. Use for deploys that intentionally ship no .env files. Other commands (e.g. `varlock proxy`) still require config items.',
   },
   {
+    name: '_VARLOCK_USE_FROZEN_ENV',
+    description: 'Boot from a frozen env file produced by `varlock freeze` instead of resolving. `1`/`true` uses `.varlock-frozen-env` in the working directory; any other value is the path to the file. The file must exist and be usable, or startup fails. Unset (or `0`/`false`), a frozen file is never read, even when one is present. Honored by `varlock/auto-load`, `varlock run`, and `varlock load`; `--frozen` on `run` and `load` is the flag form.',
+  },
+  {
     name: '_VARLOCK_FORCE_FILE_ENCRYPTION_FALLBACK',
     description: 'Forces the file-based local encryption fallback instead of the native binary. Intended for testing/debugging.',
     internal: true,

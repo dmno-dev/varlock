@@ -8,6 +8,10 @@ import {
   checkForConfigErrors, checkForNoEnvFiles, checkForSchemaErrors, showPluginWarnings,
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
+import { applyFrozenArg, getFrozenEnv } from '../helpers/frozen-env-cli';
+import { printFrozenEnv } from '../helpers/print-frozen-env';
+import { formatShellValue } from '../helpers/shell-value';
+import { CliExitError } from '../helpers/exit-error';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import ansis from 'ansis';
 import {
@@ -21,14 +25,7 @@ import { commandSpec } from './load.command-spec';
 export { commandSpec };
 
 
-/**
- * Formats a string value for safe use in a shell export statement.
- * Uses single-quoted strings to prevent shell injection via backticks, `$`, etc.
- * Single quotes within the value are escaped using the `'\''` sequence.
- */
-export function formatShellValue(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
+export { formatShellValue };
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
   const {
@@ -43,6 +40,33 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   if (agent && (outputFormat === 'env' || outputFormat === 'shell')) {
     throw new Error(`--agent is not compatible with --format ${outputFormat}`);
+  }
+
+  // A frozen env is shown when asked for (`--frozen`, `_VARLOCK_USE_FROZEN_ENV` set to `1` or a
+  // path, or a frozen payload trusted via `_VARLOCK_USE_INJECTED_ENV=1`): its values, with any
+  // boot-time values for `@dynamic=boot` items applied. It is complete on its own, so this
+  // reads neither the schema nor any .env files.
+  applyFrozenArg(ctx.values.frozen);
+  const frozenEnv = getFrozenEnv();
+  if (frozenEnv) {
+    // these change what a fresh resolution produces, and there is no resolution here.
+    // (`--env` is left alone: the Next.js integration always passes it.)
+    const resolutionFlags = [
+      ctx.values.path?.length ? '--path' : undefined,
+      ctx.values.filter ? '--filter' : undefined,
+      ctx.values['clear-cache'] ? '--clear-cache' : undefined,
+      ctx.values['skip-cache'] ? '--skip-cache' : undefined,
+    ].filter(Boolean) as Array<string>;
+    if (resolutionFlags.length) {
+      const what = frozenEnv.source === 'frozen-file' ? `a frozen env file (${frozenEnv.filePath})` : 'a frozen __VARLOCK_ENV payload';
+      throw new CliExitError(`${what} cannot be combined with ${resolutionFlags.join(', ')}`, {
+        suggestion: 'A frozen env is shown as-is, with nothing resolved. Drop them, or drop --frozen / _VARLOCK_USE_FROZEN_ENV.',
+      });
+    }
+    printFrozenEnv(frozenEnv.graph, {
+      format: outputFormat, agent: !!agent, compact: !!compact, summaryStderr: !!summaryStderr, summaryFile,
+    });
+    return;
   }
 
   const envGraph = await loadVarlockEnvGraph({

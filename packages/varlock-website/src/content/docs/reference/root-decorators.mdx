@@ -134,6 +134,8 @@ Sets the default state of each item being treated as _dynamic_ (runtime-resolved
 - `true`: All items are dynamic unless explicitly marked static.
 - `false`: All items are static unless explicitly marked dynamic.
 
+`boot` is not a valid default: [`@dynamic=boot`](/reference/item-decorators/#dynamic) is set per item.
+
 ```env-spec
 # @defaultSensitive=inferFromPrefix(PUBLIC_)
 # @defaultDynamic=inferFromSensitive

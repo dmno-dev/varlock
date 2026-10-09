@@ -191,7 +191,7 @@ export class ResolutionError extends VarlockError {
 
 export class EmptyRequiredValueError extends ValidationError {
   icon = '❓';
-  constructor(_val: undefined | null | '') {
-    super('Value is required but is currently empty');
+  constructor(_val: undefined | null | '', opts?: { tip?: string }) {
+    super('Value is required but is currently empty', opts);
   }
 }

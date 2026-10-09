@@ -24,10 +24,11 @@ import type { EnvGraphDataSource } from './data-source';
 import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
+import { REGEX_LIKE_STRING, parseRegexLikeString } from './regex-like-string';
 
 const execAsync = promisify(exec);
 
-const REGEX_LIKE_STRING = /^\/(.+)\/([dgimsuvy]*)$/;
+export { parseRegexLikeString };
 /** Whether a string has the `/pattern/flags` shape that consumers read as a regex. */
 export function isRegexLikeString(str: unknown): str is string {
   return typeof str === 'string' && REGEX_LIKE_STRING.test(str);
@@ -57,17 +58,6 @@ export function deprecatedRegexStringWarning(str: string, context?: string) {
       ],
     },
   );
-}
-/** Try to parse an unquoted string like `/pattern/flags` into a RegExp. Returns null if not regex-like. */
-export function parseRegexLikeString(str: string): RegExp | null {
-  if (typeof str !== 'string') return null;
-  const match = str.match(REGEX_LIKE_STRING);
-  if (!match) return null;
-  try {
-    return new RegExp(match[1], match[2]);
-  } catch {
-    return null;
-  }
 }
 
 /**

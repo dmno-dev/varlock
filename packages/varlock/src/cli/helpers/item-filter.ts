@@ -61,6 +61,8 @@ export function getCliItemFilter(
     cliPaths?: Array<string>,
     /** where to look for package.json (defaults to process.cwd()) */
     cwd?: string,
+    /** skip the `_VARLOCK_FILTER` fallback (`varlock freeze` applies only package.json `varlock.filter`) */
+    ignoreEnvFilter?: boolean,
   },
 ): CliItemFilter | undefined {
   const pkgFilter = getPackageJsonFilter(opts);
@@ -69,7 +71,7 @@ export function getCliItemFilter(
   if (flagValue) {
     filterStr = flagValue;
     source = '--filter';
-  } else if (process.env._VARLOCK_FILTER) {
+  } else if (process.env._VARLOCK_FILTER && !opts?.ignoreEnvFilter) {
     filterStr = process.env._VARLOCK_FILTER;
     source = '_VARLOCK_FILTER env var';
   } else {

@@ -846,17 +846,74 @@ export class ConfigItem {
   get isDynamic(): boolean {
     return this._isDynamic;
   }
+
+  /**
+   * The explicit `@dynamic` / `@static` decorator that decides this item's dynamic state, if
+   * any - the first one found across the item's definitions (same precedence as
+   * {@link processDynamic}).
+   */
+  private getExplicitDynamicDecorator() {
+    for (const def of this.defs) {
+      const dynamicDec = def.itemDef.decorators?.find((d) => d.name === 'dynamic' || d.name === 'static');
+      if (dynamicDec) return dynamicDec;
+    }
+    return undefined;
+  }
+
+  /**
+   * Record the error for a required item with no value. A `@dynamic=boot` item is exempt when
+   * the graph is resolving for a freeze (`deferBootRequired`): its value arrives at boot, where
+   * the frozen env checks it. Otherwise the error says what kind of item it is, since "required
+   * but empty" alone doesn't explain why a per-instance value is expected here.
+   */
+  private checkRequiredWhenEmpty() {
+    if (!this.isRequired) return;
+    if (this.isBootDynamic && this.envGraph.deferBootRequired) return;
+    this.validationErrors = [
+      new EmptyRequiredValueError(undefined, this.isBootDynamic ? {
+        tip: `${this.key} is @dynamic=boot: it is set on each instance at process start. `
+        + 'Set it in your environment to run locally, or give it a default in the schema.',
+      } : undefined),
+    ];
+  }
+
+  /** whether any part of this item's `@type` is computed rather than written literally */
+  get hasComputedType(): boolean {
+    return !!this._typeSpecPlan?.deferred.length;
+  }
+
+  /**
+   * `@dynamic=boot`: the value is bound at process start on each instance (a platform-assigned
+   * PORT, pod identity, an operator's `docker run -e`). Under `varlock freeze` it is frozen like
+   * everything else, but the frozen value is only a default the environment may override at boot
+   * (see lib/frozen-boot-keys).
+   *
+   * `boot` must be written literally, so this is knowable from the schema alone (before any
+   * resolution) - the graph relies on that for its boot dependency check.
+   */
+  get isBootDynamic(): boolean {
+    const dynamicDec = this.getExplicitDynamicDecorator();
+    if (!dynamicDec || dynamicDec.name !== 'dynamic') return false;
+    const resolver = dynamicDec.decValueResolver;
+    return !!resolver?.isStatic && resolver.staticValue === 'boot';
+  }
+
   private async processDynamic() {
     try {
       // Pass 1: explicit per-item @dynamic / @static decorators take highest priority
-      for (const def of this.defs) {
-        const dynamicDecs = def.itemDef.decorators?.filter((d) => d.name === 'dynamic' || d.name === 'static') || [];
-        const dynamicDec = dynamicDecs[0];
-        if (!dynamicDec) continue;
-
+      const dynamicDec = this.getExplicitDynamicDecorator();
+      if (dynamicDec) {
         const usingStatic = dynamicDec.name === 'static';
         const dynamicDecValue = await dynamicDec.resolve();
         if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) return;
+        if (dynamicDecValue === 'boot') {
+          // boot-bound items are dynamic (never inlined at build) plus more - see isBootDynamic
+          if (usingStatic || !dynamicDec.decValueResolver?.isStatic) {
+            throw new SchemaError('@dynamic=boot must be written literally, not computed (and @static has no boot form)');
+          }
+          this._isDynamic = true;
+          return;
+        }
         if (![true, false, undefined].includes(dynamicDecValue)) {
           throw new SchemaError('@dynamic/@static must resolve to a boolean or undefined');
         }
@@ -1073,9 +1130,7 @@ export class ConfigItem {
       } else {
         this.resolvedValue = this.resolvedRawValue;
       }
-      if (this.isRequired) {
-        this.validationErrors = [new EmptyRequiredValueError(undefined)];
-      }
+      this.checkRequiredWhenEmpty();
       return;
     }
 
@@ -1123,9 +1178,7 @@ export class ConfigItem {
       // string on a composite type) - treat like the empty short-circuit above instead
       // of running validation against undefined
       if (this.resolvedValue === undefined) {
-        if (this.isRequired) {
-          this.validationErrors = [new EmptyRequiredValueError(undefined)];
-        }
+        this.checkRequiredWhenEmpty();
         return;
       }
     } catch (err) {

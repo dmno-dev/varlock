@@ -1,4 +1,5 @@
 import _ from '@env-spec/utils/my-dash';
+import { describeBootItem, getBootDataTypeProblem } from '../../lib/frozen-boot-keys';
 import path from 'node:path';
 import fs from 'node:fs';
 import { ConfigItem, type TypeGenItemInfo } from './config-item';
@@ -161,6 +162,12 @@ export type SerializedEnvGraph = {
     overrideStr?: string;
     /** whether the value must stay runtime-resolved (never inlined at build time). Omitted when it matches `isSensitive` (the default linkage), so consumers should read `isDynamic ?? isSensitive`. */
     isDynamic?: boolean;
+    /**
+     * Present only for `@dynamic=boot` items: what a consumer needs to check a value supplied
+     * at boot without the schema (built-in type name, its settings, and whether a value is
+     * required). `value` is then the default (see lib/frozen-boot-keys).
+     */
+    boot?: { type: string, typeArgs?: Array<any>, required: boolean };
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
@@ -173,6 +180,11 @@ export type SerializedEnvGraph = {
    * stale-echo cleanup of ambient values, since no resolution happened in this process.
    */
   injectedAtBuild?: boolean;
+  /**
+   * true = a frozen env (see lib/build-frozen-env): resolved and validated once, as a unit, and
+   * total wherever it runs. Never set by the graph serializer itself.
+   */
+  frozen?: boolean;
   /** Present only when config has errors — consumers can check `if (data.errors)` */
   errors?: SerializedEnvGraphErrors;
 };
@@ -217,6 +229,11 @@ export class EnvGraph {
 
   /** place to store process.env overrides */
   overrideValues: Record<string, string | undefined> = {};
+  /**
+   * Resolving for a freeze: a required `@dynamic=boot` item may be unset, since its value
+   * arrives at boot (see ConfigItem.checkRequiredWhenEmpty). Set before resolution.
+   */
+  deferBootRequired = false;
 
   /**
    * Proxy-child resolution view: when a graph is loaded inside a `varlock proxy`
@@ -744,6 +761,7 @@ export class EnvGraph {
         );
       }
     }
+    this.checkBootDynamicItems();
 
     // now execute all root decorators
     for (const source of this.sortedDataSources) {
@@ -786,6 +804,79 @@ export class EnvGraph {
     await this.getRootDec('injectUndefinedAsEmpty')?.resolve();
     await this.getRootDec('proxyConfig')?.resolve();
     await Promise.all(this.getRootDecFns('proxy').map(async (d) => d.resolve()));
+  }
+
+  /**
+   * The schema rules for `@dynamic=boot` items, in one place. A boot value can change when each
+   * instance starts, so:
+   *  - nothing may reference a boot item, not even another boot item or a root decorator
+   *    (`@currentEnv`, `@disable`, `@import`, `@cache`, `@redactLogs`, plugin init): whatever
+   *    references it would keep the freeze-time value while the boot item takes a new one
+   *  - its type must be one a frozen env can record and check at boot without the schema
+   *  - it cannot be `@internal`, which is never handed to the app
+   *
+   * Errors on every load (not just under `varlock freeze`), so a schema is equally valid
+   * whether or not it is ever frozen. Uses the same dependency list as the cycle check, so
+   * decorator-function references (`@required=eq($PORT, ...)`) count as well as values. Only
+   * structural because `boot` must be written literally (see ConfigItem.isBootDynamic).
+   */
+  private checkBootDynamicItems() {
+    const bootKeys = new Set(_.keys(this.configSchema).filter((k) => this.configSchema[k].isBootDynamic));
+    if (!bootKeys.size) return;
+
+    // the current-env item selects which env files load at all, so it is bound before anything else
+    const envFlagKey = this.rootDataSource?.envFlagKey;
+    if (envFlagKey && bootKeys.has(envFlagKey)) {
+      this.configSchema[envFlagKey]._schemaErrors.push(new SchemaError(
+        `${envFlagKey} selects the current environment (@currentEnv), so it cannot be @dynamic=boot`,
+        { tip: 'The environment must be fixed before boot. Remove @dynamic=boot from this item.' },
+      ));
+    }
+
+    for (const bootKey of bootKeys) {
+      const item = this.configSchema[bootKey];
+      const typeProblem = getBootDataTypeProblem(item.dataType, { hasComputedType: item.hasComputedType });
+      if (typeProblem) {
+        item._schemaErrors.push(new SchemaError(
+          `${bootKey} is @dynamic=boot, but ${typeProblem}`,
+          { tip: 'A boot value is checked at boot without the schema, so it needs a built-in, non-composite type with plain settings. Use one, or remove @dynamic=boot.' },
+        ));
+      }
+      if (item.isInternal) {
+        item._schemaErrors.push(new SchemaError(
+          `${bootKey} is @internal, so it cannot be @dynamic=boot`,
+          { tip: 'Internal items are never handed to the app, so there is nothing to supply at boot. Remove one of the two.' },
+        ));
+      }
+    }
+
+    const staleTip = (referrer: string, depList: string) => (
+      `Derive ${referrer} from ${depList} in your app code at boot, or remove @dynamic=boot from ${depList}`
+    );
+    const adjList = this.graphAdjacencyList;
+    for (const itemKey in this.configSchema) {
+      const bootDeps = getTransitiveDeps(itemKey, adjList).filter((k) => bootKeys.has(k));
+      if (!bootDeps.length) continue;
+      const depList = bootDeps.join(', ');
+      this.configSchema[itemKey]._schemaErrors.push(new SchemaError(
+        `${itemKey} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, so its value could go stale at boot`,
+        { tip: staleTip(itemKey, depList) },
+      ));
+    }
+    // every source, including disabled ones: `@disable=$BOOT` is itself such a reference
+    for (const source of this.sortedDataSources) {
+      for (const decInstance of source.rootDecorators) {
+        const directDeps = decInstance.decValueResolver?.deps ?? [];
+        if (!directDeps.length) continue;
+        const bootDeps = [...this.expandKeysWithTransitiveDeps(directDeps)].filter((k) => bootKeys.has(k));
+        if (!bootDeps.length) continue;
+        const depList = bootDeps.join(', ');
+        decInstance._errors.push(new SchemaError(
+          `@${decInstance.name} depends on ${depList}, which ${bootDeps.length === 1 ? 'is' : 'are'} @dynamic=boot, but root decorators are settled before boot`,
+          { tip: `Reference a value that is fixed before boot instead, or remove @dynamic=boot from ${depList}` },
+        ));
+      }
+    }
   }
 
   get graphAdjacencyList() {
@@ -1181,6 +1272,7 @@ export class EnvGraph {
         // only emit when it diverges from the sensitivity linkage (the default), so
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
+        ...item.isBootDynamic ? { boot: describeBootItem(item.dataType, item.isRequired) } : {},
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.

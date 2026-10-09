@@ -72,7 +72,7 @@ describe.skipIf(process.platform === 'win32' || !existsSync(NUB_BIN))('nub hand-
   test('an explicit varlock/auto-load import reuses the injected blob instead of resolving again', () => {
     const result = runNub(['app-autoload.mjs'], { DEBUG: 'varlock:auto-load' });
 
-    expect(result.output).toContain('reusing injected env blob');
+    expect(result.output).toContain('reusing pre-resolved env from env-blob');
     expect(result.output).not.toContain('resolving env via CLI');
     expect(result.output).toContain('PUBLIC_VAR: public-value');
     // the CLI-child marker must never reach the app

@@ -340,6 +340,7 @@ Run `varlock --help` or `varlock <command> --help` for full flags and options.
 | `varlock audit` | Detect drift between schema and code usage |
 | `varlock codegen` | Explicitly trigger code generation from schema (usually triggered automatically; `typegen` is a deprecated alias) |
 | `varlock lock` | Lock biometric session (requires re-auth on next decrypt) |
+| `varlock freeze` | Resolving once at deploy time into an encrypted file the app boots from (`_VARLOCK_USE_FROZEN_ENV=1` at runtime) |
 
 ## Updating an existing project
 
@@ -356,6 +357,7 @@ See [Schema](https://varlock.dev/guides/schema/), [Secrets](https://varlock.dev/
 ## Advanced
 
 - Multiple environments: https://varlock.dev/guides/environments/
+- Deploying: framework integrations bake resolved values at build; apps with no build step (Elysia, Hono, Fastify) use `varlock freeze`: https://varlock.dev/guides/frozen-env/
 - Split large schemas with `@import`: https://varlock.dev/guides/import/
 - Device-local encryption: https://varlock.dev/guides/local-encryption/
 - `package.json` config (`varlock.loadPath`): https://varlock.dev/reference/cli-commands/

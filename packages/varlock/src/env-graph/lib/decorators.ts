@@ -1004,6 +1004,15 @@ export const builtInItemDecorators: Array<ItemDecoratorDef<any>> = [
   {
     name: 'dynamic',
     incompatibleWith: ['static'],
+    process: (decVal) => {
+      // `boot` is the one non-boolean value: the item is bound at process start on each
+      // instance, so under `varlock freeze` its frozen value is only a default the env may
+      // override at boot. It must be written literally (a computed value would make the boot
+      // dependency check unreliable).
+      if (decVal.isStatic && typeof decVal.staticValue === 'string' && decVal.staticValue !== 'boot') {
+        throw new Error(`@dynamic must be true, false, or boot - got "${decVal.staticValue}"`);
+      }
+    },
   },
   {
     name: 'static',
