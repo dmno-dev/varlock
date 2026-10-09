@@ -11,7 +11,7 @@ Who does the freezing depends on what you deploy:
 
 | You deploy | Frozen by | Automatic? |
 | --- | --- | --- |
-| Next.js | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Cloudflare (OpenNext). Elsewhere, set the build-output mode |
+| Next.js | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Cloudflare (OpenNext). There is no setting for other hosts: a self-hosted `next start` resolves at boot, or boots from a frozen file via `varlock run --frozen -- next start` |
 | Astro | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Netlify. Elsewhere, set the build-output mode |
 | Nuxt, SvelteKit, TanStack Start, plain Vite SSR | [The integration, in your build output](#freezing-in-build-output) | No. Set the build-output mode |
 | Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Yes |
@@ -26,7 +26,7 @@ Whichever route, a rotated secret takes effect on the next build or deploy, not 
 The framework integrations have done this for a long time. In build-output mode they resolve the whole graph during the build and inject it into the server-side output, and the runtime initializes from that instead of resolving.
 
 - **Vite-based frameworks** (Astro, Nuxt, SvelteKit, TanStack Start, plain Vite SSR): [`ssrInjectMode: 'resolved-env'`](/integrations/vite/#ssr-code-injection) is the frozen mode. Only Astro picks it on its own, when the adapter is `@astrojs/vercel` or `@astrojs/netlify`. Everything else defaults to resolving at boot (`init-only`, which expects `varlock run`, or `auto-load`), so set `resolved-env` explicitly.
-- **Next.js**: the [config plugin](/integrations/nextjs/) bakes the resolved env into the build output when it detects Vercel or an OpenNext Cloudflare build, so the production server does not re-load `.env` files and nothing needs to be configured on the platform beyond the encryption key.
+- **Next.js**: the [config plugin](/integrations/nextjs/) bakes the resolved env into the build output when it detects Vercel or an OpenNext Cloudflare build, so the production server does not re-load `.env` files and nothing needs to be configured on the platform beyond the encryption key. It has no mode setting: on any other host `next start` resolves at boot through the CLI, and `varlock run --frozen -- next start` is the way to boot it from a `varlock freeze` file.
 - **Cloudflare Workers** are the odd one out: nothing goes into the bundle. [`varlock-wrangler deploy`](/integrations/cloudflare/) resolves at deploy time and uploads the result as a secret binding attached to that Worker version, which rolls back with it.
 
 Everything this guide says about a frozen env applies to a build-output freeze: values are as of the build, the runtime needs no CLI, no `.env` files, and no resolver credentials, and rotating a secret means rebuilding. Two things are specific to the build-output route today:
