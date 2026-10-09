@@ -19,8 +19,6 @@ jobs:
       release-packages: ${{ steps.check-release.outputs.packages }}
       swift-changed: ${{ steps.check-swift.outputs.changed }}
       rust-changed: ${{ steps.check-rust.outputs.changed }}
-      swift-cache-hit: ${{ steps.swift-cache-check.outputs.cache-hit }}
-      rust-cache-hit: ${{ steps.rust-cache-final.outputs.cache-hit }}
       rust-source-hash: ${{ steps.rust-hash.outputs.hash }}
     steps:
       - uses: actions/checkout@v7
@@ -94,15 +92,6 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
-      # Check if native binary caches exist (lookup-only, no download)
-      - name: Check Swift binary cache
-        id: swift-cache-check
-        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-swift.outputs.changed != 'true'
-        uses: actions/cache/restore@v5
-        with:
-          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
-          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
-          lookup-only: true
       # Compute Rust source hash once on Ubuntu — used for cache keys everywhere
       # (hashFiles can differ across OSes, so we normalize it here)
       - name: Compute Rust source hash
@@ -111,33 +100,60 @@ jobs:
         run: |
           HASH=${{ hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
           echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+  # Native binary caches are saved by the native build jobs, which run on GitHub
+  # runners, so they live in GitHub's cache. Depot runners redirect actions/cache
+  # to Depot Cache, where these entries never exist, so lookups and restores of
+  # native binaries must run on GitHub runners.
+  native-cache-check:
+    needs: build-and-test
+    if: needs.build-and-test.outputs.includes-varlock == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      swift-cache-hit: ${{ steps.swift-cache-check.outputs.cache-hit }}
+      rust-cache-hit: ${{ steps.rust-cache-final.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: packages/encryption-binary-swift
+      # Check if native binary caches exist (lookup-only, no download)
+      - name: Check Swift binary cache
+        id: swift-cache-check
+        if: needs.build-and-test.outputs.swift-changed != 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: packages/varlock/native-bins/darwin/VarlockEnclave.app
+          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
+          lookup-only: true
       - name: Check Rust cache - linux-x64
         id: rust-cache-check-linux-x64
-        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
+        if: needs.build-and-test.outputs.rust-changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/linux-x64/
-          key: native-bin-rust-linux-x64-${{ steps.rust-hash.outputs.hash }}
+          key: native-bin-rust-linux-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
           lookup-only: true
       - name: Check Rust cache - linux-arm64
         id: rust-cache-check-linux-arm64
-        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
+        if: needs.build-and-test.outputs.rust-changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/linux-arm64/
-          key: native-bin-rust-linux-arm64-${{ steps.rust-hash.outputs.hash }}
+          key: native-bin-rust-linux-arm64-${{ needs.build-and-test.outputs.rust-source-hash }}
           lookup-only: true
       - name: Check Rust cache - win32-x64
         id: rust-cache-check-win32-x64
-        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
+        if: needs.build-and-test.outputs.rust-changed != 'true'
         uses: actions/cache/restore@v5
         with:
           path: packages/varlock/native-bins/win32-x64/
-          key: native-bin-rust-win32-x64-${{ steps.rust-hash.outputs.hash }}
+          key: native-bin-rust-win32-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
           lookup-only: true
       - name: Determine Rust cache status
         id: rust-cache-final
-        if: steps.check-release.outputs.includes-varlock == 'true' && steps.check-rust.outputs.changed != 'true'
+        if: needs.build-and-test.outputs.rust-changed != 'true'
         run: |
           if [[ "${{ steps.rust-cache-check-linux-x64.outputs.cache-hit }}" == "true" \
              && "${{ steps.rust-cache-check-linux-arm64.outputs.cache-hit }}" == "true" \
@@ -150,10 +166,10 @@ jobs:
 
   # Build + sign the macOS native binary if varlock is being released AND (source changed or cache missing)
   build-native-macos:
-    needs: build-and-test
+    needs: [build-and-test, native-cache-check]
     if: >-
       needs.build-and-test.outputs.includes-varlock == 'true'
-      && (needs.build-and-test.outputs.swift-changed == 'true' || needs.build-and-test.outputs.swift-cache-hit != 'true')
+      && (needs.build-and-test.outputs.swift-changed == 'true' || needs.native-cache-check.outputs.swift-cache-hit != 'true')
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       artifact-name: native-bin-macos-ci
@@ -162,14 +178,14 @@ jobs:
 
   # Build Rust native binaries if varlock is being released AND (source changed or cache missing)
   build-native-rust:
-    needs: build-and-test
+    needs: [build-and-test, native-cache-check]
     # CI builds never sign, so no id-token is granted here (signing is gated on
     # the `sign` input, which only the release workflows pass).
     permissions:
       contents: read
     if: >-
       needs.build-and-test.outputs.includes-varlock == 'true'
-      && (needs.build-and-test.outputs.rust-changed == 'true' || needs.build-and-test.outputs.rust-cache-hit != 'true')
+      && (needs.build-and-test.outputs.rust-changed == 'true' || needs.native-cache-check.outputs.rust-cache-hit != 'true')
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust-ci
@@ -189,7 +205,8 @@ jobs:
       && needs.build-native-rust.result != 'cancelled'
       && needs.build-and-test.outputs.release-packages != ''
       && needs.build-and-test.outputs.release-packages != '[]'
-    runs-on: depot-ubuntu-24.04-8
+    # GitHub runner: restores native binaries from GitHub's cache (see native-cache-check)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
