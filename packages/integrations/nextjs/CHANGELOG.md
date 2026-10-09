@@ -16,6 +16,14 @@
 
 
 
+
+## 1.2.4
+<sub>2026-10-09</sub>
+
+- [#1161](https://github.com/dmno-dev/varlock/pull/1161)  *(patch)*
+  `varlock/auto-load` and the framework integrations now warn when no config items are loaded (no .env files found, or none define items) instead of silently continuing with an empty config. This becomes an error in the next major. Set `_VARLOCK_ALLOW_EMPTY_CONFIG=1` to allow an empty config, which also lets `varlock load` and `varlock run` succeed with an empty config.
+- [#1181](https://github.com/dmno-dev/varlock/pull/1181)  *(patch)* - Leak remediation for built files also redacts values marked `@sensitive={redact=false}`.
+
 ## 1.2.3
 <sub>2026-09-29</sub>
 

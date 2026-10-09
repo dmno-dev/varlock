@@ -7,6 +7,13 @@
 
 
 
+
+## 1.2.5
+<sub>2026-10-09</sub>
+
+- [#1133](https://github.com/dmno-dev/varlock/pull/1133)  *(patch)*
+  Bundle this plugin's icon so generated types include it without a network request. The AWS, Azure, Google Cloud, Doppler, and Infisical icons are now monochrome so they follow the editor theme.
+
 ## 1.2.4
 <sub>2026-09-25</sub>
 

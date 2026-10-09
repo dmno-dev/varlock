@@ -14,6 +14,12 @@
 
 
 
+
+## 1.5.3
+<sub>2026-10-09</sub>
+
+- [#1199](https://github.com/dmno-dev/varlock/pull/1199)  *(patch)* - Fix SvelteKit build warning about `transformIndexHtml` being unsupported
+
 ## 1.5.2
 <sub>2026-09-12</sub>
 

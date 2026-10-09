@@ -10,6 +10,16 @@
 
 
 
+
+## 2.0.5
+<sub>2026-10-09</sub>
+
+- [#1152](https://github.com/dmno-dev/varlock/pull/1152)  *(patch)* Thanks [@timche](https://github.com/timche)! - Report an invalid or rejected service account token as an error on the item instead of crashing, when using the SDK
+- [#1133](https://github.com/dmno-dev/varlock/pull/1133)  *(patch)*
+  Bundle this plugin's icon so generated types include it without a network request. The AWS, Azure, Google Cloud, Doppler, and Infisical icons are now monochrome so they follow the editor theme.
+- [#1197](https://github.com/dmno-dev/varlock/pull/1197)  *(patch)* - Fail an `op()` item instead of hanging when the 1Password CLI returns no value for its reference
+- [#1195](https://github.com/dmno-dev/varlock/pull/1195)  *(patch)* - Fail instead of using partial output when a provider CLI is killed by a signal
+
 ## 2.0.4
 <sub>2026-08-25</sub>
 
