@@ -5,45 +5,28 @@ description: Resolve env values once per release and ship them inside it, from a
 import { Steps } from '@astrojs/starlight/components';
 import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
-:::note[Most people need to do nothing]
-If you deploy Next.js or a Vite-based framework (Astro, Nuxt, SvelteKit, TanStack Start) to Vercel or Netlify, or deploy to Cloudflare Workers with `varlock-wrangler`, the integration already freezes your env for you and nothing on this page needs setting up. Self-hosting a framework app (a Node adapter, your own container)? The integration resolves at boot by default; one setting switches it to a build-output freeze, see [freezing in build output](#freezing-in-build-output). `varlock freeze` itself is for apps with no integration at all (Elysia, Hono, Fastify, Express, compiled binaries).
-:::
+A frozen env is your whole config resolved and validated once, at build or deploy time, and shipped inside the release. At runtime nothing resolves: no resolver runs, no `.env` file is read, and no varlock CLI or resolver credentials exist in the runtime. Types and sensitivity travel with the values.
 
-A schema that pulls values from 1Password, Vault, or AWS Secrets Manager has to resolve them somewhere, with varlock installed and resolver credentials present. On most platforms that cannot be boot: the platform runs your app, there is no varlock in the runtime, and your secret backend credentials should not be there anyway. Where varlock can run at boot, doing so re-resolves on every process start, so replicas can disagree and config does not roll back with code.
+Who does the freezing depends on what you deploy:
 
-The answer in both cases is to **freeze**: resolve once, at build or deploy time, and ship the result inside the release. Framework integrations do this in your build output. [`varlock freeze`](#freezing-with-varlock-freeze) does it for everything else. The [background](#background-config-belongs-to-the-release) section at the end explains why every major platform already works this way.
-
-## What freezing means
-
-A frozen env is the whole config graph resolved and validated once, at build or deploy time, and shipped inside the release. At runtime the app reads that snapshot. It never runs a resolver, never reads a `.env` file, and never needs the varlock CLI or any resolver credentials. Types and sensitivity travel with the values, so `ENV.PORT` is still a number and log redaction still knows what is secret.
-
-Two routes produce one. Which applies depends on whether a framework integration is in the picture, and on whether the boot command is yours.
-
-| If you | Freeze with | Where the frozen env lives |
+| You deploy | Frozen by | Automatic? |
 | --- | --- | --- |
-| Use Next.js, or a Vite-based framework (Astro, Nuxt, SvelteKit, TanStack Start) with SSR | [The integration, in your build output](#freezing-in-build-output) | The server bundle |
-| Deploy to Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | A versioned secret binding on the Worker |
-| Have no integration doing it (Elysia, Hono, Fastify, Express, a compiled binary) | [`varlock freeze`](#freezing-with-varlock-freeze) | A file in your image or slug, or [one env var](#carrying-the-payload-in-an-env-var-instead) |
+| Next.js | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Cloudflare (OpenNext). Elsewhere, set the build-output mode |
+| Astro | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Netlify. Elsewhere, set the build-output mode |
+| Nuxt, SvelteKit, TanStack Start, plain Vite SSR | [The integration, in your build output](#freezing-in-build-output) | No. Set the build-output mode |
+| Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Yes |
+| Anything with no integration (Elysia, Hono, Fastify, Express, a compiled binary) | [`varlock freeze`](#freezing-with-varlock-freeze) | No. This page |
 
-Then there is the question of whether freezing is optional at all:
+Why freeze at all? Resolvers need varlock and resolver credentials somewhere. On a platform that runs your app for you (Vercel, Netlify, Heroku, Railway, Render, Fly), that somewhere cannot be boot, so freezing is the only way to use them. There, run `varlock freeze` during the platform's **build** (a Dockerfile `RUN` or a buildpack build script), never in a release or pre-deploy hook, which runs on a throwaway instance whose files never reach the artifact. Where you own the boot command (your own containers, VMs, Kubernetes), resolving at boot with [`varlock run`](/reference/cli/load-and-run/#run) works too. Freezing is still the better default: every replica runs the same values, rolling back the image rolls back config with it, a failed resolution stops the deploy instead of a replica, and the runtime carries no secret backend credentials. The [background](#background-config-belongs-to-the-release) section explains why every major platform already works this way.
 
-- **The platform runs your app for you** (Vercel, Netlify, Heroku, Railway, Render, Fly). The boot command is not yours to wrap in `varlock run`, and the runtime has no resolver credentials. Freezing is the only way to use resolvers at all, and it is what you want anyway. For a framework integration this happens in the build the platform runs. For `varlock freeze`, run it during the platform's **build** (a Dockerfile `RUN`, or a build script in a buildpack build) so the file lands in the slug or image. A release or pre-deploy hook is the wrong place: on Heroku, Fly, Railway, and Render those run on a throwaway instance whose filesystem changes never reach the deployed artifact.
-- **You own the boot command** (your own containers, VMs, Kubernetes). You could resolve fresh on every boot with [`varlock run`](/reference/cli/load-and-run/#run) or `varlock/auto-load`, and that works. Freezing is the explicit choice not to, and it is worth making even here, because it is what turns a container plus a secret backend into a release:
-  - Every replica runs the same values. The one that autoscales up at 3am boots from the same snapshot as the one that booted at deploy, instead of resolving whatever the backend holds now.
-  - Rolling back the image rolls back the config with it, because the config is inside the image.
-  - Resolution and validation happen once, in the deploy, where a failure stops the pipeline. At boot, the same failure takes a replica down, and a secret backend that is slow or rate-limiting makes every new instance wait on it.
-  - The runtime image carries no varlock CLI, no `.env` files, and no resolver credentials. A compromised container cannot reach your secret backend with the credentials varlock would otherwise need there.
-
-  With an integration that means choosing the build-output mode; otherwise it means `varlock freeze`.
-
-Whichever route, the tradeoffs at the [end of this guide](#tradeoffs) apply: a rotated secret takes effect on the next build or deploy, not the next restart.
+Whichever route, a rotated secret takes effect on the next build or deploy, not the next restart. See [tradeoffs](#tradeoffs).
 
 ## Freezing in build output
 
-The framework integrations have done this for a long time. When they build for a platform that runs the app for you, they resolve the whole graph during the build and inject it into the server-side output, and the runtime initializes from that instead of resolving.
+The framework integrations have done this for a long time. In build-output mode they resolve the whole graph during the build and inject it into the server-side output, and the runtime initializes from that instead of resolving.
 
-- **Vite-based frameworks** (Astro, Nuxt, SvelteKit, TanStack Start, plain Vite SSR): [`ssrInjectMode: 'resolved-env'`](/integrations/vite/#ssr-code-injection) is the frozen mode. The integrations pick it when they see a serverless adapter (Astro's `@astrojs/vercel` or `@astrojs/netlify`, for example) and otherwise default to resolving at boot (`init-only`, which expects `varlock run`, or `auto-load`). Self-hosting and want frozen config anyway? Set `resolved-env` explicitly.
-- **Next.js**: the [config plugin](/integrations/nextjs/) bakes the resolved env into the build output on serverless platforms, so the production server does not re-load `.env` files and nothing needs to be configured on the platform beyond the encryption key.
+- **Vite-based frameworks** (Astro, Nuxt, SvelteKit, TanStack Start, plain Vite SSR): [`ssrInjectMode: 'resolved-env'`](/integrations/vite/#ssr-code-injection) is the frozen mode. Only Astro picks it on its own, when the adapter is `@astrojs/vercel` or `@astrojs/netlify`. Everything else defaults to resolving at boot (`init-only`, which expects `varlock run`, or `auto-load`), so set `resolved-env` explicitly.
+- **Next.js**: the [config plugin](/integrations/nextjs/) bakes the resolved env into the build output when it detects Vercel or an OpenNext Cloudflare build, so the production server does not re-load `.env` files and nothing needs to be configured on the platform beyond the encryption key.
 - **Cloudflare Workers** are the odd one out: nothing goes into the bundle. [`varlock-wrangler deploy`](/integrations/cloudflare/) resolves at deploy time and uploads the result as a secret binding attached to that Worker version, which rolls back with it.
 
 Everything this guide says about a frozen env applies to a build-output freeze: values are as of the build, the runtime needs no CLI, no `.env` files, and no resolver credentials, and rotating a secret means rebuilding. Two things are specific to the build-output route today:
