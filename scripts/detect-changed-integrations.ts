@@ -18,6 +18,7 @@ import {
   appendFileSync, existsSync, readFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { skipAlreadyPassed } from './framework-test-markers';
 
 // Map integration test directory names to their package names.
 // Dependencies are expressed by listing all triggering packages — e.g. cloudflare
@@ -57,7 +58,9 @@ const SPLIT_TEST_PATHS: Record<string, Record<string, { testPath: string; bundle
   },
 };
 
-type IntegrationEntry = { name: string; testPath: string; bundler?: string };
+type IntegrationEntry = {
+  name: string; integration: string; testPath: string; bundler?: string;
+};
 
 const ALL_INTEGRATIONS = Object.keys(INTEGRATION_PACKAGES);
 const forceAll = process.argv.includes('--all');
@@ -74,13 +77,13 @@ const REPO_ROOT = join(import.meta.dirname, '..');
 
 function toEntries(name: string, mode: 'full' | 'quick' = 'full'): Array<IntegrationEntry> {
   if (mode === 'quick' && QUICK_TEST_PATHS[name]) {
-    return [{ name: `${name} (quick)`, testPath: QUICK_TEST_PATHS[name] }];
+    return [{ name: `${name} (quick)`, integration: name, testPath: QUICK_TEST_PATHS[name] }];
   }
   if (SPLIT_TEST_PATHS[name]) {
     return Object.entries(SPLIT_TEST_PATHS[name])
-      .map(([part, entry]) => ({ name: `${name} (${part})`, ...entry }));
+      .map(([part, entry]) => ({ name: `${name} (${part})`, integration: name, ...entry }));
   }
-  return [{ name, testPath: `${name}/` }];
+  return [{ name, integration: name, testPath: `${name}/` }];
 }
 
 function writeResults(entries: Array<IntegrationEntry>) {
@@ -94,9 +97,16 @@ function writeResults(entries: Array<IntegrationEntry>) {
   }
 }
 
+// Everything except --all goes through here, so suites that already passed with
+// identical inputs (see framework-test-markers.ts) are dropped from the matrix
+async function finish(entries: Array<IntegrationEntry>) {
+  writeResults(await skipAlreadyPassed(entries, INTEGRATION_PACKAGES));
+}
+
 // --all flag: test everything (full suite)
 if (forceAll) {
-  writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
+  const allEntries = ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full'));
+  writeResults(await skipAlreadyPassed(allEntries, INTEGRATION_PACKAGES, { skip: false }));
   process.exit(0);
 }
 
@@ -117,7 +127,7 @@ if (isReleasePR) {
     });
   } catch (e) {
     console.error('Failed to diff against origin/main:', e);
-    writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
+    await finish(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
     process.exit(0);
   }
 
@@ -152,7 +162,7 @@ if (isReleasePR) {
   } catch (e) {
     console.error('Failed to diff against origin/main:', e);
     // If we can't diff, fall back to running all tests
-    writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
+    await finish(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
     process.exit(0);
   }
 
@@ -192,7 +202,7 @@ if (isReleasePR) {
 if (changedPackages.has('varlock')) {
   if (isReleasePR) {
     console.log('Core varlock package changed on release PR — running all integration tests');
-    writeResults(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
+    await finish(ALL_INTEGRATIONS.flatMap((name) => toEntries(name, 'full')));
     process.exit(0);
   } else {
     console.log('Core varlock package changed — triggering core-only test suites');
@@ -247,4 +257,4 @@ for (const [name, packages] of Object.entries(INTEGRATION_PACKAGES)) {
   }
 }
 
-writeResults(entries);
+await finish(entries);
