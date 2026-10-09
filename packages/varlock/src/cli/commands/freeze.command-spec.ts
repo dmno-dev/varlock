@@ -47,10 +47,10 @@ roll back as one unit.
 
 Use it wherever a framework integration is not already baking values at build time
 (Elysia/Hono/Fastify on Bun or Node, distroless Docker images). On a platform that runs the
-app for you (Heroku, Railway, Render, Fly) run it in the build or release phase: the boot
-command is not yours to wrap in \`varlock run\`, so resolving at deploy time is the only option.
-Where you do own the boot command, it is the explicit choice to resolve once per release
-instead of on every boot.
+app for you (Heroku, Railway, Render, Fly) run it during the build (a Dockerfile RUN or a
+build script), never in a release/pre-deploy hook: those run on a throwaway instance and the
+file would not reach the deployed artifact. Where you own the boot command, it is the
+explicit choice to resolve once per release instead of on every boot.
 
 At boot, set _VARLOCK_USE_FROZEN_ENV=1 (or \`varlock run --frozen\`) and varlock boots from the
 file - no CLI, no .env files, and no resolver credentials needed in the runtime image. Set

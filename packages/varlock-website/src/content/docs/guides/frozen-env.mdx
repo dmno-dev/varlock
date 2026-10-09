@@ -6,7 +6,7 @@ import { Steps } from '@astrojs/starlight/components';
 import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
 
 :::note[Most people need to do nothing]
-If you use Next.js, a Vite-based framework (Astro, Nuxt, SvelteKit, TanStack Start), or Cloudflare Workers, the integration already freezes your env for you. Nothing on this page needs setting up. It is here for apps with no integration doing it (Elysia, Hono, Fastify, Express, compiled binaries), and as background on what the integrations do.
+If you deploy Next.js or a Vite-based framework (Astro, Nuxt, SvelteKit, TanStack Start) to Vercel or Netlify, or deploy to Cloudflare Workers with `varlock-wrangler`, the integration already freezes your env for you and nothing on this page needs setting up. Self-hosting a framework app (a Node adapter, your own container)? The integration resolves at boot by default; one setting switches it to a build-output freeze, see [freezing in build output](#freezing-in-build-output). `varlock freeze` itself is for apps with no integration at all (Elysia, Hono, Fastify, Express, compiled binaries).
 :::
 
 A schema that pulls values from 1Password, Vault, or AWS Secrets Manager has to resolve them somewhere, with varlock installed and resolver credentials present. On most platforms that cannot be boot: the platform runs your app, there is no varlock in the runtime, and your secret backend credentials should not be there anyway. Where varlock can run at boot, doing so re-resolves on every process start, so replicas can disagree and config does not roll back with code.
@@ -27,7 +27,7 @@ Two routes produce one. Which applies depends on whether a framework integration
 
 Then there is the question of whether freezing is optional at all:
 
-- **The platform runs your app for you** (Vercel, Netlify, Heroku, Railway, Render, Fly). The boot command is not yours to wrap in `varlock run`, and the runtime has no resolver credentials. Freezing is the only way to use resolvers at all, and it is what you want anyway. For a framework integration this happens in the build the platform runs. For `varlock freeze`, run it in the platform's build or release phase so the file lands in the slug or image.
+- **The platform runs your app for you** (Vercel, Netlify, Heroku, Railway, Render, Fly). The boot command is not yours to wrap in `varlock run`, and the runtime has no resolver credentials. Freezing is the only way to use resolvers at all, and it is what you want anyway. For a framework integration this happens in the build the platform runs. For `varlock freeze`, run it during the platform's **build** (a Dockerfile `RUN`, or a build script in a buildpack build) so the file lands in the slug or image. A release or pre-deploy hook is the wrong place: on Heroku, Fly, Railway, and Render those run on a throwaway instance whose filesystem changes never reach the deployed artifact.
 - **You own the boot command** (your own containers, VMs, Kubernetes). You could resolve fresh on every boot with [`varlock run`](/reference/cli/load-and-run/#run) or `varlock/auto-load`, and that works. Freezing is the explicit choice not to, and it is worth making even here, because it is what turns a container plus a secret backend into a release:
   - Every replica runs the same values. The one that autoscales up at 3am boots from the same snapshot as the one that booted at deploy, instead of resolving whatever the backend holds now.
   - Rolling back the image rolls back the config with it, because the config is inside the image.
