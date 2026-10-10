@@ -5,7 +5,7 @@ import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { integrationTelemetryEnv, execSyncVarlock } from '../exec-sync-varlock';
+import { integrationTelemetryEnv, execSyncVarlock, VarlockExecError } from '../exec-sync-varlock';
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(() => Buffer.from('ok')),
@@ -318,6 +318,80 @@ describe('execSyncVarlock CLI resolution order', () => {
     });
 
     expect(() => execSyncVarlock('load')).toThrow('boom');
+  });
+
+  it.each([
+    {
+      status: -1073740791, signal: null, crashed: true, description: 'exit code 0xC0000409',
+    },
+    {
+      status: 0xC0000409, signal: null, crashed: true, description: 'exit code 0xC0000409',
+    },
+    {
+      status: 0xC0000000, signal: null, crashed: true, description: 'exit code 0xC0000000',
+    },
+    {
+      status: null, signal: 'SIGABRT', crashed: true, description: 'signal SIGABRT',
+    },
+    {
+      status: 2, signal: null, crashed: false, description: 'exit code 2',
+    },
+  ])('retains structured failure details for $description ($status)', ({
+    status, signal, crashed, description,
+  }) => {
+    existsSyncSpy = stubExistingPaths([]);
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('child failed'), {
+        status, signal, stdout: Buffer.from('{"config":{}}'), stderr: Buffer.from('child diagnostic'),
+      });
+    });
+
+    let error: unknown;
+    try {
+      execSyncVarlock('load --format json-full --compact', { fullResult: true });
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(VarlockExecError);
+    expect(error).toMatchObject({
+      exitCode: status ?? 1, signal, crashed, stdout: '{"config":{}}', stderr: 'child diagnostic',
+    });
+    expect((error as Error).message).toContain(description);
+    expect((error as Error).message).toContain('varlock load --format json-full --compact');
+    if (crashed) expect((error as Error).message).toContain('Run "varlock load" manually');
+  });
+
+  it('includes the resolved executable and arguments in a crash diagnostic', () => {
+    cwdSpy.mockReturnValue('/project with spaces');
+    existsSyncSpy = stubExistingPaths([
+      '/project with spaces/node_modules/.bin',
+      '/project with spaces/node_modules/.bin/varlock',
+    ]);
+    vi.mocked(execFileSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('child failed'), { status: -1073740791 });
+    });
+
+    expect(() => execSyncVarlock('load --format json-full --compact', { fullResult: true }))
+      .toThrow('Command: "/project with spaces/node_modules/.bin/varlock" "load" "--format" "json-full" "--compact"');
+  });
+
+  it.each([
+    ['ENOBUFS', 'exceeded the captured output buffer limit'],
+    ['ETIMEDOUT', 'timed out'],
+  ])('preserves %s when Node terminates the child', (code, reason) => {
+    existsSyncSpy = stubExistingPaths([]);
+    vi.mocked(execSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('child terminated'), { status: null, signal: 'SIGTERM', code });
+    });
+    let error: unknown;
+    try {
+      execSyncVarlock('load', { fullResult: true });
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toMatchObject({ code, signal: 'SIGTERM', exitCode: 1 });
+    expect((error as Error).message).toContain(reason);
+    expect((error as Error).message).not.toContain('CLI crashed');
   });
 
   it('finds a workspace CLI relative to a Bun-compiled executable', () => {
