@@ -82,8 +82,16 @@ export class VarlockExecError extends Error {
     public stdout: string,
     public stderr: string,
     public exitCode: number,
+    public signal: NodeJS.Signals | null = null,
+    public code?: string,
   ) {
     super(message);
+  }
+
+  get crashed(): boolean {
+    // Windows NTSTATUS failures may be reported as signed or unsigned 32-bit integers.
+    // eslint-disable-next-line no-bitwise
+    return this.signal != null || (this.exitCode >>> 0) >= 0xC0000000;
   }
 }
 
@@ -187,6 +195,7 @@ export function execSyncVarlock(
     integrationTelemetry: _integrationTelemetry,
     ...childProcessOpts
   } = opts ?? {};
+  let executedCommand = `varlock ${command}`;
   try {
     // Prefer the CLI installed alongside the imported library so both are the same version.
     // Search from cwd (if provided), callerDir, then process.cwd().
@@ -224,11 +233,14 @@ export function execSyncVarlock(
         };
         // A .cmd shim needs cmd.exe, but execFileSync with args and shell:true is deprecated
         // because Node concatenates the arguments without escaping them.
+        const executable = cliScript ? process.execPath : varlockPath;
+        const args = [...(cliScript ? [cliScript] : []), ...command.split(' ')];
+        executedCommand = [executable, ...args].map((arg) => JSON.stringify(arg)).join(' ');
         const result = varlockPath.endsWith('.cmd') && !cliScript
           ? execSync(`"${varlockPath}" ${command}`, execOpts)
           : execFileSync(
-            cliScript ? process.execPath : varlockPath,
-            [...(cliScript ? [cliScript] : []), ...command.split(' ')],
+            executable,
+            args,
             execOpts,
           );
         return successResult(command, result.toString(), opts);
@@ -260,13 +272,26 @@ export function execSyncVarlock(
       if (err instanceof VarlockExecError) throw err; // already wrapped
       const errAny = err as any;
       // execSync/execFileSync attach stdout/stderr Buffers on the error
-      if (errAny.status != null) {
-        throw new VarlockExecError(
-          `varlock ${command} failed (exit code ${errAny.status})`,
+      if (errAny.status != null || errAny.signal != null) {
+        const execError = new VarlockExecError(
+          '',
           errAny.stdout?.toString() ?? '',
           errAny.stderr?.toString() ?? '',
           errAny.status ?? 1,
+          errAny.signal ?? null,
+          errAny.code,
         );
+        const status = execError.signal
+          ? `signal ${execError.signal}`
+          // eslint-disable-next-line no-bitwise
+          : `exit code ${execError.crashed ? `0x${(execError.exitCode >>> 0).toString(16).toUpperCase()}` : execError.exitCode}`;
+        let failure = 'the varlock CLI crashed';
+        if (execError.code === 'ENOBUFS') failure = 'the varlock CLI exceeded the captured output buffer limit (ENOBUFS)';
+        if (execError.code === 'ETIMEDOUT') failure = 'the varlock CLI timed out (ETIMEDOUT)';
+        execError.message = execError.crashed
+          ? `varlock env resolution failed: ${failure} (${status}).\n[varlock] Command: ${executedCommand}\n[varlock] Run "varlock load" manually to see the underlying error.`
+          : `${executedCommand} failed (${status})`;
+        throw execError;
       }
       throw err; // not a process error (e.g. "Unable to find varlock executable")
     }
