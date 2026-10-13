@@ -213,6 +213,39 @@ describe('url data type', () => {
       expect(result.messages).toEqual(['URL must not contain backslashes when allowedDomains is set']);
     });
 
+    it('keeps nested url warnings as warnings in array and record types', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=array(url)
+        LIST=postgres://localhost/db,https://a..b
+        # @type=record(url)
+        MAP={db=postgres://localhost/db, web=https://a..b}
+      `);
+      for (const key of ['LIST', 'MAP']) {
+        const item = g.configSchema[key];
+        expect(item.validationState).toBe('warn');
+        expect(item.validationErrors?.map((e) => e.message).join('\n')).toContain('will not be allowed by default');
+        expect(item.validationErrors?.map((e) => e.message).join('\n')).toContain('not a valid hostname');
+        expect(item.validationErrors?.every((e) => e.tip)).toBe(true);
+      }
+    });
+
+    it('still errors on nested urls that fail outright', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=array(url, allowedProtocols=[https])
+        LIST=https://example.com,http://example.com
+      `);
+      expect(g.configSchema.LIST.validationState).toBe('error');
+    });
+
+    it('still runs sensitive-value checks when the url only has warnings', async () => {
+      const g = await loadAndResolve(outdent`
+        # @sensitive @type=url
+        SHORT=x:
+      `);
+      expect(g.configSchema.SHORT.validationState).toBe('error');
+      expect(g.configSchema.SHORT.validationErrors?.map((e) => e.message).join('\n')).toContain('too short to redact');
+    });
+
     it('warns on a fingerprint with prependHttps too', async () => {
       const result = await checkUrl('SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8', '(prependHttps=true)');
       expect(result.state).toBe('warn');

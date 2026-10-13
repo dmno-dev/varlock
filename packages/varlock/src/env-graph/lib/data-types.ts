@@ -1112,7 +1112,8 @@ async function runNestedValidate(type: EnvGraphDataType, val: any): Promise<Arra
 
 /** re-wrap a nested validation error with a positional prefix (array index / object key) */
 function prefixValidationError(prefix: string, err: ValidationError): ValidationError {
-  return new ValidationError(`${prefix} ${err.message}`, { err, tip: err.tip });
+  // keep the severity, so a nested warning (e.g. from `array(url)`) does not become an error
+  return new ValidationError(`${prefix} ${err.message}`, { err, tip: err.tip, severity: err.severity });
 }
 
 const DEFAULT_ARRAY_SEPARATOR = ',';
