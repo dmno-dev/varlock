@@ -761,7 +761,7 @@ TypeScript type declarations. Makes `import { ENV } from 'varlock/env'` typed an
 <div>
 ### `@generatePythonEnv()`
 
-A self-contained Python module: a coerced `Env` `TypedDict`, a `load_env()` that parses the injected env, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/python/).
+A self-contained Python module: a lazily loaded `ENV` object with a documented, typed attribute per item (so editors show item docs on hover), a coerced `Env` `TypedDict` with a `load_env()` that parses the injected env, and a `SENSITIVE_KEYS` constant. See [Python usage](/integrations/python/).
 
 ```env-spec
 # @generatePythonEnv(path=./env.py)

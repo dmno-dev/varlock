@@ -150,6 +150,14 @@ export function assertNoFieldNameCollisions(
 }
 
 /**
+ * Strip control chars (user-controlled description / deprecation / link text) so a doc line can't
+ * break out of the generated comment or docstring in any target language.
+ */
+export function sanitizeDocLine(line: string): string {
+  return Array.from(line, (ch) => (ch.charCodeAt(0) < 0x20 ? ' ' : ch)).join('').trimEnd();
+}
+
+/**
  * Language-agnostic doc content lines for a field (description, docs links, deprecation, enum values).
  * Deliberately excludes the key name — repeating it as a comment is noise. Returns `[]` when there's
  * nothing worth a comment, so emitters can skip the doc entirely.
@@ -168,7 +176,5 @@ export function getFieldDocLines(field: ResolvedFieldType): Array<string> {
   if (typeof field.coerced === 'object' && 'enum' in field.coerced && field.coerced.enum.length) {
     lines.push(`Valid values: ${field.coerced.enum.map((o) => JSON.stringify(o)).join(' | ')}`);
   }
-  // strip any remaining control chars (user-controlled description / deprecation / link text) so a
-  // line can't break out of the generated comment in any target language
-  return lines.map((line) => Array.from(line, (ch) => (ch.charCodeAt(0) < 0x20 ? ' ' : ch)).join('').trimEnd());
+  return lines.map(sanitizeDocLine);
 }

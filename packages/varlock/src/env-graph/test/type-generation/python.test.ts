@@ -77,22 +77,112 @@ describe('generatePythonEnvSrc', () => {
     expect(src).toContain('frozenset({"MY-KEY"})');
   });
 
-  test('descriptions become comments (no fragile docstrings to escape)', async () => {
+  test('docs become attribute docstrings, with quotes and backslashes escaped', async () => {
     const g = await loadGraph({
       envFile: outdent`
         # @defaultSensitive=false
         # ---
-        # value with """ quotes inside
+        # value with """ quotes and a back\\slash
+        # second line
+        # @docs("Setup guide", https://example.com/setup)
+        # @docs(https://example.com/ref)
         QUOTED=val   # @public @required
+        # one-liner
+        SHORT=val    # @public @optional
       `,
     });
 
-    const items = [await g.configSchema.QUOTED.getTypeGenInfo()];
+    const items = [
+      await g.configSchema.QUOTED.getTypeGenInfo(),
+      await g.configSchema.SHORT.getTypeGenInfo(),
+    ];
     const src = generatePythonEnvSrc(resolveFieldTypes(items));
 
-    // rendered as a `#` comment — a triple-quote in the text can't break the file
-    expect(src).toContain('QUOTED: str  # value with """ quotes inside');
+    // every quote is escaped, so the text can't close the docstring early
+    const quotedDoc = [
+      '"""value with \\"\\"\\" quotes and a back\\\\slash',
+      'second line',
+      '',
+      'Docs: [Setup guide](https://example.com/setup)',
+      'Docs: <https://example.com/ref>',
+      '"""',
+    ];
+    expect(src).toContain(['    QUOTED: str', ...quotedDoc.map((l) => (l ? `    ${l}` : ''))].join('\n'));
+    expect(src).toContain('    SHORT: NotRequired[str]\n    """one-liner"""');
+    // no `#` field comments anymore: tooling ignores comments
+    expect(src).not.toContain('# value with');
+
+    // the same docs land on the EnvAttrs property, where hover works at the usage site
+    expect(src).toContain([
+      '    @property',
+      '    def QUOTED(self) -> str:',
+      ...quotedDoc.map((l) => (l ? `        ${l}` : '')),
+      '        return self._values["QUOTED"]',
+    ].join('\n'));
+    expect(src).toContain('    def SHORT(self) -> str | None:\n        """one-liner"""\n        return self._values.get("SHORT")');
   });
+
+  test('EnvAttrs class and a lazily-loaded ENV for attribute access', async () => {
+    const { fields } = await loadFixtureFields();
+    const src = generatePythonEnvSrc(fields);
+
+    expect(src).toContain('class EnvAttrs:');
+    expect(src).toContain('    def __init__(self, values: Env) -> None:');
+    expect(src).toContain('    def APP_ENV(self) -> Literal["dev", "staging", "prod"]:');
+    expect(src).toContain('    def DB_PORT(self) -> int | None:');
+    // sensitive items are marked in their docs
+    expect(src).toMatch(/def API_KEY\(self\) -> str:\n {8}"""🔐 Sensitive"""/);
+
+    // ENV is declared for type checkers; the module __getattr__ that loads it is hidden from them
+    expect(src).toContain('if TYPE_CHECKING:');
+    expect(src).toContain('    ENV: EnvAttrs');
+    expect(src).toContain('if not TYPE_CHECKING:\n    def __getattr__(name):');
+    expect(src).toContain('globals()["ENV"] = env');
+    // import stays side-effect-free
+    expect(src).not.toMatch(/^ENV = /m);
+  });
+
+  test('deprecated items map to typing_extensions.deprecated on the property', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      # @deprecated="use NEW_KEY"
+      OLD_KEY=a   # @public @required
+      # @deprecated
+      BARE_OLD=b  # @public @required
+    `);
+    const src = generatePythonEnvSrc(fields);
+    expect(src).toContain('    from typing_extensions import deprecated');
+    // runtime no-op fallback: the module has no dependencies
+    expect(src).toContain('else:\n    def deprecated(_message):\n        return lambda fn: fn');
+    expect(src).toContain('    @property\n    @deprecated("use NEW_KEY")\n    def OLD_KEY(self) -> str:');
+    expect(src).toContain('    @deprecated("Deprecated")\n    def BARE_OLD(self) -> str:');
+    expect(src).toContain('Deprecated: use NEW_KEY');
+
+    // no deprecated items: no import and no fallback
+    const plain = generatePythonEnvSrc((await loadFixtureFields()).fields);
+    expect(plain).not.toContain('deprecated');
+  });
+
+  test('keys that would break the EnvAttrs class body are left off it (still in Env)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      property=a  # @public @required
+      _values=b   # @public @required
+      __MANGLED=c # @public @required
+      OK=d        # @public @required
+    `);
+    const src = generatePythonEnvSrc(fields);
+    expect(src).toContain('    property: str');
+    expect(src).toContain('    __MANGLED: str');
+    expect(src).not.toContain('def property(');
+    expect(src).not.toContain('def _values(');
+    expect(src).not.toContain('def __MANGLED(');
+    expect(src).toContain('def OK(self) -> str:');
+    expect(src).toContain('# Keys omitted from EnvAttrs (reserved or mangled names): property, _values, __MANGLED.');
+  });
+
   test('composite (array/object) types map to list/dict annotations', async () => {
     const { fields } = await loadFixtureFields(COMPOSITE_TYPE_FIXTURE);
     const src = generatePythonEnvSrc(fields);
@@ -101,6 +191,6 @@ describe('generatePythonEnvSrc', () => {
     expect(src).toContain('MODES: NotRequired[list[Literal["dev", "prod"]]]');
     expect(src).toContain('LIMITS: NotRequired[dict[str, float]]');
     // Literal only appears nested here — the import detection must still catch it
-    expect(src).toContain('from typing import Literal');
+    expect(src).toContain('    from typing import Literal');
   });
 });
