@@ -27,7 +27,7 @@ API_PORT=
 
 # API url including expansion of another env var
 # @required @type=url
-API_URL=localhost:${API_PORT}
+API_URL=http://localhost:${API_PORT}
 
 # API key with validation, securely fetched from 1Password
 # @required @sensitive @type=string(startsWith=sk-)

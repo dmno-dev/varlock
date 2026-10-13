@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
-import { CoercionError, ValidationError } from './errors';
+import { CoercionError, ValidationError, type ErrorSeverity } from './errors';
 import { parseRegexLikeString } from './regex-like-string';
 import {
   parseDuration, convertDurationFromMs, type DurationUnit,
@@ -440,12 +440,82 @@ function hasUrlScheme(val: string, allowedProtocols?: unknown) {
   ));
 }
 
+// schemes the WHATWG parser treats as "special": it requires a host for these and silently
+// repairs malformed input (`http:foo`, `https:///x`, `\` as `/`, IPv4 shorthand)
+const SPECIAL_URL_SCHEMES = ['http', 'https', 'ws', 'wss', 'ftp'];
+const URL_SCHEME_WITH_AUTHORITY_REGEX = /^([a-z][a-z\d+.-]*):\/\//i;
+const DOTTED_QUAD_IPV4_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+/** protocols a `url` accepts when `allowedProtocols` is not set (enforced from the next major) */
+const DEFAULT_URL_PROTOCOLS = ['http', 'https'];
+// The strict url checks below are warnings for now so existing schemas get a release to
+// adapt. TODO(next major): flip to 'error'.
+const STRICT_URL_SEVERITY: ErrorSeverity = 'warning';
+const STRICT_URL_TIP = 'This will be an error in the next major version of varlock.';
+
+/**
+ * Structural checks `new URL()` does not make. On its own it accepts anything shaped like
+ * `word:rest` as a URL with an opaque path, so `SHA256:nThbg6...` (an SSH key fingerprint),
+ * `user:pass`, and `C:\path` all parse, and for special schemes it rewrites malformed input
+ * into something valid rather than rejecting it.
+ *
+ * Returns an error message, or undefined if the URL is acceptable.
+ * Keep in step with `checkUrlStructure` in packages/vscode-plugin/src/diagnostics-core.ts
+ */
+function checkUrlStructure(val: string, url: URL, opts: { allowNoHost?: boolean }): string | undefined {
+  // the parser strips leading/trailing whitespace and removes tabs and newlines anywhere,
+  // so the value would validate while the raw string (whitespace included) is what gets used
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
+  if (/[\s\x00-\x1f\x7f]/.test(val)) return 'URL must not contain whitespace or control characters';
+
+  const schemeMatch = val.match(URL_SCHEME_WITH_AUTHORITY_REGEX);
+  if (!schemeMatch) return 'URL must start with a scheme followed by `://` (for example `https://`)';
+  const scheme = schemeMatch[1].toLowerCase();
+  const isSpecial = SPECIAL_URL_SCHEMES.includes(scheme);
+
+  const rest = val.slice(schemeMatch[0].length);
+  if (!rest) return 'URL is missing a host';
+  // WHATWG treats `\` as `/` for special schemes, so `https://a.com\@b.com` has host `a.com`
+  if (isSpecial && rest.includes('\\')) return 'URL must not contain backslashes';
+
+  // the host as written, without userinfo or port
+  const authority = rest.split(/[/?#]/)[0];
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  if (hostAndPort.startsWith('[')) return undefined; // IPv6 literal, already checked by the parser
+  const host = hostAndPort.replace(/:\d*$/, '').toLowerCase();
+
+  if (!host) {
+    // for special schemes an empty written host means the parser took it from the path:
+    // `https:///example.com` has host `example.com`
+    if (isSpecial) return 'URL is missing a host';
+    // other schemes have real host-less forms (`sqlite:///app.db`, `file:///etc/hosts`,
+    // `postgresql:///db?host=/var/run/postgresql`), but they are rare enough to opt into
+    return opts.allowNoHost ? undefined : 'URL is missing a host (set `allowNoHost=true` to allow forms like `sqlite:///app.db`)';
+  }
+  if (!isSpecial) return undefined; // non-special hosts are opaque (may be percent-encoded paths)
+
+  // percent-escapes in the host are decoded by the parser, so `%65xample.com` is example.com
+  if (host.includes('%')) return 'URL host must not contain percent-encoded characters';
+  // IPv4 shorthand is normalized: `http://1` is 0.0.0.1, `http://0x7f.1` is 127.0.0.1
+  if (DOTTED_QUAD_IPV4_REGEX.test(url.hostname) && host !== url.hostname) {
+    return `URL host \`${host}\` must be written as a full IPv4 address (\`${url.hostname}\`)`;
+  }
+  // a single trailing dot is a valid fully-qualified name, any other empty label is not
+  const labels = host.replace(/\.$/, '').split('.');
+  if (labels.some((label) => !label || label.startsWith('-') || label.endsWith('-'))) {
+    return `URL host \`${host}\` is not a valid hostname`;
+  }
+  return undefined;
+}
+
 const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
     /** Allowed hosts. A bare string is treated as a single host. */
     allowedDomains?: Array<string> | string
-    allowedProtocols?: Array<string>
+    /** Allowed protocols, `http` and `https` if not set. `"*"` (or an entry of `*`) allows any. */
+    allowedProtocols?: Array<string> | string
+    /** Allow URLs with no host, like `sqlite:///app.db` or `file:///etc/hosts`. */
+    allowNoHost?: boolean
     /** Disallow a trailing slash on the URL path. */
     noTrailingSlash?: boolean
     /** A regular expression or string pattern that the full URL must match. */
@@ -468,20 +538,37 @@ const UrlDataType = createEnvGraphDataType(
         throw new ValidationError('Invalid URL');
       }
       const errors = [] as Array<ValidationError>;
-      if (settings?.allowedProtocols) {
-        if (
-          !Array.isArray(settings.allowedProtocols)
-          || settings.allowedProtocols.some((allowedProtocol) => !_.isString(allowedProtocol))
-        ) {
-          errors.push(new ValidationError('allowedProtocols must be an array of strings'));
-        } else {
-          const protocol = url.protocol.replace(/:$/, '').toLowerCase();
-          const allowedProtocols = settings.allowedProtocols.map((allowedProtocol) => (
-            allowedProtocol.replace(/:$/, '').toLowerCase()
+      const ambiguousHostError = settings?.allowedDomains ? findAmbiguousUrlHost(val, url) : undefined;
+      const structureIssue = checkUrlStructure(val, url, { allowNoHost: settings?.allowNoHost });
+      // the allowedDomains check already reports these as an error, so skip the duplicate
+      if (structureIssue && !ambiguousHostError) {
+        errors.push(new ValidationError(structureIssue, { severity: STRICT_URL_SEVERITY, tip: STRICT_URL_TIP }));
+      }
+      const protocol = url.protocol.replace(/:$/, '').toLowerCase();
+      const rawAllowedProtocols = settings?.allowedProtocols;
+      if (rawAllowedProtocols === undefined) {
+        if (!DEFAULT_URL_PROTOCOLS.includes(protocol)) {
+          errors.push(new ValidationError(
+            `Protocol (${protocol}) will not be allowed by default in the next major version of varlock`,
+            {
+              severity: STRICT_URL_SEVERITY,
+              tip: `Only http and https are allowed unless set explicitly: add \`allowedProtocols=[${protocol}]\`, or \`allowedProtocols="*"\` to allow any.`,
+            },
           ));
-          if (!allowedProtocols.includes(protocol)) {
-            errors.push(new ValidationError(`Protocol (${protocol}) is not in allowed list: ${settings.allowedProtocols.join(',')}`));
-          }
+        }
+      } else if (rawAllowedProtocols === '*') {
+        // any protocol
+      } else if (
+        !Array.isArray(rawAllowedProtocols)
+        || rawAllowedProtocols.some((allowedProtocol) => !_.isString(allowedProtocol))
+      ) {
+        errors.push(new ValidationError('allowedProtocols must be an array of strings'));
+      } else {
+        const allowedProtocols = rawAllowedProtocols.map((allowedProtocol) => (
+          allowedProtocol.replace(/:$/, '').toLowerCase()
+        ));
+        if (!allowedProtocols.includes('*') && !allowedProtocols.includes(protocol)) {
+          errors.push(new ValidationError(`Protocol (${protocol}) is not in allowed list: ${rawAllowedProtocols.join(',')}`));
         }
       }
       if (settings?.allowedDomains) {
@@ -525,7 +612,6 @@ const UrlDataType = createEnvGraphDataType(
           // special schemes, so `trusted.example\path` would otherwise parse as a host plus path
           const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
           const malformedDomains = normalizedDomains.filter((d) => !HOST_ENTRY_REGEX.test(d));
-          const ambiguousHostError = findAmbiguousUrlHost(val, url);
           if (!normalizedDomains.length) {
             // an empty list can never match, so say so rather than rejecting every URL
             // with an allowlist that has nothing in it to report

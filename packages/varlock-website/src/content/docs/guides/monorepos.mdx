@@ -57,7 +57,7 @@ If you would rather keep a single `.env.schema` at the repo root than maintain a
 ```env-spec title=".env.schema (repo root)"
 # @tag(web) @type=url
 NEXT_PUBLIC_SERVER_URL=
-# @tag(api) @type=url
+# @tag(api) @type=url(allowedProtocols=[postgres, postgresql])
 DATABASE_URL=
 # @tag(web, api)
 SENTRY_DSN=

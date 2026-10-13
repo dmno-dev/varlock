@@ -6,6 +6,7 @@ import {
   getDecoratorOccurrences,
   getTypeInfoFromPrecedingComments,
   validateStaticValue,
+  getStaticValueWarning,
 } from '../src/diagnostics-core';
 
 describe('diagnostics-core', () => {
@@ -179,6 +180,32 @@ describe('diagnostics-core', () => {
         'example.com',
       ),
     ).toBe('URL must include a protocol unless prependHttps=true.');
+  });
+
+  it('warns on values new URL() accepts but are not usable URLs', () => {
+    const urlType = (options: Record<string, string> = {}) => ({ name: 'url', args: [], options });
+    const next = ' This will be an error in the next major version of varlock.';
+    expect(validateStaticValue(urlType(), 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8')).toBeUndefined();
+    expect(getStaticValueWarning(urlType(), 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8'))
+      .toBe(`URL must start with a scheme followed by \`://\` (for example \`https://\`).${next}`);
+    expect(getStaticValueWarning(urlType(), 'https:///example.com')).toBe(`URL is missing a host.${next}`);
+    expect(getStaticValueWarning(urlType(), 'http://0x7f.1'))
+      .toBe(`URL host \`0x7f.1\` must be written as a full IPv4 address (\`127.0.0.1\`).${next}`);
+    expect(getStaticValueWarning(urlType(), 'https://a..b')).toBe(`URL host \`a..b\` is not a valid hostname.${next}`);
+    expect(getStaticValueWarning(urlType(), 'https://example.com/a b'))
+      .toBe(`URL must not contain whitespace or control characters.${next}`);
+    expect(getStaticValueWarning(urlType({ allowedProtocols: '*' }), 'sqlite:///app.db')).toContain('allowNoHost=true');
+    expect(getStaticValueWarning(urlType({ allowedProtocols: '*', allowNoHost: 'true' }), 'sqlite:///app.db')).toBeUndefined();
+    expect(getStaticValueWarning(urlType({ prependHttps: 'true' }), 'localhost:3000')).toBeUndefined();
+    expect(getStaticValueWarning(urlType(), 'https://example.com')).toBeUndefined();
+  });
+
+  it('warns on non-http protocols unless allowedProtocols is set', () => {
+    const urlType = (options: Record<string, string> = {}) => ({ name: 'url', args: [], options });
+    expect(getStaticValueWarning(urlType(), 'postgres://localhost/db')).toContain('allowedProtocols=[postgres]');
+    expect(getStaticValueWarning(urlType({ allowedProtocols: '[postgres]' }), 'postgres://localhost/db')).toBeUndefined();
+    expect(validateStaticValue(urlType({ allowedProtocols: '*' }), 'postgres://localhost/db')).toBeUndefined();
+    expect(validateStaticValue(urlType({ allowedProtocols: '[http, "*"]' }), 'postgres://localhost/db')).toBeUndefined();
   });
 
   it('prepends https:// to host:port values with prependHttps', () => {

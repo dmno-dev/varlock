@@ -109,6 +109,117 @@ describe('port data type', () => {
 });
 
 describe('url data type', () => {
+  // these are warnings until the next major, when they become errors
+  describe('strict checks', () => {
+    async function checkUrl(value: string, typeArgs = '') {
+      const g = await loadAndResolve(outdent`
+        # @type=url${typeArgs}
+        MY_URL=
+      `, { overrideValues: { MY_URL: value } });
+      const item = g.configSchema.MY_URL;
+      return {
+        state: item.validationState,
+        messages: (item.validationErrors ?? []).map((e) => e.message),
+        tip: item.validationErrors?.[0]?.tip,
+        value: item.resolvedValue,
+      };
+    }
+
+    it.each([
+      'https://example.com',
+      'https://example.com.',
+      'http://localhost:3000/path?q=1#hash',
+      'http://my_service:8080',
+      'http://127.0.0.1:3000',
+      'http://[::1]:3000',
+      'https://例え.jp',
+      'https://user:pass@example.com',
+    ])('accepts %s', async (value) => {
+      expect(await checkUrl(value)).toMatchObject({ state: 'valid' });
+    });
+
+    it.each([
+      'postgres://root:password@localhost:5432/local',
+      'postgresql://%2Fvar%2Frun%2Fpostgresql/mydb',
+      'redis://:password@localhost:6379/0',
+    ])('accepts %s with an explicit protocol list', async (value) => {
+      expect(await checkUrl(value, '(allowedProtocols="*")')).toMatchObject({ state: 'valid' });
+    });
+
+    it('warns on a non-http protocol when allowedProtocols is not set', async () => {
+      const result = await checkUrl('postgres://localhost:5432/db');
+      expect(result.state).toBe('warn');
+      expect(result.messages).toEqual(['Protocol (postgres) will not be allowed by default in the next major version of varlock']);
+      expect(result.tip).toContain('allowedProtocols=[postgres]');
+    });
+
+    it.each([
+      '(allowedProtocols="*")',
+      '(allowedProtocols=[http, "*"])',
+      '(allowedProtocols=[postgres])',
+    ])('allowedProtocols%s allows postgres', async (typeArgs) => {
+      expect(await checkUrl('postgres://localhost:5432/db', typeArgs)).toMatchObject({ state: 'valid' });
+    });
+
+    it.each([
+      'postgresql:///mydb?host=/var/run/postgresql',
+      'sqlite:///app.db',
+      'file:///etc/hosts',
+    ])('warns on host-less %s unless allowNoHost=true', async (value) => {
+      const warned = await checkUrl(value, '(allowedProtocols="*")');
+      expect(warned.state).toBe('warn');
+      expect(warned.messages[0]).toContain('allowNoHost=true');
+      expect(await checkUrl(value, '(allowedProtocols="*", allowNoHost=true)')).toMatchObject({ state: 'valid' });
+    });
+
+    it.each([
+      // `scheme:rest` parses as an opaque URL, so these all used to pass silently
+      ['SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8', 'must start with a scheme'],
+      ['MD5:16:27:ac:a5:76:28:2d:36:63:1b:56:4d:eb:df:a6:48', 'must start with a scheme'],
+      ['user:pass', 'must start with a scheme'],
+      ['localhost:3000', 'must start with a scheme'],
+      ['C:\\Users\\me', 'must start with a scheme'],
+      ['mailto:me@example.com', 'must start with a scheme'],
+      ['data:text/plain,hi', 'must start with a scheme'],
+      ['http:example.com', 'must start with a scheme'],
+      ['https:/example.com', 'must start with a scheme'],
+      ['redis://', 'missing a host'],
+      ['file://', 'missing a host'],
+      // special-scheme input the parser would otherwise repair
+      ['https:///example.com', 'missing a host'],
+      ['https://example.com\\@evil.com', 'backslashes'],
+      ['https://%65xample.com', 'percent-encoded'],
+      ['http://1', 'full IPv4 address'],
+      ['http://0x7f.1', 'full IPv4 address'],
+      ['http://010.0.0.1', 'full IPv4 address'],
+      ['https://a..b', 'not a valid hostname'],
+      ['https://-.com', 'not a valid hostname'],
+      ['https://.example.com', 'not a valid hostname'],
+      // whitespace the parser strips, but the raw value keeps
+      [' https://example.com', 'whitespace'],
+      ['https://example.com\n', 'whitespace'],
+      ['https://exa\tmple.com', 'whitespace'],
+      ['https://example.com/a b', 'whitespace'],
+    ])('warns on %j', async (value, expectedMessage) => {
+      const result = await checkUrl(value, '(allowedProtocols="*")');
+      expect(result.state).toBe('warn');
+      expect(result.messages[0]).toContain(expectedMessage);
+      expect(result.tip).toContain('next major version');
+    });
+
+    it('does not duplicate an ambiguous-host error from allowedDomains as a warning', async () => {
+      const result = await checkUrl('https://example.com\\@evil.com/', '(allowedDomains=[example.com])');
+      expect(result.state).toBe('error');
+      expect(result.messages).toEqual(['URL must not contain backslashes when allowedDomains is set']);
+    });
+
+    it('warns on a fingerprint with prependHttps too', async () => {
+      const result = await checkUrl('SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8', '(prependHttps=true)');
+      expect(result.state).toBe('warn');
+      expect(result.messages[0]).toContain('must start with a scheme');
+    });
+  });
+
   describe('prependHttps', () => {
     it('prepends https:// when missing', async () => {
       const g = await loadAndResolve(outdent`

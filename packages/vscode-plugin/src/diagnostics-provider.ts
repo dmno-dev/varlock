@@ -22,6 +22,7 @@ import {
   unquote,
   type CoreDiagnostic,
   validateStaticValue,
+  getStaticValueWarning,
 } from './diagnostics-core';
 import { createLineDocument } from './document-lines';
 
@@ -99,7 +100,9 @@ export function validateDocument(document: DiagnosticsDocument) {
     const typeInfo = getTypeInfoFromPrecedingComments(lineDocument, lineNumber);
     if (!typeInfo) continue;
 
-    const message = validateStaticValue(typeInfo, unquote(rawValue));
+    const errorMessage = validateStaticValue(typeInfo, unquote(rawValue));
+    const warningMessage = errorMessage ? undefined : getStaticValueWarning(typeInfo, unquote(rawValue));
+    const message = errorMessage ?? warningMessage;
     if (!message) continue;
 
     const valueStart = lineText.indexOf(rawValue);
@@ -109,7 +112,7 @@ export function validateDocument(document: DiagnosticsDocument) {
         new Position(lineNumber, Math.max(valueStart, 0) + rawValue.length),
       ),
       message,
-      DiagnosticSeverity.Error,
+      errorMessage ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
     ));
   }
 
