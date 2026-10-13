@@ -118,7 +118,7 @@ process.prependOnceListener('beforeExit', () => {
     // detached telemetry sender spawned by a previous varlock process at exit (see
     // handOffUnconfirmedEvents) - deliver its events and exit, running no command
     if (args[0] === TELEMETRY_SENDER_FLAG) {
-      await runTelemetrySender(args[1]);
+      await runTelemetrySender();
       commandFinished = true;
       gracefulExit();
       return;

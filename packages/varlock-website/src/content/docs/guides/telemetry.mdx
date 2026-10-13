@@ -32,9 +32,8 @@ Events are sent in the background while a command runs. Long-running commands su
 
 If a command finishes before delivery is confirmed (as `varlock load` usually does), the CLI hands the events off and exits immediately:
 
-1. The pending events are written to a file in the system temp directory (`varlock-telemetry-<pid>-<random>.json`, readable only by your user).
-2. A detached copy of the CLI is started as `varlock --flush-telemetry <that file>`, with its stdin/stdout/stderr closed so it never holds open the pipes or terminal of whatever started varlock. You may briefly see it in `ps` output.
-3. That process reads and deletes the file, sends the events in one request (giving up after 10 seconds), and exits. It records no telemetry of its own (`VARLOCK_TELEMETRY_DISABLED` is set on it) and never starts another process.
+1. A detached copy of the CLI is started as `varlock --flush-telemetry`, with the pending events passed in its environment (`__VARLOCK_TELEMETRY_EVENTS`) and its stdin/stdout/stderr closed, so it never holds open the pipes or terminal of whatever started varlock. You may briefly see it in `ps` output. Nothing is written to disk.
+2. That process sends the events in one request (giving up after 10 seconds) and exits. It records no telemetry of its own (`VARLOCK_TELEMETRY_DISABLED` is set on it) and never starts another process.
 
 Each event carries a random id, so if one reaches us twice (once from the original process and once from the handoff) the duplicate can be recognized and dropped.
 
