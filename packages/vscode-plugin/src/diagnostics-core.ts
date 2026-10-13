@@ -388,6 +388,24 @@ function validateNumberValue(value: string, options: TypeInfo['options']) {
   return undefined;
 }
 
+// mirrors `findAmbiguousUrlHost` in packages/varlock/src/env-graph/lib/data-types.ts
+function findAmbiguousUrlHost(value: string, url: URL): string | undefined {
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
+  if (/[\s\x00-\x1f\x7f]/.test(value)) return 'URL must not contain whitespace or control characters when allowedDomains is set';
+  if (value.includes('\\')) return 'URL must not contain backslashes when allowedDomains is set';
+  const authority = value.match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1];
+  if (authority === undefined) return 'URL must be written as `scheme://host` when allowedDomains is set';
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  if (hostAndPort.startsWith('[')) return undefined;
+  const host = hostAndPort.replace(/:\d*$/, '').toLowerCase();
+  if (!host) return 'URL must be written as `scheme://host` when allowedDomains is set';
+  if (host.includes('%')) return 'URL host must not be percent-encoded when allowedDomains is set';
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) && host !== url.hostname) {
+    return `URL host \`${host}\` must be written as a full IPv4 address (\`${url.hostname}\`) when allowedDomains is set`;
+  }
+  return undefined;
+}
+
 function validateUrlValue(value: string, options: TypeInfo['options']) {
   const prependHttps = parseBooleanOption(options.prependHttps);
   const hasProtocol = /^[a-z][a-z\d+.-]*:/i.test(value);
@@ -396,8 +414,12 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
     return 'URL must include a protocol unless prependHttps=true.';
   }
 
+  // mirrors the runtime's coerce: a scheme followed by digits is a port, so `localhost:3000`
+  // gets the prefix rather than parsing as a URL with a `localhost:` scheme
+  const fullValue = prependHttps && !/^[a-z][a-z\d+.-]*:(?!\d)/i.test(value) ? `https://${value}` : value;
+
   try {
-    const url = new URL(prependHttps && !hasProtocol ? `https://${value}` : value);
+    const url = new URL(fullValue);
     const allowedDomains = parseListOption(options.allowedDomains);
     const allowedProtocols = parseArrayOption(options.allowedProtocols);
 
@@ -435,6 +457,8 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
       if (normalizedDomains.some((domain) => !HOST_ENTRY_REGEX.test(domain))) {
         return '`allowedDomains` entries must be a hostname with an optional port.';
       }
+      const ambiguousHostError = findAmbiguousUrlHost(fullValue, url);
+      if (ambiguousHostError) return `${ambiguousHostError}.`;
       const matchesAllowedDomain = (allowedDomain: string) => {
         try {
           const parsed = new URL(`${url.protocol}//${allowedDomain}`);

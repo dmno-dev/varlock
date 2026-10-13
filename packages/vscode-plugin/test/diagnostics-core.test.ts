@@ -181,6 +181,22 @@ describe('diagnostics-core', () => {
     ).toBe('URL must include a protocol unless prependHttps=true.');
   });
 
+  it('prepends https:// to host:port values with prependHttps', () => {
+    const urlType = { name: 'url', args: [], options: { prependHttps: 'true', allowedDomains: '[localhost]' } };
+    expect(validateStaticValue(urlType, 'localhost:3000')).toBeUndefined();
+  });
+
+  it('rejects allowlisted URLs whose host other parsers may read differently', () => {
+    const urlType = { name: 'url', args: [], options: { allowedDomains: '[example.com]' } };
+    expect(validateStaticValue(urlType, 'https://example.com\\@evil.com/'))
+      .toBe('URL must not contain backslashes when allowedDomains is set.');
+    expect(validateStaticValue(urlType, 'https:///example.com'))
+      .toBe('URL must be written as `scheme://host` when allowedDomains is set.');
+    expect(validateStaticValue(urlType, 'https://%65xample.com/'))
+      .toBe('URL host must not be percent-encoded when allowedDomains is set.');
+    expect(validateStaticValue(urlType, 'https://user:pass@example.com:8443/')).toBeUndefined();
+  });
+
   it('validates allowedProtocols url option', () => {
     const typeInfo = {
       name: 'url',

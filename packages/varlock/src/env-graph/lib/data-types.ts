@@ -390,6 +390,34 @@ const BooleanDataType = createEnvGraphDataType({
 
 
 // Common non-primitive types ///////////////////////////////////////////////////////////////
+
+/**
+ * When an allowlist is set, the host varlock checks must be the host the app connects to.
+ * `new URL()` repairs some input that other parsers read differently, so a value can pass
+ * the allowlist here while the app goes elsewhere: Python's `urlsplit` reads
+ * `https://a.com\@b.com` as host `b.com`, where WHATWG treats `\` as `/` and gets `a.com`.
+ * Rejects any value whose host is not written plainly. Returns an error message, if any.
+ * Keep in step with `validateUrlValue` in packages/vscode-plugin/src/diagnostics-core.ts
+ */
+function findAmbiguousUrlHost(val: string, url: URL): string | undefined {
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
+  if (/[\s\x00-\x1f\x7f]/.test(val)) return 'URL must not contain whitespace or control characters when allowedDomains is set';
+  if (val.includes('\\')) return 'URL must not contain backslashes when allowedDomains is set';
+  const authority = val.match(/^[a-z][a-z\d+.-]*:\/\/([^/?#]*)/i)?.[1];
+  if (authority === undefined) return 'URL must be written as `scheme://host` when allowedDomains is set';
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  if (hostAndPort.startsWith('[')) return undefined; // IPv6 literal
+  const host = hostAndPort.replace(/:\d*$/, '').toLowerCase();
+  // with no written host the parser takes it from the path: `https:///example.com`
+  if (!host) return 'URL must be written as `scheme://host` when allowedDomains is set';
+  if (host.includes('%')) return 'URL host must not be percent-encoded when allowedDomains is set';
+  // IPv4 shorthand is normalized by the parser: `http://0x7f.1` is 127.0.0.1
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) && host !== url.hostname) {
+    return `URL host \`${host}\` must be written as a full IPv4 address (\`${url.hostname}\`) when allowedDomains is set`;
+  }
+  return undefined;
+}
+
 const UrlDataType = createEnvGraphDataType(
   (settings?: {
     prependHttps?: boolean
@@ -407,7 +435,9 @@ const UrlDataType = createEnvGraphDataType(
     generatePlaceholder: (seed) => `https://${seed}.invalid/`,
     coerce(rawVal) {
       const val = coerceToString(rawVal);
-      if (settings?.prependHttps && !/^[a-z][a-z\d+.-]*:/i.test(val)) return `https://${val}`;
+      // a scheme followed by digits is a port, so `localhost:3000` gets the prefix too
+      // rather than parsing as a URL with a `localhost:` scheme
+      if (settings?.prependHttps && !/^[a-z][a-z\d+.-]*:(?!\d)/i.test(val)) return `https://${val}`;
       return val;
     },
     validate(val) {
@@ -475,6 +505,7 @@ const UrlDataType = createEnvGraphDataType(
           // special schemes, so `trusted.example\path` would otherwise parse as a host plus path
           const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
           const malformedDomains = normalizedDomains.filter((d) => !HOST_ENTRY_REGEX.test(d));
+          const ambiguousHostError = findAmbiguousUrlHost(val, url);
           if (!normalizedDomains.length) {
             // an empty list can never match, so say so rather than rejecting every URL
             // with an allowlist that has nothing in it to report
@@ -491,6 +522,8 @@ const UrlDataType = createEnvGraphDataType(
             errors.push(new ValidationError(
               `allowedDomains entries must be a hostname with an optional port${suggestionText}`,
             ));
+          } else if (ambiguousHostError) {
+            errors.push(new ValidationError(ambiguousHostError));
           } else {
             // Both sides go through the same parser, so a protocol default port (`:443`
             // on https) and an IDN hostname normalize identically before comparing. An

@@ -127,6 +127,18 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(true);
       expect(g.configSchema.MY_URL.resolvedValue).toBe('https://example.com');
     });
+
+    it('prepends to host:port values instead of reading the host as a scheme', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(prependHttps=true)
+        LOCAL_URL=localhost:3000
+        # @type=url(prependHttps=true)
+        PATH_URL=example.com:8080/path
+      `);
+      expect(g.configSchema.LOCAL_URL.isValid).toBe(true);
+      expect(g.configSchema.LOCAL_URL.resolvedValue).toBe('https://localhost:3000');
+      expect(g.configSchema.PATH_URL.resolvedValue).toBe('https://example.com:8080/path');
+    });
   });
 
   describe('allowedProtocols', () => {
@@ -415,6 +427,47 @@ describe('url data type', () => {
       `);
       expect(g.configSchema.MY_URL.isValid).toBe(false);
       expect(g.configSchema.MY_URL.errors[0]?.message).toContain('must be a hostname with an optional port');
+    });
+
+    // other parsers (Python's urlsplit, curl) can read these with a different host than
+    // `new URL()`, so the allowlist would check one host while the app connects to another
+    it.each([
+      ['https://example.com\\@evil.com/', 'backslashes'],
+      ['https://%65xample.com/', 'percent-encoded'],
+      ['https:example.com', 'scheme://host'],
+      ['https:///example.com', 'scheme://host'],
+      ['https://exa\tmple.com/', 'whitespace'],
+      ['https://example.com/\n', 'whitespace'],
+    ])('rejects %j whose host other parsers may read differently', async (value, expectedError) => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com])
+        MY_URL=
+      `, { overrideValues: { MY_URL: value } });
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain(expectedError);
+    });
+
+    it('rejects IPv4 shorthand when an allowlist is set', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["127.0.0.1"])
+        MY_URL=http://0x7f.1/
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('full IPv4 address (`127.0.0.1`)');
+    });
+
+    it('still accepts plainly written hosts with credentials, ports, and IPv6', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=[example.com])
+        A=https://user:pass@example.com:8443/path?q=1#h
+        # @type=url(allowedDomains=["127.0.0.1"])
+        B=http://127.0.0.1:3000
+        # @type=url(allowedDomains=["[::1]"])
+        C=http://[::1]:3000
+      `);
+      expect(g.configSchema.A.isValid).toBe(true);
+      expect(g.configSchema.B.isValid).toBe(true);
+      expect(g.configSchema.C.isValid).toBe(true);
     });
 
     it('errors on an empty allowlist rather than rejecting every url', async () => {
