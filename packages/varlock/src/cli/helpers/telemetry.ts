@@ -679,6 +679,9 @@ export function handOffUnconfirmedEvents() {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
+      // The sender outlives the parent, so it must not hold the project dir as its cwd:
+      // on Windows a process's cwd cannot be deleted or renamed until that process exits.
+      cwd: os.tmpdir(),
       env: {
         ...process.env,
         [TELEMETRY_SENDER_EVENTS_ENV]: JSON.stringify(events),

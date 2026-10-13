@@ -2,4 +2,4 @@
 varlock: patch
 ---
 
-Telemetry no longer adds latency to CLI commands. Events still in flight when a command finishes are handed to a detached background process instead of being awaited, so `varlock load` and `varlock/auto-load` take the same time with telemetry on or off.
+Telemetry no longer adds latency to CLI commands. Events still in flight when a command finishes are handed to a detached background process instead of being awaited, so `varlock load` and `varlock/auto-load` take the same time with telemetry on or off. The background process runs from the system temp directory, so it never keeps the project directory in use.
