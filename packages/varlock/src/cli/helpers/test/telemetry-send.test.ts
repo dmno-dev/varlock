@@ -27,6 +27,7 @@ vi.mock('../../../lib/user-config-dir', async () => {
 });
 
 import os from 'node:os';
+import fs from 'node:fs';
 import path from 'node:path';
 import exitHook from 'exit-hook';
 import { spawn } from 'node:child_process';
@@ -41,10 +42,15 @@ const sentPayload = (fetchMock: ReturnType<typeof vi.fn>, index: number) => {
   return JSON.parse(fetchMock.mock.calls[index][1].body);
 };
 
-/** The events handed to the nth spawned sender, parsed from its env */
+/** The path of the events file handed to the nth spawned sender */
+const handedOffFile = (index: number): string => {
+  const args = vi.mocked(spawn).mock.calls[index][1] as Array<string>;
+  return args[args.indexOf('--flush-telemetry') + 1];
+};
+
+/** The events handed to the nth spawned sender, read from its events file */
 const handedOffEvents = (index: number) => {
-  const opts = vi.mocked(spawn).mock.calls[index][2] as any;
-  return JSON.parse(opts.env.__VARLOCK_TELEMETRY_EVENTS);
+  return JSON.parse(fs.readFileSync(handedOffFile(index), 'utf-8'));
 };
 
 const okResponse = { ok: true, text: async () => 'ok' };
@@ -77,6 +83,12 @@ describe('telemetry send + exit handoff', () => {
     vi.stubEnv('__VARLOCK_TELEMETRY_EVENTS', '');
   });
   afterEach(() => {
+    // the sender normally deletes its events file; the mocked spawn never runs one
+    for (let i = 0; i < vi.mocked(spawn).mock.calls.length; i++) {
+      try {
+        fs.unlinkSync(handedOffFile(i));
+      } catch { /* already gone */ }
+    }
     vi.useRealTimers();
     cwdSpy.mockRestore();
     vi.unstubAllGlobals();
@@ -127,8 +139,11 @@ describe('telemetry send + exit handoff', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     const [command, args, opts] = vi.mocked(spawn).mock.calls[0] as any;
     expect(command).toBe(process.execPath);
-    expect(args).toEqual([process.argv[1], '--flush-telemetry']);
+    expect(args).toEqual([process.argv[1], '--flush-telemetry', expect.stringMatching(/varlock-telemetry-\d+-[0-9a-f]{8}\.json$/)]);
     expect(opts).toMatchObject({ detached: true, stdio: 'ignore', windowsHide: true });
+    // the sender never records telemetry of its own
+    expect(opts.env.VARLOCK_TELEMETRY_DISABLED).toBe('1');
+    expect(opts.env.__VARLOCK_TELEMETRY_EVENTS).toBeFalsy();
     expect(fakeChild.unref).toHaveBeenCalled();
     expect(fakeChild.on).toHaveBeenCalledWith('error', expect.any(Function));
 
@@ -250,7 +265,25 @@ describe('telemetry send + exit handoff', () => {
 
     const [command, args] = vi.mocked(spawn).mock.calls[0] as any;
     expect(command).toBe(process.execPath);
-    expect(args).toEqual(['--flush-telemetry']);
+    expect(args).toEqual(['--flush-telemetry', expect.any(String)]);
+  });
+
+  it('falls back to passing the events through the environment when the temp dir is unwritable', async () => {
+    fetchMock.mockReturnValue(new Promise(() => { /* never settles */ }));
+    const tmpdirSpy = vi.spyOn(os, 'tmpdir').mockReturnValue(path.join(os.tmpdir(), 'varlock-telemetry-missing-dir'));
+
+    const telemetry = await import('../telemetry');
+    const hookFn = vi.mocked(exitHook).mock.calls[0][0];
+
+    await telemetry.trackCommand('load');
+    hookFn(0);
+    tmpdirSpy.mockRestore();
+
+    const [, args, opts] = vi.mocked(spawn).mock.calls[0] as any;
+    expect(args).toEqual([process.argv[1], '--flush-telemetry']);
+    const events = JSON.parse(opts.env.__VARLOCK_TELEMETRY_EVENTS);
+    expect(events).toHaveLength(1);
+    expect(events[0].properties.command).toBe('load');
   });
 
   it('survives a spawn failure', async () => {
@@ -267,18 +300,20 @@ describe('telemetry send + exit handoff', () => {
   });
 
   describe('sender process', () => {
-    it('posts the handed-off events in a single request and confirms nothing is pending', async () => {
+    const events = [
+      { event: 'cli_command_executed', uuid: 'a', properties: { command: 'load' } },
+      { event: 'cli_schema_loaded', uuid: 'b', properties: { graph_loaded: true } },
+    ];
+
+    it('posts the events from its file in a single request, deletes the file, and spawns nothing itself', async () => {
       fetchMock.mockResolvedValue(okResponse);
-      const events = [
-        { event: 'cli_command_executed', uuid: 'a', properties: { command: 'load' } },
-        { event: 'cli_schema_loaded', uuid: 'b', properties: { graph_loaded: true } },
-      ];
-      vi.stubEnv('__VARLOCK_TELEMETRY_EVENTS', JSON.stringify(events));
+      const eventsFile = path.join(os.tmpdir(), `varlock-telemetry-test-${process.pid}.json`);
+      fs.writeFileSync(eventsFile, JSON.stringify(events));
+      // the parent sets this on the sender; it must not stop delivery
+      vi.stubEnv('VARLOCK_TELEMETRY_DISABLED', '1');
 
       const telemetry = await import('../telemetry');
-      const hookFn = vi.mocked(exitHook).mock.calls[0][0];
-
-      await telemetry.runTelemetrySender();
+      await telemetry.runTelemetrySender(eventsFile);
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0];
@@ -286,15 +321,29 @@ describe('telemetry send + exit handoff', () => {
       expect(JSON.parse(init.body)).toEqual(events);
       // bounded, so a sender never lingers on a dead network
       expect(init.signal).toBeInstanceOf(AbortSignal);
+      expect(fs.existsSync(eventsFile)).toBe(false);
 
-      // the sender's own exit must not spawn yet another sender
-      hookFn(0);
+      // opted out (by the parent) means no exit hook, so the sender can never spawn a sender
+      expect(exitHook).not.toHaveBeenCalled();
+      telemetry.handOffUnconfirmedEvents();
       expect(spawn).not.toHaveBeenCalled();
     });
 
-    it('is a no-op without a payload and swallows delivery failures', async () => {
+    it('reads the events from the environment when no file was given', async () => {
+      fetchMock.mockResolvedValue(okResponse);
+      vi.stubEnv('__VARLOCK_TELEMETRY_EVENTS', JSON.stringify(events));
+
       const telemetry = await import('../telemetry');
       await telemetry.runTelemetrySender();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(events);
+    });
+
+    it('is a no-op without a payload and swallows missing files and delivery failures', async () => {
+      const telemetry = await import('../telemetry');
+      await telemetry.runTelemetrySender();
+      await telemetry.runTelemetrySender(path.join(os.tmpdir(), 'varlock-telemetry-does-not-exist.json'));
       expect(fetchMock).not.toHaveBeenCalled();
 
       vi.stubEnv('__VARLOCK_TELEMETRY_EVENTS', JSON.stringify([{ event: 'cli_command_executed' }]));

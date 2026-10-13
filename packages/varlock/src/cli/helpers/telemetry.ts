@@ -3,7 +3,7 @@ import crypto, { type BinaryLike, createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import {
   existsSync, readFileSync, writeFileSync,
-  mkdirSync,
+  mkdirSync, unlinkSync,
 } from 'node:fs';
 import exitHook from 'exit-hook';
 import { spawn } from 'node:child_process';
@@ -521,7 +521,10 @@ const TELEMETRY_ENDPOINT = `${CONFIG.POSTHOG_HOST}/i/v0/e/`;
  * {@link handOffUnconfirmedEvents}). Handled by the CLI entry before any command runs.
  */
 export const TELEMETRY_SENDER_FLAG = '--flush-telemetry';
-/** Env var carrying the JSON array of events a sender process must deliver */
+/**
+ * Env var carrying the JSON array of events a sender process must deliver, used only when
+ * the events could not be written to a temp file (read-only or missing temp dir).
+ */
 export const TELEMETRY_SENDER_EVENTS_ENV = '__VARLOCK_TELEMETRY_EVENTS';
 /** Upper bound on how long a detached sender keeps trying before giving up */
 const SENDER_TIMEOUT_MS = 10_000;
@@ -668,14 +671,31 @@ export function handOffUnconfirmedEvents() {
   const events = [...unconfirmedEvents.values()];
   unconfirmedEvents.clear();
   try {
+    const eventsJson = JSON.stringify(events);
+    // The events travel in a temp file the sender deletes once read (the way Expo and Next
+    // do it), so the payload has no argv/env size limit and is not visible in `ps`. If the
+    // file cannot be written, fall back to passing it through the environment.
+    let eventsFile: string | undefined;
+    try {
+      eventsFile = join(os.tmpdir(), `varlock-telemetry-${process.pid}-${crypto.randomBytes(4).toString('hex')}.json`);
+      writeFileSync(eventsFile, eventsJson, { mode: 0o600 });
+    } catch (err) {
+      debug('telemetry handoff: could not write events file, passing via env:', err);
+      eventsFile = undefined;
+    }
+
     const { command, args } = getSelfCommand();
-    const child = spawn(command, [...args, TELEMETRY_SENDER_FLAG], {
+    const child = spawn(command, [...args, TELEMETRY_SENDER_FLAG, ...(eventsFile ? [eventsFile] : [])], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
       env: {
         ...process.env,
-        [TELEMETRY_SENDER_EVENTS_ENV]: JSON.stringify(events),
+        ...(eventsFile ? {} : { [TELEMETRY_SENDER_EVENTS_ENV]: eventsJson }),
+        // The sender must never record telemetry of its own (and so never spawn another
+        // sender). Its only job is delivering the events it was given, which does not go
+        // through the opt-out check.
+        VARLOCK_TELEMETRY_DISABLED: '1',
       },
     });
     // a spawn failure surfaces as an async 'error' event; unhandled it would crash the exit
@@ -690,12 +710,20 @@ export function handOffUnconfirmedEvents() {
 /**
  * The detached sender's job: deliver the events the parent handed off (one request for all
  * of them), bounded by a timeout, and never fail loudly. Called by the CLI entry when it is
- * started with {@link TELEMETRY_SENDER_FLAG}.
+ * started with {@link TELEMETRY_SENDER_FLAG}, with the events file path that follows it.
  */
-export async function runTelemetrySender() {
-  const raw = process.env[TELEMETRY_SENDER_EVENTS_ENV];
-  if (!raw) return;
+export async function runTelemetrySender(eventsFile?: string) {
   try {
+    let raw: string | undefined;
+    if (eventsFile) {
+      raw = readFileSync(eventsFile, 'utf-8');
+      // deleted before sending: a failed send is dropped, never retried, so the file has
+      // no further use and must not pile up in the temp dir
+      unlinkSync(eventsFile);
+    } else {
+      raw = process.env[TELEMETRY_SENDER_EVENTS_ENV];
+    }
+    if (!raw) return;
     const events = JSON.parse(raw) as Array<TelemetryEvent>;
     if (!Array.isArray(events) || !events.length) return;
     await postEvents(events, AbortSignal.timeout(SENDER_TIMEOUT_MS));

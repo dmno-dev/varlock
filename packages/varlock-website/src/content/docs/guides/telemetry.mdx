@@ -28,9 +28,17 @@ We track general usage information, and the environment in which `varlock` is be
 
 Sending telemetry never delays a command. The CLI does not wait for the network before printing its output or exiting, so the time `varlock load` or `varlock/auto-load` takes is the same with telemetry on or off.
 
-Events are sent in the background while a command runs. If a command finishes before delivery is confirmed (as `varlock load` usually does), the CLI hands the events to a small detached copy of itself and exits immediately. That process delivers them (with a 10 second limit) and exits, and it never holds open the pipes or terminal of whatever started the CLI. Long-running commands such as `varlock run` confirm delivery while they run and start no extra process.
+Events are sent in the background while a command runs. Long-running commands such as `varlock run` or `varlock proxy run` confirm delivery while they run and nothing else happens.
 
-If you would rather varlock never start that background process, opt out using one of the methods below.
+If a command finishes before delivery is confirmed (as `varlock load` usually does), the CLI hands the events off and exits immediately:
+
+1. The pending events are written to a file in the system temp directory (`varlock-telemetry-<pid>-<random>.json`, readable only by your user).
+2. A detached copy of the CLI is started as `varlock --flush-telemetry <that file>`, with its stdin/stdout/stderr closed so it never holds open the pipes or terminal of whatever started varlock. You may briefly see it in `ps` output.
+3. That process reads and deletes the file, sends the events in one request (giving up after 10 seconds), and exits. It records no telemetry of its own (`VARLOCK_TELEMETRY_DISABLED` is set on it) and never starts another process.
+
+Each event carries a random id, so if one reaches us twice (once from the original process and once from the handoff) the duplicate can be recognized and dropped.
+
+This is the same approach used by the Vercel, Netlify, Expo, and Prisma CLIs and by `next dev`. If you would rather varlock never start that background process, opt out using one of the methods below: when telemetry is off, no events are recorded and nothing is spawned.
 
 ## How to Opt Out
 
