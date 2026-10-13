@@ -24,11 +24,17 @@ export function defineTanstackTests(
     portBase: number;
     /** When set, also runs a TanStack Start + Nitro target describe block, pinned to this nitro version */
     nitroVersion?: string;
+    /** Override the @tanstack/react-start range (e.g. to stay on a line that still supports this vite major) */
+    tanstackStartVersion?: string;
   },
 ) {
   const {
-    viteVersion, reactPluginVersion = '^5', portBase, nitroVersion,
+    viteVersion, reactPluginVersion = '^5', portBase, nitroVersion, tanstackStartVersion,
   } = opts;
+  const tanstackDeps = {
+    ...TANSTACK_DEPS,
+    ...(tanstackStartVersion && { '@tanstack/react-start': tanstackStartVersion }),
+  };
   let nextPort = portBase;
   const port = () => nextPort++;
 
@@ -43,7 +49,7 @@ export function defineTanstackTests(
         '@varlock/vite-integration': 'will-be-replaced',
         vite: viteVersion,
         '@vitejs/plugin-react': reactPluginVersion,
-        ...TANSTACK_DEPS,
+        ...tanstackDeps,
       },
       templateFiles: {
         '.env.schema': 'schemas/.env.schema',
@@ -164,7 +170,7 @@ export function defineTanstackTests(
         '@vitejs/plugin-react': reactPluginVersion,
         wrangler: '^4',
         '@cloudflare/vite-plugin': '^1.30.0',
-        ...TANSTACK_DEPS,
+        ...tanstackDeps,
       },
       overrides: {
         punycode: 'npm:punycode@^2.3.1',
@@ -310,7 +316,7 @@ export function defineTanstackTests(
           vite: viteVersion,
           '@vitejs/plugin-react': reactPluginVersion,
           nitro: nitroVersion,
-          ...TANSTACK_DEPS,
+          ...tanstackDeps,
         },
         templateFiles: {
           '.env.schema': 'schemas/.env.schema',
