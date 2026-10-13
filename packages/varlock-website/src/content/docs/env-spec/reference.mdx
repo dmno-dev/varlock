@@ -41,7 +41,7 @@ Comments in env-spec (like traditional .env files) start with a `#`. Unlike trad
 - A decorator comment line may contain multiple decorators
 - A decorator comment line may end with an additional comment, in which decorators will be ignored
 - A post-value comment may also contain decorators, but is not recommended
-- Regular comment lines attached to an item become its description (used in generated types and other tooling), except lines that look like a commented-out item (`# KEY=value`), which are skipped since they often hold real values
+- Regular comment lines attached to an item become its description (used in generated types and other tooling), except lines that look like a commented-out item (`# KEY=value`), which are skipped since they often hold real values. If a commented-out value continues onto more lines (for example an unclosed quote or `[`), the rest of the comment block is left out of the description. Decorators are not affected
 
 
 ```env-spec

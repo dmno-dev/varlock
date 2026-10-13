@@ -154,7 +154,7 @@ it('excludes commented-out config items from item descriptions', () => {
   expect(item.toString()).toContain('# ITEM=secret-prod-value');
 });
 
-it('excludes continuation lines of commented-out multi-line values from descriptions', () => {
+it('skips the rest of the description after a commented-out multi-line value', () => {
   const cases: Array<[string, Array<string>]> = [
     ['triple double quotes', ['# VAL="""', '#   secret', '#   more secret', '# """']],
     ['triple backticks', ['# VAL=```', '# secret', '# ```']],
@@ -185,7 +185,8 @@ it('excludes continuation lines of commented-out multi-line values from descript
       'VAL=foo',
     ].join('\n'));
     const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
-    expect(item.description, label).toEqual('before\nafter');
+    // the rest of the block is skipped since we cannot reliably tell where the value ends
+    expect(item.description, label).toEqual('before');
   }
 });
 
@@ -197,4 +198,30 @@ it('does not treat quotes inside unquoted commented-out values as multi-line', (
   ].join('\n'));
   const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
   expect(item.description).toEqual('real description');
+});
+
+it('keeps later description lines when a commented-out value closes on the same line', () => {
+  for (const value of ['"x"', '[a, b]', '{ a=1 }', 'fn(a, "b")', 'plain # with comment']) {
+    const parsedFile = parseEnvSpecDotEnvFile([
+      '# before',
+      `# VAL=${value}`,
+      '# after',
+      'VAL=foo',
+    ].join('\n'));
+    const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+    expect(item.description, value).toEqual('before\nafter');
+  }
+});
+
+it('still applies decorators after an unclosed commented-out value', () => {
+  const parsedFile = parseEnvSpecDotEnvFile([
+    '# before',
+    '# FOO=fn(...',
+    '# after',
+    '# @required @sensitive',
+    'FOO=foo',
+  ].join('\n'));
+  const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+  expect(item.description).toEqual('before');
+  expect(item.decoratorsArray.map((d) => d.name)).toEqual(['required', 'sensitive']);
 });

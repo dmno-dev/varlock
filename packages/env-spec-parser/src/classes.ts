@@ -1,5 +1,7 @@
 import { expand } from './expand';
 import { autoCoerce } from './helpers';
+// @ts-ignore
+import * as peggyParser from './grammar.js';
 
 export class ParsedEnvSpecDivider {
   constructor(public data: {
@@ -281,69 +283,20 @@ export class ParsedEnvSpecDecorator {
 const COMMENTED_OUT_ITEM_REGEX = /^[#\s]*(?:export\s+)?[a-zA-Z_][a-zA-Z0-9_.-]*\s*=/;
 
 /**
- * Tracks whether a commented-out item's value continues onto following lines
- * (multi-line quoted strings, or object/array literals and function calls split across lines).
- * This is intentionally loose - when unsure, it errs towards treating more lines as part of the value.
+ * Checks if a commented-out item's value opens a multi-line value (quoted string, literal, or function call)
+ * that is not closed on the same line. We use the real parser on the single line rather than trying to find
+ * where the value ends, since unclosed literals fall back to plain unquoted strings and parse just fine.
  */
-class CommentedOutValueScanner {
-  private quote: string | null = null;
-  // expected closing chars of currently open structures (literals, fn calls, `${...}`)
-  private closers: Array<string> = [];
-  // last significant char, used to decide if a quote/bracket starts a new value
-  private prev = '=';
-  private afterWhitespace = false;
-  // just closed a quoted string or nested structure, so a `#` here starts a comment
-  private afterElementEnd = false;
-
-  get isOpen() {
-    return this.quote !== null || this.closers.length > 0;
-  }
-
-  scanLine(line: string) {
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (this.quote) {
-        if (ch === '\\') {
-          i++;
-        } else if (line.startsWith(this.quote, i)) {
-          i += this.quote.length - 1;
-          this.quote = null;
-          this.prev = ch;
-          this.afterWhitespace = false;
-          this.afterElementEnd = true;
-        }
-        continue;
-      }
-      if (/\s/.test(ch)) {
-        this.afterWhitespace = true;
-        continue;
-      }
-      const atValueStart = '=([{,'.includes(this.prev);
-      if (ch === '#' && (this.closers.length === 0 || atValueStart || this.afterWhitespace || this.afterElementEnd)) {
-        return; // rest of the line is a comment (post-value, or within a multi-line structure)
-      } else if (atValueStart && (line.startsWith('"""', i) || line.startsWith('```', i))) {
-        this.quote = line.slice(i, i + 3);
-        i += 2;
-      } else if (atValueStart && '"\'`'.includes(ch)) {
-        this.quote = ch;
-      } else if (atValueStart && ch === '[') {
-        this.closers.push(']');
-      } else if ((atValueStart || this.prev === '$') && ch === '{') {
-        this.closers.push('}');
-      } else if (ch === '(' && /\w/.test(this.prev)) {
-        this.closers.push(')');
-      } else if (ch === this.closers[this.closers.length - 1]) {
-        // closers that do not match the innermost open structure are part of a scalar value
-        this.closers.pop();
-        this.prev = ch;
-        this.afterWhitespace = false;
-        this.afterElementEnd = true;
-        continue;
-      }
-      this.prev = ch;
-      this.afterWhitespace = false;
-      this.afterElementEnd = false;
-    }
+function commentedOutValueContinues(contents: string) {
+  const line = contents.replace(/^[#\s]*(?:export\s+)?/, '');
+  const value = line.slice(line.indexOf('=') + 1).trim();
+  if (!/^(?:["'`[{]|[a-zA-Z_][\w-]*\()/.test(value)) return false;
+  try {
+    // check the raw value (before expansion, which can turn unquoted strings into function calls)
+    const rawValue = (peggyParser.parse(line) as ParsedEnvSpecFile).configItems[0]?.data.value;
+    return !rawValue || (rawValue instanceof ParsedEnvSpecStaticValue && !rawValue.data.quote);
+  } catch {
+    return true;
   }
 }
 
@@ -499,20 +452,14 @@ export class ParsedEnvSpecConfigItem {
   }
 
   get description() {
-    // skip commented-out items (ex: `# ITEM=prod-value`), including any continuation lines of a
-    // multi-line value, since they often contain real values that must not leak into descriptions
+    // skip commented-out items (ex: `# ITEM=prod-value`) since they often contain real values.
+    // If one opens a multi-line value, we cannot reliably tell where it ends, so we skip the rest of
+    // the block entirely. This only affects the description - decorators are collected separately.
     const descriptionLines: Array<string> = [];
-    let commentedOutValue: CommentedOutValueScanner | undefined;
     for (const comment of this.data.preComments) {
-      if (commentedOutValue?.isOpen) {
-        commentedOutValue.scanLine(`\n${comment.toString().slice(1)}`);
-        continue;
-      }
-      commentedOutValue = undefined;
       if (!(comment instanceof ParsedEnvSpecComment)) continue;
       if (comment.isCommentedOutItem) {
-        commentedOutValue = new CommentedOutValueScanner();
-        commentedOutValue.scanLine(comment.contents.slice(comment.contents.indexOf('=') + 1));
+        if (commentedOutValueContinues(comment.contents)) break;
         continue;
       }
       descriptionLines.push(comment.contents);
