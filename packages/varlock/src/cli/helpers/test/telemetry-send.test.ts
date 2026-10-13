@@ -128,7 +128,9 @@ describe('telemetry send + exit handoff', () => {
     const [command, args, opts] = vi.mocked(spawn).mock.calls[0] as any;
     expect(command).toBe(process.execPath);
     expect(args).toEqual([process.argv[1], '--flush-telemetry']);
-    expect(opts).toMatchObject({ detached: true, stdio: 'ignore', windowsHide: true });
+    expect(opts).toMatchObject({
+      detached: true, stdio: 'ignore', windowsHide: true, cwd: os.tmpdir(),
+    });
     // the sender never records telemetry of its own
     expect(opts.env.VARLOCK_TELEMETRY_DISABLED).toBe('1');
     // and a bunfig-preloaded auto-load inside it must bail instead of spawning a load CLI:
