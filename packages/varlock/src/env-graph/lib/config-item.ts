@@ -1200,7 +1200,14 @@ export class ConfigItem {
       if (
         validateResult instanceof Error
         || (_.isArray(validateResult) && validateResult[0] instanceof Error)
-      ) throw validateResult;
+      ) {
+        const resultErrors: Array<Error> = _.isArray(validateResult) ? validateResult : [validateResult];
+        // warnings alone are advisory, so keep them and carry on with the checks below
+        // (the sensitive-value checks must still run); anything else stops validation here
+        const onlyWarnings = resultErrors.every((e) => e instanceof ValidationError && e.isWarning);
+        if (!onlyWarnings) throw validateResult;
+        this.validationErrors = resultErrors as Array<ValidationError>;
+      }
       // validation result is supposed to be `true` or error(s), but we'll check for `false` just in case
       if ((validateResult as any) === false) {
         throw new ValidationError('validation failed with `false` return value');

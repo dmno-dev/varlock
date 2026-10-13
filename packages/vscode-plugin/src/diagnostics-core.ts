@@ -436,14 +436,19 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
     const allowedDomains = parseListOption(options.allowedDomains);
     const allowedProtocols = parseArrayOption(options.allowedProtocols);
 
-    if (options.allowedProtocols !== undefined) {
+    const allowsAnyProtocol = typeof options.allowedProtocols === 'string'
+      && unquote(options.allowedProtocols.trim()) === '*';
+    if (options.allowedProtocols !== undefined && !allowsAnyProtocol) {
       if (!allowedProtocols) return '`allowedProtocols` must be an array of strings.';
       if (findNonStringArrayMembers(options.allowedProtocols).length) {
         return '`allowedProtocols` must be an array of strings.';
       }
       const normalizedProtocols = allowedProtocols
         .map((protocol) => protocol.replace(/:$/, '').toLowerCase());
-      if (!normalizedProtocols.includes(url.protocol.replace(/:$/, '').toLowerCase())) {
+      if (
+        !normalizedProtocols.includes('*')
+        && !normalizedProtocols.includes(url.protocol.replace(/:$/, '').toLowerCase())
+      ) {
         return `URL protocol must be one of: ${normalizedProtocols.join(', ')}.`;
       }
     }
@@ -556,6 +561,70 @@ function validateDomainValue(rawValue: string, options: TypeInfo['options']) {
     }
   }
 
+  return undefined;
+}
+
+// these mirror `checkUrlStructure` and the strict url checks in
+// packages/varlock/src/env-graph/lib/data-types.ts. They are warnings until the next major
+const SPECIAL_URL_SCHEMES = ['http', 'https', 'ws', 'wss', 'ftp'];
+const URL_SCHEME_WITH_AUTHORITY_REGEX = /^([a-z][a-z\d+.-]*):\/\//i;
+const DEFAULT_URL_PROTOCOLS = ['http', 'https'];
+
+function checkUrlStructure(value: string, url: URL, allowNoHost: boolean) {
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
+  if (/[\s\x00-\x1f\x7f]/.test(value)) return 'URL must not contain whitespace or control characters.';
+  const schemeMatch = value.match(URL_SCHEME_WITH_AUTHORITY_REGEX);
+  if (!schemeMatch) return 'URL must start with a scheme followed by `://` (for example `https://`).';
+  const isSpecial = SPECIAL_URL_SCHEMES.includes(schemeMatch[1].toLowerCase());
+  const rest = value.slice(schemeMatch[0].length);
+  if (!rest) return 'URL is missing a host.';
+  if (isSpecial && rest.includes('\\')) return 'URL must not contain backslashes.';
+  const authority = rest.split(/[/?#]/)[0];
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  if (hostAndPort.startsWith('[')) return undefined;
+  const host = hostAndPort.replace(/:\d*$/, '').toLowerCase();
+  if (!host) {
+    if (isSpecial) return 'URL is missing a host.';
+    return allowNoHost ? undefined : 'URL is missing a host (set `allowNoHost=true` to allow forms like `sqlite:///app.db`).';
+  }
+  if (!isSpecial) return undefined;
+  if (host.includes('%')) return 'URL host must not contain percent-encoded characters.';
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) && host !== url.hostname) {
+    return `URL host \`${host}\` must be written as a full IPv4 address (\`${url.hostname}\`).`;
+  }
+  const labels = host.replace(/\.$/, '').split('.');
+  if (labels.some((label) => !label || label.startsWith('-') || label.endsWith('-'))) {
+    return `URL host \`${host}\` is not a valid hostname.`;
+  }
+  return undefined;
+}
+
+function getUrlValueWarning(value: string, options: TypeInfo['options']) {
+  const prependHttps = parseBooleanOption(options.prependHttps);
+  const fullValue = prependHttps && !hasUrlScheme(value, parseArrayOption(options.allowedProtocols))
+    ? `https://${value}` : value;
+  let url: URL;
+  try {
+    url = new URL(fullValue);
+  } catch {
+    return undefined;
+  }
+  const suffix = ' This will be an error in the next major version of varlock.';
+  const structureIssue = checkUrlStructure(fullValue, url, parseBooleanOption(options.allowNoHost) === true);
+  if (structureIssue) return structureIssue + suffix;
+  const protocol = url.protocol.replace(/:$/, '').toLowerCase();
+  if (options.allowedProtocols === undefined && !DEFAULT_URL_PROTOCOLS.includes(protocol)) {
+    return `Only http and https URLs will be allowed by default in the next major version of varlock. Add \`allowedProtocols=[${protocol}]\`, or \`allowedProtocols="*"\` to allow any.`;
+  }
+  return undefined;
+}
+
+/**
+ * Advisory checks that should show as warnings rather than errors. Only meaningful when
+ * `validateStaticValue` found nothing.
+ */
+export function getStaticValueWarning(typeInfo: TypeInfo, value: string) {
+  if (typeInfo.name === 'url') return getUrlValueWarning(value, typeInfo.options);
   return undefined;
 }
 
