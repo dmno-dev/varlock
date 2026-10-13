@@ -166,16 +166,21 @@ function reloadConfig(cwd?: string) {
           process.env.__VARLOCK_ENV = err.stdout;
         } catch { /* not parseable — hard failure */ }
       }
-      if (err.stderr) {
+      // A crashed CLI (native abort, signal) may leave stderr empty, so also show the
+      // diagnostic message carrying the command and original exit status.
+      const errOutput = err.crashed || !err.stderr
+        ? `${err.stderr}${err.stderr && !err.stderr.endsWith('\n') ? '\n' : ''}${err.message}`
+        : err.stderr;
+      if (errOutput) {
         // Debounce identical errors — frameworks like Astro can trigger
         // multiple rapid reloads. But if some time has passed, show it
         // again (the user may have re-introduced the same error).
         const now = Date.now();
-        const isDuplicate = err.stderr === varlockLastError && (now - lastErrorAt) < 5000;
-        varlockLastError = err.stderr;
+        const isDuplicate = errOutput === varlockLastError && (now - lastErrorAt) < 5000;
+        varlockLastError = errOutput;
         lastErrorAt = now;
         if (!isDuplicate) {
-          console.error(err.stderr);
+          console.error(errOutput);
           console.error('\n[varlock] ⚠️ config is invalid — fix the error(s) above to continue\n');
         }
       }

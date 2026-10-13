@@ -235,7 +235,7 @@ export function execSyncVarlock(
         // because Node concatenates the arguments without escaping them.
         const executable = cliScript ? process.execPath : varlockPath;
         const args = [...(cliScript ? [cliScript] : []), ...command.split(' ')];
-        executedCommand = [executable, ...args].map((arg) => JSON.stringify(arg)).join(' ');
+        executedCommand = [executable, ...args].map((arg) => (/\s/.test(arg) ? `"${arg}"` : arg)).join(' ');
         const result = varlockPath.endsWith('.cmd') && !cliScript
           ? execSync(`"${varlockPath}" ${command}`, execOpts)
           : execFileSync(

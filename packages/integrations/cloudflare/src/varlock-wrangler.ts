@@ -87,6 +87,15 @@ function captureWrangler(args: Array<string>, timeoutMs = 20_000): Promise<strin
 }
 
 /**
+ * Pipe the CLI's own error output through. A crashed CLI (native abort, signal) may leave
+ * stderr empty, so also print the diagnostic message carrying the command and exit status.
+ */
+function writeExecErrorOutput(err: VarlockExecError) {
+  if (err.stderr) process.stderr.write(err.stderr);
+  if (err.crashed || !err.stderr) process.stderr.write(`\n${err.message}\n`);
+}
+
+/**
  * `cwd` mirrors wrangler's own `--cwd` flag: wrangler runs as if started there, so
  * varlock has to resolve the same project's .env files rather than the caller's.
  */
@@ -445,7 +454,7 @@ async function handleDeploy(args: Array<string>) {
   try {
     loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
   } catch (err) {
-    if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
+    if (err instanceof VarlockExecError) writeExecErrorOutput(err);
     console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
     process.exitCode = 1;
     return;
@@ -532,7 +541,7 @@ async function handleTypes(args: Array<string>) {
   try {
     loaded = loadSerializedGraph(wranglerFlagValue(args, '--cwd'));
   } catch (err) {
-    if (err instanceof VarlockExecError && err.stderr) process.stderr.write(err.stderr);
+    if (err instanceof VarlockExecError) writeExecErrorOutput(err);
     console.error('\n[varlock-wrangler] Failed to resolve environment variables\n');
     process.exitCode = 1;
     return;
@@ -584,7 +593,7 @@ async function handleDev(args: Array<string>) {
     configIsValid = true;
   } catch (err) {
     if (err instanceof VarlockExecError) {
-      if (err.stderr) process.stderr.write(err.stderr);
+      writeExecErrorOutput(err);
       // Parse stdout even on failure — we need sources for file watchers
       if (err.stdout) {
         try {
@@ -675,7 +684,7 @@ async function handleDev(args: Array<string>) {
       } catch (err) {
         configIsValid = false;
         if (err instanceof VarlockExecError) {
-          if (err.stderr) process.stderr.write(err.stderr);
+          writeExecErrorOutput(err);
           // Update FIFO with error-state env and restart wrangler so the
           // worker picks up configHasErrors=true and warns on ENV access
           if (err.stdout) {

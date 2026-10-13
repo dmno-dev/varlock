@@ -40,8 +40,11 @@ function loadVarlockConfig() {
     varlockPatchConsole.patchGlobalConsole();
     varlockPatchConsole.patchProcessStreams?.();
   } catch (err) {
-    if (err instanceof VarlockExecError && err.stderr) {
-      process.stderr.write(err.stderr);
+    if (err instanceof VarlockExecError) {
+      if (err.stderr) process.stderr.write(err.stderr);
+      // A crashed CLI (native abort, signal) may leave stderr empty, so also print the
+      // diagnostic message carrying the command and original exit status.
+      if (err.crashed || !err.stderr) process.stderr.write(`\n${err.message}\n`);
     }
     configIsValid = false;
   }

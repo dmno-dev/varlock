@@ -372,7 +372,7 @@ describe('execSyncVarlock CLI resolution order', () => {
     });
 
     expect(() => execSyncVarlock('load --format json-full --compact', { fullResult: true }))
-      .toThrow('Command: "/project with spaces/node_modules/.bin/varlock" "load" "--format" "json-full" "--compact"');
+      .toThrow('Command: "/project with spaces/node_modules/.bin/varlock" load --format json-full --compact');
   });
 
   it.each([
