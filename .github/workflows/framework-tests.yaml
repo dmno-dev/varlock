@@ -21,7 +21,8 @@ jobs:
   detect-integrations:
     name: Detect Changed Integrations
     runs-on: depot-ubuntu-24.04
-    permissions: {}
+    permissions:
+      actions: read # look up pass marker artifacts
     outputs:
       any-changed: ${{ steps.detect.outputs.any-changed }}
       integrations: ${{ steps.detect.outputs.integrations }}
@@ -41,6 +42,8 @@ jobs:
             ARGS="--release-pr"
           fi
           bun run scripts/detect-changed-integrations.ts $ARGS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   build:
     name: Build Libraries
@@ -128,3 +131,17 @@ jobs:
           NEXTJS_TURBO_ONLY: ${{ contains(matrix.integration.name, '(quick)') && '1' || '' }}
           NEXTJS_BUNDLER: ${{ matrix.integration.bundler || '' }}
           NEXT_TELEMETRY_DISABLED: '1'
+
+      # Lets later runs skip this suite while its inputs are unchanged
+      # (see scripts/framework-test-markers.ts)
+      - name: Record pass marker
+        if: matrix.integration.fingerprint
+        run: mkdir -p "$RUNNER_TEMP/fw-pass" && echo "${{ matrix.integration.name }}" > "$RUNNER_TEMP/fw-pass/suite"
+      - name: Save pass marker
+        if: matrix.integration.fingerprint
+        uses: actions/upload-artifact@v7
+        with:
+          name: fw-pass-${{ matrix.integration.fingerprint }}
+          path: ${{ runner.temp }}/fw-pass
+          retention-days: 7
+          overwrite: true
