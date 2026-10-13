@@ -139,6 +139,18 @@ describe('url data type', () => {
       expect(g.configSchema.LOCAL_URL.resolvedValue).toBe('https://localhost:3000');
       expect(g.configSchema.PATH_URL.resolvedValue).toBe('https://example.com:8080/path');
     });
+
+    it('leaves numeric opaque URLs alone when the digits are not a port or the scheme is allowed', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(prependHttps=true)
+        TEL_URL=tel:123456789
+        # @type=url(prependHttps=true, allowedProtocols=[urn])
+        URN_URL=urn:123
+      `);
+      expect(g.configSchema.TEL_URL.resolvedValue).toBe('tel:123456789');
+      expect(g.configSchema.URN_URL.isValid).toBe(true);
+      expect(g.configSchema.URN_URL.resolvedValue).toBe('urn:123');
+    });
   });
 
   describe('allowedProtocols', () => {
@@ -420,6 +432,15 @@ describe('url data type', () => {
       expect(g.configSchema.MY_URL.isValid).toBe(true);
     });
 
+    it('rejects the unicode spelling of an allowed host', async () => {
+      const g = await loadAndResolve(outdent`
+        # @type=url(allowedDomains=["münchen.de"])
+        MY_URL=https://münchen.de/v1
+      `);
+      expect(g.configSchema.MY_URL.isValid).toBe(false);
+      expect(g.configSchema.MY_URL.errors[0]?.message).toContain('use `xn--mnchen-3ya.de`');
+    });
+
     it('rejects an entry using a backslash as a path separator', async () => {
       const g = await loadAndResolve(outdent`
         # @type=url(allowedDomains=["trusted.example\\path"])
@@ -438,9 +459,11 @@ describe('url data type', () => {
       ['https:///example.com', 'scheme://host'],
       ['https://exa\tmple.com/', 'whitespace'],
       ['https://example.com/\n', 'whitespace'],
+      // WHATWG reads this as xn--fa-hia.de, Python's IDNA 2003 codec as fass.de
+      ['https://faß.de/', 'ASCII'],
     ])('rejects %j whose host other parsers may read differently', async (value, expectedError) => {
       const g = await loadAndResolve(outdent`
-        # @type=url(allowedDomains=[example.com])
+        # @type=url(allowedDomains=[example.com, "xn--fa-hia.de"])
         MY_URL=
       `, { overrideValues: { MY_URL: value } });
       expect(g.configSchema.MY_URL.isValid).toBe(false);

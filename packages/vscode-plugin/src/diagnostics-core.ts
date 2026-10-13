@@ -400,10 +400,24 @@ function findAmbiguousUrlHost(value: string, url: URL): string | undefined {
   const host = hostAndPort.replace(/:\d*$/, '').toLowerCase();
   if (!host) return 'URL must be written as `scheme://host` when allowedDomains is set';
   if (host.includes('%')) return 'URL host must not be percent-encoded when allowedDomains is set';
+  // eslint-disable-next-line no-control-regex -- the range is "anything outside ASCII"
+  if (/[^\x00-\x7f]/.test(host)) {
+    return `URL host must be written in ASCII when allowedDomains is set (use \`${url.hostname}\`)`;
+  }
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) && host !== url.hostname) {
     return `URL host \`${host}\` must be written as a full IPv4 address (\`${url.hostname}\`) when allowedDomains is set`;
   }
   return undefined;
+}
+
+// mirrors `hasUrlScheme` in packages/varlock/src/env-graph/lib/data-types.ts: a valid port
+// after the colon reads as `host:port` unless `allowedProtocols` names that scheme
+function hasUrlScheme(value: string, allowedProtocols?: Array<string>) {
+  const match = value.match(/^([a-z][a-z\d+.-]*):(?:(\d{1,5})(?=[/?#]|$))?/i);
+  if (!match) return false;
+  if (match[2] === undefined || Number(match[2]) > 65535) return true;
+  const scheme = match[1].toLowerCase();
+  return !!allowedProtocols?.some((p) => p.replace(/:$/, '').toLowerCase() === scheme);
 }
 
 function validateUrlValue(value: string, options: TypeInfo['options']) {
@@ -414,9 +428,8 @@ function validateUrlValue(value: string, options: TypeInfo['options']) {
     return 'URL must include a protocol unless prependHttps=true.';
   }
 
-  // mirrors the runtime's coerce: a scheme followed by digits is a port, so `localhost:3000`
-  // gets the prefix rather than parsing as a URL with a `localhost:` scheme
-  const fullValue = prependHttps && !/^[a-z][a-z\d+.-]*:(?!\d)/i.test(value) ? `https://${value}` : value;
+  const fullValue = prependHttps && !hasUrlScheme(value, parseArrayOption(options.allowedProtocols))
+    ? `https://${value}` : value;
 
   try {
     const url = new URL(fullValue);

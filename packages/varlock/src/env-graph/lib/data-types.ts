@@ -411,11 +411,33 @@ function findAmbiguousUrlHost(val: string, url: URL): string | undefined {
   // with no written host the parser takes it from the path: `https:///example.com`
   if (!host) return 'URL must be written as `scheme://host` when allowedDomains is set';
   if (host.includes('%')) return 'URL host must not be percent-encoded when allowedDomains is set';
+  // IDNA versions disagree on some characters: WHATWG reads `faß.de` as `xn--fa-hia.de`,
+  // while Python's IDNA 2003 codec connects to `fass.de`. Punycode reads the same everywhere
+  // eslint-disable-next-line no-control-regex -- the range is "anything outside ASCII"
+  if (/[^\x00-\x7f]/.test(host)) {
+    return `URL host must be written in ASCII when allowedDomains is set (use \`${url.hostname}\`)`;
+  }
   // IPv4 shorthand is normalized by the parser: `http://0x7f.1` is 127.0.0.1
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname) && host !== url.hostname) {
     return `URL host \`${host}\` must be written as a full IPv4 address (\`${url.hostname}\`) when allowedDomains is set`;
   }
   return undefined;
+}
+
+/**
+ * Whether `prependHttps` should leave the value alone. `localhost:3000` looks like a URL with a
+ * `localhost:` scheme, so a valid port (followed by a path or nothing) reads as `host:port`,
+ * unless `allowedProtocols` names that scheme. `tel:123456789` (not a valid port) is untouched.
+ * Keep in step with `hasUrlScheme` in packages/vscode-plugin/src/diagnostics-core.ts
+ */
+function hasUrlScheme(val: string, allowedProtocols?: unknown) {
+  const match = val.match(/^([a-z][a-z\d+.-]*):(?:(\d{1,5})(?=[/?#]|$))?/i);
+  if (!match) return false;
+  if (match[2] === undefined || Number(match[2]) > 65535) return true;
+  const scheme = match[1].toLowerCase();
+  return Array.isArray(allowedProtocols) && allowedProtocols.some((p) => (
+    _.isString(p) && p.replace(/:$/, '').toLowerCase() === scheme
+  ));
 }
 
 const UrlDataType = createEnvGraphDataType(
@@ -435,9 +457,7 @@ const UrlDataType = createEnvGraphDataType(
     generatePlaceholder: (seed) => `https://${seed}.invalid/`,
     coerce(rawVal) {
       const val = coerceToString(rawVal);
-      // a scheme followed by digits is a port, so `localhost:3000` gets the prefix too
-      // rather than parsing as a URL with a `localhost:` scheme
-      if (settings?.prependHttps && !/^[a-z][a-z\d+.-]*:(?!\d)/i.test(val)) return `https://${val}`;
+      if (settings?.prependHttps && !hasUrlScheme(val, settings.allowedProtocols)) return `https://${val}`;
       return val;
     },
     validate(val) {

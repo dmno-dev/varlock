@@ -184,6 +184,14 @@ describe('diagnostics-core', () => {
   it('prepends https:// to host:port values with prependHttps', () => {
     const urlType = { name: 'url', args: [], options: { prependHttps: 'true', allowedDomains: '[localhost]' } };
     expect(validateStaticValue(urlType, 'localhost:3000')).toBeUndefined();
+    expect(validateStaticValue(
+      { name: 'url', args: [], options: { prependHttps: 'true', allowedProtocols: '[tel]' } },
+      'tel:123456789',
+    )).toBeUndefined();
+    expect(validateStaticValue(
+      { name: 'url', args: [], options: { prependHttps: 'true', allowedProtocols: '[urn]' } },
+      'urn:123',
+    )).toBeUndefined();
   });
 
   it('rejects allowlisted URLs whose host other parsers may read differently', () => {
@@ -195,6 +203,8 @@ describe('diagnostics-core', () => {
     expect(validateStaticValue(urlType, 'https://%65xample.com/'))
       .toBe('URL host must not be percent-encoded when allowedDomains is set.');
     expect(validateStaticValue(urlType, 'https://user:pass@example.com:8443/')).toBeUndefined();
+    expect(validateStaticValue({ name: 'url', args: [], options: { allowedDomains: '["xn--fa-hia.de"]' } }, 'https://faß.de/'))
+      .toBe('URL host must be written in ASCII when allowedDomains is set (use `xn--fa-hia.de`).');
   });
 
   it('validates allowedProtocols url option', () => {
