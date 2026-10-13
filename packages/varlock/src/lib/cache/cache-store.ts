@@ -173,10 +173,17 @@ export async function withDirLock<T>(
   const deadline = Date.now() + opts.timeoutMs;
   let acquired = false;
 
+  // Install signal handlers before acquiring. Once a JS listener exists, signals
+  // are dispatched on the event loop, so the synchronous mkdir + heldLocks.set
+  // below cannot be interrupted between them. Without a listener a signal hits
+  // the OS default action and orphans the lock.
+  registerLockCleanup();
+
   while (true) {
     try {
       fs.mkdirSync(lockPath, { mode: 0o700 });
       acquired = true;
+      heldLocks.set(lockPath, token);
       break;
     } catch (err: any) {
       if (err?.code === 'ENOENT') {
@@ -223,14 +230,15 @@ export async function withDirLock<T>(
 
   let ownerWritten = false;
   try {
+    // write + rename so readers never observe a partially written owner file
+    const ownerTmp = path.join(lockPath, `${LOCK_OWNER_FILE}.${randomBytes(4).toString('hex')}.tmp`);
     fs.writeFileSync(
-      path.join(lockPath, LOCK_OWNER_FILE),
+      ownerTmp,
       JSON.stringify({ pid: process.pid, host: os.hostname(), token } satisfies LockOwner),
       { encoding: 'utf-8', mode: 0o600 },
     );
+    fs.renameSync(ownerTmp, path.join(lockPath, LOCK_OWNER_FILE));
     ownerWritten = true;
-    heldLocks.set(lockPath, token);
-    registerLockCleanup();
   } catch {
     // without owner metadata the lock still works, it just can't be identified
   }
