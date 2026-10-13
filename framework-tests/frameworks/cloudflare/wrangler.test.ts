@@ -130,6 +130,32 @@ describe('Cloudflare Workers varlock-wrangler only', () => {
     ],
   });
 
+  // `no_global_navigator` removes `navigator` inside the worker; the init module
+  // must still load the bindings
+  wranglerEnv.describeDevScenario('basic worker with no_global_navigator', {
+    command: 'varlock-wrangler dev --port 0',
+    readyPattern: /Ready on|ready in/i,
+    readyTimeout: 30_000,
+    templateFiles: {
+      'src/index.ts': { path: 'workers/basic-worker.ts', prepend: "import '@varlock/cloudflare-integration/init';\n" },
+      'wrangler.jsonc': '_base-wrangler/wrangler.no-navigator.jsonc',
+      'tsconfig.json': '_base-wrangler/tsconfig.json',
+    },
+    requests: [
+      {
+        path: '/',
+        bodyAssertions: {
+          shouldContain: [
+            'public_var::public-test-value',
+            'has_sensitive::yes',
+            'toplevel_api_url::https://api.example.com',
+          ],
+          shouldNotContain: ['super-secret-value'],
+        },
+      },
+    ],
+  });
+
   wranglerEnv.describeDevScenario('large env (chunking)', {
     command: 'varlock-wrangler dev --port 0',
     readyPattern: /Ready on|ready in/i,

@@ -113,7 +113,7 @@ If your SvelteKit app is fully static (no SSR, typically using `@sveltejs/adapte
 ### How it works
 
 - **In dev**: `vite dev` runs SvelteKit's dev server; varlock resolves env via its normal flow and makes it available on `ENV.*`.
-- **In production**: The SvelteKit SSR bundle has a `cloudflare:workers` runtime loader injected at the top of its server entry. At worker boot, it reads the `__VARLOCK_ENV` binding and hydrates varlock's runtime. The loader is guarded by a `navigator.userAgent === 'Cloudflare-Workers'` check so SvelteKit's Node-side postbuild steps (prerender, fallback) don't try to resolve `cloudflare:workers`.
+- **In production**: The SvelteKit SSR bundle has a `cloudflare:workers` runtime loader injected at the top of its server entry. At worker boot, it reads the `__VARLOCK_ENV` binding and hydrates varlock's runtime. The loader imports `cloudflare:workers` dynamically and skips itself when that import fails, so SvelteKit's Node-side postbuild steps (prerender, fallback) still run.
 - `varlock-wrangler deploy` uploads non-sensitive values as Cloudflare vars and sensitive values as secrets.
 
 ### Deploying via Cloudflare Workers Builds

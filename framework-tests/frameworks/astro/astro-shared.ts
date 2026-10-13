@@ -570,11 +570,11 @@ export function defineAstroTests(astroVersion: number, testDir: string, opts: { 
           },
           {
             // The deployed SSR worker must load env from Cloudflare bindings at
-            // runtime (varlock's `Cloudflare-Workers` navigator guard is present)
+            // runtime (varlock's dynamic `cloudflare:workers` loader is present)
             // and must NOT bake the resolved secret into the artifact.
             description: 'SSR worker uses the runtime bindings loader, not baked env',
             filePath: 'dist/server/entry.mjs',
-            shouldContain: ['Cloudflare-Workers'],
+            shouldContain: ['__VARLOCK_ENV_CHUNKS'],
             shouldNotContain: ['super-secret-value'],
           },
           {

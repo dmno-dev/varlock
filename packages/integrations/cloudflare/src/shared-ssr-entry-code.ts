@@ -6,17 +6,20 @@
 // reads whichever form is present and stashes the parsed JSON on
 // `globalThis.__varlockLoadedEnv` for `initVarlockEnv()` to pick up.
 //
-// The `cloudflare:workers` load is guarded behind a
-// `navigator.userAgent === 'Cloudflare-Workers'` runtime check and wrapped in
-// a dynamic `await import(...)`. This makes the injection safe for SSR entry
-// modules that may also be evaluated by Node during a framework's postbuild
-// (e.g. SvelteKit prerender/fallback) — Rollup preserves the dynamic import
-// but Node never resolves it. Inside Workers the check passes and the load
-// runs normally. Overhead vs a static import is one `navigator` check + TLA
-// on cold start, which is negligible.
+// The `cloudflare:workers` load is a dynamic `await import(...)` inside a
+// try/catch. This makes the injection safe for SSR entry modules that may also
+// be evaluated by Node during a framework's postbuild (e.g. SvelteKit
+// prerender/fallback): Rollup preserves the dynamic import, Node rejects the
+// `cloudflare:` scheme, and the block is skipped. We try the import rather than
+// checking `navigator.userAgent`, because Workers can disable `navigator`
+// (`no_global_navigator`), which would silently skip loading the bindings.
+// Overhead vs a static import is TLA on cold start, which is negligible.
 export const CLOUDFLARE_SSR_ENTRY_CODE = `
-if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') {
-  const { env: __cfEnv } = await import('cloudflare:workers');
+{
+  let __cfEnv;
+  try {
+    ({ env: __cfEnv } = await import('cloudflare:workers'));
+  } catch {}
   let __varlockEnvJson;
   if (__cfEnv?.__VARLOCK_ENV) {
     __varlockEnvJson = __cfEnv.__VARLOCK_ENV;

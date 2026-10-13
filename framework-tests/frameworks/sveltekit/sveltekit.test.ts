@@ -180,7 +180,7 @@ describe('SvelteKit', () => {
         description: 'SSR bundle contains the injected Cloudflare runtime env-loader',
         fileGlob: '.svelte-kit/output/server/**/*.js',
         // markers from CLOUDFLARE_SSR_ENTRY_CODE — present only if detection fired
-        shouldContain: ['Cloudflare-Workers', '__VARLOCK_ENV', 'cloudflare:workers'],
+        shouldContain: ['__VARLOCK_ENV_CHUNKS', 'cloudflare:workers'],
       },
       {
         description: 'sensitive value is not inlined into any built output',
@@ -191,8 +191,8 @@ describe('SvelteKit', () => {
   });
 
   // Regression guard: a fully prerendered ("totally static") app on the
-  // Cloudflare adapter must still build. The injected loader is guarded by a
-  // `navigator.userAgent === 'Cloudflare-Workers'` check, so it must be inert
+  // Cloudflare adapter must still build. The injected loader's dynamic
+  // `cloudflare:workers` import is wrapped in try/catch, so it must be inert
   // when SvelteKit evaluates the SSR entry in Node during prerendering.
   env.describeScenario('cloudflare adapter + fully prerendered build does not break', {
     command: 'vite build',
