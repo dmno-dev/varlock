@@ -24,6 +24,7 @@ import {
 } from './telemetry-usage-context';
 import { detectJsPackageManager } from './js-package-manager-utils';
 import { isBunStandaloneExecutable } from '../../lib/detect-runtime';
+import { CLI_CHILD_MARKER } from '../../lib/cli-child-marker';
 import type { JsPackageManager } from '../../lib/workspace-utils';
 
 
@@ -685,6 +686,11 @@ export function handOffUnconfirmedEvents() {
         // sender). Its only job is delivering the events it was given, which does not go
         // through the opt-out check.
         VARLOCK_TELEMETRY_DISABLED: '1',
+        // Bun applies a cwd `bunfig.toml` `preload = ["varlock/auto-load"]` to the sender
+        // too. The CLI cleared this marker from its own env at startup, so it must be set
+        // again here or the preloaded auto-load would spawn a `varlock load`, whose exit
+        // spawns another sender, and so on forever (see lib/cli-child-marker.ts).
+        [CLI_CHILD_MARKER]: '1',
       },
     });
     // a spawn failure surfaces as an async 'error' event; unhandled it would crash the exit

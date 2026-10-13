@@ -131,6 +131,10 @@ describe('telemetry send + exit handoff', () => {
     expect(opts).toMatchObject({ detached: true, stdio: 'ignore', windowsHide: true });
     // the sender never records telemetry of its own
     expect(opts.env.VARLOCK_TELEMETRY_DISABLED).toBe('1');
+    // and a bunfig-preloaded auto-load inside it must bail instead of spawning a load CLI:
+    // the CLI cleared this marker from its own env at startup, so the handoff restores it
+    expect(process.env.__VARLOCK_CLI_CHILD).toBeUndefined();
+    expect(opts.env.__VARLOCK_CLI_CHILD).toBe('1');
     expect(fakeChild.unref).toHaveBeenCalled();
     expect(fakeChild.on).toHaveBeenCalledWith('error', expect.any(Function));
 
