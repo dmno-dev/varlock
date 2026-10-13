@@ -3,9 +3,9 @@ import {
   BLOB_ENCRYPTED_MSG,
   BLOB_MISSING_MSG,
   ENCRYPTED_BLOB_PREFIX,
-  getFieldDocLines,
   getSensitiveKeys,
   partitionRepresentableKeys,
+  sanitizeDocLine,
   skippedKeysComment,
   type CoercedType,
   type ResolvedFieldType,
@@ -86,15 +86,43 @@ function getPythonCoercedTypeString(coerced: CoercedType): string {
   return 'str';
 }
 
-function formatPythonField(field: ResolvedFieldType, typeString: string): Array<string> {
-  const docLines = getFieldDocLines(field);
-  // single line of docs → inline comment; multiple → comment lines above the field; none → no comment
-  if (docLines.length === 1) {
-    return [`    ${field.key}: ${typeString}  # ${docLines[0]}`];
+/**
+ * Docstring content for a field. Pyright/Pylance render docstrings as Markdown on hover, so docs
+ * links become Markdown links and sections are separated by blank lines (consecutive lines would be
+ * reflowed into one paragraph).
+ */
+function getPythonDocstringLines(field: ResolvedFieldType): Array<string> {
+  const { docs } = field;
+  const sections: Array<Array<string>> = [];
+  if (docs.description) sections.push(docs.description.split(/\r\n|\r|\n/));
+  if (docs.docsLinks.length) {
+    sections.push(docs.docsLinks.map((entry) => (
+      entry.description ? `Docs: [${entry.description}](${entry.url})` : `Docs: <${entry.url}>`
+    )));
   }
+  if (docs.isDeprecated) {
+    sections.push([docs.deprecationMessage ? `Deprecated: ${docs.deprecationMessage}` : 'Deprecated']);
+  }
+  if (typeof field.coerced === 'object' && 'enum' in field.coerced && field.coerced.enum.length) {
+    sections.push([`Valid values: ${field.coerced.enum.map((o) => JSON.stringify(o)).join(' | ')}`]);
+  }
+  if (field.isSensitive) sections.push(['🔐 Sensitive']);
+  return sections.flatMap((section, i) => [...(i ? [''] : []), ...section.map(sanitizeDocLine)]);
+}
+
+/**
+ * Render docstring lines as a `"""..."""` literal at the given indent (or `[]` if there are none).
+ * Every backslash and quote is escaped, so user text can't close the literal early or form an
+ * escape sequence; editors show the unescaped value on hover.
+ */
+function formatPythonDocstring(docLines: Array<string>, indent: string): Array<string> {
+  if (!docLines.length) return [];
+  const escaped = docLines.map((line) => line.replace(/\\/g, '\\\\').replace(/"/g, '\\"'));
+  if (escaped.length === 1) return [`${indent}"""${escaped[0]}"""`];
   return [
-    ...docLines.map((line) => `    # ${line}`),
-    `    ${field.key}: ${typeString}`,
+    `${indent}"""${escaped[0]}`,
+    ...escaped.slice(1).map((line) => (line ? `${indent}${line}` : '')),
+    `${indent}"""`,
   ];
 }
 
@@ -102,7 +130,6 @@ function formatPythonTypedDict(
   className: string,
   classDoc: string,
   fields: Array<ResolvedFieldType>,
-  getType: (field: ResolvedFieldType) => string,
 ): Array<string> {
   const lines = [
     '',
@@ -111,15 +138,78 @@ function formatPythonTypedDict(
     `    """${classDoc}"""`,
   ];
 
-  if (!fields.length) {
-    lines.push('    pass');
-    return lines;
+  for (const field of fields) {
+    const baseType = getPythonCoercedTypeString(field.coerced);
+    const typeString = field.isRequired ? baseType : `NotRequired[${baseType}]`;
+    // attribute docstring (PEP 257): shown when hovering the declaration
+    lines.push(`    ${field.key}: ${typeString}`);
+    lines.push(...formatPythonDocstring(getPythonDocstringLines(field), '    '));
   }
 
+  return lines;
+}
+
+// the attribute-access class stores the dict in this slot
+const ATTRS_VALUES_SLOT = '_values';
+
+// names the attribute-access class body references: a property with one of these names would
+// shadow it for the rest of the class (`property`/`deprecated` decorators at runtime; the type
+// names in later annotations for mypy, e.g. a `str` property breaks `def OTHER(self) -> str`)
+const ATTRS_RESERVED_NAMES = new Set([
+  ATTRS_VALUES_SLOT,
+  'property',
+  'deprecated',
+  'Env',
+  'str',
+  'int',
+  'float',
+  'bool',
+  'list',
+  'dict',
+  'Any',
+  'Literal',
+]);
+
+/**
+ * Keys that can't be a property on the attribute-access class: names the class body references
+ * (see above), and `__x` names, which Python mangles inside a class body so `ENV.__x` would never
+ * reach them.
+ */
+function isReservedAttrName(key: string): boolean {
+  return ATTRS_RESERVED_NAMES.has(key) || key.startsWith('__');
+}
+
+function formatPythonEnvAttrs(fields: Array<ResolvedFieldType>): Array<string> {
+  const lines = [
+    '',
+    '',
+    'class EnvAttrs:',
+    '    """Attribute access to the coerced env (`ENV.MY_KEY`), so editors show each item\'s docs on hover.',
+    '',
+    '    Unset optional keys read as `None`. Build one from any `Env` dict, e.g. in tests.',
+    '    """',
+    '',
+    `    __slots__ = ("${ATTRS_VALUES_SLOT}",)`,
+    '',
+    '    def __init__(self, values: Env) -> None:',
+    `        self.${ATTRS_VALUES_SLOT} = values`,
+  ];
+
   for (const field of fields) {
-    const baseType = getType(field);
-    const typeString = field.isRequired ? baseType : `NotRequired[${baseType}]`;
-    lines.push(...formatPythonField(field, typeString));
+    const baseType = getPythonCoercedTypeString(field.coerced);
+    const typeString = field.isRequired ? baseType : `${baseType} | None`;
+    const getter = field.isRequired
+      ? `self.${ATTRS_VALUES_SLOT}[${JSON.stringify(field.key)}]`
+      : `self.${ATTRS_VALUES_SLOT}.get(${JSON.stringify(field.key)})`;
+    lines.push('');
+    lines.push('    @property');
+    // PEP 702: type checkers flag reads of a deprecated property (editors render a strikethrough)
+    if (field.docs.isDeprecated) {
+      lines.push(`    @deprecated(${JSON.stringify(field.docs.deprecationMessage || 'Deprecated')})`);
+    }
+    lines.push(`    def ${field.key}(self) -> ${typeString}:`);
+    lines.push(...formatPythonDocstring(getPythonDocstringLines(field), '        '));
+    lines.push(`        return ${getter}`);
   }
 
   return lines;
@@ -128,6 +218,8 @@ function formatPythonTypedDict(
 export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
   // typed structure covers only representable keys; skipped keys stay in load_env()'s dict at runtime
   const { safe, skipped } = partitionRepresentableKeys(fields, (k) => PYTHON_KEYWORDS.has(k));
+  const attrFields = safe.filter((f) => !isReservedAttrName(f.key));
+  const attrSkipped = safe.filter((f) => isReservedAttrName(f.key)).map((f) => f.key);
   // SENSITIVE_KEYS covers every sensitive key (incl. skipped ones) — redaction shouldn't miss them
   const sensitiveKeys = getSensitiveKeys(fields);
   const sensitiveSet = sensitiveKeys.length
@@ -138,18 +230,17 @@ export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
   // Literal / Any (and subscripts like dict[str, Any]) are never evaluated at runtime — the module
   // imports on any Python 3.7+, while type checkers still read the real types from the source. The
   // type-only symbols therefore live under `TYPE_CHECKING` (imported only when actually used).
+  // NotRequired / deprecated come from typing_extensions (bundled with every type checker's stubs,
+  // never imported at runtime) so checkers targeting Python < 3.11 / 3.13 accept them too.
   const typeStrings = safe.map((f) => getPythonCoercedTypeString(f.coerced));
-  const typeOnlyImports: Array<string> = [];
-  if (typeStrings.some((t) => t.includes('Any'))) typeOnlyImports.push('Any');
+  const typingImports: Array<string> = [];
+  if (typeStrings.some((t) => t.includes('Any'))) typingImports.push('Any');
   // includes (not startsWith): Literal can be nested, e.g. list[Literal["a", "b"]]
-  if (typeStrings.some((t) => t.includes('Literal['))) typeOnlyImports.push('Literal');
-  if (safe.some((f) => !f.isRequired)) typeOnlyImports.push('NotRequired');
-  typeOnlyImports.sort();
-
-  // `cast` is called at runtime (identity fn) so it's a real import, not type-only
-  const runtimeTypingImports = ['TypedDict', 'cast'];
-  if (typeOnlyImports.length) runtimeTypingImports.push('TYPE_CHECKING');
-  runtimeTypingImports.sort();
+  if (typeStrings.some((t) => t.includes('Literal['))) typingImports.push('Literal');
+  const typingExtensionsImports: Array<string> = [];
+  if (safe.some((f) => !f.isRequired)) typingExtensionsImports.push('NotRequired');
+  const usesDeprecated = attrFields.some((f) => f.docs.isDeprecated);
+  if (usesDeprecated) typingExtensionsImports.push('deprecated');
 
   const src = [
     getAutogeneratedBanner('#'),
@@ -157,19 +248,32 @@ export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
     '',
     'import json',
     'import os',
-    `from typing import ${runtimeTypingImports.join(', ')}`,
-    ...(typeOnlyImports.length ? [
-      '',
-      'if TYPE_CHECKING:',
-      `    from typing import ${typeOnlyImports.join(', ')}`,
+    // `cast` is called at runtime (identity fn) so it's a real import, not type-only
+    'from typing import TYPE_CHECKING, TypedDict, cast',
+    '',
+    'if TYPE_CHECKING:',
+    ...(typingImports.length ? [`    from typing import ${typingImports.join(', ')}`] : []),
+    ...(typingExtensionsImports.length ? [`    from typing_extensions import ${typingExtensionsImports.join(', ')}`] : []),
+    '',
+    // declared for type checkers only; resolved lazily by the module `__getattr__` below
+    '    ENV: EnvAttrs',
+    ...(usesDeprecated ? [
+      'else:',
+      '    def deprecated(_message):',
+      '        return lambda fn: fn',
     ] : []),
     ...(skipped.length ? ['', ...skippedKeysComment(skipped, '#')] : []),
+    ...(attrSkipped.length ? [
+      '',
+      `# Keys omitted from EnvAttrs (reserved or mangled names): ${attrSkipped.join(', ')}.`,
+      '# Read them from load_env() instead.',
+    ] : []),
     ...formatPythonTypedDict(
       'Env',
       'Coerced env schema (matches varlock coercion) — values are typed, not raw strings.',
       safe,
-      (field) => getPythonCoercedTypeString(field.coerced),
     ),
+    ...formatPythonEnvAttrs(attrFields),
     '',
     '',
     '# Keys whose values are sensitive — use this to build your own redaction / leak-scanning.',
@@ -190,6 +294,19 @@ export function generatePythonEnvSrc(fields: Array<ResolvedFieldType>): string {
     '        Env,',
     '        {key: entry["value"] for key, entry in graph["config"].items() if "value" in entry},',
     '    )',
+    '',
+    '',
+    // hidden from type checkers: a visible module `__getattr__` would make them accept any name
+    // imported from this module (typos included)
+    'if not TYPE_CHECKING:',
+    '    def __getattr__(name):',
+    '        # `ENV` loads on first access (`from env import ENV`), so importing this module stays',
+    '        # side-effect-free; the instance is cached as a real module attribute afterwards',
+    '        if name == "ENV":',
+    '            env = EnvAttrs(load_env())',
+    '            globals()["ENV"] = env',
+    '            return env',
+    '        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")',
     '',
   ];
 

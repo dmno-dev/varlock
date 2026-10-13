@@ -5,7 +5,7 @@ description: Use varlock with Python via a generated typed env module, Pydantic 
 
 To use varlock with Python, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your app under [`varlock run`](/reference/cli/load-and-run/#run). It loads and validates your env, then injects it into the process.
 
-Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module: a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict), a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
+Add [`@generatePythonEnv`](/reference/root-decorators/#generatepythonenv) to your schema to generate a small, self-contained module: a lazily loaded `ENV` object with typed attributes, a coerced `Env` [`TypedDict`](https://docs.python.org/3/library/typing.html#typing.TypedDict) with a `load_env()` function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob, and a `SENSITIVE_KEYS` constant.
 
 ```env-spec title=".env.schema"
 # @generatePythonEnv(path=env.py)
@@ -15,42 +15,46 @@ The file is regenerated automatically on [`varlock load`](/reference/cli/load-an
 
 ## Reading values
 
-Call `load_env()` once, then read keys off the dict. Values are coerced (`int`/`bool`/etc.), not raw strings:
+Import `ENV` and read keys as attributes. Values are coerced (`int`/`bool`/etc.), not raw strings:
 
 ```python
-from env import load_env, SENSITIVE_KEYS
+from env import ENV
 
-env = load_env()        # call once, hold or pass it around
-port = env["DB_PORT"]   # int
-debug = env["DEBUG"]    # bool
-
-# build your own redaction using SENSITIVE_KEYS
-safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in env.items()}
+port = ENV.DB_PORT   # int | None (optional item)
+debug = ENV.DEBUG    # bool
 ```
 
 ```bash
 varlock run -- python main.py
 ```
 
-`load_env()` raises a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`). Optional keys that are unset are absent from the dict (`NotRequired`), not present as `None`.
+`ENV` is loaded on first access and then cached, so importing the module has no side effects, and every module that imports `ENV` shares one instance. Loading raises a clear error if `__VARLOCK_ENV` is missing (e.g. you forgot `varlock run`). Optional keys that are unset read as `None`.
 
-## Sharing one instance
+Each attribute is a documented property, so editors using Pyright or Pylance show the item's description, [`@docs()`](/reference/item-decorators/#docs) links, valid enum values, and sensitivity on hover, and go-to-definition jumps to it. Items marked [`@deprecated`](/reference/item-decorators/#deprecated) are typed with [`@deprecated`](https://peps.python.org/pep-0702/), so type checkers flag reads of them and editors show them struck through.
 
-Every `load_env()` call re-parses the blob. To avoid reloading, load once in a config module and share it, the idiomatic "settings module" pattern:
+To build an instance yourself, for example in tests, pass a dict to `EnvAttrs`:
 
 ```python
-# config.py
-from env import load_env
+from env import EnvAttrs
 
-env = load_env()   # loaded once, typed as Env
+env = EnvAttrs({"DB_HOST": "localhost", "APP_ENV": "dev"})
 ```
 
-```python
-# anywhere.py
-from config import env
+### Dict access
 
+`load_env()` returns the values as a plain `Env` dict instead. Optional keys that are unset are absent from the dict (`NotRequired`), not present as `None`. Each call re-parses the blob, so call it once and share the result:
+
+```python
+from env import load_env, SENSITIVE_KEYS
+
+env = load_env()
 port = env["DB_PORT"]   # int
+
+# build your own redaction using SENSITIVE_KEYS
+safe = {k: ("***" if k in SENSITIVE_KEYS else v) for k, v in env.items()}
 ```
+
+The `Env` fields carry the same docs as docstrings, but Pyright shows them only when hovering the declaration, not on `env["DB_PORT"]`. Use `ENV` if you want docs where values are read.
 
 ## Running your server
 
@@ -124,5 +128,5 @@ When using varlock, don't also load `.env` from Python (`python-dotenv`, Pydanti
 :::
 
 :::note
-Every key is also injected as a plain environment variable, so you can read any of them with `os.environ` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be `TypedDict` fields, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+Every key is also injected as a plain environment variable, so you can read any of them with `os.environ` (raw strings) if you don't need the typed module. Keys whose names aren't valid identifiers (they contain `.` or `-`, or are a Python keyword) are left out of the typed module, so read those from the env var directly. A few more names can't be `ENV` attributes, so read those with `load_env()`: `property`, `deprecated`, `_values`, `Env`, the type names `str`, `int`, `float`, `bool`, `list`, `dict`, `Any`, and `Literal`, and anything starting with `__`. The generated file lists any it left out. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
 :::
