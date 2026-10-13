@@ -1,5 +1,7 @@
 import { expand } from './expand';
 import { autoCoerce } from './helpers';
+// @ts-ignore
+import * as peggyParser from './grammar.js';
 
 export class ParsedEnvSpecDivider {
   constructor(public data: {
@@ -276,6 +278,28 @@ export class ParsedEnvSpecDecorator {
 }
 
 
+// mirrors the ConfigItem grammar rule (optional `export`, key, optional spaces, `=`)
+// also allows extra leading `#` to catch double-commented lines
+const COMMENTED_OUT_ITEM_REGEX = /^[#\s]*(?:export\s+)?[a-zA-Z_][a-zA-Z0-9_.-]*\s*=/;
+
+/**
+ * Checks if a commented-out item's value opens a multi-line value (quoted string, literal, or function call)
+ * that is not closed on the same line. We use the real parser on the single line rather than trying to find
+ * where the value ends, since unclosed literals fall back to plain unquoted strings and parse just fine.
+ */
+function commentedOutValueContinues(contents: string) {
+  const line = contents.replace(/^[#\s]*(?:export\s+)?/, '');
+  const value = line.slice(line.indexOf('=') + 1).trim();
+  if (!/^(?:["'`[{]|[a-zA-Z_][\w-]*\()/.test(value)) return false;
+  try {
+    // check the raw value (before expansion, which can turn unquoted strings into function calls)
+    const rawValue = (peggyParser.parse(line) as ParsedEnvSpecFile).configItems[0]?.data.value;
+    return !rawValue || (rawValue instanceof ParsedEnvSpecStaticValue && !rawValue.data.quote);
+  } catch {
+    return true;
+  }
+}
+
 export class ParsedEnvSpecComment {
   constructor(public data: {
     contents: string;
@@ -285,6 +309,14 @@ export class ParsedEnvSpecComment {
 
   get contents() {
     return this.data.contents;
+  }
+
+  /**
+   * true when the comment looks like a commented-out config item (ex: `# ITEM=some-value`)
+   * these often hold real (sometimes production) values, so they must never become part of an item's description
+   */
+  get isCommentedOutItem() {
+    return COMMENTED_OUT_ITEM_REGEX.test(this.data.contents);
   }
 
   toString() {
@@ -420,8 +452,19 @@ export class ParsedEnvSpecConfigItem {
   }
 
   get description() {
-    const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
-    return regularComments.map((comment) => comment.contents).join('\n');
+    // skip commented-out items (ex: `# ITEM=prod-value`) since they often contain real values.
+    // If one opens a multi-line value, we cannot reliably tell where it ends, so we skip the rest of
+    // the block entirely. This only affects the description - decorators are collected separately.
+    const descriptionLines: Array<string> = [];
+    for (const comment of this.data.preComments) {
+      if (!(comment instanceof ParsedEnvSpecComment)) continue;
+      if (comment.isCommentedOutItem) {
+        if (commentedOutValueContinues(comment.contents)) break;
+        continue;
+      }
+      descriptionLines.push(comment.contents);
+    }
+    return descriptionLines.join('\n');
   }
 
   toString() {

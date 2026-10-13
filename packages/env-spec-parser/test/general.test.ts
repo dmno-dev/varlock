@@ -133,3 +133,95 @@ it('preserves trailing whitespace on lines inside a multi-line string', () => {
   expect((item as ParsedEnvSpecConfigItem).value?.data?.rawValue)
     .toBe('"""\nline1   \nline2\t\n"""');
 });
+
+it('excludes commented-out config items from item descriptions', () => {
+  const parsedFile = parseEnvSpecDotEnvFile([
+    '# real description',
+    '# ITEM=secret-prod-value',
+    '#ITEM2=no-space',
+    '# export ITEM3 = with-export',
+    '## ITEM4=double-commented',
+    '# # ITEM5=spaced-double-commented',
+    '#  #   # ITEM6=many-hashes',
+    '# ITEM7 = spaced-equals',
+    '# mentions ITEM=value mid-line',
+    'ITEM=dev-value',
+  ].join('\n'));
+  const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+  expect(item.description).toEqual('real description\nmentions ITEM=value mid-line');
+  expect(item.description).not.toContain('secret-prod-value');
+  // still round-trips the original file untouched
+  expect(item.toString()).toContain('# ITEM=secret-prod-value');
+});
+
+it('skips the rest of the description after a commented-out multi-line value', () => {
+  const cases: Array<[string, Array<string>]> = [
+    ['triple double quotes', ['# VAL="""', '#   secret', '#   more secret', '# """']],
+    ['triple backticks', ['# VAL=```', '# secret', '# ```']],
+    ['multi-line double quotes', ['# VAL="secret', '# more secret"']],
+    ['multi-line single quotes', ["# VAL='secret", "# more secret'"]],
+    ['object literal', ['# VAL={', '#   key=secret,', '# }']],
+    ['array literal', ['# VAL=[', '#   secret,', '# ]']],
+    ['function call', ['# VAL=fn(', '#   "secret",', '#   key={ a=secret },', '# )']],
+    ['nested double comment', ['# # VAL="""', '# # secret', '# # """']],
+    [
+      'interpolation in array', [
+        '# VAL=[${REF},', // eslint-disable-line no-template-curly-in-string
+        '#   secret,',
+        '# ]',
+      ],
+    ],
+    ['comment inside array', ['# VAL=[ # ]', '#   secret,', '# ]']],
+    ['comment right after quoted element', ['# VAL=["x"# ]', '#   , "secret"', '# ]']],
+    ['comment right after nested structure', ['# VAL=[[a]# ]', '#   , secret', '# ]']],
+    ['full-line comment inside object', ['# VAL={', '#   # }', '#   key=secret', '# }']],
+    ['non-matching closer in fn arg scalar', ['# VAL=fn(a}b,', '#   secret', '# )']],
+  ];
+  for (const [label, valueLines] of cases) {
+    const parsedFile = parseEnvSpecDotEnvFile([
+      '# before',
+      ...valueLines,
+      '# after',
+      'VAL=foo',
+    ].join('\n'));
+    const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+    // the rest of the block is skipped since we cannot reliably tell where the value ends
+    expect(item.description, label).toEqual('before');
+  }
+});
+
+it('does not treat quotes inside unquoted commented-out values as multi-line', () => {
+  const parsedFile = parseEnvSpecDotEnvFile([
+    "# NAME=it's",
+    '# real description',
+    'NAME=foo',
+  ].join('\n'));
+  const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+  expect(item.description).toEqual('real description');
+});
+
+it('keeps later description lines when a commented-out value closes on the same line', () => {
+  for (const value of ['"x"', '[a, b]', '{ a=1 }', 'fn(a, "b")', 'plain # with comment']) {
+    const parsedFile = parseEnvSpecDotEnvFile([
+      '# before',
+      `# VAL=${value}`,
+      '# after',
+      'VAL=foo',
+    ].join('\n'));
+    const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+    expect(item.description, value).toEqual('before\nafter');
+  }
+});
+
+it('still applies decorators after an unclosed commented-out value', () => {
+  const parsedFile = parseEnvSpecDotEnvFile([
+    '# before',
+    '# FOO=fn(...',
+    '# after',
+    '# @required @sensitive',
+    'FOO=foo',
+  ].join('\n'));
+  const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+  expect(item.description).toEqual('before');
+  expect(item.decoratorsArray.map((d) => d.name)).toEqual(['required', 'sensitive']);
+});
