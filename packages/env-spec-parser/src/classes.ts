@@ -292,6 +292,8 @@ class CommentedOutValueScanner {
   // last significant char, used to decide if a quote/bracket starts a new value
   private prev = '=';
   private afterWhitespace = false;
+  // just closed a quoted string or nested structure, so a `#` here starts a comment
+  private afterElementEnd = false;
 
   get isOpen() {
     return this.quote !== null || this.closers.length > 0;
@@ -308,6 +310,7 @@ class CommentedOutValueScanner {
           this.quote = null;
           this.prev = ch;
           this.afterWhitespace = false;
+          this.afterElementEnd = true;
         }
         continue;
       }
@@ -316,7 +319,7 @@ class CommentedOutValueScanner {
         continue;
       }
       const atValueStart = '=([{,'.includes(this.prev);
-      if (ch === '#' && (this.closers.length === 0 || atValueStart || this.afterWhitespace)) {
+      if (ch === '#' && (this.closers.length === 0 || atValueStart || this.afterWhitespace || this.afterElementEnd)) {
         return; // rest of the line is a comment (post-value, or within a multi-line structure)
       } else if (atValueStart && (line.startsWith('"""', i) || line.startsWith('```', i))) {
         this.quote = line.slice(i, i + 3);
@@ -332,9 +335,14 @@ class CommentedOutValueScanner {
       } else if (ch === this.closers[this.closers.length - 1]) {
         // closers that do not match the innermost open structure are part of a scalar value
         this.closers.pop();
+        this.prev = ch;
+        this.afterWhitespace = false;
+        this.afterElementEnd = true;
+        continue;
       }
       this.prev = ch;
       this.afterWhitespace = false;
+      this.afterElementEnd = false;
     }
   }
 }

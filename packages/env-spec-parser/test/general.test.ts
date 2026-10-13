@@ -172,6 +172,8 @@ it('excludes continuation lines of commented-out multi-line values from descript
       ],
     ],
     ['comment inside array', ['# VAL=[ # ]', '#   secret,', '# ]']],
+    ['comment right after quoted element', ['# VAL=["x"# ]', '#   , "secret"', '# ]']],
+    ['comment right after nested structure', ['# VAL=[[a]# ]', '#   , secret', '# ]']],
     ['full-line comment inside object', ['# VAL={', '#   # }', '#   key=secret', '# }']],
     ['non-matching closer in fn arg scalar', ['# VAL=fn(a}b,', '#   secret', '# )']],
   ];
