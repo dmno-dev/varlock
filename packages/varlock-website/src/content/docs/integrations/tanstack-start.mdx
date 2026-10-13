@@ -88,7 +88,9 @@ If you're deploying your TanStack Start app to Cloudflare Workers, use `varlockC
 
     export default defineConfig({
       plugins: [
-    +    varlockCloudflareVitePlugin(),
+    +    varlockCloudflareVitePlugin({
+    +      viteEnvironment: { name: 'ssr' },
+    +    }),
         tanstackStart(),
         // ...
       ],
