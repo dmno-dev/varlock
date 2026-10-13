@@ -171,7 +171,9 @@ describe('generatePythonEnvSrc', () => {
       property=a  # @public @required
       _values=b   # @public @required
       __MANGLED=c # @public @required
-      OK=d        # @public @required
+      str=e       # @public @required
+      Env=f       # @public @required
+      OK=d        # @public @optional
     `);
     const src = generatePythonEnvSrc(fields);
     expect(src).toContain('    property: str');
@@ -179,8 +181,12 @@ describe('generatePythonEnvSrc', () => {
     expect(src).not.toContain('def property(');
     expect(src).not.toContain('def _values(');
     expect(src).not.toContain('def __MANGLED(');
-    expect(src).toContain('def OK(self) -> str:');
-    expect(src).toContain('# Keys omitted from EnvAttrs (reserved or mangled names): property, _values, __MANGLED.');
+    // a `str` / `Env` property would shadow the type in later annotations (mypy rejects it)
+    expect(src).not.toContain('def str(');
+    expect(src).not.toContain('def Env(');
+    expect(src).toContain('def OK(self) -> str | None:');
+    expect(src).toContain('def __init__(self, values: Env) -> None:');
+    expect(src).toContain('# Keys omitted from EnvAttrs (reserved or mangled names): property, _values, __MANGLED, str, Env.');
   });
 
   test('composite (array/object) types map to list/dict annotations', async () => {

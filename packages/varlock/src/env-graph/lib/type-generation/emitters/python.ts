@@ -152,14 +152,31 @@ function formatPythonTypedDict(
 // the attribute-access class stores the dict in this slot
 const ATTRS_VALUES_SLOT = '_values';
 
+// names the attribute-access class body references: a property with one of these names would
+// shadow it for the rest of the class (`property`/`deprecated` decorators at runtime; the type
+// names in later annotations for mypy, e.g. a `str` property breaks `def OTHER(self) -> str`)
+const ATTRS_RESERVED_NAMES = new Set([
+  ATTRS_VALUES_SLOT,
+  'property',
+  'deprecated',
+  'Env',
+  'str',
+  'int',
+  'float',
+  'bool',
+  'list',
+  'dict',
+  'Any',
+  'Literal',
+]);
+
 /**
- * Keys that can't be a property on the attribute-access class: names the class body itself
- * evaluates or defines (a property named `property` would shadow the decorator for every later
- * field), and `__x` names, which Python mangles inside a class body so `ENV.__x` would never
+ * Keys that can't be a property on the attribute-access class: names the class body references
+ * (see above), and `__x` names, which Python mangles inside a class body so `ENV.__x` would never
  * reach them.
  */
 function isReservedAttrName(key: string): boolean {
-  return key === 'property' || key === 'deprecated' || key === ATTRS_VALUES_SLOT || key.startsWith('__');
+  return ATTRS_RESERVED_NAMES.has(key) || key.startsWith('__');
 }
 
 function formatPythonEnvAttrs(fields: Array<ResolvedFieldType>): Array<string> {
