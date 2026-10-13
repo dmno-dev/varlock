@@ -17,6 +17,15 @@
 
 
 
+
+## 0.5.0
+<sub>2026-10-13</sub>
+
+- [#1220](https://github.com/dmno-dev/varlock/pull/1220)  *(minor)*
+  The `url` type now warns on values that only parse because `new URL()` is permissive: anything not written as `scheme://...` (like an SSH key fingerprint `SHA256:...` or `user:pass`), whitespace or control characters, a missing host, and malformed `http`/`https` hosts the parser would otherwise rewrite (`https:///example.com`, `http://0x7f.1`, `https://a..b`). It also warns on protocols other than `http`/`https` when `allowedProtocols` is not set. These become errors in the next major version. New options: `allowedProtocols="*"` allows any protocol, and `allowNoHost=true` allows host-less URLs like `sqlite:///app.db`.
+- [#1218](https://github.com/dmno-dev/varlock/pull/1218)  *(patch)*
+  `url(allowedDomains=...)` now rejects values whose host other URL parsers could read differently (backslashes, whitespace, percent-encoded or non-ASCII hosts, IPv4 shorthand, missing `scheme://host`), which could let a value pass the allowlist while the app connects elsewhere. Write internationalized hosts in punycode. `url(prependHttps=true)` now prefixes `host:port` values like `localhost:3000`.
+
 ## 0.4.4
 <sub>2026-10-09</sub>
 

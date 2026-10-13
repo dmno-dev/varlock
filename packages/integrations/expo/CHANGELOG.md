@@ -5,6 +5,13 @@
 
 
 
+
+## 1.2.2
+<sub>2026-10-13</sub>
+
+- [#1210](https://github.com/dmno-dev/varlock/pull/1210)  *(patch)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)!
+  Report a crashed varlock CLI with its command and original exit status instead of failing silently. Next.js builds exit with code 1 instead of a native crash code.
+
 ## 1.2.1
 <sub>2026-08-25</sub>
 
