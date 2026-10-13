@@ -1,0 +1,7 @@
+{
+  "name": "test-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+  // removes the global `navigator`, so varlock must not rely on it to detect Workers
+  "compatibility_flags": ["nodejs_compat", "no_global_navigator"]
+}

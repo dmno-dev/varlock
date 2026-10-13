@@ -91,6 +91,33 @@ export function defineCloudflareTests(
       ],
     });
 
+    // `no_global_navigator` removes `navigator` inside the worker; the injected SSR
+    // entry loader must still load the bindings
+    cfEnv.describeDevScenario('basic worker with no_global_navigator', {
+      command: `vite dev --port ${basePort + 9}`,
+      readyPattern: /Local:.*http/,
+      readyTimeout: 30_000,
+      templateFiles: {
+        'src/index.ts': 'workers/basic-worker.ts',
+        'vite.config.ts': 'vite-configs/vite.config.ts',
+        'wrangler.jsonc': '_base-wrangler/wrangler.no-navigator.jsonc',
+        'tsconfig.json': '_base-wrangler/tsconfig.json',
+      },
+      requests: [
+        {
+          path: '/',
+          bodyAssertions: {
+            shouldContain: [
+              'public_var::public-test-value',
+              'has_sensitive::yes',
+              'toplevel_api_url::https://api.example.com',
+            ],
+            shouldNotContain: ['super-secret-value'],
+          },
+        },
+      ],
+    });
+
     cfEnv.describeDevScenario('leaky worker', {
       command: `vite dev --port ${basePort + 1}`,
       readyPattern: /Local:.*http/,
