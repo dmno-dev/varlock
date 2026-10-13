@@ -5,7 +5,8 @@ import {
   existsSync, readFileSync, writeFileSync,
   mkdirSync,
 } from 'node:fs';
-import { asyncExitHook } from 'exit-hook';
+import exitHook from 'exit-hook';
+import { spawn } from 'node:child_process';
 import { createDebug, isDebugEnabled } from '../../lib/debug';
 import { name as ciName, isCI } from 'ci-info';
 import isDocker from 'is-docker';
@@ -22,6 +23,7 @@ import {
   setSchemaEventSupersededHandler,
 } from './telemetry-usage-context';
 import { detectJsPackageManager } from './js-package-manager-utils';
+import { isBunStandaloneExecutable } from '../../lib/detect-runtime';
 import type { JsPackageManager } from '../../lib/workspace-utils';
 
 
@@ -512,59 +514,195 @@ const telemetryDebugEnabled = isDebugEnabled('varlock:telemetry');
  */
 const invocationId = crypto.randomUUID();
 
-const pendingTelemetryReqs = new Set<Promise<any>>();
+const TELEMETRY_ENDPOINT = `${CONFIG.POSTHOG_HOST}/i/v0/e/`;
 
-async function posthogCapture(event: string, properties?: Record<string, any>) {
+/**
+ * Hidden CLI flag that turns the process into a detached telemetry sender (see
+ * {@link handOffUnconfirmedEvents}). Handled by the CLI entry before any command runs.
+ */
+export const TELEMETRY_SENDER_FLAG = '--flush-telemetry';
+/** Env var carrying the JSON array of events a sender process must deliver */
+export const TELEMETRY_SENDER_EVENTS_ENV = '__VARLOCK_TELEMETRY_EVENTS';
+/** Upper bound on how long a detached sender keeps trying before giving up */
+const SENDER_TIMEOUT_MS = 10_000;
+
+/** One PostHog capture body, as posted to the ingest endpoint */
+type TelemetryEvent = {
+  api_key: string;
+  event: string;
+  /**
+   * Client-generated event id (PostHog's `uuid` field). An event handed off at exit may
+   * already have reached the server from the in-process request, so PostHog is asked to
+   * de-duplicate rather than count it twice.
+   */
+  uuid: string;
+  /** When the event happened, so a deferred send keeps the original time */
+  timestamp: string;
+  distinct_id: string;
+  properties: Record<string, any>;
+};
+
+/**
+ * Events this process started sending whose delivery has not been confirmed yet, keyed by
+ * uuid. Anything still here when the process exits is handed off to a detached sender.
+ */
+const unconfirmedEvents = new Map<string, TelemetryEvent>();
+
+/**
+ * Builds the capture body for an event, or returns undefined when telemetry is opted out.
+ * When debug logging is on the payload is still built and logged while opted out, which is
+ * useful for inspecting what would have been sent.
+ */
+function buildEvent(event: string, properties?: Record<string, any>): TelemetryEvent | undefined {
+  // skip building the payload entirely when opted out - unless debug logging is on
+  if (isOptedOut && !telemetryDebugEnabled) return undefined;
+
+  const telemetryMeta = getTelemetryMeta();
+  const payload: TelemetryEvent = {
+    api_key: CONFIG.POSTHOG_API_KEY,
+    event,
+    uuid: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    properties: {
+      $process_person_profile: false,
+      invocation_id: invocationId,
+      ...telemetryMeta,
+      ...getIntegrationPayload(),
+      ...properties,
+    },
+    distinct_id: isOptedOut ? '---' : getAnonymousId(),
+  };
+
+  debug(`track${isOptedOut ? ' (disabled)' : ''}`, payload);
+
+  if (isOptedOut) return undefined;
+  return payload;
+}
+
+/** Posts one or more events in a single request. Rejects on any HTTP or network failure. */
+async function postEvents(events: Array<TelemetryEvent>, signal?: AbortSignal) {
+  const res = await fetch(TELEMETRY_ENDPOINT, {
+    method: 'POST',
+    body: JSON.stringify(events.length === 1 ? events[0] : events),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    signal,
+  });
+  if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+  debug('telemetry response:', await res.text());
+}
+
+/**
+ * How long a process must have stayed alive before an event is sent from within it. The
+ * first `fetch()` call alone costs 10-30ms of main-thread time (the HTTP client initializes
+ * lazily), which a command like `varlock load` should never pay: it exits long before any
+ * request could complete, and the sender delivers its events anyway. Long-running commands
+ * pass the delay and send in-process, so they confirm delivery without a handoff.
+ */
+const IN_PROCESS_SEND_DELAY_MS = 200;
+
+/**
+ * Queues an event for sending without waiting for it. If the process is still alive after
+ * {@link IN_PROCESS_SEND_DELAY_MS}, the request is made from here and runs alongside the
+ * command; anything not confirmed by the time the process exits is handed off to a
+ * detached sender instead of being awaited (see {@link handOffUnconfirmedEvents}).
+ */
+function sendEvent(event: TelemetryEvent) {
+  unconfirmedEvents.set(event.uuid, event);
+  // unref'd so a pending timer never keeps the process alive
+  setTimeout(() => {
+    if (!unconfirmedEvents.has(event.uuid)) return;
+    postEvents([event])
+      .then(() => {
+        unconfirmedEvents.delete(event.uuid);
+      })
+      .catch((error) => {
+        // a request that failed outright is dropped, not retried by the sender: the sender
+        // would most likely fail the same way (no network, blocked host, ...)
+        unconfirmedEvents.delete(event.uuid);
+        debug('telemetry error:', error);
+      });
+  }, IN_PROCESS_SEND_DELAY_MS).unref();
+}
+
+function posthogCapture(event: string, properties?: Record<string, any>) {
   // Telemetry must never break the CLI, so any failure here is swallowed rather than
   // surfaced to the caller.
   try {
-    // skip building the payload entirely when opted out - unless debug logging is on,
-    // in which case we still build and log it (useful for inspecting what would be sent)
-    if (isOptedOut && !telemetryDebugEnabled) return;
-
-    const telemetryMeta = getTelemetryMeta();
-    const payload = {
-      api_key: CONFIG.POSTHOG_API_KEY,
-      event,
-      properties: {
-        $process_person_profile: false,
-        invocation_id: invocationId,
-        ...telemetryMeta,
-        ...getIntegrationPayload(),
-        ...properties,
-      },
-      distinct_id: isOptedOut ? '---' : getAnonymousId(),
-    };
-
-    debug(`track${isOptedOut ? ' (disabled)' : ''}`, payload);
-
-    if (isOptedOut) return;
-
-    // Make the fetch call
-    const telemetryReq = fetch(`${CONFIG.POSTHOG_HOST}/i/v0/e/`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-        return res.text();
-      })
-      .then((text) => debug('telemetry response:', text))
-      .catch((error) => {
-        debug('telemetry error:', error);
-      })
-      .finally(() => {
-        pendingTelemetryReqs.delete(telemetryReq);
-      });
-    pendingTelemetryReqs.add(telemetryReq);
+    const payload = buildEvent(event, properties);
+    if (payload) sendEvent(payload);
   } catch (err) {
     debug('telemetry capture error:', err);
   }
 }
 
+/**
+ * The command that re-runs this same varlock: the standalone binary itself, or the runtime
+ * (node/bun) plus the CLI script it was started with.
+ */
+function getSelfCommand(): { command: string; args: Array<string> } {
+  if (isBunStandaloneExecutable()) return { command: process.execPath, args: [] };
+  return { command: process.execPath, args: [process.argv[1]] };
+}
+
+/**
+ * Hands every unconfirmed event to a detached copy of this CLI, which delivers them after
+ * this process has exited.
+ *
+ * A telemetry request must never hold up the command (`varlock load` runs on every app
+ * boot through `varlock/auto-load`, often inside serverless cold starts), but a short-lived
+ * process cannot wait for the network round trip without doing exactly that. So the
+ * request is only started in-process once the command has outlived a short delay (see
+ * {@link sendEvent}) and, if it has not completed by exit, finished by a separate process
+ * instead: the parent spawns it detached with its stdio closed, so nothing waiting on the
+ * parent (a pipe, `execFileSync`, a shell) is kept waiting, and exits immediately.
+ * Long-running commands (`varlock run -- next dev`) confirm delivery while they run and
+ * spawn nothing. The handoff costs a spawn syscall on the parent (about a millisecond),
+ * not a process startup: that happens in the child, after the parent is gone.
+ *
+ * @internal exported for unit tests
+ */
+export function handOffUnconfirmedEvents() {
+  if (!unconfirmedEvents.size) return;
+  const events = [...unconfirmedEvents.values()];
+  unconfirmedEvents.clear();
+  try {
+    const { command, args } = getSelfCommand();
+    const child = spawn(command, [...args, TELEMETRY_SENDER_FLAG], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: {
+        ...process.env,
+        [TELEMETRY_SENDER_EVENTS_ENV]: JSON.stringify(events),
+      },
+    });
+    // a spawn failure surfaces as an async 'error' event; unhandled it would crash the exit
+    child.on('error', (err) => debug('telemetry sender spawn error:', err));
+    child.unref();
+    debug(`handed off ${events.length} telemetry event(s) to detached sender (pid ${child.pid})`);
+  } catch (err) {
+    debug('telemetry handoff error:', err);
+  }
+}
+
+/**
+ * The detached sender's job: deliver the events the parent handed off (one request for all
+ * of them), bounded by a timeout, and never fail loudly. Called by the CLI entry when it is
+ * started with {@link TELEMETRY_SENDER_FLAG}.
+ */
+export async function runTelemetrySender() {
+  const raw = process.env[TELEMETRY_SENDER_EVENTS_ENV];
+  if (!raw) return;
+  try {
+    const events = JSON.parse(raw) as Array<TelemetryEvent>;
+    if (!Array.isArray(events) || !events.length) return;
+    await postEvents(events, AbortSignal.timeout(SENDER_TIMEOUT_MS));
+  } catch (err) {
+    debug('telemetry sender error:', err);
+  }
+}
 
 
 /**
@@ -575,45 +713,61 @@ async function posthogCapture(event: string, properties?: Record<string, any>) {
  * `cli_schema_loaded` instead, which is sent later when that data is final.
  */
 export async function trackCommand(command: string, properties?: Record<string, any>) {
-  await posthogCapture('cli_command_executed', {
+  posthogCapture('cli_command_executed', {
     command,
     ...properties,
   });
 }
 
+/** Builds the schema usage event if this run owes one, taking the pending payload */
+function buildSchemaLoadedEvent() {
+  // same early bail as buildEvent: when opted out we do no work at all, and building
+  // this payload would walk the graph's plugins and config items
+  if (isOptedOut && !telemetryDebugEnabled) return undefined;
+  const payload = takePendingSchemaEventPayload();
+  if (!payload) return undefined;
+  return buildEvent('cli_schema_loaded', payload);
+}
+
 /**
- * Sends the schema usage event if this run owes one. Called from the exit hook, and when a
- * reload supersedes the graph the pending event describes.
+ * Sends the schema usage event if this run owes one. Called by commands that know the
+ * schema is final well before exit (`varlock run`, before its child starts) and when a
+ * reload supersedes the graph the pending event describes. A run that never calls this
+ * still gets its schema event: the exit hook builds it and hands it straight to the sender.
  */
 export async function flushSchemaLoadedEvent() {
-  // same early bail as posthogCapture: when opted out we do no work at all, and building
-  // this payload would walk the graph's plugins and config items
-  if (isOptedOut && !telemetryDebugEnabled) return;
-  const payload = takePendingSchemaEventPayload();
-  if (!payload) return;
-  await posthogCapture('cli_schema_loaded', payload);
+  try {
+    const event = buildSchemaLoadedEvent();
+    if (event) sendEvent(event);
+  } catch (err) {
+    debug('telemetry capture error:', err);
+  }
 }
 
 export async function trackInstall(source: 'brew' | 'curl') {
-  await posthogCapture('cli_install', {
+  posthogCapture('cli_install', {
     source,
   });
 }
 
-// Register the exit hook at module load rather than per capture: exit-hook snapshots its
-// callbacks when the exit starts, so a hook registered later (during a capture that fires
-// as the process is already going down) is never awaited and the request gets killed.
-// This hook also *originates* the schema event, so there is no race between a late capture
-// and the snapshot - by the time we await, everything we intend to send is already in
-// `pendingTelemetryReqs`.
+// Registered at module load rather than per capture: exit-hook snapshots its callbacks when
+// the exit starts, so a hook registered later (during a capture that fires as the process is
+// already going down) would never run. A synchronous hook on purpose: it only spawns, which
+// is synchronous, and sync hooks also run on a plain `process.exit()` where async ones cannot.
 // (also registered when opted out but debugging, so `DEBUG=varlock:telemetry` shows the
 // schema event it would have sent rather than silently omitting it)
 if (!isOptedOut || telemetryDebugEnabled) {
-  asyncExitHook(async () => {
-    await flushSchemaLoadedEvent();
-    // will still exit if the timeout is met, but will finish early if the requests complete
-    await Promise.allSettled([...pendingTelemetryReqs]);
-  }, { wait: 500 });
+  exitHook(() => {
+    // The schema event is built here, not sent: the process is already exiting, so an
+    // in-process request could never complete. It goes straight to the sender.
+    try {
+      const event = buildSchemaLoadedEvent();
+      if (event) unconfirmedEvents.set(event.uuid, event);
+    } catch (err) {
+      debug('telemetry capture error:', err);
+    }
+    handOffUnconfirmedEvents();
+  });
 
   // send a pending schema event before a reload overwrites the state it describes.
   // synchronous on purpose: the payload must be taken before the new graph replaces it
@@ -621,4 +775,3 @@ if (!isOptedOut || telemetryDebugEnabled) {
     flushSchemaLoadedEvent().catch(() => undefined);
   });
 }
-

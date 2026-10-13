@@ -12,7 +12,9 @@ import { commandTelemetry } from './command-telemetry-plugin';
 import { VARLOCK_BANNER_COLOR } from '../lib/ascii-art';
 import { CliExitError } from './helpers/exit-error';
 import { fmt } from './helpers/pretty-format';
-import { trackCommand, trackInstall } from './helpers/telemetry';
+import {
+  trackCommand, trackInstall, runTelemetrySender, TELEMETRY_SENDER_FLAG,
+} from './helpers/telemetry';
 import { InvalidEnvError } from './helpers/invalid-env-error';
 import { isArgError, toCliExitError } from './helpers/arg-errors';
 import { checkBunVersion } from '../lib/check-bun-version';
@@ -112,6 +114,15 @@ process.prependOnceListener('beforeExit', () => {
     }
 
     let args = process.argv.slice(2);
+
+    // detached telemetry sender spawned by a previous varlock process at exit (see
+    // handOffUnconfirmedEvents) - deliver its events and exit, running no command
+    if (args[0] === TELEMETRY_SENDER_FLAG) {
+      await runTelemetrySender();
+      commandFinished = true;
+      gracefulExit();
+      return;
+    }
 
     // TODO: remove this once we have a better way to re-trigger help
     if (args[0] === 'help') args = ['--help'];

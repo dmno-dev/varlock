@@ -24,6 +24,14 @@ We track general usage information, and the environment in which `varlock` is be
 
 **We will never collect any of your config files or environment variables.**
 
+## How Events Are Sent
+
+Sending telemetry never delays a command. The CLI does not wait for the network before printing its output or exiting, so the time `varlock load` or `varlock/auto-load` takes is the same with telemetry on or off.
+
+Events are sent in the background while a command runs. If a command finishes before delivery is confirmed (as `varlock load` usually does), the CLI hands the events to a small detached copy of itself and exits immediately. That process delivers them (with a 10 second limit) and exits, and it never holds open the pipes or terminal of whatever started the CLI. Long-running commands such as `varlock run` confirm delivery while they run and start no extra process.
+
+If you would rather varlock never start that background process, opt out using one of the methods below.
+
 ## How to Opt Out
 
 You can opt out of analytics in three ways:

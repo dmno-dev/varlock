@@ -256,9 +256,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // The schema is resolved and validated by now, and nothing in this process changes it
   // afterwards, so send the schema usage event here rather than at exit. A long-running
-  // child (a server) may only ever end by SIGKILL, in which case an exit-time flush is
-  // lost. Fire-and-forget: the request completes while the child runs, gracefulExit still
-  // awaits anything pending, and taking the payload makes the exit-time flush a no-op.
+  // child (a server) may only ever end by SIGKILL, in which case an exit-time handoff is
+  // lost. Fire-and-forget: the request completes while the child runs, and taking the
+  // payload makes the exit-time flush a no-op.
   flushSchemaLoadedEvent().catch(() => undefined);
 
   // Forward terminating signals to the child and wait for it, rather than exiting and
