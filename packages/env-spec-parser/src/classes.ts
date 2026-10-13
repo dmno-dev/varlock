@@ -287,12 +287,14 @@ const COMMENTED_OUT_ITEM_REGEX = /^[#\s]*(?:export\s+)?[a-zA-Z_][a-zA-Z0-9_.-]*\
  */
 class CommentedOutValueScanner {
   private quote: string | null = null;
-  private bracketDepth = 0;
+  // expected closing chars of currently open structures (literals, fn calls, `${...}`)
+  private closers: Array<string> = [];
   // last significant char, used to decide if a quote/bracket starts a new value
   private prev = '=';
+  private afterWhitespace = false;
 
   get isOpen() {
-    return this.quote !== null || this.bracketDepth > 0;
+    return this.quote !== null || this.closers.length > 0;
   }
 
   scanLine(line: string) {
@@ -305,24 +307,34 @@ class CommentedOutValueScanner {
           i += this.quote.length - 1;
           this.quote = null;
           this.prev = ch;
+          this.afterWhitespace = false;
         }
         continue;
       }
-      if (/\s/.test(ch)) continue;
+      if (/\s/.test(ch)) {
+        this.afterWhitespace = true;
+        continue;
+      }
       const atValueStart = '=([{,'.includes(this.prev);
-      if (atValueStart && (line.startsWith('"""', i) || line.startsWith('```', i))) {
+      if (ch === '#' && (this.closers.length === 0 || atValueStart || this.afterWhitespace)) {
+        return; // rest of the line is a comment (post-value, or within a multi-line structure)
+      } else if (atValueStart && (line.startsWith('"""', i) || line.startsWith('```', i))) {
         this.quote = line.slice(i, i + 3);
         i += 2;
       } else if (atValueStart && '"\'`'.includes(ch)) {
         this.quote = ch;
-      } else if ((atValueStart && '[{'.includes(ch)) || (ch === '(' && /[\w]/.test(this.prev))) {
-        this.bracketDepth++;
-      } else if (this.bracketDepth > 0 && ')]}'.includes(ch)) {
-        this.bracketDepth--;
-      } else if (ch === '#' && this.bracketDepth === 0) {
-        return; // rest of the line is a post-value comment
+      } else if (atValueStart && ch === '[') {
+        this.closers.push(']');
+      } else if ((atValueStart || this.prev === '$') && ch === '{') {
+        this.closers.push('}');
+      } else if (ch === '(' && /\w/.test(this.prev)) {
+        this.closers.push(')');
+      } else if (ch === this.closers[this.closers.length - 1]) {
+        // closers that do not match the innermost open structure are part of a scalar value
+        this.closers.pop();
       }
       this.prev = ch;
+      this.afterWhitespace = false;
     }
   }
 }

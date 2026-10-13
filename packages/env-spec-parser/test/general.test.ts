@@ -164,6 +164,16 @@ it('excludes continuation lines of commented-out multi-line values from descript
     ['array literal', ['# VAL=[', '#   secret,', '# ]']],
     ['function call', ['# VAL=fn(', '#   "secret",', '#   key={ a=secret },', '# )']],
     ['nested double comment', ['# # VAL="""', '# # secret', '# # """']],
+    [
+      'interpolation in array', [
+        '# VAL=[${REF},', // eslint-disable-line no-template-curly-in-string
+        '#   secret,',
+        '# ]',
+      ],
+    ],
+    ['comment inside array', ['# VAL=[ # ]', '#   secret,', '# ]']],
+    ['full-line comment inside object', ['# VAL={', '#   # }', '#   key=secret', '# }']],
+    ['non-matching closer in fn arg scalar', ['# VAL=fn(a}b,', '#   secret', '# )']],
   ];
   for (const [label, valueLines] of cases) {
     const parsedFile = parseEnvSpecDotEnvFile([
