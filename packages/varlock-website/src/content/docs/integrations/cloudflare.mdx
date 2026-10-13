@@ -96,7 +96,7 @@ Replace your `wrangler` commands with `varlock-wrangler` and initialize varlock 
 ### How it works
 
 - **In dev**: `varlock-wrangler dev` resolves your env and injects it into `wrangler` using `--env-file` with a named pipe (unix/mac) or temp file (windows). It also watches your `.env` files and automatically restarts wrangler when they change, something `wrangler dev` doesn't do.
-- **In production**: `varlock-wrangler deploy` (and `varlock-wrangler versions upload`) attaches non-sensitive values as Cloudflare vars (via `--var`) and sensitive values as Cloudflare secrets via `--secrets-file`. The worker reads them at runtime via `import { env } from 'cloudflare:workers'`.
+- **In production**: `varlock-wrangler deploy` (and `varlock-wrangler versions upload`) attaches non-sensitive values as Cloudflare vars (via `--var`) and sensitive values as Cloudflare secrets via `--secrets-file`. The worker reads them at runtime via `import { env } from 'cloudflare:workers'`. The init module loads `cloudflare:workers` only inside Workers, so a framework that also runs the server bundle in Node to prerender (Nitro 3, for example) reads the same keys from `process.env` there.
 
 ----
 
