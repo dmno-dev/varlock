@@ -159,6 +159,7 @@ jobs:
       artifact-name: native-bin-macos-ci
     secrets:
       OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+      DEPOT_TURBO_TOKEN: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
   # Build Rust native binaries if varlock is being released AND (source changed or cache missing)
   build-native-rust:

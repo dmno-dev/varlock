@@ -27,6 +27,10 @@ on:
     secrets:
       OP_CI_TOKEN:
         required: true
+      # PR callers pass this so the varlock libs build reuses Depot's turbo cache.
+      # Release callers leave it out, so release builds always run from source.
+      DEPOT_TURBO_TOKEN:
+        required: false
 
 jobs:
   build-swift-binary:
@@ -42,8 +46,10 @@ jobs:
       - name: Install node deps
         run: bun install
 
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
+      - name: Enable turborepo remote cache
+        uses: ./.github/actions/depot-turbo-cache
+        with:
+          token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
       # Cache the Swift .build directory so compilation is fast on unchanged source
       - name: Compute Swift source hash

@@ -40,9 +40,7 @@ jobs:
       - name: Install node deps
         run: bun install
 
-      - name: Enable turborepo build cache
-        uses: rharkor/caching-for-turbo@56219402aacc0d06b650d898c222996dbc1191ec # v2.3.14
-
+      # No turbo cache: published artifacts are always built from source.
       - name: Build varlock libs
         run: bun run build:libs
 
