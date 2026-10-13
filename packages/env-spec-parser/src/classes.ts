@@ -276,6 +276,57 @@ export class ParsedEnvSpecDecorator {
 }
 
 
+// mirrors the ConfigItem grammar rule (optional `export`, key, optional spaces, `=`)
+// also allows extra leading `#` to catch double-commented lines
+const COMMENTED_OUT_ITEM_REGEX = /^[#\s]*(?:export\s+)?[a-zA-Z_][a-zA-Z0-9_.-]*\s*=/;
+
+/**
+ * Tracks whether a commented-out item's value continues onto following lines
+ * (multi-line quoted strings, or object/array literals and function calls split across lines).
+ * This is intentionally loose - when unsure, it errs towards treating more lines as part of the value.
+ */
+class CommentedOutValueScanner {
+  private quote: string | null = null;
+  private bracketDepth = 0;
+  // last significant char, used to decide if a quote/bracket starts a new value
+  private prev = '=';
+
+  get isOpen() {
+    return this.quote !== null || this.bracketDepth > 0;
+  }
+
+  scanLine(line: string) {
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (this.quote) {
+        if (ch === '\\') {
+          i++;
+        } else if (line.startsWith(this.quote, i)) {
+          i += this.quote.length - 1;
+          this.quote = null;
+          this.prev = ch;
+        }
+        continue;
+      }
+      if (/\s/.test(ch)) continue;
+      const atValueStart = '=([{,'.includes(this.prev);
+      if (atValueStart && (line.startsWith('"""', i) || line.startsWith('```', i))) {
+        this.quote = line.slice(i, i + 3);
+        i += 2;
+      } else if (atValueStart && '"\'`'.includes(ch)) {
+        this.quote = ch;
+      } else if ((atValueStart && '[{'.includes(ch)) || (ch === '(' && /[\w]/.test(this.prev))) {
+        this.bracketDepth++;
+      } else if (this.bracketDepth > 0 && ')]}'.includes(ch)) {
+        this.bracketDepth--;
+      } else if (ch === '#' && this.bracketDepth === 0) {
+        return; // rest of the line is a post-value comment
+      }
+      this.prev = ch;
+    }
+  }
+}
+
 export class ParsedEnvSpecComment {
   constructor(public data: {
     contents: string;
@@ -285,6 +336,14 @@ export class ParsedEnvSpecComment {
 
   get contents() {
     return this.data.contents;
+  }
+
+  /**
+   * true when the comment looks like a commented-out config item (ex: `# ITEM=some-value`)
+   * these often hold real (sometimes production) values, so they must never become part of an item's description
+   */
+  get isCommentedOutItem() {
+    return COMMENTED_OUT_ITEM_REGEX.test(this.data.contents);
   }
 
   toString() {
@@ -420,8 +479,25 @@ export class ParsedEnvSpecConfigItem {
   }
 
   get description() {
-    const regularComments = this.data.preComments.filter((comment) => (comment instanceof ParsedEnvSpecComment));
-    return regularComments.map((comment) => comment.contents).join('\n');
+    // skip commented-out items (ex: `# ITEM=prod-value`), including any continuation lines of a
+    // multi-line value, since they often contain real values that must not leak into descriptions
+    const descriptionLines: Array<string> = [];
+    let commentedOutValue: CommentedOutValueScanner | undefined;
+    for (const comment of this.data.preComments) {
+      if (commentedOutValue?.isOpen) {
+        commentedOutValue.scanLine(`\n${comment.toString().slice(1)}`);
+        continue;
+      }
+      commentedOutValue = undefined;
+      if (!(comment instanceof ParsedEnvSpecComment)) continue;
+      if (comment.isCommentedOutItem) {
+        commentedOutValue = new CommentedOutValueScanner();
+        commentedOutValue.scanLine(comment.contents.slice(comment.contents.indexOf('=') + 1));
+        continue;
+      }
+      descriptionLines.push(comment.contents);
+    }
+    return descriptionLines.join('\n');
   }
 
   toString() {

@@ -446,6 +446,26 @@ describe('type generation', () => {
       expect(infos.ITEM1.description).toBeUndefined();
     });
 
+    test('commented-out values are excluded from descriptions and generated types', async () => {
+      const g = await loadGraph({
+        files: {
+          '.env.schema': outdent`
+            # real description
+            # ITEM1=secret-prod-value
+            ITEM1=dev-value
+            # ITEM2=another-secret
+            ITEM2=dev-value
+          `,
+        },
+      });
+
+      const infos = await getTypeGenInfoMap(g);
+      expect(infos.ITEM1.description).toBe('real description');
+      expect(infos.ITEM2.description).toBeUndefined();
+      const src = await generateTsTypesSrc(resolveFieldTypes(await collectTypeGenItems(g)));
+      expect(src).not.toContain('secret');
+    });
+
     test('conditionally disabled source overrides are excluded from type gen', async () => {
       const g = await loadGraph({
         overrideValues: { APP_ENV: 'dev' },
