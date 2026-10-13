@@ -35,6 +35,8 @@ If you are using [`dotenv`](https://www.npmjs.com/package/dotenv), or a package 
 
 When validation fails, `varlock/auto-load` writes the error to `stderr` and exits with a non-zero code. Because it exits during module import, an error reporter like Sentry may never see the failure. You can opt in to having auto-load **throw** the error instead of exiting, so a reporter can pick it up. This is never enabled automatically, so nothing changes for apps that do not opt in.
 
+If the child CLI crashes, auto-load exits with code `1` rather than forwarding a native Windows crash status. It prints the invoked command and the original exit status (in hexadecimal for Windows crashes) or signal, along with any captured `stderr`. Run `varlock load` manually from the same directory to investigate. Captured `stdout` remains available as `error.stdout` in the hook below, but is not printed automatically because the full JSON output can contain secrets. The hook also receives any values that resolved before the crash.
+
 **If your reporter is already initialized before varlock loads** (for example Sentry started via `node --import ./instrument.mjs`, with its DSN in a real environment variable), set `_VARLOCK_THROW_ON_LOAD_ERROR=1`. auto-load then throws instead of exiting, and the reporter's existing `uncaughtException` handler catches it. Make sure the reporter is imported before varlock:
 
 ```js title="index.js"
@@ -135,4 +137,3 @@ The `varlock/env` module is designed to be imported on both the client and serve
 :::note[Help us build more integrations!]
 If you are using a tool/framework that is not listed here, and you'd like to see support for it, or collaborate on building it, we'd love to hear from you. Please hop into our <a href={process.env.PUBLIC_DISCORD_URL}>Discord</a>!
 :::
-

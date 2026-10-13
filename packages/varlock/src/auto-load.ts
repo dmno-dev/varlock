@@ -114,8 +114,11 @@ function autoLoad() {
       }
     }
   } catch (err) {
-    if (err instanceof VarlockExecError && err.stderr) {
-      process.stderr.write(err.stderr);
+    if (err instanceof VarlockExecError) {
+      if (err.stderr) process.stderr.write(err.stderr);
+      if (err.crashed || !err.stderr) {
+        process.stderr.write(`${err.stderr && !err.stderr.endsWith('\n') ? '\n' : ''}${err.message}\n`);
+      }
     } else if (err instanceof PreResolvedEnvError) {
       // a setup/config problem, not a crash - a stack trace here is noise
       process.stderr.write(`${err.message}\n[varlock] ${err.suggestion}\n`);
@@ -123,7 +126,7 @@ function autoLoad() {
       // eslint-disable-next-line no-console
       console.error(err);
     }
-    const exitCode = (err as any).exitCode ?? 1;
+    const exitCode = err instanceof VarlockExecError && err.crashed ? 1 : (err as any).exitCode ?? 1;
 
     // By default we exit here (fail-fast). Apps can instead have auto-load THROW the error, so an
     // error tracker can report the load failure rather than the process dying silently. This is
@@ -182,7 +185,7 @@ function autoLoad() {
       throw err;
     }
 
-    // Default: preserve the original fail-fast behavior exactly.
+    // Default: fail fast without propagating a native crash status to the host.
     process.exit(exitCode);
   }
 

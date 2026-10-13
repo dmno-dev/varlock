@@ -700,6 +700,9 @@ export function loadEnvConfig(
     // for structured data (sources for file watching, etc.)
     if (err instanceof VarlockExecError) {
       if (err.stderr) process.stderr.write(err.stderr);
+      // A crashed CLI (native abort, signal) may leave stderr empty, so also print the
+      // diagnostic message carrying the command and original exit status.
+      if (err.crashed || !err.stderr) process.stderr.write(`\n${err.message}\n`);
 
       if (err.stdout) {
         try {
@@ -716,7 +719,8 @@ export function loadEnvConfig(
 
     // In a build, we want to fail hard so broken env doesn't get deployed
     if (!dev) {
-      process.exit((err as any).exitCode ?? 1);
+      // never forward a native crash status (e.g. 0xC0000409) as the build's exit code
+      process.exit(err instanceof VarlockExecError && err.crashed ? 1 : (err as any).exitCode ?? 1);
     }
 
     // Reset process.env to initial state so stale values from a previous
