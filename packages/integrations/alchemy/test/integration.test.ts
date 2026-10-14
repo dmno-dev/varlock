@@ -52,7 +52,7 @@ describe('Secrets()', () => {
   const env = Secrets({ path: path.join(fixtures, 'server') });
 
   it('feeds alchemy Config from the resolved schema and exposes typed bindings', async () => {
-    const { cors, stageSeen, bindings } = await withProvider(env, { stage: 'dev_test' }, Effect.gen(function* run2() {
+    const { cors, stageSeen, bindings } = await withProvider(env, { stage: 'dev_test', dev: true }, Effect.gen(function* run2() {
       return {
         cors: yield* Config.String('CORS_ORIGIN'),
         // ALCHEMY_STAGE is visible to the schema while it resolves
@@ -83,20 +83,27 @@ describe('Secrets()', () => {
       'FEATURE_FLAG',
       'SHARED',
       'STAGE_SEEN',
+      'VARLOCK_ENV',
     ]);
     expect(blob.config.BETTER_AUTH_SECRET.tags).toBeUndefined();
   });
 
-  it('lets stage drive @currentEnv through the env hook', async () => {
-    const staged = Secrets({
-      path: path.join(fixtures, 'server'),
-      env: ({ stage }) => ({ APP_ENV: stage === 'production' ? 'production' : 'preview' }),
-    });
-    const { cors, bindings } = await withProvider(staged, { stage: 'dev_test' }, Effect.gen(function* run3() {
-      return { cors: yield* Config.String('CORS_ORIGIN'), bindings: yield* staged.bindings };
+  it('sets VARLOCK_ENV from the stage and mode so @currentEnv needs no mapping', async () => {
+    const cors = (opts: { stage: string; dev?: boolean }) => withProvider(env, opts, Config.String('CORS_ORIGIN'));
+    expect(await cors({ stage: 'dev_test', dev: true })).toBe('http://localhost:4321'); // development
+    expect(await cors({ stage: 'dev_test' })).toBe('https://preview.example.com');
+    expect(await cors({ stage: 'pr-42' })).toBe('https://preview.example.com');
+    expect(await cors({ stage: 'production' })).toBe('https://prod.example.com');
+    expect(await withProvider(env, { stage: 'staging' }, Config.String('VARLOCK_ENV'))).toBe('staging');
+  });
+
+  it('lets the env hook override the derived VARLOCK_ENV', async () => {
+    const pinned = Secrets({ path: path.join(fixtures, 'server'), env: () => ({ VARLOCK_ENV: 'production' }) });
+    const { cors, bindings } = await withProvider(pinned, { stage: 'dev_test' }, Effect.gen(function* run3() {
+      return { cors: yield* Config.String('CORS_ORIGIN'), bindings: yield* pinned.bindings };
     }));
-    expect(cors).toBe('https://preview.example.com');
-    expect(await value(bindings.CORS_ORIGIN)).toBe('https://preview.example.com');
+    expect(cors).toBe('https://prod.example.com');
+    expect(await value(bindings.CORS_ORIGIN)).toBe('https://prod.example.com');
   });
 
   it('tells the schema whether this is alchemy dev', async () => {
@@ -229,6 +236,7 @@ describe('Secrets({ services })', () => {
       'FEATURE_FLAG',
       'SHARED',
       'STAGE_SEEN',
+      'VARLOCK_ENV',
       '__VARLOCK_ENV',
     ]);
     expect(Object.keys(web).sort()).toEqual(['PUBLIC_SERVER_URL', '__VARLOCK_ENV']);

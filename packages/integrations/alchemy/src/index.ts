@@ -58,10 +58,9 @@ export type VarlockEnvHook = (ctx: AlchemyResolveContext) => Record<string, stri
 
 export interface VarlockSecretsOptions extends VarlockSchemaOptions {
   /**
-   * Extra env vars to expose to varlock while it resolves. Use it to drive `@currentEnv`, e.g.
-   * `env: ({ stage }) => ({ APP_ENV: stage === 'production' ? 'production' : 'preview' })`.
-   * `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV` are always set, so the same mapping can
-   * live in the schema instead: `APP_ENV=remap($ALCHEMY_STAGE, "production", production, /.*\/, preview)`.
+   * Extra env vars to expose to varlock while it resolves, on top of `VARLOCK_ENV` (see
+   * {@link inferVarlockEnv}), `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Returning one
+   * of those keys overrides the default, e.g. `env: ({ stage }) => ({ VARLOCK_ENV: stage })`.
    */
   env?: VarlockEnvHook;
 }
@@ -222,12 +221,27 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
   return bindings;
 }
 
+/**
+ * varlock's built-in `VARLOCK_ENV` (development, preview, staging, production, test), derived
+ * from the alchemy run so `@currentEnv=$VARLOCK_ENV` works with no mapping in the schema:
+ * `alchemy dev` is development, the `production`/`prod` stage is production, `staging` and
+ * `test` map to themselves, and every other stage (`dev_<user>`, `pr-<n>`, ...) is a preview.
+ */
+export function inferVarlockEnv(ctx: Pick<AlchemyResolveContext, 'stage' | 'dev'>): string {
+  if (ctx.dev) return 'development';
+  if (/^(prod|production)$/i.test(ctx.stage)) return 'production';
+  if (/^(staging|stage)$/i.test(ctx.stage)) return 'staging';
+  if (/^test$/i.test(ctx.stage)) return 'test';
+  return 'preview';
+}
+
 /** what alchemy tells varlock about the run, plus the user's extra vars */
 function contextEnv(ctx: AlchemyResolveContext, hook?: VarlockEnvHook) {
   return {
     ...(ctx.stack !== undefined ? { ALCHEMY_STACK: ctx.stack } : {}),
     ALCHEMY_STAGE: ctx.stage,
     ALCHEMY_DEV: ctx.dev ? 'true' : 'false',
+    VARLOCK_ENV: inferVarlockEnv(ctx),
     ...(hook?.(ctx) ?? {}),
   };
 }
