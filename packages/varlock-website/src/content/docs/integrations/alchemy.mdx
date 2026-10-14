@@ -180,5 +180,5 @@ export type ServerWorkerEnv = Cloudflare.InferEnv<ReturnType<typeof makeServer>>
 - During `alchemy login` (auth-provider discovery) the provider contributes nothing, so a schema whose values come from a vault does not block configuring the very credentials it needs.
 - Resolution happens once per alchemy session (each `deploy`, `plan`, or dev reload). Plugin-backed items are resolved then, so a 1Password or AWS lookup runs per session, not per Worker.
 - Cloudflare secrets are capped at 5KB. A larger blob is split into `__VARLOCK_ENV_CHUNKS` and `__VARLOCK_ENV_<n>` bindings automatically; the runtime reassembles them.
-- With `Alchemy.localState()`, alchemy persists every `Redacted` value, including the blob, in plaintext under `.alchemy/state/`. Use `Cloudflare.state()`, which encrypts state at rest.
+- With `Alchemy.localState()`, alchemy persists every `Redacted` value, including the blob, in plaintext under `.alchemy/state/`. Use `Cloudflare.state()`, which encrypts state at rest. An encrypted local state store backed by varlock's local encryption is planned for a later release.
 - Values that only exist after deploy (a sibling Worker's URL) are alchemy Outputs, not varlock items. Add them to `env` next to the spread, as `BETTER_AUTH_URL` above.
