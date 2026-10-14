@@ -27,20 +27,9 @@ let package = Package(
             name: "SessionScoping",
             path: "Sources/SessionScoping"
         ),
-        // Code-signing identity of IPC callers and their ancestors. Chain-building
-        // logic is unit tested; the Security framework lookups sit behind
-        // `CodeSigningInspector`.
-        .target(
-            name: "CallerIdentity",
-            dependencies: ["SessionScoping"],
-            path: "Sources/CallerIdentity",
-            linkerSettings: [
-                .linkedFramework("Security"),
-            ]
-        ),
         .executableTarget(
             name: "VarlockEnclave",
-            dependencies: ["KeychainLegacy", "SessionScoping", "CallerIdentity"],
+            dependencies: ["KeychainLegacy", "SessionScoping"],
             path: "Sources/VarlockEnclave",
             linkerSettings: [
                 .linkedFramework("Security"),
@@ -52,11 +41,6 @@ let package = Package(
             name: "SessionScopingTests",
             dependencies: ["SessionScoping"],
             path: "Tests/SessionScopingTests"
-        ),
-        .testTarget(
-            name: "CallerIdentityTests",
-            dependencies: ["CallerIdentity", "SessionScoping"],
-            path: "Tests/CallerIdentityTests"
         ),
     ]
 )

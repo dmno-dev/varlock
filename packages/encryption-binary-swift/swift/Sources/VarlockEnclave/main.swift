@@ -1,8 +1,6 @@
 import Foundation
 import AppKit
 import CryptoKit
-import SessionScoping
-import CallerIdentity
 
 // MARK: - JSON Output Helpers
 
@@ -261,8 +259,7 @@ case "daemon":
     }
 
     // Handle IPC messages (sessionId is resolved from the peer's TTY or process tree)
-    server.messageHandler = { message, peer in
-        let sessionId = peer.sessionId
+    server.messageHandler = { message, sessionId in
         guard let action = message["action"] as? String else {
             return ["error": "Missing action"]
         }
@@ -303,19 +300,6 @@ case "daemon":
                     "binaryHash": daemonBinaryHash as Any,
                 ],
             ]
-
-        // Who is calling, for display: the direct peer (identified by audit
-        // token) and its ancestors (by pid, best-effort). Informational only;
-        // access is still gated by the allowlist in PeerIdentity.swift.
-        case "describe-caller":
-            guard let peerPid = peer.pid else {
-                return ["error": "Could not identify the calling process"]
-            }
-            let chain = CallerChainBuilder(
-                processes: LiveProcessProvider(),
-                signing: LiveCodeSigningInspector()
-            ).chain(peerPid: peerPid, auditToken: peer.auditToken)
-            return ["result": ["chain": chain.map { $0.toJSON() }]]
 
         case "encrypt":
             guard let payload = message["payload"] as? [String: Any],

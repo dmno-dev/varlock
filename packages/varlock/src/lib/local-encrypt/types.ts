@@ -25,40 +25,8 @@ export interface BackendInfo {
 export interface DaemonMessage {
   id: string;
   action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session'
-    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-set'
-    | 'describe-caller';
+    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-set';
   payload?: Record<string, unknown>;
-}
-
-/**
- * Code-signing facts about one process in a caller chain (macOS daemon only).
- * `kind` is strongest first: apple-platform, developer-id, apple-issued,
- * untrusted-certificate, ad-hoc, unsigned, invalid.
- */
-export interface CallerSigningInfo {
-  kind: 'apple-platform' | 'developer-id' | 'apple-issued' | 'untrusted-certificate' | 'ad-hoc' | 'unsigned' | 'invalid';
-  identifier?: string;
-  teamId?: string;
-  /** Leaf certificate summary, e.g. "Developer ID Application: DMNO Inc (BPHZUT9PGB)" */
-  signerName?: string;
-  hardenedRuntime: boolean;
-  /** Developer ID signed by varlock's team with a varlock identifier */
-  isVarlock: boolean;
-}
-
-/** One process in the chain of callers the daemon sees, direct peer first */
-export interface CallerProcess {
-  pid: number;
-  path?: string;
-  name?: string;
-  /** missing when the daemon could not inspect the process */
-  signing?: CallerSigningInfo;
-  /**
-   * True only for the direct peer, identified by the socket's audit token.
-   * Ancestors are looked up by pid (which can be reused), so treat them as
-   * display-only.
-   */
-  verifiedByAuditToken: boolean;
 }
 
 /** IPC daemon response format */

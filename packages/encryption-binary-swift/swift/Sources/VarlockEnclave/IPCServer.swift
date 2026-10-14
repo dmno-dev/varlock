@@ -21,8 +21,8 @@ final class IPCServer {
     private let handlersQueue = DispatchQueue(label: "dev.varlock.ipc.handlers")
     private var isRunning = false
 
-    /// Handler for incoming messages, with the connection's resolved peer.
-    var messageHandler: ((_ message: [String: Any], _ peer: IPCPeer) -> [String: Any])?
+    /// Handler for incoming messages. Second parameter is the peer's TTY identity (nil if unknown).
+    var messageHandler: ((_ message: [String: Any], _ sessionId: String?) -> [String: Any])?
 
     /// Called after accept (new client) and after each successfully parsed JSON message.
     var onConnectionActivity: (() -> Void)?
@@ -323,13 +323,8 @@ final class IPCServer {
             }
         }
 
-        // Prefer the pid carried by the audit token so the pid and the token
-        // (used for code-signing lookups) always describe the same process
-        let auditToken = getPeerAuditToken(fd: fd)
-        let peerPid = auditToken.map(pidFromAuditToken) ?? getPeerPid(fd: fd)
-
         // Verify the connecting process is an allowed client
-        if let peerPid {
+        if let peerPid = getPeerPid(fd: fd) {
             guard verifyPeerProcess(pid: peerPid) != nil else {
                 let path = getProcessPath(pid: peerPid) ?? "unknown"
                 fputs("varlock: rejected IPC connection from unauthorized process (pid=\(peerPid), path=\(path))\n", stderr)
@@ -339,11 +334,12 @@ final class IPCServer {
         }
 
         // Resolve the peer's session identity once per connection
-        let peer = IPCPeer(
-            pid: peerPid,
-            auditToken: auditToken,
-            sessionId: peerPid.flatMap { getSessionIdentifier(forPid: $0) }
-        )
+        let sessionId: String?
+        if let peerPid = getPeerPid(fd: fd) {
+            sessionId = getSessionIdentifier(forPid: peerPid)
+        } else {
+            sessionId = nil
+        }
 
         while isRunning {
             // Read 4-byte length prefix (little-endian)
@@ -373,7 +369,8 @@ final class IPCServer {
 
             onConnectionActivity?()
 
-            let response = messageHandler?(json, peer) ?? ["error": "No handler"]
+            // Handle message with the peer's TTY identity
+            let response = messageHandler?(json, sessionId) ?? ["error": "No handler"]
             sendResponse(fd: fd, id: json["id"] as? String, response: response)
         }
     }
