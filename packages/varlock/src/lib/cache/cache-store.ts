@@ -128,17 +128,23 @@ function registerLockCleanup(): void {
   process.on('exit', releaseAll);
 
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) {
-    // `once`, then re-raise: attaching any listener suppresses Node's default
-    // termination, so we hand the signal back rather than picking an exit code.
-    // Deliberately does not exit on its own: `varlock run` installs its own
-    // forwarders, and racing them would break child signal delivery.
+    // Persistent, not `once`: when another listener handles the signal without
+    // exiting (e.g. a SIGHUP reload forwarder), a one-shot listener would be
+    // spent and later locks would be held with no signal cleanup.
+    // When we are the only listener, detach and re-raise: attaching any listener
+    // suppresses Node's default termination, so we hand the signal back rather
+    // than picking an exit code. Deliberately does not exit on its own:
+    // `varlock run` installs its own forwarders, and racing them would break
+    // child signal delivery.
     try {
-      process.once(signal, () => {
+      const onSignal = () => {
         releaseAll();
-        if (process.listenerCount(signal) === 0) {
+        if (process.listenerCount(signal) === 1) {
+          process.removeListener(signal, onSignal);
           process.kill(process.pid, signal);
         }
-      });
+      };
+      process.on(signal, onSignal);
     } catch {
       // some signals (e.g. SIGQUIT) can't be listened for on every platform
     }
@@ -173,10 +179,17 @@ export async function withDirLock<T>(
   const deadline = Date.now() + opts.timeoutMs;
   let acquired = false;
 
+  // Install signal handlers before acquiring. Once a JS listener exists, signals
+  // are dispatched on the event loop, so the synchronous mkdir + heldLocks.set
+  // below cannot be interrupted between them. Without a listener a signal hits
+  // the OS default action and orphans the lock.
+  registerLockCleanup();
+
   while (true) {
     try {
       fs.mkdirSync(lockPath, { mode: 0o700 });
       acquired = true;
+      heldLocks.set(lockPath, token);
       break;
     } catch (err: any) {
       if (err?.code === 'ENOENT') {
@@ -223,14 +236,15 @@ export async function withDirLock<T>(
 
   let ownerWritten = false;
   try {
+    // write + rename so readers never observe a partially written owner file
+    const ownerTmp = path.join(lockPath, `${LOCK_OWNER_FILE}.${randomBytes(4).toString('hex')}.tmp`);
     fs.writeFileSync(
-      path.join(lockPath, LOCK_OWNER_FILE),
+      ownerTmp,
       JSON.stringify({ pid: process.pid, host: os.hostname(), token } satisfies LockOwner),
       { encoding: 'utf-8', mode: 0o600 },
     );
+    fs.renameSync(ownerTmp, path.join(lockPath, LOCK_OWNER_FILE));
     ownerWritten = true;
-    heldLocks.set(lockPath, token);
-    registerLockCleanup();
   } catch {
     // without owner metadata the lock still works, it just can't be identified
   }

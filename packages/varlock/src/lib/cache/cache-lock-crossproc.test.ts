@@ -44,12 +44,27 @@ const sleep = (ms: number) => new Promise<void>((resolve) => {
   setTimeout(resolve, ms);
 });
 
-/** Wait until the child has actually taken the lock (owner metadata present). */
+function heldMarkerPath(): string {
+  return path.join(tempHome, 'lock-held');
+}
+
+/**
+ * A producer that signals it is running (so the lock is held and fully set up,
+ * including signal handlers) and then never resolves, standing in for a hung
+ * API call or an unanswered prompt.
+ */
+function hangingProducerSrc(): string {
+  return `() => {
+    require('node:fs').writeFileSync(${JSON.stringify(heldMarkerPath())}, '');
+    return new Promise(() => {});
+  }`;
+}
+
+/** Wait until the child's producer is running inside the lock. */
 async function waitForLockHeld(timeoutMs = 20_000): Promise<void> {
-  const ownerFile = path.join(keyLockPath(), 'owner.json');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (fs.existsSync(ownerFile)) return;
+    if (fs.existsSync(heldMarkerPath())) return;
     await sleep(25);
   }
   throw new Error('child never acquired the lock');
@@ -61,8 +76,7 @@ describe.runIf(hasBun)('orphaned lock left by a killed process', () => {
     fs.writeFileSync(holderScript, `
       import { CacheStore } from ${JSON.stringify(path.join(thisDir, 'cache-store.ts'))};
       const store = new CacheStore();
-      // never resolves, stands in for a hung API call or an unanswered prompt
-      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, () => new Promise(() => {})).catch(() => {});
+      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, ${hangingProducerSrc()}).catch(() => {});
       setInterval(() => {}, 1_000);
     `);
 
@@ -110,7 +124,7 @@ describe.runIf(hasBun)('orphaned lock left by a killed process', () => {
     fs.writeFileSync(holderScript, `
       import { CacheStore } from ${JSON.stringify(path.join(thisDir, 'cache-store.ts'))};
       const store = new CacheStore();
-      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, () => new Promise(() => {})).catch(() => {});
+      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, ${hangingProducerSrc()}).catch(() => {});
       setInterval(() => {}, 1_000);
     `);
 
@@ -139,12 +153,46 @@ describe.runIf(hasBun)('orphaned lock left by a killed process', () => {
     expect(outcome.signal === 'SIGINT' || outcome.code === 130).toBe(true);
   }, 60_000);
 
+  it('is still released by a signal after an earlier one was handled elsewhere', async () => {
+    const holderScript = path.join(tempHome, 'holder.ts');
+    fs.writeFileSync(holderScript, `
+      import { CacheStore } from ${JSON.stringify(path.join(thisDir, 'cache-store.ts'))};
+      // stands in for a forwarder that handles SIGHUP without exiting (proxy reload)
+      process.on('SIGHUP', () => {});
+      const store = new CacheStore();
+      // first SIGHUP arrives while an earlier lock is held, and is handled
+      await store.getOrSet('plugin:test:first', 60_000, async () => {
+        process.kill(process.pid, 'SIGHUP');
+        await new Promise((r) => setTimeout(r, 200));
+        return 'ok';
+      });
+      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, ${hangingProducerSrc()}).catch(() => {});
+      setInterval(() => {}, 1_000);
+    `);
+
+    child = spawn('bun', ['run', holderScript], {
+      env: { ...process.env, XDG_CONFIG_HOME: tempHome },
+      stdio: 'ignore',
+    });
+
+    await waitForLockHeld();
+    child.kill('SIGHUP');
+
+    const cleanupDeadline = Date.now() + 5_000;
+    while (fs.existsSync(keyLockPath()) && Date.now() < cleanupDeadline) {
+      await sleep(25);
+    }
+    expect(fs.existsSync(keyLockPath())).toBe(false);
+    // the other listener handled it, so the process keeps running
+    expect(child.exitCode).toBe(null);
+  }, 60_000);
+
   it('is left alone while its owner is still alive', async () => {
     const holderScript = path.join(tempHome, 'holder.ts');
     fs.writeFileSync(holderScript, `
       import { CacheStore } from ${JSON.stringify(path.join(thisDir, 'cache-store.ts'))};
       const store = new CacheStore();
-      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, () => new Promise(() => {})).catch(() => {});
+      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, ${hangingProducerSrc()}).catch(() => {});
       setInterval(() => {}, 1_000);
     `);
 
