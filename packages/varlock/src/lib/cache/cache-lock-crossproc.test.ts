@@ -153,6 +153,40 @@ describe.runIf(hasBun)('orphaned lock left by a killed process', () => {
     expect(outcome.signal === 'SIGINT' || outcome.code === 130).toBe(true);
   }, 60_000);
 
+  it('is still released by a signal after an earlier one was handled elsewhere', async () => {
+    const holderScript = path.join(tempHome, 'holder.ts');
+    fs.writeFileSync(holderScript, `
+      import { CacheStore } from ${JSON.stringify(path.join(thisDir, 'cache-store.ts'))};
+      // stands in for a forwarder that handles SIGHUP without exiting (proxy reload)
+      process.on('SIGHUP', () => {});
+      const store = new CacheStore();
+      // first SIGHUP arrives while an earlier lock is held, and is handled
+      await store.getOrSet('plugin:test:first', 60_000, async () => {
+        process.kill(process.pid, 'SIGHUP');
+        await new Promise((r) => setTimeout(r, 200));
+        return 'ok';
+      });
+      store.getOrSet(${JSON.stringify(CACHE_KEY)}, 60_000, ${hangingProducerSrc()}).catch(() => {});
+      setInterval(() => {}, 1_000);
+    `);
+
+    child = spawn('bun', ['run', holderScript], {
+      env: { ...process.env, XDG_CONFIG_HOME: tempHome },
+      stdio: 'ignore',
+    });
+
+    await waitForLockHeld();
+    child.kill('SIGHUP');
+
+    const cleanupDeadline = Date.now() + 5_000;
+    while (fs.existsSync(keyLockPath()) && Date.now() < cleanupDeadline) {
+      await sleep(25);
+    }
+    expect(fs.existsSync(keyLockPath())).toBe(false);
+    // the other listener handled it, so the process keeps running
+    expect(child.exitCode).toBe(null);
+  }, 60_000);
+
   it('is left alone while its owner is still alive', async () => {
     const holderScript = path.join(tempHome, 'holder.ts');
     fs.writeFileSync(holderScript, `

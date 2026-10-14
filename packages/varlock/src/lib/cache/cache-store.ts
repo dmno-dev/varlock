@@ -128,17 +128,23 @@ function registerLockCleanup(): void {
   process.on('exit', releaseAll);
 
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const) {
-    // `once`, then re-raise: attaching any listener suppresses Node's default
-    // termination, so we hand the signal back rather than picking an exit code.
-    // Deliberately does not exit on its own: `varlock run` installs its own
-    // forwarders, and racing them would break child signal delivery.
+    // Persistent, not `once`: when another listener handles the signal without
+    // exiting (e.g. a SIGHUP reload forwarder), a one-shot listener would be
+    // spent and later locks would be held with no signal cleanup.
+    // When we are the only listener, detach and re-raise: attaching any listener
+    // suppresses Node's default termination, so we hand the signal back rather
+    // than picking an exit code. Deliberately does not exit on its own:
+    // `varlock run` installs its own forwarders, and racing them would break
+    // child signal delivery.
     try {
-      process.once(signal, () => {
+      const onSignal = () => {
         releaseAll();
-        if (process.listenerCount(signal) === 0) {
+        if (process.listenerCount(signal) === 1) {
+          process.removeListener(signal, onSignal);
           process.kill(process.pid, signal);
         }
-      });
+      };
+      process.on(signal, onSignal);
     } catch {
       // some signals (e.g. SIGQUIT) can't be listened for on every platform
     }
