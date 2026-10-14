@@ -21,14 +21,14 @@ jobs:
       rust-changed: ${{ steps.check-rust.outputs.changed }}
       rust-source-hash: ${{ steps.rust-hash.outputs.hash }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24.x"
       - name: Install js deps (w/ bun)
@@ -115,14 +115,14 @@ jobs:
       swift-cache-hit: ${{ steps.swift-cache-check.outputs.cache-hit }}
       rust-cache-hit: ${{ steps.rust-cache-final.outputs.cache-hit }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           sparse-checkout: packages/encryption-binary-swift
       # Check if native binary caches exist (lookup-only, no download)
       - name: Check Swift binary cache
         id: swift-cache-check
         if: needs.build-and-test.outputs.swift-changed != 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
@@ -130,7 +130,7 @@ jobs:
       - name: Check Rust cache - linux-x64
         id: rust-cache-check-linux-x64
         if: needs.build-and-test.outputs.rust-changed != 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
@@ -138,7 +138,7 @@ jobs:
       - name: Check Rust cache - linux-arm64
         id: rust-cache-check-linux-arm64
         if: needs.build-and-test.outputs.rust-changed != 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ needs.build-and-test.outputs.rust-source-hash }}
@@ -146,7 +146,7 @@ jobs:
       - name: Check Rust cache - win32-x64
         id: rust-cache-check-win32-x64
         if: needs.build-and-test.outputs.rust-changed != 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
@@ -209,13 +209,13 @@ jobs:
     # GitHub runner: restores native binaries from GitHub's cache (see native-cache-check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -230,13 +230,13 @@ jobs:
       # Otherwise, restore from cross-run cache
       - name: Download macOS native binary (from this run)
         if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-macos.result == 'success'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-macos-ci
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Restore cached macOS native binary (from prior run)
         if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-macos.result != 'success'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
@@ -254,7 +254,7 @@ jobs:
       # If the Rust build ran this run, download the artifacts; otherwise restore from cache
       - name: Download Rust binaries (from this run)
         if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result == 'success'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-bin-rust-ci-*
           path: packages/varlock/native-bins/
@@ -269,17 +269,17 @@ jobs:
             mv "$dir" "$subdir" 2>/dev/null || true
           done
 
-      - uses: actions/cache/restore@v5
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ needs.build-and-test.outputs.rust-source-hash }}
-      - uses: actions/cache/restore@v5
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ needs.build-and-test.outputs.rust-source-hash }}
-      - uses: actions/cache/restore@v5
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         if: needs.build-and-test.outputs.includes-varlock == 'true' && needs.build-native-rust.result != 'success'
         with:
           path: packages/varlock/native-bins/win32-x64/

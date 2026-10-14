@@ -12,11 +12,11 @@ jobs:
       contents: read
       id-token: write # required for Azure OIDC login
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -29,7 +29,7 @@ jobs:
       # Resolve publishing secrets from 1Password via varlock: AZURE_CLIENT_ID /
       # AZURE_TENANT_ID (for Marketplace OIDC) and OVSX_PAT (for Open VSX).
       - name: Load extension publishing secrets from 1Password
-        uses: dmno-dev/varlock-action@v1.0.5
+        uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/vscode-plugin
         env:
@@ -37,7 +37,7 @@ jobs:
 
       # OIDC login so `vsce publish --azure-credential` can mint a short-lived token
       - name: Azure login (OIDC) for Marketplace publishing
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}

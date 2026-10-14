@@ -55,9 +55,9 @@ jobs:
       macos-cache-hit: ${{ steps.macos-cache.outputs.cache-hit }}
       rust-cache-hit: ${{ steps.rust-cache.outputs.cache-hit }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       # Pin bumpy to the version committed on main so every release job runs the
       # exact version this repo declares (this job does not `bun install`).
       - id: bumpy-version
@@ -94,7 +94,7 @@ jobs:
       - name: Probe macOS notarized binary cache
         id: macos-cache
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: ${{ steps.keys.outputs.macos-cache-key }}
@@ -102,7 +102,7 @@ jobs:
       - name: Probe Rust cache - linux-x64
         id: rust-cache-linux-x64
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ steps.keys.outputs.rust-source-hash }}
@@ -110,7 +110,7 @@ jobs:
       - name: Probe Rust cache - linux-arm64
         id: rust-cache-linux-arm64
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ steps.keys.outputs.rust-source-hash }}
@@ -118,7 +118,7 @@ jobs:
       - name: Probe Rust cache - win32-x64
         id: rust-cache-win32-x64
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ steps.keys.outputs.rust-source-hash }}
@@ -147,14 +147,14 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           # Push the version branch with BUMPY_GH_TOKEN (below) rather than the
           # default token, so PR workflows trigger on the version branch.
           persist-credentials: false
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Create / update version PR
         run: bunx "@varlock/bumpy@${{ needs.plan.outputs.bumpy-version }}" ci release --expect-mode version-pr
         env:
@@ -196,7 +196,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Restore notarized macOS binary from cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: ${{ needs.plan.outputs.macos-cache-key }}
@@ -255,16 +255,16 @@ jobs:
       pull-requests: write
       issues: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           # this is needed so that pushes to the version release branch will use the token we pass in below
           # otherwise the default token will be used, and we will not get an updated pkg.pr.new preview for that branch
           persist-credentials: false
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -279,13 +279,13 @@ jobs:
       # re-verified by verify-native-macos).
       - name: Download macOS native binary (built this run)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.macos-cache-hit != 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-macos-npm
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Restore macOS native binary (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.macos-cache-hit == 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: ${{ needs.plan.outputs.macos-cache-key }}
@@ -297,39 +297,39 @@ jobs:
       # Rust native binaries: download artifacts (cache miss) or restore from cache (hit)
       - name: Download Rust native binaries (built this run)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit != 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-linux-x64
           path: packages/varlock/native-bins/linux-x64
       - name: Download Rust native binaries - linux-arm64 (built this run)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit != 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-linux-arm64
           path: packages/varlock/native-bins/linux-arm64
       - name: Download Rust native binaries - win32-x64 (built this run)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit != 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-win32-x64
           path: packages/varlock/native-bins/win32-x64
       - name: Restore Rust native binaries (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit == 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ needs.plan.outputs.rust-source-hash }}
           fail-on-cache-miss: true
       - name: Restore Rust native binaries - linux-arm64 (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit == 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ needs.plan.outputs.rust-source-hash }}
           fail-on-cache-miss: true
       - name: Restore Rust native binaries - win32-x64 (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit == 'true'
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ needs.plan.outputs.rust-source-hash }}
@@ -368,7 +368,7 @@ jobs:
           cat SHA256SUMS.txt
       - name: Upload native binary checksums
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-bins-sha256sums
           path: packages/varlock/SHA256SUMS.txt
@@ -388,7 +388,7 @@ jobs:
       # varlock the action uses.)
       - name: Load extension publishing secrets from 1Password
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
-        uses: dmno-dev/varlock-action@v1.0.5
+        uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/vscode-plugin
         env:
@@ -402,7 +402,7 @@ jobs:
       # environment changes the OIDC token's sub claim.
       - name: Azure login (OIDC) for Marketplace publishing
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
@@ -423,7 +423,7 @@ jobs:
       # distribution jobs below reuse them instead of rebuilding + re-signing.
       - name: Upload staged native binaries
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-bins-staged
           path: packages/varlock/native-bins
@@ -450,11 +450,11 @@ jobs:
       contents: write
       id-token: write # keyless cosign signing of checksums.txt
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -477,7 +477,7 @@ jobs:
 
       # Reuse the native binaries built + signed + notarized earlier this run
       - name: Download staged native binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bins-staged
           path: packages/varlock/native-bins
@@ -520,7 +520,7 @@ jobs:
 
       # Update the homebrew tap formula
       - name: Checkout homebrew tap repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: dmno-dev/homebrew-tap
           token: ${{ secrets.HOMEBREW_REPO_GITHUB_ACCESS_TOKEN }}
@@ -551,20 +551,20 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Resolve published varlock version
         id: ver
         run: echo "version=$(node -p "require('./packages/varlock/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile

@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs (with a version comment);
+  # Dependabot bumps the SHA and comment together
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # wait before adopting a new release, so a compromised tag has time to be caught
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ["*"]
