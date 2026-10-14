@@ -403,7 +403,7 @@ For multi-worker repos today:
 
 - Deploy each Worker separately with `varlock-wrangler deploy -c <that-worker-config>`, or
 - Share a single `.env.schema` and run deploy once per worker script, or
-- Use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved env when invoking a non-wrangler deploy tool (see [non-wrangler deploy tools](#non-wrangler-deploy-tools-alchemysstpulumi) below).
+- Use [`varlock run`](/reference/cli/load-and-run/#run) to inject resolved env when invoking a non-wrangler deploy tool (see [Deploying with Alchemy](#deploying-with-alchemy) below).
 
 If this blocks your setup, join [Discord](https://chat.dmno.dev) and share your wrangler layout and which Workers need which vars.
 :::
@@ -438,11 +438,50 @@ The generated types file is not being loaded by TypeScript. Make sure the [`@gen
 
 ### Non-wrangler deploy tools (Alchemy, SST, Pulumi)
 
-If you deploy Workers with **IaC tools other than wrangler** ([Alchemy](https://alchemy.run/), SST, Pulumi, Terraform, etc.), you can still use varlock for **fail-fast validation and secret resolution** via [`varlock run`](/reference/cli/load-and-run/#run), which injects resolved values into `process.env` for the deploy tool to read.
+If another IaC tool owns the Worker deploy, see [Deploying with Alchemy](#deploying-with-alchemy) below. The same pattern (load varlock before the tool reads `process.env`, declare the Worker's env from `process.env`, bind the `__VARLOCK_ENV` blob as a secret) applies to SST and Pulumi.
 
-What you **cannot** get today without `varlock-wrangler`: the in-worker runtime layer (`@varlock/cloudflare-integration/init`) that provides console redaction and response leak detection. That layer reads a `__VARLOCK_ENV` binding that only `varlock-wrangler` produces.
+----
 
-A public API to build `__VARLOCK_ENV` bindings for non-wrangler deploy tools is planned but not available yet. Until then, teams on Alchemy/SST/Pulumi typically rely on varlock for validation + env injection at deploy time and skip the in-worker runtime protections.
+## Deploying with Alchemy
+
+[Alchemy](https://alchemy.run/) v2 declares a Worker's env with `effect/Config` entries that are read from the deploy process's environment and uploaded as bindings. The [Alchemy integration](/integrations/alchemy/) plugs varlock into alchemy's `secrets` option and gives you typed bindings; use it when your alchemy version has that option. The rest of this section is the zero-package approach that works with any version: import [`varlock/auto-load`](/integrations/javascript/#auto-load) at the top of `alchemy.run.ts` so varlock resolves and validates your schema, and injects the values into `process.env`, before those entries are read:
+
+```ts title="alchemy.run.ts"
+import "varlock/auto-load";
+import * as Cloudflare from "alchemy/Cloudflare";
+import * as Config from "effect/Config";
+
+export const server = Cloudflare.Worker("server", {
+  main: "./src/index.ts",
+  compatibility: { flags: ["nodejs_compat"] },
+  env: {
+    CORS_ORIGIN: Config.String("CORS_ORIGIN"),
+    BETTER_AUTH_SECRET: Config.Redacted("BETTER_AUTH_SECRET"),
+    // the resolved-env blob, so the varlock runtime can boot inside the Worker
+    __VARLOCK_ENV: Config.Redacted("__VARLOCK_ENV"),
+  },
+});
+```
+
+`alchemy dev`, `alchemy deploy`, and the rest work unchanged; no wrapper script is needed. (Running alchemy through [`varlock run`](/reference/cli/load-and-run/#run) instead gives the same result if you prefer not to touch `alchemy.run.ts`.)
+
+Then import the runtime at the top of the Worker entry, exactly as with wrangler:
+
+```ts title="src/index.ts"
+import '@varlock/cloudflare-integration/init';
+```
+
+This gives you the same [log redaction and leak prevention](#log-redaction-and-leak-prevention) as `varlock-wrangler`, and it works under `alchemy dev` (the Worker runs in workerd with the bindings above).
+
+**Deploy credentials.** Alchemy reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` from the same `process.env`, so varlock can supply them too. Keep them in a schema that does not produce the Worker's blob: with this zero-package setup the `__VARLOCK_ENV` blob carries every item of the schema it came from, so put the Worker's config in the app's own `.env.schema` and the deploy credentials in the infra package's schema (the [Alchemy integration](/integrations/alchemy/) makes exactly that split, and can also filter by `#tag`). A secrets-manager token that only varlock uses stays [`@internal`](/reference/item-decorators/#internal) and never reaches alchemy at all.
+
+**Things to know:**
+
+- Alchemy also loads a `.env` from its working directory with its own dotenv parser, which reads varlock function values such as `exec("...")` or `encrypted(...)` as literal strings. Values varlock has already placed in `process.env` win over that file, but do not pass `--env-file`: with that flag alchemy lets the file override `process.env`, which would also override varlock's values.
+- Scaffolds that call `dotenv.config()` at the top of `alchemy.run.ts` (Better-T-Stack does) populate `process.env` before varlock's values are read. Remove those calls.
+- Cloudflare secrets are capped at 5KB. If your blob is larger, split it into `__VARLOCK_ENV_CHUNKS` (the count) and `__VARLOCK_ENV_0`, `__VARLOCK_ENV_1`, ... bindings; the runtime reassembles them.
+- With `Alchemy.localState()`, every `Config.Redacted` value, including the blob, is written in plaintext under `.alchemy/state/`. `Cloudflare.state()` encrypts state at rest.
+- `alchemy dev` runs the Worker locally but its KV and Images providers still require `CLOUDFLARE_ACCOUNT_ID` to be set.
 
 ----
 
