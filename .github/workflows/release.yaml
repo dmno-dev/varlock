@@ -433,12 +433,25 @@ jobs:
       # TODO: send notifications?
 
   # --- varlock CLI binary distribution ---------------------------------------
-  # Reuse the signed/notarized native binaries built earlier in THIS run (no
-  # rebuild, no re-sign, no Azure/Apple on this path). Gated on a varlock publish;
-  # the varlock@<version> GitHub release that bumpy just created is the target.
+  # The macOS CLI archives are built, Developer ID signed, and notarized on a
+  # macOS runner; release-binaries builds every other target on linux and merges
+  # them in. Both reuse the signed/notarized native binaries from earlier in THIS
+  # run. Same skip-propagation guard as release-binaries below.
+  build-cli-macos:
+    needs: [plan, release]
+    if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true'
+    uses: ./.github/workflows/build-cli-binaries-macos.yaml
+    with:
+      native-bins-artifact: native-bins-staged
+      artifact-name: varlock-cli-binaries-macos
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
+  # Gated on a varlock publish; the varlock@<version> GitHub release that bumpy
+  # just created is the target.
   release-binaries:
     name: Release varlock CLI binaries
-    needs: [plan, release]
+    needs: [plan, release, build-cli-macos]
     # `release` always has a by-design skipped dependency (the native-binary cache
     # logic skips either verify-native-macos on a miss, or build/notarize on a hit),
     # and GitHub propagates that skip through `release`'s always() into the implicit
@@ -501,8 +514,16 @@ jobs:
         run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: Build varlock SEA binaries
-        run: bun run packages/varlock/scripts/build-binaries.ts
+      - name: Build varlock SEA binaries (non-macOS)
+        run: bun run packages/varlock/scripts/build-binaries.ts --targets=linux-x64,linux-arm64,linux-musl-x64,linux-musl-arm64,win-x64
+      - name: Download signed macOS CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          name: varlock-cli-binaries-macos
+          path: packages/varlock/dist-sea
+      - name: Add macOS archives to checksums
+        working-directory: packages/varlock/dist-sea
+        run: sha256sum varlock-macos-x64.tar.gz varlock-macos-arm64.tar.gz >> checksums.txt
 
       # Sign checksums.txt rather than each archive: it already covers every
       # archive by hash, so one signature transitively covers them all, and
