@@ -108,6 +108,18 @@ cosign verify-blob checksums.txt \
 
 Both workflow identities are accepted because binaries are normally cut by `release.yaml` alongside the npm publish, and re-cut by `binary-release.yaml` when an already-published version needs new archives.
 
+On macOS, the `varlock` binary in the standalone archives (and the homebrew install) is also Developer ID signed and notarized, with hardened runtime enabled. Hardened runtime stops other processes running as your user from attaching to `varlock` and reading resolved values out of its memory. To check the signature on an installed binary:
+
+```bash
+codesign --verify --strict "$(which varlock)"
+codesign -dv "$(which varlock)" 2>&1 | grep -E "^Identifier|TeamIdentifier|flags"
+# Identifier=dev.varlock.cli
+# flags=0x10000(runtime)
+# TeamIdentifier=BPHZUT9PGB
+```
+
+This only applies to the standalone binary. When varlock is installed from npm it runs inside `node` (or `bun`), so the process is signed by whoever built that runtime, if at all.
+
 :::note
 Signing was added after varlock 1.14.0, so older releases have `checksums.txt` but no bundle. If a release has no `checksums.txt.cosign.bundle` asset, it predates signing and only the checksum step applies.
 :::

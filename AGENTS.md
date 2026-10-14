@@ -39,6 +39,7 @@ This is a monorepo managed with bun workspaces and Turborepo:
 
 - The varlock CLI binary is built using `bun build --compile` (not Node SEA or pkg)
 - `bun run --filter varlock build:binary` builds a local dev binary for the current platform at `packages/varlock/dist-sea/varlock`
+  - on macOS it is ad-hoc signed with hardened runtime (like release builds), which blocks debugger attach; pass `--no-sign` to `build-binaries.ts` to skip signing
 - `packages/varlock/scripts/build-binaries.ts` builds cross-platform release binaries (or use `--current-platform` for a single local binary)
 - `bun run --filter varlock test:binary:local` builds the local binary and runs a smoke `load` check (WSL-aware helper copy)
 - `bun run --filter varlock pack:local` builds + packs a local tarball and prints a ready-to-paste `file:` dependency

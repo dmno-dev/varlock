@@ -5,10 +5,12 @@ name: Re-cut varlock CLI binaries
 #
 # The normal release flow (release.yaml) builds and uploads these in the same run
 # as the npm publish, reusing the in-run signed/notarized native binaries. This
-# workflow is only for re-cutting binaries of an existing version — it pulls the
+# workflow is only for re-cutting binaries of an existing version. It pulls the
 # signed native binaries from the published @varlock/native-helper-* npm packages
-# rather than rebuilding + re-signing them, so it needs no macOS/Windows runner,
-# no Azure, and no Apple credentials.
+# rather than rebuilding + re-signing them, so it needs no Windows runner and no
+# Azure. The macOS CLI binary itself is not published anywhere it could be reused
+# from, so it is rebuilt, Developer ID signed, and notarized on a macOS runner,
+# which needs the Apple credentials.
 #
 # Only works for versions with per-platform helper packages (> 1.16.x); earlier
 # versions bundled the binaries inside the varlock tarball itself.
@@ -26,7 +28,17 @@ permissions:
 concurrency: ${{ github.workflow }}-${{ inputs.version }}
 
 jobs:
+  build-cli-macos:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/build-cli-binaries-macos.yaml
+    with:
+      native-bins-npm-version: ${{ inputs.version }}
+      artifact-name: varlock-cli-binaries-macos
+    secrets:
+      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
+
   release-binaries:
+    needs: build-cli-macos
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -108,8 +120,16 @@ jobs:
         run: bun run build:libs
         env:
           BUILD_TYPE: release
-      - name: Build varlock SEA binaries
-        run: bun run packages/varlock/scripts/build-binaries.ts
+      - name: Build varlock SEA binaries (non-macOS)
+        run: bun run packages/varlock/scripts/build-binaries.ts --targets=linux-x64,linux-arm64,linux-musl-x64,linux-musl-arm64,win-x64
+      - name: Download signed macOS CLI archives
+        uses: actions/download-artifact@v8
+        with:
+          name: varlock-cli-binaries-macos
+          path: packages/varlock/dist-sea
+      - name: Add macOS archives to checksums
+        working-directory: packages/varlock/dist-sea
+        run: sha256sum varlock-macos-x64.tar.gz varlock-macos-arm64.tar.gz >> checksums.txt
       # See the matching step in release.yaml for why only checksums.txt is signed.
       - name: Sign checksums with cosign
         working-directory: packages/varlock/dist-sea
