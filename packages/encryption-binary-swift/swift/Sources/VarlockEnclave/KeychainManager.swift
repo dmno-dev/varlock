@@ -403,6 +403,33 @@ final class KeychainManager {
         }
     }
 
+    /// Delete a generic password item. Requires both service and account so a
+    /// single call can never remove more than the one item it names.
+    static func deleteGenericPassword(service: String, account: String, keychainName: String? = nil) throws {
+        var query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+        ]
+
+        if let keychainName = keychainName {
+            guard let keychainRef = resolveKeychain(named: keychainName) else {
+                throw KeychainError.keychainNotFound(keychainName)
+            }
+            query[kSecMatchSearchList] = [keychainRef]
+        }
+
+        let status = SecItemDelete(query as CFDictionary)
+        switch status {
+        case errSecSuccess:
+            return
+        case errSecItemNotFound:
+            throw KeychainError.itemNotFound
+        default:
+            throw KeychainError.unhandledError(status)
+        }
+    }
+
     // MARK: - ACL Management
 
     /// Attempt to add the given application path to the ACL of a keychain item.

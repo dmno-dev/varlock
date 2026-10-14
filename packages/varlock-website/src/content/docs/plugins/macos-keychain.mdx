@@ -79,7 +79,17 @@ cat secret.txt | varlock keychain set PRIVATE_KEY --profile jb --write-to .env.j
 
 By default, `set` refuses to overwrite an existing Keychain item or env ref. Pass `--force` to replace both.
 
+To remove an item, pass its account (and `--service` if it does not use the default `varlock` service):
+
+```sh
+varlock keychain delete --account "my-app:jb:API_KEY"
+```
+
+`delete` removes exactly one generic-password item and fails if no matching item exists.
+
 ## Access management
+
+When a `keychain()` ref points at an item that Varlock did not create (for example one added by another app or managed by your IT department), macOS may prompt the first time VarlockEnclave reads it. Choose **Always Allow** to add VarlockEnclave to that item's access list so later reads do not prompt. **Allow** only covers the current read, so you will be asked again next time.
 
 If VarlockEnclave cannot read an existing Keychain item, grant access without using `/usr/bin/security` directly:
 

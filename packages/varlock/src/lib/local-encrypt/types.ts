@@ -25,7 +25,8 @@ export interface BackendInfo {
 export interface DaemonMessage {
   id: string;
   action: 'decrypt' | 'encrypt' | 'prompt-secret' | 'ping' | 'invalidate-session'
-    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-set';
+    | 'keychain-get' | 'keychain-search' | 'keychain-pick' | 'keychain-fix-access' | 'keychain-set'
+    | 'keychain-delete';
   payload?: Record<string, unknown>;
 }
 
@@ -62,6 +63,11 @@ export interface KeychainFixAccessResult {
 /** Result from creating or updating a keychain item */
 export interface KeychainSetResult {
   updated: boolean;
+}
+
+/** Result from deleting a keychain item */
+export interface KeychainDeleteResult {
+  deleted: boolean;
 }
 
 /** Result from the status command of a native binary */

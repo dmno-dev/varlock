@@ -84,6 +84,28 @@ export const setCommandSpec = define({
   },
 });
 
+// --- `varlock keychain delete` ----------------------------------------------
+
+export const deleteCommandSpec = define({
+  name: 'delete',
+  description: 'Delete one macOS Keychain generic-password item',
+  args: {
+    service: {
+      type: 'string',
+      default: 'varlock',
+      description: 'Keychain service name (default: varlock)',
+    },
+    account: {
+      type: 'string',
+      description: 'Keychain account name',
+    },
+    keychain: {
+      type: 'string',
+      description: 'Keychain name to search, such as Login or System',
+    },
+  },
+});
+
 // --- `varlock keychain import` ----------------------------------------------
 
 export const importCommandSpec = define({
@@ -129,6 +151,7 @@ export const commandSpec = define({
     list: lazy(async () => (await import('./keychain.command')).listCommandFn, listCommandSpec),
     'fix-access': lazy(async () => (await import('./keychain.command')).fixAccessCommandFn, fixAccessCommandSpec),
     set: lazy(async () => (await import('./keychain.command')).setCommandFn, setCommandSpec),
+    delete: lazy(async () => (await import('./keychain.command')).deleteCommandFn, deleteCommandSpec),
     import: lazy(async () => (await import('./keychain.command')).importCommandFn, importCommandSpec),
   },
   examples: `
@@ -139,5 +162,6 @@ Examples:
   varlock keychain import .env --profile jb            # migrate .env in place
   varlock keychain import .env --profile jb --write-to .env.jb
   varlock keychain set API_KEY --profile jb --write-to .env.jb
+  varlock keychain delete --account "my-project:jb:API_KEY"
 `.trim(),
 });
