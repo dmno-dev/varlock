@@ -148,15 +148,22 @@ jobs:
         working-directory: packages/varlock/dist-sea
         run: |
           set -euo pipefail
+          AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID")
           # notarytool takes a zip/pkg/dmg container
           for arch in x64 arm64; do
             ditto -c -k "macos-$arch/varlock" "$RUNNER_TEMP/varlock-macos-$arch.zip"
             echo "=== notarizing macos-$arch ==="
-            xcrun notarytool submit "$RUNNER_TEMP/varlock-macos-$arch.zip" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID" \
-              --wait
+            # --wait exits 0 on Invalid/Rejected too, so check the status itself
+            RESULT=$(xcrun notarytool submit "$RUNNER_TEMP/varlock-macos-$arch.zip" \
+              "${AUTH[@]}" --wait --output-format json)
+            echo "$RESULT"
+            STATUS=$(echo "$RESULT" | jq -r '.status')
+            if [ "$STATUS" != "Accepted" ]; then
+              echo "::error::Notarization of macos-$arch finished with status: $STATUS"
+              ID=$(echo "$RESULT" | jq -r '.id // empty')
+              [ -n "$ID" ] && xcrun notarytool log "$ID" "${AUTH[@]}" || true
+              exit 1
+            fi
           done
 
       - name: Verify signatures
