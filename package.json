@@ -99,6 +99,6 @@
     "provider": "github",
     "workflow": "release.yaml",
     "environment": "publish",
-    "permissions": "publish"
+    "publish": true
   }
 }
