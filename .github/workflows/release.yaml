@@ -94,7 +94,7 @@ jobs:
       - name: Probe macOS notarized binary cache
         id: macos-cache
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: ${{ steps.keys.outputs.macos-cache-key }}
@@ -102,7 +102,7 @@ jobs:
       - name: Probe Rust cache - linux-x64
         id: rust-cache-linux-x64
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ steps.keys.outputs.rust-source-hash }}
@@ -110,7 +110,7 @@ jobs:
       - name: Probe Rust cache - linux-arm64
         id: rust-cache-linux-arm64
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ steps.keys.outputs.rust-source-hash }}
@@ -118,7 +118,7 @@ jobs:
       - name: Probe Rust cache - win32-x64
         id: rust-cache-win32-x64
         if: steps.plan.outputs.mode == 'publish'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ steps.keys.outputs.rust-source-hash }}
@@ -196,7 +196,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Restore notarized macOS binary from cache
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: ${{ needs.plan.outputs.macos-cache-key }}
@@ -264,7 +264,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -285,7 +285,7 @@ jobs:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Restore macOS native binary (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.macos-cache-hit == 'true'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           key: ${{ needs.plan.outputs.macos-cache-key }}
@@ -315,21 +315,21 @@ jobs:
           path: packages/varlock/native-bins/win32-x64
       - name: Restore Rust native binaries (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit == 'true'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/linux-x64/
           key: native-bin-rust-linux-x64-${{ needs.plan.outputs.rust-source-hash }}
           fail-on-cache-miss: true
       - name: Restore Rust native binaries - linux-arm64 (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit == 'true'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/linux-arm64/
           key: native-bin-rust-linux-arm64-${{ needs.plan.outputs.rust-source-hash }}
           fail-on-cache-miss: true
       - name: Restore Rust native binaries - win32-x64 (from cache)
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-varlock == 'true' && needs.plan.outputs.rust-cache-hit == 'true'
-        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/varlock/native-bins/win32-x64/
           key: native-bin-rust-win32-x64-${{ needs.plan.outputs.rust-source-hash }}
@@ -402,7 +402,7 @@ jobs:
       # environment changes the OIDC token's sub claim.
       - name: Azure login (OIDC) for Marketplace publishing
         if: needs.plan.outputs.mode == 'publish' && needs.plan.outputs.includes-vscode == 'true'
-        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
@@ -454,7 +454,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.x"
       - name: Install node deps

@@ -106,7 +106,7 @@ jobs:
           ditto VarlockEnclave.app packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Cache notarized .app for cross-run reuse
         if: inputs.cache-key != ''
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true  # immutable key; harmless if a concurrent run saved it first
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
