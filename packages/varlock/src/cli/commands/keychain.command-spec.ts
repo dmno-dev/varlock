@@ -88,7 +88,7 @@ export const setCommandSpec = define({
 
 export const deleteCommandSpec = define({
   name: 'delete',
-  description: 'Delete one macOS Keychain generic-password item',
+  description: 'Delete one macOS Keychain item',
   args: {
     service: {
       type: 'string',
