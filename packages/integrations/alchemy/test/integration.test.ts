@@ -7,7 +7,7 @@ import * as Context from 'effect/Context';
 import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as Redacted from 'effect/Redacted';
-import { varlock, varlockServices } from '../src/index';
+import { Secrets } from '../src/index';
 
 const fixtures = path.join(import.meta.dirname, 'fixtures');
 
@@ -48,8 +48,8 @@ const blobOf = async (bindings: Record<string, Config.Config<unknown>>) => JSON.
   Redacted.value(await value(bindings.__VARLOCK_ENV) as Redacted.Redacted<string>),
 );
 
-describe('varlock()', () => {
-  const env = varlock({ path: path.join(fixtures, 'server') });
+describe('Secrets()', () => {
+  const env = Secrets({ path: path.join(fixtures, 'server') });
 
   it('feeds alchemy Config from the resolved schema and exposes typed bindings', async () => {
     const { cors, stageSeen, bindings } = await withProvider(env, { stage: 'dev_test' }, Effect.gen(function* run2() {
@@ -63,7 +63,7 @@ describe('varlock()', () => {
     expect(cors).toBe('http://localhost:4321');
     expect(stageSeen).toBe('dev_test');
 
-    const secret = await value(bindings.BETTER_AUTH_SECRET);
+    const secret = await value(bindings.BETTER_AUTH_SECRET) as unknown;
     expect(Redacted.isRedacted(secret)).toBe(true);
     expect(Redacted.value(secret as Redacted.Redacted<string>)).toBe('server-secret-value-long');
     expect(await value(bindings.CORS_ORIGIN)).toBe('http://localhost:4321');
@@ -88,7 +88,7 @@ describe('varlock()', () => {
   });
 
   it('lets stage drive @currentEnv through the env hook', async () => {
-    const staged = varlock({
+    const staged = Secrets({
       path: path.join(fixtures, 'server'),
       env: ({ stage }) => ({ APP_ENV: stage === 'production' ? 'production' : 'preview' }),
     });
@@ -107,21 +107,57 @@ describe('varlock()', () => {
   });
 
   it('can leave the blob out', async () => {
-    const noBlob = varlock({ path: path.join(fixtures, 'server'), blob: false });
+    const noBlob = Secrets({ path: path.join(fixtures, 'server'), blob: false });
     const bindings = await withProvider(noBlob, { stage: 'x' }, noBlob.bindings);
     expect(bindings.__VARLOCK_ENV).toBeUndefined();
   });
 
   it('surfaces varlock diagnostics as a ConfigError', async () => {
-    const broken = varlock({ path: path.join(fixtures, 'invalid') });
+    const broken = Secrets({ path: path.join(fixtures, 'invalid') });
     await expect(withProvider(broken, { stage: 'x' }, Effect.void))
       .rejects.toThrow(/varlock could not load[\s\S]*MUST_BE_SET/);
   });
 });
 
+describe('filter', () => {
+  it('scopes resolution with key globs and negated tags, passed to the CLI unquoted', async () => {
+    const keys = Secrets({ path: path.join(fixtures, 'server'), filter: 'BETTER_*, CORS_ORIGIN' });
+    const narrowed = await withProvider(keys, { stage: 'x' }, keys.bindings);
+    expect(Object.keys(narrowed).sort()).toEqual(['BETTER_AUTH_SECRET', 'CORS_ORIGIN', '__VARLOCK_ENV']);
+
+    const noDeploy = Secrets({ path: path.join(fixtures, 'server'), filter: '!#deploy' });
+    const { hook, bindings } = await withProvider(noDeploy, { stage: 'x' }, Effect.gen(function* run() {
+      return { hook: yield* Config.option(Config.String('DEPLOY_HOOK_TOKEN')), bindings: yield* noDeploy.bindings };
+    }));
+    // unlike bindingsFilter, a filter keeps the item out of alchemy's Config too
+    expect(hook._tag).toBe('None');
+    expect(bindings.DEPLOY_HOOK_TOKEN).toBeUndefined();
+    expect(bindings.BETTER_AUTH_SECRET).toBeDefined();
+  });
+
+  it('rejects anything outside the filter grammar before running varlock', async () => {
+    const bad = Secrets({ path: path.join(fixtures, 'server'), filter: 'A; rm -rf /' });
+    await expect(withProvider(bad, { stage: 'x' }, Effect.void)).rejects.toThrow(/invalid filter expression/);
+  });
+});
+
+describe('composite values', () => {
+  it('bind as their env string form, with coerced numbers and booleans kept', async () => {
+    const env = Secrets({ path: path.join(fixtures, 'composite') });
+    const bindings = await withProvider(env, { stage: 'x' }, env.bindings);
+    expect(await value(bindings.LIST)).toBe('one,two');
+    expect(await value(bindings.OBJ)).toBe('{"a":1}');
+    expect(Redacted.value(await value(bindings.SECRET_LIST) as unknown as Redacted.Redacted<string>)).toBe('key-one-long,key-two-long');
+    expect(await value(bindings.COUNT)).toBe(3);
+    // the blob keeps the parsed values for the varlock runtime's ENV
+    const blob = await blobOf(bindings);
+    expect(blob.config.LIST.value).toEqual(['one', 'two']);
+  });
+});
+
 describe('bindingsFilter and @internal', () => {
   it('bindingsFilter keeps tagged items out of the bindings and blob but not the provider', async () => {
-    const env = varlock({ path: path.join(fixtures, 'server'), bindingsFilter: '!#deploy' });
+    const env = Secrets({ path: path.join(fixtures, 'server'), bindingsFilter: '!#deploy' });
     const { hook, bindings } = await withProvider(env, { stage: 'x' }, Effect.gen(function* run4() {
       return { hook: yield* Config.String('DEPLOY_HOOK_TOKEN'), bindings: yield* env.bindings };
     }));
@@ -134,7 +170,7 @@ describe('bindingsFilter and @internal', () => {
   });
 
   it('@internal items reach neither the provider nor the bindings', async () => {
-    const env = varlock({ path: path.join(fixtures, 'root') });
+    const env = Secrets({ path: path.join(fixtures, 'root') });
     const { token, op, bindings } = await withProvider(env, { stage: 'x' }, Effect.gen(function* run5() {
       return {
         token: yield* Config.String('CLOUDFLARE_API_TOKEN'),
@@ -148,12 +184,12 @@ describe('bindingsFilter and @internal', () => {
   });
 });
 
-describe('varlockServices()', () => {
+describe('Secrets({ services })', () => {
   type Schemas = {
     server: { BETTER_AUTH_SECRET: string; CORS_ORIGIN: string };
     web: { PUBLIC_SERVER_URL: string };
   };
-  const env = varlockServices<Schemas>({
+  const env = Secrets<Schemas>({
     root: { path: path.join(fixtures, 'root') },
     services: {
       server: path.join(fixtures, 'server'),
