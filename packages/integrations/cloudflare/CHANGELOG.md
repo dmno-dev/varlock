@@ -21,6 +21,15 @@
 
 
 
+
+## 1.6.2
+<sub>2026-10-13</sub>
+
+- [#1214](https://github.com/dmno-dev/varlock/pull/1214)  *(patch)* Thanks [@jd-solanki](https://github.com/jd-solanki)!
+  `@varlock/cloudflare-integration/init` no longer breaks prerendering on frameworks that run the server bundle in Node (such as Nuxt 5 / Nitro 3 with the `cloudflare_module` preset). When `cloudflare:workers` can't be loaded, it reads the same keys from `process.env`. The SSR entry loader used by the Vite, Astro, and SvelteKit integrations no longer skips loading bindings in Workers that set `no_global_navigator`.
+- [#1210](https://github.com/dmno-dev/varlock/pull/1210)  *(patch)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)!
+  Report a crashed varlock CLI with its command and original exit status instead of failing silently. Next.js builds exit with code 1 instead of a native crash code.
+
 ## 1.6.1
 <sub>2026-10-09</sub>
 

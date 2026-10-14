@@ -33,6 +33,23 @@
 
 
 
+
+## 1.23.0
+<sub>2026-10-13</sub>
+
+- [#1219](https://github.com/dmno-dev/varlock/pull/1219)  *(minor)*
+  Python codegen: `@generatePythonEnv` now emits a lazily loaded `ENV` object with a documented property per item, so editors show item descriptions, `@docs()` links and deprecations on hover where values are read. `Env` TypedDict fields get docstrings instead of `#` comments.
+- [#1220](https://github.com/dmno-dev/varlock/pull/1220)  *(minor)*
+  The `url` type now warns on values that only parse because `new URL()` is permissive: anything not written as `scheme://...` (like an SSH key fingerprint `SHA256:...` or `user:pass`), whitespace or control characters, a missing host, and malformed `http`/`https` hosts the parser would otherwise rewrite (`https:///example.com`, `http://0x7f.1`, `https://a..b`). It also warns on protocols other than `http`/`https` when `allowedProtocols` is not set. These become errors in the next major version. New options: `allowedProtocols="*"` allows any protocol, and `allowNoHost=true` allows host-less URLs like `sqlite:///app.db`.
+- [#1218](https://github.com/dmno-dev/varlock/pull/1218)  *(patch)*
+  `url(allowedDomains=...)` now rejects values whose host other URL parsers could read differently (backslashes, whitespace, percent-encoded or non-ASCII hosts, IPv4 shorthand, missing `scheme://host`), which could let a value pass the allowlist while the app connects elsewhere. Write internationalized hosts in punycode. `url(prependHttps=true)` now prefixes `host:port` values like `localhost:3000`.
+- [#1217](https://github.com/dmno-dev/varlock/pull/1217)  *(patch)*
+  Telemetry no longer adds latency to CLI commands. Events still in flight when a command finishes are handed to a detached background process instead of being awaited, so `varlock load` and `varlock/auto-load` take the same time with telemetry on or off. The background process runs from the system temp directory, so it never keeps the project directory in use.
+- [#1223](https://github.com/dmno-dev/varlock/pull/1223)  *(patch)*
+  Commented-out config items (ex: `# API_KEY=prod-value`, including multi-line values) are no longer treated as part of the next item's description, so their values no longer leak into generated types or other description output.
+- [#1210](https://github.com/dmno-dev/varlock/pull/1210)  *(patch)* Thanks [@app/pullfrog](https://github.com/app/pullfrog)!
+  Report auto-load CLI crashes with their command and original status, and exit with code 1 instead of a native crash code.
+
 ## 1.22.0
 <sub>2026-10-09</sub>
 

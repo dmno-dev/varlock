@@ -12,6 +12,13 @@
 
 
 
+
+## 0.6.2
+<sub>2026-10-13</sub>
+
+- [#1223](https://github.com/dmno-dev/varlock/pull/1223)  *(patch)*
+  Commented-out config items (ex: `# API_KEY=prod-value`, including multi-line values) are no longer treated as part of the next item's description, so their values no longer leak into generated types or other description output.
+
 ## 0.6.1
 <sub>2026-09-25</sub>
 
