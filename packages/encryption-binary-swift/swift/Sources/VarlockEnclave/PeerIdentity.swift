@@ -19,6 +19,36 @@ func getPeerPid(fd: Int32) -> pid_t? {
     return pid
 }
 
+// LOCAL_PEERTOKEN (sys/un.h) returns the peer's audit token
+private let LOCAL_PEERTOKEN: Int32 = 0x006
+
+/// Get the audit token of the peer connected to a Unix domain socket.
+///
+/// Unlike a pid, an audit token identifies one specific process instance
+/// (it carries the pid version), so a code-signing lookup by token cannot be
+/// pointed at a different process that later reused the pid.
+func getPeerAuditToken(fd: Int32) -> audit_token_t? {
+    var token = audit_token_t()
+    var size = socklen_t(MemoryLayout<audit_token_t>.size)
+    let result = getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, &token, &size)
+    guard result == 0, size == socklen_t(MemoryLayout<audit_token_t>.size) else { return nil }
+    return token
+}
+
+/// The pid inside an audit token (what `audit_token_to_pid` returns; libbsm
+/// isn't bridged to Swift).
+func pidFromAuditToken(_ token: audit_token_t) -> pid_t {
+    return pid_t(bitPattern: token.val.5)
+}
+
+/// Who is on the other end of an IPC connection, resolved once per connection.
+struct IPCPeer {
+    let pid: pid_t?
+    let auditToken: audit_token_t?
+    /// Biometric session scope (TTY / process tree), see SessionScoping
+    let sessionId: String?
+}
+
 // MARK: - Process Verification
 
 /// Binary names allowed to connect to the daemon IPC socket.

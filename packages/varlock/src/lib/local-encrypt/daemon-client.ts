@@ -24,7 +24,7 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { getNativeBinarySpawnOptions, resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 import type {
-  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+  CallerProcess, KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
 } from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
@@ -351,6 +351,19 @@ export class DaemonClient {
         if (err instanceof Error && err.message === 'cancelled') return undefined;
         throw err;
       }
+    });
+  }
+
+  /**
+   * Who the daemon sees calling it: this process (identified by audit token)
+   * followed by its ancestors, each with its code-signing identity.
+   * Informational only. macOS daemon only; older daemons reject the action.
+   */
+  async describeCaller(): Promise<Array<CallerProcess>> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({ action: 'describe-caller' });
+      return (result as { chain: Array<CallerProcess> }).chain;
     });
   }
 
