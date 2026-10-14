@@ -255,6 +255,8 @@ STRIPE_SECRET_KEY=
 ```bash
 varlock load --filter="#billing"
 ```
+
+Tags are also listed per item (as `tags`) in `varlock load --format json-full` output, so tools that consume it can select a subset by tag without re-running varlock.
 </div>
 
 <div>

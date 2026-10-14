@@ -184,6 +184,18 @@
     },
     "./test-helpers": {
       "ts-src": "./src/test-helpers/plugin-test.ts"
+    },
+    "./env-blob": {
+      "ts-src": "./src/runtime/env-blob.ts",
+      "import": {
+        "types": "./dist/runtime/env-blob.d.mts",
+        "default": "./dist/runtime/env-blob.mjs"
+      },
+      "require": {
+        "types": "./dist/runtime/env-blob.d.cts",
+        "default": "./dist/runtime/env-blob.cjs"
+      },
+      "default": "./dist/runtime/env-blob.mjs"
     }
   },
   "devDependencies": {
