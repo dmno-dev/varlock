@@ -16,10 +16,12 @@
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import { getDaemonClient } from './index';
+import { DaemonError } from './daemon-client';
 import { writeBackValue } from './write-back';
 
 type KeychainResolverState = {
   mode: 'get';
+  itemKey: string;
   service?: string;
   account?: string;
   keychain?: string;
@@ -47,6 +49,26 @@ function writeBackKeychainRef(
   }
 
   writeBackValue(itemKey, `keychain(${argsStr})`, sourceFilePath);
+}
+
+function shellQuote(value: string) {
+  return /^[\w%+,./:=@-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function formatRefArgs(state: { service?: string; account?: string; keychain?: string }) {
+  return [
+    state.service ? `service="${state.service}"` : null,
+    state.account ? `account="${state.account}"` : null,
+    state.keychain ? `keychain="${state.keychain}"` : null,
+  ].filter(Boolean).join(', ');
+}
+
+function formatRefFlags(state: { service?: string; account?: string; keychain?: string }) {
+  return [
+    state.service ? `--service ${shellQuote(state.service)}` : null,
+    state.account ? `--account ${shellQuote(state.account)}` : null,
+    state.keychain ? `--keychain ${shellQuote(state.keychain)}` : null,
+  ].filter(Boolean).join(' ');
 }
 
 export const KeychainResolver: typeof Resolver = createResolver<KeychainResolverState>({
@@ -77,6 +99,8 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
       return { mode: 'prompt', itemKey, sourceFilePath };
     }
 
+    const itemKey: string = (this as any).parent?.key || 'unknown';
+
     // Named args mode: keychain(service="...", account="...", keychain="...", field="...")
     const serviceArg = this.objArgs?.service;
     const accountArg = this.objArgs?.account;
@@ -92,14 +116,14 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
         throw new SchemaError('keychain() service must be a static string');
       }
       return {
-        mode: 'get', service: serviceArg.staticValue, account, keychain, field,
+        mode: 'get', itemKey, service: serviceArg.staticValue, account, keychain, field,
       };
     }
 
     // account-only lookup: keychain(account="admin@corp.com", field="account")
     if (accountArg) {
       return {
-        mode: 'get', account, keychain, field,
+        mode: 'get', itemKey, account, keychain, field,
       };
     }
 
@@ -109,7 +133,9 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
       if (typeof value !== 'string') {
         throw new SchemaError('keychain() expects a string service name');
       }
-      return { mode: 'get', service: value, field };
+      return {
+        mode: 'get', itemKey, service: value, field,
+      };
     }
 
     throw new SchemaError(
@@ -121,6 +147,7 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     const client = getDaemonClient();
 
     if (state.mode === 'get') {
+      const refFlags = formatRefFlags(state);
       try {
         return await client.keychainGet({
           service: state.service,
@@ -129,18 +156,44 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
           field: state.field,
         });
       } catch (err) {
+        const code = err instanceof DaemonError ? err.code : undefined;
+
+        if (code === 'itemNotFound') {
+          // Creating needs a fully specified ref: `set` writes service+account to the default keychain
+          const canCreate = !!state.service && !!state.account && !state.keychain && !state.field;
+          throw new ResolutionError('Keychain item not found', {
+            tip: canCreate
+              ? [
+                'Save a value for it with:',
+                `  varlock keychain set ${state.itemKey} ${refFlags}`,
+              ].join('\n')
+              : [
+                `Looked for: ${formatRefArgs(state)}`,
+                'Find the right item with `varlock keychain list`, or pick one with keychain(prompt).',
+              ].join('\n'),
+          });
+        }
+
+        // Unknown-field errors also arrive as accessDenied, and fix-access cannot help those
+        if (code === 'accessDenied' && !state.field) {
+          throw new ResolutionError(`Varlock is not allowed to read this Keychain item: ${(err as Error).message}`, {
+            tip: [
+              'Grant access with:',
+              `  varlock keychain fix-access ${refFlags}`,
+              'or choose "Always Allow" the next time macOS asks.',
+            ].join('\n'),
+          });
+        }
+
+        if (code === 'ambiguousMatch') {
+          throw new ResolutionError(`More than one Keychain item matches: ${(err as Error).message}`, {
+            tip: 'Add account="..." to keychain() to pick one. `varlock keychain list` shows the candidates.',
+          });
+        }
+
         throw new ResolutionError(
           `Failed to read keychain item: ${err instanceof Error ? err.message : err}`,
-          {
-            tip: [
-              state.service ? `Service: ${state.service}` : null,
-              state.account ? `Account: ${state.account}` : null,
-              state.keychain ? `Keychain: ${state.keychain}` : null,
-              state.field ? `Field: ${state.field}` : null,
-              'Make sure the item exists in your Keychain and VarlockEnclave has access.',
-              'You can grant access via: keychain(prompt)',
-            ].filter(Boolean).join('\n'),
-          },
+          { tip: `Looked for: ${formatRefArgs(state)}` },
         );
       }
     }

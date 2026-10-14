@@ -197,11 +197,13 @@ final class KeychainManager {
     /// At least one of service or account must be provided.
     /// Throws if not found, access denied, or ambiguous match.
     static func getItem(service: String? = nil, account: String? = nil, keychainName: String? = nil) throws -> String {
-        // Try generic password first, then internet password
-        if let value = try? getItemOfClass(kSecClassGenericPassword, service: service, account: account, keychainName: keychainName) {
-            return value
+        // Try generic password first, then internet password. Only a miss falls through:
+        // access or ambiguity errors on a generic item must surface as-is, not as "not found".
+        do {
+            return try getItemOfClass(kSecClassGenericPassword, service: service, account: account, keychainName: keychainName)
+        } catch KeychainError.itemNotFound {
+            return try getItemOfClass(kSecClassInternetPassword, service: service, account: account, keychainName: keychainName)
         }
-        return try getItemOfClass(kSecClassInternetPassword, service: service, account: account, keychainName: keychainName)
     }
 
     /// Fetch a metadata field (account, label, etc.) from a keychain item instead of the password.
@@ -313,6 +315,8 @@ final class KeychainManager {
             throw KeychainError.itemNotFound
         case errSecAuthFailed, errSecInteractionNotAllowed:
             throw KeychainError.accessDenied("Authentication failed or interaction not allowed")
+        case errSecUserCanceled:
+            throw KeychainError.accessDenied("Access was denied in the macOS prompt")
         default:
             throw KeychainError.unhandledError(status)
         }

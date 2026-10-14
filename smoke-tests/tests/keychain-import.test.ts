@@ -1,5 +1,5 @@
 import {
-  afterEach, beforeAll, beforeEach, describe, expect, test,
+  afterAll, afterEach, beforeAll, beforeEach, describe, expect, test,
 } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import {
@@ -40,12 +40,17 @@ function deleteImportedSecrets() {
 }
 
 describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain import smoke tests', () => {
+  // Restart the daemon once per file, not per test: each fresh daemon costs a Touch ID prompt
   beforeAll(() => {
     assertKeychainHelperSigned();
+    resetVarlockDaemon();
+  });
+
+  afterAll(() => {
+    resetVarlockDaemon();
   });
 
   beforeEach(() => {
-    resetVarlockDaemon();
     deleteImportedSecrets();
     writeFileSync(ENV_PATH, ORIGINAL_ENV);
   });
@@ -53,7 +58,6 @@ describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Key
   afterEach(() => {
     writeFileSync(ENV_PATH, ORIGINAL_ENV);
     deleteImportedSecrets();
-    resetVarlockDaemon();
   });
 
   test('imports sensitive plaintext env values and reads them back from keychain refs', () => {

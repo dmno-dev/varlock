@@ -1,5 +1,5 @@
 import {
-  afterEach, beforeAll, beforeEach, describe, expect, test,
+  afterAll, afterEach, beforeAll, beforeEach, describe, expect, test,
 } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { resetVarlockDaemon } from '../helpers/keychain-daemon.js';
@@ -25,25 +25,31 @@ function runVarlock(args: Array<string>, input = '') {
 }
 
 describe.skipIf(!RUN_KEYCHAIN_SMOKE || process.platform !== 'darwin')('macOS Keychain set/delete smoke tests', () => {
+  // Restart the daemon once per file, not per test: each fresh daemon costs a Touch ID prompt
   beforeAll(() => {
     assertKeychainHelperSigned();
+    resetVarlockDaemon();
+  });
+
+  afterAll(() => {
+    resetVarlockDaemon();
   });
 
   beforeEach(() => {
-    resetVarlockDaemon();
     deleteFixtureItem();
   });
 
   afterEach(() => {
     deleteFixtureItem();
-    resetVarlockDaemon();
   });
 
   test('stores stdin secret and reads it through the persistent keychain ref', () => {
     const secret = `keychain-set-smoke-secret-${uniqueId()}`;
 
-    const beforeSetResult = runVarlock(['printenv', 'SECRET_FROM_KEYCHAIN', '--skip-cache']);
+    const beforeSetResult = runVarlock(['load', '--skip-cache']);
     expect(beforeSetResult.exitCode, beforeSetResult.output).not.toBe(0);
+    expect(beforeSetResult.output).toContain('Keychain item not found');
+    expect(beforeSetResult.output).toContain(`varlock keychain set SECRET_FROM_KEYCHAIN --service ${SERVICE} --account ${ACCOUNT}`);
 
     const setResult = runVarlock([
       'keychain',
