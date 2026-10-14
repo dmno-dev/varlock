@@ -130,6 +130,32 @@ const server = yield* Cloudflare.Worker("server", {
 
 All schemas feed the stack's `Config` (the root schema wins on duplicate keys), but only service schemas produce bindings: the root schema is deploy-process config by definition, so Cloudflare credentials there never need a tag. Pass `root: false` if the infra package has no schema of its own, or `{ path, filter, bindingsFilter }` per service to select a subset with a [filter expression](/reference/cli-commands/#filtering-items).
 
+## Validation and injection only, no varlock runtime
+
+If the Worker does not use `varlock/env` or `@varlock/cloudflare-integration/init`, pass `blob: false`. varlock still validates the schema, resolves plugin-backed values, feeds alchemy's `Config`, and produces the typed bindings; the Worker just receives plain Cloudflare vars and secrets, read through `env` as usual:
+
+```ts title="alchemy.run.ts"
+const env = varlock<CoercedEnvSchema>({ blob: false });
+
+// in the Stack effect:
+const api = yield* Cloudflare.Worker("api", {
+  main: "./src/worker.ts",
+  env: { ...(yield* env.bindings) },
+});
+```
+
+```ts title="src/worker.ts"
+import { env } from "cloudflare:workers";
+
+export default {
+  async fetch() {
+    return new Response(env.CORS_ORIGIN); // plain string; secrets arrive as plain strings too
+  },
+};
+```
+
+`@sensitive` items still upload as `secret_text` and everything else as plain text or JSON. What you give up is the in-Worker layer only: log redaction, response leak scanning, and the typed `ENV` proxy. With `varlockServices()`, set it per service (`server: { path, blob: false }`).
+
 ## Types
 
 `Cloudflare.InferEnv` derives a Worker's `Env` type from its `env` prop, so the bindings you spread need static keys. Pass the `CoercedEnvSchema` type from the schema's generated `env.d.ts` as the type argument (`varlock<CoercedEnvSchema>()`), and the Worker's `Env` gets every schema key with the right type. Keep the resource definition in a function if other packages import the inferred type:
