@@ -93,18 +93,23 @@ Requires alchemy 2.0.0-beta.80 or later (the release with the `secrets` stack op
 
 ## Environments and stages
 
-While varlock resolves, alchemy's stack name, stage, and mode are visible to the schema as `ALCHEMY_STACK`, `ALCHEMY_STAGE`, and `ALCHEMY_DEV` (`true` under `alchemy dev`). Stage names such as `dev_sam` or `pr-42` rarely map one to one onto env files, so derive your `@currentEnv` flag from them in the schema with [`remap()`](/reference/functions/#remap):
+The provider sets varlock's built-in [`VARLOCK_ENV`](/reference/builtin-variables/#varlock_env) from the alchemy run, so the usual `@currentEnv=$VARLOCK_ENV` picks the right `.env.<env>` file with nothing to map:
+
+| alchemy run | `VARLOCK_ENV` | loads |
+| --- | --- | --- |
+| `alchemy dev` (any stage) | `development` | `.env.development` |
+| `--stage production` or `prod` | `production` | `.env.production` |
+| `--stage staging`, `--stage test` | `staging`, `test` | `.env.staging`, `.env.test` |
+| any other stage (`dev_sam`, `pr-42`, ...) | `preview` | `.env.preview` |
 
 ```env-spec
-# @currentEnv=$APP_ENV
+# @currentEnv=$VARLOCK_ENV
 # ---
-ALCHEMY_STAGE=
-ALCHEMY_DEV=
-# @type=enum(development, preview, production)
-APP_ENV=remap($ALCHEMY_STAGE, "production", production, /^dev_|^pr-/, preview, undefined, development)
+# @type=url
+CORS_ORIGIN=http://localhost:4321   # .env.preview and .env.production override this
 ```
 
-`alchemy deploy --stage production` then loads `.env.production`, pull-request and personal stages load `.env.preview`, and a stage-less command like `alchemy login` gets `development`. Declare the `ALCHEMY_*` items before referencing them, like any other ambient env var. The `env` option (`env: ({ stage, dev }) => ({ ... })`) is the escape hatch when a lookup table is not enough.
+For a different mapping, return `VARLOCK_ENV` (or your own flag) from the `env` option, which also receives the raw `stage` and `dev` values: `env: ({ stage }) => ({ VARLOCK_ENV: stage.startsWith("qa-") ? "staging" : undefined })`. The raw values are also visible to the schema as `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV` (declare them before referencing them, like any other ambient env var), so a schema can branch on them with [`remap()`](/reference/functions/#remap) instead.
 
 Alchemy treats moving a stage between local emulation (`alchemy dev`) and live (`alchemy deploy`) as a replacement of every resource, so deploy to a named stage (`--stage preview`) rather than the personal `dev_<user>` stage you develop on.
 
@@ -172,7 +177,7 @@ export type ServerWorkerEnv = Cloudflare.InferEnv<ReturnType<typeof makeServer>>
 - `filter`: varlock `--filter` expression; items outside it are neither resolved nor bound, and do not reach alchemy's `Config` either.
 - `bindingsFilter`: same syntax, applied after resolution to decide which items become bindings and enter the blob. Everything still reaches alchemy's `Config`. `@required` is not available here.
 - `blob`: `false` leaves `__VARLOCK_ENV` out of the bindings (no in-Worker runtime); `{ maxBytes }` changes the chunk size from Cloudflare's 5KB secret limit for another platform.
-- `env`: `({ stack, stage, dev }) => Record<string, string>` of extra env vars to expose to varlock while it resolves, on top of `ALCHEMY_STACK`, `ALCHEMY_STAGE`, and `ALCHEMY_DEV`.
+- `env`: `({ stack, stage, dev }) => Record<string, string>` of extra env vars to expose to varlock while it resolves, on top of `VARLOCK_ENV`, `ALCHEMY_STACK`, `ALCHEMY_STAGE`, and `ALCHEMY_DEV`. Returning one of those keys overrides the derived value.
 
 ## Things to know
 
