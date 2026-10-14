@@ -61,16 +61,17 @@ jobs:
     name: Build ${{ matrix.native-bin-subdir }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       # Cache Cargo registry + build artifacts by lockfile hash
       - name: Cache Cargo
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -117,7 +118,7 @@ jobs:
       # Load Azure signing secrets from 1Password via varlock (scoped to the Rust package)
       - name: Load signing secrets
         if: inputs.sign && contains(matrix.os, 'windows')
-        uses: dmno-dev/varlock-action@v1.0.5
+        uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/encryption-binary-rust
         env:
@@ -125,7 +126,7 @@ jobs:
 
       - name: Azure login (OIDC)
         if: inputs.sign && contains(matrix.os, 'windows')
-        uses: azure/login@v2
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
@@ -133,7 +134,7 @@ jobs:
 
       - name: Sign Windows binary (Azure Artifact Signing)
         if: inputs.sign && contains(matrix.os, 'windows')
-        uses: azure/artifact-signing-action@v2
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ env.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
           signing-account-name: ${{ env.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
@@ -205,7 +206,7 @@ jobs:
           echo "All binary tests passed"
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       # Many daemons started at once must elect exactly one, and a killed daemon
       # must be replaceable while its clients still hold connections (on Windows
@@ -257,7 +258,7 @@ jobs:
           echo "All interop tests passed"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-name }}-${{ matrix.native-bin-subdir }}
           path: native-bins/${{ matrix.native-bin-subdir }}/
@@ -272,7 +273,7 @@ jobs:
           cp "native-bins/${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}" \
              "packages/varlock/native-bins/${{ matrix.native-bin-subdir }}/"
       - name: Cache built binary
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/${{ matrix.native-bin-subdir }}/

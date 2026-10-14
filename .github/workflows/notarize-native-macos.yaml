@@ -30,10 +30,10 @@ jobs:
   notarize:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       # skip bun dep caching since less likely to hit
 
@@ -45,14 +45,14 @@ jobs:
         run: bun run build:libs
 
       - name: Download signed .app bundle
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.source-artifact-name }}
           path: VarlockEnclave.app
 
       # Load secrets from 1Password via varlock (scoped to the Swift package)
       - name: Load signing secrets
-        uses: dmno-dev/varlock-action@v1.0.5
+        uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/encryption-binary-swift
         env:
@@ -86,7 +86,7 @@ jobs:
           xcrun stapler validate VarlockEnclave.app
 
       - name: Upload notarized artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-name }}
           path: VarlockEnclave.app
@@ -106,7 +106,7 @@ jobs:
           ditto VarlockEnclave.app packages/varlock/native-bins/darwin/VarlockEnclave.app
       - name: Cache notarized .app for cross-run reuse
         if: inputs.cache-key != ''
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true  # immutable key; harmless if a concurrent run saved it first
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app

@@ -53,11 +53,11 @@ jobs:
     needs: [build-native-macos, build-native-rust]
     runs-on: depot-ubuntu-24.04-8
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -69,7 +69,7 @@ jobs:
 
       # Download macOS native binary
       - name: Download macOS native binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-macos-preview
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
@@ -78,17 +78,17 @@ jobs:
 
       # Download Rust native binaries
       - name: Download Linux x64 native binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-preview-linux-x64
           path: packages/varlock/native-bins/linux-x64
       - name: Download Linux arm64 native binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-preview-linux-arm64
           path: packages/varlock/native-bins/linux-arm64
       - name: Download Windows x64 native binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-preview-win32-x64
           path: packages/varlock/native-bins/win32-x64
@@ -116,42 +116,42 @@ jobs:
             PLATFORM=$(echo "$BASENAME" | sed 's/^varlock-//' | sed 's/\.tar\.gz$//' | sed 's/\.zip$//')
             echo "Uploading $BASENAME as varlock-preview-$PLATFORM"
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-macos-x64
           path: packages/varlock/dist-sea/varlock-macos-x64.tar.gz
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-macos-arm64
           path: packages/varlock/dist-sea/varlock-macos-arm64.tar.gz
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-linux-x64
           path: packages/varlock/dist-sea/varlock-linux-x64.tar.gz
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-linux-arm64
           path: packages/varlock/dist-sea/varlock-linux-arm64.tar.gz
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-linux-musl-x64
           path: packages/varlock/dist-sea/varlock-linux-musl-x64.tar.gz
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-linux-musl-arm64
           path: packages/varlock/dist-sea/varlock-linux-musl-arm64.tar.gz
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-win-x64
           path: packages/varlock/dist-sea/varlock-win-x64.zip
           retention-days: 14
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: varlock-preview-checksums
           path: packages/varlock/dist-sea/checksums.txt

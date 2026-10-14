@@ -36,10 +36,10 @@ jobs:
   build-swift-binary:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       
       # skip bun dep caching since less likely to hit
 
@@ -60,7 +60,7 @@ jobs:
           echo "Swift source hash: $HASH"
 
       - name: Cache Swift build artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/encryption-binary-swift/swift/.build
           key: varlock-swift-build-${{ steps.swift-hash.outputs.hash }}
@@ -71,7 +71,7 @@ jobs:
 
       # Load secrets from 1Password via varlock (scoped to the Swift package)
       - name: Load signing secrets
-        uses: dmno-dev/varlock-action@v1.0.5
+        uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/encryption-binary-swift
         env:
@@ -203,7 +203,7 @@ jobs:
           echo "All macOS interop tests passed"
 
       - name: Upload native binary artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-name }}
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
@@ -212,7 +212,7 @@ jobs:
       # Cache the signed .app so other jobs (e.g. release-preview) can restore
       # it on a Linux runner without needing a macOS build
       - name: Cache signed .app bundle
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
