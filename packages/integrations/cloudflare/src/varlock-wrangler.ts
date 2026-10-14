@@ -9,11 +9,11 @@ import { randomBytes } from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
-import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
 import { formatEnvLine } from './format-env-line';
 import {
   isPreviewDeployCommand, withInjectedArgs, wranglerCommandArgs, wranglerFlagValue, wranglerProjectDir,
 } from './wrangler-command-detection';
+import { buildVarlockEnvBlobBindings } from './env-bindings';
 
 const isWindows = process.platform === 'win32';
 const debugEnabled = !!process.env.VARLOCK_DEBUG;
@@ -325,66 +325,6 @@ function createServingTempFile(prefix: string) {
   };
 }
 
-// Cloudflare secrets are limited to 5KB each.
-// __VARLOCK_ENV can exceed this, so we split it into chunks.
-const CF_SECRET_MAX_BYTES = 5120;
-
-/**
- * Split a string into chunks where each chunk's UTF-8 byte length ≤ maxBytes.
- * Unlike slicing a Buffer, this never splits a multi-byte character.
- */
-function chunkString(str: string, maxBytes: number): Array<string> {
-  const chunks: Array<string> = [];
-  let current = '';
-  let currentBytes = 0;
-  for (const char of str) {
-    const charBytes = Buffer.byteLength(char);
-    if (currentBytes + charBytes > maxBytes && current) {
-      chunks.push(current);
-      current = '';
-      currentBytes = 0;
-    }
-    current += char;
-    currentBytes += charBytes;
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-
-/**
- * Adds __VARLOCK_ENV to a key-value record, splitting into chunks if needed.
- * If the value fits in one secret: sets __VARLOCK_ENV directly.
- * If too large: sets __VARLOCK_ENV_CHUNKS=N and __VARLOCK_ENV_0, __VARLOCK_ENV_1, etc.
- */
-function addVarlockEnvToRecord(record: Record<string, string>, json: string) {
-  if (Buffer.byteLength(json) <= CF_SECRET_MAX_BYTES) {
-    record.__VARLOCK_ENV = json;
-    return;
-  }
-  const chunks = chunkString(json, CF_SECRET_MAX_BYTES);
-  record.__VARLOCK_ENV_CHUNKS = String(chunks.length);
-  for (let i = 0; i < chunks.length; i++) {
-    record[`__VARLOCK_ENV_${i}`] = chunks[i];
-  }
-  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${Buffer.byteLength(json)} bytes)`);
-}
-
-/**
- * Adds __VARLOCK_ENV lines to a dotenv-format array, splitting into chunks if needed.
- */
-function addVarlockEnvToLines(lines: Array<string>, json: string) {
-  if (Buffer.byteLength(json) <= CF_SECRET_MAX_BYTES) {
-    lines.push(formatEnvLine('__VARLOCK_ENV', json));
-    return;
-  }
-  const chunks = chunkString(json, CF_SECRET_MAX_BYTES);
-  lines.push(formatEnvLine('__VARLOCK_ENV_CHUNKS', String(chunks.length)));
-  for (let i = 0; i < chunks.length; i++) {
-    lines.push(formatEnvLine(`__VARLOCK_ENV_${i}`, chunks[i]));
-  }
-  debug(`__VARLOCK_ENV split into ${chunks.length} chunks (${Buffer.byteLength(json)} bytes)`);
-}
-
 function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
   // dotenv/Wrangler-compatible quoting via formatEnvLine (prefer a quote char
   // absent from the value; no backslash escapes dotenv will leave literal).
@@ -401,20 +341,13 @@ function formatEnvFileContent(graph: ReturnType<typeof loadSerializedGraph>) {
     const strValue = typeof item.value === 'string' ? item.value : JSON.stringify(item.value);
     lines.push(formatEnvLine(key, strValue));
   }
-  // include __VARLOCK_ENV for the varlock runtime (compact JSON, no newlines)
-  // encrypt the blob if @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set
-  const encryptionRequired = !!graph.graph.settings?.encryptInjectedEnv;
-  let encryptionKey = process.env._VARLOCK_ENV_KEY;
-  if (encryptionRequired && !encryptionKey) {
-    encryptionKey = generateEncryptionKeyHex();
-  }
-  let envBlob = graph.json;
-  if (encryptionKey) {
-    envBlob = encryptEnvBlobSync(envBlob, encryptionKey);
-    lines.push(formatEnvLine('_VARLOCK_ENV_KEY', encryptionKey));
-  }
-  // split into chunks if it exceeds CF's 5KB secret limit
-  addVarlockEnvToLines(lines, envBlob);
+  // include __VARLOCK_ENV for the varlock runtime (compact JSON, no newlines), encrypted when
+  // @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set, chunked past CF's 5KB secret limit
+  const blobBindings = buildVarlockEnvBlobBindings({
+    json: graph.json,
+    encryptInjectedEnv: graph.graph.settings?.encryptInjectedEnv,
+  });
+  for (const [key, value] of Object.entries(blobBindings)) lines.push(formatEnvLine(key, value));
   return lines.join('\n');
 }
 
@@ -480,21 +413,16 @@ async function handleDeploy(args: Array<string>) {
       varFlags.push('--var', `${key}:${strValue}`);
     }
   }
-  // encrypt the blob if @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set
+  // __VARLOCK_ENV blob (encrypted when @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is
+  // set, chunked past CF's 5KB secret limit) always goes in as secrets
   const encryptionRequired = !!loaded.graph.settings?.encryptInjectedEnv;
-  let encryptionKey = process.env._VARLOCK_ENV_KEY;
-  if (encryptionRequired && !encryptionKey) {
-    // auto-generate a key for Cloudflare since we control the deploy pipeline
-    encryptionKey = generateEncryptionKeyHex();
+  if (encryptionRequired && !process.env._VARLOCK_ENV_KEY) {
+    // a key gets auto-generated since we control the deploy pipeline
     console.log('[varlock-wrangler] auto-generated _VARLOCK_ENV_KEY for encrypted deployment');
   }
-  let envBlob = loaded.json;
-  if (encryptionKey) {
-    envBlob = encryptEnvBlobSync(envBlob, encryptionKey);
-    secretsObj._VARLOCK_ENV_KEY = encryptionKey;
-  }
-  // split into chunks if it exceeds CF's 5KB secret limit
-  addVarlockEnvToRecord(secretsObj, envBlob);
+  const blobBindings = buildVarlockEnvBlobBindings({ json: loaded.json, encryptInjectedEnv: encryptionRequired });
+  debug(`__VARLOCK_ENV bindings: ${Object.keys(blobBindings).join(', ')}`);
+  Object.assign(secretsObj, blobBindings);
 
   const tmp = createServingTempFile('varlock-secrets');
   const content = JSON.stringify(secretsObj);
