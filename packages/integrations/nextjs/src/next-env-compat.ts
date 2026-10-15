@@ -241,10 +241,24 @@ function getEnvFromNextCommand(dev: boolean): string {
   return dev ? 'development' : 'production';
 }
 
-/** whether this process is `next build` (as opposed to a server booting a build) */
+const NEXT_BIN_RE = /(^|[\\/])next([\\/]dist[\\/]bin[\\/]next)?(\.js)?$/;
+
+/** whether this process is `next build` */
 function isNextBuildCommand(): boolean {
   const [, bin, command] = process.argv;
-  return command === 'build' && !!bin && /(^|[\\/])next([\\/]dist[\\/]bin[\\/]next)?(\.js)?$/.test(bin);
+  return command === 'build' && !!bin && NEXT_BIN_RE.test(bin);
+}
+
+/**
+ * Whether this process is a production server booting a finished build: the standalone server
+ * (which passes its config in `__NEXT_PRIVATE_STANDALONE_CONFIG`) or `next start`. Only then is
+ * the build output read for a frozen env, so nothing else (a build, a script) ever boots from a
+ * previous build's output.
+ */
+function isNextServerBoot(): boolean {
+  if (process.env.__NEXT_PRIVATE_STANDALONE_CONFIG) return true;
+  const [, bin, command] = process.argv;
+  return command === 'start' && !!bin && NEXT_BIN_RE.test(bin);
 }
 
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
@@ -521,9 +535,14 @@ function bootFromFrozenBuildEnv(frozenEnv: string): LoadedEnvConfig {
     console.warn('[varlock] ⚠️ this build has its env frozen into the bundle, so the __VARLOCK_ENV set in the environment is ignored.');
   }
 
-  // applies boot-time values for `@dynamic=boot` items during init
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  require('varlock/frozen-env-boot');
+  // applies boot-time values for `@dynamic=boot` items during init. If a serverless file trace
+  // left it out, the server runtime applies them instead: its prelude carries the same bundle.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require('varlock/frozen-env-boot');
+  } catch (err) {
+    debug('varlock/frozen-env-boot unavailable - boot values are applied by the server runtime', err);
+  }
   process.env.__VARLOCK_ENV = frozenJson;
   initVarlockEnv();
   varlockPatchConsole.patchGlobalConsole();
@@ -554,7 +573,7 @@ export function loadEnvConfig(
   // env is the only source (see freeze-into-bundle)
   const isBuild = !dev && isNextBuildCommand();
   if (isBuild) process.env.__VARLOCK_NEXT_BUILD = '1';
-  const frozenBuildEnv = !dev && !isBuild ? readFrozenBuildEnv(dir) : undefined;
+  const frozenBuildEnv = !dev && isNextServerBoot() ? readFrozenBuildEnv(dir) : undefined;
   if (frozenBuildEnv) return bootFromFrozenBuildEnv(frozenBuildEnv);
 
   loadCount++;

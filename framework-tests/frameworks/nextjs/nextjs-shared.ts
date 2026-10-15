@@ -20,6 +20,9 @@ const BUNDLERS = BUNDLER_FILTER
   ? ALL_BUNDLERS.filter((b) => b === BUNDLER_FILTER)
   : ALL_BUNDLERS;
 
+/** an encrypted env payload (not just the `varlock:v1:` prefix, which the runtime code contains) */
+const ENCRYPTED_PAYLOAD_RE = /varlock:v1:[A-Za-z0-9+/=:_-]{100,}/;
+
 const EXPORT_CONFIG = {
   path: '_base/next.config.mjs' as const,
   replacements: { '// OUTPUT-MODE': "output: 'export'," },
@@ -609,7 +612,9 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               {
                 description: 'server JS files carry no env payload, encrypted or not',
                 fileGlob: '.next/server/**/*.js',
-                shouldNotContain: ['varlock:v1:', 'super-secret-var'],
+                shouldNotContain: ['super-secret-var'],
+                // the bare prefix appears in the varlock runtime code itself
+                shouldNotMatch: [ENCRYPTED_PAYLOAD_RE],
               },
             ],
           });
@@ -632,7 +637,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               {
                 description: 'server JS files contain the encrypted frozen env, no plaintext secret',
                 fileGlob: '.next/server/**/*.js',
-                shouldContain: ['varlock:v1:'],
+                shouldMatch: [ENCRYPTED_PAYLOAD_RE],
                 shouldNotContain: ['super-secret-var'],
               },
             ],

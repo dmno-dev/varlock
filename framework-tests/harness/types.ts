@@ -47,6 +47,8 @@ export interface OutputAssertion {
   shouldNotContain?: Array<string>;
   /** Regex patterns that MUST match file content */
   shouldMatch?: Array<RegExp>;
+  /** Regex patterns that MUST NOT match file content */
+  shouldNotMatch?: Array<RegExp>;
 }
 
 /**

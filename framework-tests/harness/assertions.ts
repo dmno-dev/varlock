@@ -98,5 +98,9 @@ export function assertFiles(projectDir: string, assertions: Array<OutputAssertio
     for (const pattern of assertion.shouldMatch ?? []) {
       expect(combinedContent, `Output files should match ${pattern}`).toMatch(pattern);
     }
+
+    for (const pattern of assertion.shouldNotMatch ?? []) {
+      expect(combinedContent, `Output files should NOT match ${pattern}`).not.toMatch(pattern);
+    }
   }
 }
