@@ -14,7 +14,9 @@ import { initVarlockEnv, resetRedactionMap } from 'varlock/env';
 import * as varlockPatchConsole from 'varlock/patch-console';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { decryptEnvBlobSync, isEncryptedBlob } from 'varlock/encrypt-env';
-import { FROZEN_BUILD_ENV_KEY, NOT_FROZEN_BOOT_HINT } from './freeze-into-bundle';
+import {
+  FROZEN_BOOT_SOURCE_ENV_KEY, FROZEN_BUILD_ENV_KEY, NOT_FROZEN_BOOT_HINT, STANDALONE_CONFIG_SOURCE,
+} from './freeze-into-bundle';
 
 export type Env = { [key: string]: string | undefined };
 export type LoadedEnvFiles = Array<{
@@ -251,14 +253,17 @@ function isNextBuildCommand(): boolean {
 
 /**
  * Whether this process is a production server booting a finished build: the standalone server
- * (which passes its config in `__NEXT_PRIVATE_STANDALONE_CONFIG`) or `next start`. Only then is
- * the build output read for a frozen env, so nothing else (a build, a script) ever boots from a
- * previous build's output.
+ * (which passes its config in `__NEXT_PRIVATE_STANDALONE_CONFIG`), `next start`, or a custom
+ * server (`NODE_ENV=production node server.js` calling `next()`). Any other `next` subcommand
+ * (build, lint, ...) and anything outside production (dev, `NODE_ENV=test` under next/jest) is
+ * not, so it never boots from a build's output. The config plugin double-checks the boot against
+ * the real build directory once Next's config is known (see checkFrozenBootSource).
  */
 function isNextServerBoot(): boolean {
   if (process.env.__NEXT_PRIVATE_STANDALONE_CONFIG) return true;
   const [, bin, command] = process.argv;
-  return command === 'start' && !!bin && NEXT_BIN_RE.test(bin);
+  if (bin && NEXT_BIN_RE.test(bin)) return command === 'start';
+  return process.env.NODE_ENV === 'production';
 }
 
 function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePath?: string) {
@@ -475,21 +480,26 @@ type LoadedEnvConfig = {
  * The frozen env of the build this server is booting, if it froze its env into the bundle (see
  * freeze-into-bundle), read from the next config recorded in the build output: the standalone
  * server passes it in `__NEXT_PRIVATE_STANDALONE_CONFIG`, `next start` reads
- * `.next/required-server-files.json`. `null` when the build did not freeze, `undefined` when
- * the build output cannot be read (e.g. a custom distDir under `next start`).
+ * `.next/required-server-files.json` (a custom distDir is caught later by the config plugin).
+ * `null` when the build did not freeze, `undefined` when the build output cannot be read.
  */
 function readFrozenBuildEnv(dir: string): string | null | undefined {
   try {
     let config: { env?: Record<string, string> } | undefined;
+    let source: string;
     if (process.env.__NEXT_PRIVATE_STANDALONE_CONFIG) {
       config = JSON.parse(process.env.__NEXT_PRIVATE_STANDALONE_CONFIG);
+      source = STANDALONE_CONFIG_SOURCE;
     } else {
-      const requiredServerFilesPath = path.join(dir, '.next', 'required-server-files.json');
-      if (!fs.existsSync(requiredServerFilesPath)) return undefined;
-      config = JSON.parse(fs.readFileSync(requiredServerFilesPath, 'utf8')).config;
+      source = path.resolve(dir, '.next', 'required-server-files.json');
+      if (!fs.existsSync(source)) return undefined;
+      config = JSON.parse(fs.readFileSync(source, 'utf8')).config;
     }
     if (!config) return undefined;
-    return config.env?.[FROZEN_BUILD_ENV_KEY] ?? null;
+    const frozenEnv = config.env?.[FROZEN_BUILD_ENV_KEY] ?? null;
+    // lets the config plugin check this was the build actually being served
+    if (frozenEnv) process.env[FROZEN_BOOT_SOURCE_ENV_KEY] = source;
+    return frozenEnv;
   } catch {
     return undefined;
   }
@@ -569,6 +579,8 @@ export function loadEnvConfig(
   // env is the only source (see freeze-into-bundle)
   const isBuild = !dev && isNextBuildCommand();
   if (isBuild) process.env.__VARLOCK_NEXT_BUILD = '1';
+  // where Next resolves the build directory from (see checkFrozenBootSource)
+  if (!dev) process.env.__VARLOCK_NEXT_PROJECT_DIR = dir;
   const frozenBuildEnv = !dev && isNextServerBoot() ? readFrozenBuildEnv(dir) : undefined;
   if (frozenBuildEnv) return bootFromFrozenBuildEnv(frozenBuildEnv);
 

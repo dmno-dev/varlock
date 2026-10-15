@@ -18,7 +18,7 @@ import { createWebpackConfigFn } from './webpack-plugin';
 import { getTurbopackLoaderRules } from './turbopack-rules';
 import { injectVarlockInitIntoTurbopackRuntime, isInjectedTurbopackRuntime } from './turbopack-runtime-inject';
 import {
-  announceFreezeDecision, decideFreezeIntoBundle, FROZEN_BUILD_ENV_KEY, getFrozenBundlePayload,
+  announceFreezeDecision, checkFrozenBootSource, decideFreezeIntoBundle, FROZEN_BUILD_ENV_KEY, getFrozenBundlePayload,
   type FreezeIntoBundleOption,
 } from './freeze-into-bundle';
 
@@ -317,6 +317,9 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
       );
       const isBuild = phase === 'phase-production-build';
       debug(`turbopack detection: TURBOPACK=${process.env.TURBOPACK}, TURBOPACK_DEV=${process.env.TURBOPACK_DEV}, TURBOPACK_BUILD=${process.env.TURBOPACK_BUILD}, phase=${phase}, isTurbopack=${isTurbopack}, isBuild=${isBuild}`);
+
+      // the env was loaded before this config, so check it came from the build being built/served
+      checkFrozenBootSource({ phase, distDir: resolvedNextConfig.distDir });
 
       // A production build decides once whether to freeze the env into the bundle (never in
       // dev, where it is only ever a transport). A static export has no server to boot.

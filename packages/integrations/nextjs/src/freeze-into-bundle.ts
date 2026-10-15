@@ -16,6 +16,7 @@
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { SerializedEnvGraph } from 'varlock';
@@ -39,6 +40,14 @@ export type FreezeDecision = {
  * referenced as `process.env.<key>`, so no bundler inlines it anywhere.
  */
 export const FROZEN_BUILD_ENV_KEY = '_VARLOCK_FROZEN_BUNDLE_ENV';
+
+/**
+ * Set by next-env-compat when it boots the server process from a frozen build: the
+ * `required-server-files.json` it read, or STANDALONE_CONFIG_SOURCE. Checked by
+ * checkFrozenBootSource once Next's config says where the build actually is.
+ */
+export const FROZEN_BOOT_SOURCE_ENV_KEY = '__VARLOCK_NEXT_FROZEN_BOOT_SOURCE';
+export const STANDALONE_CONFIG_SOURCE = 'standalone-config';
 
 /** carries the build's decision to Next's build workers, which re-evaluate the config */
 const DECISION_ENV_KEY = '__VARLOCK_NEXT_FREEZE_DECISION';
@@ -256,14 +265,17 @@ export function getRuntimePrelude(): string {
   const { payload, freezeId, bootKeys } = getFrozenBundlePayload();
   const lines = [
     '(function(){',
+    // During the build itself (prerendering, collecting page data), keep the build's own
+    // resolution: it is what the frozen env was made from, and it defers required
+    // `@dynamic=boot` items, whose values only arrive at a real boot.
+    'if (process.env.__VARLOCK_NEXT_BUILD) return;',
     `var p=${JSON.stringify(payload)};`,
     'var a=process.env.__VARLOCK_ENV;',
     // this same frozen env, already decrypted: by the server process at boot (see
     // next-env-compat), or by an earlier runtime file. An edge sandbox inherits it from the
     // server process, which spares it an asynchronous decrypt.
     `if (a && a.indexOf(${JSON.stringify(`"freezeId":"${freezeId}"`)}) !== -1) return;`,
-    // during the build itself, prerendering carries the build's own resolution
-    'if (a && a !== p && !process.env.__VARLOCK_NEXT_BUILD && !globalThis.__varlockFrozenBundle) {',
+    'if (a && a !== p && !globalThis.__varlockFrozenBundle) {',
     '  console.warn("[varlock] ⚠️ this build has its env frozen into the bundle, so the __VARLOCK_ENV set in the environment is ignored.");',
     '}',
     'globalThis.__varlockFrozenBundle = true;',
@@ -275,4 +287,45 @@ export function getRuntimePrelude(): string {
     lines.push(`(function(exports,module){${bootSrc}})({},{exports:{}});`);
   }
   return lines.join('\n');
+}
+
+/**
+ * Called from the config plugin, the first point where Next's config (and so the real build
+ * directory) is known. The server process loads its env before that (see next-env-compat), and
+ * can only look for a frozen build in the default `.next`. Fail rather than run on the wrong env:
+ *
+ * - during a build, any frozen boot means a previous build's output was read
+ * - when serving, the build being served must be the one the env was booted from (a custom
+ *   `distDir`, or a stale `.next` left next to it, would otherwise go unnoticed)
+ */
+export function checkFrozenBootSource(opts: { phase: string, distDir?: string }) {
+  const bootSource = process.env[FROZEN_BOOT_SOURCE_ENV_KEY];
+  if (opts.phase === 'phase-production-build') {
+    if (bootSource) {
+      throw new Error(`[varlock] this build loaded its env from a previous build's frozen env (${bootSource}). Run \`next build\` directly, or delete the old build output first.`);
+    }
+    return;
+  }
+  if (opts.phase !== 'phase-production-server' || bootSource === STANDALONE_CONFIG_SOURCE) return;
+
+  const projectDir = process.env.__VARLOCK_NEXT_PROJECT_DIR || process.cwd();
+  const servedManifest = path.resolve(projectDir, opts.distDir || '.next', 'required-server-files.json');
+  let servedFrozenEnv: string | undefined;
+  try {
+    servedFrozenEnv = JSON.parse(fs.readFileSync(servedManifest, 'utf8')).config?.env?.[FROZEN_BUILD_ENV_KEY];
+  } catch {
+    return; // no finished build here: Next reports that itself
+  }
+
+  if (servedFrozenEnv && bootSource !== servedManifest) {
+    throw new Error([
+      `[varlock] the build in ${path.dirname(servedManifest)} froze its env into the bundle, but this server loaded its env`,
+      `before Next's config said where the build is${bootSource ? ` (it read ${bootSource})` : ''}.`,
+      'A frozen build with a custom `distDir` cannot be served by `next start` or a custom server. Use',
+      '`output: \'standalone\'`, the default `.next` directory, or `freezeIntoBundle: false`.',
+    ].join('\n'));
+  }
+  if (!servedFrozenEnv && bootSource) {
+    throw new Error(`[varlock] this server loaded its env from the frozen env of a different build (${bootSource}), not the one in ${path.dirname(servedManifest)}. Delete the stale build output.`);
+  }
 }

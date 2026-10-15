@@ -1,6 +1,9 @@
 import {
   describe, it, expect, beforeEach, afterEach, vi,
 } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { decryptEnvBlobSync } from 'varlock/encrypt-env';
 
 const KEY = 'a'.repeat(64);
@@ -178,5 +181,62 @@ describe('getRuntimePrelude', () => {
     expect(prelude).toContain('varlock:v1:');
     expect(prelude).not.toContain('public-foo');
     expect(prelude).toContain('__varlockApplyFrozenBootValues');
+  });
+});
+
+describe('checkFrozenBootSource', () => {
+  let projectDir: string;
+  const writeBuild = (distDir: string, frozenEnv?: string) => {
+    fs.mkdirSync(path.join(projectDir, distDir), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, distDir, 'required-server-files.json'),
+      JSON.stringify({ config: { env: frozenEnv ? { _VARLOCK_FROZEN_BUNDLE_ENV: frozenEnv } : {} } }),
+    );
+    return path.join(projectDir, distDir, 'required-server-files.json');
+  };
+  beforeEach(() => {
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-next-boot-source-'));
+    process.env.__VARLOCK_NEXT_PROJECT_DIR = projectDir;
+    delete process.env.__VARLOCK_NEXT_FROZEN_BOOT_SOURCE;
+  });
+  afterEach(() => {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+    delete process.env.__VARLOCK_NEXT_PROJECT_DIR;
+    delete process.env.__VARLOCK_NEXT_FROZEN_BOOT_SOURCE;
+  });
+
+  it('passes when the server booted from the build it serves', async () => {
+    process.env.__VARLOCK_NEXT_FROZEN_BOOT_SOURCE = writeBuild('.next', 'varlock:v1:abc');
+    const { checkFrozenBootSource } = await freshModule();
+    expect(() => checkFrozenBootSource({ phase: 'phase-production-server' })).not.toThrow();
+  });
+
+  it('fails when a frozen build lives in a custom distDir the server could not find', async () => {
+    writeBuild('build', 'varlock:v1:abc');
+    const { checkFrozenBootSource } = await freshModule();
+    expect(() => checkFrozenBootSource({ phase: 'phase-production-server', distDir: 'build' }))
+      .toThrow(/custom `distDir` cannot be served/);
+  });
+
+  it('fails when the server booted from a stale frozen build next to the one it serves', async () => {
+    process.env.__VARLOCK_NEXT_FROZEN_BOOT_SOURCE = writeBuild('.next', 'varlock:v1:old');
+    writeBuild('build');
+    const { checkFrozenBootSource } = await freshModule();
+    expect(() => checkFrozenBootSource({ phase: 'phase-production-server', distDir: 'build' }))
+      .toThrow(/frozen env of a different build/);
+  });
+
+  it('fails a build that loaded a previous build\'s frozen env', async () => {
+    process.env.__VARLOCK_NEXT_FROZEN_BOOT_SOURCE = writeBuild('.next', 'varlock:v1:old');
+    const { checkFrozenBootSource } = await freshModule();
+    expect(() => checkFrozenBootSource({ phase: 'phase-production-build' })).toThrow(/previous build's frozen env/);
+  });
+
+  it('ignores builds that did not freeze, and standalone boots', async () => {
+    writeBuild('.next');
+    const { checkFrozenBootSource } = await freshModule();
+    expect(() => checkFrozenBootSource({ phase: 'phase-production-server' })).not.toThrow();
+    process.env.__VARLOCK_NEXT_FROZEN_BOOT_SOURCE = 'standalone-config';
+    expect(() => checkFrozenBootSource({ phase: 'phase-production-server', distDir: 'build' })).not.toThrow();
   });
 });

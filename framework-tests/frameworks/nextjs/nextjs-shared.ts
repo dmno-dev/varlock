@@ -697,7 +697,7 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               'env -i PATH=/usr/bin:/bin NODE_ENV=production',
               `HOSTNAME=127.0.0.1 PORT=${standalonePort}`,
               '_VARLOCK_ENV_KEY=$_VARLOCK_ENV_KEY',
-              'RUNTIME_BOOT_VAR=runtime-boot-value',
+              'RUNTIME_BOOT_VAR=runtime-boot-value INSTANCE_ID=i-123',
               '"$NODE_BIN" server.js',
             ].join(' '),
           ].join(' && ');
@@ -762,7 +762,16 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             templateFiles: {
               '.env.schema': {
                 path: 'schemas/.env.schema',
-                append: '\n# set per instance at boot (e.g. `docker run -e ...`)\n# @dynamic=boot\nRUNTIME_BOOT_VAR=build-default\n',
+                append: [
+                  '',
+                  '# set per instance at boot (e.g. `docker run -e ...`)',
+                  '# @dynamic=boot',
+                  'RUNTIME_BOOT_VAR=build-default',
+                  '# required, with no value at build: the build must not need it',
+                  '# @dynamic=boot @required',
+                  'INSTANCE_ID=',
+                  '',
+                ].join('\n'),
               },
               'next.config.mjs': standaloneConfig('{ freezeIntoBundle: true }'),
               'app/page.tsx': 'pages/runtime-boot-page.tsx',
