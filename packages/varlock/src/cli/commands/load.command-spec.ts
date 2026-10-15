@@ -26,6 +26,10 @@ export const commandSpec = define({
       type: 'boolean',
       description: 'When load is failing, show all items rather than only failing items',
     },
+    'defer-boot-required': {
+      type: 'boolean',
+      description: 'Allow required @dynamic=boot items to be unset, as `varlock freeze` does: their value arrives at boot. For framework integrations resolving during a build',
+    },
     'include-internal': {
       type: 'boolean',
       description: 'Include @internal items in --format json-full output (excluded by default, since json-full is commonly consumed programmatically - e.g. by framework integrations - not just for local human inspection)',

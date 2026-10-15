@@ -7,13 +7,10 @@ import { patchGlobalServerResponse } from 'varlock/patch-server-response';
 import { scrubLeakedSecrets } from './leak-scrub';
 
 import type { SerializedEnvGraph } from 'varlock';
-import { encryptEnvBlobSync } from 'varlock/encrypt-env';
+import { getRuntimePrelude } from './freeze-into-bundle';
 import type { NextConfig } from 'next';
 
 const WEBPACK_PLUGIN_NAME = 'VarlockNextWebpackPlugin';
-
-// one-time guard for the Vercel unencrypted resolved-env warning
-let vercelUnencryptedWarningLogged = false;
 
 // We use a proxy object for the static replacements that we pass to webpack.DefinePlugin
 // because this plugin/webpack code is not invoked again when env files change
@@ -182,52 +179,12 @@ export function createWebpackConfigFn(
         const injectorPath = require.resolve(`varlock/${initBundleName}`);
         const injectorSrc = fs.readFileSync(injectorPath, 'utf8');
 
-        // inline the resolved env so it's baked into the build
-        // this removes the need for a .env.production.local file on platforms like Vercel
-        const rawEnv = process.env.__VARLOCK_ENV;
-        const encryptionRequired = latestLoadedVarlockEnv?.settings?.encryptInjectedEnv;
-        const encryptionKey = process.env._VARLOCK_ENV_KEY;
-        if (encryptionRequired && !encryptionKey) {
-          throw new Error(
-            '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
-            + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
-            + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
-          );
-        }
-        // Vercel has no native runtime-binding mechanism, so baking the resolved
-        // env into the build is the correct approach there — but plaintext means
-        // secrets sit as JSON in the build artifact. Nudge (don't block) users
-        // who haven't opted into `@encryptInjectedEnv`.
-        if (process.env.VERCEL === '1' && !encryptionRequired && !dev && !vercelUnencryptedWarningLogged) {
-          vercelUnencryptedWarningLogged = true;
-          // eslint-disable-next-line no-console
-          console.warn(
-            '[varlock] ⚠️ Deploying to Vercel ships your resolved env as plaintext JSON in the build artifact. '
-            + 'Consider enabling `@encryptInjectedEnv` — see https://varlock.dev/guides/encrypted-deployments/',
-          );
-        }
-        // The baked env is a build-time fallback: a blob already present in the actual
-        // runtime env (a fresh boot-time resolution, e.g. `varlock run`) always wins.
-        // Flag the payload as build-resolved so `initVarlockEnv` skips its stale-echo
-        // cleanup and never deletes runtime-provided vars. The flag lives INSIDE the
-        // payload so it travels with the blob (child processes, encryption round-trips)
-        // and can never outlive it.
-        let envPayload = rawEnv;
-        if (envPayload) {
-          try {
-            envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
-          } catch {
-            // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
-            // without provenance, so the boot behaves like a plain injected blob
-          }
-          if (encryptionKey) envPayload = encryptEnvBlobSync(envPayload, encryptionKey);
-        }
-        const envInline = envPayload
-          ? `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`
-          : '';
+        // a frozen build bakes its frozen env in here; otherwise nothing is baked and the
+        // server resolves at boot (see freeze-into-bundle)
+        const prelude = getRuntimePrelude();
 
         const updatedSourceStr = [
-          envInline,
+          prelude,
           // Wrap in IIFE to avoid symbol collisions when bundlers concatenate files.
           // Provide dummy exports/module since the CJS bundle uses `exports.X = ...`
           `(function(exports,module){${injectorSrc}})({},{exports:{}});`,

@@ -17,6 +17,10 @@ import type { SerializedEnvGraph } from 'varlock';
 import { createWebpackConfigFn } from './webpack-plugin';
 import { getTurbopackLoaderRules } from './turbopack-rules';
 import { injectVarlockInitIntoTurbopackRuntime, isInjectedTurbopackRuntime } from './turbopack-runtime-inject';
+import {
+  announceFreezeDecision, decideFreezeIntoBundle, FROZEN_BUILD_ENV_KEY, getFrozenBundlePayload,
+  type FreezeIntoBundleOption,
+} from './freeze-into-bundle';
 
 // make sure varlock has actually loaded the env files
 // NOTE - we don't need to call `initVarlockEnv` because the next-env-compat has already been loaded and called it
@@ -86,8 +90,18 @@ function debug(...args: Array<any>) {
 debug('✨ LOADED @varlock/next-integration/plugin module!');
 
 
-type VarlockPluginOptions = {
-  // injectResolvedConfigAtBuildTime: boolean,
+export type VarlockPluginOptions = {
+  /**
+   * Whether a production build freezes the env into the bundle: resolved and validated once,
+   * at build, and baked (encrypted) into the server output, which then boots from exactly that.
+   *
+   * - `'auto'` (default): freeze on platforms where varlock cannot resolve the env at request
+   *   time (Vercel, Netlify, Cloudflare Workers Builds, OpenNext); otherwise resolve at boot
+   * - `true`: always freeze (e.g. a standalone image with no varlock CLI in it)
+   * - `false`: never freeze; the server resolves at boot via the varlock CLI or `varlock run`
+   *   (which can boot from a `varlock freeze` file)
+   */
+  freezeIntoBundle?: FreezeIntoBundleOption,
 };
 
 let scannedStaticFiles = false;
@@ -277,7 +291,7 @@ export type NextConfigFunction = (
 
 
 // we make this a plugin a function because we'll likely end up adding some options
-export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
+export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
   // nextjs doesnt have a proper plugin system :(
   // so we use a function which takes in a config object and returns an augmented one
   return (nextConfig: any | NextConfig | NextConfigFunction): NextConfigFunction => {
@@ -301,6 +315,15 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
       );
       const isBuild = phase === 'phase-production-build';
       debug(`turbopack detection: TURBOPACK=${process.env.TURBOPACK}, TURBOPACK_DEV=${process.env.TURBOPACK_DEV}, TURBOPACK_BUILD=${process.env.TURBOPACK_BUILD}, phase=${phase}, isTurbopack=${isTurbopack}, isBuild=${isBuild}`);
+
+      // A production build decides once whether to freeze the env into the bundle (never in
+      // dev, where it is only ever a transport). A static export has no server to boot.
+      let isFrozenBuild = false;
+      if (isBuild && resolvedNextConfig.output !== 'export') {
+        const freeze = decideFreezeIntoBundle(pluginOptions?.freezeIntoBundle);
+        announceFreezeDecision(freeze);
+        isFrozenBuild = freeze.frozen;
+      }
 
       // For production builds, schedule a post-build scan as a safety net.
       // The fs.writeFile patches may not intercept all writes (workers), and
@@ -394,6 +417,11 @@ export function varlockNextConfigPlugin(_pluginOptions?: VarlockPluginOptions) {
 
       return {
         ...resolvedNextConfig,
+        // records the frozen env in the build output (required-server-files.json), where the
+        // server reads it at boot instead of resolving (see next-env-compat)
+        ...isFrozenBuild && {
+          env: { ...resolvedNextConfig.env, [FROZEN_BUILD_ENV_KEY]: getFrozenBundlePayload().payload },
+        },
         ...isTurbopack && {
           turbopack: (resolvedNextConfig as any).turbopack,
         },
