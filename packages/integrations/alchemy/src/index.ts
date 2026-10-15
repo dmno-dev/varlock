@@ -58,6 +58,12 @@ export type VarlockEnvHook = (ctx: AlchemyResolveContext) => Record<string, stri
 
 export interface VarlockSecretsOptions extends VarlockSchemaOptions {
   /**
+   * Set varlock's built-in `VARLOCK_ENV` from the alchemy run (see {@link inferVarlockEnv}).
+   * Pass `false` to leave it to varlock's own CI detection, e.g. when the schema derives its
+   * environment from `ALCHEMY_STAGE` itself or from the branch rather than the stage. Default `true`.
+   */
+  varlockEnv?: boolean;
+  /**
    * Extra env vars to expose to varlock while it resolves, on top of `VARLOCK_ENV` (see
    * {@link inferVarlockEnv}), `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Returning one
    * of those keys overrides the default, e.g. `env: ({ stage }) => ({ VARLOCK_ENV: stage })`.
@@ -75,6 +81,7 @@ export interface VarlockServicesOptions<ServiceName extends string> {
   /** One schema per service, keyed by the name you pass to `bindingsFor()`. */
   services: Record<ServiceName, string | VarlockSchemaOptions>;
   env?: VarlockEnvHook;
+  varlockEnv?: boolean;
 }
 
 /** Bindings that carry the varlock runtime blob (all uploaded as secrets except the chunk count). */
@@ -236,13 +243,13 @@ export function inferVarlockEnv(ctx: Pick<AlchemyResolveContext, 'stage' | 'dev'
 }
 
 /** what alchemy tells varlock about the run, plus the user's extra vars */
-function contextEnv(ctx: AlchemyResolveContext, hook?: VarlockEnvHook) {
+function contextEnv(ctx: AlchemyResolveContext, opts: { env?: VarlockEnvHook; varlockEnv?: boolean }) {
   return {
     ...(ctx.stack !== undefined ? { ALCHEMY_STACK: ctx.stack } : {}),
     ALCHEMY_STAGE: ctx.stage,
     ALCHEMY_DEV: ctx.dev ? 'true' : 'false',
-    VARLOCK_ENV: inferVarlockEnv(ctx),
-    ...(hook?.(ctx) ?? {}),
+    ...(opts.varlockEnv !== false ? { VARLOCK_ENV: inferVarlockEnv(ctx) } : {}),
+    ...(opts.env?.(ctx) ?? {}),
   };
 }
 
@@ -319,7 +326,7 @@ function singleSchema<Schema extends object>(
   options: VarlockSecretsOptions,
 ): VarlockSecretsProvider<VarlockBindings<Schema>> {
   const { layer, bindingsFor } = makeProvider((ctx) => {
-    const graph = loadGraph(options, contextEnv(ctx, options.env));
+    const graph = loadGraph(options, contextEnv(ctx, options));
     return { values: providerValues(graph), bindings: { '': schemaBindings(graph, options) } };
   });
   return new VarlockSecretsProvider({
@@ -341,7 +348,7 @@ function multiSchema<Schemas extends Record<string, object>>(
   options: VarlockServicesOptions<keyof Schemas & string>,
 ): VarlockServicesProvider<Schemas> {
   const { layer, bindingsFor } = makeProvider((ctx) => {
-    const env = contextEnv(ctx, options.env);
+    const env = contextEnv(ctx, options);
     const values: Record<string, string> = {};
     const bindings: Resolved['bindings'] = {};
     if (options.root !== false) {
