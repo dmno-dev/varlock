@@ -30,7 +30,7 @@ import {
 import {
   buildDeployFixture, deployToVercel, disableDeploymentProtection,
   getBuildLogs, captureRuntimeLogs, removeDeployment, cleanupFixture, waitForRoute,
-  setProjectEnvKey, removeProjectEnvKey,
+  setProjectEnv, removeProjectEnv,
 } from './vercel-helpers.js';
 
 const SECRET_VALUE = 'super-secret-var';
@@ -50,22 +50,19 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
       await disableDeploymentProtection().catch(() => {
         // project may not exist yet on the very first deploy — retried after
       });
-      // ephemeral key for the encrypted variant: set on the project just for the
-      // duration of the deploy (env is snapshotted into the deployment). The
-      // plaintext variant must NOT see a key — presence alone triggers encryption —
-      // and opts out of encryption explicitly instead.
-      if (opts.encrypted) {
-        await setProjectEnvKey(randomBytes(32).toString('hex'));
-      } else {
-        await removeProjectEnvKey().catch(() => { /* may not exist yet */ });
-      }
+      // ephemeral project env for this one deploy (env is snapshotted into the
+      // deployment): the encrypted variant gets a key, the plaintext variant
+      // must NOT see one (its presence alone triggers encryption) and opts out
+      // of encryption explicitly instead
+      const ephemeralKey = opts.encrypted ? '_VARLOCK_ENV_KEY' : '_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV';
+      const otherKey = opts.encrypted ? '_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV' : '_VARLOCK_ENV_KEY';
+      await removeProjectEnv(otherKey).catch(() => { /* may not exist yet */ });
+      await setProjectEnv(ephemeralKey, opts.encrypted ? randomBytes(32).toString('hex') : '1');
       let deployed;
       try {
-        deployed = deployToVercel(fixtureDir, opts.encrypted ? undefined : {
-          buildEnv: { _VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV: '1' },
-        });
+        deployed = deployToVercel(fixtureDir);
       } finally {
-        if (opts.encrypted) await removeProjectEnvKey().catch(() => { /* best effort */ });
+        await removeProjectEnv(ephemeralKey).catch(() => { /* best effort */ });
       }
       url = deployed.url;
       buildOutput = deployed.output;
