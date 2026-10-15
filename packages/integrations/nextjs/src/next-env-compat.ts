@@ -503,11 +503,7 @@ let frozenBootResult: LoadedEnvConfig | undefined;
  * it available to everything in the server process, `next.config` included.
  */
 function bootFromFrozenBuildEnv(frozenEnv: string): LoadedEnvConfig {
-  if (frozenBootResult) {
-    // Next may reset process.env to its initial snapshot between calls
-    replaceProcessEnv(frozenBootResult.combinedEnv);
-    return frozenBootResult;
-  }
+  if (frozenBootResult) return frozenBootResult;
   debug('booting from the env frozen into the build');
 
   let frozenJson = frozenEnv;
