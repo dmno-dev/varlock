@@ -97,6 +97,14 @@ describe('Secrets()', () => {
     expect(await withProvider(env, { stage: 'staging' }, Config.String('VARLOCK_ENV'))).toBe('staging');
   });
 
+  it('can leave VARLOCK_ENV to varlock itself', async () => {
+    const own = Secrets({ path: path.join(fixtures, 'server'), varlockEnv: false });
+    // varlock's own detection (test under vitest, development outside CI), whatever the alchemy stage
+    const detected = await withProvider(own, { stage: 'production' }, Config.String('VARLOCK_ENV'));
+    expect(detected).not.toBe('production');
+    expect(detected).toMatch(/^(development|test)$/);
+  });
+
   it('lets the env hook override the derived VARLOCK_ENV', async () => {
     const pinned = Secrets({ path: path.join(fixtures, 'server'), env: () => ({ VARLOCK_ENV: 'production' }) });
     const { cors, bindings } = await withProvider(pinned, { stage: 'dev_test' }, Effect.gen(function* run3() {
