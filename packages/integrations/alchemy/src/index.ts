@@ -57,16 +57,11 @@ export interface VarlockSchemaOptions {
 export type VarlockEnvHook = (ctx: AlchemyResolveContext) => Record<string, string | undefined>;
 
 export interface VarlockSecretsOptions extends VarlockSchemaOptions {
+
   /**
-   * Set varlock's built-in `VARLOCK_ENV` from the alchemy run (see {@link inferVarlockEnv}).
-   * Pass `false` to leave it to varlock's own CI detection, e.g. when the schema derives its
-   * environment from `ALCHEMY_STAGE` itself or from the branch rather than the stage. Default `true`.
-   */
-  varlockEnv?: boolean;
-  /**
-   * Extra env vars to expose to varlock while it resolves, on top of `VARLOCK_ENV` (see
-   * {@link inferVarlockEnv}), `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Returning one
-   * of those keys overrides the default, e.g. `env: ({ stage }) => ({ VARLOCK_ENV: stage })`.
+   * Extra env vars to expose to varlock while it resolves, on top of `ALCHEMY_ENV` (see
+   * {@link inferAlchemyEnv}), `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Returning one
+   * of those keys overrides the default, e.g. `env: ({ stage }) => ({ ALCHEMY_ENV: stage })`.
    */
   env?: VarlockEnvHook;
 }
@@ -81,7 +76,6 @@ export interface VarlockServicesOptions<ServiceName extends string> {
   /** One schema per service, keyed by the name you pass to `bindingsFor()`. */
   services: Record<ServiceName, string | VarlockSchemaOptions>;
   env?: VarlockEnvHook;
-  varlockEnv?: boolean;
 }
 
 /** Bindings that carry the varlock runtime blob (all uploaded as secrets except the chunk count). */
@@ -229,12 +223,13 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
 }
 
 /**
- * varlock's built-in `VARLOCK_ENV` (development, preview, staging, production, test), derived
- * from the alchemy run so `@currentEnv=$VARLOCK_ENV` works with no mapping in the schema:
- * `alchemy dev` is development, the `production`/`prod` stage is production, `staging` and
- * `test` map to themselves, and every other stage (`dev_<user>`, `pr-<n>`, ...) is a preview.
+ * `ALCHEMY_ENV`: the alchemy run as an environment name (development, preview, staging,
+ * production, test, the same vocabulary as varlock's built-in `VARLOCK_ENV`), so a schema can
+ * use `@currentEnv=$ALCHEMY_ENV` with no mapping: `alchemy dev` is development, the
+ * `production`/`prod` stage is production, `staging` and `test` map to themselves, and every
+ * other stage (`dev_<user>`, `pr-<n>`, ...) is a preview.
  */
-export function inferVarlockEnv(ctx: Pick<AlchemyResolveContext, 'stage' | 'dev'>): string {
+export function inferAlchemyEnv(ctx: Pick<AlchemyResolveContext, 'stage' | 'dev'>): string {
   if (ctx.dev) return 'development';
   if (/^(prod|production)$/i.test(ctx.stage)) return 'production';
   if (/^(staging|stage)$/i.test(ctx.stage)) return 'staging';
@@ -243,12 +238,12 @@ export function inferVarlockEnv(ctx: Pick<AlchemyResolveContext, 'stage' | 'dev'
 }
 
 /** what alchemy tells varlock about the run, plus the user's extra vars */
-function contextEnv(ctx: AlchemyResolveContext, opts: { env?: VarlockEnvHook; varlockEnv?: boolean }) {
+function contextEnv(ctx: AlchemyResolveContext, opts: { env?: VarlockEnvHook }) {
   return {
     ...(ctx.stack !== undefined ? { ALCHEMY_STACK: ctx.stack } : {}),
     ALCHEMY_STAGE: ctx.stage,
     ALCHEMY_DEV: ctx.dev ? 'true' : 'false',
-    ...(opts.varlockEnv !== false ? { VARLOCK_ENV: inferVarlockEnv(ctx) } : {}),
+    ALCHEMY_ENV: inferAlchemyEnv(ctx),
     ...(opts.env?.(ctx) ?? {}),
   };
 }
