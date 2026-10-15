@@ -547,6 +547,7 @@ Reads a secret from the **macOS Keychain**. This built-in resolver communicates 
 - `account` (optional): Account identifier for the keychain item
 - `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
 - `field` (optional): Return one of the item's metadata attributes instead of its secret: `account`, `label`, `service`, or `server`
+- `allowMissing` (optional): If `true`, resolve to empty instead of failing when the item does not exist or the machine is not a Mac
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 
 ```env-spec /keychain\\(.*\\)/
@@ -561,7 +562,7 @@ NEW_SECRET=keychain(prompt)
 ```
 
 :::caution
-`keychain()` is only available on macOS. For cross-platform local encryption, use [`varlock()`](#varlock) instead.
+`keychain()` is only available on macOS. For cross-platform local encryption, use [`varlock()`](#varlock) instead, or see [other platforms and optional items](/plugins/macos-keychain/#other-platforms-and-optional-items) for mixing `keychain()` with other sources.
 :::
 </div>
 

@@ -11,6 +11,8 @@
  *   keychain(service="com.company.db", keychain="System")
  *   keychain("com.company.db")          — shorthand for service
  *   keychain(prompt)                     — interactive picker, writes back reference
+ *   keychain("com.company.db", allowMissing=true) — empty instead of an error when the
+ *     item does not exist or this is not macOS, so fallback() can move on
  */
 
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
@@ -22,6 +24,7 @@ import { writeBackValue } from './write-back';
 type KeychainResolverState = {
   mode: 'get';
   itemKey: string;
+  allowMissingResolver?: Resolver;
   service?: string;
   account?: string;
   keychain?: string;
@@ -81,9 +84,8 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     arrayMinLength: 0,
   },
   process(): KeychainResolverState {
-    if (process.platform !== 'darwin') {
-      throw new SchemaError('keychain() is only supported on macOS');
-    }
+    // The macOS check happens in resolve(), so a keychain() in a branch that never runs on this
+    // machine (e.g. `if(eq($VARLOCK_OS, "darwin"), keychain(...), ...)`) does not break the schema
 
     // Check for prompt mode: keychain(prompt) or keychain(prompt=1)
     const promptArg = this.objArgs?.prompt;
@@ -133,7 +135,7 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     // account-only lookups are allowed: keychain(account="admin@corp.com", field="account")
     if (service || account) {
       return {
-        mode: 'get', itemKey, service, account, keychain, field,
+        mode: 'get', itemKey, service, account, keychain, field, allowMissingResolver: this.objArgs?.allowMissing,
       };
     }
 
@@ -143,6 +145,24 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     );
   },
   async resolve(state: KeychainResolverState) {
+    let allowMissing = false;
+    if (state.mode === 'get' && state.allowMissingResolver) {
+      const resolved = await state.allowMissingResolver.resolve();
+      allowMissing = resolved === true || resolved === 'true';
+    }
+
+    if (process.platform !== 'darwin') {
+      if (allowMissing) return undefined;
+      throw new ResolutionError('keychain() is only supported on macOS', {
+        tip: [
+          'To use another source on other platforms, either:',
+          '  - add allowMissing=true and wrap it: fallback(keychain(..., allowMissing=true), <other source>)',
+          '  - branch on the OS: if(eq($VARLOCK_OS, "darwin"), keychain(...), <other source>)',
+          '  - move the keychain() ref to a git-ignored file only Mac users load, like .env.local',
+        ].join('\n'),
+      });
+    }
+
     const client = getDaemonClient();
 
     if (state.mode === 'get') {
@@ -158,6 +178,7 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
         const code = err instanceof DaemonError ? err.code : undefined;
 
         if (code === 'itemNotFound') {
+          if (allowMissing) return undefined;
           // Creating needs a fully specified ref: `set` writes service+account to the default keychain
           const canCreate = !!state.service && !!state.account && !state.keychain && !state.field;
           throw new ResolutionError('Keychain item not found', {

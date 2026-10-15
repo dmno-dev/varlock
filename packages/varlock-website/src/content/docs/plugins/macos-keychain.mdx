@@ -28,7 +28,7 @@ See the [local encryption guide](/guides/local-encryption/) for more details.
 - **Multiple keychain support**: access the login, System, or custom keychains
 
 :::caution
-`keychain()` is only supported on **macOS**. On other platforms any `keychain()` value fails to load, and `fallback()` cannot catch that. If your team includes non-Mac developers, keep `keychain()` refs out of files they load (for example, put them in a git-ignored `.env.local`), or use a cross-platform secrets source for shared config.
+`keychain()` is only supported on **macOS**. If your team includes non-Mac developers, see [other platforms and optional items](#other-platforms-and-optional-items).
 :::
 
 
@@ -88,6 +88,30 @@ varlock keychain set API_KEY --service varlock --account my-app:jb:API_KEY
 ```
 
 Running that command stores their own value under the same service and account, so the committed ref resolves for them too. Varlock never creates missing items on its own during `load` or `run`.
+
+## Other platforms and optional items
+
+Reading a `keychain()` value on Linux or Windows is an error. A `keychain()` call in a branch that does not run is fine, so there are three ways to give non-Mac teammates (or Mac users who have not stored the item yet) another source:
+
+**Fall back when the item is missing.** With `allowMissing=true`, `keychain()` resolves to empty instead of failing when the item does not exist or the machine is not a Mac, so [`fallback()`](/reference/functions/#fallback) moves on to the next value:
+
+```env-spec
+API_KEY=fallback(keychain("my-app", account="api", allowMissing=true), op("op://dev/api/credential"))
+```
+
+Other failures still stop the load: access denied, a cancelled prompt, or a daemon error never fall through to the next source.
+
+**Branch on the OS.** [`if()`](/reference/functions/#if) only resolves the branch it picks:
+
+```env-spec
+API_KEY=if(eq($VARLOCK_OS, "darwin"), keychain("my-app", account="api"), op("op://dev/api/credential"))
+```
+
+**Override per developer.** Keep the shared source in `.env.schema` and let Mac users point at their Keychain in their own git-ignored `.env.local`:
+
+```env-spec title=".env.local"
+API_KEY=keychain("my-app", account="api")
+```
 
 ## Delete an item
 
@@ -153,6 +177,7 @@ Fetch a secret from the macOS Keychain. Communicates with the Keychain through V
 - `account` (optional): Account identifier for the keychain item. Can be used without a service.
 - `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
 - `field` (optional): Return one of the item's metadata attributes instead of its secret: `account`, `label`, `service`, or `server`
+- `allowMissing` (optional): If `true`, resolve to empty instead of failing when the item does not exist or the machine is not a Mac. Useful inside `fallback()`.
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 
 ```env-spec /keychain\\(.*\\)/
@@ -171,6 +196,9 @@ CERT=keychain("com.company.cert", keychain="System")
 # Metadata field (returns the account name, not the secret)
 DB_USER=keychain("com.company.db", field="account")
 
+# Optional item with a fallback source
+OPTIONAL=fallback(keychain("com.company.opt", allowMissing=true), "default-value")
+
 # Interactive picker mode
 NEW_SECRET=keychain(prompt)
 ```
@@ -182,7 +210,7 @@ NEW_SECRET=keychain(prompt)
 ## Troubleshooting
 
 ### "keychain() is only supported on macOS"
-This resolver requires macOS. It is not available on Linux or Windows. If you need cross-platform secret management, consider using one of the [plugin-based secret sources](/plugins/overview).
+This resolver requires macOS. It is not available on Linux or Windows. See [other platforms and optional items](#other-platforms-and-optional-items) for ways to use another source there, or consider one of the [plugin-based secret sources](/plugins/overview).
 
 ### "Keychain item not found"
 No item matches the ref. For a ref with both a service and an account, the error prints the `varlock keychain set ...` command that creates it. Otherwise, check the service and account with `varlock keychain list`, or use `keychain(prompt)` to pick the item.
