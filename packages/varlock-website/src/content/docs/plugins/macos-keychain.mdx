@@ -91,27 +91,25 @@ Running that command stores their own value under the same service and account, 
 
 ## Other platforms and optional items
 
-Reading a `keychain()` value on Linux or Windows is an error. A `keychain()` call in a branch that does not run is fine, so there are three ways to give non-Mac teammates (or Mac users who have not stored the item yet) another source:
-
-**Fall back when the item is missing.** With `allowMissing=true`, `keychain()` resolves to empty instead of failing when the item does not exist or the machine is not a Mac, so [`fallback()`](/reference/functions/#fallback) moves on to the next value:
-
-```env-spec
-API_KEY=fallback(keychain("my-app", account="api", allowMissing=true), op("op://dev/api/credential"))
-```
-
-Other failures still stop the load: access denied, a cancelled prompt, or a daemon error never fall through to the next source.
-
-**Branch on the OS.** [`if()`](/reference/functions/#if) only resolves the branch it picks:
+Reading a `keychain()` value on Linux or Windows is an error, but a `keychain()` call in a branch that does not run is fine. To give non-Mac teammates another source, either branch on the OS with [`if()`](/reference/functions/#if), which only resolves the branch it picks:
 
 ```env-spec
 API_KEY=if(eq($VARLOCK_OS, "darwin"), keychain("my-app", account="api"), op("op://dev/api/credential"))
 ```
 
-**Override per developer.** Keep the shared source in `.env.schema` and let Mac users point at their Keychain in their own git-ignored `.env.local`:
+or keep the shared source in `.env.schema` and let Mac users point at their Keychain in their own git-ignored `.env.local`:
 
 ```env-spec title=".env.local"
 API_KEY=keychain("my-app", account="api")
 ```
+
+For an item that may legitimately not exist, add `allowMissing=true`. A missing item then resolves to empty instead of failing, so [`fallback()`](/reference/functions/#fallback) moves on to the next value:
+
+```env-spec
+API_KEY=fallback(keychain("my-app", account="api", allowMissing=true), "default-value")
+```
+
+`allowMissing` only covers a missing item. Running on another OS, access denied, a cancelled prompt, or a daemon error still stop the load. Without it, a teammate who has not stored the item gets an error with the `varlock keychain set` command to fix it, which is usually what you want for required secrets.
 
 ## Delete an item
 
@@ -177,7 +175,7 @@ Fetch a secret from the macOS Keychain. Communicates with the Keychain through V
 - `account` (optional): Account identifier for the keychain item. Can be used without a service.
 - `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
 - `field` (optional): Return one of the item's metadata attributes instead of its secret: `account`, `label`, `service`, or `server`
-- `allowMissing` (optional): If `true`, resolve to empty instead of failing when the item does not exist or the machine is not a Mac. Useful inside `fallback()`.
+- `allowMissing` (optional): If `true`, resolve to empty instead of failing when the item does not exist. Useful inside `fallback()`. Does not cover running on another OS.
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 
 ```env-spec /keychain\\(.*\\)/

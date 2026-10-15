@@ -12,7 +12,7 @@
  *   keychain("com.company.db")          — shorthand for service
  *   keychain(prompt)                     — interactive picker, writes back reference
  *   keychain("com.company.db", allowMissing=true) — empty instead of an error when the
- *     item does not exist or this is not macOS, so fallback() can move on
+ *     item does not exist, so fallback() can move on
  */
 
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
@@ -145,22 +145,21 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     );
   },
   async resolve(state: KeychainResolverState) {
-    let allowMissing = false;
-    if (state.mode === 'get' && state.allowMissingResolver) {
-      const resolved = await state.allowMissingResolver.resolve();
-      allowMissing = resolved === true || resolved === 'true';
-    }
-
+    // allowMissing only covers a missing item; being on another OS is not "missing"
     if (process.platform !== 'darwin') {
-      if (allowMissing) return undefined;
       throw new ResolutionError('keychain() is only supported on macOS', {
         tip: [
           'To use another source on other platforms, either:',
-          '  - add allowMissing=true and wrap it: fallback(keychain(..., allowMissing=true), <other source>)',
           '  - branch on the OS: if(eq($VARLOCK_OS, "darwin"), keychain(...), <other source>)',
           '  - move the keychain() ref to a git-ignored file only Mac users load, like .env.local',
         ].join('\n'),
       });
+    }
+
+    let allowMissing = false;
+    if (state.mode === 'get' && state.allowMissingResolver) {
+      const resolved = await state.allowMissingResolver.resolve();
+      allowMissing = resolved === true || resolved === 'true';
     }
 
     const client = getDaemonClient();

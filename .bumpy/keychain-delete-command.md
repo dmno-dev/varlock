@@ -10,4 +10,4 @@ Allow `deno` processes to connect to the local encryption daemon, so `keychain()
 
 Fix `keychain("service", account="...")` and `keychain("service", keychain="...")` silently ignoring the positional service name, which could return a different item's secret.
 
-Add `allowMissing=true` to `keychain()`, so `fallback(keychain(..., allowMissing=true), ...)` can fall through when the item is missing or the machine is not a Mac. A `keychain()` in an `if()` branch that does not run no longer fails on Linux and Windows.
+Add `allowMissing=true` to `keychain()`, so `fallback(keychain(..., allowMissing=true), ...)` can fall through when the item does not exist. A `keychain()` in an `if()` branch that does not run no longer fails on Linux and Windows.

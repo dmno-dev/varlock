@@ -39,13 +39,12 @@ describe('keychain() on non-macOS', () => {
     expect(g.configSchema.API_KEY.resolvedValue).toBe('from-other-source');
   });
 
-  it('lets fallback() move on when allowMissing=true', async () => {
+  it('still errors with allowMissing=true, which only covers a missing item', async () => {
     const g = await loadSchema(outdent`
       # ---
       API_KEY=fallback(keychain("my-app", account="api", allowMissing=true), "from-other-source")
     `);
-    expect(g.configSchema.API_KEY.errors).toEqual([]);
-    expect(g.configSchema.API_KEY.resolvedValue).toBe('from-other-source');
+    expect(g.configSchema.API_KEY.errors[0]).toBeInstanceOf(ResolutionError);
   });
 
   it('fails with a resolution error that suggests the alternatives', async () => {
@@ -56,7 +55,7 @@ describe('keychain() on non-macOS', () => {
     const [err] = g.configSchema.API_KEY.errors;
     expect(err).toBeInstanceOf(ResolutionError);
     expect(err.message).toContain('only supported on macOS');
-    expect(String((err as ResolutionError).tip)).toContain('allowMissing=true');
+    expect(String((err as ResolutionError).tip)).toContain('$VARLOCK_OS');
   });
 });
 
