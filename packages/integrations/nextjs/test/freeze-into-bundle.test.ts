@@ -8,6 +8,8 @@ const ENV_KEYS = [
   'VERCEL',
   'NETLIFY',
   'WORKERS_CI',
+  'AWS_APP_ID',
+  'AWS_BRANCH',
   '__VARLOCK_ENV',
   '_VARLOCK_ENV_KEY',
   '_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV',
@@ -72,6 +74,30 @@ describe('decideFreezeIntoBundle', () => {
     delete process.env.VERCEL;
     delete process.env.__VARLOCK_NEXT_FREEZE_DECISION;
     expect((await freshModule()).decideFreezeIntoBundle(true)).toMatchObject({ frozen: true, reason: 'freezeIntoBundle: true' });
+  });
+
+  it("'auto' freezes on AWS Amplify", async () => {
+    process.env.AWS_APP_ID = 'd123';
+    process.env.AWS_BRANCH = 'main';
+    const { decideFreezeIntoBundle } = await freshModule();
+    expect(decideFreezeIntoBundle('auto')).toMatchObject({ frozen: true, platform: 'AWS Amplify' });
+  });
+
+  it("a standalone build with 'auto' and no detected platform fails until the choice is explicit", async () => {
+    const { decideFreezeIntoBundle } = await freshModule();
+    expect(() => decideFreezeIntoBundle('auto', { isStandalone: true }))
+      .toThrow(/needs an explicit `freezeIntoBundle` setting/);
+    const explicitFalse = (await freshModule()).decideFreezeIntoBundle(false, { isStandalone: true });
+    expect(explicitFalse).toMatchObject({ frozen: false });
+    delete process.env.__VARLOCK_NEXT_FREEZE_DECISION;
+    const explicitTrue = (await freshModule()).decideFreezeIntoBundle(true, { isStandalone: true });
+    expect(explicitTrue).toMatchObject({ frozen: true });
+  });
+
+  it("a standalone build on a detected platform still freezes with 'auto'", async () => {
+    process.env.VERCEL = '1';
+    const { decideFreezeIntoBundle } = await freshModule();
+    expect(decideFreezeIntoBundle('auto', { isStandalone: true })).toMatchObject({ frozen: true, platform: 'Vercel' });
   });
 
   it('rejects an unknown value', async () => {

@@ -225,6 +225,79 @@ You can also use `COPY --from=ghcr.io/dmno-dev/varlock:1.6.0` directly without a
 COPY --from=ghcr.io/dmno-dev/varlock:1.6.0 /usr/local/bin/varlock /usr/local/bin/varlock
 ```
 
+## Next.js standalone images
+
+A Next.js build with `output: 'standalone'` must say how its server gets the env, with the [`freezeIntoBundle`](/integrations/nextjs/#freezing-the-env-into-the-build) plugin option. The build fails until it does, because the standalone output includes neither the varlock CLI nor your `.env` files.
+
+<Tabs>
+  <TabItem label="Freeze into the build">
+
+```ts title="next.config.ts"
+export default varlockNextConfigPlugin({ freezeIntoBundle: true })(nextConfig);
+```
+
+The env is resolved during `next build` and baked, encrypted, into the server output. The runtime image needs no varlock CLI and no `.env` files, only `_VARLOCK_ENV_KEY`. Pass the key to the build as a [build secret](https://docs.docker.com/build/building/secrets/) so it never lands in an image layer:
+
+```dockerfile title="Dockerfile"
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN --mount=type=secret,id=varlock_env_key \
+  _VARLOCK_ENV_KEY="$(cat /run/secrets/varlock_env_key)" pnpm build
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+CMD ["node", "server.js"]
+```
+
+```bash
+docker build --secret id=varlock_env_key,env=_VARLOCK_ENV_KEY -t my-app .
+docker run -e _VARLOCK_ENV_KEY my-app
+```
+
+Values are fixed per image: rotating a secret means rebuilding. Keys that must vary per container (a port, an instance id) go in the schema as [`@dynamic=boot`](/guides/frozen-env/#keys-supplied-at-boot) and are set with `docker run -e`.
+
+  </TabItem>
+  <TabItem label="Resolve at boot">
+
+```ts title="next.config.ts"
+export default varlockNextConfigPlugin({ freezeIntoBundle: false })(nextConfig);
+```
+
+The server resolves the env when the container starts, so the runtime image needs the varlock CLI, your `.env` files, and any resolver credentials:
+
+```dockerfile title="Dockerfile"
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:22-alpine AS runner
+RUN apk add --no-cache ca-certificates libstdc++
+COPY --from=ghcr.io/dmno-dev/varlock:1.6.0 /usr/local/bin/varlock /usr/local/bin/varlock
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.env.schema /app/.env.production ./
+ENTRYPOINT ["varlock", "run", "--"]
+CMD ["node", "server.js"]
+```
+
+If the CLI is missing at boot, the server exits immediately with a message naming these options, rather than serving with values from the build.
+
+  </TabItem>
+</Tabs>
+
 ## Runtime: entrypoint and Docker Compose
 
 For containers that resolve secrets at boot, set varlock as the entrypoint and pass your process after `--`:

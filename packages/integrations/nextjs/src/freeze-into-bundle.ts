@@ -78,9 +78,22 @@ function detectNoRuntimeLoaderPlatform(): string | undefined {
   if (process.env.VERCEL === '1') return 'Vercel';
   if (process.env.NETLIFY === 'true') return 'Netlify';
   if (process.env.WORKERS_CI === '1') return 'Cloudflare Workers Builds';
+  // Amplify Hosting's SSR compute only sees env vars that were present at build
+  if (process.env.AWS_APP_ID && process.env.AWS_BRANCH) return 'AWS Amplify';
   if (isOpenNextBuild()) return 'OpenNext';
   return undefined;
 }
+
+const STANDALONE_NEEDS_CHOICE = [
+  '[varlock] `output: \'standalone\'` needs an explicit `freezeIntoBundle` setting.',
+  'A standalone server does not include the varlock CLI or your .env files, so it cannot resolve',
+  'the env when it boots unless you provide them. Pick one in varlockNextConfigPlugin({ ... }):',
+  '  - freezeIntoBundle: true    bake the env (encrypted) into the build; the server only needs',
+  '                              _VARLOCK_ENV_KEY at runtime',
+  '  - freezeIntoBundle: false   resolve at boot; you provide the varlock CLI where the server runs,',
+  '                              e.g. `varlock run -- node server.js` (or boot from a `varlock freeze` file)',
+  'See https://varlock.dev/integrations/nextjs/#self-hosting',
+].join('\n');
 
 let decision: FreezeDecision | undefined;
 
@@ -89,7 +102,10 @@ let decision: FreezeDecision | undefined;
  * decides and hands the decision to the build workers through the environment, so platform
  * detection runs once and every process agrees.
  */
-export function decideFreezeIntoBundle(option: FreezeIntoBundleOption = 'auto'): FreezeDecision {
+export function decideFreezeIntoBundle(
+  option: FreezeIntoBundleOption = 'auto',
+  opts?: { isStandalone?: boolean },
+): FreezeDecision {
   if (decision) return decision;
 
   const inherited = process.env[DECISION_ENV_KEY];
@@ -111,6 +127,11 @@ export function decideFreezeIntoBundle(option: FreezeIntoBundleOption = 'auto'):
     decision = { frozen: false, reason: 'freezeIntoBundle: false', platform: detectNoRuntimeLoaderPlatform() };
   } else if (platform) {
     decision = { frozen: true, reason: `${platform}: varlock cannot resolve the env at request time there`, platform };
+  } else if (opts?.isStandalone) {
+    // A standalone server carries neither the varlock CLI nor your .env files, so resolving at
+    // boot only works if you set that up where it runs. Make the choice explicit here, where a
+    // failed CI build stops it, rather than at boot, where it takes down a deploy.
+    throw new Error(STANDALONE_NEEDS_CHOICE);
   } else {
     decision = { frozen: false, reason: 'no platform without a runtime loader detected' };
   }
@@ -212,7 +233,7 @@ export const NOT_FROZEN_BOOT_HINT = [
   '  - make the varlock CLI available at boot (`output: \'standalone\'` does not include it), or',
   '  - boot via `varlock run -- <command>` (add `--frozen` to boot from a `varlock freeze` file), or',
   '  - freeze the env into the build: varlockNextConfigPlugin({ freezeIntoBundle: true })',
-  'See https://varlock.dev/integrations/nextjs/#freezing-the-env-into-the-build',
+  'See https://varlock.dev/integrations/nextjs/#self-hosting',
   '',
 ].join('\n');
 

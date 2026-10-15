@@ -709,15 +709,36 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             },
           });
 
-          // Not frozen (the default off Vercel-like platforms): the server resolves at boot,
-          // so with no varlock CLI it must fail at boot with the fixes - never fall back to
-          // values resolved at build time.
+          // A standalone build has to choose how its server gets the env: it carries neither
+          // the varlock CLI nor the .env files, so leaving it to 'auto' would only fail at boot.
+          nextEnv.describeScenario('standalone build without an explicit freezeIntoBundle fails the build', {
+            command: buildCommand,
+            env: { NODE_ENV: 'production' },
+            templateFiles: {
+              'next.config.mjs': standaloneConfig(),
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: false,
+            outputAssertions: [
+              {
+                description: 'build fails naming both choices',
+                shouldContain: [
+                  'needs an explicit `freezeIntoBundle` setting',
+                  'freezeIntoBundle: true',
+                  'freezeIntoBundle: false',
+                ],
+              },
+            ],
+          });
+
+          // Not frozen: the server resolves at boot, so with no varlock CLI it must fail at
+          // boot with the fixes - never fall back to values resolved at build time.
           nextEnv.describeScenario('not frozen: booting with no varlock CLI fails with the fixes', {
             command: `sh -c '${standaloneBootCommand}'`,
             env: { NODE_ENV: 'production' },
             timeout: 300_000,
             templateFiles: {
-              'next.config.mjs': standaloneConfig(),
+              'next.config.mjs': standaloneConfig('{ freezeIntoBundle: false }'),
               'app/page.tsx': 'pages/basic-page.tsx',
             },
             expectSuccess: false,

@@ -96,7 +96,9 @@ export type VarlockPluginOptions = {
    * at build, and baked (encrypted) into the server output, which then boots from exactly that.
    *
    * - `'auto'` (default): freeze on platforms where varlock cannot resolve the env at request
-   *   time (Vercel, Netlify, Cloudflare Workers Builds, OpenNext); otherwise resolve at boot
+   *   time (Vercel, Netlify, Cloudflare Workers Builds, AWS Amplify, OpenNext); otherwise resolve
+   *   at boot. A standalone build (`output: 'standalone'`) on any other host must set it
+   *   explicitly: the build fails until it does
    * - `true`: always freeze (e.g. a standalone image with no varlock CLI in it)
    * - `false`: never freeze; the server resolves at boot via the varlock CLI or `varlock run`
    *   (which can boot from a `varlock freeze` file)
@@ -320,7 +322,9 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
       // dev, where it is only ever a transport). A static export has no server to boot.
       let isFrozenBuild = false;
       if (isBuild && resolvedNextConfig.output !== 'export') {
-        const freeze = decideFreezeIntoBundle(pluginOptions?.freezeIntoBundle);
+        const freeze = decideFreezeIntoBundle(pluginOptions?.freezeIntoBundle, {
+          isStandalone: resolvedNextConfig.output === 'standalone',
+        });
         announceFreezeDecision(freeze);
         isFrozenBuild = freeze.frozen;
       }
