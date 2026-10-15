@@ -539,14 +539,14 @@ Encrypted payload lifecycle:
 Reads a secret from the **macOS Keychain**. This built-in resolver communicates through Varlock's native Swift daemon, enforcing biometric (Touch ID) authentication and per-session access control. See the [macOS Keychain page](/plugins/macos-keychain/) for full documentation.
 
 **Array args:**
-- `service` (optional): Service name of the keychain item (positional shorthand)
+- `service` (optional): Service name of the keychain item (positional shorthand). Can be combined with the key/value args below.
 - `prompt` (optional): Enter interactive picker mode
 
 **Key/value args:**
-- `service` (optional): Service name of the keychain item
+- `service` (optional): Service name of the keychain item. Use either this or the positional form, not both.
 - `account` (optional): Account identifier for the keychain item
 - `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
-- `field` (optional): Specific field to extract from the keychain item
+- `field` (optional): Return one of the item's metadata attributes instead of its secret: `account`, `label`, `service`, or `server`
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 
 ```env-spec /keychain\\(.*\\)/

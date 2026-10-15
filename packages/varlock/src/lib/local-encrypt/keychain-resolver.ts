@@ -101,40 +101,39 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
 
     const itemKey: string = (this as any).parent?.key || 'unknown';
 
-    // Named args mode: keychain(service="...", account="...", keychain="...", field="...")
-    const serviceArg = this.objArgs?.service;
-    const accountArg = this.objArgs?.account;
-    const keychainArg = this.objArgs?.keychain;
-    const fieldArg = this.objArgs?.field;
-
-    const account = accountArg?.isStatic ? accountArg.staticValue as string : undefined;
-    const keychain = keychainArg?.isStatic ? keychainArg.staticValue as string : undefined;
-    const field = fieldArg?.isStatic ? fieldArg.staticValue as string : undefined;
-
-    if (serviceArg) {
-      if (!serviceArg.isStatic || typeof serviceArg.staticValue !== 'string') {
-        throw new SchemaError('keychain() service must be a static string');
+    // Service comes from service="..." or a single positional arg; account/keychain/field
+    // are always named and combine with either form, e.g. keychain("com.example", account="admin")
+    const staticStringArg = (name: string) => {
+      const arg = this.objArgs?.[name];
+      if (!arg) return undefined;
+      if (!arg.isStatic || typeof arg.staticValue !== 'string') {
+        throw new SchemaError(`keychain() ${name} must be a static string`);
       }
-      return {
-        mode: 'get', itemKey, service: serviceArg.staticValue, account, keychain, field,
-      };
+      return arg.staticValue;
+    };
+
+    const namedService = staticStringArg('service');
+    const account = staticStringArg('account');
+    const keychain = staticStringArg('keychain');
+    const field = staticStringArg('field');
+
+    let positionalService: string | undefined;
+    if (this.arrArgs?.length) {
+      const positional = this.arrArgs[0];
+      if (this.arrArgs.length > 1 || !positional?.isStatic || typeof positional.staticValue !== 'string') {
+        throw new SchemaError('keychain() expects at most one positional arg: a static service name string');
+      }
+      positionalService = positional.staticValue;
+    }
+    if (namedService && positionalService) {
+      throw new SchemaError('keychain() service was given twice; use either keychain("svc") or keychain(service="svc")');
     }
 
-    // account-only lookup: keychain(account="admin@corp.com", field="account")
-    if (accountArg) {
+    const service = namedService ?? positionalService;
+    // account-only lookups are allowed: keychain(account="admin@corp.com", field="account")
+    if (service || account) {
       return {
-        mode: 'get', itemKey, account, keychain, field,
-      };
-    }
-
-    // Positional shorthand: keychain("com.company.service")
-    if (this.arrArgs?.length === 1 && this.arrArgs[0]?.isStatic) {
-      const value = this.arrArgs[0].staticValue;
-      if (typeof value !== 'string') {
-        throw new SchemaError('keychain() expects a string service name');
-      }
-      return {
-        mode: 'get', itemKey, service: value, field,
+        mode: 'get', itemKey, service, account, keychain, field,
       };
     }
 

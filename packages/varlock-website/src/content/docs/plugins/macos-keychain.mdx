@@ -20,15 +20,15 @@ See the [local encryption guide](/guides/local-encryption/) for more details.
 ## Features
 
 - **Built-in**: no plugin or extra dependency needed
-- **Biometric gating**: access is protected by Touch ID via Varlock's native daemon
+- **Biometric gating**: secret reads are protected by Touch ID via Varlock's native daemon
 - **Interactive picker**: use `keychain(prompt)` to browse and select items via a native dialog
 - **Auto-write-back**: prompt mode writes the resolved reference back to your config file
 - **Named or positional syntax** for quick or precise lookups
-- **Field selection**: extract specific fields from keychain items
+- **Metadata fields**: read an item's account, label, service, or server instead of its secret
 - **Multiple keychain support**: access the login, System, or custom keychains
 
 :::caution
-`keychain()` is only supported on **macOS**. It will throw an error on other platforms. If your team includes non-Mac developers, consider wrapping keychain items with a fallback or using a cross-platform secrets source for shared configs.
+`keychain()` is only supported on **macOS**. On other platforms any `keychain()` value fails to load, and `fallback()` cannot catch that. If your team includes non-Mac developers, keep `keychain()` refs out of files they load (for example, put them in a git-ignored `.env.local`), or use a cross-platform secrets source for shared config.
 :::
 
 
@@ -57,7 +57,7 @@ Import requires an existing `.env.schema` file for the input env file so Varlock
 
 The file you name must be one Varlock loads as part of your env setup. It resolves your normal env graph (from `package.json` `varlock.loadPath`, or the files in the current directory) to read sensitivity from your schema, the same way `varlock encrypt --file` works. An arbitrary file outside that setup can't be imported. The value stored in Keychain is taken from the file you named specifically; an override of the same variable in another file (such as `.env.local`) does not change what gets imported.
 
-Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The project defaults to the current directory name and can be overridden:
+Generated refs use `service="varlock"` and account names like `<project>:<profile>:<ENV_VAR>`. The profile defaults to `local`, and the project defaults to the current directory name. Both can be overridden:
 
 ```sh
 varlock keychain import .env --profile jb --project my-app
@@ -79,6 +79,18 @@ cat secret.txt | varlock keychain set PRIVATE_KEY --profile jb --write-to .env.j
 
 By default, `set` refuses to overwrite an existing Keychain item or env ref. Pass `--force` to replace both.
 
+## Share refs with your team
+
+Keychain items live on each developer's own machine, but the `keychain(...)` refs that point at them can be committed. When a teammate loads a ref whose item they don't have yet, Varlock fails with the exact command to create it, for example:
+
+```sh
+varlock keychain set API_KEY --service varlock --account my-app:jb:API_KEY
+```
+
+Running that command stores their own value under the same service and account, so the committed ref resolves for them too. Varlock never creates missing items on its own during `load` or `run`.
+
+## Delete an item
+
 To remove an item, pass its account (and `--service` if it does not use the default `varlock` service):
 
 ```sh
@@ -91,7 +103,7 @@ varlock keychain delete --account "my-app:jb:API_KEY"
 
 When a `keychain()` ref points at an item that Varlock did not create (for example one added by another app or managed by your IT department), macOS may prompt the first time VarlockEnclave reads it. Choose **Always Allow** to add VarlockEnclave to that item's access list so later reads do not prompt. **Allow** only covers the current read, so you will be asked again next time.
 
-If VarlockEnclave cannot read an existing Keychain item, grant access without using `/usr/bin/security` directly:
+If you clicked **Deny**, or want to grant access ahead of time, use `fix-access`. It adds VarlockEnclave to the item's access list; macOS may ask for your login password to approve the change.
 
 ```sh
 varlock keychain fix-access --account "my-app:jb:API_KEY"
@@ -111,7 +123,7 @@ varlock keychain fix-access --path .env.jb
 
 ## List Keychain items
 
-To see which Keychain items are available, list them by service name. This shows metadata only (service, account, and keychain) and never reads secret values:
+To see which Keychain items are available, list them. This shows metadata only (service, account, and keychain) and never reads secret values:
 
 ```sh
 varlock keychain list           # same as bare `varlock keychain`
@@ -133,14 +145,14 @@ varlock keychain list --keychain System
 Fetch a secret from the macOS Keychain. Communicates with the Keychain through Varlock's native daemon, which enforces biometric (Touch ID) authentication.
 
 **Array args:**
-- `service` (optional): Service name of the keychain item (positional shorthand)
+- `service` (optional): Service name of the keychain item (positional shorthand). Can be combined with the key/value args below.
 - `prompt` (optional): Enter interactive picker mode
 
 **Key/value args:**
-- `service` (optional): Service name of the keychain item
-- `account` (optional): Account identifier for the keychain item
+- `service` (optional): Service name of the keychain item. Use either this or the positional form, not both.
+- `account` (optional): Account identifier for the keychain item. Can be used without a service.
 - `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
-- `field` (optional): Specific field to extract from the keychain item
+- `field` (optional): Return one of the item's metadata attributes instead of its secret: `account`, `label`, `service`, or `server`
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 
 ```env-spec /keychain\\(.*\\)/
@@ -156,8 +168,8 @@ ADMIN_PW=keychain("com.company.db", account="admin")
 # Targeting a specific keychain
 CERT=keychain("com.company.cert", keychain="System")
 
-# Field selection
-TOKEN=keychain("com.company.auth", field="password")
+# Metadata field (returns the account name, not the secret)
+DB_USER=keychain("com.company.db", field="account")
 
 # Interactive picker mode
 NEW_SECRET=keychain(prompt)
@@ -172,13 +184,14 @@ NEW_SECRET=keychain(prompt)
 ### "keychain() is only supported on macOS"
 This resolver requires macOS. It is not available on Linux or Windows. If you need cross-platform secret management, consider using one of the [plugin-based secret sources](/plugins/overview).
 
-### Failed to read keychain item
-- Verify the item exists in Keychain Access.app
-- Check that the service name and account match exactly
-- Try `keychain(prompt)` to browse available items and grant VarlockEnclave access via the native dialog
+### "Keychain item not found"
+No item matches the ref. For a ref with both a service and an account, the error prints the `varlock keychain set ...` command that creates it. Otherwise, check the service and account with `varlock keychain list`, or use `keychain(prompt)` to pick the item.
+
+### "Varlock is not allowed to read this Keychain item"
+The item exists but VarlockEnclave is not on its access list, or access was denied in the macOS prompt. Run the `varlock keychain fix-access ...` command the error prints. See [access management](#access-management).
+
+### "More than one Keychain item matches"
+Several items share the service. Add `account="..."` to the ref to pick one; `varlock keychain list` shows the candidates.
 
 ### Selection was cancelled
 If you dismiss the native picker without selecting an item, the resolution will fail. Run `varlock` again to retry, or replace `keychain(prompt)` with an explicit `keychain(service="...")` reference.
-
-### VarlockEnclave access
-The first time you access a keychain item through Varlock, macOS may prompt you to grant access to VarlockEnclave. Approve this to allow future reads. If you accidentally denied access, you can update the item's Access Control settings in Keychain Access.app.

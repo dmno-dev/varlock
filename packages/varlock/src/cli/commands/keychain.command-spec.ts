@@ -9,7 +9,7 @@ export const listCommandSpec = define({
     query: {
       type: 'positional',
       required: false,
-      description: 'Filter items by service name',
+      description: 'Filter items by service, account, or label',
     },
     keychain: {
       type: 'string',
