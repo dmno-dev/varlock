@@ -17,7 +17,10 @@
       "default": "./dist/index.mjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    ".env.schema"
+  ],
   "scripts": {
     "dev": "tsdown --watch",
     "build": "tsdown",

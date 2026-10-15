@@ -59,9 +59,9 @@ export type VarlockEnvHook = (ctx: AlchemyResolveContext) => Record<string, stri
 export interface VarlockSecretsOptions extends VarlockSchemaOptions {
 
   /**
-   * Extra env vars to expose to varlock while it resolves, on top of `ALCHEMY_ENV` (see
-   * {@link inferAlchemyEnv}), `ALCHEMY_STACK`, `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Returning one
-   * of those keys overrides the default, e.g. `env: ({ stage }) => ({ ALCHEMY_ENV: stage })`.
+   * Extra env vars to expose to varlock while it resolves, on top of `ALCHEMY_STACK`,
+   * `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Values here override what a schema derives from those,
+   * e.g. `env: ({ stage }) => ({ ALCHEMY_ENV: stage })`.
    */
   env?: VarlockEnvHook;
 }
@@ -222,28 +222,12 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
   return bindings;
 }
 
-/**
- * `ALCHEMY_ENV`: the alchemy run as an environment name (development, preview, staging,
- * production, test, the same vocabulary as varlock's built-in `VARLOCK_ENV`), so a schema can
- * use `@currentEnv=$ALCHEMY_ENV` with no mapping: `alchemy dev` is development, the
- * `production`/`prod` stage is production, `staging` and `test` map to themselves, and every
- * other stage (`dev_<user>`, `pr-<n>`, ...) is a preview.
- */
-export function inferAlchemyEnv(ctx: Pick<AlchemyResolveContext, 'stage' | 'dev'>): string {
-  if (ctx.dev) return 'development';
-  if (/^(prod|production)$/i.test(ctx.stage)) return 'production';
-  if (/^(staging|stage)$/i.test(ctx.stage)) return 'staging';
-  if (/^test$/i.test(ctx.stage)) return 'test';
-  return 'preview';
-}
-
 /** what alchemy tells varlock about the run, plus the user's extra vars */
 function contextEnv(ctx: AlchemyResolveContext, opts: { env?: VarlockEnvHook }) {
   return {
     ...(ctx.stack !== undefined ? { ALCHEMY_STACK: ctx.stack } : {}),
     ALCHEMY_STAGE: ctx.stage,
     ALCHEMY_DEV: ctx.dev ? 'true' : 'false',
-    ALCHEMY_ENV: inferAlchemyEnv(ctx),
     ...(opts.env?.(ctx) ?? {}),
   };
 }
