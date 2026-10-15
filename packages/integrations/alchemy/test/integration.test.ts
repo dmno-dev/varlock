@@ -88,7 +88,7 @@ describe('Secrets()', () => {
     expect(blob.config.BETTER_AUTH_SECRET.tags).toBeUndefined();
   });
 
-  it('sets ALCHEMY_ENV from the stage and mode so @currentEnv needs no mapping', async () => {
+  it('lets the shipped ALCHEMY_ENV expression derive the environment from stage and mode', async () => {
     const cors = (opts: { stage: string; dev?: boolean }) => withProvider(env, opts, Config.String('CORS_ORIGIN'));
     expect(await cors({ stage: 'dev_test', dev: true })).toBe('http://localhost:4321'); // development
     expect(await cors({ stage: 'dev_test' })).toBe('https://preview.example.com');
