@@ -314,7 +314,7 @@ Baking a public+dynamic value into prerendered output defeats its purpose: you m
 
 Sensitive values are not subject to this guard. Reading a sensitive value server-side during a static build (e.g. using an API key to fetch data while generating pages) is fine; leak detection separately errors if the value itself ends up in the built output.
 
-One caveat on freshness: `@dynamic` guarantees a value is never inlined into client bundles or prerendered output. How fresh the *server-side* value is depends on how your deployment delivers env: platforms where varlock resolves at server boot (Node servers, Next.js) re-read on each deploy/boot, while modes that bake a resolved blob into the server artifact at build time (e.g. Vite `ssrInjectMode: 'resolved-env'` on serverless adapters) serve values as of the build. If you need per-boot freshness on those platforms, deliver the value through the platform's runtime env instead.
+One caveat on freshness: `@dynamic` guarantees a value is never inlined into client bundles or prerendered output. How fresh the *server-side* value is depends on how your deployment delivers env: platforms where varlock resolves at server boot (Node servers, self-hosted Next.js) re-read on each deploy/boot, while modes that freeze the env into the server artifact at build time (e.g. Next.js on Vercel, Vite `ssrInjectMode: 'resolved-env'` on serverless adapters) serve values as of the build. If you need per-boot freshness on those platforms, deliver the value through the platform's runtime env instead.
 
 ## Filtering by static/dynamic
 

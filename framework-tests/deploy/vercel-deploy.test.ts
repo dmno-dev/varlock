@@ -4,12 +4,13 @@
   Edge runtime for middleware, runtime leak detection, and log redaction in
   Vercel's log pipeline.
 
+  A Vercel build freezes the env into the bundle (`freezeIntoBundle: 'auto'`).
   Two deployments are tested:
-  - plaintext env (full matrix incl. middleware)
-  - encrypted env via @encryptInjectedEnv — the recommended Vercel setup: the
-    build encrypts the injected env blob and lambda decrypts it at boot using
-    an ephemeral _VARLOCK_ENV_KEY passed to that single deployment's build +
-    runtime env (nothing stored on the project).
+  - plaintext frozen env, opted into with _VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1
+    (full matrix incl. middleware)
+  - encrypted frozen env — the default: the build encrypts the frozen env and
+    lambda decrypts it at boot using an ephemeral _VARLOCK_ENV_KEY passed to
+    that single deployment's build + runtime env (nothing stored on the project).
 
   NOT part of normal test runs — gated by VERCEL_DEPLOY_TESTS=1 and run on a
   weekly schedule / manual dispatch (deploy-tests.workflow.yaml), or locally:
@@ -51,7 +52,8 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
       });
       // ephemeral key for the encrypted variant: set on the project just for the
       // duration of the deploy (env is snapshotted into the deployment). The
-      // plaintext variant must NOT see a key — presence alone triggers encryption.
+      // plaintext variant must NOT see a key — presence alone triggers encryption —
+      // and opts out of encryption explicitly instead.
       if (opts.encrypted) {
         await setProjectEnvKey(randomBytes(32).toString('hex'));
       } else {
@@ -59,7 +61,9 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
       }
       let deployed;
       try {
-        deployed = deployToVercel(fixtureDir);
+        deployed = deployToVercel(fixtureDir, opts.encrypted ? undefined : {
+          buildEnv: { _VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV: '1' },
+        });
       } finally {
         if (opts.encrypted) await removeProjectEnvKey().catch(() => { /* best effort */ });
       }
@@ -159,6 +163,6 @@ function defineDeploymentTests(label: string, opts: { encrypted: boolean }) {
 }
 
 describe.skipIf(!process.env.VERCEL_DEPLOY_TESTS)('vercel deployment', () => {
-  defineDeploymentTests('plaintext env', { encrypted: false });
-  defineDeploymentTests('encrypted env (@encryptInjectedEnv)', { encrypted: true });
+  defineDeploymentTests('plaintext frozen env (opted in)', { encrypted: false });
+  defineDeploymentTests('encrypted frozen env', { encrypted: true });
 });

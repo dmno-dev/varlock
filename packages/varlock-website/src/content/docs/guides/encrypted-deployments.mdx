@@ -91,7 +91,7 @@ You must set `_VARLOCK_ENV_KEY` as an environment variable on your platform. The
 
 | Integration | How it works |
 |---|---|
-| **[Next.js](/integrations/nextjs/)** | Encrypts the env blob injected into the webpack/turbopack build output |
+| **[Next.js](/integrations/nextjs/)** | Encrypts the env [frozen into the build output](/integrations/nextjs/#freezing-the-env-into-the-build). Always on: a frozen build fails without `_VARLOCK_ENV_KEY`, with or without the decorator |
 | **[Vite](/integrations/vite/)** | Encrypts the env blob when using `ssrInjectMode: 'resolved-env'` |
 | **[Astro](/integrations/astro/)** | Uses the Vite integration; encryption applies to SSR adapter builds |
 | **[SvelteKit](/integrations/sveltekit/)** | Uses the Vite integration; encryption applies to SSR builds |

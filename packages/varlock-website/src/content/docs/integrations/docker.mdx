@@ -52,7 +52,7 @@ Secrets are fetched when the container starts, not when the image is built.
   </TabItem>
   <TabItem label="Build-time">
 
-Use when a [framework integration](/integrations/overview/) (Next.js, Vite SSR, Cloudflare Workers, etc.) resolves and injects env during `build`. Varlock belongs in the **builder** stage; the runtime image receives env via the platform or an encrypted blob, not via the CLI.
+Use when a [framework integration](/integrations/overview/) resolves and injects env during `build` (Next.js with [`freezeIntoBundle: true`](/integrations/nextjs/#freezing-the-env-into-the-build), Vite SSR in `resolved-env` mode, etc.). Varlock belongs in the **builder** stage; the runtime image receives env via the platform or an encrypted blob, not via the CLI.
 
 For serverless SSR, prefer [encrypted deployments](/guides/encrypted-deployments/) over baking resolved values into image layers.
 

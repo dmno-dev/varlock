@@ -154,10 +154,14 @@ export function buildDeployFixture(opts?: { usePublished?: boolean, encrypted?: 
 }
 
 /** Deploy the fixture as a preview; resolves with the deployment URL. */
-export function deployToVercel(dir: string): { url: string, output: string } {
+export function deployToVercel(
+  dir: string,
+  opts?: { buildEnv?: Record<string, string> },
+): { url: string, output: string } {
   let output: string;
+  const buildEnvFlags = Object.entries(opts?.buildEnv ?? {}).map(([k, v]) => ` --build-env ${k}=${v}`).join('');
   try {
-    output = execSync(`${vercelCliBase()} deploy --yes`, {
+    output = execSync(`${vercelCliBase()} deploy --yes${buildEnvFlags}`, {
       cwd: dir,
       stdio: 'pipe',
       timeout: 10 * 60_000,
