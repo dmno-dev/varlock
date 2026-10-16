@@ -383,7 +383,10 @@ function enableExtraFileWatchers(sources: SerializedEnvGraph['sources'], basePat
   for (const filePath of extraFilePaths) {
     watchedExtraFiles.add(filePath);
     watchedFileHashes.set(filePath, readFileHash(filePath));
-    fs.watchFile(filePath, { interval: 500 }, () => {
+    // non-persistent so the watchers never keep a process alive on their own
+    // (e.g. next's telemetry detached-flush helper loads the config in dev mode, see #1235)
+    // the dev server itself stays alive via its http server
+    fs.watchFile(filePath, { interval: 500, persistent: false }, () => {
       triggerNextReload(filePath);
     });
   }
