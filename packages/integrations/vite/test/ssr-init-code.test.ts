@@ -278,3 +278,115 @@ describe('transformIndexHtml + SvelteKit', () => {
     expect(await resolvedHasHtmlHook([fakeSvelteKit])).toBe(false);
   });
 });
+
+// the re-patch tests drive the real console.log on purpose
+/* eslint-disable no-console */
+describe('RSC dev console replay re-patch', () => {
+  // mirrors react-server-dom-*-server.*.development.js: at load it wraps the console methods
+  // with a wrapper that captures the call args (there: serializes them into the flight
+  // stream) before calling through
+  const reactDevConsolePatch = 'function patchConsole(c, m) { var orig = c[m]; var w = function () { __captured.push(Array.from(arguments)); return orig.apply(this, arguments); }; Object.defineProperty(c, m, { value: w }); }\n'
+    + '"object" === typeof console && null !== console && (patchConsole(console, "assert"), patchConsole(console, "log"));\n';
+  const REPATCH = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
+  const SECRET = 'super-secret-value';
+
+  async function transformWith(code: string, id: string, opts?: { ssr?: boolean }) {
+    const { varlockVitePlugin } = await importPlugin();
+    const plugin = varlockVitePlugin().find((p: any) => typeof p.transform === 'function');
+    const ctx = {
+      environment: { mode: 'dev' },
+      getModuleInfo: () => ({ isEntry: false }),
+      getModuleIds: () => ['/fake-project/src/entry.ts'],
+    };
+    return plugin.transform.call(ctx, code, id, opts);
+  }
+
+  // stand-in for varlock's console patch: wraps console.log with a redacting layer, the way
+  // patchGlobalConsole() does once the init module has run
+  function installStubConsolePatch() {
+    const g = globalThis as any;
+    const originalLog = console.log;
+    const captured: Array<Array<unknown>> = [];
+    g.__varlockPatchConsole = () => {
+      const inner = console.log;
+      console.log = function patchedFn(this: unknown, ...args: Array<unknown>) {
+        return inner.apply(this, args.map((a) => (typeof a === 'string' ? a.replaceAll(SECRET, '[redacted]') : a)));
+      };
+    };
+    g.__varlockPatchConsole();
+    return {
+      captured,
+      // eslint-disable-next-line no-new-func
+      run: (code: string) => new Function('__captured', code)(captured),
+      restore: () => {
+        console.log = originalLog;
+        delete g.__varlockPatchConsole;
+      },
+    };
+  }
+
+  it('exposes the console patch on globalThis from the init module, in every inject mode', async () => {
+    const { buildVarlockSsrInitCode } = await importPlugin();
+    const exposed = 'globalThis.__varlockPatchConsole = __varlockPatchConsole.patchGlobalConsole;';
+    expect(buildVarlockSsrInitCode({ isDev: true })).toContain(exposed);
+    expect(buildVarlockSsrInitCode({ isDev: true, ssrInjectMode: 'auto-load' })).toContain(exposed);
+    expect(buildVarlockSsrInitCode({ isDev: true, ssrInjectMode: 'auto-load', preserveSideEffectImports: true })).toContain(exposed);
+  });
+
+  it('inserts the re-patch right after the statement that installs the React wrapper', async () => {
+    const id = '/fake-project/node_modules/react-server-dom-webpack/cjs/react-server-dom-webpack-server.edge.development.js';
+    const code = `${reactDevConsolePatch}var after = 1;\n`;
+    const result = await transformWith(code, id, { ssr: true });
+    expect(result?.code).toContain(`patchConsole(console, "log"));\n${REPATCH}\n\nvar after = 1;`);
+  });
+
+  it('React receives redacted args once its module has evaluated', async () => {
+    const id = '/fake-project/node_modules/.vite/deps_rsc/react-server-dom-webpack-server.edge.development-abc.js';
+    const result = await transformWith(reactDevConsolePatch, id, { ssr: true });
+    const h = installStubConsolePatch();
+    try {
+      h.run(result!.code);
+      console.log(`value: ${SECRET}`);
+      expect(h.captured).toEqual([['value: [redacted]']]);
+    } finally {
+      h.restore();
+    }
+  });
+
+  it('still re-patches when the body sits in a shared lazy factory run later by another module', async () => {
+    // the dep optimizer wraps the CommonJS body in a `require_*` factory; when something else
+    // also requires server.edge the factory lands in a shared chunk and only runs when an
+    // untransformed facade elsewhere calls it, long after the chunk itself evaluated
+    const chunkCode = `var require_server_edge = __commonJSMin(function (exports) {\n${
+      reactDevConsolePatch
+    }exports.renderToReadableStream = function () {};\n`
+      + '});\n';
+    const id = '/fake-project/node_modules/.vite/deps_rsc/chunk-SHARED.js';
+    const result = await transformWith(chunkCode, id, { ssr: true });
+    const h = installStubConsolePatch();
+    try {
+      // the chunk evaluates (defining the factory), then the facade calls it
+      h.run(`globalThis.__commonJSMin = function (fn) { var cached; return function () { if (!cached) { cached = {}; fn(cached); } return cached; }; };\n${
+        result!.code
+      }globalThis.__facade = function () { return require_server_edge(); };\n`);
+      expect(h.captured).toEqual([]);
+      (globalThis as any).__facade();
+      console.log(`value: ${SECRET}`);
+      expect(h.captured).toEqual([['value: [redacted]']]);
+    } finally {
+      h.restore();
+      delete (globalThis as any).__commonJSMin;
+      delete (globalThis as any).__facade;
+    }
+  });
+
+  it('leaves the production React build and client modules alone', async () => {
+    const prodId = '/fake-project/node_modules/react-server-dom-webpack/cjs/react-server-dom-webpack-server.edge.production.js';
+    const prodResult = await transformWith('export const renderToReadableStream = () => {};\n', prodId, { ssr: true });
+    expect(prodResult?.code ?? '').not.toContain(REPATCH);
+
+    const clientId = '/fake-project/node_modules/.vite/deps/react-server-dom-webpack-client.browser.development.js';
+    const clientResult = await transformWith(reactDevConsolePatch, clientId, { ssr: false });
+    expect(clientResult?.code ?? '').not.toContain(REPATCH);
+  });
+});
