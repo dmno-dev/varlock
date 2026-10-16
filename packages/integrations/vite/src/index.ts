@@ -531,15 +531,11 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
 const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
 
 /**
- * Detects a server module that installs React's dev-only RSC console replay wrapper when it
- * evaluates (see `transform`). Two shapes:
- * - the react-server-dom-*-server.*.development.js module itself, which patches the console
- *   at its top level
- * - the pre-bundled dep entry that invokes it: the dep optimizer wraps the CommonJS body in a
- *   lazy `require_*` factory in a shared chunk, so the body only runs when the entry
- *   (`react-server-dom-webpack/server.edge`, `.../static.edge`, ...) calls the factory
+ * The statement in react-server-dom-*-server.*.development.js that installs React's dev-only
+ * RSC console replay wrapper: `"object" === typeof console && null !== console &&
+ * (patchConsole(console, "assert"), ..., patchConsole(console, "warn"));` (see `transform`)
  */
-const RSC_CONSOLE_REPLAY_RE = /patchConsole\(console,\s*["']assert["']\)|\brequire_react_server_dom_\w+_server_\w+_development\(\)/;
+const RSC_CONSOLE_REPLAY_RE = /patchConsole\(console,\s*["']assert["']\)/;
 
 /** varlock-owned vars that must be real env vars, never vite `define` entries */
 const RESERVED_DEFINE_KEYS = [
@@ -846,14 +842,23 @@ See https://varlock.dev/integrations/vite/ for more details.
       // flight stream, so the browser devtools can show server logs. It loads after our init
       // module, so its wrapper sits outside our redacting one and sees raw secrets, which then
       // land in the RSC payload (and get caught by response leak detection, truncating the
-      // page). Re-patching right after it evaluates puts our wrapper back on the outside, the
-      // same way the Next.js integration re-patches in every server file. Matched on the
-      // code (not the id) because in dev the module is served from the pre-bundled deps cache,
-      // where the patching body lives in a shared chunk and runs lazily from the dep entry.
-      if (options?.ssr && RSC_CONSOLE_REPLAY_RE.test(code)) {
+      // page). Re-patching right after React installs its wrapper puts ours back on the
+      // outside, the same way the Next.js integration re-patches in every server file.
+      //
+      // The re-patch goes right after the installing statement, inside React's module body,
+      // not at the end of the module: in dev the body is served from the pre-bundled deps
+      // cache wrapped in a lazy `require_*` factory, so it only runs when some entry calls the
+      // factory, possibly from a different chunk and long after this module evaluated.
+      // Matched on the code rather than the id for the same reason.
+      const replayMatch = options?.ssr ? RSC_CONSOLE_REPLAY_RE.exec(code) : null;
+      if (replayMatch) {
         debug(`re-patching console after RSC dev console replay in: ${id}`);
+        // the match sits inside a single `cond && (patchConsole(...), ...);` expression
+        // statement whose only `;` is its terminator
+        const statementEnd = code.indexOf(';', replayMatch.index);
+        const insertAt = statementEnd === -1 ? code.length : statementEnd + 1;
         magicString ||= new MagicString(code);
-        magicString.append('\n;if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();\n');
+        magicString.appendRight(insertAt, '\nif(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();\n');
       }
 
       if (isEntry) {
