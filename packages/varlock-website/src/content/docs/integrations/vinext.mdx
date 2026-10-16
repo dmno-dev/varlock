@@ -1,0 +1,161 @@
+---
+title: vinext
+description: How to integrate varlock with vinext (Next.js on Vite) for secure, type-safe environment management on Cloudflare Workers
+---
+import { Steps } from "@astrojs/starlight/components";
+import Badge from '@/components/Badge.astro';
+import ExecCommandWidget from '@/components/ExecCommandWidget.astro';
+import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
+
+[vinext](https://vinext.dev) runs Next.js apps on [Vite](https://vite.dev), with Cloudflare Workers as its primary deploy target. Because it builds with Vite and the standard Cloudflare Vite plugin, there is no dedicated vinext package: you use the [Cloudflare integration](/integrations/cloudflare/), which wraps `@cloudflare/vite-plugin` and handles env injection in dev, preview, and deploy.
+
+This is a different setup from a regular Next.js app. [`@varlock/nextjs-integration`](/integrations/nextjs/) hooks into Next's own build and `@next/env` loader, neither of which vinext uses. If you are migrating a Next.js project that already uses varlock, remove that package, the `@next/env` override, and `varlockNextConfigPlugin()` from `next.config`, then follow the steps below.
+
+Check out the [vinext example project](https://github.com/dmno-dev/varlock-examples/tree/main/integrations/vinext) for a working reference.
+
+:::note[Which Cloudflare setup]
+This guide covers vinext's wrangler-based Cloudflare setup (a `wrangler.jsonc` and `@cloudflare/vite-plugin` v1), which `vinext init --platform=cloudflare --legacy-wrangler-cloudflare-init` and `create-vinext-app --legacy-wrangler-cloudflare-init` generate. vinext's newer default, the `cf` CLI with a `cloudflare.config.ts`, builds with this plugin too, but `varlock-wrangler` cannot deploy that output yet.
+:::
+
+---
+
+## Setup
+
+<div class="page-badges">
+  <Badge npmPackage="@varlock/cloudflare-integration" />
+</div>
+
+<Steps>
+
+1. **Install packages**
+
+    `@cloudflare/vite-plugin` is a peer dependency of the integration. A vinext Cloudflare project already has it.
+
+    <InstallJsDepsWidget packages="@varlock/cloudflare-integration @cloudflare/vite-plugin varlock" />
+
+1. **Run `varlock init` to set up your `.env.schema`**
+
+    This will guide you through setting up your `.env.schema` file, based on your existing `.env` file(s). Make sure to review it carefully.
+
+    <ExecCommandWidget command="varlock init" showBinary={false} />
+
+1. **Replace `cloudflare()` with `varlockCloudflareVitePlugin()` in your Vite config**
+
+    It accepts the same options and passes them through. Keep the `viteEnvironment` block vinext generates: it runs the App Router's `rsc` environment in workerd, and without it the build fails with `Rolldown failed to resolve import "virtual:vite-rsc/encryption-key"`.
+
+    ```diff lang="ts" title="vite.config.ts"
+    import { defineConfig } from 'vite';
+    import vinext from 'vinext';
+    -import { cloudflare } from '@cloudflare/vite-plugin';
+    +import { varlockCloudflareVitePlugin } from '@varlock/cloudflare-integration';
+
+    export default defineConfig({
+      plugins: [
+        vinext(),
+    -    cloudflare({
+    +    varlockCloudflareVitePlugin({
+          viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },
+        }),
+      ],
+    });
+    ```
+
+    Pages Router projects pass no `viteEnvironment`, so there the call is just `varlockCloudflareVitePlugin()`.
+
+1. **Update the `start` and `deploy` scripts**
+
+    vinext writes the built Worker config to `dist/server/wrangler.json`. The scaffolded scripts run plain `wrangler dev` and `vinext-cloudflare deploy` against it, and neither supplies the `__VARLOCK_ENV` binding the Worker needs. Point `varlock-wrangler` at the same config instead:
+
+    ```diff lang="json" title="package.json"
+    {
+      "scripts": {
+        "dev": "vite dev",
+        "build": "vite build",
+    +    "preview": "vite build && vite preview",
+    -    "start": "wrangler dev --config dist/server/wrangler.json",
+    -    "deploy": "vinext-cloudflare deploy --config dist/server/wrangler.json"
+    +    "start": "varlock-wrangler dev --config dist/server/wrangler.json",
+    +    "deploy": "vite build && varlock-wrangler deploy --config dist/server/wrangler.json"
+      }
+    }
+    ```
+
+    Use `vite dev` and `vite build` directly, as vinext's current scaffold does. The `vinext dev` / `vinext build` aliases can preload `.env` files with dotenv on older projects, which varlock already handles.
+
+1. **Remove any `.dev.vars` file**
+
+    Varlock owns env injection. The plugin throws if a `.dev.vars` or `.dev.vars.<environment>` file exists next to your wrangler config.
+
+</Steps>
+
+:::tip[Next steps]
+See the [**Cloudflare integration page**](/integrations/cloudflare/) for `varlock-wrangler`, multi-environment setup, type generation, and Workers Builds configuration.
+:::
+
+---
+
+## Accessing env vars
+
+Import `ENV` from `varlock/env` anywhere on the server: Server Components, Route Handlers, Server Actions, middleware.
+
+```tsx title="app/page.tsx"
+import { ENV } from 'varlock/env';
+
+export default function Page() {
+  return <p>{ENV.APP_NAME}</p>;
+}
+```
+
+```ts title="app/api/hello/route.ts"
+import { ENV } from 'varlock/env';
+
+export function GET() {
+  return Response.json({ region: ENV.REGION });
+}
+```
+
+Client components (`"use client"`) can only use items marked [`@public`](/reference/item-decorators/#public). The `NEXT_PUBLIC_` prefix has no special meaning to varlock, so mark those items `@public` in your schema (or set `@defaultSensitive=false` and mark the sensitive ones). Public values are inlined at build time, the same as in any [Vite](/integrations/vite/) project, so `ENV.NEXT_PUBLIC_ITEM` works in client components. Referencing a sensitive item from client code is a build error.
+
+Prefer `ENV.X` over `process.env.X`. `ENV` is typed from your schema (see [type generation](/integrations/cloudflare/#type-safety-and-intellisense)), is validated and coerced, and throws on unknown keys instead of returning `undefined`.
+
+## Local development and testing the build
+
+- **`vite dev`** injects the resolved env into the worker as bindings, watches your `.env` files, and shows a full-page error if your config is invalid.
+- **`vite preview`** serves the build through miniflare, with the env delivered over a named pipe so secrets never touch disk.
+- **`varlock-wrangler dev --config dist/server/wrangler.json`** runs the build output under wrangler, the equivalent of vinext's generated `start` script.
+
+Plain `wrangler dev` on the build output fails at boot with `[varlock] no __VARLOCK_ENV binding found`, because nothing supplies the binding there. `varlock run -- wrangler dev` does not help either: workerd never sees the host process env.
+
+## Deployment
+
+```bash
+vite build && varlock-wrangler deploy --config dist/server/wrangler.json
+```
+
+`varlock-wrangler deploy` resolves your env, uploads non-sensitive items as vars and sensitive items as secrets, and then runs the normal wrangler deploy. `varlock-wrangler versions upload` works the same way.
+
+`vinext-cloudflare deploy` cannot be used with varlock. It calls wrangler's `versions upload` / `deploy` through wrangler's API rather than spawning the `wrangler` binary, so there is no seam for `varlock-wrangler` to inject the env, and the deployed Worker fails at boot. The Worker bundle `varlock-wrangler deploy` ships is the same build output; what you lose by switching are vinext's cache-warming flags.
+
+If you deploy through [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/), override the deploy command in the dashboard under **Settings → Build → Deploy command** with `npx varlock-wrangler deploy --config dist/server/wrangler.json`, and set any secret-zero vars varlock needs during load under **Build variables**. See [Workers Builds configuration](/integrations/cloudflare/#cloudflare-workers-builds-cicd).
+
+## Log redaction and leak prevention
+
+Sensitive values are redacted from `console.*` output on the server, including the copy of server logs that React forwards to the browser console in dev. Responses are scanned, so a Route Handler or Server Component that would send a sensitive value out errors instead of leaking it. See the [secrets guide](/guides/secrets/) for details and the limits of the scanning.
+
+## Dynamic+public config
+
+Public values are inlined into client code at build time unless marked [`@dynamic`](/reference/item-decorators/#dynamic). Server code keeps reading `ENV.KEY` at runtime, so dynamic values work there without extra setup. For a public+dynamic value in a client component, expose it from a Route Handler and load it with `loadPublicDynamicEnv()`, as described in the [dynamic config guide](/guides/dynamic-config/#loading-from-a-server-endpoint).
+
+## When things go wrong
+
+### `no __VARLOCK_ENV binding found` at Worker startup
+
+You ran the build output with plain `wrangler dev`, or deployed it with plain `wrangler deploy` / `vinext-cloudflare deploy`. Use `varlock-wrangler dev` or `varlock-wrangler deploy` with the same `--config dist/server/wrangler.json`.
+
+### `Rolldown failed to resolve import "virtual:vite-rsc/encryption-key"`
+
+The `viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] }` option is missing from `varlockCloudflareVitePlugin()`. App Router projects need it.
+
+### `.dev.vars` conflicts
+
+Delete `.dev.vars` and `.dev.vars.<environment>`. Varlock injects the env itself, and leftover wrangler env files would shadow it.
