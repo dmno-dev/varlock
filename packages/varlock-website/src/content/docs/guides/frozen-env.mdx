@@ -11,7 +11,7 @@ Who does the freezing depends on what you deploy:
 
 | You deploy | Frozen by | Automatic? |
 | --- | --- | --- |
-| Next.js | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Cloudflare (OpenNext). There is no setting for other hosts: a self-hosted `next start` resolves at boot, or boots from a frozen file via `varlock run --frozen -- next start` |
+| Next.js | [The integration, in your build output](#freezing-in-build-output) | On Vercel, Netlify, Cloudflare Workers Builds, AWS Amplify, and OpenNext. Elsewhere, set `freezeIntoBundle: true`, or boot from a frozen file via `varlock run --frozen -- next start`. Standalone builds must pick one explicitly |
 | Astro | [The integration, in your build output](#freezing-in-build-output) | On Vercel and Netlify. Elsewhere, set the build-output mode |
 | Nuxt, SvelteKit, TanStack Start, plain Vite SSR | [The integration, in your build output](#freezing-in-build-output) | No. Set the build-output mode |
 | Cloudflare Workers | [`varlock-wrangler deploy`](/integrations/cloudflare/) | Yes |
@@ -26,13 +26,13 @@ Whichever route, a rotated secret takes effect on the next build or deploy, not 
 The framework integrations have done this for a long time. In build-output mode they resolve the whole graph during the build and inject it into the server-side output, and the runtime initializes from that instead of resolving.
 
 - **Vite-based frameworks** (Astro, Nuxt, SvelteKit, TanStack Start, plain Vite SSR): [`ssrInjectMode: 'resolved-env'`](/integrations/vite/#ssr-code-injection) is the frozen mode. Only Astro picks it on its own, when the adapter is `@astrojs/vercel` or `@astrojs/netlify`. Everything else defaults to resolving at boot (`init-only`, which expects `varlock run`, or `auto-load`), so set `resolved-env` explicitly.
-- **Next.js**: the [config plugin](/integrations/nextjs/) bakes the resolved env into the build output when it detects Vercel or an OpenNext Cloudflare build, so the production server does not re-load `.env` files and nothing needs to be configured on the platform beyond the encryption key. It has no mode setting: on any other host `next start` resolves at boot through the CLI, and `varlock run --frozen -- next start` is the way to boot it from a `varlock freeze` file.
+- **Next.js**: the [config plugin](/integrations/nextjs/#freezing-the-env-into-the-build) freezes the env into the build output with `freezeIntoBundle: 'auto'` (the default) when it detects Vercel, Netlify, Cloudflare Workers Builds, AWS Amplify, or an OpenNext build, and with `freezeIntoBundle: true` anywhere. Otherwise the server resolves at boot through the CLI, and `varlock run --frozen -- next start` boots it from a `varlock freeze` file.
 - **Cloudflare Workers** are the odd one out: nothing goes into the bundle. [`varlock-wrangler deploy`](/integrations/cloudflare/) resolves at deploy time and uploads the result as a secret binding attached to that Worker version, which rolls back with it.
 
-Everything this guide says about a frozen env applies to a build-output freeze: values are as of the build, the runtime needs no CLI, no `.env` files, and no resolver credentials, and rotating a secret means rebuilding. Two things are specific to the build-output route today:
+Everything this guide says about a frozen env applies to a build-output freeze: values are as of the build, the runtime needs no CLI, no `.env` files, and no resolver credentials, and rotating a secret means rebuilding. The integrations differ in two ways today:
 
-- The injected blob is **plaintext by default**. Enable [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) to encrypt it, with `_VARLOCK_ENV_KEY` set at both build time and runtime. The [encrypted deployments guide](/guides/encrypted-deployments/) covers key management per platform. Cloudflare needs nothing: `varlock-wrangler deploy` generates and stores the key for you.
-- [Boot keys](#keys-supplied-at-boot) (`@dynamic=boot`) are a `varlock freeze` feature. A build-output freeze has no per-instance override step yet, so a value the platform must supply at process start should be read from `process.env` directly rather than declared in the schema.
+- **Encryption.** Next.js requires it: a frozen build needs `_VARLOCK_ENV_KEY` at both build time and runtime, unless you set `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1`. The Vite-based integrations inject a **plaintext** blob by default; enable [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) to encrypt it. The [encrypted deployments guide](/guides/encrypted-deployments/) covers key management per platform. Cloudflare needs nothing: `varlock-wrangler deploy` generates and stores the key for you.
+- **[Boot keys](#keys-supplied-at-boot)** (`@dynamic=boot`). Next.js applies them at boot, like `varlock freeze`. The Vite-based integrations have no per-instance override step yet, so there a value the platform must supply at process start should be read from `process.env` directly rather than declared in the schema.
 
 If an integration covers you, the rest of this guide is background. The sections below are about `varlock freeze`.
 
@@ -246,11 +246,12 @@ Every route can ship the frozen env encrypted with AES-256-GCM, decrypted at run
 
 | Route | Encrypted by default? | How to enable | Key must be present at |
 | --- | --- | --- | --- |
-| Build output (Vite-based, Next.js) | No. Plaintext JSON in the server bundle, with a build-time warning on Vercel | [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) in the schema | Build and runtime |
+| Build output (Next.js) | Yes. The build fails without a key unless you set `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1` | Set `_VARLOCK_ENV_KEY` before building | Build and runtime |
+| Build output (Vite-based) | No. Plaintext JSON in the server bundle | [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) in the schema | Build and runtime |
 | Cloudflare Workers | Yes | Nothing to do. `varlock-wrangler deploy` generates the key and uploads it as a secret | Handled by the deploy |
 | `varlock freeze` (file or `--out -`) | Yes. The command refuses to run without a key unless you pass `--allow-plaintext` | Set `_VARLOCK_ENV_KEY` before running `freeze` | Freeze and runtime |
 
-A plaintext build-output blob is only readable by whoever can read your server bundle, which is why it is the default there. A `varlock freeze` file travels further (between build stages, into CI artifact retention, out through `docker cp`), which is why encryption is required there. Either way, encryption protects the artifact at rest and in transit, not against someone with code execution in the running process, where the key sits next to the data. See [encrypted deployments](/guides/encrypted-deployments/) for key management on each platform.
+A plaintext build-output blob is only readable by whoever can read your server bundle, which is why the Vite-based integrations still default to it. A `varlock freeze` file travels further (between build stages, into CI artifact retention, out through `docker cp`), which is why encryption is required there. Either way, encryption protects the artifact at rest and in transit, not against someone with code execution in the running process, where the key sits next to the data. See [encrypted deployments](/guides/encrypted-deployments/) for key management on each platform.
 
 ## Tradeoffs
 

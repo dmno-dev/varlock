@@ -49,7 +49,10 @@ const IS_TURBOPACK = !!(
 
 **Turbopack approach:** Turbopack writes `[turbopack]_runtime.js` files during compilation. We patch `fs.promises.writeFile` / `fs.writeFileSync` to detect when build milestone files are written (e.g., `export-detail.json`), then walk `.next/` to find and patch the runtime files.
 
-Both approaches inline `process.env.__VARLOCK_ENV` into the runtime so the deployed server doesn't need a `.env.production.local` file.
+Both approaches prepend a prelude from `freeze-into-bundle.ts` ahead of the init bundle. What it contains depends on the build's freeze decision (`freezeIntoBundle`, decided once per build and handed to build workers via `__VARLOCK_NEXT_FREEZE_DECISION`):
+
+- **Frozen** (Vercel/Netlify/Workers Builds/OpenNext with `'auto'`, or `true`): the encrypted frozen env, assigned outright (it wins over any ambient `__VARLOCK_ENV`), plus the `varlock/frozen-env-boot` bundle when the frozen env has `@dynamic=boot` items. The same payload is recorded in the next config's `env` (`_VARLOCK_FROZEN_BUNDLE_ENV`), which Next writes to `required-server-files.json` / the standalone server config; `next-env-compat` reads it back at boot and boots the server process from it before `next.config` runs.
+- **Not frozen**: no env at all, only a hint printed when no resolved env reached the server. `next-env-compat` resolves at boot through the CLI and exits with the fixes when the CLI is unavailable.
 
 ### 4. Per-File Init Guards (Loader)
 

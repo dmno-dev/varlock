@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { encryptEnvBlobSync } from 'varlock/encrypt-env';
+import { getRuntimePrelude } from './freeze-into-bundle';
 
 function debug(...args: Array<any>) {
   if (!process.env.DEBUG_VARLOCK_NEXT_INTEGRATION) return;
@@ -20,39 +20,6 @@ function debug(...args: Array<any>) {
 let injectedTurbopackRuntime = false;
 export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   if (injectedTurbopackRuntime) return;
-
-  const rawEnv = process.env.__VARLOCK_ENV;
-  if (!rawEnv) {
-    return;
-  }
-
-  const encryptionKey = process.env._VARLOCK_ENV_KEY;
-  let encryptionRequired = false;
-  try {
-    const parsed = JSON.parse(rawEnv);
-    encryptionRequired = !!parsed?.settings?.encryptInjectedEnv;
-  } catch { /* ignore parse errors */ }
-  if (encryptionRequired && !encryptionKey) {
-    throw new Error(
-      '[varlock] @encryptInjectedEnv is enabled but _VARLOCK_ENV_KEY is not set.\n'
-      + 'Generate a key with `varlock generate-key` and set it on your platform.\n'
-      + 'See https://varlock.dev/guides/encrypted-deployments/ for details.',
-    );
-  }
-  // The baked env is a build-time fallback. Flag the payload as build-resolved so
-  // `initVarlockEnv` skips its stale-echo cleanup and never deletes runtime-provided
-  // vars. The flag lives INSIDE the payload so it travels with the blob (child
-  // processes, encryption round-trips) and can never outlive it.
-  let envPayload = rawEnv;
-  try {
-    envPayload = JSON.stringify({ ...JSON.parse(envPayload), injectedAtBuild: true });
-  } catch {
-    // not plaintext JSON (e.g. an already-encrypted ambient blob) - bake as-is,
-    // without provenance, so the boot behaves like a plain injected blob
-  }
-  if (encryptionKey) {
-    envPayload = encryptEnvBlobSync(envPayload, encryptionKey);
-  }
 
   // Find turbopack runtime files ([turbopack]_runtime.js) and edge-wrapper files.
   // Node.js SSR/build uses [turbopack]_runtime.js, while edge runtime uses
@@ -84,24 +51,12 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // Mark as done so we don't retry
   injectedTurbopackRuntime = true;
 
-  // Vercel has no native runtime-binding mechanism, so baking the resolved env
-  // into the build is the correct approach there — but plaintext means secrets
-  // sit as JSON in the build artifact. Nudge (don't block) users who haven't
-  // opted into `@encryptInjectedEnv`. Placed after the guard above so it only
-  // fires once (this function is called repeatedly until the runtime files
-  // are found, per the early return above).
-  if (process.env.VERCEL === '1' && !encryptionRequired) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[varlock] ⚠️ Deploying to Vercel ships your resolved env as plaintext JSON in the build artifact. '
-      + 'Consider enabling `@encryptInjectedEnv` — see https://varlock.dev/guides/encrypted-deployments/',
-    );
-  }
-
   // Load both init bundles — server (full, node:zlib/node:http) and edge (no node builtins)
   const initServerSrc = fs.readFileSync(require.resolve('varlock/init-server'), 'utf8');
   const initEdgeSrc = fs.readFileSync(require.resolve('varlock/init-edge'), 'utf8');
-  const envInline = `process.env.__VARLOCK_ENV = process.env.__VARLOCK_ENV || ${JSON.stringify(envPayload)};`;
+  // a frozen build bakes its frozen env in here; otherwise nothing is baked and the server
+  // resolves at boot (see freeze-into-bundle)
+  const prelude = getRuntimePrelude();
 
   // The CJS init bundles use `exports.X = ...` at the end, so we must provide
   // a dummy `exports` object when wrapping in an IIFE to avoid ReferenceError.
@@ -111,7 +66,7 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   for (const runtimeFile of serverRuntimeFiles) {
     const origSource = fs.readFileSync(runtimeFile, 'utf8');
     const updatedSource = [
-      envInline,
+      prelude,
       iifeWrap(initServerSrc),
       origSource,
     ].join('\n');
@@ -123,7 +78,7 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   for (const wrapperFile of edgeWrapperFiles) {
     const origSource = fs.readFileSync(wrapperFile, 'utf8');
     const updatedSource = [
-      envInline,
+      prelude,
       iifeWrap(initEdgeSrc),
       origSource,
     ].join('\n');

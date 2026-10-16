@@ -140,6 +140,12 @@
       "require": "./dist/runtime/init-edge.cjs",
       "default": "./dist/runtime/init-edge.cjs"
     },
+    "./frozen-env-boot": {
+      "ts-src": "./src/runtime/frozen-env-boot.ts",
+      "types": "./dist/runtime/frozen-env-boot.d.cts",
+      "require": "./dist/runtime/frozen-env-boot.cjs",
+      "default": "./dist/runtime/frozen-env-boot.cjs"
+    },
     "./encrypt-env": {
       "ts-src": "./src/runtime/crypto.ts",
       "import": {

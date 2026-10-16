@@ -220,6 +220,18 @@ describe('varlock load next to a frozen file', () => {
     expect(result.stderr).not.toContain('frozen');
   });
 
+  test('--defer-boot-required lets a build resolve with a required boot item unset, like freeze', () => {
+    const strict = runVarlock(['load', '--format', 'json-full'], { cwd: SCENARIO, env: isolatedEnv() });
+    expect(strict.exitCode).not.toBe(0);
+
+    const deferred = runVarlock(['load', '--format', 'json-full', '--defer-boot-required'], { cwd: SCENARIO, env: isolatedEnv() });
+    expect(deferred.exitCode, deferred.output).toBe(0);
+    const graph = JSON.parse(deferred.stdout);
+    expect(graph.errors).toBeUndefined();
+    expect(graph.config.INSTANCE_ID.value).toBeUndefined();
+    expect(graph.config.INSTANCE_ID.boot).toMatchObject({ required: true });
+  });
+
   test('--frozen is the flag form of _VARLOCK_USE_FROZEN_ENV', () => {
     const env = isolatedEnv({ _VARLOCK_ENV_KEY: encryptionKey, INSTANCE_ID: 'i-1' });
     const bare = runVarlock(['load', '--frozen', '--format', 'json'], { cwd: SCENARIO, env });

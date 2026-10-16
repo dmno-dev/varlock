@@ -23,6 +23,10 @@ Set these in your shell, CI, or deploy environment to configure varlock's behavi
 
 Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments. See [Encrypted deployments](/guides/encrypted-deployments/).
 
+### `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV`
+
+Set to `1` in the build environment to let a Next.js build [freeze the env into its output](/integrations/nextjs/#freezing-the-env-into-the-build) without encrypting it. Without it, a frozen build fails when `_VARLOCK_ENV_KEY` is not set.
+
 ### `_VARLOCK_CACHE_KEY`
 
 Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secret), it enables the disk cache in environments without OS keychain access. See [Caching](/guides/caching/).

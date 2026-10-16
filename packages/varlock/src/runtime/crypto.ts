@@ -17,7 +17,11 @@ import type * as NodeCrypto from 'node:crypto';
 let cachedNodeCrypto: typeof NodeCrypto | undefined;
 function getNodeCrypto(): typeof NodeCrypto {
   if (!cachedNodeCrypto) {
-    cachedNodeCrypto = (globalThis as any).process?.getBuiltinModule?.('node:crypto');
+    try {
+      cachedNodeCrypto = (globalThis as any).process?.getBuiltinModule?.('node:crypto');
+    } catch {
+      // Next.js's edge sandbox throws on any Node.js API access instead of leaving it undefined
+    }
     if (!cachedNodeCrypto) {
       try {
         // fallback for CJS bundles running on node < 22.3 (no process.getBuiltinModule)

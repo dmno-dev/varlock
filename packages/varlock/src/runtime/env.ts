@@ -4,6 +4,7 @@ import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
+import { envValueMatchesBlobItem } from '../lib/injected-env-provenance';
 
 // TODO: would like to move all of the redaction utils out of this file
 // but its complicated since it is imported by code that may be run in the backend and frontend
@@ -628,6 +629,8 @@ type EnvState = {
   originalProcessEnv: Record<string, string | undefined>,
   /** keys injected into process.env by the last init/reload (undefined = never injected) */
   injectedProcessEnvKeys: Array<string> | undefined,
+  /** the frozen-env conflict warning was shown (once per process) */
+  warnedFrozenConflicts?: boolean,
 };
 
 const processExists = !!globalThis.process;
@@ -677,6 +680,45 @@ export function getPreInjectionProcessEnv(): Record<string, string | undefined> 
   return getEnvState().originalProcessEnv;
 }
 
+/**
+ * Boot-time handling of a frozen env (`frozen: true`): it is total, so its values win over the
+ * environment at boot, except for `@dynamic=boot` items.
+ *
+ * Boot values of a frozen env from a file or env var were already applied CLI-side. One baked
+ * into a bundle gets them from the `varlock/frozen-env-boot` bundle, which an integration
+ * prepends only when the frozen env has boot items (it carries the data type code, kept out of
+ * this module because it also lands in client bundles).
+ *
+ * Then warns once about other keys whose value at boot differs from the frozen one: frozen
+ * values win for those, and the warning is how a value meant to vary per instance gets noticed.
+ * Only cases that can be compared count: an ambient value where the frozen one is undefined, or
+ * a differing value for a non-sensitive item (a sensitive item's raw override string is not
+ * recorded, so a coerced sensitive value cannot be told apart from an equivalent raw one).
+ */
+function prepareFrozenEnv(graph: SerializedEnvGraph): SerializedEnvGraph {
+  const bootEnv = getPreInjectionProcessEnv();
+  const bootKeys = Object.keys(graph.config).filter((key) => graph.config[key].boot);
+  const applyBootValues = (globalThis as any).__varlockApplyFrozenBootValues;
+  let prepared = graph;
+  if (bootKeys.length && applyBootValues) prepared = applyBootValues(graph, bootEnv);
+
+  const conflicts: Array<string> = [];
+  for (const [key, item] of Object.entries(prepared.config)) {
+    if (bootKeys.includes(key) || !(key in bootEnv)) continue;
+    if (item.value !== undefined && item.isSensitive) continue;
+    if (!envValueMatchesBlobItem(bootEnv[key], item, prepared.settings)) conflicts.push(key);
+  }
+  if (conflicts.length && !envState.warnedFrozenConflicts) {
+    envState.warnedFrozenConflicts = true;
+    // eslint-disable-next-line no-console
+    console.warn([
+      `[varlock] ⚠️ the environment at boot sets ${conflicts.join(', ')}, but this app runs on a frozen env, so the frozen value${conflicts.length === 1 ? ' is' : 's are'} used.`,
+      '  If a key is meant to be set per instance, mark it @dynamic=boot in your schema.',
+    ].join('\n'));
+  }
+  return prepared;
+}
+
 export function initVarlockEnv(opts?: {
   allowFail?: boolean,
 }) {
@@ -716,7 +758,9 @@ export function initVarlockEnv(opts?: {
     // (runtimes without node:crypto) — treat as not-yet-available rather than
     // exploding in JSON.parse
     if (process.env.__VARLOCK_ENV.startsWith('varlock:v1:')) {
-      if (opts?.allowFail) return;
+      // the edge init's pending decrypt finishes init itself (an init guard in a shared file,
+      // e.g. instrumentation compiled for edge, can run first)
+      if (opts?.allowFail || (globalThis as any).__varlockEnvReady) return;
       throw new Error('[varlock] env blob is still encrypted — decryption has not completed yet');
     }
     serializedEnvData = JSON.parse(process.env.__VARLOCK_ENV);
@@ -739,6 +783,8 @@ export function initVarlockEnv(opts?: {
     ].join('\n'));
     throw new Error('initVarlockEnv failed');
   }
+  if (serializedEnvData.frozen) serializedEnvData = prepareFrozenEnv(serializedEnvData);
+
   // replaced in place (module instances hold references), dropping settings the new graph no
   // longer sets
   for (const staleKey of Object.keys(varlockSettings)) {
@@ -764,7 +810,12 @@ export function initVarlockEnv(opts?: {
   if (setProcessEnv) {
     if (envState.injectedProcessEnvKeys) {
       for (const key of envState.injectedProcessEnvKeys) delete process.env[key];
-      for (const key of Object.keys(envState.originalProcessEnv)) process.env[key] = envState.originalProcessEnv[key];
+      for (const key of Object.keys(envState.originalProcessEnv)) {
+        // the blob is this function's input, not a value it injected: whoever set the current
+        // one (a dev reload, a frozen env replacing an ambient blob) must not see it reverted
+        if (key === '__VARLOCK_ENV') continue;
+        process.env[key] = envState.originalProcessEnv[key];
+      }
     }
     envState.injectedProcessEnvKeys = [];
   }
