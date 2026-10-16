@@ -34,6 +34,13 @@
 
 
 
+
+## 1.23.1
+<sub>2026-10-16</sub>
+
+- [#1227](https://github.com/dmno-dev/varlock/pull/1227)  *(patch)* - Release cache locks when interrupted right after acquiring them, instead of leaving an orphaned lock
+- [#1226](https://github.com/dmno-dev/varlock/pull/1226)  *(patch)* - macOS standalone binaries are now Developer ID signed and notarized, with hardened runtime enabled
+
 ## 1.23.0
 <sub>2026-10-13</sub>
 

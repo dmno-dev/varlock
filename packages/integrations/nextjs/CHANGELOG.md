@@ -18,6 +18,13 @@
 
 
 
+
+## 1.2.6
+<sub>2026-10-16</sub>
+
+- [#1237](https://github.com/dmno-dev/varlock/pull/1237)  *(patch)*
+  Fix env file watchers keeping short-lived processes (such as Next's telemetry helper after `next dev` stops) running forever
+
 ## 1.2.5
 <sub>2026-10-13</sub>
 
