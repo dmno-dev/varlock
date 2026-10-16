@@ -128,6 +128,10 @@ describe.skipIf(process.platform === 'win32')('FIFO env sources (e.g. 1Password 
     expect(watchedPaths).toContain(path.join(tmpDir, '.env.schema'));
     expect(watchedPaths).not.toContain(fifoEnvPath);
     expect(watchedPaths).not.toContain(fifoExtraPath);
+    // watchers must not keep short-lived processes alive (e.g. next's telemetry helper, #1235)
+    for (const call of mockWatchFile.mock.calls) {
+      expect(call[1]).toMatchObject({ persistent: false });
+    }
 
     // the source-state hashing must not have read the FIFOs
     expect(readFileSyncCallsFor(fifoEnvPath)).toHaveLength(0);
