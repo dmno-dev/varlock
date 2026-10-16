@@ -45,14 +45,14 @@ export const CLOUDFLARE_SSR_ENTRY_CODE = `
     }
   } else if (__cfEnv && !globalThis.__varlockLoadedEnv && !globalThis.__varlockEncryptedEnv) {
     // running in workerd with no binding and nothing baked in: initVarlockEnv() would fail
-    // next with generic advice (auto-load, varlock run) that cannot apply inside a Worker,
-    // so name the actual fix. Typical cause: stock \`wrangler dev\`/\`wrangler deploy\` on
-    // the build output instead of the varlock-wrangler equivalents.
+    // next with generic advice (auto-load, varlock run) that cannot apply inside a Worker.
+    // Typical cause: the build output was run or deployed with a tool that does not inject
+    // varlock's env (plain wrangler, a framework's own deploy command). The message stays
+    // tool-agnostic and defers to the docs, which track the supported commands as they change.
     throw new Error(
       "[varlock] no __VARLOCK_ENV binding found on this Worker. Varlock injects it in \`vite dev\` and \`vite preview\`; "
-      + "for the built output run \`varlock-wrangler dev\` instead of \`wrangler dev\`, and deploy with "
-      + "\`varlock-wrangler deploy\` instead of \`wrangler deploy\` (pass the same --config). "
-      + "See https://varlock.dev/integrations/cloudflare/"
+      + "for the built output, run and deploy through varlock's wrappers rather than the Cloudflare CLI directly. "
+      + "See https://varlock.dev/integrations/cloudflare/#missing-env-binding"
     );
   }
 }

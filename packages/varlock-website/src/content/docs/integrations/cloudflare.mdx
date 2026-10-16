@@ -416,9 +416,11 @@ If this blocks your setup, join [Discord](https://chat.dmno.dev) and share your 
 
 Your worker is missing the Node.js compatibility layer. Add `nodejs_compat` to `compatibility_flags`; see the **`nodejs_compat` caution** near the top of this page.
 
-### `no __VARLOCK_ENV binding found` or `initVarlockEnv failed` at Worker startup
+### `no __VARLOCK_ENV binding found` or `initVarlockEnv failed` at Worker startup ||missing-env-binding||
 
-The built Worker only gets its env from the `__VARLOCK_ENV` binding, which `varlock-wrangler dev` / `varlock-wrangler deploy` supply (and `vite dev` / `vite preview` inject for you). Plain `wrangler dev` on the build output, a plain `wrangler deploy`, or a third-party deploy tool that drives wrangler itself (for example `vinext-cloudflare deploy`) leaves it out, and the Worker throws at boot. Swap in the `varlock-wrangler` equivalent with the same `--config` argument. `varlock run -- wrangler dev` does not help: workerd never sees the host process env.
+The built Worker only gets its env from the `__VARLOCK_ENV` binding. `vite dev` and `vite preview` inject it for you; for the build output, `varlock-wrangler dev` and `varlock-wrangler deploy` supply it. Plain `wrangler dev` on the build output, a plain `wrangler deploy`, or a third-party deploy tool that drives wrangler itself (for example `vinext-cloudflare deploy`) leaves it out, and the Worker throws at boot. Swap in the `varlock-wrangler` equivalent with the same `--config` argument. `varlock run -- wrangler dev` does not help: workerd never sees the host process env.
+
+The `cf` CLI (`cloudflare.config.ts`) is not supported yet; this entry will list its varlock equivalent when it is.
 
 ### `.dev.vars` conflicts with the Vite plugin
 
