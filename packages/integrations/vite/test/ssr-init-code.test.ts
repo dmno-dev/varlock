@@ -279,6 +279,8 @@ describe('transformIndexHtml + SvelteKit', () => {
   });
 });
 
+// the re-patch tests drive the real console.log on purpose
+/* eslint-disable no-console */
 describe('RSC dev console replay re-patch', () => {
   // mirrors react-server-dom-*-server.*.development.js: at load it wraps the console methods
   // with a wrapper that captures the call args (there: serializes them into the flight
