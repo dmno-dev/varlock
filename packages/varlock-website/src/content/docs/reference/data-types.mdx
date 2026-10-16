@@ -165,19 +165,15 @@ MY_BOOL=true
 ### `url`
 Checks for an absolute URL written as `scheme://...`, using `http` or `https` unless `allowedProtocols` says otherwise.
 
-`new URL()` alone accepts any `word:rest` string (so an SSH key fingerprint like `SHA256:nThbg6...` parses as a URL with a `sha256:` scheme) and silently repairs malformed input, so varlock also flags a value that:
+`new URL()` alone accepts any `word:rest` string (so an SSH key fingerprint like `SHA256:nThbg6...` parses as a URL with a `sha256:` scheme) and silently repairs malformed input, so varlock also rejects a value that:
 - does not start with `scheme://` (`mailto:` and `data:` URLs are not accepted)
 - contains whitespace or control characters anywhere, including leading or trailing
-- has no host, unless `allowNoHost=true`. For `http`, `https`, `ws`, `wss`, and `ftp` a host is always required (`https:///example.com` is flagged)
+- has no host, unless `allowNoHost=true`. For `http`, `https`, `ws`, `wss`, and `ftp` a host is always required (`https:///example.com` is rejected)
 - for those same schemes, uses a backslash, a percent-encoded host, IPv4 shorthand like `http://0x7f.1` (write `http://127.0.0.1`), or a hostname with empty labels or labels starting or ending in `-`
 
-:::caution
-These checks, and the `http`/`https` default for `allowedProtocols`, are warnings for now and become errors in the next major version. To silence a protocol warning, set `allowedProtocols` explicitly.
-:::
-
 **Options:**
-- `prependHttps` (boolean): Automatically prepend "https://" if no protocol is specified. A `host:port` value like `localhost:3000` counts as having no protocol, unless `allowedProtocols` lists the part before the colon
-- `allowedProtocols` (string[]): List of allowed protocols. Protocol names are case-insensitive and can include the trailing colon. If omitted, only `http` and `https` are allowed (a warning until the next major version). Use `allowedProtocols="*"` to allow any protocol
+- `prependHttps` (boolean): Prepend `https://` if the value does not start with `scheme://`, so `example.com/foo` and `localhost:3000` both get the prefix
+- `allowedProtocols` (string[]): List of allowed protocols. Protocol names are case-insensitive and can include the trailing colon. If omitted, only `http` and `https` are allowed. Use `allowedProtocols="*"` to allow any protocol
 - `allowNoHost` (boolean): Allow URLs with no host, like `sqlite:///app.db`, `file:///etc/hosts`, or `postgresql:///mydb?host=/var/run/postgresql`. Has no effect for `http`, `https`, `ws`, `wss`, and `ftp`, which always need a host
 - `allowedDomains` (string[]): List of allowed hosts, matched in full and case-insensitively. An entry without a port allows any port, so `[localhost]` accepts `http://localhost:3000`; add a port to pin it (`["localhost:3000"]`). Each entry must be a hostname with an optional port: a scheme, path, or credentials in an entry is an error, as is an empty list. A bare string is treated as a single host; list two or more as an array. When set, the URL's host must be written plainly so every URL parser reads the same host: values with backslashes, whitespace, a percent-encoded host, a non-ASCII host (write internationalized domains in punycode, like `xn--mnchen-3ya.de`), IPv4 shorthand (`http://0x7f.1`), or no `scheme://host` prefix are rejected
 - `noTrailingSlash` (boolean): Disallow a trailing slash on the URL, so the value is safe to concatenate onto. A root `/` counts, so `https://example.com/` is rejected while `https://example.com` passes
