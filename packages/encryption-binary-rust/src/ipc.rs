@@ -514,6 +514,7 @@ fn verify_unix_client(stream: &UnixStream) -> bool {
         "varlock",
         "node",
         "bun",
+        "deno",
     ];
 
     let is_trusted = allowed.iter().any(|name| exe_name == *name);
@@ -925,6 +926,7 @@ fn verify_client_process(pipe: windows::Win32::Foundation::HANDLE) -> bool {
         "varlock.exe",
         "node.exe",   // Node.js daemon client on native Windows
         "bun.exe",    // Bun runtime on native Windows
+        "deno.exe",   // Deno runtime on native Windows
     ];
 
     let is_trusted = allowed.iter().any(|name| client_filename == *name);
