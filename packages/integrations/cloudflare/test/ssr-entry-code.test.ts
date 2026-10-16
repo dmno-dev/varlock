@@ -42,7 +42,7 @@ describe('CLOUDFLARE_SSR_ENTRY_CODE', () => {
   });
 
   it('names the fix when the Worker has no binding (stock wrangler dev/deploy)', async () => {
-    await expect(runEntryCode({ OTHER: 'x' })).rejects.toThrow(/no __VARLOCK_ENV binding found.*integrations\/cloudflare\/#missing-env-binding/);
+    await expect(runEntryCode({ OTHER: 'x' })).rejects.toThrow(/no __VARLOCK_ENV binding found.*integrations\/cloudflare\//);
   });
 
   it('stays quiet outside Workers, where the init module reads process.env instead', async () => {

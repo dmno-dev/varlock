@@ -52,7 +52,7 @@ export const CLOUDFLARE_SSR_ENTRY_CODE = `
     throw new Error(
       "[varlock] no __VARLOCK_ENV binding found on this Worker. Varlock injects it in \`vite dev\` and \`vite preview\`; "
       + "for the built output, run and deploy through varlock's wrappers rather than the Cloudflare CLI directly. "
-      + "See https://varlock.dev/integrations/cloudflare/#missing-env-binding"
+      + "See https://varlock.dev/integrations/cloudflare/"
     );
   }
 }
