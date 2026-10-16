@@ -325,10 +325,12 @@ describe('RSC dev console replay re-patch', () => {
     };
   }
 
-  it('exposes the console patch on globalThis from the init module', async () => {
+  it('exposes the console patch on globalThis from the init module, in every inject mode', async () => {
     const { buildVarlockSsrInitCode } = await importPlugin();
-    const code = buildVarlockSsrInitCode({ isDev: true });
-    expect(code).toContain('globalThis.__varlockPatchConsole = __varlockPatchConsole.patchGlobalConsole;');
+    const exposed = 'globalThis.__varlockPatchConsole = __varlockPatchConsole.patchGlobalConsole;';
+    expect(buildVarlockSsrInitCode({ isDev: true })).toContain(exposed);
+    expect(buildVarlockSsrInitCode({ isDev: true, ssrInjectMode: 'auto-load' })).toContain(exposed);
+    expect(buildVarlockSsrInitCode({ isDev: true, ssrInjectMode: 'auto-load', preserveSideEffectImports: true })).toContain(exposed);
   });
 
   it('inserts the re-patch right after the statement that installs the React wrapper', async () => {

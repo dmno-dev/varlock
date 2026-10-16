@@ -421,6 +421,12 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
     } else {
       lines.push("import 'varlock/auto-load';");
     }
+    // auto-load patches the console itself, but the RSC console replay re-patch in `transform`
+    // still needs the patch function on the same global the init-only path sets below
+    lines.push(
+      "import * as __varlockPatchConsole from 'varlock/patch-console';",
+      'globalThis.__varlockPatchConsole = __varlockPatchConsole.patchGlobalConsole;',
+    );
   } else {
     if (ssrInjectMode === 'resolved-env') {
       // Only reject this for production builds. In dev, some adapters (e.g.
