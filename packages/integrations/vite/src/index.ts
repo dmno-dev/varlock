@@ -507,6 +507,9 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
     lines.push(
       'initVarlockEnv();',
       '__varlockPatchConsole.patchGlobalConsole();',
+      // same global the init-server/init-edge bundles expose, so code injected later
+      // (see the RSC console replay re-patch in `transform`) can re-wrap the console
+      'globalThis.__varlockPatchConsole = __varlockPatchConsole.patchGlobalConsole;',
     );
     if (!isEdgeRuntime) {
       lines.push(
@@ -526,6 +529,17 @@ export function buildVarlockSsrInitCode(opts: VarlockSsrInitCodeOptions = {}): s
 // consumer's — causing spurious type errors. Since Vite's `plugins` config
 // is loosely typed, this is functionally equivalent.
 const VARLOCK_INIT_MODULE_ID = '\0varlock-ssr-init';
+
+/**
+ * Detects a server module that installs React's dev-only RSC console replay wrapper when it
+ * evaluates (see `transform`). Two shapes:
+ * - the react-server-dom-*-server.*.development.js module itself, which patches the console
+ *   at its top level
+ * - the pre-bundled dep entry that invokes it: the dep optimizer wraps the CommonJS body in a
+ *   lazy `require_*` factory in a shared chunk, so the body only runs when the entry
+ *   (`react-server-dom-webpack/server.edge`, `.../static.edge`, ...) calls the factory
+ */
+const RSC_CONSOLE_REPLAY_RE = /patchConsole\(console,\s*["']assert["']\)|\brequire_react_server_dom_\w+_server_\w+_development\(\)/;
 
 /** varlock-owned vars that must be real env vars, never vite `define` entries */
 const RESERVED_DEFINE_KEYS = [
@@ -826,6 +840,21 @@ See https://varlock.dev/integrations/vite/ for more details.
         }
       }
       if (vitePluginOptions?.ssrEntryModuleIds?.includes(id)) isEntry = true;
+
+      // React's dev-only RSC console replay (react-server-dom-*-server.*.development.js) wraps
+      // every console method when it loads and serializes the ORIGINAL call args into the
+      // flight stream, so the browser devtools can show server logs. It loads after our init
+      // module, so its wrapper sits outside our redacting one and sees raw secrets, which then
+      // land in the RSC payload (and get caught by response leak detection, truncating the
+      // page). Re-patching right after it evaluates puts our wrapper back on the outside, the
+      // same way the Next.js integration re-patches in every server file. Matched on the
+      // code (not the id) because in dev the module is served from the pre-bundled deps cache,
+      // where the patching body lives in a shared chunk and runs lazily from the dep entry.
+      if (options?.ssr && RSC_CONSOLE_REPLAY_RE.test(code)) {
+        debug(`re-patching console after RSC dev console replay in: ${id}`);
+        magicString ||= new MagicString(code);
+        magicString.append('\n;if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();\n');
+      }
 
       if (isEntry) {
         debug(`detected entry: ${id}`);

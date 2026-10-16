@@ -278,3 +278,56 @@ describe('transformIndexHtml + SvelteKit', () => {
     expect(await resolvedHasHtmlHook([fakeSvelteKit])).toBe(false);
   });
 });
+
+describe('RSC dev console replay re-patch', () => {
+  // the call react-server-dom-*-server.*.development.js makes at load to install its
+  // console wrapper (which serializes raw log args into the flight stream)
+  const reactDevConsolePatch = 'function patchConsole(c, m) {}\n"object" === typeof console && (patchConsole(console, "assert"), patchConsole(console, "log"));\nexport const renderToReadableStream = () => {};\n';
+  const REPATCH = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
+
+  async function transformWith(code: string, id: string, opts?: { ssr?: boolean }) {
+    const { varlockVitePlugin } = await importPlugin();
+    const plugin = varlockVitePlugin().find((p: any) => typeof p.transform === 'function');
+    const ctx = {
+      environment: { mode: 'dev' },
+      getModuleInfo: () => ({ isEntry: false }),
+      getModuleIds: () => ['/fake-project/src/entry.ts'],
+    };
+    return plugin.transform.call(ctx, code, id, opts);
+  }
+
+  it('exposes the console patch on globalThis from the init module', async () => {
+    const { buildVarlockSsrInitCode } = await importPlugin();
+    const code = buildVarlockSsrInitCode({ isDev: true });
+    expect(code).toContain('globalThis.__varlockPatchConsole = __varlockPatchConsole.patchGlobalConsole;');
+  });
+
+  it('re-patches the console right after the React dev server module evaluates', async () => {
+    const id = '/fake-project/node_modules/.vite/deps_rsc/react-server-dom-webpack-server.edge.development-abc.js';
+    const result = await transformWith(reactDevConsolePatch, id, { ssr: true });
+    expect(result?.code).toContain(REPATCH);
+    expect(result!.code.trimEnd().endsWith(REPATCH)).toBe(true);
+  });
+
+  it('re-patches in the pre-bundled dep entry that lazily runs the React dev server body', async () => {
+    // the dep optimizer puts the CommonJS body in a shared chunk behind a `require_*` factory,
+    // so the console wrapper only installs when the entry module calls it
+    const entryCode = 'import { t as require_react_server_dom_webpack_server_edge_development } from "./react-server-dom-webpack-server.edge.development-C_IhC0YD.js";\n'
+      + 'var require_server_edge = __commonJSMin(((exports) => { var s = require_react_server_dom_webpack_server_edge_development(); exports.renderToReadableStream = s.renderToReadableStream; }));\n'
+      + 'export default require_server_edge();\n';
+    const id = '/fake-project/node_modules/.vite/deps_rsc/react-server-dom-webpack_server__edge.js?v=abc123';
+    const result = await transformWith(entryCode, id, { ssr: true });
+    expect(result?.code).toContain(REPATCH);
+    expect(result!.code.trimEnd().endsWith(REPATCH)).toBe(true);
+  });
+
+  it('leaves the production React build and client modules alone', async () => {
+    const prodId = '/fake-project/node_modules/react-server-dom-webpack/cjs/react-server-dom-webpack-server.edge.production.js';
+    const prodResult = await transformWith('export const renderToReadableStream = () => {};\n', prodId, { ssr: true });
+    expect(prodResult?.code ?? '').not.toContain(REPATCH);
+
+    const clientId = '/fake-project/node_modules/.vite/deps/react-server-dom-webpack-client.browser.development.js';
+    const clientResult = await transformWith(reactDevConsolePatch, clientId, { ssr: false });
+    expect(clientResult?.code ?? '').not.toContain(REPATCH);
+  });
+});
