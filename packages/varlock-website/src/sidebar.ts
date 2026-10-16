@@ -164,6 +164,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
               { label: 'SvelteKit', slug: 'integrations/sveltekit' },
               { label: 'TanStack Start', slug: 'integrations/tanstack-start' },
               { label: 'Cloudflare Workers', slug: 'integrations/cloudflare' },
+              { label: 'Alchemy', slug: 'integrations/alchemy', badge: 'new' },
               { label: 'Expo / React Native', slug: 'integrations/expo' },
             ],
           },
