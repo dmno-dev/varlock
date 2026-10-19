@@ -253,7 +253,7 @@ function patchBunWrite(patchedStreams: Partial<Record<StreamName, WritableLike>>
  * bypass the stream objects entirely (e.g. `fs.writeSync(1, ...)`, pino destinations and
  * worker-thread transports) are only covered by running under `varlock run`.
  *
- * Called alongside `patchGlobalConsole` by the node entry points (auto-load, init-server, the
+ * Called alongside `patchGlobalConsole` by the node entry points (auto-load, the init bundle, the
  * framework integrations). Kept out of `patchGlobalConsole` itself so the edge bundles, which
  * have no process streams, don't carry this code. A no-op unless opted in.
  */
@@ -261,7 +261,14 @@ export function patchProcessStreams() {
   if (typeof process === 'undefined') return;
   const patchedStreams: Partial<Record<StreamName, WritableLike>> = {};
   for (const streamName of ['stdout', 'stderr'] as const) {
-    const stream = process[streamName] as unknown as WritableLike | undefined;
+    let stream: WritableLike | undefined;
+    try {
+      stream = process[streamName] as unknown as WritableLike | undefined;
+    } catch {
+      // Next's dev edge sandbox throws on merely reading a node API off its `process` shim
+      // ("A Node.js API is used (process.stdout) which is not supported in the Edge
+      // Runtime") - there is no stream to patch there
+    }
     if (!stream || typeof stream.write !== 'function') continue;
     if ((stream as any)[PATCH_STATE_KEY]) {
       patchedStreams[streamName] = stream;

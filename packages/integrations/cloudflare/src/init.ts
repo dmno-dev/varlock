@@ -6,13 +6,11 @@
 //   import '@varlock/cloudflare-integration/init';
 //
 // This reads __VARLOCK_ENV from Cloudflare's secret bindings, initializes the
-// varlock ENV proxy, and applies edge-safe patches (console redaction, response
-// leak detection). Does NOT include patchGlobalServerResponse which requires
-// node:zlib and node:http.
+// varlock ENV proxy, and applies varlock's runtime patches (console redaction,
+// response leak detection). The sequence is the same one `varlock/auto-init` runs and is
+// edge-safe: patches that need node builtins become no-ops where those are missing.
 
-import { initVarlockEnv } from 'varlock/env';
-import { patchGlobalConsole } from 'varlock/patch-console';
-import { patchGlobalResponse } from 'varlock/patch-response';
+import { initVarlockRuntime } from 'varlock/init';
 import { isEncryptedBlob, decryptEnvBlobSync } from 'varlock/encrypt-env';
 
 // Frameworks also evaluate the server bundle in Node to prerender, and Node rejects the
@@ -58,9 +56,7 @@ if (__varlockEnvJson) {
 
 (globalThis as any).__varlockThrowOnMissingKeys = true;
 
-initVarlockEnv();
-patchGlobalConsole();
-patchGlobalResponse();
+initVarlockRuntime();
 
 // Re-export env utilities so consumers can use them without a separate import
 export {
