@@ -20,6 +20,9 @@ const BUNDLERS = BUNDLER_FILTER
   ? ALL_BUNDLERS.filter((b) => b === BUNDLER_FILTER)
   : ALL_BUNDLERS;
 
+/** an encrypted env payload (not just the `varlock:v1:` prefix, which the runtime code contains) */
+const ENCRYPTED_PAYLOAD_RE = /varlock:v1:[A-Za-z0-9+/=:_-]{100,}/;
+
 const EXPORT_CONFIG = {
   path: '_base/next.config.mjs' as const,
   replacements: { '// OUTPUT-MODE': "output: 'export'," },
@@ -589,9 +592,9 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             ],
           });
 
-          // The encrypted blob is produced by varlock before bundling, so bundler
-          // choice doesn't affect it — only run on the version's default bundler.
-          nextEnv.describeScenario('encrypted env blob with _VARLOCK_ENV_KEY', {
+          // Freezing the env into the bundle happens once per build, independent of the
+          // bundler's compilation, so these run only on the version's default bundler.
+          nextEnv.describeScenario('not frozen by default: no resolved env in the build output', {
             skip: webpackOrTurbo !== defaultBundler,
             command: buildCommand,
             env: { _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
@@ -599,12 +602,59 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
               'app/page.tsx': 'pages/basic-page.tsx',
             },
             expectSuccess: true,
+            outputAssertions: [
+              {
+                description: 'no freeze announcement',
+                shouldNotContain: ['frozen into the bundle'],
+              },
+            ],
             fileAssertions: [
               {
-                description: 'server JS files contain encrypted blob (varlock:v1: prefix) instead of plaintext',
+                description: 'server JS files carry no env payload, encrypted or not',
                 fileGlob: '.next/server/**/*.js',
-                shouldContain: ['varlock:v1:'],
                 shouldNotContain: ['super-secret-var'],
+                // the bare prefix appears in the varlock runtime code itself
+                shouldNotMatch: [ENCRYPTED_PAYLOAD_RE],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('frozen into the bundle on Vercel (auto), encrypted', {
+            skip: webpackOrTurbo !== defaultBundler,
+            command: buildCommand,
+            env: { VERCEL: '1', _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
+            templateFiles: {
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: true,
+            outputAssertions: [
+              {
+                description: 'build announces the freeze and why',
+                shouldContain: ['env frozen into the bundle (Vercel', 'encrypted with _VARLOCK_ENV_KEY'],
+              },
+            ],
+            fileAssertions: [
+              {
+                description: 'server JS files contain the encrypted frozen env, no plaintext secret',
+                fileGlob: '.next/server/**/*.js',
+                shouldMatch: [ENCRYPTED_PAYLOAD_RE],
+                shouldNotContain: ['super-secret-var'],
+              },
+            ],
+          });
+
+          nextEnv.describeScenario('freezing into the bundle without _VARLOCK_ENV_KEY fails the build', {
+            skip: webpackOrTurbo !== defaultBundler,
+            command: buildCommand,
+            env: { VERCEL: '1' },
+            templateFiles: {
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: false,
+            outputAssertions: [
+              {
+                description: 'output explains the missing key and the opt-out',
+                shouldContain: ['_VARLOCK_ENV_KEY is not set', '_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV'],
               },
             ],
           });
@@ -628,15 +678,9 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
         });
 
         describe.skipIf(!runBuildScenarios)('output=standalone', () => {
-          // Regression test for the reported incident: a standalone server booted in a
-          // container with no reachable varlock CLI falls back to the env blob baked into
-          // the bundled runtime at build time. Items that resolved to undefined at build
-          // used to have their runtime-provided values DELETED from process.env, taking
-          // the service down (`docker run -e REDIS_URL=...`).
-          //
-          // The standalone output is copied outside the project tree (so varlock cannot be
+          // A standalone server is copied outside the project tree (so varlock cannot be
           // found by walking up to the fixture node_modules) and booted with a stripped
-          // environment, mimicking a real container image.
+          // environment and no varlock CLI, mimicking a real container image.
           const standalonePort = 15000 + (nextVersion * 10) + (webpackOrTurbo === 'turbopack' ? 5 : 0);
           const standaloneCopyDir = `/tmp/varlock-next-standalone-${label}-${webpackOrTurbo}`;
           const standaloneBootCommand = [
@@ -652,26 +696,84 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             [
               'env -i PATH=/usr/bin:/bin NODE_ENV=production',
               `HOSTNAME=127.0.0.1 PORT=${standalonePort}`,
-              'RUNTIME_BOOT_VAR=runtime-boot-value',
+              '_VARLOCK_ENV_KEY=$_VARLOCK_ENV_KEY',
+              'RUNTIME_BOOT_VAR=runtime-boot-value INSTANCE_ID=i-123',
               '"$NODE_BIN" server.js',
             ].join(' '),
           ].join(' && ');
+          const standaloneConfig = (pluginOptions?: string) => ({
+            path: '_base/next.config.mjs' as const,
+            replacements: {
+              '// OUTPUT-MODE': "output: 'standalone',",
+              ...pluginOptions && { '/* PLUGIN-OPTIONS */': pluginOptions },
+            },
+          });
 
-          nextEnv.describeDevScenario('standalone boot does not delete runtime-provided env vars', {
+          // A standalone build has to choose how its server gets the env: it carries neither
+          // the varlock CLI nor the .env files, so leaving it to 'auto' would only fail at boot.
+          nextEnv.describeScenario('standalone build without an explicit freezeIntoBundle fails the build', {
+            command: buildCommand,
+            env: { NODE_ENV: 'production' },
+            templateFiles: {
+              'next.config.mjs': standaloneConfig(),
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: false,
+            outputAssertions: [
+              {
+                description: 'build fails naming both choices',
+                shouldContain: [
+                  'needs an explicit `freezeIntoBundle` setting',
+                  'freezeIntoBundle: true',
+                  'freezeIntoBundle: false',
+                ],
+              },
+            ],
+          });
+
+          // Not frozen: the server resolves at boot, so with no varlock CLI it must fail at
+          // boot with the fixes - never fall back to values resolved at build time.
+          nextEnv.describeScenario('not frozen: booting with no varlock CLI fails with the fixes', {
             command: `sh -c '${standaloneBootCommand}'`,
             env: { NODE_ENV: 'production' },
+            timeout: 300_000,
+            templateFiles: {
+              'next.config.mjs': standaloneConfig('{ freezeIntoBundle: false }'),
+              'app/page.tsx': 'pages/basic-page.tsx',
+            },
+            expectSuccess: false,
+            outputAssertions: [
+              {
+                description: 'boot fails naming the fixes',
+                shouldContain: [
+                  'no resolved env reached this Next.js server',
+                  'freezeIntoBundle: true',
+                ],
+              },
+            ],
+          });
+
+          nextEnv.describeDevScenario('frozen into the bundle: boots with no varlock CLI', {
+            command: `sh -c '${standaloneBootCommand}'`,
+            env: { NODE_ENV: 'production', _VARLOCK_ENV_KEY: randomBytes(32).toString('hex') },
             readyPattern: /Ready in|Starting\.\.\./,
             readyTimeout: 240_000,
             timeout: 300_000,
             templateFiles: {
               '.env.schema': {
                 path: 'schemas/.env.schema',
-                append: '\n# provided at boot time only (e.g. `docker run -e ...`)\nRUNTIME_BOOT_VAR= # @dynamic\n',
+                append: [
+                  '',
+                  '# set per instance at boot (e.g. `docker run -e ...`)',
+                  '# @dynamic=boot',
+                  'RUNTIME_BOOT_VAR=build-default',
+                  '# required, with no value at build: the build must not need it',
+                  '# @dynamic=boot @required',
+                  'INSTANCE_ID=',
+                  '',
+                ].join('\n'),
               },
-              'next.config.mjs': {
-                path: '_base/next.config.mjs',
-                replacements: { '// OUTPUT-MODE': "output: 'standalone'," },
-              },
+              'next.config.mjs': standaloneConfig('{ freezeIntoBundle: true }'),
               'app/page.tsx': 'pages/runtime-boot-page.tsx',
               // production is the only mode where the response scanner throws rather
               // than redacts, so this is where an `end()`-only leak has to be handled
@@ -679,15 +781,13 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             },
             requests: [
               {
-                label: 'boot-provided value survives in process.env',
+                label: 'a @dynamic=boot value set at boot replaces its frozen default',
                 path: '/',
                 bodyAssertions: {
                   shouldContain: [
                     'Varlock Framework Test - runtime boot',
+                    'runtime var via ENV: runtime-boot-value',
                     'runtime var via process.env: runtime-boot-value',
-                    // the baked snapshot stays authoritative for ENV: it resolved this
-                    // item to undefined at build time and cannot validate a runtime value
-                    'runtime var via ENV: undefined',
                   ],
                 },
               },
@@ -719,8 +819,8 @@ export function defineNextjsTests(versionOrCanary: number | 'canary', testDir: s
             ],
             outputAssertions: [
               {
-                description: 'leak detection fires for the API route, without logging the secret',
-                shouldContain: ['DETECTED LEAKED SENSITIVE CONFIG'],
+                description: 'build announces the freeze, and leak detection fires without logging the secret',
+                shouldContain: ['env frozen into the bundle (freezeIntoBundle: true)', 'DETECTED LEAKED SENSITIVE CONFIG'],
                 shouldNotContain: ['super-secret-var'],
               },
             ],

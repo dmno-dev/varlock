@@ -7,4 +7,4 @@ const nextConfig = {
   typescript: { ignoreBuildErrors: true },
 };
 
-export default varlockNextConfigPlugin()(nextConfig);
+export default varlockNextConfigPlugin(/* PLUGIN-OPTIONS */)(nextConfig);

@@ -104,6 +104,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // unrelated broken item outside the filter won't block this load, and excluded items'
     // value resolvers never run. Decorator selectors resolve item metadata first, then match
     // exactly (see EnvGraph.resolveEnvValuesForFilter).
+    // a build that may freeze its output resolves the way `varlock freeze` does: a required
+    // `@dynamic=boot` item may be unset, since its value arrives at boot
+    if (ctx.values['defer-boot-required']) envGraph.deferBootRequired = true;
     if (itemFilter) await itemFilter.resolveScoped(envGraph);
     else await envGraph.resolveEnvValues();
 

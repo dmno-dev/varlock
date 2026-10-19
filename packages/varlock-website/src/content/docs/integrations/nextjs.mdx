@@ -172,8 +172,8 @@ Running your Next.js app on Vite with [vinext](https://vinext.dev) instead? That
 
     If you **don't** see `✨ loaded by varlock ✨`, or you get `Cannot find module '@next/env'` or `__VARLOCK_ENV is not set`, the override didn't take effect. See [Troubleshooting](#troubleshooting) below.
 
-    :::note[The override only needs to apply at build/dev time]
-    On serverless platforms (e.g. Vercel, Cloudflare), the fully-resolved env is baked into your build output by the config plugin, so the production server does not re-load `.env` files. This means you only need the `@next/env` override to be active when you run `next dev` and `next build`. There is no separate runtime config to set on the platform.
+    :::note[Where the production server gets its env]
+    On Vercel, Netlify, Cloudflare Workers Builds, AWS Amplify, and OpenNext builds, the config plugin [freezes the env into the build output](#freezing-the-env-into-the-build), so the production server does not re-load `.env` files and the `@next/env` override only needs to be active for `next dev` and `next build`. Everywhere else (`next start`, `output: 'standalone'`), the server resolves the env when it boots. See [self-hosting](#self-hosting).
     :::
 
 </Steps>
@@ -340,34 +340,69 @@ If **browser code** needs a public+dynamic value, it must be fetched from your s
 
 ---
 
-## Extra setup for standalone mode ||standalone||
+## Freezing the env into the build
 
-**⚠️ This is only needed if you are using `output: standalone`**
+A production build either freezes the env into its server output, or leaves it to be resolved when the server boots. Freezing means the env is resolved and validated once, during `next build`, and baked (encrypted) into the server runtime files. The server then boots from exactly those values: no `.env` files, no varlock CLI, and no resolver credentials are needed at runtime. See the [frozen env guide](/guides/frozen-env/) for the general model.
 
-Next's standalone build command will not copy all our `.env` files to the `.next/standalone` directory, so we must copy them manually. Add this to your build command:
-```diff lang="json" title="package.json" add=/ && [^"]+/
-{
-  "scripts": {
-    "build": "next build && cp .env.* .next/standalone",
-  }
-}
-```
-_you may need to adjust if you don't want to copy certain .local files_
+Control it with the `freezeIntoBundle` plugin option:
 
-
-Standalone builds do not copy dependency binaries, and varlock depends on the CLI to load.
-So wherever you are booting your standalone server, you will also need to [install the varlock binary](/getting-started/installation/) and boot your server via [`varlock run`](/reference/cli/load-and-run/#run)
-
-```bash
-varlock run -- node .next/standalone/server.js
+```ts title="next.config.ts"
+export default varlockNextConfigPlugin({ freezeIntoBundle: 'auto' })(nextConfig);
 ```
 
+| Value | Behavior |
+| --- | --- |
+| `'auto'` (default) | Freeze on platforms where varlock cannot resolve at request time: Vercel, Netlify, Cloudflare Workers Builds, AWS Amplify, and OpenNext builds. Everywhere else, resolve at boot, except that a standalone build fails until you pick `true` or `false` |
+| `true` | Always freeze, e.g. a standalone Docker image with no varlock CLI in it |
+| `false` | Never freeze. The server resolves at boot through the varlock CLI or [`varlock run`](/reference/cli/load-and-run/#run) |
+
+The decision is made at build time and never at boot, so a value never has two possible sources. A frozen build says so in the build output:
+
+```
+[varlock] env frozen into the bundle (Vercel: varlock cannot resolve the env at request time there)
+  can be set at boot (@dynamic=boot): PORT
+  encrypted with _VARLOCK_ENV_KEY
+```
+
+How a frozen build behaves:
+
+- **It must be encrypted.** Generate a key with `varlock generate-key` and set `_VARLOCK_ENV_KEY` both in the build environment and at runtime. See the [encrypted deployments guide](/guides/encrypted-deployments/). A build without the key fails. Set `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1` only if you accept every resolved secret sitting unencrypted in your build output.
+- **Frozen values win over the environment at boot.** If the environment sets a different value for a frozen key, varlock uses the frozen value and prints a warning. A `__VARLOCK_ENV` blob in the environment (for example from `varlock run`) is ignored, also with a warning.
+- **Values that must vary per instance** go in the schema as [`@dynamic=boot`](/guides/frozen-env/#keys-supplied-at-boot). The frozen value becomes a default, and a value set in the environment at boot replaces it after being checked against the item's type.
+- Rotating a secret takes effect on your next build, not on the next restart.
+
+Static replacement is separate from freezing: non-dynamic values (by default, everything that is not sensitive) are inlined into your code at build time in every mode. Mark anything that differs between environments sharing one build as [`@dynamic`](/reference/item-decorators/#dynamic). See [static vs dynamic config](#static-vs-dynamic-config).
 
 ---
 
-## Encrypting the env blob
+## Self-hosting (`next start`, standalone) ||self-hosting||
 
-When deploying to serverless platforms like Vercel, Varlock injects the fully resolved env data into your server-side build output. By default, this blob is plaintext JSON, meaning anyone with access to the build artifact can read your secrets. You can encrypt it for extra protection (e.g., against sourcemap leaks). See the [encrypted deployments guide](/guides/encrypted-deployments/) for setup instructions.
+A build that is not frozen bakes no env into its output. The server resolves it at boot, so the server needs one of the options below.
+
+:::caution[Standalone builds must choose]
+With `output: 'standalone'`, `next build` fails until you set `freezeIntoBundle` to `true` or `false`, unless the build runs on one of the platforms `'auto'` detects. A standalone server includes neither the varlock CLI nor your `.env` files, so leaving it to boot would only surface the problem when the server starts. See [Next.js standalone images](/integrations/docker/#nextjs-standalone-images) for Dockerfiles covering both choices.
+:::
+
+The server needs one of:
+
+- **The varlock CLI and your `.env` files.** `next start` in your project directory works as is. A standalone server (`output: 'standalone'`) does not include dependency binaries or your `.env` files, so [install the varlock binary](/getting-started/installation/) where it runs, copy the `.env` files next to it, and boot it via [`varlock run`](/reference/cli/load-and-run/#run):
+
+    ```diff lang="json" title="package.json" add=/ && [^"]+/
+    {
+      "scripts": {
+        "build": "next build && cp .env.* .next/standalone",
+      }
+    }
+    ```
+
+    ```bash
+    varlock run -- node .next/standalone/server.js
+    ```
+
+- **A [`varlock freeze`](/guides/frozen-env/#freezing-with-varlock-freeze) file**, booted with `varlock run --frozen -- node .next/standalone/server.js`. Values are fixed per release, but the build itself stays portable.
+- **`freezeIntoBundle: true`**, so the server needs neither the CLI nor `.env` files.
+
+If none of these is in place, the server fails at boot with a message listing them.
 
 ---
 ## Troubleshooting
@@ -387,6 +422,8 @@ Almost all setup issues come down to the `@next/env` override not being applied.
   <br/>💡 The override is missing or in the wrong place, so Next loaded its own `@next/env` instead of ours.
   - Confirm the override config is present and in the **correct file** for your package manager (see [step 3](#setup)). For pnpm it must be in `pnpm-workspace.yaml` (v10) or `package.json#pnpm.overrides` (v9), and in a monorepo it must be at the repo root.
   - Re-run your package manager's install command, then re-verify the banner.
+- ❌ `no resolved env reached this Next.js server` when booting a production server
+  <br/>💡 The build was not frozen, so the server resolves the env at boot, and it could not find the varlock CLI. See [self-hosting](#self-hosting) for the options, or freeze the env into the build with `freezeIntoBundle: true`.
 - ❌ `Error [ERR_REQUIRE_ESM]: require() of ES Module ...`
   <br/>💡 Varlock requires node v22 or higher, which has better CJS/ESM interoperability
 - ❌ Every page 500s in dev with a `[turbopack-node]/transforms/transforms.ts ... lint TP1006` error, but only when the project has a `middleware.ts` file (Next 15.0–15.4 + Turbopack)

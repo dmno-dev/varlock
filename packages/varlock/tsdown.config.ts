@@ -133,4 +133,5 @@ export default defineConfig([
   },
   initBundle('init-server'),
   initBundle('init-edge'),
+  initBundle('frozen-env-boot'),
 ]);
