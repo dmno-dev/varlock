@@ -71,7 +71,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "1.4.4",
+      "version": "1.4.5",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/cloudflare-integration": "workspace:*",
@@ -92,7 +92,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.6.2",
+      "version": "1.6.3",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -134,7 +134,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "1.2.5",
+      "version": "2.0.0",
       "devDependencies": {
         "@babel/parser": "^7.29.3",
         "@env-spec/utils": "workspace:^",
@@ -150,7 +150,7 @@
     },
     "packages/integrations/nuxt": {
       "name": "@varlock/nuxt-integration",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "dependencies": {
         "@nuxt/kit": "^4.0.3",
       },
@@ -170,7 +170,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.5.4",
+      "version": "1.5.5",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -188,19 +188,19 @@
     },
     "packages/native-helpers/darwin": {
       "name": "@varlock/native-helper-darwin",
-      "version": "1.23.0",
+      "version": "1.24.0",
     },
     "packages/native-helpers/linux-arm64": {
       "name": "@varlock/native-helper-linux-arm64",
-      "version": "1.23.0",
+      "version": "1.24.0",
     },
     "packages/native-helpers/linux-x64": {
       "name": "@varlock/native-helper-linux-x64",
-      "version": "1.23.0",
+      "version": "1.24.0",
     },
     "packages/native-helpers/win32-x64": {
       "name": "@varlock/native-helper-win32-x64",
-      "version": "1.23.0",
+      "version": "1.24.0",
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
@@ -518,7 +518,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.23.0",
+      "version": "1.24.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
