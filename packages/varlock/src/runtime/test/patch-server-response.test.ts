@@ -1,6 +1,6 @@
 /*
   Tests for the patched ServerResponse leak scanner in its default mode (throw on leak),
-  which is how auto-load, init-server, and the vite integration apply it.
+  which is how auto-load, the init bundle, and the vite integration apply it.
 
   NOTE: patchGlobalServerResponse patches ServerResponse.prototype once per process and
   captures its options at patch time, so redactInsteadOfThrow mode is covered in a

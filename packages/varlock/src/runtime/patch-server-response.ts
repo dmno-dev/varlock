@@ -2,12 +2,46 @@
   This patches the global ServerResponse object to scan for secret leaks - currently used for next.js and remix
 */
 
-import zlib from 'node:zlib';
-import { ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
+import type * as NodeZlib from 'node:zlib';
 import {
   getRedactionHoldbackLength, redactAllSensitiveValues, scanForLeaks, varlockSettings,
 } from './env';
 import { debug } from './lib/debug';
+
+// node:http and node:zlib are loaded lazily (same pattern as crypto.ts) so that merely
+// evaluating this module never touches node builtins. The single `varlock/auto-init` entry
+// includes this file and gets evaluated in edge runtimes (workerd, Vercel Edge) where a
+// static `import 'node:http'` either fails to resolve or crashes at load. Where node:http
+// is missing there is no ServerResponse to patch, so patchGlobalServerResponse is a no-op.
+function getNodeBuiltin<T>(name: string): T | undefined {
+  let mod: T | undefined;
+  try {
+    mod = (globalThis as any).process?.getBuiltinModule?.(name);
+  } catch {
+    // Next's dev edge sandbox throws on merely reading a node API off its `process` shim
+    // ("A Node.js API is used (process.getBuiltinModule) which is not supported in the
+    // Edge Runtime") - same outcome as the property being absent
+  }
+  if (!mod) {
+    try {
+      // fallback for CJS bundles running on node < 22.3 (no process.getBuiltinModule)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      mod = typeof require === 'function' ? require(name) : undefined;
+    } catch {
+      // bundlers may replace require with a shim that throws instead of resolving, and
+      // edge sandboxes expose a require() that only knows a few builtins - either way
+      // the builtin is simply unavailable here
+    }
+  }
+  return mod;
+}
+
+let cachedZlib: typeof NodeZlib | undefined;
+function getZlib() {
+  cachedZlib ||= getNodeBuiltin<typeof NodeZlib>('node:zlib');
+  return cachedZlib;
+}
 
 // NOTE - previously was using a symbol but got weird because of multiple builds and contexts...
 const patchedKey = '_patchedByVarlock';
@@ -29,6 +63,9 @@ const PENDING_FLUSH_TIMEOUT_MS = 15;
  * or throwing) so responses can be scanned incrementally as chunks arrive.
  */
 function getDecompressor(encoding: string): ((buf: Buffer) => Buffer) | undefined {
+  const zlib = getZlib();
+  // no zlib means no way to look inside the stream - handled like an unsupported encoding
+  if (!zlib) return undefined;
   if (encoding === 'gzip' || encoding === 'deflate') {
     return (buf) => zlib.unzipSync(buf, {
       flush: zlib.constants.Z_SYNC_FLUSH,
@@ -243,6 +280,11 @@ export function patchGlobalServerResponse(opts?: {
   redactInsteadOfThrow?: boolean,
 }) {
   debug('⚡️ PATCHING global ServerResponse');
+  const ServerResponse = getNodeBuiltin<typeof import('node:http')>('node:http')?.ServerResponse;
+  if (!ServerResponse) {
+    debug('> node:http is not available in this runtime - nothing to patch');
+    return;
+  }
   if (Object.getOwnPropertyDescriptor(ServerResponse.prototype, patchedKey)) {
     debug('> already patched');
     return;

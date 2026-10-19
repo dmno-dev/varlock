@@ -233,8 +233,8 @@ export function defineTanstackTests(
           description: 'init code is injected only once',
           fileGlob: 'dist/server/**/*.js',
           shouldMatch: [
-            // only one initVarlockEnv() call across all server JS files
-            /^(?![\s\S]*initVarlockEnv\(\)[\s\S]*initVarlockEnv\(\))[\s\S]*initVarlockEnv\(\)/,
+            // only one initVarlockRuntime() call across all server JS files
+            /^(?![\s\S]*initVarlockRuntime\(\)[\s\S]*initVarlockRuntime\(\))[\s\S]*initVarlockRuntime\(\)/,
           ],
         },
       ],

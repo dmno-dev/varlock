@@ -11,7 +11,7 @@
 import type * as NodeCrypto from 'node:crypto';
 
 // node:crypto is loaded lazily so that merely evaluating this module doesn't touch node
-// builtins — the self-contained init bundles (init-server/init-edge) include this file and
+// builtins — the self-contained init bundle (varlock/init-bundle) includes this file and
 // can get evaluated inside edge sandboxes (e.g. Next.js dev middleware) where an eager
 // require('crypto') throws, even when nothing ever gets encrypted/decrypted
 let cachedNodeCrypto: typeof NodeCrypto | undefined;
@@ -92,7 +92,7 @@ export function decryptEnvBlobSync(encrypted: string, hexKey: string): string {
 }
 
 // -- Async (Web Crypto API, edge-compatible) ------------------------------
-// Used by init-edge as the fallback on runtimes with no node:crypto at all
+// Used by initVarlockRuntime as the fallback on runtimes with no node:crypto at all
 // (e.g. Vercel Edge). Also a public export for pure Web Crypto contexts.
 
 export async function decryptEnvBlobAsync(encrypted: string, hexKey: string): Promise<string> {

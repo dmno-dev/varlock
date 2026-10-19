@@ -279,11 +279,11 @@ function webpackLoader(this: LoaderContext, source: string) {
     let initGuard: string;
     if (isEdgeFile) {
       // Edge context: no direct initVarlockEnv() call — env init is owned by the
-      // injected init-edge bundle, which may decrypt an encrypted env blob
+      // injected init bundle, which may decrypt an encrypted env blob
       // ASYNCHRONOUSLY (runtimes without node:crypto, e.g. Vercel Edge). A direct
       // init here would race that decrypt and JSON.parse the still-encrypted blob.
       // We only re-patch console via globalThis.__varlockPatchConsole (exposed by
-      // init-edge); in dev (no runtime injection) the bundled env module
+      // the init bundle); in dev (no runtime injection) the bundled env module
       // self-initializes from the sandbox's process.env instead.
       initGuard = 'if(globalThis.__varlockPatchConsole)globalThis.__varlockPatchConsole();';
       result = prependAfterDirectives(result, initGuard);

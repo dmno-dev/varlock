@@ -27,10 +27,9 @@ import { CLOUDFLARE_SSR_ENTRY_CODE } from './shared-ssr-entry-code';
 // conflicts (see note in ./index.ts).
 export function varlockSvelteKitCloudflarePlugin(): Array<any> {
   // `varlockVitePlugin` already marks `cloudflare:workers` external; here we
-  // just force the edge runtime + loader explicitly (bypassing auto-detection).
+  // just force the Cloudflare env loader explicitly (bypassing auto-detection).
   return [
     varlockVitePlugin({
-      ssrEdgeRuntime: true,
       ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
       isCloudflareTarget: true,
     }),
