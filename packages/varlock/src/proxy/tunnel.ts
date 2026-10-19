@@ -4,6 +4,8 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { createHash, timingSafeEqual, randomBytes } from 'node:crypto';
 
+import type { ApprovalPendingNotification } from './approval';
+
 /**
  * CONNECT-over-WebSocket tunnel for reaching the proxy from a remote sandbox.
  *
@@ -21,6 +23,8 @@ import { createHash, timingSafeEqual, randomBytes } from 'node:crypto';
  *                          byte pipe. On the broker the connection is loopback, so
  *                          it's exempt from the data-plane token check — the WS
  *                          handshake already authenticated it.
+ *  - `{"t":"events"}`    → broker keeps the WS open and forwards pending
+ *                          approval metadata, never secret values.
  *
  * No WebSocket library is shipped, deliberately: bundling CJS `ws` into the ESM
  * npm dist broke Node at import time, and crossws's node adapter refuses to run
@@ -347,10 +351,17 @@ function wrapWsLibSocket(ws: any): TunnelSocketLike {
 function handleTunnelConnection(ws: TunnelSocketLike, opts: {
   proxyPort: number;
   buildBootstrap: () => TunnelBootstrap;
+  subscribeApprovalNotifications?: (
+    listener: (notification: ApprovalPendingNotification) => void,
+  ) => () => void;
 }) {
   let first = true;
   let upstream: net.Socket | undefined;
-  ws.onclose = () => upstream?.destroy();
+  let unsubscribeApprovalNotifications: (() => void) | undefined;
+  ws.onclose = () => {
+    unsubscribeApprovalNotifications?.();
+    upstream?.destroy();
+  };
   ws.onmessage = (data) => {
     if (!first) {
       upstream?.write(data);
@@ -391,6 +402,14 @@ function handleTunnelConnection(ws: TunnelSocketLike, opts: {
       return;
     }
 
+    if (control.t === 'events' && opts.subscribeApprovalNotifications) {
+      unsubscribeApprovalNotifications = opts.subscribeApprovalNotifications((notification) => {
+        ws.sendText(JSON.stringify({ t: 'approval-required', ...notification }));
+      });
+      ws.sendText(JSON.stringify({ t: 'events-ready' }));
+      return;
+    }
+
     ws.close();
   };
 }
@@ -404,6 +423,9 @@ export function attachTunnelServer(httpServer: http.Server, opts: {
   token: string;
   proxyPort: number;
   buildBootstrap: () => TunnelBootstrap;
+  subscribeApprovalNotifications?: (
+    listener: (notification: ApprovalPendingNotification) => void,
+  ) => () => void;
   onAuthFailure?: () => void;
 }): { close: () => void } {
   // Bun path: its node:http drops manual writes on upgrade sockets, so the
@@ -922,6 +944,82 @@ export function fetchTunnelBootstrap(url: string, token: string, timeoutMs = 150
     ws.addEventListener('close', () => {
       clearTimeout(timer);
       reject(new Error('tunnel closed before the bootstrap arrived'));
+    });
+  });
+}
+
+/** Keep a control connection open and surface approval notifications from a remote broker. */
+export function subscribeTunnelApprovalNotifications(opts: {
+  url: string;
+  token: string;
+  onNotification: (notification: ApprovalPendingNotification) => void;
+  onError?: (error: Error) => void;
+}): Promise<{ close: () => void }> {
+  return new Promise((resolve, reject) => {
+    const ws = openTunnelWs(opts.url, opts.token);
+    let ready = false;
+    let closed = false;
+    const timer = setTimeout(() => {
+      reject(new Error('approval event channel timed out'));
+      ws.close();
+    }, 15_000);
+    timer.unref?.();
+
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ t: 'events' })));
+    ws.addEventListener('message', (ev) => {
+      try {
+        const event = JSON.parse(messageToBuffer(ev.data).toString()) as Record<string, unknown>;
+        if (event.t === 'events-ready' && !ready) {
+          ready = true;
+          clearTimeout(timer);
+          resolve({
+            close: () => {
+              closed = true;
+              try {
+                ws.close();
+              } catch { /* already closed */ }
+            },
+          });
+          return;
+        }
+        if (event.t !== 'approval-required'
+          || typeof event.approvalUrl !== 'string'
+          || typeof event.method !== 'string'
+          || typeof event.host !== 'string'
+          || typeof event.path !== 'string'
+          || typeof event.expiresAt !== 'number') return;
+        opts.onNotification({
+          approvalUrl: event.approvalUrl,
+          method: event.method,
+          host: event.host,
+          path: event.path,
+          expiresAt: event.expiresAt,
+          ...(typeof event.ruleId === 'string' ? { ruleId: event.ruleId } : {}),
+          ...(Array.isArray(event.injectedKeys)
+            && event.injectedKeys.every((key) => typeof key === 'string')
+            ? { injectedKeys: event.injectedKeys as Array<string> }
+            : {}),
+        });
+      } catch {
+        // Ignore malformed event messages. They cannot authorize a request.
+      }
+    });
+    ws.addEventListener('error', () => {
+      const error = new Error('approval event channel failed');
+      if (!ready) {
+        clearTimeout(timer);
+        reject(error);
+      } else if (!closed) {
+        opts.onError?.(error);
+      }
+    });
+    ws.addEventListener('close', () => {
+      if (!ready) {
+        clearTimeout(timer);
+        reject(new Error('approval event channel closed before it was ready'));
+      } else if (!closed) {
+        opts.onError?.(new Error('approval event channel closed'));
+      }
     });
   });
 }
