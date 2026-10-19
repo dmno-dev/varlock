@@ -8,7 +8,7 @@ import {
 import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { CLOUDFLARE_SSR_ENTRY_CODE, disableWranglerDotEnvAutoload, logVarlockEnvInjectionNotice } from './shared-ssr-entry-code';
 import { formatEnvLine } from './format-env-line';
-import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import { buildVarlockEnvBlobBindings } from './env-bindings';
 import { serveFifoOrFile } from './serve-fifo-or-file';
 
 /** Name exposed by `@cloudflare/vite-plugin`'s main plugin object. */
@@ -18,7 +18,6 @@ const CLOUDFLARE_PLUGIN_NAME = 'vite-plugin-cloudflare';
 
 // --- helpers for preview FIFO env injection --------------------------------
 
-const CF_SECRET_MAX_BYTES = 5120;
 
 /**
  * Finds the `.dev.vars` paths next to each built `wrangler.json` in the build output.
@@ -107,24 +106,6 @@ function cleanupFile(filePath: string) {
   }
 }
 
-function chunkString(str: string, maxBytes: number): Array<string> {
-  const chunks: Array<string> = [];
-  let current = '';
-  let currentBytes = 0;
-  for (const char of str) {
-    const charBytes = Buffer.byteLength(char);
-    if (currentBytes + charBytes > maxBytes && current) {
-      chunks.push(current);
-      current = '';
-      currentBytes = 0;
-    }
-    current += char;
-    currentBytes += charBytes;
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-
 function formatDevVarsContent(
   graph: { config: Record<string, { value: unknown }> },
   serializedGraph: string,
@@ -136,29 +117,13 @@ function formatDevVarsContent(
     const strValue = typeof item.value === 'string' ? item.value : JSON.stringify(item.value);
     lines.push(formatEnvLine(key, strValue));
   }
-  // include __VARLOCK_ENV for the varlock runtime,
-  // encrypt the blob if @encryptInjectedEnv is enabled or _VARLOCK_ENV_KEY is set
-  const encryptionRequired = !!varlockLoadedEnv?.settings?.encryptInjectedEnv;
-  let encryptionKey = process.env._VARLOCK_ENV_KEY;
-  if (encryptionRequired && !encryptionKey) {
-    // auto-generate a temporary key for dev mode
-    encryptionKey = generateEncryptionKeyHex();
-  }
-  let envBlob = serializedGraph;
-  if (encryptionKey) {
-    envBlob = encryptEnvBlobSync(envBlob, encryptionKey);
-    lines.push(formatEnvLine('_VARLOCK_ENV_KEY', encryptionKey));
-  }
-  // split into chunks if it exceeds CF's 5KB secret limit
-  if (Buffer.byteLength(envBlob) <= CF_SECRET_MAX_BYTES) {
-    lines.push(formatEnvLine('__VARLOCK_ENV', envBlob));
-  } else {
-    const chunks = chunkString(envBlob, CF_SECRET_MAX_BYTES);
-    lines.push(formatEnvLine('__VARLOCK_ENV_CHUNKS', String(chunks.length)));
-    for (let i = 0; i < chunks.length; i++) {
-      lines.push(formatEnvLine(`__VARLOCK_ENV_${i}`, chunks[i]));
-    }
-  }
+  // include __VARLOCK_ENV for the varlock runtime (encrypted when @encryptInjectedEnv is enabled
+  // or _VARLOCK_ENV_KEY is set; a temporary key is generated for dev mode), chunked past CF's 5KB limit
+  const blobBindings = buildVarlockEnvBlobBindings({
+    json: serializedGraph,
+    encryptInjectedEnv: varlockLoadedEnv?.settings?.encryptInjectedEnv,
+  });
+  for (const [key, value] of Object.entries(blobBindings)) lines.push(formatEnvLine(key, value));
   return lines.join('\n');
 }
 
