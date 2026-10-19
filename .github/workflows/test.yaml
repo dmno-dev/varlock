@@ -48,6 +48,8 @@ jobs:
       # lint, build, tests  ---------------------------------
       - name: ESLint
         run: bun run lint
+      - name: Check GitHub Actions are pinned to commit SHAs
+        run: bun run scripts/check-pinned-actions.ts
       - name: TypeScript type check
         run: bun run typecheck:all
       # offline - verifies generated icon modules match the committed svg files and that each

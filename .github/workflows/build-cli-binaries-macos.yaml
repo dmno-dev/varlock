@@ -45,11 +45,11 @@ jobs:
   build-macos-cli-binaries:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Use Node.js 24.x
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24.x"
       - name: Install node deps
@@ -72,7 +72,7 @@ jobs:
 
       - name: Download native binaries (artifact)
         if: inputs.native-bins-artifact != ''
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.native-bins-artifact }}
           path: packages/varlock/native-bins
@@ -109,7 +109,7 @@ jobs:
       # Same 1Password item the native-binary workflows use, so there is one place
       # to rotate the Apple credentials
       - name: Load signing secrets
-        uses: dmno-dev/varlock-action@v1.0.5
+        uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/encryption-binary-swift
         env:
@@ -236,7 +236,7 @@ jobs:
           ./varlock run -- node -e 'if (process.env.PUBLIC_VAR !== "hello") { console.error("env not injected"); process.exit(1); }'
 
       - name: Upload macOS CLI archives
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.artifact-name }}
           path: |
