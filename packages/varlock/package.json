@@ -128,17 +128,35 @@
       },
       "default": "./dist/runtime/patch-server-response.mjs"
     },
+    "./init": {
+      "ts-src": "./src/runtime/init.ts",
+      "types": "./dist/runtime/init.d.mts",
+      "import": "./dist/runtime/init.mjs",
+      "default": "./dist/runtime/init.mjs"
+    },
+    "./auto-init": {
+      "ts-src": "./src/runtime/auto-init.ts",
+      "types": "./dist/runtime/auto-init.d.mts",
+      "import": "./dist/runtime/auto-init.mjs",
+      "default": "./dist/runtime/auto-init.mjs"
+    },
+    "./init-bundle": {
+      "ts-src": "./src/runtime/init-bundle.ts",
+      "types": "./dist/runtime/init-bundle.d.cts",
+      "require": "./dist/runtime/init-bundle.cjs",
+      "default": "./dist/runtime/init-bundle.cjs"
+    },
     "./init-server": {
-      "ts-src": "./src/runtime/init-server.ts",
-      "types": "./dist/runtime/init-server.d.cts",
-      "require": "./dist/runtime/init-server.cjs",
-      "default": "./dist/runtime/init-server.cjs"
+      "ts-src": "./src/runtime/init-bundle.ts",
+      "types": "./dist/runtime/init-bundle.d.cts",
+      "require": "./dist/runtime/init-bundle.cjs",
+      "default": "./dist/runtime/init-bundle.cjs"
     },
     "./init-edge": {
-      "ts-src": "./src/runtime/init-edge.ts",
-      "types": "./dist/runtime/init-edge.d.cts",
-      "require": "./dist/runtime/init-edge.cjs",
-      "default": "./dist/runtime/init-edge.cjs"
+      "ts-src": "./src/runtime/init-bundle.ts",
+      "types": "./dist/runtime/init-bundle.d.cts",
+      "require": "./dist/runtime/init-bundle.cjs",
+      "default": "./dist/runtime/init-bundle.cjs"
     },
     "./frozen-env-boot": {
       "ts-src": "./src/runtime/frozen-env-boot.ts",

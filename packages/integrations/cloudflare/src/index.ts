@@ -326,7 +326,6 @@ export function varlockCloudflareVitePlugin(
   };
 
   const varlockPlugin = varlockVitePlugin({
-    ssrEdgeRuntime: true,
     ssrEntryModuleIds: ['\0virtual:cloudflare/worker-entry'],
     ssrEntryCode: [CLOUDFLARE_SSR_ENTRY_CODE],
     isCloudflareTarget: true,

@@ -1,9 +1,9 @@
 import { defineConfig, type UserConfig } from 'tsdown';
 
-// Self-contained init bundles for framework integrations.
-// These are injected as raw JS (webpack) or imported from a copied location (turbopack).
-// Each gets its own build so rolldown has nothing to hoist into a shared chunk: a
-// `require('./chunk-xyz.cjs')` inside these would not resolve where they get injected.
+// Self-contained init bundle for framework integrations (the Next.js integration injects
+// it as raw JS into webpack/turbopack output). It gets its own build so rolldown has
+// nothing to hoist into a shared chunk: a `require('./chunk-xyz.cjs')` inside it would not
+// resolve where it gets injected.
 function initBundle(name: string): UserConfig {
   return {
     entry: { [`runtime/${name}`]: `src/runtime/${name}.ts` },
@@ -28,6 +28,10 @@ export default defineConfig([
       'src/runtime/patch-server-response.ts',
       'src/runtime/patch-console.ts',
       'src/runtime/patch-response.ts',
+      // the collapsed init sequence: side-effect-on-import, and as a plain function for
+      // integrations that must set up inputs before it runs
+      'src/runtime/init.ts',
+      'src/runtime/auto-init.ts',
 
       'src/runtime/crypto.ts',
       'src/auto-load.ts',
@@ -131,7 +135,6 @@ export default defineConfig([
       __VARLOCK_BUILD_TYPE__: JSON.stringify(process.env.BUILD_TYPE || 'dev'),
     },
   },
-  initBundle('init-server'),
-  initBundle('init-edge'),
+  initBundle('init-bundle'),
   initBundle('frozen-env-boot'),
 ]);

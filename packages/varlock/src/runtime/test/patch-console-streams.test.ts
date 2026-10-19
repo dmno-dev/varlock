@@ -1,5 +1,5 @@
 /*
-  `varlock/patch-console` exposes both patches, and the node entry points (auto-load, init-server,
+  `varlock/patch-console` exposes both patches, and the node entry points (auto-load, the init bundle,
   integrations) call both. patchGlobalConsole itself must not patch the streams, since the edge
   bundles call it too. Separate file since it patches the worker's real console and streams.
 */

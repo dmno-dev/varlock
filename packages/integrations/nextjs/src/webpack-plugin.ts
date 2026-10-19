@@ -116,7 +116,7 @@ export function createWebpackConfigFn(
     }
     // Edge compilation: also re-patch console to wrap React's RSC dev replay wrapper.
     // Edge can't use require(), so we call globalThis.__varlockPatchConsole which the
-    // init-edge bundle exposes after running.
+    // injected init bundle exposes after running.
     if (options.isServer && options.nextRuntime === 'edge') {
       webpackConfig.module.rules.push({
         test: /\.(js|jsx|ts|tsx|mjs|mts)$/,
@@ -169,15 +169,13 @@ export function createWebpackConfigFn(
 
     // Inject varlock init into webpack runtime files.
     // We prepend the self-contained init bundle as raw JS so it runs before any module code.
-    // Server runtimes get the full init (with server-response patching),
-    // edge runtimes get the edge-safe init (no node:zlib/node:http).
-    function injectVarlockInitIntoWebpackRuntime(edgeRuntime = false) {
+    // The same bundle serves server and edge runtimes: it loads node builtins lazily and the
+    // patches that need them (ServerResponse, process streams) are no-ops on edge.
+    function injectVarlockInitIntoWebpackRuntime() {
       return function assetUpdateFn(origSource: any) {
         const origSourceStr = origSource.source();
 
-        const initBundleName = edgeRuntime ? 'init-edge' : 'init-server';
-        const injectorPath = require.resolve(`varlock/${initBundleName}`);
-        const injectorSrc = fs.readFileSync(injectorPath, 'utf8');
+        const injectorSrc = fs.readFileSync(require.resolve('varlock/init-bundle'), 'utf8');
 
         // a frozen build bakes its frozen env in here; otherwise nothing is baked and the
         // server resolves at boot (see freeze-into-bundle)
@@ -206,18 +204,18 @@ export function createWebpackConfigFn(
             },
             () => {
               if (isEdgeRuntime) {
-                // Edge compilation — only inject the edge-safe init bundle (no node builtins)
+                // Edge compilation
                 if (compilation.getAsset('edge-runtime-webpack.js')) {
-                  compilation.updateAsset('edge-runtime-webpack.js', injectVarlockInitIntoWebpackRuntime(true));
+                  compilation.updateAsset('edge-runtime-webpack.js', injectVarlockInitIntoWebpackRuntime());
                 }
-                // Edge compilation also has webpack-runtime.js — inject init-edge there too
+                // Edge compilation also has webpack-runtime.js — inject there too
                 for (const name of ['webpack-runtime.js', '../webpack-runtime.js']) {
                   if (compilation.getAsset(name)) {
-                    compilation.updateAsset(name, injectVarlockInitIntoWebpackRuntime(true));
+                    compilation.updateAsset(name, injectVarlockInitIntoWebpackRuntime());
                   }
                 }
               } else if (options.isServer) {
-                // Server (node.js) compilation — inject full init with server-response patching
+                // Server (node.js) compilation
                 for (const name of ['webpack-runtime.js', '../webpack-runtime.js', 'webpack-api-runtime.js', '../webpack-api-runtime.js']) {
                   if (compilation.getAsset(name)) {
                     compilation.updateAsset(name, injectVarlockInitIntoWebpackRuntime());
