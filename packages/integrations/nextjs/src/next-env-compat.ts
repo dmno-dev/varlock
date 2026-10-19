@@ -254,12 +254,20 @@ function isNextBuildCommand(): boolean {
 /**
  * Whether this process is a production server booting a finished build: the standalone server
  * (which passes its config in `__NEXT_PRIVATE_STANDALONE_CONFIG`), `next start`, or a custom
- * server (`NODE_ENV=production node server.js` calling `next()`). Any other `next` subcommand
- * (build, lint, ...) and anything outside production (dev, `NODE_ENV=test` under next/jest) is
- * not, so it never boots from a build's output. The config plugin double-checks the boot against
+ * server (`NODE_ENV=production node server.js` calling `next()`). A build and its workers, any
+ * other `next` subcommand (lint, ...), and anything outside production (dev, `NODE_ENV=test`
+ * under next/jest) are not, so they never boot from a build's output. The config plugin double-checks the boot against
  * the real build directory once Next's config is known (see checkFrozenBootSource).
  */
 function isNextServerBoot(): boolean {
+  // a build's own worker processes (compiler, page data, prerendering) inherit NODE_ENV and run
+  // under a worker bootstrap argv - they carry the build's resolution and must never read the
+  // output of a previous build
+  if (
+    process.env.__VARLOCK_NEXT_BUILD
+    || process.env.NEXT_PRIVATE_BUILD_WORKER
+    || process.env.NEXT_PHASE === 'phase-production-build'
+  ) return false;
   if (process.env.__NEXT_PRIVATE_STANDALONE_CONFIG) return true;
   const [, bin, command] = process.argv;
   if (bin && NEXT_BIN_RE.test(bin)) return command === 'start';
