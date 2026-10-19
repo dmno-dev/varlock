@@ -16,6 +16,13 @@
 
 
 
+
+## 1.5.5
+<sub>2026-10-19</sub>
+
+- [#1236](https://github.com/dmno-dev/varlock/pull/1236)  *(patch)*
+  Keep secrets logged in React Server Components out of the dev-mode RSC payload: React's dev console replay now gets redacted args, so logging a sensitive value no longer trips leak detection and truncates the page
+
 ## 1.5.4
 <sub>2026-10-13</sub>
 

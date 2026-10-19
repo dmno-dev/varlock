@@ -22,6 +22,13 @@
 
 
 
+
+## 1.6.3
+<sub>2026-10-19</sub>
+
+- [#1236](https://github.com/dmno-dev/varlock/pull/1236)  *(patch)*
+  Fail with a clear message when a built Worker has no __VARLOCK_ENV binding (e.g. run with plain wrangler dev or deployed with plain wrangler deploy), pointing at varlock-wrangler dev / deploy instead of the generic initVarlockEnv advice
+
 ## 1.6.2
 <sub>2026-10-13</sub>
 
