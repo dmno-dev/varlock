@@ -1,0 +1,12 @@
+{
+  "name": "varlock-opennext-test",
+  "main": ".open-next/worker.js",
+  // nodejs_compat_populate_process_env (on from 2025-04-01) exposes bindings such as
+  // _VARLOCK_ENV_KEY on process.env, which is where the runtime init reads the key
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}
