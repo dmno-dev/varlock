@@ -158,6 +158,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
               { label: 'Bun', slug: 'integrations/bun' },
               { label: 'Elysia', slug: 'integrations/elysia', badge: 'new' },
               { label: 'Next.js', slug: 'integrations/nextjs' },
+              { label: 'vinext', slug: 'integrations/vinext', badge: 'new' },
               { label: 'Nuxt', slug: 'integrations/nuxt' },
               { label: 'Vite-based', slug: 'integrations/vite' },
               { label: 'Astro', slug: 'integrations/astro' },

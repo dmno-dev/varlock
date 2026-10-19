@@ -166,6 +166,10 @@ If you have a `.dev.vars` file in your project root, **delete it**. Varlock mana
 - **In dev**: Resolved vars are automatically injected into miniflare's bindings.
 - **In production**: Non-sensitive values are statically replaced at build time by vite. `varlock-wrangler deploy` sets non-sensitive values as Cloudflare vars and sensitive values as secrets.
 
+### Using with vinext (Next.js on Vite)
+
+[vinext](https://vinext.dev) builds with this same plugin, so `varlockCloudflareVitePlugin()` is a drop-in for its `cloudflare()` call. The built Worker config lands at `dist/server/wrangler.json`, and vinext's generated `start` and `deploy` scripts need swapping for `varlock-wrangler dev` / `varlock-wrangler deploy --config dist/server/wrangler.json`. See the [vinext guide](/integrations/vinext/) for the full setup.
+
 ### Upgrading from `@varlock/vite-integration`
 
 If you were previously using `varlockVitePlugin()` from `@varlock/vite-integration` with Cloudflare Workers:
@@ -411,6 +415,12 @@ If this blocks your setup, join [Discord](https://chat.dmno.dev) and share your 
 ### `Cannot resolve 'node:...'` at worker startup
 
 Your worker is missing the Node.js compatibility layer. Add `nodejs_compat` to `compatibility_flags`; see the **`nodejs_compat` caution** near the top of this page.
+
+### `no __VARLOCK_ENV binding found` or `initVarlockEnv failed` at Worker startup
+
+The built Worker only gets its env from the `__VARLOCK_ENV` binding. `vite dev` and `vite preview` inject it for you; for the build output, `varlock-wrangler dev` and `varlock-wrangler deploy` supply it. Plain `wrangler dev` on the build output, a plain `wrangler deploy`, or a third-party deploy tool that drives wrangler itself (for example `vinext-cloudflare deploy`) leaves it out, and the Worker throws at boot. Swap in the `varlock-wrangler` equivalent with the same `--config` argument. `varlock run -- wrangler dev` does not help: workerd never sees the host process env.
+
+The `cf` CLI (`cloudflare.config.ts`) is not supported yet; this entry will list its varlock equivalent when it is.
 
 ### `.dev.vars` conflicts with the Vite plugin
 
