@@ -136,6 +136,8 @@ type OpConfig = {
   emptyOutput?: boolean;
   /** Map of environment ID to raw env-format output (KEY=value lines) */
   environments?: Record<string, string>;
+  /** Simulate a stable op release, which lacks `op environment` and only offers `op run --environment` */
+  stableCli?: boolean;
 };
 
 type OpTestOpts = {
@@ -202,6 +204,18 @@ function opTest(opts: OpTestOpts) {
       })();
     } finally {
       process.env.PATH = origPath;
+    }
+  };
+}
+
+/** Run a test case with extra variables in the inherited process env */
+function withInheritedEnv(vars: Record<string, string>, run: () => Promise<void>) {
+  return async () => {
+    Object.assign(process.env, vars);
+    try {
+      await run();
+    } finally {
+      for (const key of Object.keys(vars)) delete process.env[key];
     }
   };
 }
@@ -434,6 +448,59 @@ describe('1password plugin', () => {
       schema: 'ALL=opLoadEnvironment("bad-env-id")',
       expectValues: { ALL: Error },
     }));
+
+    describe('stable op CLI (op run --environment)', () => {
+      test('loads environment via service account CLI', opTest({
+        opConfig: {
+          stableCli: true,
+          environments: { 'env-abc123': 'DB_HOST=localhost\nDB_PORT=5432\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost', DB_PORT: '5432' }) },
+      }));
+
+      test('loads environment via app auth', opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          stableCli: true,
+          environments: { 'env-xyz789': 'API_URL=https://api.example.com\nAPI_KEY=key123\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-xyz789")',
+        expectValues: { ALL: JSON.stringify({ API_URL: 'https://api.example.com', API_KEY: 'key123' }) },
+      }));
+
+      test('invalid environment ID returns error', opTest({
+        opConfig: { stableCli: true },
+        schema: 'ALL=opLoadEnvironment("bad-env-id")',
+        expectValues: { ALL: Error },
+      }));
+
+      test('returns variables whose value matches an inherited value', withInheritedEnv(
+        { DB_HOST: 'localhost' },
+        opTest({
+          authMode: 'appAuth',
+          opConfig: {
+            stableCli: true,
+            environments: { 'env-abc123': 'DB_HOST=localhost\nDB_PORT=5432\n' },
+          },
+          schema: 'ALL=opLoadEnvironment("env-abc123")',
+          expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost', DB_PORT: '5432' }) },
+        }),
+      ));
+
+      test('neither resolves nor returns inherited secret references', withInheritedEnv(
+        { UNRELATED_TOKEN: 'op://other-vault/item/password' },
+        opTest({
+          authMode: 'appAuth',
+          opConfig: {
+            stableCli: true,
+            environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+          },
+          schema: 'ALL=opLoadEnvironment("env-abc123")',
+          expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+        }),
+      ));
+    });
   });
 
   // ── Named instances ───────────────────────────────────────

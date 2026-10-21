@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 import { plugin } from 'varlock/plugin-lib';
 
@@ -5,6 +9,8 @@ const { debug } = plugin;
 const { ResolutionError } = plugin.ERRORS;
 
 const OP_CLI_CACHE: Record<string, any> = {};
+
+const OP_CLI_NO_ENVIRONMENT_COMMAND = 'OP_CLI_NO_ENVIRONMENT_COMMAND';
 
 /** Proxy env vars that must be forwarded so `op` can reach 1Password through HTTP/SOCKS proxies
  * (e.g. corporate proxies, container networks, sandboxed dev tools like Claude Code). */
@@ -27,7 +33,11 @@ export function pickProxyEnv(): Record<string, string> {
   return env;
 }
 
-export async function execOpCliCommand(cmdArgs: Array<string>, serviceAccountToken?: string) {
+export async function execOpCliCommand(
+  cmdArgs: Array<string>,
+  serviceAccountToken?: string,
+  baseEnv: NodeJS.ProcessEnv = process.env,
+) {
   // very simple in-memory cache, will persist between runs in watch mode
   // but need to think through how a user can opt out
   // and interact with this cache from the web UI when we add it for the regular cache
@@ -45,7 +55,7 @@ export async function execOpCliCommand(cmdArgs: Array<string>, serviceAccountTok
     // strip OP_SERVICE_ACCOUNT_TOKEN from env so the CLI doesn't auto-detect it
     // when the user hasn't explicitly wired it into their schema.
     // When useCliWithServiceAccount is enabled the caller passes the token explicitly.
-    const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = process.env;
+    const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = baseEnv;
     const cliResult = await spawnAsync('op', cmdArgs, {
       env: serviceAccountToken
         ? { ...cleanEnv, OP_SERVICE_ACCOUNT_TOKEN: serviceAccountToken }
@@ -124,9 +134,13 @@ export function processOpCliError(err: Error | any) {
       });
     } else if (errMessage.includes('unknown command "environment"')) {
       return new ResolutionError('1Password CLI does not support the "environment" command', {
+        code: OP_CLI_NO_ENVIRONMENT_COMMAND,
+      });
+    } else if (errMessage.includes('unknown flag: --environment')) {
+      return new ResolutionError('1Password CLI is too old to read 1Password Environments', {
         tip: [
-          'The `op environment` command requires a beta version of the 1Password CLI (v2.33.0+).',
-          'Download it from https://app-updates.agilebits.com/product_history/CLI2 (click "show betas").',
+          'Reading Environments requires 1Password CLI v2.41.0+ (or a v2.33.0+ beta).',
+          'Update it with `op update`, or see https://developer.1password.com/docs/cli/get-started/',
         ],
       });
     } else if (errMessage.toLowerCase().includes('environment') && (errMessage.includes('not found') || errMessage.includes('invalid'))) {
@@ -165,18 +179,119 @@ export function processOpCliError(err: Error | any) {
   }
 }
 
+/** Parse env format output from `op environment read` into a flat {name: value} object */
+function parseOpEnvOutput(raw: string) {
+  const result: Record<string, string> = {};
+  for (const line of raw.split('\n')) {
+    const eqPos = line.indexOf('=');
+    if (eqPos === -1) continue;
+    const key = line.substring(0, eqPos).trim();
+    if (!key) continue;
+    result[key] = line.substring(eqPos + 1);
+  }
+  return result;
+}
+
+/*
+  Stable `op` releases (v2.41.0+) read Environments only through `op run --environment`;
+  `op environment read` exists only in beta builds. The child prints its env as JSON using the
+  current JS runtime, because windows has no unix `env` binary. A bun standalone executable
+  (the varlock binary) only behaves as bun for `-e` when BUN_BE_BUN is set.
+
+  `op run` merges the Environment over the env it inherits, so membership is marked rather than
+  inferred from values. Every inherited name is also set to a per-call sentinel through
+  `--env-file`, which `op run` ranks below Environments and above the shell: in the child, a
+  name holds a non-sentinel value only if the Environment set it. Inherited `op://` references
+  are not passed on at all, so `op run` never resolves secrets unrelated to the Environment.
+
+  Some platforms rewrite variables they cannot parse when any process starts (macOS replaces
+  XPC_FLAGS and __CF_USER_TEXT_ENCODING), so a direct spawn with the same sentinels finds
+  those names and they are ignored. SystemRoot and windir keep their real values because
+  windows processes cannot start without them.
+*/
+const PRINT_ENV_SCRIPT = 'process.stdout.write(JSON.stringify(process.env))';
+const DOTENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const UNMARKABLE_ENV_KEYS = ['systemroot', 'windir', 'bun_be_bun'];
+
+function parseChildEnv(output: string): Record<string, string> {
+  try {
+    return JSON.parse(output);
+  } catch {
+    throw new ResolutionError('Unable to parse variables loaded by `op run --environment`');
+  }
+}
+
+async function opCliRunEnvironmentRead(
+  environmentId: string,
+  accountArgs: Array<string>,
+  serviceAccountToken?: string,
+) {
+  const sentinel = `__VARLOCK_1P_INHERITED_${randomUUID()}__`;
+  const inheritedEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined || key === 'OP_SERVICE_ACCOUNT_TOKEN') continue;
+    if (!DOTENV_KEY_PATTERN.test(key) || value.includes('op://')) continue;
+    inheritedEnv[key] = value;
+  }
+  if ((globalThis as any).Bun?.isStandaloneExecutable) inheritedEnv.BUN_BE_BUN = '1';
+
+  const markedKeys = Object.keys(inheritedEnv)
+    .filter((key) => !UNMARKABLE_ENV_KEYS.includes(key.toLowerCase()));
+  if (serviceAccountToken) markedKeys.push('OP_SERVICE_ACCOUNT_TOKEN');
+  const markedEnv = Object.fromEntries(markedKeys.map((key) => [key, sentinel]));
+
+  const directChild = await spawnAsync(process.execPath, ['-e', PRINT_ENV_SCRIPT], {
+    env: { ...inheritedEnv, ...markedEnv },
+  });
+  const rewrittenKeys = new Set(
+    Object.entries(parseChildEnv(directChild)).filter(([, value]) => value !== sentinel).map(([key]) => key),
+  );
+
+  // `wx` refuses to follow a file or symlink planted at the path, and 0600 keeps it owner-only.
+  const envFilePath = join(tmpdir(), `varlock-1p-env-${randomUUID()}.env`);
+  await writeFile(envFilePath, markedKeys.map((key) => `${key}=${sentinel}`).join('\n'), { mode: 0o600, flag: 'wx' });
+  let output: string;
+  try {
+    output = await execOpCliCommand([
+      'run',
+      '--environment',
+      environmentId,
+      ...accountArgs,
+      '--env-file',
+      envFilePath,
+      '--no-masking',
+      '--',
+      process.execPath,
+      '-e',
+      PRINT_ENV_SCRIPT,
+    ], serviceAccountToken, inheritedEnv);
+  } finally {
+    await rm(envFilePath, { force: true }).catch(() => undefined);
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parseChildEnv(output))) {
+    if (value === sentinel || rewrittenKeys.has(key)) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+/** Read a 1Password Environment into a flat {name: value} JSON string */
 export async function opCliEnvironmentRead(
   environmentId: string,
   account?: string,
   serviceAccountToken?: string,
 ): Promise<string> {
-  const result = await execOpCliCommand([
-    'environment',
-    'read',
-    environmentId,
-    ...(account ? ['--account', account] : []),
-  ], serviceAccountToken);
-  return result;
+  const accountArgs = account ? ['--account', account] : [];
+  try {
+    const result = await execOpCliCommand(['environment', 'read', environmentId, ...accountArgs], serviceAccountToken);
+    return JSON.stringify(parseOpEnvOutput(result));
+  } catch (err) {
+    if ((err as any)?.code !== OP_CLI_NO_ENVIRONMENT_COMMAND) throw err;
+  }
+  debug('op environment read unavailable, falling back to op run --environment');
+  return JSON.stringify(await opCliRunEnvironmentRead(environmentId, accountArgs, serviceAccountToken));
 }
 
 export function getIdsFromShareLink(opItemShareLinkUrl: string) {
