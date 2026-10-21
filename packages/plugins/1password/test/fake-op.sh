@@ -68,11 +68,47 @@ case "$1" in
       process.stdout.write(output.replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '') + '\n');
     "
     ;;
+  run)
+    # op run --environment <envId> [--account X] [--no-masking] -- <command...>
+    # Runs the command with the environment's variables merged over the inherited env.
+    shift
+    ENV_ID=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --environment) ENV_ID="$2"; shift 2 ;;
+        --account) shift 2 ;;
+        --) shift; break ;;
+        *) shift ;;
+      esac
+    done
+    node -e "
+      const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
+      const environments = cfg.environments || {};
+      const envId = '$ENV_ID';
+      if (!(envId in environments)) {
+        process.stderr.write('[ERROR] 2024/01/01 00:00:00 environment not found or invalid\n');
+        process.exit(1);
+      }
+      const env = { ...process.env };
+      for (const line of environments[envId].split('\n')) {
+        const eqPos = line.indexOf('=');
+        if (eqPos > 0) env[line.substring(0, eqPos)] = line.substring(eqPos + 1);
+      }
+      const [cmd, ...args] = process.argv.slice(1);
+      const child = require('child_process').spawnSync(cmd, args, { env, stdio: 'inherit' });
+      process.exit(child.status ?? 1);
+    " "$@"
+    ;;
   environment)
     # op environment read <envId> [--account X]
+    # Stable op releases only offer `op run --environment`.
     ENV_ID="$3"
     node -e "
       const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
+      if (cfg.stableCli) {
+        process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown command \"environment\" for \"op\"\n');
+        process.exit(1);
+      }
       const environments = cfg.environments || {};
       const envId = '$ENV_ID';
       if (envId in environments) {

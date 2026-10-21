@@ -321,19 +321,6 @@ function parseOpReference(ref: string): {
   });
 }
 
-/** Parse env format output from `op environment read` into a flat {name: value} JSON string */
-function parseOpEnvOutput(raw: string): string {
-  const result: Record<string, string> = {};
-  for (const line of raw.split('\n')) {
-    const eqPos = line.indexOf('=');
-    if (eqPos === -1) continue;
-    const key = line.substring(0, eqPos).trim();
-    if (!key) continue;
-    result[key] = line.substring(eqPos + 1);
-  }
-  return JSON.stringify(result);
-}
-
 class OpPluginInstance {
   /** 1Password service account token */
   private token?: string;
@@ -745,8 +732,7 @@ class OpPluginInstance {
       });
     } else if (this.token && this.useCliWithServiceAccount) {
       // user wants to use the `op` CLI with service account token instead of the WASM SDK
-      const cliResult = await opCliEnvironmentRead(environmentId, this.account, this.token);
-      return parseOpEnvOutput(cliResult);
+      return await opCliEnvironmentRead(environmentId, this.account, this.token);
     } else if (this.token) {
       // Use SDK - supports environments since v0.4.1-beta.1
       await this.initSdkClient();
@@ -761,9 +747,7 @@ class OpPluginInstance {
       return JSON.stringify(result);
     } else if (this.allowAppAuth) {
       // Use CLI for desktop app auth
-      const cliResult = await opCliEnvironmentRead(environmentId, this.account);
-      // CLI outputs env format (KEY=value lines) - parse to flat JSON
-      return parseOpEnvOutput(cliResult);
+      return await opCliEnvironmentRead(environmentId, this.account);
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
         tip: `Plugin instance (${this.id}) must be provided a service account token, a Connect server, or have app auth enabled (allowAppAuth=true)`,

@@ -136,6 +136,8 @@ type OpConfig = {
   emptyOutput?: boolean;
   /** Map of environment ID to raw env-format output (KEY=value lines) */
   environments?: Record<string, string>;
+  /** Simulate a stable op release, which lacks `op environment` and only offers `op run --environment` */
+  stableCli?: boolean;
 };
 
 type OpTestOpts = {
@@ -434,6 +436,33 @@ describe('1password plugin', () => {
       schema: 'ALL=opLoadEnvironment("bad-env-id")',
       expectValues: { ALL: Error },
     }));
+
+    describe('stable op CLI (op run --environment)', () => {
+      test('loads environment via service account CLI', opTest({
+        opConfig: {
+          stableCli: true,
+          environments: { 'env-abc123': 'DB_HOST=localhost\nDB_PORT=5432\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost', DB_PORT: '5432' }) },
+      }));
+
+      test('loads environment via app auth', opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          stableCli: true,
+          environments: { 'env-xyz789': 'API_URL=https://api.example.com\nAPI_KEY=key123\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-xyz789")',
+        expectValues: { ALL: JSON.stringify({ API_URL: 'https://api.example.com', API_KEY: 'key123' }) },
+      }));
+
+      test('invalid environment ID returns error', opTest({
+        opConfig: { stableCli: true },
+        schema: 'ALL=opLoadEnvironment("bad-env-id")',
+        expectValues: { ALL: Error },
+      }));
+    });
   });
 
   // ── Named instances ───────────────────────────────────────
