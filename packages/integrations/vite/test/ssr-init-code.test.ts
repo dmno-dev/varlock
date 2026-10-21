@@ -26,6 +26,11 @@ vi.mock('varlock/exec-sync-varlock', () => ({
   },
 }));
 
+// `@varlock/cloudflare-integration` is loaded lazily and is not a dependency of this package
+vi.mock('@varlock/cloudflare-integration/ssr-entry-code', () => ({
+  CLOUDFLARE_SSR_ENTRY_CODE: '/* cloudflare edge env loader */',
+}));
+
 // warm the module graph (plugin + varlock source) at collection time, so the
 // transform cost is not charged against the first test's timeout
 await import('../src/index');
@@ -276,6 +281,41 @@ describe('transformIndexHtml + SvelteKit', () => {
   it('drops the hook when SvelteKit plugins are present (async plugin array)', async () => {
     const fakeSvelteKit = Promise.resolve([{ name: 'vite-plugin-sveltekit-setup' }]);
     expect(await resolvedHasHtmlHook([fakeSvelteKit])).toBe(false);
+  });
+});
+
+describe('SvelteKit Cloudflare adapter detection', () => {
+  // SvelteKit 2 nests its resolved config under `kit`, SvelteKit 3 flattened it
+  const sveltekitSetup = (options: Record<string, any>) => ({
+    name: 'vite-plugin-sveltekit-setup',
+    api: { options },
+  });
+
+  async function initModuleCode(options: Record<string, any>) {
+    const { varlockVitePlugin } = await importPlugin();
+    const resolved = await resolveConfig({
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [...varlockVitePlugin(), sveltekitSetup(options)],
+    }, 'build');
+    const plugin = findPlugin(resolved.plugins as Array<any>, 'inject-varlock-config');
+    return plugin.load.call({ environment: { name: 'ssr' } }, '\0varlock-ssr-init') as string;
+  }
+
+  it('injects the edge env loader for the SvelteKit 2 config shape', async () => {
+    const code = await initModuleCode({ kit: { adapter: { name: '@sveltejs/adapter-cloudflare' } } });
+    expect(code).toContain('/* cloudflare edge env loader */');
+  });
+
+  it('injects the edge env loader for the SvelteKit 3 config shape', async () => {
+    const code = await initModuleCode({ adapter: { name: '@sveltejs/adapter-cloudflare' } });
+    expect(code).toContain('/* cloudflare edge env loader */');
+  });
+
+  it('leaves other adapters alone, in both config shapes', async () => {
+    const nodeAdapter = { name: '@sveltejs/adapter-node' };
+    expect(await initModuleCode({ kit: { adapter: nodeAdapter } })).not.toContain('cloudflare edge env loader');
+    expect(await initModuleCode({ adapter: nodeAdapter })).not.toContain('cloudflare edge env loader');
   });
 });
 
