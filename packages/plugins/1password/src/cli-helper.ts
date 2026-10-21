@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ExecError, spawnAsync } from '@env-spec/utils/exec-helpers';
 import { plugin } from 'varlock/plugin-lib';
 
@@ -32,7 +36,7 @@ export function pickProxyEnv(): Record<string, string> {
 export async function execOpCliCommand(
   cmdArgs: Array<string>,
   serviceAccountToken?: string,
-  extraEnv?: Record<string, string>,
+  baseEnv: NodeJS.ProcessEnv = process.env,
 ) {
   // very simple in-memory cache, will persist between runs in watch mode
   // but need to think through how a user can opt out
@@ -51,13 +55,11 @@ export async function execOpCliCommand(
     // strip OP_SERVICE_ACCOUNT_TOKEN from env so the CLI doesn't auto-detect it
     // when the user hasn't explicitly wired it into their schema.
     // When useCliWithServiceAccount is enabled the caller passes the token explicitly.
-    const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = process.env;
+    const { OP_SERVICE_ACCOUNT_TOKEN: _, ...cleanEnv } = baseEnv;
     const cliResult = await spawnAsync('op', cmdArgs, {
-      env: {
-        ...cleanEnv,
-        ...(serviceAccountToken ? { OP_SERVICE_ACCOUNT_TOKEN: serviceAccountToken } : {}),
-        ...extraEnv,
-      },
+      env: serviceAccountToken
+        ? { ...cleanEnv, OP_SERVICE_ACCOUNT_TOKEN: serviceAccountToken }
+        : cleanEnv,
     });
     debug(`> took ${+new Date() - +startAt}ms`);
     // OP_CLI_CACHE[cacheKey] = cliResult;
@@ -196,43 +198,81 @@ function parseOpEnvOutput(raw: string) {
   current JS runtime, because windows has no unix `env` binary. A bun standalone executable
   (the varlock binary) only behaves as bun for `-e` when BUN_BE_BUN is set.
 
-  `op run` merges the Environment into the env it was given, so the Environment's variables
-  are recovered by diffing against that env. A variable whose Environment value equals the
-  inherited value cannot be told apart from it and is omitted - varlock reads it from
-  process.env anyway. SHLVL is ignored because shell-script wrappers around `op` (e.g.
-  version manager shims) bump it.
+  `op run` merges the Environment over the env it inherits, so membership is marked rather than
+  inferred from values. Every inherited name is also set to a per-call sentinel through
+  `--env-file`, which `op run` ranks below Environments and above the shell: in the child, a
+  name holds a non-sentinel value only if the Environment set it. Inherited `op://` references
+  are not passed on at all, so `op run` never resolves secrets unrelated to the Environment.
+
+  Some platforms rewrite variables they cannot parse when any process starts (macOS replaces
+  XPC_FLAGS and __CF_USER_TEXT_ENCODING), so a direct spawn with the same sentinels finds
+  those names and they are ignored. SystemRoot and windir keep their real values because
+  windows processes cannot start without them.
 */
 const PRINT_ENV_SCRIPT = 'process.stdout.write(JSON.stringify(process.env))';
-const OP_RUN_ADDED_ENV_KEYS = ['_', 'SHLVL', 'BUN_BE_BUN', 'OP_SERVICE_ACCOUNT_TOKEN'];
+const DOTENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const UNMARKABLE_ENV_KEYS = ['systemroot', 'windir', 'bun_be_bun'];
+
+function parseChildEnv(output: string): Record<string, string> {
+  try {
+    return JSON.parse(output);
+  } catch {
+    throw new ResolutionError('Unable to parse variables loaded by `op run --environment`');
+  }
+}
 
 async function opCliRunEnvironmentRead(
   environmentId: string,
   accountArgs: Array<string>,
   serviceAccountToken?: string,
 ) {
-  const isBunStandalone = Boolean((globalThis as any).Bun?.isStandaloneExecutable);
-  const output = await execOpCliCommand([
-    'run',
-    '--environment',
-    environmentId,
-    ...accountArgs,
-    '--no-masking',
-    '--',
-    process.execPath,
-    '-e',
-    PRINT_ENV_SCRIPT,
-  ], serviceAccountToken, isBunStandalone ? { BUN_BE_BUN: '1' } : undefined);
-
-  let childEnv: Record<string, string>;
-  try {
-    childEnv = JSON.parse(output);
-  } catch {
-    throw new ResolutionError('Unable to parse variables loaded by `op run --environment`');
+  const sentinel = `__VARLOCK_1P_INHERITED_${randomUUID()}__`;
+  const inheritedEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined || key === 'OP_SERVICE_ACCOUNT_TOKEN') continue;
+    if (!DOTENV_KEY_PATTERN.test(key) || value.includes('op://')) continue;
+    inheritedEnv[key] = value;
   }
+  if ((globalThis as any).Bun?.isStandaloneExecutable) inheritedEnv.BUN_BE_BUN = '1';
+
+  const markedKeys = Object.keys(inheritedEnv)
+    .filter((key) => !UNMARKABLE_ENV_KEYS.includes(key.toLowerCase()));
+  if (serviceAccountToken) markedKeys.push('OP_SERVICE_ACCOUNT_TOKEN');
+  const markedEnv = Object.fromEntries(markedKeys.map((key) => [key, sentinel]));
+
+  const directChild = await spawnAsync(process.execPath, ['-e', PRINT_ENV_SCRIPT], {
+    env: { ...inheritedEnv, ...markedEnv },
+  });
+  const rewrittenKeys = new Set(
+    Object.entries(parseChildEnv(directChild)).filter(([, value]) => value !== sentinel).map(([key]) => key),
+  );
+
+  // `wx` refuses to follow a file or symlink planted at the path, and 0600 keeps it owner-only.
+  const envFilePath = join(tmpdir(), `varlock-1p-env-${randomUUID()}.env`);
+  await writeFile(envFilePath, markedKeys.map((key) => `${key}=${sentinel}`).join('\n'), { mode: 0o600, flag: 'wx' });
+  let output: string;
+  try {
+    output = await execOpCliCommand([
+      'run',
+      '--environment',
+      environmentId,
+      ...accountArgs,
+      '--env-file',
+      envFilePath,
+      '--no-masking',
+      '--',
+      process.execPath,
+      '-e',
+      PRINT_ENV_SCRIPT,
+    ], serviceAccountToken, inheritedEnv);
+  } finally {
+    await rm(envFilePath, { force: true }).catch(() => undefined);
+  }
+
   const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(childEnv)) {
-    if (OP_RUN_ADDED_ENV_KEYS.includes(key)) continue;
-    if (process.env[key] !== value) result[key] = value;
+  for (const [key, value] of Object.entries(parseChildEnv(output))) {
+    if (value === sentinel || rewrittenKeys.has(key)) continue;
+    result[key] = value;
   }
   return result;
 }

@@ -208,6 +208,18 @@ function opTest(opts: OpTestOpts) {
   };
 }
 
+/** Run a test case with extra variables in the inherited process env */
+function withInheritedEnv(vars: Record<string, string>, run: () => Promise<void>) {
+  return async () => {
+    Object.assign(process.env, vars);
+    try {
+      await run();
+    } finally {
+      for (const key of Object.keys(vars)) delete process.env[key];
+    }
+  };
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 describe('1password plugin', () => {
@@ -462,6 +474,32 @@ describe('1password plugin', () => {
         schema: 'ALL=opLoadEnvironment("bad-env-id")',
         expectValues: { ALL: Error },
       }));
+
+      test('returns variables whose value matches an inherited value', withInheritedEnv(
+        { DB_HOST: 'localhost' },
+        opTest({
+          authMode: 'appAuth',
+          opConfig: {
+            stableCli: true,
+            environments: { 'env-abc123': 'DB_HOST=localhost\nDB_PORT=5432\n' },
+          },
+          schema: 'ALL=opLoadEnvironment("env-abc123")',
+          expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost', DB_PORT: '5432' }) },
+        }),
+      ));
+
+      test('neither resolves nor returns inherited secret references', withInheritedEnv(
+        { UNRELATED_TOKEN: 'op://other-vault/item/password' },
+        opTest({
+          authMode: 'appAuth',
+          opConfig: {
+            stableCli: true,
+            environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+          },
+          schema: 'ALL=opLoadEnvironment("env-abc123")',
+          expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+        }),
+      ));
     });
   });
 
