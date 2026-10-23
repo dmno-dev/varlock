@@ -1,7 +1,8 @@
 import {
   describe, it, expect, vi,
 } from 'vitest';
-import { checkForSchemaErrors } from '../error-checks';
+import ansis from 'ansis';
+import { checkForConfigErrors, checkForSchemaErrors } from '../error-checks';
 import outdent from 'outdent';
 import { ResolutionError, SchemaError } from '../../../env-graph/lib/errors';
 import { EnvGraph } from '../../../env-graph';
@@ -129,6 +130,35 @@ describe('checkForSchemaErrors prints each error once', () => {
     const output = captureOutput(() => checkForSchemaErrors(g, { noThrow: true }));
     for (const err of new Set(errs)) {
       expect(countOccurrences(output, err.message), err.message).toBe(1);
+    }
+  });
+});
+
+describe('checkForConfigErrors', () => {
+  it('names every failing key, and no valid key, on the first line of the banner', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=true
+        # ---
+        DATABASE_URL=
+        PORT=8080
+        API_TOKEN=
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => { /* swallow */ });
+    try {
+      checkForConfigErrors(g, { noThrow: true });
+      const firstLine = ansis.strip(consoleError.mock.calls.flat().join('\n'))
+        .split('\n')
+        .find((line) => line.trim() !== '');
+      expect(firstLine).toContain('Configuration is currently invalid: DATABASE_URL, API_TOKEN');
+      expect(firstLine).not.toContain('PORT');
+    } finally {
+      consoleError.mockRestore();
     }
   });
 });
