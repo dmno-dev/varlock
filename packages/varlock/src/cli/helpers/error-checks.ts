@@ -204,7 +204,9 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
     .filter((item) => item.validationState === 'warn');
 
   if (failingItems.length > 0) {
-    console.error(`\n🚨🚨🚨  ${ansis.bold.red.underline('Configuration is currently invalid')}  🚨🚨🚨\n`);
+    // name the keys on the banner line itself: many places that surface a failed process show only its first stderr line
+    const failingKeys = failingItems.map((item) => item.key).join(', ');
+    console.error(`\n🚨🚨🚨  ${ansis.bold.red.underline(`Configuration is currently invalid: ${failingKeys}`)}  🚨🚨🚨\n`);
 
     for (const item of failingItems) {
       console.error(getItemSummary(item));
