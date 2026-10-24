@@ -744,6 +744,11 @@ export const ForEnvResolver: typeof Resolver = createResolver({
   async resolve(matchEnvArgs) {
     // this will trigger resolution of the current env if not already done
     const currentEnv = await this.getCurrentEnv();
+    // shape mode: when @currentEnv is built from a skipped resolver, whether it matches is unknown too
+    if (!currentEnv && this.dataSource?.envFlagConfigItem?.isValueUnknownInShapeLoad) {
+      this._unknownInShapeLoad = true;
+      return undefined;
+    }
     if (!currentEnv) throw new SchemaError('current environment is not set');
     const matchEnvs: Array<string> = [];
     for (const arg of matchEnvArgs) {
