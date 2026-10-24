@@ -275,6 +275,12 @@ export class Resolver {
       const resolvedValue = await this.def.resolve.call(this, this.meta);
       return resolvedValue;
     } catch (err) {
+      // shape mode: note, where the error was first thrown, whether this resolver's inputs were unknown. Only
+      // then is it an error about a partial value (e.g. `domainFromUrl()` of a half-built url); an error from a
+      // part of the expression that was fully known is real
+      if (graph?.mode === 'shape' && err && typeof err === 'object' && !('_unknownInputInShapeLoad' in err)) {
+        (err as any)._unknownInputInShapeLoad = this.resultUnknownInShapeLoad;
+      }
       if (err instanceof VarlockError) {
         // prefix error message with resolver function name (matching schema error behavior)
         // only prefix if the error wasn't already prefixed by a child resolver

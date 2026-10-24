@@ -684,10 +684,6 @@ export abstract class EnvGraphDataSource {
                 if (fsStat.isDirectory()) {
                   this._errors.push(new LoadingError('Imported path is a directory, add trailing "/" to import'));
                   return;
-                } else if (this.graph.mode === 'shape' && !fsStat.isFile()) {
-                  // a named pipe or device would block the read forever, hanging every editor keystroke or CI lint
-                  this._errors.push(new LoadingError(`Imported path is not a regular file: ${fullImportPath}`));
-                  return;
                 } else if (!fileName.startsWith('.env.')) {
                   this._errors.push(new LoadingError('imported file must be a .env.* file'));
                   return;
@@ -947,6 +943,12 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
     if (!this.rawContents) {
       if (!await pathExists(this.fullPath)) {
         this._errors.push(new LoadingError(`File does not exist: ${this.fullPath}`));
+        return;
+      }
+      // shape mode: a named pipe or device would block the read forever, hanging every editor keystroke or
+      // CI lint. Checked here so it covers direct imports, directory imports and auto-loaded files alike
+      if (this.graph?.mode === 'shape' && !(await fs.stat(this.fullPath)).isFile()) {
+        this._errors.push(new LoadingError(`Not a regular file: ${this.fullPath}`));
         return;
       }
       this.rawContents = await fs.readFile(this.fullPath, 'utf8');

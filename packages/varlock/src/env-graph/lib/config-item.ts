@@ -1102,6 +1102,7 @@ export class ConfigItem {
       return;
     }
 
+    let errorFromUnknownInput = false;
     if (!this.valueResolver) {
       this.isResolved = true;
       this.resolvedRawValue = undefined;
@@ -1110,6 +1111,7 @@ export class ConfigItem {
       try {
         this.resolvedRawValue = await this.valueResolver.resolve();
       } catch (err) {
+        errorFromUnknownInput = !!(err as any)?._unknownInputInShapeLoad;
         if (err instanceof ResolutionError) {
           this.resolutionError = err;
         } else {
@@ -1120,8 +1122,8 @@ export class ConfigItem {
     }
 
     // shape mode: a resolver that failed on a partial value (e.g. `domainFromUrl()` of a half-built url)
-    // did not really fail, the value is just unknown
-    if (this.resolutionError && this.isValueUnknownInShapeLoad) this.resolutionError = undefined;
+    // did not really fail, the value is just unknown. Errors from fully known parts of the value are kept
+    if (this.resolutionError && errorFromUnknownInput) this.resolutionError = undefined;
 
     if (this.resolvedRawValue instanceof RegExp) {
       this.resolutionError = new ResolutionError('Regex values are meant to be used within function args (e.g., remap()), not as a final resolved value');
