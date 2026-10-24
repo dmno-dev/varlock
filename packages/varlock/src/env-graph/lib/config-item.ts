@@ -866,8 +866,10 @@ export class ConfigItem {
    * considered, not decorators, so an empty item with a skipped `@sensitive` still fails a required check.
    */
   get isValueUnknownInShapeLoad(): boolean {
-    return this.envGraph.mode === 'shape' && !!this.valueResolver?.resultUnknownInShapeLoad;
+    return this._valueUnknownInShapeLoad;
   }
+  /** set once the value resolver has run, so dependents don't re-walk the resolver tree on every read */
+  private _valueUnknownInShapeLoad = false;
 
   /**
    * Record the error for a required item with no value. A `@dynamic=boot` item is exempt when
@@ -1072,6 +1074,7 @@ export class ConfigItem {
       this.resolvedRawValue = undefined;
       this.resolvedValue = undefined;
       this._resolvedDataType = undefined;
+      this._valueUnknownInShapeLoad = false;
     }
     if (this.isResolved) {
       // previously we would throw an error, now we resolve the envFlag early, so we can just return
@@ -1119,6 +1122,7 @@ export class ConfigItem {
           this.resolutionError.cause = err;
         }
       }
+      if (this.envGraph.mode === 'shape') this._valueUnknownInShapeLoad = this.valueResolver.resultUnknownInShapeLoad;
     }
 
     // shape mode: a resolver that failed on a partial value (e.g. `domainFromUrl()` of a half-built url)

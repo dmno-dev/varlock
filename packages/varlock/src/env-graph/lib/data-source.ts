@@ -941,13 +941,14 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
   // no async constructors... :(
   async _finishInit() {
     if (!this.rawContents) {
-      if (!await pathExists(this.fullPath)) {
+      const fileStat = await fs.stat(this.fullPath).catch(() => undefined);
+      if (!fileStat) {
         this._errors.push(new LoadingError(`File does not exist: ${this.fullPath}`));
         return;
       }
       // shape mode: a named pipe or device would block the read forever, hanging every editor keystroke or
       // CI lint. Checked here so it covers direct imports, directory imports and auto-loaded files alike
-      if (this.graph?.mode === 'shape' && !(await fs.stat(this.fullPath)).isFile()) {
+      if (this.graph?.mode === 'shape' && !fileStat.isFile()) {
         this._errors.push(new LoadingError(`Not a regular file: ${this.fullPath}`));
         return;
       }
