@@ -38,6 +38,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
           { label: 'Plugins', slug: 'guides/plugins' },
           { label: 'Static vs dynamic', slug: 'guides/dynamic-config', badge: 'new' },
           { label: 'Code generation', slug: 'guides/code-generation', badge: 'new' },
+          { label: 'Shape mode', slug: 'guides/shape-mode', badge: 'new' },
         ],
       },
       {
