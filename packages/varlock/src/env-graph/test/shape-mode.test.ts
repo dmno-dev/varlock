@@ -1,5 +1,5 @@
 import {
-  describe, test, expect, vi, afterEach,
+  afterEach, beforeEach, describe, test, expect, vi,
 } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -187,6 +187,9 @@ describe('EnvGraph shape mode', () => {
       LABEL=concat("domain: ", $DOMAIN)
     `, 'shape', { resolve: true });
     for (const key of ['HOST', 'DOMAIN', 'LABEL']) expect(nested.g.configSchema[key].errors).toEqual([]);
+    // but an error from a part of the value that does not depend on the skipped resolver is real, and is kept
+    const mixed = await load('MIXED=concat(exec("echo x"), domainFromUrl("mailto:user@example.com"))', 'shape', { resolve: true });
+    expect(mixed.g.configSchema.MIXED.errors.map((e) => e.message).join('\n')).toMatch(/domainFromUrl\(\)/);
 
     const { g: d } = await load(schema, 'default', { resolve: true });
     expect(d.configSchema.API.resolvedValue).toBe('https://example.com');
@@ -300,9 +303,11 @@ describe('EnvGraph shape mode', () => {
     expect(fs.existsSync(marker)).toBe(true); // control
     expect(d.configSchema.VARLOCK_BRANCH.resolvedValue).toBe('fake-branch');
 
-    // a branch reported by the CI platform is only read from the environment, so it still works
+    // a branch reported by the CI platform is only read from the environment, so it still works without git
+    fs.rmSync(marker, { force: true });
     const ci = await load(schema, 'shape', { resolve: true, processEnv: { GITHUB_ACTIONS: 'true', GITHUB_REF_NAME: 'my-branch' } });
     expect(ci.g.configSchema.VARLOCK_BRANCH.resolvedValue).toBe('my-branch');
+    expect(fs.existsSync(marker)).toBe(false);
     fs.rmSync(marker, { force: true });
     fs.rmSync(binDir, { recursive: true, force: true });
   });
@@ -464,15 +469,43 @@ describe('EnvGraph shape mode', () => {
     });
   });
 
-  test.skipIf(process.platform === 'win32')('an import that is not a regular file (a named pipe) is refused instead of hanging', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-shape-fifo-'));
-    execFileSync('mkfifo', [path.join(dir, '.env.pipe')]);
-    const g = new EnvGraph({ mode: 'shape' });
-    const schemaPath = path.join(dir, '.env.schema');
-    fs.writeFileSync(schemaPath, '# @import(./.env.pipe)\n# ---\nA=1\n');
-    const source = new DotEnvFileDataSource(schemaPath);
-    await g.setRootDataSource(source);
-    expect(source.errors.map((e) => e.message).join('\n')).toMatch(/not a regular file/);
-    // no default-mode control: there the read blocks forever
-  }, 5000);
+  // a file that is not a regular file (a named pipe) is refused instead of hanging, however it is reached
+  describe.skipIf(process.platform === 'win32')('non-regular files', () => {
+    const allErrors = (g: EnvGraph) => g.sortedDataSources.flatMap((s) => s.errors.map((e) => e.message)).join('\n');
+    let dir: string;
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-shape-fifo-'));
+    });
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    test('a direct import', async () => {
+      execFileSync('mkfifo', [path.join(dir, '.env.pipe')]);
+      const schemaPath = path.join(dir, '.env.schema');
+      fs.writeFileSync(schemaPath, '# @import(./.env.pipe)\n# ---\nA=1\n');
+      const g = new EnvGraph({ mode: 'shape' });
+      await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
+      expect(allErrors(g)).toMatch(/Not a regular file: .*\.env\.pipe/);
+      // no default-mode control: there the read blocks forever
+    }, 5000);
+
+    test('a directory import whose schema is a pipe', async () => {
+      fs.mkdirSync(path.join(dir, 'child'));
+      execFileSync('mkfifo', [path.join(dir, 'child', '.env.schema')]);
+      const schemaPath = path.join(dir, '.env.schema');
+      fs.writeFileSync(schemaPath, '# @import(./child/)\n# ---\nA=1\n');
+      const g = new EnvGraph({ mode: 'shape' });
+      await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
+      expect(allErrors(g)).toMatch(/Not a regular file: .*child.*\.env\.schema/);
+    }, 5000);
+
+    test('the root schema itself', async () => {
+      const schemaPath = path.join(dir, '.env.schema');
+      execFileSync('mkfifo', [schemaPath]);
+      const g = new EnvGraph({ mode: 'shape' });
+      await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
+      expect(allErrors(g)).toMatch(/Not a regular file/);
+    }, 5000);
+  });
 });
