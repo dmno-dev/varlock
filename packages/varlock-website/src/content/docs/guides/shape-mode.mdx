@@ -1,0 +1,91 @@
+---
+title: Shape mode
+description: Load a schema for editors, linters, and type checkers while skipping exec(), provider lookups, and plugin downloads
+---
+
+Loading a schema normally does real work. `exec()` runs a shell command, plugin resolvers call secret stores, `@cache` opens an encrypted cache, root decorators like `@setValuesBulk` and plugin `@init*` decorators run, and a pinned plugin that isn't installed is downloaded from npm. That is what you want when running an app, but not when a tool only needs to read the schema: a type checker, a language server, or a CI lint.
+
+Shape mode builds the graph (items, types, decorators, requiredness, sensitivity, errors) without running any of that. It is a programmatic API for tool authors. To check your own env, use [`varlock load`](/reference/cli/load-and-run/#load).
+
+:::caution[Installed plugins still run]
+Shape mode skips `exec()`, other resolvers with side effects, and root decorator execution, and it never downloads a plugin. A plugin that is already installed or cached is still imported, and its module code and `process()` hooks run. See [Limits](#limits).
+:::
+
+## Using it
+
+Pass `mode: 'shape'` when creating the graph. The graph classes are exported from `varlock` as `internal`.
+
+```js title="check-schema.mjs"
+import { internal } from 'varlock';
+
+const { EnvGraph, DotEnvFileDataSource } = internal;
+
+const graph = new EnvGraph({ mode: 'shape' });
+await graph.setRootDataSource(new DotEnvFileDataSource('./.env.schema'));
+await graph.finishLoad();
+
+// a source that fails to parse or a missing plugin stops loading early, and items can have schema errors
+const problems = [
+  ...graph.sortedDataSources.flatMap((source) => source.errors),
+  ...Object.values(graph.configSchema).flatMap((item) => item.errors),
+].filter((e) => !e.isWarning);
+if (problems.length) {
+  for (const err of problems) console.error(err.message);
+  process.exit(1);
+}
+
+for (const key of graph.sortedConfigKeys) {
+  const info = await graph.configSchema[key].getTypeGenInfo();
+  console.log(key, info.dataType?.coercedType ?? 'string', info.isRequired);
+}
+
+// everything that was not run, e.g. [{ kind: 'rootDecoratorExecute', name: 'currentEnv' }]
+console.log(graph.shapeSkipped);
+```
+
+This loads the schema file and the files it imports. Value files such as `.env.local` are not picked up by a `DotEnvFileDataSource` pointed at the schema. Calling `graph.resolveEnvValues()` also works in this mode. It only runs the [pure resolvers](#pure-resolvers) listed below.
+
+## What changes
+
+| | Default mode | Shape mode |
+|---|---|---|
+| Resolver functions | all run | only [pure](#pure-resolvers) ones run, the rest resolve to `undefined` |
+| Root decorators | `execute()` runs | `execute()` is skipped, so values set by `@setValuesBulk` and items it creates with `createMissing=true` are not in the graph. Items referenced in their arguments (`$VAR`) are still resolved and validated |
+| Cache | `@cache` opens a store | no cache store is created |
+| Plugins | a pinned plugin is downloaded if missing | never downloaded. If it isn't installed or cached, loading reports a schema error |
+| `process.env` | overrides item values | overrides are ignored. Values come from the files that were loaded, and builtin variables still read the environment |
+
+Everything skipped is recorded in `graph.shapeSkipped` as `{ kind, name, itemKey? }`, where `kind` is `resolver`, `rootDecoratorExecute`, `cacheStore`, or `pluginDownload`, and `itemKey` is the item whose value was being resolved when a resolver was skipped. Tools can use it to tell users which values could not be computed.
+
+Apart from those differences, a tool sees the same types that [code generation](/guides/code-generation/) produces, and the same requiredness, sensitivity, and validation messages, except where a decorator or function depends on a value that was skipped (see [Pure resolvers](#pure-resolvers)). [Builtin variables](/reference/builtin-variables/) such as `VARLOCK_ENV` are still read from the environment, except that outside CI `VARLOCK_BRANCH` is unknown (and listed in `shapeSkipped`), because the local `git branch --show-current` lookup is skipped. In CI it is read from the platform's variables as usual.
+
+### Pure resolvers
+
+These built-in resolvers only read other values, so they still run: `concat()`, `fallback()`, `ref()`, `regex()`, `remap()`, `forEnv()`, `eq()`, `if()`, `ifs()`, `not()`, `and()`, `or()`, `isEmpty()`, `domainFromUrl()`, and `inferFromPrefix()`. That is enough to evaluate `@currentEnv`, `@required=forEnv(production)`, and `${REF}` expansion.
+
+Everything else resolves to `undefined`: [`exec()`](/reference/functions/#exec), the random generators, [`generateOtp()`](/reference/functions/#generateotp), [`cache()`](/reference/functions/#cache), and plugin resolvers that are not [marked pure](#marking-plugin-resolvers-as-pure). An item whose value depends on one of them (directly, or through a reference like `COPY=$TOKEN`) is unknown. It is left unset and is not coerced, validated, or reported as a missing required value. A `@disable` or `@import(..., enabled=...)` condition that depends on one is treated as enabled, so the file's items stay in the graph. An error that a resolver raises on a partial value is cleared for an item's value, so an unrelated real error inside the same expression is hidden too. It is not cleared inside a `@disable` or `@import` condition.
+
+A function or decorator that depends on a skipped value, such as `if()`, `eq()`, or `@sensitive=eq(exec("..."), yes)`, sees it as empty, so what it returns can differ from default mode. If `@currentEnv` itself points at a skipped value, `forEnv()` has no environment to compare against and reports an error.
+
+## Limits
+
+Shape mode does not sandbox plugin code. A plugin that is already installed or cached is still loaded, so its module code runs when it is imported, and its data types, decorators, and the `process()` hooks of its resolvers are registered and run as usual. If a tool opens schemas you don't trust, for example from a repository you just cloned, it should only do so where the plugins it finds are acceptable to run, or inside a sandbox. A plugin that is missing is never fetched or run.
+
+## Marking plugin resolvers as pure
+
+Plugin authors can opt a resolver into shape mode with `pure: true`. Set it only when the resolver reads nothing but its arguments and other items: no shell, network, filesystem, secret store, or randomness.
+
+```ts title="my-plugin.ts"
+import { plugin } from 'varlock/plugin-lib';
+
+plugin.registerResolverFunction({
+  name: 'upper',
+  pure: true,
+  argsSchema: { type: 'array', arrayExactLength: 1 },
+  async resolve() {
+    return String(await this.arrArgs[0].resolve()).toUpperCase();
+  },
+});
+```
+
+If you leave `pure` out, the resolver is skipped in shape mode, which is the safe default for anything that talks to a provider. Older varlock versions ignore the flag.
