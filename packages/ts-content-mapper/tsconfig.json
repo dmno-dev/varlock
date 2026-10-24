@@ -1,0 +1,5 @@
+{
+  "extends": "@varlock/tsconfig/plugin.tsconfig.json",
+  "include": ["src/**/*.ts", "test/**/*.ts", "*.config.ts"],
+  "exclude": ["node_modules", "dist", "example"]
+}

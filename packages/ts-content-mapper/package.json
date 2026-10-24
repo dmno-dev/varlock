@@ -1,0 +1,52 @@
+{
+  "name": "@varlock/ts-content-mapper",
+  "description": "Prototype TypeScript 7.1 content mapper that types varlock's ENV straight from .env.schema, with no generated env.d.ts",
+  "version": "0.0.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/ts-content-mapper"
+  },
+  "type": "module",
+  "files": ["dist"],
+  "typescript": {
+    "contentMapper": {
+      "exec": ["node", "dist/server.mjs"],
+      "compilerOptions": [],
+      "dynamicConfig": false
+    }
+  },
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:ci": "vitest --run"
+  },
+  "keywords": [
+    "varlock",
+    "typescript",
+    "content-mapper",
+    "env",
+    ".env"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.18.0 || >=24.11.0"
+  },
+  "dependencies": {
+    "ts-content-mapper": "0.1.0"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "varlock": "workspace:*",
+    "vitest": "catalog:"
+  }
+}
