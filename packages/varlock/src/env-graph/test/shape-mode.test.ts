@@ -632,3 +632,167 @@ describe('EnvGraph shape mode', () => {
     }, 5000);
   });
 });
+
+// A decorator built from a skipped value has an unknown result. Requiredness and sensitivity stay booleans (the
+// safe side: optional, sensitive) and the shape-only flags say they are a guess. Default mode never sets them.
+describe('EnvGraph shape mode: unknown requiredness and sensitivity', () => {
+  const unknownFlags = (g: EnvGraph, key: string) => {
+    const item = g.configSchema[key];
+    return {
+      required: item.isRequired,
+      requiredUnknown: item.isRequiredUnknownInShapeLoad,
+      sensitive: item.isSensitive,
+      sensitiveUnknown: item.isSensitiveUnknownInShapeLoad,
+    };
+  };
+
+  test('@required, @sensitive and @public built from a skipped resolver are unknown', async () => {
+    const schema = outdent`
+      # @defaultSensitive=false
+      # ---
+      # @required=eq(exec("echo yes"), yes)
+      REQ=
+      # @sensitive=eq(exec("echo yes"), yes)
+      SENS=x
+      # @public=eq(exec("echo yes"), yes)
+      PUB=x
+      # @sensitive={enabled=eq(exec("echo yes"), yes)}
+      SENS_OBJ=x
+      # @sensitive={enabled=true, preventLeaks=eq(exec("echo yes"), yes)}
+      SENS_OBJ_KNOWN=x
+      # @required @public
+      KNOWN=x
+    `;
+    const { g } = await load(schema, 'shape', { resolve: true });
+    expect(unknownFlags(g, 'REQ')).toEqual({
+      required: false, requiredUnknown: true, sensitive: false, sensitiveUnknown: false,
+    });
+    // an unknown requiredness is not reported as a missing value
+    expect(g.configSchema.REQ.errors).toEqual([]);
+    for (const key of ['SENS', 'PUB', 'SENS_OBJ']) {
+      expect(unknownFlags(g, key)).toEqual({
+        required: true, requiredUnknown: false, sensitive: true, sensitiveUnknown: true,
+      });
+    }
+    // only `enabled` decides sensitivity, an unknown option does not
+    expect(g.configSchema.SENS_OBJ_KNOWN.isSensitiveUnknownInShapeLoad).toBe(false);
+    expect(unknownFlags(g, 'KNOWN')).toEqual({
+      required: true, requiredUnknown: false, sensitive: false, sensitiveUnknown: false,
+    });
+
+    // control: default mode runs exec, knows the answers, and never sets the flags
+    const { g: d } = await load(schema, 'default', { resolve: true });
+    expect(unknownFlags(d, 'REQ')).toEqual({
+      required: true, requiredUnknown: false, sensitive: false, sensitiveUnknown: false,
+    });
+    expect(unknownFlags(d, 'PUB')).toEqual({
+      required: true, requiredUnknown: false, sensitive: false, sensitiveUnknown: false,
+    });
+    expect(d.configSchema.SENS.isSensitive).toBe(true);
+  });
+
+  test('nothing that only holds for a sensitive item is reported when sensitivity is unknown', async () => {
+    const schema = outdent`
+      # @defaultSensitive=false
+      # ---
+      # @type=boolean
+      # @sensitive=eq(exec("echo yes"), yes)
+      FLAG=true
+      # @sensitive=eq(exec("echo yes"), yes)
+      SHORT=x
+      # @sensitive=eq(exec("echo yes"), yes)
+      LONG=abcdefghijkl
+      PUBLIC_COPY=prefix-abcdefghijkl
+    `;
+    const { g } = await load(schema, 'shape', { resolve: true });
+    expect(g.configSchema.FLAG.isSensitiveUnknownInShapeLoad).toBe(true);
+    expect(g.configSchema.FLAG.errors).toEqual([]);
+    expect(g.configSchema.SHORT.errors).toEqual([]);
+    expect(g.configSchema.PUBLIC_COPY.errors).toEqual([]);
+
+    // control: default mode knows both are sensitive, and says so
+    const { g: d } = await load(schema, 'default', { resolve: true });
+    expect(d.configSchema.FLAG.errors.map((e) => e.message)).toContain('a boolean value cannot be sensitive');
+    expect(d.configSchema.SHORT.errors.map((e) => e.message).join('\n')).toMatch(/too short to redact/);
+    expect(d.configSchema.PUBLIC_COPY.errors.map((e) => e.message)).toContain('Value contains the sensitive value of LONG');
+  });
+
+  test('forEnv() is unknown when @currentEnv is, in decorators, values and @disable', async () => {
+    const files = {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV @defaultSensitive=false
+        # @import(./.env.prod-only)
+        # ---
+        APP_ENV=exec("echo production")
+        # @required=forEnv(production)
+        PROD_ONLY=
+        # @sensitive=forEnv(production)
+        MAYBE_SECRET=x
+        LABEL=if(forEnv(production), prod, dev)
+      `,
+      '.env.prod-only': outdent`
+        # @disable=not(forEnv(production)) @defaultSensitive=false
+        # ---
+        IMPORTED=1
+      `,
+    };
+    const g = await loadGraph({ files, mode: 'shape' });
+    await g.resolveEnvValues();
+    const allErrors = [
+      ...g.sortedDataSources.flatMap((s) => s.errors),
+      ...Object.values(g.configSchema).flatMap((i) => i.errors),
+    ].map((e) => e.message);
+    expect(allErrors).toEqual([]);
+    expect(g.configSchema.PROD_ONLY.isRequiredUnknownInShapeLoad).toBe(true);
+    expect(g.configSchema.MAYBE_SECRET.isSensitiveUnknownInShapeLoad).toBe(true);
+    expect(g.configSchema.LABEL.isValueUnknownInShapeLoad).toBe(true);
+    expect(g.configSchema.IMPORTED).toBeDefined();
+
+    // control: default mode knows the env
+    const d = await loadGraph({ files, mode: 'default' });
+    await d.resolveEnvValues();
+    expect(d.configSchema.PROD_ONLY.isRequired).toBe(true);
+    expect(d.configSchema.LABEL.resolvedValue).toBe('prod');
+    expect(d.configSchema.IMPORTED).toBeDefined();
+  });
+
+  test('a known @currentEnv still evaluates forEnv() exactly', async () => {
+    const { g } = await load(outdent`
+      # @currentEnv=$APP_ENV
+      # ---
+      APP_ENV=development
+      # @required=forEnv(production)
+      PROD_ONLY=
+    `, 'shape', { resolve: true });
+    expect(unknownFlags(g, 'PROD_ONLY')).toMatchObject({ required: false, requiredUnknown: false });
+  });
+
+  test('generated types already take the safe side and match default mode', async () => {
+    // getTypeGenInfo() never resolves a computed @required or @sensitive (and root defaults must be static),
+    // so unknown metadata cannot reach generated types: optional and sensitive in both modes
+    const files = {
+      '.env.schema': outdent`
+        # @currentEnv=$APP_ENV @defaultSensitive=false
+        # ---
+        APP_ENV=exec("echo production")
+        # @required=forEnv(production)
+        # @sensitive=eq(exec("echo yes"), yes)
+        TOKEN=abc
+        # @public=eq(exec("echo yes"), yes)
+        LABEL=abc
+      `,
+    };
+    const fields = async (mode: 'default' | 'shape') => {
+      const g = await loadGraph({ files, mode });
+      return resolveFieldTypes(await collectTypeGenItems(g))
+        .filter((f) => f.key !== 'APP_ENV')
+        .map((f) => ({ key: f.key, isRequired: f.isRequired, isSensitive: f.isSensitive }));
+    };
+    const shapeFields = await fields('shape');
+    expect(shapeFields).toEqual([
+      { key: 'TOKEN', isRequired: false, isSensitive: true },
+      { key: 'LABEL', isRequired: true, isSensitive: true },
+    ]);
+    expect(shapeFields).toEqual(await fields('default'));
+  });
+});

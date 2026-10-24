@@ -508,8 +508,10 @@ export class ConfigItem {
    * because that will affect type generation (only _always_ required items are never undefined)
    * */
   _isRequiredDynamic: boolean = false;
+  private _isRequiredUnknown = false;
 
   private async processRequired() {
+    this._isRequiredUnknown = false;
     try {
       // Pass 1: explicit per-item @required / @optional decorators take highest priority
       for (const def of this.defs) {
@@ -530,6 +532,12 @@ export class ConfigItem {
         if (requiredDec.schemaErrors.some((e) => !e.isWarning)) {
           // but we mark as not required so we don't _also_ get required error
           this._isRequired = false;
+          return;
+        }
+        // shape mode: built from a skipped resolver, so unknown. Optional is the side that reports no false errors
+        if (requiredDec.decValueResolver?.resultUnknownInShapeLoad) {
+          this._isRequired = false;
+          this._isRequiredUnknown = true;
           return;
         }
         if (![true, false, undefined].includes(requiredDecoratorVal)) {
@@ -575,6 +583,11 @@ export class ConfigItem {
   }
   get isRequired() { return this._isRequired; }
   get isRequiredDynamic() { return this._isRequiredDynamic; }
+  /**
+   * Shape mode: `@required`/`@optional` depends on a skipped resolver, so whether the item is required is
+   * unknown. `isRequired` is then false. Always false in default mode.
+   */
+  get isRequiredUnknownInShapeLoad() { return this._isRequiredUnknown; }
 
 
   _isSensitive: boolean = true;
@@ -586,6 +599,12 @@ export class ConfigItem {
   get isSensitive(): boolean {
     return this._isSensitive;
   }
+  private _isSensitiveUnknown = false;
+  /**
+   * Shape mode: `@sensitive`/`@public` depends on a skipped resolver, so whether the item is sensitive is
+   * unknown. `isSensitive` is then true. Always false in default mode.
+   */
+  get isSensitiveUnknownInShapeLoad() { return this._isSensitiveUnknown; }
 
   /** how this item's sensitivity was determined — used by `varlock explain` */
   get sensitiveSource(): 'explicit' | 'data-type' | 'resolver' | 'default-decorator' | 'prefix' | 'proxy' | 'default' {
@@ -645,7 +664,8 @@ export class ConfigItem {
    * build - a silent runtime behavior change, which belongs in a breaking release.
    */
   private checkSensitiveIsPlausible() {
-    if (!this._isSensitive || this.isBuiltin) return;
+    // an unknown sensitivity is true only to be safe, so nothing is reported about it
+    if (!this._isSensitive || this.isBuiltin || this._isSensitiveUnknown) return;
     // a specific message here replaces the generic length rules rather than stacking on top
     const flag = (explicit: SchemaError, implicit: SchemaError) => {
       this._sensitiveIsImplausible = true;
@@ -714,12 +734,14 @@ export class ConfigItem {
         ));
       }
       this._isSensitive = true;
+      this._isSensitiveUnknown = false;
       this._sensitiveSource = 'proxy';
     }
   }
 
   private async resolveSensitiveSource() {
     const sensitiveFromDataType = this.dataType?.isSensitive;
+    this._isSensitiveUnknown = false;
 
     // Pass 1: explicit per-item @sensitive / @public decorators take highest priority
     for (const def of this.defs) {
@@ -739,7 +761,10 @@ export class ConfigItem {
         }
         const resolved = await sensitiveDec.resolve() as Record<string, any> | undefined;
         if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
-        this._isSensitive = this.applySensitiveOptions(resolved ?? {});
+        // shape mode: an `enabled` built from a skipped resolver is unknown, so take the safe side (sensitive)
+        this._isSensitiveUnknown = !!sensitiveDec.decValueResolver?.objArgs?.enabled?.resultUnknownInShapeLoad;
+        const opts = this._isSensitiveUnknown ? { ...resolved, enabled: true } : resolved ?? {};
+        this._isSensitive = this.applySensitiveOptions(opts);
         this._sensitiveExplicitlySet = true;
         this._sensitiveSource = 'explicit';
         return;
@@ -752,6 +777,14 @@ export class ConfigItem {
 
       const sensitiveDecValue = await sensitiveDec.resolve();
       if (sensitiveDec.schemaErrors.some((e) => !e.isWarning)) return;
+      // shape mode: built from a skipped resolver, so unknown. Sensitive is the safe side
+      if (sensitiveDec.decValueResolver?.resultUnknownInShapeLoad) {
+        this._isSensitive = true;
+        this._isSensitiveUnknown = true;
+        this._sensitiveExplicitlySet = true;
+        this._sensitiveSource = 'explicit';
+        return;
+      }
       if (![true, false, undefined].includes(sensitiveDecValue)) {
         this._schemaErrors.push(new SchemaError('@sensitive/@public must resolve to a boolean or undefined'));
         return;
@@ -1259,7 +1292,7 @@ export class ConfigItem {
       // a composite hides unredactable leaves from the scalar type rules in
       // checkSensitiveIsPlausible - `@type=array(number)` is a composite type whose
       // elements are all numbers, and only string leaves are ever registered
-      const compositeIsUnredactable = this.isSensitive
+      const compositeIsUnredactable = this.isSensitive && !this._isSensitiveUnknown
         && isCompositeCoercedType(this.dataType?.coercedType)
         && unredactable.length > 0;
       if (compositeIsUnredactable) {
@@ -1275,7 +1308,7 @@ export class ConfigItem {
 
       // skipped when something more specific was already said about this item, or when a
       // real error means it is broken anyway
-      const lengthRulesApply = this.isSensitive
+      const lengthRulesApply = this.isSensitive && !this._isSensitiveUnknown
         && !compositeIsUnredactable
         && !this._sensitiveIsImplausible
         && !this._schemaErrors.some((e) => !e.isWarning);
