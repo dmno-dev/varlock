@@ -32,11 +32,12 @@ export async function loadGraph(spec: {
   fallbackEnv?: string;
   /** extra data types to register, as a plugin's registerDataType would */
   dataTypes?: Array<EnvGraphDataTypeFactory>;
+  mode?: 'default' | 'shape';
 }) {
   const currentDir = path.dirname(expect.getState().testPath!);
   vi.spyOn(process, 'cwd').mockReturnValue(currentDir);
 
-  const g = new EnvGraph();
+  const g = new EnvGraph({ mode: spec.mode });
   for (const dataType of spec.dataTypes ?? []) g.registerDataType(dataType);
   if (spec.overrideValues) g.overrideValues = spec.overrideValues;
   if (spec.fallbackEnv) g.envFlagFallback = spec.fallbackEnv;

@@ -155,6 +155,21 @@ export class Resolver {
   get deps() {
     return Object.keys(this.depsObj);
   }
+  /** @internal shape mode: this resolver was skipped, or read an item whose value was */
+  _unknownInShapeLoad = false;
+  /**
+   * @internal shape mode: whether the value this resolver produced (the last time it ran) depends on a
+   * resolver that was skipped, so an empty result means "unknown" rather than "unset". Only resolvers that
+   * actually ran count, so an untaken `if()` branch does not.
+   */
+  get resultUnknownInShapeLoad(): boolean {
+    return this._unknownInShapeLoad || this.childResolvers.some((r) => r.resultUnknownInShapeLoad);
+  }
+  /** @internal shape mode: forget what an earlier run skipped, before resolving again */
+  resetUnknownInShapeLoad() {
+    this._unknownInShapeLoad = false;
+    this.childResolvers.forEach((r) => r.resetUnknownInShapeLoad());
+  }
 
   private parent?: ConfigItem | DecoratorInstance;
 
@@ -248,6 +263,14 @@ export class Resolver {
   }
 
   async resolve() {
+    const graph = this.envGraph ?? this.dataSource?.graph;
+    if (graph?.mode === 'shape' && !this.def.pure) {
+      const { getResolutionContext } = await import('./resolution-context');
+      const item = getResolutionContext()?.currentItem;
+      graph.shapeSkipped.push({ kind: 'resolver', name: this.def.name, ...item && { itemKey: item.key } });
+      this._unknownInShapeLoad = true;
+      return undefined;
+    }
     try {
       const resolvedValue = await this.def.resolve.call(this, this.meta);
       return resolvedValue;
@@ -299,6 +322,7 @@ export class Resolver {
     // would silently produce undefined instead of the item's actual value
     if (!depItem.isResolved) throw new Error(`Referenced item "${key}" has not been resolved yet`);
     if (depItem.isBuiltin) depItem._builtinValueUsed = true;
+    if (depItem.isValueUnknownInShapeLoad) this._unknownInShapeLoad = true;
     return depItem.resolvedValue;
   }
 }
@@ -315,6 +339,12 @@ export type ResolverDef<T = any> = {
   inferredTypeSettings?: Record<string, any>;
   /** If true, using this resolver implies the item is sensitive (unless explicitly overridden) */
   impliesSensitive?: boolean;
+  /**
+   * True when resolving only reads other values and has no side effects (no shell, no network,
+   * no filesystem, no secret stores, no randomness). An EnvGraph in `shape` mode only runs
+   * pure resolvers; every other resolver resolves to undefined there.
+   */
+  pure?: boolean;
   argsSchema?: {
     type: 'array' | 'object' | 'mixed';
     arrayExactLength?: number;
@@ -331,6 +361,7 @@ export type ResolverDef<T = any> = {
 export class StaticValueResolver extends Resolver {
   static def = {
     name: '\0static', // used internally, so we add the extra \0
+    pure: true,
     icon: 'bi:dash',
     async resolve(this: Resolver) {
       return (this as StaticValueResolver).staticValue;
@@ -356,6 +387,7 @@ export class FunctionArgsResolver extends Resolver {
   // so that some can be skipped depending on the other args
   static def = {
     name: '\0fnArgs', // used internally, so we add the extra \0
+    pure: true,
     label: 'function args',
     icon: 'bi:dash',
     // not actualyl used
@@ -382,6 +414,7 @@ export class FunctionArgsResolver extends Resolver {
 export class ObjectLiteralResolver extends Resolver {
   static def = {
     name: '\0objectLiteral', // used internally, so we add the extra \0
+    pure: true,
     label: 'object literal',
     icon: 'bi:braces',
     resolve() { return undefined; },
@@ -403,6 +436,7 @@ export class ObjectLiteralResolver extends Resolver {
 export class ArrayLiteralResolver extends Resolver {
   static def = {
     name: '\0arrayLiteral', // used internally, so we add the extra \0
+    pure: true,
     label: 'array literal',
     icon: 'bi:bracket',
     resolve() { return undefined; },
@@ -423,6 +457,7 @@ export class ArrayLiteralResolver extends Resolver {
 export class ErrorResolver extends Resolver {
   static def: ResolverDef = {
     name: '\0error', // used internally, so we add the extra \0
+    pure: true,
     icon: 'bi:dash',
     async resolve() { return undefined; },
   };
@@ -445,6 +480,7 @@ export function createResolver<T>(
 
 export const ConcatResolver: typeof Resolver = createResolver({
   name: 'concat',
+  pure: true,
   icon: 'material-symbols:join',
   inferredType: 'string',
   argsSchema: {
@@ -465,6 +501,7 @@ export const ConcatResolver: typeof Resolver = createResolver({
 
 export const FallbackResolver: typeof Resolver = createResolver({
   name: 'fallback',
+  pure: true,
   icon: 'memory:table-top-stairs-up',
   argsSchema: {
     type: 'array',
@@ -519,6 +556,7 @@ export const ExecResolver: typeof Resolver = createResolver({
 
 export const RefResolver: typeof Resolver = createResolver({
   name: 'ref',
+  pure: true,
   icon: 'mdi-light:content-duplicate',
   argsSchema: {
     type: 'array',
@@ -553,6 +591,7 @@ export const RefResolver: typeof Resolver = createResolver({
 // we will check final resoled values to make sure they are not regexes
 export const RegexResolver: typeof Resolver = createResolver({
   name: 'regex',
+  pure: true,
   icon: 'mdi:regex',
   argsSchema: {
     type: 'array',
@@ -590,6 +629,7 @@ export const RegexResolver: typeof Resolver = createResolver({
 
 export const RemapResolver: typeof Resolver = createResolver({
   name: 'remap',
+  pure: true,
   icon: 'codicon:replace',
   argsSchema: {
     // supports both old key=value syntax and new positional syntax
@@ -685,6 +725,7 @@ export const RemapResolver: typeof Resolver = createResolver({
 
 export const ForEnvResolver: typeof Resolver = createResolver({
   name: 'forEnv',
+  pure: true,
   icon: 'tabler:flag-question',
   inferredType: 'boolean',
   argsSchema: {
@@ -714,6 +755,7 @@ export const ForEnvResolver: typeof Resolver = createResolver({
 
 export const EqResolver: typeof Resolver = createResolver({
   name: 'eq',
+  pure: true,
   icon: 'material-symbols:equal',
   inferredType: 'boolean',
   argsSchema: {
@@ -732,6 +774,7 @@ export const EqResolver: typeof Resolver = createResolver({
 
 export const IfResolver: typeof Resolver = createResolver({
   name: 'if',
+  pure: true,
   icon: 'material-symbols:help-center', // question mark
   argsSchema: {
     type: 'array',
@@ -769,6 +812,7 @@ export const IfResolver: typeof Resolver = createResolver({
 
 export const IfsResolver: typeof Resolver = createResolver({
   name: 'ifs',
+  pure: true,
   icon: 'material-symbols:rule',
   argsSchema: {
     type: 'array',
@@ -794,6 +838,7 @@ export const IfsResolver: typeof Resolver = createResolver({
 
 export const NotResolver: typeof Resolver = createResolver({
   name: 'not',
+  pure: true,
   icon: 'material-symbols:not-equal',
   inferredType: 'boolean',
   argsSchema: {
@@ -808,6 +853,7 @@ export const NotResolver: typeof Resolver = createResolver({
 
 export const AndResolver: typeof Resolver = createResolver({
   name: 'and',
+  pure: true,
   icon: 'material-symbols:join-inner',
   inferredType: 'boolean',
   argsSchema: {
@@ -825,6 +871,7 @@ export const AndResolver: typeof Resolver = createResolver({
 
 export const OrResolver: typeof Resolver = createResolver({
   name: 'or',
+  pure: true,
   icon: 'material-symbols:join-full',
   inferredType: 'boolean',
   argsSchema: {
@@ -842,6 +889,7 @@ export const OrResolver: typeof Resolver = createResolver({
 
 export const IsEmptyResolver: typeof Resolver = createResolver({
   name: 'isEmpty',
+  pure: true,
   icon: 'material-symbols:empty',
   inferredType: 'boolean',
   argsSchema: {
@@ -892,6 +940,7 @@ function extractDomainFromUrl(url: string): string | undefined {
 
 export const DomainFromUrlResolver: typeof Resolver = createResolver({
   name: 'domainFromUrl',
+  pure: true,
   icon: 'mdi:web',
   inferredType: 'domain',
   // the input is any url, so the result can legitimately be a single-label host (`localhost`)
@@ -1333,6 +1382,7 @@ export const CacheResolver: typeof Resolver = createResolver({
 // but resolved within the context of a specific item
 export const InferFromPrefixResolver: typeof Resolver = createResolver({
   name: 'inferFromPrefix',
+  pure: true,
   icon: 'material-symbols:help-center', // question mark
   argsSchema: {
     type: 'array',

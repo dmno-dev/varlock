@@ -861,6 +861,15 @@ export class ConfigItem {
   }
 
   /**
+   * @internal In shape mode: whether this item's value comes from a resolver that was skipped (or from an
+   * item whose value does), so an empty value means "unknown" rather than "unset". Only the value is
+   * considered, not decorators, so an empty item with a skipped `@sensitive` still fails a required check.
+   */
+  get isValueUnknownInShapeLoad(): boolean {
+    return this.envGraph.mode === 'shape' && !!this.valueResolver?.resultUnknownInShapeLoad;
+  }
+
+  /**
    * Record the error for a required item with no value. A `@dynamic=boot` item is exempt when
    * the graph is resolving for a freeze (`deferBootRequired`): its value arrives at boot, where
    * the frozen env checks it. Otherwise the error says what kind of item it is, since "required
@@ -1097,6 +1106,7 @@ export class ConfigItem {
       this.isResolved = true;
       this.resolvedRawValue = undefined;
     } else {
+      if (this.envGraph.mode === 'shape') this.valueResolver.resetUnknownInShapeLoad();
       try {
         this.resolvedRawValue = await this.valueResolver.resolve();
       } catch (err) {
@@ -1109,6 +1119,10 @@ export class ConfigItem {
       }
     }
 
+    // shape mode: a resolver that failed on a partial value (e.g. `domainFromUrl()` of a half-built url)
+    // did not really fail, the value is just unknown
+    if (this.resolutionError && this.isValueUnknownInShapeLoad) this.resolutionError = undefined;
+
     if (this.resolvedRawValue instanceof RegExp) {
       this.resolutionError = new ResolutionError('Regex values are meant to be used within function args (e.g., remap()), not as a final resolved value');
     }
@@ -1118,6 +1132,14 @@ export class ConfigItem {
 
     this.isResolved = true;
 
+    // shape mode: a value built from a skipped resolver is unknown. Any value we computed is partial
+    // (e.g. `concat("https://", $UNKNOWN)`), so don't coerce or validate it and leave it unset
+    if (this.isValueUnknownInShapeLoad) {
+      this.resolvedRawValue = undefined;
+      this.resolvedValue = undefined;
+      this.isValidated = true;
+      return;
+    }
 
     // first deal with empty values and checking required
     if (this.resolvedRawValue === undefined || this.resolvedRawValue === '') {

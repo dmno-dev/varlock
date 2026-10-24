@@ -230,6 +230,20 @@ export class EnvGraph {
   /** @internal --skip-cache flag: skip cache entirely */
   _skipCacheMode = false;
 
+  /**
+   * `shape` builds the graph for tools that only inspect a schema (type checkers, language
+   * servers, CI linters): only pure resolvers run, root decorators are never executed, no cache
+   * store is created, plugins are never downloaded, and process.env is ignored. Anything skipped
+   * is recorded in `shapeSkipped`.
+   */
+  readonly mode: 'default' | 'shape' = 'default';
+  shapeSkipped: Array<{
+    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload',
+    name: string,
+    /** the item being resolved when a resolver was skipped, when known */
+    itemKey?: string,
+  }> = [];
+
   /** root data source (.env.schema) */
   rootDataSource?: EnvGraphDataSource;
 
@@ -486,7 +500,8 @@ export class EnvGraph {
     this.codeGeneratorsRegistry[name] = generatorDef;
   }
 
-  constructor() {
+  constructor(opts?: { mode?: 'default' | 'shape' }) {
+    if (opts?.mode) this.mode = opts.mode;
     // register base data types (string, number, boolean, etc)
     for (const dataType of BaseDataTypes) {
       this.registerDataType(dataType);
@@ -513,7 +528,8 @@ export class EnvGraph {
       this.registerProxyTransformScheme(schemeName, schemeDef);
     }
 
-    this.overrideValues = originalProcessEnv;
+    // in shape mode the shell's env must not change what a schema means
+    this.overrideValues = this.mode === 'shape' ? {} : originalProcessEnv;
   }
 
   /**
@@ -557,6 +573,8 @@ export class EnvGraph {
     const builtinType = builtinDef.type || 'string';
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
+      // reads the environment only, apart from the opt-in skippedInShapeLoad lookups
+      pure: true,
       description: builtinDef.description,
       // Advertise the builtin's declared type so that if the item gets a
       // process() call (e.g. when registered early via a root-decorator
@@ -568,6 +586,11 @@ export class EnvGraph {
         const builtinItem = graph.configSchema[key];
         if (builtinItem) {
           builtinItem._builtinUsageWarning = builtinDef.usageWarning?.(graph.ciEnvInfo, graph.processEnvForBuiltins);
+        }
+        if (graph.mode === 'shape' && builtinDef.skippedInShapeLoad?.(graph.ciEnvInfo, graph.processEnvForBuiltins)) {
+          graph.shapeSkipped.push({ kind: 'resolver', name: key });
+          this._unknownInShapeLoad = true;
+          return undefined;
         }
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
@@ -686,7 +709,10 @@ export class EnvGraph {
           `@cache resolved to an invalid value (${JSON.stringify(cacheSetting)}) — must be one of: "auto", "memory", "disk", "disabled"`,
         ));
       }
-      if (cacheMode === 'disabled') {
+      if (this.mode === 'shape') {
+        if (cacheMode !== 'disabled') this.shapeSkipped.push({ kind: 'cacheStore', name: cacheMode });
+        this._cacheStore = undefined;
+      } else if (cacheMode === 'disabled') {
         this._cacheMode = 'disabled';
         this._skipCacheMode = true;
         this._cacheStore = undefined;
@@ -791,6 +817,12 @@ export class EnvGraph {
         // resolveEnvValues() skips any item whose deps are not in the set it was given
         const deps = this.expandKeysWithTransitiveDeps(decInstance.decValueResolver.deps);
         await this.resolveEnvValues([...deps]);
+        // shape mode still resolves the decorator's deps above (only pure resolvers run), which also
+        // re-validates them with their final metadata; it only skips the side-effecting execute()
+        if (this.mode === 'shape') {
+          this.shapeSkipped.push({ kind: 'rootDecoratorExecute', name: decInstance.name });
+          continue;
+        }
         try {
           await decInstance.execute();
         } catch (err) {

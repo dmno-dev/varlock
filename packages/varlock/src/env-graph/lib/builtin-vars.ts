@@ -10,6 +10,8 @@ export type BuiltinVarDef = {
   resolver: (
     ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>,
   ) => string | boolean | undefined | Promise<string | undefined>;
+  /** shape mode: true when producing the value would need a side effect (a process), so it is skipped */
+  skippedInShapeLoad?: (ciEnv: CiEnvInfo, processEnv: Record<string, string | undefined>) => boolean;
   /**
    * Warning to surface when the builtin's own resolver produced the value and something
    * in the schema actually reads it (e.g. VARLOCK_ENV being a low-confidence guess)
@@ -118,6 +120,8 @@ export const BUILTIN_VARS: Record<string, BuiltinVarDef> = {
     name: 'VARLOCK_BRANCH',
     description: 'Current git branch name. In CI, sourced from platform environment variables. Locally (non-CI), auto-detected via `git branch --show-current`.',
     resolver: (ciEnv) => ciEnv.branch ?? (!ciEnv.isCI ? getGitBranch() : undefined),
+    // the local lookup spawns git, which shape mode never does
+    skippedInShapeLoad: (ciEnv) => !ciEnv.branch && !ciEnv.isCI,
   },
   VARLOCK_PR_NUMBER: {
     name: 'VARLOCK_PR_NUMBER',
