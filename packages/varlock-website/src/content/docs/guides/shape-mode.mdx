@@ -53,11 +53,13 @@ This loads the schema file and the files it imports. Value files such as `.env.l
 | Root decorators | `execute()` runs | `execute()` is skipped, so values set by `@setValuesBulk` and items it creates with `createMissing=true` are not in the graph. Items referenced in their arguments (`$VAR`) are still resolved and validated |
 | Cache | `@cache` opens a store | no cache store is created |
 | Plugins | a pinned plugin is downloaded if missing | never downloaded. If it isn't installed or cached, loading reports a schema error |
-| `process.env` | overrides item values | overrides are ignored. Values come from the files that were loaded, and builtin variables still read the environment |
+| `process.env` | overrides item values, and builtin variables read it | ignored. Values come from the files that were loaded, and builtin variables only see an env you pass in explicitly (`graph.processEnvOverride`) |
+| Code generation | writes wherever `path` points | only inside the directory of the root schema or directory; a path that leaves it (`..`, absolute, or through a symlink) is a schema error |
+| Imports | any path | an imported path that is not a regular file (a named pipe or a device) is a loading error instead of a read that never returns |
 
-Everything skipped is recorded in `graph.shapeSkipped` as `{ kind, name, itemKey? }`, where `kind` is `resolver`, `rootDecoratorExecute`, `cacheStore`, or `pluginDownload`, and `itemKey` is the item whose value was being resolved when a resolver was skipped. Tools can use it to tell users which values could not be computed.
+Everything skipped is recorded in `graph.shapeSkipped` as `{ kind, name, itemKey? }`, where `kind` is `resolver`, `rootDecoratorExecute`, `cacheStore`, `pluginDownload`, or `codegenWrite`, and `itemKey` is the item whose value was being resolved when a resolver was skipped. Tools can use it to tell users which values could not be computed.
 
-Apart from those differences, a tool sees the same types that [code generation](/guides/code-generation/) produces, and the same requiredness, sensitivity, and validation messages, except where a decorator or function depends on a value that was skipped (see [Pure resolvers](#pure-resolvers)). [Builtin variables](/reference/builtin-variables/) such as `VARLOCK_ENV` are still read from the environment, except that outside CI `VARLOCK_BRANCH` is unknown (and listed in `shapeSkipped`), because the local `git branch --show-current` lookup is skipped. In CI it is read from the platform's variables as usual.
+Apart from those differences, a tool sees the same types that [code generation](/guides/code-generation/) produces, and the same requiredness, sensitivity, and validation messages, except where a decorator or function depends on a value that was skipped (see [Pure resolvers](#pure-resolvers)). [Builtin variables](/reference/builtin-variables/) such as `VARLOCK_ENV` are computed from an env you pass in explicitly, or from an empty one, so the same schema gives the same result on any machine. Without CI variables in that env, `VARLOCK_BRANCH` is unknown (and listed in `shapeSkipped`), because the local `git branch --show-current` lookup is skipped.
 
 ### Pure resolvers
 
@@ -70,6 +72,10 @@ A function or decorator that depends on a skipped value, such as `if()`, `eq()`,
 ## Limits
 
 Shape mode does not sandbox plugin code. A plugin that is already installed or cached is still loaded, so its module code runs when it is imported, and its data types, decorators, and the `process()` hooks of its resolvers are registered and run as usual. If a tool opens schemas you don't trust, for example from a repository you just cloned, it should only do so where the plugins it finds are acceptable to run, or inside a sandbox. A plugin that is missing is never fetched or run.
+
+`pure` on a plugin resolver is a promise made by code that already runs, so shape mode trusts it the same way. A plugin manifest that lets tools skip importing plugin code would not carry that flag.
+
+A regex in the schema (for example in `regex()` or `@type=string(matches=...)`) runs in both modes, and JavaScript has no timeout for it, so a pattern with catastrophic backtracking can stall a load. Tools that open untrusted schemas on every keystroke should run the load in a worker they can stop.
 
 ## Marking plugin resolvers as pure
 

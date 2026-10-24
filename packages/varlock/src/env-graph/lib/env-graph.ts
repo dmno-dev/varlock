@@ -238,7 +238,7 @@ export class EnvGraph {
    */
   readonly mode: 'default' | 'shape' = 'default';
   shapeSkipped: Array<{
-    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload',
+    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload' | 'codegenWrite',
     name: string,
     /** the item being resolved when a resolver was skipped, when known */
     itemKey?: string,
@@ -542,12 +542,15 @@ export class EnvGraph {
   /** Cached CI env info, computed lazily from processEnvOverride or real process.env */
   private _cachedCiEnv?: CiEnvInfo;
   get ciEnvInfo(): CiEnvInfo {
-    this._cachedCiEnv ??= getCiEnv(this.processEnvOverride ?? process.env);
+    this._cachedCiEnv ??= getCiEnv(this.processEnvForBuiltins);
     return this._cachedCiEnv;
   }
 
   /** The process env record used for builtin var detection */
   get processEnvForBuiltins(): Record<string, string | undefined> {
+    // shape mode never reads the real shell env, so ambient CI variables cannot change what a schema means;
+    // an env the caller passes in explicitly is a deliberate input and is still used
+    if (this.mode === 'shape') return this.processEnvOverride ?? {};
     return this.processEnvOverride ?? process.env;
   }
 
@@ -1482,6 +1485,12 @@ export class EnvGraph {
           ? path.resolve(dec.dataSource.fullPath, '..')
           : process.cwd();
         const outputPath = path.resolve(sourceDir, settings.obj.path);
+        // shape mode reads schemas nobody has reviewed: a schema must not be able to write outside the project
+        // it was loaded from (`path=../..`, an absolute path, or a symlink pointing out of it)
+        if (this.mode === 'shape' && !await this.isWritableInShapeLoad(outputPath)) {
+          this.shapeSkipped.push({ kind: 'codegenWrite', name: outputPath });
+          throw new SchemaError(`@${decoratorName} - in shape mode, \`path\` must stay inside the project (${outputPath})`);
+        }
 
         const filterStr: string | undefined = settings.obj.filter;
         if (!fieldsByFilterStr.has(filterStr ?? '')) {
@@ -1517,6 +1526,24 @@ export class EnvGraph {
       }
     }
     return { generatedCount, skippedImportOnlyCount };
+  }
+
+  /**
+   * Shape mode only writes generated code inside the directory of the root schema: the nearest existing ancestor
+   * of the target is resolved through symlinks and must be inside it, and the target itself must not be a symlink.
+   */
+  private async isWritableInShapeLoad(outputPath: string) {
+    const root = this.rootDataSource;
+    let rootDir = this.basePath ?? process.cwd();
+    if (root instanceof FileBasedDataSource) rootDir = path.dirname(root.fullPath);
+    else if (root && 'basePath' in root && typeof root.basePath === 'string') rootDir = root.basePath; // DirectoryDataSource
+    const realRoot = await fs.promises.realpath(rootDir).catch(() => path.resolve(rootDir));
+    let existing = path.dirname(outputPath);
+    while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+    const realParent = await fs.promises.realpath(existing).catch(() => existing);
+    const inside = realParent === realRoot || realParent.startsWith(realRoot + path.sep);
+    const targetIsLink = await fs.promises.lstat(outputPath).then((st) => st.isSymbolicLink(), () => false);
+    return inside && !targetIsLink;
   }
 
   /**
