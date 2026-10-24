@@ -351,7 +351,10 @@ export abstract class EnvGraphDataSource {
         }
       }
 
-      const disabledVal = await disabledDec.resolve();
+      let disabledVal = await disabledDec.resolve();
+      // shape mode: a condition built from a skipped resolver is unknown, so keep the source rather than
+      // dropping its items from the graph
+      if (this.graph.mode === 'shape' && disabledDec.decValueResolver?.resultUnknownInShapeLoad) disabledVal = false;
       if (!_.isBoolean(disabledVal)) {
         this._errors.push(new LoadingError('expected @disable to be boolean value'));
         return;
@@ -585,7 +588,10 @@ export abstract class EnvGraphDataSource {
           }
 
           // Check if the import is enabled/disabled using key-val option (defaults to true if not specified)
-          const enabledValue = importArgs.obj.enabled ?? true;
+          const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
+          // shape mode: a condition built from a skipped resolver is unknown, so import the file anyway
+          const enabledUnknown = this.graph.mode === 'shape' && !!enabledResolver?.resultUnknownInShapeLoad;
+          const enabledValue = enabledUnknown ? true : importArgs.obj.enabled ?? true;
           if (!_.isBoolean(enabledValue)) {
             throw new Error('expected @import enabled parameter to be a boolean');
           }
@@ -595,7 +601,6 @@ export abstract class EnvGraphDataSource {
 
           // Track if this import was conditionally enabled (non-static enabled resolver)
           // Used by type generation to identify env-dependent sources
-          const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
           const isConditionallyEnabled = !!enabledResolver && !enabledResolver.isStatic;
 
           const importMeta = { isImport: true, importFilter, isConditionallyEnabled };

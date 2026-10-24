@@ -1,0 +1,11 @@
+{
+  "name": "@varlock/test-plugin-shape",
+  "private": true,
+  "description": "plugin used in automated tests of shape mode",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./plugin": "./plugin.js"
+  },
+  "files": ["dist"]
+}
