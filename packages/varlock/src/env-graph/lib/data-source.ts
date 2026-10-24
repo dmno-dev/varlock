@@ -684,6 +684,10 @@ export abstract class EnvGraphDataSource {
                 if (fsStat.isDirectory()) {
                   this._errors.push(new LoadingError('Imported path is a directory, add trailing "/" to import'));
                   return;
+                } else if (this.graph.mode === 'shape' && !fsStat.isFile()) {
+                  // a named pipe or device would block the read forever, hanging every editor keystroke or CI lint
+                  this._errors.push(new LoadingError(`Imported path is not a regular file: ${fullImportPath}`));
+                  return;
                 } else if (!fileName.startsWith('.env.')) {
                   this._errors.push(new LoadingError('imported file must be a .env.* file'));
                   return;

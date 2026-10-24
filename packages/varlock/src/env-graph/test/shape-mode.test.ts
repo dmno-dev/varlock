@@ -1,6 +1,7 @@
 import {
   describe, test, expect, vi, afterEach,
 } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -409,4 +410,69 @@ describe('EnvGraph shape mode', () => {
     };
     expect(await info('shape')).toEqual(await info('default'));
   });
+
+  test('builtin vars ignore CI variables in the shell', async () => {
+    vi.stubEnv('GITHUB_ACTIONS', 'true');
+    vi.stubEnv('GITHUB_REF_NAME', 'branch-from-shell');
+    try {
+      const schema = '# ---\nB=$VARLOCK_BRANCH';
+      const { g } = await load(schema, 'shape', { resolve: true });
+      expect(g.configSchema.B.resolvedValue).toBeUndefined();
+      const { g: d } = await load(schema, 'default', { resolve: true });
+      expect(d.configSchema.B.resolvedValue).toBe('branch-from-shell'); // control
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  describe('code generation stays inside the project', () => {
+    const project = () => {
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-shape-codegen-'));
+      const dir = path.join(base, 'project');
+      fs.mkdirSync(dir);
+      return { base, dir };
+    };
+    const generate = async (dir: string, mode: 'default' | 'shape', outPath: string) => {
+      const g = new EnvGraph({ mode });
+      const schemaPath = path.join(dir, '.env.schema');
+      fs.writeFileSync(schemaPath, `# @generateTsTypes(path=${outPath})\n# ---\nA=1\n`);
+      await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
+      await g.finishLoad();
+      return g.runCodeGeneratorsIfNeeded();
+    };
+
+    test('a path outside the project is refused', async () => {
+      const { base, dir } = project();
+      await expect(generate(dir, 'shape', '../escape.d.ts')).rejects.toThrow(/must stay inside the project/);
+      expect(fs.existsSync(path.join(base, 'escape.d.ts'))).toBe(false);
+      await generate(dir, 'default', '../escape.d.ts');
+      expect(fs.existsSync(path.join(base, 'escape.d.ts'))).toBe(true); // control
+    });
+
+    test('a symlinked directory pointing out of the project is refused', async () => {
+      const { base, dir } = project();
+      fs.mkdirSync(path.join(base, 'outside'));
+      fs.symlinkSync(path.join(base, 'outside'), path.join(dir, 'link'));
+      await expect(generate(dir, 'shape', 'link/env.d.ts')).rejects.toThrow(/must stay inside the project/);
+      expect(fs.existsSync(path.join(base, 'outside', 'env.d.ts'))).toBe(false);
+    });
+
+    test('a path inside the project is written', async () => {
+      const { dir } = project();
+      await generate(dir, 'shape', 'types/env.d.ts');
+      expect(fs.existsSync(path.join(dir, 'types', 'env.d.ts'))).toBe(true);
+    });
+  });
+
+  test.skipIf(process.platform === 'win32')('an import that is not a regular file (a named pipe) is refused instead of hanging', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-shape-fifo-'));
+    execFileSync('mkfifo', [path.join(dir, '.env.pipe')]);
+    const g = new EnvGraph({ mode: 'shape' });
+    const schemaPath = path.join(dir, '.env.schema');
+    fs.writeFileSync(schemaPath, '# @import(./.env.pipe)\n# ---\nA=1\n');
+    const source = new DotEnvFileDataSource(schemaPath);
+    await g.setRootDataSource(source);
+    expect(source.errors.map((e) => e.message).join('\n')).toMatch(/not a regular file/);
+    // no default-mode control: there the read blocks forever
+  }, 5000);
 });
