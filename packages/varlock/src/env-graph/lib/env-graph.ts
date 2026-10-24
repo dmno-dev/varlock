@@ -1078,7 +1078,7 @@ export class EnvGraph {
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
       // an unknown sensitivity (shape mode) is true only to be safe, so it does not make another value leak
-      if (!item.isSensitive || item.isSensitiveUnknownInShapeLoad) continue;
+      if (!item.isKnownSensitive) continue;
       // mirrors what resetRedactionMap registers: every string leaf, plus the serialized
       // form of a composite - so an array(number) with no redactable leaves still has its
       // joined "3000,3001" in the map
