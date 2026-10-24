@@ -1,0 +1,15 @@
+{
+  "name": "@varlock/ts-content-mapper-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc -p . --runExternalCode"
+  },
+  "dependencies": {
+    "varlock": "workspace:*"
+  },
+  "devDependencies": {
+    "@varlock/ts-content-mapper": "workspace:*",
+    "typescript": "7.1.0-dev.20261009.1"
+  }
+}
