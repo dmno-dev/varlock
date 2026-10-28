@@ -1,7 +1,7 @@
 name: Nightly Socket supply-chain scan
 on:
   schedule:
-    # 07:45 UTC — offset from the nightly dependency audit (07:15)
+    # 07:45 UTC, offset from the nightly dependency audit (07:15)
     - cron: '45 7 * * *'
   workflow_dispatch:
 

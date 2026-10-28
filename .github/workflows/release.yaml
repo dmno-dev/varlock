@@ -161,6 +161,20 @@ jobs:
           BUMPY_GH_TOKEN: ${{ secrets.BUMPY_GH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
 
+  # Blocking dependency audit before publishing. PR CI only blocks on audit
+  # failures when the PR changes deps (or is the version PR), so this is the
+  # backstop that keeps a known-critical advisory from shipping.
+  audit:
+    needs: plan
+    if: needs.plan.outputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - name: Audit dependencies
+        run: bun run audit:critical
+
   # Build + sign the macOS native binary. Skipped on a cache hit — the previously
   # notarized bundle is reused and re-verified (see verify-native-macos) instead.
   build-native-macos:
@@ -237,7 +251,7 @@ jobs:
   # the version-PR path is handled by the `version-pr` job above.
   release:
     name: Release
-    needs: [plan, notarize-native-macos, verify-native-macos, build-native-rust]
+    needs: [plan, audit, notarize-native-macos, verify-native-macos, build-native-rust]
     if: always() && !failure() && !cancelled() && needs.plan.outputs.mode == 'publish'
     runs-on: ubuntu-latest
     # Publishing runs in the `publish` environment so the OIDC tokens minted in
