@@ -5,8 +5,9 @@
  *
  * Modes:
  * - `--mode=full` (default): fail on any advisory at or above the audit level
- * - `--mode=pr`: only fail if this branch changes bun.lock or .npmrc (any dep, catalog, or override
- *   change in a package.json shows up in bun.lock, while script-only edits don't). Otherwise
+ * - `--mode=pr`: only fail if this branch changes bun.lock or .npmrc, committed or left uncommitted
+ *   by a preceding `bun install` (any dep, catalog, or override change in a package.json shows up
+ *   in bun.lock, while script-only edits don't). Otherwise
  *   advisories are reported as warnings, since they already exist on the base branch and are not
  *   this PR's to fix.
  */
@@ -55,6 +56,16 @@ function isDepMetadataFile(filePath: string) {
 
 /** returns true when deps changed, or when we can't tell (fail safe = blocking) */
 function depsChanged() {
+  // CI runs a non-frozen `bun install` first, so a package.json dep change committed without its
+  // lockfile update shows up as an uncommitted bun.lock change
+  const uncommitted = safeGit('git status --porcelain -- bun.lock .npmrc');
+  if (uncommitted === null || uncommitted) {
+    console.log(uncommitted
+      ? `Uncommitted dependency file changes (lockfile out of date with package.json):\n${uncommitted}`
+      : 'Failed to check working tree, treating audit as blocking.');
+    return true;
+  }
+
   const baseRef = resolveBaseRef();
   if (!baseRef) {
     console.log('Could not determine a base ref, treating audit as blocking.');
