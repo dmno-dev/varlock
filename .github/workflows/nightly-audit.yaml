@@ -64,7 +64,7 @@ jobs:
           \`\`\`
 
           Fix it and open a PR from a branch named \`$FIX_BRANCH\` against main:
-          - Prefer the smallest change: bump the direct dependency (in the catalog if it lives there), or add an override in the root package.json for a transitive one. Run \`bun install\` so bun.lock updates.
+          - Prefer version bumps over overrides. For a direct dependency, bump it (in the catalog if it lives there). For a transitive one, first try refreshing it within existing ranges (\`bun update <pkg>\`), then bumping the direct dependency that pulls it in. Only add an override in the root package.json if no bump reaches a fixed version, and explain why in the PR description. Make sure bun.lock is updated.
           - Re-run \`bun run audit:critical\` and confirm it passes. Also run \`bun run lint\` and \`bun run typecheck:all\`.
           - If no fixed version is reachable without a breaking upgrade, do not force one. Instead add the advisory to IGNORED_ADVISORIES in scripts/audit-deps.ts with a comment explaining why, and say so in the PR description.
           - Add a bumpy changeset only if a published package's runtime dependencies changed (see AGENTS.md).
