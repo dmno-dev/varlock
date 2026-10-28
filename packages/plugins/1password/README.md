@@ -223,7 +223,7 @@ With a named instance:
 # @setValuesBulk(opLoadEnvironment(prod, your-environment-id))
 ```
 
-> **Note:** When using desktop app auth (`allowAppAuth`), the `op environment` command requires a beta version of the 1Password CLI (v2.33.0+). Download it from the [CLI release history](https://app-updates.agilebits.com/product_history/CLI2) (click "show betas"). Service account auth via the SDK does not have this requirement.
+> **Note:** When using the `op` CLI (desktop app auth, or `useCliWithServiceAccount`), reading Environments requires 1Password CLI v2.41.0+ (`op run --environment`). Older versions, including older betas, can update with `op update`. Service account auth via the SDK does not have this requirement.
 
 ---
 

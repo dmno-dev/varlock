@@ -11,7 +11,7 @@ import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/def
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
 import {
-  opCliEnvironmentRead, processOpCliError, pickProxyEnv,
+  opCliEnvironmentRead, processOpCliError, opCliBaseEnv,
 } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -147,14 +147,7 @@ async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatc
   const startAt = new Date();
 
   const authCompletedFn = await checkAppCliAuth();
-  await runOpInject(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : [], template, {
-    PATH: process.env.PATH!,
-    ...process.env.USER && { USER: process.env.USER },
-    ...process.env.HOME && { HOME: process.env.HOME },
-    ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-    ...pickProxyEnv(),
-    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-  })
+  await runOpInject(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : [], template, opCliBaseEnv())
     .then((result) => {
       authCompletedFn?.(true);
       debug(`batched OP request took ${+new Date() - +startAt}ms`);
@@ -321,19 +314,6 @@ function parseOpReference(ref: string): {
   });
 }
 
-/** Parse env format output from `op environment read` into a flat {name: value} JSON string */
-function parseOpEnvOutput(raw: string): string {
-  const result: Record<string, string> = {};
-  for (const line of raw.split('\n')) {
-    const eqPos = line.indexOf('=');
-    if (eqPos === -1) continue;
-    const key = line.substring(0, eqPos).trim();
-    if (!key) continue;
-    result[key] = line.substring(eqPos + 1);
-  }
-  return JSON.stringify(result);
-}
-
 class OpPluginInstance {
   /** 1Password service account token */
   private token?: string;
@@ -451,20 +431,11 @@ class OpPluginInstance {
     const startAt = new Date();
 
     const authCompletedFn = await this.checkCliAuth();
-    await runOpInject(this.account ? ['--account', this.account] : [], template, {
-      // have to pass a few things through at least path so it can find `op` and related config files
-      PATH: process.env.PATH!,
-      ...process.env.USER && { USER: process.env.USER },
-      ...process.env.HOME && { HOME: process.env.HOME },
-      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-      // proxy env vars so `op` can connect through HTTP/SOCKS proxies
-      ...pickProxyEnv(),
-      // forward service account token when the instance opted into CLI-based service account auth
-      ...this.useCliWithServiceAccount && this.token && { OP_SERVICE_ACCOUNT_TOKEN: this.token },
-      // this setting actually just enables the CLI + Desktop App integration
-      // which in some cases op has a hard time detecting via app setting
-      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-    })
+    await runOpInject(
+      this.account ? ['--account', this.account] : [],
+      template,
+      opCliBaseEnv(this.useCliWithServiceAccount ? this.token : undefined),
+    )
       .then(async (result) => {
         authCompletedFn?.(true);
         debug(`batched OP request took ${+new Date() - +startAt}ms`);
@@ -745,8 +716,7 @@ class OpPluginInstance {
       });
     } else if (this.token && this.useCliWithServiceAccount) {
       // user wants to use the `op` CLI with service account token instead of the WASM SDK
-      const cliResult = await opCliEnvironmentRead(environmentId, this.account, this.token);
-      return parseOpEnvOutput(cliResult);
+      return await opCliEnvironmentRead(environmentId, this.account, this.token);
     } else if (this.token) {
       // Use SDK - supports environments since v0.4.1-beta.1
       await this.initSdkClient();
@@ -761,9 +731,7 @@ class OpPluginInstance {
       return JSON.stringify(result);
     } else if (this.allowAppAuth) {
       // Use CLI for desktop app auth
-      const cliResult = await opCliEnvironmentRead(environmentId, this.account);
-      // CLI outputs env format (KEY=value lines) - parse to flat JSON
-      return parseOpEnvOutput(cliResult);
+      return await opCliEnvironmentRead(environmentId, this.account);
     } else {
       throw new SchemaError('Unable to authenticate with 1Password', {
         tip: `Plugin instance (${this.id}) must be provided a service account token, a Connect server, or have app auth enabled (allowAppAuth=true)`,

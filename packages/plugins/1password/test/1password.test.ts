@@ -136,6 +136,10 @@ type OpConfig = {
   emptyOutput?: boolean;
   /** Map of environment ID to raw env-format output (KEY=value lines) */
   environments?: Record<string, string>;
+  /** `op run` fails unless these vars are in its own env */
+  requireOpEnv?: Array<string>;
+  /** Simulate an `op` older than v2.41.0, which rejects `op run --environment` */
+  cli?: 'tooOld';
 };
 
 type OpTestOpts = {
@@ -202,6 +206,22 @@ function opTest(opts: OpTestOpts) {
       })();
     } finally {
       process.env.PATH = origPath;
+    }
+  };
+}
+
+/** Run a test case with extra variables in the inherited process env */
+function withInheritedEnv(vars: Record<string, string>, run: () => Promise<void>) {
+  return async () => {
+    const original = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, vars);
+    try {
+      await run();
+    } finally {
+      for (const [key, value] of Object.entries(original)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   };
 }
@@ -434,6 +454,67 @@ describe('1password plugin', () => {
       schema: 'ALL=opLoadEnvironment("bad-env-id")',
       expectValues: { ALL: Error },
     }));
+
+    test('op CLI older than v2.41.0 returns an error', opTest({
+      authMode: 'appAuth',
+      opConfig: {
+        cli: 'tooOld',
+        environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+      },
+      schema: 'ALL=opLoadEnvironment("env-abc123")',
+      expectValues: { ALL: Error },
+    }));
+
+    test('returns variables whose value matches one passed to op', withInheritedEnv(
+      // proxy vars are forwarded to `op`, so this one reaches the child with the same value
+      { HTTPS_PROXY: 'http://proxy.example:8080' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          environments: { 'env-abc123': 'HTTPS_PROXY=http://proxy.example:8080\nDB_PORT=5432\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ HTTPS_PROXY: 'http://proxy.example:8080', DB_PORT: '5432' }) },
+      }),
+    ));
+
+    test('passes windows profile vars to op without returning them', withInheritedEnv(
+      { USERPROFILE: 'C:\\Users\\test', HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\test' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          requireOpEnv: ['USERPROFILE', 'HOMEDRIVE', 'HOMEPATH'],
+          environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+      }),
+    ));
+
+    test('does not hand parent runtime config to the child', withInheritedEnv(
+      // the child is a JS runtime, so this would make it fail to start if it got through
+      { NODE_OPTIONS: '--require /nonexistent/varlock-test-preload.js' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+      }),
+    ));
+
+    test('neither resolves nor returns inherited secret references', withInheritedEnv(
+      { UNRELATED_TOKEN: 'op://other-vault/item/password' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+      }),
+    ));
   });
 
   // ── Named instances ───────────────────────────────────────
