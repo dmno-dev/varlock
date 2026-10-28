@@ -602,13 +602,17 @@ export function varlockVitePlugin(
     if (resolvedSsrEntryCode) return;
 
     // SvelteKit's setup plugin (`vite-plugin-sveltekit-setup`) exposes the
-    // resolved config via `api.options`. Match structurally on the
-    // `kit.adapter` shape rather than the plugin name so this is resilient to
-    // version changes — only SvelteKit exposes a resolved adapter this way.
-    const sveltekitSetup = config.plugins?.find((p) => p?.api?.options?.kit?.adapter);
+    // resolved config via `api.options`. SvelteKit 2 nests it under `kit`,
+    // which is distinctive enough to match structurally. SvelteKit 3 flattened
+    // it, and a bare `api.options.adapter` is too generic (another plugin could
+    // expose one and shadow SvelteKit's), so that shape also requires the
+    // setup plugin's name.
+    const getAdapter = (p: any) => p?.api?.options?.kit?.adapter
+      ?? (p?.name === 'vite-plugin-sveltekit-setup' ? p?.api?.options?.adapter : undefined);
+    const sveltekitSetup = config.plugins?.find((p) => getAdapter(p));
     if (!sveltekitSetup) return;
 
-    const adapterName: string | undefined = sveltekitSetup.api.options.kit.adapter?.name;
+    const adapterName: string | undefined = getAdapter(sveltekitSetup).name;
     // `adapter-auto` keeps its own name even when it resolves to Cloudflare in
     // CF's CI, so fall back to the platform env vars CF sets at build time.
     const isCloudflare = adapterName === '@sveltejs/adapter-cloudflare'
