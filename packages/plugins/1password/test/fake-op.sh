@@ -87,6 +87,11 @@ case "$1" in
     node -e "
       const fs = require('fs');
       const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf-8'));
+      const missingOpEnv = (cfg.requireOpEnv || []).filter((key) => !(key in process.env));
+      if (missingOpEnv.length) {
+        process.stderr.write('[ERROR] 2024/01/01 00:00:00 fake op: missing env ' + missingOpEnv.join(',') + '\n');
+        process.exit(1);
+      }
       if (cfg.cli === 'tooOld') {
         process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown flag: --environment\n');
         process.exit(1);

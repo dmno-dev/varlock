@@ -31,17 +31,25 @@ export function pickProxyEnv(): Record<string, string> {
   return env;
 }
 
+/** Where `op` finds the user's home and config dirs on windows, where HOME is usually unset */
+const WINDOWS_PROFILE_ENV_KEYS = ['USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'LOCALAPPDATA', 'APPDATA'] as const;
+
 /**
  * The minimal env `op` needs: enough to find its config and reach 1Password, and nothing else
  * from the parent process (which `op run` would otherwise hand on to its child)
  */
 export function opCliBaseEnv(serviceAccountToken?: string): Record<string, string> {
+  const windowsProfileEnv: Record<string, string> = {};
+  for (const key of WINDOWS_PROFILE_ENV_KEYS) {
+    if (process.env[key]) windowsProfileEnv[key] = process.env[key]!;
+  }
   return {
     // have to pass a few things through at least path so it can find `op` and related config files
     PATH: process.env.PATH!,
     ...process.env.USER && { USER: process.env.USER },
     ...process.env.HOME && { HOME: process.env.HOME },
     ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    ...windowsProfileEnv,
     // proxy env vars so `op` can connect through HTTP/SOCKS proxies
     ...pickProxyEnv(),
     // forward service account token when the instance opted into CLI-based service account auth

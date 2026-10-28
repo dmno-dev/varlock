@@ -136,6 +136,8 @@ type OpConfig = {
   emptyOutput?: boolean;
   /** Map of environment ID to raw env-format output (KEY=value lines) */
   environments?: Record<string, string>;
+  /** `op run` fails unless these vars are in its own env */
+  requireOpEnv?: Array<string>;
   /** Simulate an `op` older than v2.41.0, which rejects `op run --environment` */
   cli?: 'tooOld';
 };
@@ -473,6 +475,19 @@ describe('1password plugin', () => {
         },
         schema: 'ALL=opLoadEnvironment("env-abc123")',
         expectValues: { ALL: JSON.stringify({ HTTPS_PROXY: 'http://proxy.example:8080', DB_PORT: '5432' }) },
+      }),
+    ));
+
+    test('passes windows profile vars to op without returning them', withInheritedEnv(
+      { USERPROFILE: 'C:\\Users\\test', HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\test' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          requireOpEnv: ['USERPROFILE', 'HOMEDRIVE', 'HOMEPATH'],
+          environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
       }),
     ));
 
