@@ -136,13 +136,8 @@ type OpConfig = {
   emptyOutput?: boolean;
   /** Map of environment ID to raw env-format output (KEY=value lines) */
   environments?: Record<string, string>;
-  /**
-   * Which Environments commands the fake `op` offers. By default it has both, like recent betas.
-   * - stable: only `op run --environment` (no `op environment`)
-   * - oldBeta: only `op environment read` (no `op run --environment`)
-   * - tooOld: neither
-   */
-  cli?: 'stable' | 'oldBeta' | 'tooOld';
+  /** Simulate an `op` older than v2.41.0, which rejects `op run --environment` */
+  cli?: 'tooOld';
 };
 
 type OpTestOpts = {
@@ -458,19 +453,7 @@ describe('1password plugin', () => {
       expectValues: { ALL: Error },
     }));
 
-    describe('older beta op CLI (op environment read only)', () => {
-      test('falls back to op environment read', opTest({
-        authMode: 'appAuth',
-        opConfig: {
-          cli: 'oldBeta',
-          environments: { 'env-abc123': 'DB_HOST=localhost\nDB_PORT=5432\n' },
-        },
-        schema: 'ALL=opLoadEnvironment("env-abc123")',
-        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost', DB_PORT: '5432' }) },
-      }));
-    });
-
-    test('op CLI without Environments support returns error', opTest({
+    test('op CLI older than v2.41.0 returns an error', opTest({
       authMode: 'appAuth',
       opConfig: {
         cli: 'tooOld',
@@ -480,73 +463,43 @@ describe('1password plugin', () => {
       expectValues: { ALL: Error },
     }));
 
-    describe('stable op CLI (op run --environment)', () => {
-      test('loads environment via service account CLI', opTest({
-        opConfig: {
-          cli: 'stable',
-          environments: { 'env-abc123': 'DB_HOST=localhost\nDB_PORT=5432\n' },
-        },
-        schema: 'ALL=opLoadEnvironment("env-abc123")',
-        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost', DB_PORT: '5432' }) },
-      }));
-
-      test('loads environment via app auth', opTest({
+    test('returns variables whose value matches one passed to op', withInheritedEnv(
+      // proxy vars are forwarded to `op`, so this one reaches the child with the same value
+      { HTTPS_PROXY: 'http://proxy.example:8080' },
+      opTest({
         authMode: 'appAuth',
         opConfig: {
-          cli: 'stable',
-          environments: { 'env-xyz789': 'API_URL=https://api.example.com\nAPI_KEY=key123\n' },
+          environments: { 'env-abc123': 'HTTPS_PROXY=http://proxy.example:8080\nDB_PORT=5432\n' },
         },
-        schema: 'ALL=opLoadEnvironment("env-xyz789")',
-        expectValues: { ALL: JSON.stringify({ API_URL: 'https://api.example.com', API_KEY: 'key123' }) },
-      }));
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ HTTPS_PROXY: 'http://proxy.example:8080', DB_PORT: '5432' }) },
+      }),
+    ));
 
-      test('invalid environment ID returns error', opTest({
-        opConfig: { cli: 'stable' },
-        schema: 'ALL=opLoadEnvironment("bad-env-id")',
-        expectValues: { ALL: Error },
-      }));
+    test('does not hand parent runtime config to the child', withInheritedEnv(
+      // the child is a JS runtime, so this would make it fail to start if it got through
+      { NODE_OPTIONS: '--require /nonexistent/varlock-test-preload.js' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+      }),
+    ));
 
-      test('returns variables whose value matches one passed to op', withInheritedEnv(
-        // proxy vars are forwarded to `op`, so this one reaches the child with the same value
-        { HTTPS_PROXY: 'http://proxy.example:8080' },
-        opTest({
-          authMode: 'appAuth',
-          opConfig: {
-            cli: 'stable',
-            environments: { 'env-abc123': 'HTTPS_PROXY=http://proxy.example:8080\nDB_PORT=5432\n' },
-          },
-          schema: 'ALL=opLoadEnvironment("env-abc123")',
-          expectValues: { ALL: JSON.stringify({ HTTPS_PROXY: 'http://proxy.example:8080', DB_PORT: '5432' }) },
-        }),
-      ));
-
-      test('does not hand parent runtime config to the child', withInheritedEnv(
-        // the child is a JS runtime, so this would make it fail to start if it got through
-        { NODE_OPTIONS: '--require /nonexistent/varlock-test-preload.js' },
-        opTest({
-          authMode: 'appAuth',
-          opConfig: {
-            cli: 'stable',
-            environments: { 'env-abc123': 'DB_HOST=localhost\n' },
-          },
-          schema: 'ALL=opLoadEnvironment("env-abc123")',
-          expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
-        }),
-      ));
-
-      test('neither resolves nor returns inherited secret references', withInheritedEnv(
-        { UNRELATED_TOKEN: 'op://other-vault/item/password' },
-        opTest({
-          authMode: 'appAuth',
-          opConfig: {
-            cli: 'stable',
-            environments: { 'env-abc123': 'DB_HOST=localhost\n' },
-          },
-          schema: 'ALL=opLoadEnvironment("env-abc123")',
-          expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
-        }),
-      ));
-    });
+    test('neither resolves nor returns inherited secret references', withInheritedEnv(
+      { UNRELATED_TOKEN: 'op://other-vault/item/password' },
+      opTest({
+        authMode: 'appAuth',
+        opConfig: {
+          environments: { 'env-abc123': 'DB_HOST=localhost\n' },
+        },
+        schema: 'ALL=opLoadEnvironment("env-abc123")',
+        expectValues: { ALL: JSON.stringify({ DB_HOST: 'localhost' }) },
+      }),
+    ));
   });
 
   // ── Named instances ───────────────────────────────────────

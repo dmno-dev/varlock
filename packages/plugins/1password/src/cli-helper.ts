@@ -10,8 +10,6 @@ const { ResolutionError } = plugin.ERRORS;
 
 const OP_CLI_CACHE: Record<string, any> = {};
 
-const OP_CLI_NO_RUN_ENVIRONMENT_FLAG = 'OP_CLI_NO_RUN_ENVIRONMENT_FLAG';
-
 /** Proxy env vars that must be forwarded so `op` can reach 1Password through HTTP/SOCKS proxies
  * (e.g. corporate proxies, container networks, sandboxed dev tools like Claude Code). */
 const PROXY_ENV_KEYS = [
@@ -154,13 +152,9 @@ export function processOpCliError(err: Error | any) {
         // TODO: add link to item?
       });
     } else if (errMessage.includes('unknown flag: --environment')) {
-      return new ResolutionError('1Password CLI does not support `op run --environment`', {
-        code: OP_CLI_NO_RUN_ENVIRONMENT_FLAG,
-      });
-    } else if (errMessage.includes('unknown command "environment"')) {
       return new ResolutionError('1Password CLI is too old to read 1Password Environments', {
         tip: [
-          'Reading Environments requires 1Password CLI v2.41.0+ (or a v2.33.0+ beta).',
+          'Reading Environments requires 1Password CLI v2.41.0+ (or a recent beta that supports `op run --environment`).',
           'Update it with `op update`, or see https://developer.1password.com/docs/cli/get-started/',
         ],
       });
@@ -200,23 +194,9 @@ export function processOpCliError(err: Error | any) {
   }
 }
 
-/** Parse env format output from `op environment read` into a flat {name: value} object */
-function parseOpEnvOutput(raw: string) {
-  const result: Record<string, string> = {};
-  for (const line of raw.split('\n')) {
-    const eqPos = line.indexOf('=');
-    if (eqPos === -1) continue;
-    const key = line.substring(0, eqPos).trim();
-    if (!key) continue;
-    result[key] = line.substring(eqPos + 1);
-  }
-  return result;
-}
-
 /*
-  Stable `op` releases (v2.41.0+) read Environments only through `op run --environment`, which
-  recent betas also support; `op environment read` exists only in beta builds. So `op run` is
-  tried first, and older betas that reject the flag fall back to `op environment read`.
+  Environments are read through `op run --environment` (stable since v2.41.0). The beta-only
+  `op environment read` is not used, so older CLIs get an error asking them to update.
 
   The child prints its env as JSON using the current JS runtime, because windows has no unix
   `env` binary. A bun standalone executable (the varlock binary) only behaves as bun for `-e`
@@ -323,18 +303,7 @@ export async function opCliEnvironmentRead(
   serviceAccountToken?: string,
 ): Promise<string> {
   const accountArgs = account ? ['--account', account] : [];
-  try {
-    return JSON.stringify(await opCliRunEnvironmentRead(environmentId, accountArgs, serviceAccountToken));
-  } catch (err) {
-    if ((err as any)?.code !== OP_CLI_NO_RUN_ENVIRONMENT_FLAG) throw err;
-  }
-  debug('op run --environment unavailable, falling back to op environment read');
-  const result = await execOpCliCommand(
-    ['environment', 'read', environmentId, ...accountArgs],
-    serviceAccountToken,
-    opCliBaseEnv(),
-  );
-  return JSON.stringify(parseOpEnvOutput(result));
+  return JSON.stringify(await opCliRunEnvironmentRead(environmentId, accountArgs, serviceAccountToken));
 }
 
 export function getIdsFromShareLink(opItemShareLinkUrl: string) {

@@ -87,7 +87,7 @@ case "$1" in
     node -e "
       const fs = require('fs');
       const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf-8'));
-      if (cfg.cli === 'oldBeta' || cfg.cli === 'tooOld') {
+      if (cfg.cli === 'tooOld') {
         process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown flag: --environment\n');
         process.exit(1);
       }
@@ -119,26 +119,6 @@ case "$1" in
       const child = require('child_process').spawnSync(cmd, args, { env, stdio: 'inherit' });
       process.exit(child.status ?? 1);
     " "$@"
-    ;;
-  environment)
-    # op environment read <envId> [--account X]
-    # Only beta builds offer this; stable releases only have `op run --environment`.
-    ENV_ID="$3"
-    node -e "
-      const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
-      if (cfg.cli === 'stable' || cfg.cli === 'tooOld') {
-        process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown command \"environment\" for \"op\"\n');
-        process.exit(1);
-      }
-      const environments = cfg.environments || {};
-      const envId = '$ENV_ID';
-      if (envId in environments) {
-        process.stdout.write(environments[envId]);
-      } else {
-        process.stderr.write('[ERROR] 2024/01/01 00:00:00 environment not found or invalid\n');
-        process.exit(1);
-      }
-    "
     ;;
   *)
     echo "[ERROR] fake op: unknown subcommand $1" >&2

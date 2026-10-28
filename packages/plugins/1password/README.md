@@ -223,7 +223,7 @@ With a named instance:
 # @setValuesBulk(opLoadEnvironment(prod, your-environment-id))
 ```
 
-> **Note:** When using the `op` CLI (desktop app auth, or `useCliWithServiceAccount`), reading Environments requires 1Password CLI v2.41.0+ or a v2.33.0+ beta. Service account auth via the SDK does not have this requirement.
+> **Note:** When using the `op` CLI (desktop app auth, or `useCliWithServiceAccount`), reading Environments requires 1Password CLI v2.41.0+ (`op run --environment`). Older versions, including older betas, can update with `op update`. Service account auth via the SDK does not have this requirement.
 
 ---
 
