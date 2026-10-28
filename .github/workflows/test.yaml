@@ -33,8 +33,11 @@ jobs:
           node-version: "24.x"
       - name: Install js deps (w/ bun)
         run: bun install
+      # Blocks only when the PR changes deps; pre-existing advisories are warnings
+      # (the nightly audit handles those). The version PR always blocks, so a
+      # release can't be merged with a known-critical advisory.
       - name: Audit dependencies
-        run: bun run audit:changed
+        run: bun run audit:${{ github.head_ref == 'bumpy/version-packages' && 'critical' || 'pr' }}
       - name: Enable turborepo remote cache
         uses: ./.github/actions/depot-turbo-cache
         with:

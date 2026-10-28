@@ -1,0 +1,81 @@
+name: Nightly dependency audit
+on:
+  schedule:
+    # 07:15 UTC, offset from the nightly Socket scan (07:45)
+    - cron: '15 7 * * *'
+  workflow_dispatch:
+
+# Detection is read-only. On failure we only dispatch the Pullfrog workflow,
+# which does the fix with its own credentials and opens a PR for human review.
+permissions:
+  contents: read
+
+env:
+  FIX_BRANCH: fix-dep-audit
+  FIX_RUN_NAME: Fix dependency audit
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write # dispatch pullfrog.yml
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Audit dependencies
+        id: audit
+        run: |
+          set +e
+          bun run audit:critical 2>&1 | tee audit-output.txt
+          status=${PIPESTATUS[0]}
+          echo "failed=$([[ $status -ne 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          exit $status
+        continue-on-error: true
+
+      # Skip if a fix is already in flight: an open PR from the fix branch, or a
+      # queued/running Pullfrog run we dispatched on an earlier night.
+      - name: Check for an in-flight fix
+        id: inflight
+        if: steps.audit.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          open_prs=$(gh pr list --head "$FIX_BRANCH" --state open --json number --jq length)
+          active_runs=$(gh run list --workflow pullfrog.yml --limit 50 --json displayTitle,status \
+            --jq "[.[] | select(.displayTitle == \"$FIX_RUN_NAME\" and .status != \"completed\")] | length")
+          echo "Open fix PRs: $open_prs, active fix runs: $active_runs"
+          echo "skip=$([[ $open_prs -gt 0 || $active_runs -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch Pullfrog to fix
+        if: steps.audit.outputs.failed == 'true' && steps.inflight.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            cat <<EOF
+          The nightly dependency audit (\`bun run audit:critical\`) failed on main. Output:
+
+          \`\`\`
+          $(sed 's/\x1b\[[0-9;]*m//g' audit-output.txt | tail -n 100)
+          \`\`\`
+
+          Fix it and open a PR from a branch named \`$FIX_BRANCH\` against main:
+          - Prefer version bumps over overrides. For a direct dependency, bump it (in the catalog if it lives there). For a transitive one, first try refreshing it within existing ranges (\`bun update <pkg>\`), then bumping the direct dependency that pulls it in. Only add an override in the root package.json if no bump reaches a fixed version, and explain why in the PR description. Make sure bun.lock is updated.
+          - Re-run \`bun run audit:critical\` and confirm it passes. Also run \`bun run lint\` and \`bun run typecheck:all\`.
+          - If no fixed version is reachable without a breaking upgrade, do not force one. Instead add the advisory to IGNORED_ADVISORIES in scripts/audit-deps.ts with a comment explaining why, and say so in the PR description.
+          - Add a bumpy changeset only if a published package's runtime dependencies changed (see AGENTS.md).
+          - Keep the PR description short: which advisories, what changed.
+          EOF
+          } > prompt.txt
+          gh workflow run pullfrog.yml --ref main \
+            -f name="$FIX_RUN_NAME" \
+            -f prompt="$(cat prompt.txt)"
+
+      # keep the run red so the failure shows up in the Actions tab
+      - name: Fail if audit failed
+        if: steps.audit.outputs.failed == 'true'
+        run: exit 1
