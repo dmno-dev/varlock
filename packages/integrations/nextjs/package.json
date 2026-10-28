@@ -67,6 +67,7 @@
     "@babel/parser": "^7.29.3",
     "@env-spec/utils": "workspace:^",
     "@types/node": "catalog:",
+    "next": "^16.4.3",
     "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

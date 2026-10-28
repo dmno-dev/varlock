@@ -68,20 +68,62 @@ case "$1" in
       process.stdout.write(output.replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '') + '\n');
     "
     ;;
-  environment)
-    # op environment read <envId> [--account X]
-    ENV_ID="$3"
+  run)
+    # op run --environment <envId> [--env-file F] [--account X] [--no-masking] -- <command...>
+    # Mimics real op run: inherited op:// references are resolved (an unknown one fails the run),
+    # and precedence is Environment over --env-file over the inherited env.
+    shift
+    ENV_ID=""
+    ENV_FILE=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --environment) ENV_ID="$2"; shift 2 ;;
+        --env-file) ENV_FILE="$2"; shift 2 ;;
+        --account) shift 2 ;;
+        --) shift; break ;;
+        *) shift ;;
+      esac
+    done
     node -e "
-      const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
+      const fs = require('fs');
+      const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf-8'));
+      const missingOpEnv = (cfg.requireOpEnv || []).filter((key) => !(key in process.env));
+      if (missingOpEnv.length) {
+        process.stderr.write('[ERROR] 2024/01/01 00:00:00 fake op: missing env ' + missingOpEnv.join(',') + '\n');
+        process.exit(1);
+      }
+      if (cfg.cli === 'tooOld') {
+        process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown flag: --environment\n');
+        process.exit(1);
+      }
       const environments = cfg.environments || {};
+      const responses = cfg.responses || {};
       const envId = '$ENV_ID';
-      if (envId in environments) {
-        process.stdout.write(environments[envId]);
-      } else {
+      if (!(envId in environments)) {
         process.stderr.write('[ERROR] 2024/01/01 00:00:00 environment not found or invalid\n');
         process.exit(1);
       }
-    "
+      const parseEnvLines = (raw) => raw.split('\n').flatMap((line) => {
+        const eqPos = line.indexOf('=');
+        return eqPos > 0 ? [[line.substring(0, eqPos), line.substring(eqPos + 1)]] : [];
+      });
+      const env = { ...process.env };
+      // bash (this shim) adds these to its own env; real op is a go binary and adds nothing
+      for (const key of ['PWD', 'OLDPWD', 'SHLVL', '_']) delete env[key];
+      for (const [key, value] of Object.entries(env)) {
+        if (!value.startsWith('op://')) continue;
+        if (!(value in responses)) {
+          process.stderr.write('[ERROR] 2024/01/01 00:00:00 could not resolve secret reference ' + value + '\n');
+          process.exit(1);
+        }
+        env[key] = responses[value];
+      }
+      if ('$ENV_FILE') for (const [key, value] of parseEnvLines(fs.readFileSync('$ENV_FILE', 'utf-8'))) env[key] = value;
+      for (const [key, value] of parseEnvLines(environments[envId])) env[key] = value;
+      const [cmd, ...args] = process.argv.slice(1);
+      const child = require('child_process').spawnSync(cmd, args, { env, stdio: 'inherit' });
+      process.exit(child.status ?? 1);
+    " "$@"
     ;;
   *)
     echo "[ERROR] fake op: unknown subcommand $1" >&2
