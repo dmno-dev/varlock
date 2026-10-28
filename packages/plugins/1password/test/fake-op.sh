@@ -87,6 +87,10 @@ case "$1" in
     node -e "
       const fs = require('fs');
       const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf-8'));
+      if (cfg.cli === 'oldBeta' || cfg.cli === 'tooOld') {
+        process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown flag: --environment\n');
+        process.exit(1);
+      }
       const environments = cfg.environments || {};
       const responses = cfg.responses || {};
       const envId = '$ENV_ID';
@@ -99,6 +103,8 @@ case "$1" in
         return eqPos > 0 ? [[line.substring(0, eqPos), line.substring(eqPos + 1)]] : [];
       });
       const env = { ...process.env };
+      // bash (this shim) adds these to its own env; real op is a go binary and adds nothing
+      for (const key of ['PWD', 'OLDPWD', 'SHLVL', '_']) delete env[key];
       for (const [key, value] of Object.entries(env)) {
         if (!value.startsWith('op://')) continue;
         if (!(value in responses)) {
@@ -116,11 +122,11 @@ case "$1" in
     ;;
   environment)
     # op environment read <envId> [--account X]
-    # Stable op releases only offer `op run --environment`.
+    # Only beta builds offer this; stable releases only have `op run --environment`.
     ENV_ID="$3"
     node -e "
       const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf-8'));
-      if (cfg.stableCli) {
+      if (cfg.cli === 'stable' || cfg.cli === 'tooOld') {
         process.stderr.write('[ERROR] 2024/01/01 00:00:00 unknown command \"environment\" for \"op\"\n');
         process.exit(1);
       }

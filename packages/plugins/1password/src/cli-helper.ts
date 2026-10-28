@@ -10,7 +10,7 @@ const { ResolutionError } = plugin.ERRORS;
 
 const OP_CLI_CACHE: Record<string, any> = {};
 
-const OP_CLI_NO_ENVIRONMENT_COMMAND = 'OP_CLI_NO_ENVIRONMENT_COMMAND';
+const OP_CLI_NO_RUN_ENVIRONMENT_FLAG = 'OP_CLI_NO_RUN_ENVIRONMENT_FLAG';
 
 /** Proxy env vars that must be forwarded so `op` can reach 1Password through HTTP/SOCKS proxies
  * (e.g. corporate proxies, container networks, sandboxed dev tools like Claude Code). */
@@ -31,6 +31,27 @@ export function pickProxyEnv(): Record<string, string> {
     if (process.env[key]) env[key] = process.env[key]!;
   }
   return env;
+}
+
+/**
+ * The minimal env `op` needs: enough to find its config and reach 1Password, and nothing else
+ * from the parent process (which `op run` would otherwise hand on to its child)
+ */
+export function opCliBaseEnv(serviceAccountToken?: string): Record<string, string> {
+  return {
+    // have to pass a few things through at least path so it can find `op` and related config files
+    PATH: process.env.PATH!,
+    ...process.env.USER && { USER: process.env.USER },
+    ...process.env.HOME && { HOME: process.env.HOME },
+    ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
+    // proxy env vars so `op` can connect through HTTP/SOCKS proxies
+    ...pickProxyEnv(),
+    // forward service account token when the instance opted into CLI-based service account auth
+    ...serviceAccountToken && { OP_SERVICE_ACCOUNT_TOKEN: serviceAccountToken },
+    // this setting actually just enables the CLI + Desktop App integration
+    // which in some cases op has a hard time detecting via app setting
+    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
+  };
 }
 
 export async function execOpCliCommand(
@@ -132,11 +153,11 @@ export function processOpCliError(err: Error | any) {
         tip: ['Double check the field name/id in your item.'],
         // TODO: add link to item?
       });
-    } else if (errMessage.includes('unknown command "environment"')) {
-      return new ResolutionError('1Password CLI does not support the "environment" command', {
-        code: OP_CLI_NO_ENVIRONMENT_COMMAND,
-      });
     } else if (errMessage.includes('unknown flag: --environment')) {
+      return new ResolutionError('1Password CLI does not support `op run --environment`', {
+        code: OP_CLI_NO_RUN_ENVIRONMENT_FLAG,
+      });
+    } else if (errMessage.includes('unknown command "environment"')) {
       return new ResolutionError('1Password CLI is too old to read 1Password Environments', {
         tip: [
           'Reading Environments requires 1Password CLI v2.41.0+ (or a v2.33.0+ beta).',
@@ -193,25 +214,28 @@ function parseOpEnvOutput(raw: string) {
 }
 
 /*
-  Stable `op` releases (v2.41.0+) read Environments only through `op run --environment`;
-  `op environment read` exists only in beta builds. The child prints its env as JSON using the
-  current JS runtime, because windows has no unix `env` binary. A bun standalone executable
-  (the varlock binary) only behaves as bun for `-e` when BUN_BE_BUN is set.
+  Stable `op` releases (v2.41.0+) read Environments only through `op run --environment`, which
+  recent betas also support; `op environment read` exists only in beta builds. So `op run` is
+  tried first, and older betas that reject the flag fall back to `op environment read`.
 
-  `op run` merges the Environment over the env it inherits, so membership is marked rather than
-  inferred from values. Every inherited name is also set to a per-call sentinel through
-  `--env-file`, which `op run` ranks below Environments and above the shell: in the child, a
-  name holds a non-sentinel value only if the Environment set it. Inherited `op://` references
-  are not passed on at all, so `op run` never resolves secrets unrelated to the Environment.
+  The child prints its env as JSON using the current JS runtime, because windows has no unix
+  `env` binary. A bun standalone executable (the varlock binary) only behaves as bun for `-e`
+  when BUN_BE_BUN is set.
 
-  Some platforms rewrite variables they cannot parse when any process starts (macOS replaces
-  XPC_FLAGS and __CF_USER_TEXT_ENCODING), so a direct spawn with the same sentinels finds
-  those names and they are ignored. SystemRoot and windir keep their real values because
-  windows processes cannot start without them.
+  `op` gets only the minimal env from `opCliBaseEnv`, so nothing else from the parent process
+  (runtime config like NODE_OPTIONS, unrelated `op://` references, ...) reaches the child.
+  `op run` merges the Environment over that env, so membership is marked rather than inferred
+  from values. Each of those few names is also set to a per-call sentinel through `--env-file`,
+  which `op run` ranks below Environments and above its own env (and which only applies to the
+  child): in the child, a name holds a non-sentinel value only if the Environment set it.
+
+  Some platforms add or rewrite variables when any process starts (macOS sets XPC_FLAGS and
+  __CF_USER_TEXT_ENCODING), so a direct spawn with the same env finds those names and they are
+  ignored. SystemRoot and windir keep their real values because windows processes cannot start
+  without them.
 */
 const PRINT_ENV_SCRIPT = 'process.stdout.write(JSON.stringify(process.env))';
-const DOTENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const UNMARKABLE_ENV_KEYS = ['systemroot', 'windir', 'bun_be_bun'];
+const UNMARKED_ENV_KEYS = ['SystemRoot', 'windir', 'BUN_BE_BUN'];
 
 function parseChildEnv(output: string): Record<string, string> {
   try {
@@ -221,31 +245,45 @@ function parseChildEnv(output: string): Record<string, string> {
   }
 }
 
+/** Names the platform sets in any child process given this env, which therefore cannot be marked (memoized per env shape) */
+const platformEnvKeysCache = new Map<string, Promise<Set<string>>>();
+function getPlatformEnvKeys(childEnv: Record<string, string>, sentinel: string) {
+  const cacheKey = Object.keys(childEnv).sort().map((key) => `${key}=${childEnv[key] === sentinel}`).join(',');
+  let keysPromise = platformEnvKeysCache.get(cacheKey);
+  if (!keysPromise) {
+    keysPromise = spawnAsync(process.execPath, ['-e', PRINT_ENV_SCRIPT], { env: childEnv })
+      .then((output) => new Set(
+        Object.entries(parseChildEnv(output)).filter(([, value]) => value !== sentinel).map(([key]) => key),
+      ))
+      .catch((err) => {
+        platformEnvKeysCache.delete(cacheKey);
+        throw new ResolutionError('Unable to run the JS runtime to read `op run --environment` output', { err });
+      });
+    platformEnvKeysCache.set(cacheKey, keysPromise);
+  }
+  return keysPromise;
+}
+
 async function opCliRunEnvironmentRead(
   environmentId: string,
   accountArgs: Array<string>,
   serviceAccountToken?: string,
 ) {
   const sentinel = `__VARLOCK_1P_INHERITED_${randomUUID()}__`;
-  const inheritedEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value === undefined || key === 'OP_SERVICE_ACCOUNT_TOKEN') continue;
-    if (!DOTENV_KEY_PATTERN.test(key) || value.includes('op://')) continue;
-    inheritedEnv[key] = value;
+  const opEnv: Record<string, string> = opCliBaseEnv();
+  for (const key of ['SystemRoot', 'windir']) {
+    if (process.env[key]) opEnv[key] = process.env[key]!;
   }
-  if ((globalThis as any).Bun?.isStandaloneExecutable) inheritedEnv.BUN_BE_BUN = '1';
+  if ((globalThis as any).Bun?.isStandaloneExecutable) opEnv.BUN_BE_BUN = '1';
 
-  const markedKeys = Object.keys(inheritedEnv)
-    .filter((key) => !UNMARKABLE_ENV_KEYS.includes(key.toLowerCase()));
+  const markedKeys = Object.keys(opEnv).filter((key) => !UNMARKED_ENV_KEYS.includes(key));
   if (serviceAccountToken) markedKeys.push('OP_SERVICE_ACCOUNT_TOKEN');
   const markedEnv = Object.fromEntries(markedKeys.map((key) => [key, sentinel]));
 
-  const directChild = await spawnAsync(process.execPath, ['-e', PRINT_ENV_SCRIPT], {
-    env: { ...inheritedEnv, ...markedEnv },
-  });
-  const rewrittenKeys = new Set(
-    Object.entries(parseChildEnv(directChild)).filter(([, value]) => value !== sentinel).map(([key]) => key),
-  );
+  // started alongside `op run` so it adds no latency (and only runs once per process)
+  const platformEnvKeysPromise = getPlatformEnvKeys({ ...opEnv, ...markedEnv }, sentinel);
+  // keep an early `op` failure from leaving this rejection unhandled
+  platformEnvKeysPromise.catch(() => undefined);
 
   // `wx` refuses to follow a file or symlink planted at the path, and 0600 keeps it owner-only.
   const envFilePath = join(tmpdir(), `varlock-1p-env-${randomUUID()}.env`);
@@ -264,14 +302,15 @@ async function opCliRunEnvironmentRead(
       process.execPath,
       '-e',
       PRINT_ENV_SCRIPT,
-    ], serviceAccountToken, inheritedEnv);
+    ], serviceAccountToken, opEnv);
   } finally {
     await rm(envFilePath, { force: true }).catch(() => undefined);
   }
 
+  const platformEnvKeys = await platformEnvKeysPromise;
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(parseChildEnv(output))) {
-    if (value === sentinel || rewrittenKeys.has(key)) continue;
+    if (value === sentinel || platformEnvKeys.has(key)) continue;
     result[key] = value;
   }
   return result;
@@ -285,13 +324,17 @@ export async function opCliEnvironmentRead(
 ): Promise<string> {
   const accountArgs = account ? ['--account', account] : [];
   try {
-    const result = await execOpCliCommand(['environment', 'read', environmentId, ...accountArgs], serviceAccountToken);
-    return JSON.stringify(parseOpEnvOutput(result));
+    return JSON.stringify(await opCliRunEnvironmentRead(environmentId, accountArgs, serviceAccountToken));
   } catch (err) {
-    if ((err as any)?.code !== OP_CLI_NO_ENVIRONMENT_COMMAND) throw err;
+    if ((err as any)?.code !== OP_CLI_NO_RUN_ENVIRONMENT_FLAG) throw err;
   }
-  debug('op environment read unavailable, falling back to op run --environment');
-  return JSON.stringify(await opCliRunEnvironmentRead(environmentId, accountArgs, serviceAccountToken));
+  debug('op run --environment unavailable, falling back to op environment read');
+  const result = await execOpCliCommand(
+    ['environment', 'read', environmentId, ...accountArgs],
+    serviceAccountToken,
+    opCliBaseEnv(),
+  );
+  return JSON.stringify(parseOpEnvOutput(result));
 }
 
 export function getIdsFromShareLink(opItemShareLinkUrl: string) {

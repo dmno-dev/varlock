@@ -11,7 +11,7 @@ import { createDeferredPromise, type DeferredPromise } from '@env-spec/utils/def
 import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { Client, createClient } from '@1password/sdk';
 import {
-  opCliEnvironmentRead, processOpCliError, pickProxyEnv,
+  opCliEnvironmentRead, processOpCliError, opCliBaseEnv,
 } from './cli-helper';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -147,14 +147,7 @@ async function executeAppCliBatch(batchToExecute: NonNullable<typeof appAuthBatc
   const startAt = new Date();
 
   const authCompletedFn = await checkAppCliAuth();
-  await runOpInject(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : [], template, {
-    PATH: process.env.PATH!,
-    ...process.env.USER && { USER: process.env.USER },
-    ...process.env.HOME && { HOME: process.env.HOME },
-    ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-    ...pickProxyEnv(),
-    OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-  })
+  await runOpInject(lockCliToOpAccount ? ['--account', lockCliToOpAccount] : [], template, opCliBaseEnv())
     .then((result) => {
       authCompletedFn?.(true);
       debug(`batched OP request took ${+new Date() - +startAt}ms`);
@@ -438,20 +431,11 @@ class OpPluginInstance {
     const startAt = new Date();
 
     const authCompletedFn = await this.checkCliAuth();
-    await runOpInject(this.account ? ['--account', this.account] : [], template, {
-      // have to pass a few things through at least path so it can find `op` and related config files
-      PATH: process.env.PATH!,
-      ...process.env.USER && { USER: process.env.USER },
-      ...process.env.HOME && { HOME: process.env.HOME },
-      ...process.env.XDG_CONFIG_HOME && { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME },
-      // proxy env vars so `op` can connect through HTTP/SOCKS proxies
-      ...pickProxyEnv(),
-      // forward service account token when the instance opted into CLI-based service account auth
-      ...this.useCliWithServiceAccount && this.token && { OP_SERVICE_ACCOUNT_TOKEN: this.token },
-      // this setting actually just enables the CLI + Desktop App integration
-      // which in some cases op has a hard time detecting via app setting
-      OP_BIOMETRIC_UNLOCK_ENABLED: 'true',
-    })
+    await runOpInject(
+      this.account ? ['--account', this.account] : [],
+      template,
+      opCliBaseEnv(this.useCliWithServiceAccount ? this.token : undefined),
+    )
       .then(async (result) => {
         authCompletedFn?.(true);
         debug(`batched OP request took ${+new Date() - +startAt}ms`);
