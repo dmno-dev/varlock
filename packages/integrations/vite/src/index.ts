@@ -602,11 +602,13 @@ export function varlockVitePlugin(
     if (resolvedSsrEntryCode) return;
 
     // SvelteKit's setup plugin (`vite-plugin-sveltekit-setup`) exposes the
-    // resolved config via `api.options`. Match structurally on the adapter
-    // rather than the plugin name so this is resilient to version changes
-    // (only SvelteKit exposes a resolved adapter this way). SvelteKit 2 nests
-    // the config under `kit`, SvelteKit 3 flattened it, so check both.
-    const getAdapter = (p: any) => p?.api?.options?.kit?.adapter ?? p?.api?.options?.adapter;
+    // resolved config via `api.options`. SvelteKit 2 nests it under `kit`,
+    // which is distinctive enough to match structurally. SvelteKit 3 flattened
+    // it, and a bare `api.options.adapter` is too generic (another plugin could
+    // expose one and shadow SvelteKit's), so that shape also requires the
+    // setup plugin's name.
+    const getAdapter = (p: any) => p?.api?.options?.kit?.adapter
+      ?? (p?.name === 'vite-plugin-sveltekit-setup' ? p?.api?.options?.adapter : undefined);
     const sveltekitSetup = config.plugins?.find((p) => getAdapter(p));
     if (!sveltekitSetup) return;
 

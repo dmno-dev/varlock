@@ -291,12 +291,12 @@ describe('SvelteKit Cloudflare adapter detection', () => {
     api: { options },
   });
 
-  async function initModuleCode(options: Record<string, any>) {
+  async function initModuleCode(options: Record<string, any>, otherPlugins: Array<any> = []) {
     const { varlockVitePlugin } = await importPlugin();
     const resolved = await resolveConfig({
       configFile: false,
       logLevel: 'silent',
-      plugins: [...varlockVitePlugin(), sveltekitSetup(options)],
+      plugins: [...varlockVitePlugin(), ...otherPlugins, sveltekitSetup(options)],
     }, 'build');
     const plugin = findPlugin(resolved.plugins as Array<any>, 'inject-varlock-config');
     return plugin.load.call({ environment: { name: 'ssr' } }, '\0varlock-ssr-init') as string;
@@ -316,6 +316,22 @@ describe('SvelteKit Cloudflare adapter detection', () => {
     const nodeAdapter = { name: '@sveltejs/adapter-node' };
     expect(await initModuleCode({ kit: { adapter: nodeAdapter } })).not.toContain('cloudflare edge env loader');
     expect(await initModuleCode({ adapter: nodeAdapter })).not.toContain('cloudflare edge env loader');
+  });
+
+  it('is not shadowed by another plugin exposing a top-level adapter', async () => {
+    const otherPlugin = { name: 'some-other-plugin', api: { options: { adapter: { name: 'something-else' } } } };
+    const code = await initModuleCode({ adapter: { name: '@sveltejs/adapter-cloudflare' } }, [otherPlugin]);
+    expect(code).toContain('/* cloudflare edge env loader */');
+  });
+
+  it('treats adapter-auto as Cloudflare in Workers CI, in the SvelteKit 3 shape', async () => {
+    vi.stubEnv('WORKERS_CI', '1');
+    try {
+      const code = await initModuleCode({ adapter: { name: '@sveltejs/adapter-auto' } });
+      expect(code).toContain('/* cloudflare edge env loader */');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
