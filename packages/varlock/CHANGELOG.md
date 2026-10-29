@@ -34,6 +34,23 @@
 
 
 
+
+## 1.24.0
+<sub>2026-10-29</sub>
+
+- [#1232](https://github.com/dmno-dev/varlock/pull/1232)  *(minor)*
+  Add `varlock load --defer-boot-required` and the `varlock/frozen-env-boot` runtime bundle, used by framework integrations that freeze the env into their build output. A frozen env now warns once at boot when the environment sets a different value for one of its keys. Fix decrypting an encrypted env in Next.js's local edge runtime, and a re-init reverting `__VARLOCK_ENV` to the value it had at process start.
+- [#1239](https://github.com/dmno-dev/varlock/pull/1239)  *(minor)*
+  New `varlock/auto-init` entry: a single edge-safe import that initializes the runtime from an already-resolved env (decrypting it if needed) and applies all runtime patches, without calling the CLI. The same sequence is available as a function, `initVarlockRuntime()` from `varlock/init`, for code that has to set up its inputs first. The Next.js integration now injects one `varlock/init-bundle` file into both server and edge runtimes (`varlock/init-server` and `varlock/init-edge` remain as aliases of it). `varlock/patch-server-response` now loads node builtins lazily and is a no-op where `node:http` does not exist, so the same init code runs in Node, Bun, Cloudflare Workers and Vercel Edge. The vite, Cloudflare and Astro integrations use it instead of assembling the init sequence module by module; the vite plugin's `ssrEdgeRuntime` option is no longer needed and is ignored.
+- [#1227](https://github.com/dmno-dev/varlock/pull/1227)  *(patch)* - Release cache locks when interrupted right after acquiring them, instead of leaving an orphaned lock
+- [#1226](https://github.com/dmno-dev/varlock/pull/1226)  *(patch)* - macOS standalone binaries are now Developer ID signed and notarized, with hardened runtime enabled
+- [#1255](https://github.com/dmno-dev/varlock/pull/1255)  *(patch)*
+  `proxy run --url` now sets `NODE_USE_ENV_PROXY=1` in the child, so Node's built-in `fetch` routes through a remote broker like it does locally.
+- [#1256](https://github.com/dmno-dev/varlock/pull/1256)  *(patch)*
+  Name the failing keys on the last line of output when config is invalid, so tools that only show the tail of a failed process (e.g. Kubernetes termination messages) say which vars to fix. CLI error summaries are now prefixed with `[varlock]`
+- [#1244](https://github.com/dmno-dev/varlock/pull/1244)  *(patch)* Thanks [@bercedev](https://github.com/bercedev)!
+  Put `/* eslint-disable */` above `// @ts-nocheck` in generated TypeScript types, so ESLint rules about `@ts-nocheck` no longer report the generated file
+
 ## 1.23.0
 <sub>2026-10-13</sub>
 
