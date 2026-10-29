@@ -448,7 +448,7 @@ If another IaC tool owns the Worker deploy, see [Deploying with Alchemy](#deploy
 
 ```ts title="alchemy.run.ts"
 import "varlock/auto-load";
-import * as Cloudflare from "alchemy/Cloudflare";
+import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Config from "effect/Config";
 
 export const server = Cloudflare.Worker("server", {
