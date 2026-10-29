@@ -22,7 +22,7 @@ export class CliExitError extends Error {
   getFormattedOutput() {
     if (this.more?.silent) return '';
 
-    let msg = `\n💥 ${ansis.red(this.message)} 💥\n`;
+    let msg = `\n💥 ${ansis.red(`[varlock] ${this.message}`)} 💥\n`;
 
     if (this.more?.details) {
       msg += joinAndCompact(_.castArray(this.more?.details), '\n');
