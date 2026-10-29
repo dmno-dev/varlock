@@ -88,7 +88,7 @@ export function defineNuxtTests(nuxtVersion: number, testDir: string, opts: { po
         {
           description: 'nitro server bundle carries the varlock init',
           fileGlob: '.output/server/chunks/nitro/*.mjs',
-          shouldContain: ['initVarlockEnv'],
+          shouldContain: ['initVarlockRuntime'],
         },
         {
           // the module registers the `@generateTypes` output (env.d.ts here)

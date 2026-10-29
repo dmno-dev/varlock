@@ -88,6 +88,21 @@ Reuse only happens when a fresh resolution would produce the same result:
 If any check fails, auto-load falls back to the CLI. Control it explicitly with [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env): `0` always re-resolves, `1` always trusts the blob, skipping the directory and drift checks. A blob that resolved with errors is refused in every mode: trust is about where the blob came from, not whether it worked. `varlock run` applies the same rules when it finds a blob, which covers non-Node workloads. Trust mode is how you hand an env into an environment with no `.env` files at all, like a remote sandbox (see the [E2B](/sandboxes/e2b/#passing-resolved-values) and [Fly.io](/sandboxes/flyio/#passing-resolved-values) guides) or a deploy carrying a [frozen payload](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead) in one variable.
 
 
+## Runtime only - `varlock/auto-init`
+
+`varlock/auto-load` resolves the env by calling the varlock CLI. When the resolved env is already present in the process and there is no CLI to call (a compiled single binary, a distroless image, an edge runtime), import `varlock/auto-init` instead:
+
+```js
+import 'varlock/auto-init';
+```
+
+It reads the `__VARLOCK_ENV` blob (decrypting it with `_VARLOCK_ENV_KEY` when it was encrypted), initializes `ENV`, and applies the same runtime patches as auto-load (console redaction, response leak scanning). It never calls the CLI and never re-resolves: if no env is present it throws, so a misconfigured deploy fails at boot rather than running with an empty config. The blob can come from a parent [`varlock run`](/reference/cli/load-and-run/#run), a [frozen payload carried in an env var](/guides/frozen-env/#carrying-the-payload-in-an-env-var-instead), or a platform that injects it (the framework integrations use this entry under the hood).
+
+Import it before anything else in your entry file. ES modules hoist all imports, so an earlier import is the only way to make init run before other modules that read `ENV` at module scope. If your own code has to set something up first, `import { initVarlockRuntime } from 'varlock/init'` gives you the same sequence as a function to call yourself.
+
+`varlock/auto-init` is edge-safe: patches that need node builtins (`node:http` for server response scanning, stdout redaction) become no-ops where those do not exist, so the same import works in Node, Bun, Cloudflare Workers, and Vercel Edge. One caveat for an encrypted blob on a runtime without `node:crypto` (Vercel Edge): decryption falls back to Web Crypto, which is asynchronous, so `ENV` is ready a microtask after import rather than during it. The Next.js integration waits for it before invoking handlers; elsewhere, await `globalThis.__varlockEnvReady` before reading `ENV` at module scope, or use a plaintext blob.
+
+
 ## Boot via `varlock run`
 
 A less invasive way to use varlock with your application is to run your application via [`varlock run`](/reference/cli/load-and-run/#run).

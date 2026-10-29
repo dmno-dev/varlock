@@ -414,8 +414,7 @@ export function varlockNextConfigPlugin(pluginOptions?: VarlockPluginOptions) {
           turbopackConfig.resolveAlias['varlock/patch-console'] = './node_modules/.varlock/dist/runtime/patch-console.mjs';
           turbopackConfig.resolveAlias['varlock/patch-server-response'] = './node_modules/.varlock/dist/runtime/patch-server-response.mjs';
           turbopackConfig.resolveAlias['varlock/patch-response'] = './node_modules/.varlock/dist/runtime/patch-response.mjs';
-          turbopackConfig.resolveAlias['varlock/init-server'] = './node_modules/.varlock/dist/runtime/init-server.cjs';
-          turbopackConfig.resolveAlias['varlock/init-edge'] = './node_modules/.varlock/dist/runtime/init-edge.cjs';
+          turbopackConfig.resolveAlias['varlock/init-bundle'] = './node_modules/.varlock/dist/runtime/init-bundle.cjs';
           debug('set resolveAlias for varlock subpaths -> ./node_modules/.varlock/dist/...');
         } else {
           debug('varlock is not symlinked, turbopack can resolve it natively');

@@ -51,9 +51,9 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // Mark as done so we don't retry
   injectedTurbopackRuntime = true;
 
-  // Load both init bundles — server (full, node:zlib/node:http) and edge (no node builtins)
-  const initServerSrc = fs.readFileSync(require.resolve('varlock/init-server'), 'utf8');
-  const initEdgeSrc = fs.readFileSync(require.resolve('varlock/init-edge'), 'utf8');
+  // One init bundle serves server and edge runtimes: it loads node builtins lazily and the
+  // patches that need them are no-ops where they are missing
+  const initBundleSrc = fs.readFileSync(require.resolve('varlock/init-bundle'), 'utf8');
   // a frozen build bakes its frozen env in here; otherwise nothing is baked and the server
   // resolves at boot (see freeze-into-bundle)
   const prelude = getRuntimePrelude();
@@ -62,28 +62,16 @@ export function injectVarlockInitIntoTurbopackRuntime(nextDirPath: string) {
   // a dummy `exports` object when wrapping in an IIFE to avoid ReferenceError.
   const iifeWrap = (src: string) => `(function(exports,module){${src}})({},{exports:{}});`;
 
-  // Inject init-server into [turbopack]_runtime.js files (node.js SSR + build)
-  for (const runtimeFile of serverRuntimeFiles) {
-    const origSource = fs.readFileSync(runtimeFile, 'utf8');
+  // Inject into [turbopack]_runtime.js files (node.js SSR + build) and edge-wrapper files
+  for (const targetFile of [...serverRuntimeFiles, ...edgeWrapperFiles]) {
+    const origSource = fs.readFileSync(targetFile, 'utf8');
     const updatedSource = [
       prelude,
-      iifeWrap(initServerSrc),
+      iifeWrap(initBundleSrc),
       origSource,
     ].join('\n');
-    fs.writeFileSync(runtimeFile, updatedSource);
-    debug(`injected init-server into turbopack runtime: ${runtimeFile}`);
-  }
-
-  // Inject init-edge into edge-wrapper files (edge runtime — no node builtins)
-  for (const wrapperFile of edgeWrapperFiles) {
-    const origSource = fs.readFileSync(wrapperFile, 'utf8');
-    const updatedSource = [
-      prelude,
-      iifeWrap(initEdgeSrc),
-      origSource,
-    ].join('\n');
-    fs.writeFileSync(wrapperFile, updatedSource);
-    debug(`injected init-edge into edge wrapper: ${wrapperFile}`);
+    fs.writeFileSync(targetFile, updatedSource);
+    debug(`injected init bundle into: ${targetFile}`);
   }
 }
 

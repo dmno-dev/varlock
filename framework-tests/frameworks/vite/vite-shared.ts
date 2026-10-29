@@ -277,11 +277,7 @@ export function defineViteTests(
           {
             description: 'SSR output contains varlock init calls',
             fileGlob: 'dist/*.js',
-            shouldContain: [
-              'initVarlockEnv',
-              'patchGlobalConsole',
-              'patchGlobalResponse',
-            ],
+            shouldContain: ['initVarlockRuntime'],
           },
           {
             description: 'public vars are replaced in SSR output',

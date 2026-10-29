@@ -164,7 +164,6 @@ function varlockAstroIntegration(
           vitePluginOptions = {
             ...vitePluginOptions,
             ssrInjectMode,
-            ssrEdgeRuntime: vitePluginOptions.ssrEdgeRuntime ?? true,
             ssrEntryModuleIds: [
               ...(vitePluginOptions.ssrEntryModuleIds ?? []),
               '\0virtual:cloudflare/worker-entry',
