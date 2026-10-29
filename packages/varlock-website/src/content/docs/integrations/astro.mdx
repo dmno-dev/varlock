@@ -234,7 +234,7 @@ PUBLIC_RUNTIME_FLAG=enabled # @public @dynamic
 
 ### Client-side usage
 
-When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only) that serves them to the browser. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
+When the schema contains any public+dynamic keys, this integration automatically injects a route at `/__varlock/public-env` (SSR builds only) that serves them to the browser. It serves every public+dynamic key in the schema, whether or not browser code reads it; to limit that, set `publicDynamicEndpoint: false` and add your own route returning `getPublicDynamicEnv(keys)`. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
 
 :::note[Static output]
 With `output: 'static'`, the endpoint is not injected automatically during builds (it is still available in `astro dev`). If you use static output with an adapter (so non-prerendered routes are allowed), opt in explicitly with `publicDynamicEndpoint: true`. Without an adapter there is no server to serve runtime public values from.
