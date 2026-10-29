@@ -645,6 +645,13 @@ describe('CLI Commands', () => {
       const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
       expect(result.output).toContain('Configuration is currently invalid');
     });
+
+    test('final line names the failing keys', () => {
+      const result = varlockLoad({ cwd: 'smoke-test-invalid-items' });
+      const lastLine = result.output.trim().split('\n').at(-1);
+      expect(lastLine).toContain('[varlock] Invalid env vars:');
+      expect(lastLine).toContain('REQUIRED_MISSING');
+    });
   });
 
   // shell pipelines + `head` are POSIX-only

@@ -230,7 +230,7 @@ export function checkForConfigErrors(envGraph: EnvGraph, opts?: {
 
     showPluginWarnings(envGraph);
     if (!opts?.noThrow) {
-      throw new InvalidEnvError();
+      throw new InvalidEnvError(failingItems.map((item) => item.key));
     }
   }
 }
