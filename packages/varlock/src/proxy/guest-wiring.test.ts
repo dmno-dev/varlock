@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildGuestEnvWiring, caDirFromSessionEnv, proxyUrlWithToken } from './guest-wiring';
+import {
+  buildGuestEnvWiring, caDirFromSessionEnv, guestLoopbackWiring, proxyUrlWithToken,
+} from './guest-wiring';
 
 describe('buildGuestEnvWiring', () => {
   const sessionProxyEnv = {
@@ -88,5 +90,16 @@ describe('caDirFromSessionEnv', () => {
   test('throws a clear error when no CA path is present', () => {
     expect(() => caDirFromSessionEnv({ HTTPS_PROXY: 'http://127.0.0.1:1' }))
       .toThrow(/missing a CA bundle path/);
+  });
+});
+
+describe('guestLoopbackWiring', () => {
+  test('routes Node built-in fetch through the proxy', () => {
+    const env = guestLoopbackWiring('http://127.0.0.1:8888', '/tmp/certs');
+    // Without it, fetch ignores HTTPS_PROXY and sends placeholders upstream.
+    expect(env.NODE_USE_ENV_PROXY).toBe('1');
+    expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:8888');
+    expect(env.NODE_EXTRA_CA_CERTS).toBe('/tmp/certs/ca-cert.pem');
+    expect(env.SSL_CERT_FILE).toBe('/tmp/certs/combined-ca.pem');
   });
 });
