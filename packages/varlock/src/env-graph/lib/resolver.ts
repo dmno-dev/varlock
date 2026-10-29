@@ -712,6 +712,12 @@ export const ForEnvResolver: typeof Resolver = createResolver({
   },
 });
 
+// alias of forEnv(), reads better in boolean expressions like `not(isEnv(production))`
+export const IsEnvResolver: typeof Resolver = createResolver({
+  ...ForEnvResolver.def,
+  name: 'isEnv',
+});
+
 export const EqResolver: typeof Resolver = createResolver({
   name: 'eq',
   icon: 'material-symbols:equal',
@@ -1370,6 +1376,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   RemapResolver,
   IfsResolver,
   ForEnvResolver,
+  IsEnvResolver,
   EqResolver,
   IfResolver,
   NotResolver,

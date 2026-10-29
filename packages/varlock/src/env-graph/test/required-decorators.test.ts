@@ -212,6 +212,26 @@ describe('required decorators', () => {
         OPT_FOR_MULTIPLE: false,
       },
     }));
+    test('`isEnv()` is an alias of `forEnv()`', envFilesTest({
+      files: {
+        '.env.schema': outdent`
+          # @currentEnv=$APP_ENV @defaultRequired=false @defaultSensitive=false
+          # ---
+          APP_ENV=staging
+          REQ_FOR_DEV=      # @required=isEnv(dev)
+          REQ_FOR_MULTIPLE= # @required=isEnv(staging, prod)
+          # @type=boolean
+          NOT_PROD=not(isEnv(prod))
+        `,
+      },
+      expectRequired: {
+        REQ_FOR_DEV: false,
+        REQ_FOR_MULTIPLE: true,
+      },
+      expectValues: {
+        NOT_PROD: true,
+      },
+    }));
     test('`forEnv()` helper is not usable if no envFlag is set', envFilesTest({
       files: {
         '.env.schema': outdent`
