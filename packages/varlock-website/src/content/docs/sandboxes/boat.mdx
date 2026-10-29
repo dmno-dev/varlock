@@ -1,0 +1,191 @@
+---
+title: Boat
+description: Using varlock with Boat sandboxes, from resolving and validating sandbox env vars to running the credential proxy so agent sandboxes receive placeholders.
+---
+
+[Boat](https://boat.dev/) runs full Ubuntu virtual machines with SSH, Docker, and a desktop. Sandboxes get environment variables from the code that creates them, which makes the orchestrator the natural place for varlock to resolve configuration.
+
+For workloads you trust with credentials, [pass resolved values](#passing-resolved-values). For agentic workloads, use a [broker sandbox](#credential-proxy-the-broker-sandbox): one Boat sandbox runs the [credential proxy](/guides/proxy/) and holds the real values, while agent sandboxes connect through the built-in tunnel with [placeholders](/guides/proxy/rules/#placeholders).
+
+The examples use varlock **1.23.0** and **`@boatdev/sdk` 1.10.0**, with Node 24+ or Bun to run the TypeScript. Pin the proxy version while it is in [preview](/guides/proxy/):
+
+```bash
+npm install varlock@1.23.0 @boatdev/sdk@1.10.0
+```
+
+## Passing resolved values
+
+Run your orchestrator under [`varlock run`](/reference/cli/load-and-run/) (or import [`varlock/auto-load`](/integrations/javascript/)) to resolve and validate its configuration. Pass only the values the workload needs through Boat's [`env` map](https://docs.boat.dev/sdks/typescript#per-sandbox-environment-variables):
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { BoatApi, Configuration, waitUntilReady } from '@boatdev/sdk';
+
+const { BOAT_API_KEY, API_KEY } = process.env;
+if (!BOAT_API_KEY || !API_KEY) throw new Error('Set BOAT_API_KEY and API_KEY');
+
+const boat = new BoatApi(new Configuration({
+  basePath: 'https://boat.dev/api/v1',
+  accessToken: BOAT_API_KEY,
+}));
+const { sandbox } = await boat.create({
+  noEnv: true,
+  ttlSeconds: 900,
+  env: { API_KEY },
+});
+try {
+  await waitUntilReady(boat, sandbox.id);
+  // The workload can read the real API_KEY from its environment.
+  const result = await boat.command({
+    sandboxId: sandbox.id,
+    command: 'test -n "$API_KEY"',
+  });
+  if (!('exitCode' in result) || result.exitCode !== 0) {
+    throw new Error('Sandbox command failed');
+  }
+} finally {
+  await boat.deleteSandbox({ sandboxId: sandbox.id, xAsciiConfirmDelete: sandbox.id });
+}
+```
+
+The real value passes through Boat's API and is readable by code inside the sandbox. `noEnv: true` withholds inherited account credentials; the explicit `env` map still reaches the guest. Keep `BOAT_API_KEY` in the orchestrator, outside that map. See Boat's [access and credentials](https://docs.boat.dev/environments/access) documentation.
+
+## Credential proxy: the broker sandbox
+
+One sandbox runs `varlock proxy start --expose`. Boat's [hosted HTTPS URL](https://docs.boat.dev/hosting) carries the WebSocket tunnel, and agent sandboxes connect with `varlock proxy run --url`. The command fetches the broker's child-view environment and public CA certificates, then wires a loopback proxy for the workload. The real API key and CA private key stay in the broker.
+
+```text
+[agent sandbox]                         [broker sandbox]
+  varlock proxy run --url  -- wss -->     proxy :8080 + tunnel
+  (loopback proxy + workload)             (Boat hosted URL)
+```
+
+### Schema setup
+
+Create a broker schema containing only the values your agents need:
+
+```env-spec title=".env.schema"
+# @proxyConfig={egress="strict"}
+# ---
+
+# @sensitive @required
+# @proxy(domain="api.example.com", path="/v1/**", substituteIn=["header:authorization"])
+# @placeholder=vlk_placeholder_api_key
+API_KEY=
+```
+
+`API_KEY` and `api.example.com` stand for your workload's credential and API host. Replace the domain and path with the destinations the workload needs. Supply the real value through the orchestrator's environment, an uncommitted `.env.local`, or your existing [secret resolver](/guides/plugins/). The example below only checks placeholder delivery, so a non-secret test value is enough to try it.
+
+[`egress="strict"`](/guides/proxy/rules/#egress-modes) blocks proxied requests that do not match a rule. A narrow `@proxy` rule alone does not do that: egress is permissive by default. The explicit [`@placeholder`](/guides/proxy/rules/#placeholders) makes the handoff easy to check; use a format your client accepts when adapting the example.
+
+### Start the broker and agent
+
+Set `BOAT_API_KEY` in the trusted orchestration environment to a new [Boat API key](https://docs.boat.dev/api-keys) with the `ci` preset. Older `ci` keys can lack the `sandbox.delete-own` permission needed for cleanup; see Boat's [key scopes](https://docs.boat.dev/api-keys/scopes#presets). The key manages the sandboxes and is never sent to either guest.
+
+Save this alongside the schema as a separate `orchestrate.ts`. The orchestrator resolves `API_KEY` once and passes it only to the broker:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { BoatApi, Configuration, waitUntilReady, writeText } from '@boatdev/sdk';
+
+const { BOAT_API_KEY, API_KEY } = process.env;
+if (!BOAT_API_KEY || !API_KEY) throw new Error('Set BOAT_API_KEY and API_KEY');
+
+const boat = new BoatApi(new Configuration({
+  basePath: 'https://boat.dev/api/v1',
+  accessToken: BOAT_API_KEY,
+}));
+const proxyToken = randomUUID();
+const schema = readFileSync('.env.schema', 'utf8');
+const VARLOCK = '/home/user/.local/bin/varlock';
+const sandboxIds: string[] = [];
+
+async function run(sandboxId: string, command: string) {
+  const result = await boat.command({ sandboxId, command, timeoutSeconds: 300 });
+  if (!('exitCode' in result) || result.timedOut || result.exitCode !== 0) {
+    throw new Error(`Command failed in sandbox ${sandboxId}`);
+  }
+  return result;
+}
+
+async function createSandbox(env: Record<string, string>) {
+  const { sandbox } = await boat.create({ noEnv: true, ttlSeconds: 900, env });
+  sandboxIds.push(sandbox.id);
+  await waitUntilReady(boat, sandbox.id);
+  // The standalone binary does not depend on the guest's Node version.
+  await run(sandbox.id,
+    'curl -fsSL https://varlock.dev/install.sh -o /tmp/install-varlock.sh'
+    + ' && sh /tmp/install-varlock.sh --version=1.23.0 --dir=/home/user/.local/bin');
+  return sandbox.id;
+}
+
+try {
+  const brokerId = await createSandbox({ API_KEY, VARLOCK_PROXY_TOKEN: proxyToken });
+  await run(brokerId, 'mkdir -p /home/user/proj');
+  await writeText(boat, brokerId, '/home/user/proj/.env.schema', schema);
+  await boat.command({
+    sandboxId: brokerId,
+    command: `${VARLOCK} proxy start --path /home/user/proj --expose --port 8080`,
+    detached: true,
+  });
+  // A bare GET returns 400; this checks that the listener is accepting connections.
+  await run(brokerId,
+    "until curl -s -o /dev/null --proxy '' http://127.0.0.1:8080; do sleep 0.2; done");
+
+  // Boat's SDK calls the public-URL option `_public`.
+  const hosted = await boat.hostPort({ sandboxId: brokerId, port: 8080, _public: true });
+  if (!hosted.url) throw new Error('Boat did not return a broker URL');
+  const brokerUrl = new URL(hosted.url);
+  brokerUrl.protocol = 'wss:';
+
+  const agentId = await createSandbox({
+    VARLOCK_PROXY_TOKEN: proxyToken,
+    VARLOCK_PROXY_URL: brokerUrl.toString(),
+  });
+  const result = await run(agentId, String.raw`
+    ${VARLOCK} proxy run --url "$VARLOCK_PROXY_URL" -- sh -c '
+      test "$API_KEY" = vlk_placeholder_api_key && echo "Placeholder received"
+    '
+  `);
+  console.log(result.stdout.trim()); // Placeholder received
+} finally {
+  // Wait for every deletion request, even if one fails.
+  const cleanup = await Promise.allSettled(sandboxIds.map((sandboxId) => boat.deleteSandbox({
+    sandboxId, xAsciiConfirmDelete: sandboxId,
+  })));
+  cleanup.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.error(`Cleanup failed; delete sandbox ${sandboxIds[index]} manually`);
+      process.exitCode = 1;
+    }
+  });
+}
+```
+
+Run with `node orchestrate.ts` or `bun run orchestrate.ts`. The check confirms placeholder delivery without calling another API. Once your workload is installed in the agent sandbox, replace the `sh -c` check with its command. The agent needs no `.env` files or resolver credentials: `proxy run --url` adopts the broker's placeholder environment over the authenticated tunnel.
+
+The hosted port is deliberately public at Boat's layer. Its default protected URLs use a query token and cookie flow that `proxy run --url` does not perform. Varlock's own data-plane token authenticates the tunnel instead. Boat terminates the outer TLS and can see that token and the bootstrap environment; the broker and Boat's infrastructure are inside your trust boundary.
+
+Only [proxy-aware clients](/guides/proxy/running/#client-compatibility) use the injected proxy and CA settings. curl honors them. Node's built-in `fetch` needs Node 24+ and `NODE_USE_ENV_PROXY=1`, which `proxy run --url` sets for you; on varlock 1.23.0 and earlier, set it in the remote workload yourself. Clients that ignore the settings bypass the broker and do not receive an injected credential.
+
+### Egress and trust model
+
+This recipe separates the agent from the real credential, but it does **not** force all guest traffic through varlock. Boat's [default user has passwordless sudo](https://docs.boat.dev/security#isolation-between-sandboxes), and outbound internet access is open. Guest code can bypass proxy settings or remove guest firewall rules. A direct connection does not receive varlock's key, but it can still send other data out.
+
+Boat has no network-policy API. Its [firewall guide](https://docs.boat.dev/hosting/firewall) describes restrictions for a separate Linux account without sudo, applied inside the guest and reapplied after resume or fork. That is a separate containment setup. Varlock's local `--sandbox` flag cannot be combined with `--url`.
+
+The broker token is shared by the session's clients and authorizes whatever its rules permit. Use separate brokers for workloads with different permissions. Keep non-sensitive bootstrap values suitable for the guest, and avoid [`@proxy=passthrough`](/guides/proxy/rules/#controlling-what-the-agent-sees) for credentials. Bind secrets only to APIs you trust not to return them; response scrubbing has [limits](/guides/proxy/#limitations).
+
+For a longer-lived broker, [`varlock proxy audit`](/guides/proxy/running/#auditing) shows requests and policy decisions. Manage its lifetime explicitly; a stopped broker must be restarted before agents can use it. [`--persist-ca`](/guides/proxy/running/#pinning-the-port-and-ca-location), with `--cert-dir`, can preserve CA trust across restarts on the broker only.
+
+### Cleanup
+
+`proxy run --url` closes its loopback listener and removes its temporary CA files when the child exits. The example requests deletion of both disposable sandboxes in `finally`, including after setup failures. `ttlSeconds` provides auto-stop if the orchestrator dies before cleanup; stopping retains a snapshot, so it does not replace [deletion](https://docs.boat.dev/data-retention/delete).
+
+If you keep the broker and delete only an agent, its token remains valid. Restart the broker with a fresh token to revoke access, and give it only to the clients that should continue.
+
+## Other topologies
+
+The same agent-side command reaches a broker on your own machine or existing infrastructure. Keep the broker separate from the agent and use a reachable URL that carries WebSockets; use `wss://` across the public internet. See the [topologies overview](/sandboxes/overview/#topologies) and [remote proxy mode](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url).

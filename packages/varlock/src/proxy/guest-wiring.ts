@@ -75,6 +75,9 @@ export function guestLoopbackWiring(proxyUrl: string, certDir: string): Record<s
     NO_PROXY: 'localhost,127.0.0.1,::1',
     no_proxy: 'localhost,127.0.0.1,::1',
     NODE_EXTRA_CA_CERTS: `${certDir}/ca-cert.pem`,
+    // Node's built-in fetch ignores HTTP(S)_PROXY without this (node >= 24), and
+    // would send placeholders straight upstream. Matches the runtime's env output.
+    NODE_USE_ENV_PROXY: '1',
   };
   for (const key of PROXY_URL_ENV_VARS) env[key] = proxyUrl;
   for (const key of CA_PATH_ENV_VARS) {
