@@ -54,8 +54,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "alchemy": "2.0.0-beta.83",
-    "effect": "4.0.3",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "4.0.6",
     "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"

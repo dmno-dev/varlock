@@ -98,10 +98,11 @@ While varlock resolves, the alchemy run is visible to the schema as `ALCHEMY_STA
 ```env-spec
 # @currentEnv=$ALCHEMY_ENV
 # ---
+# @optional @public
 ALCHEMY_STAGE=
-# @type=boolean
+# @type=boolean @optional @public
 ALCHEMY_DEV=
-# @type=enum(development, preview, staging, production, test)
+# @type=enum(development, preview, staging, production, test) @public
 ALCHEMY_ENV=if($ALCHEMY_DEV, development, remap($ALCHEMY_STAGE, regex("^(prod|production)$"), production, regex("^(staging|stage)$"), staging, "test", test, undefined, development, regex(".*"), preview))
 
 # @type=url
