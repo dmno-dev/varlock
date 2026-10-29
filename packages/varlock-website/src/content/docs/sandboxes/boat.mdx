@@ -168,7 +168,7 @@ Run with `node orchestrate.ts` or `bun run orchestrate.ts`. The check confirms p
 
 The hosted port is deliberately public at Boat's layer. Its default protected URLs use a query token and cookie flow that `proxy run --url` does not perform. Varlock's own data-plane token authenticates the tunnel instead. Boat terminates the outer TLS and can see that token and the bootstrap environment; the broker and Boat's infrastructure are inside your trust boundary.
 
-Only [proxy-aware clients](/guides/proxy/running/#client-compatibility) use the injected proxy and CA settings. curl honors them. For Node's built-in `fetch`, use Node 24+ and explicitly set `NODE_USE_ENV_PROXY=1` in the remote workload. Clients that ignore the settings bypass the broker and do not receive an injected credential.
+Only [proxy-aware clients](/guides/proxy/running/#client-compatibility) use the injected proxy and CA settings. curl honors them. Node's built-in `fetch` needs Node 24+ and `NODE_USE_ENV_PROXY=1`, which `proxy run --url` sets for you; on varlock 1.23.0 and earlier, set it in the remote workload yourself. Clients that ignore the settings bypass the broker and do not receive an injected credential.
 
 ### Egress and trust model
 
