@@ -11,6 +11,13 @@
 
 
 
+
+## 2.0.6
+<sub>2026-10-29</sub>
+
+- [#1241](https://github.com/dmno-dev/varlock/pull/1241)  *(patch)* Thanks [@lukeredpath](https://github.com/lukeredpath)!
+  Read 1Password Environments with stable `op` releases (v2.41.0+) via `op run --environment`. Older beta CLIs that only had `op environment read` need to update with `op update`
+
 ## 2.0.5
 <sub>2026-10-09</sub>
 

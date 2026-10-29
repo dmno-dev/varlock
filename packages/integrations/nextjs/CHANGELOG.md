@@ -18,6 +18,23 @@
 
 
 
+
+## 2.0.0
+<sub>2026-10-29</sub>
+
+- [#1232](https://github.com/dmno-dev/varlock/pull/1232)  *(major)*
+  Builds no longer bake the resolved env into their output unless they freeze it, controlled by the new `freezeIntoBundle` option (`'auto'` by default: freeze on Vercel, Netlify, Cloudflare Workers Builds, AWS Amplify and OpenNext; resolve at boot elsewhere). What to check when upgrading:
+
+  - **`output: 'standalone'`** (e.g. Docker images): the build now fails until you set `freezeIntoBundle: true` (bake the env, encrypted; the server needs only `_VARLOCK_ENV_KEY`) or `false` (the server resolves at boot, so the varlock CLI must be available, e.g. `varlock run -- node server.js`). Previously a standalone server with no CLI silently booted from build-time values.
+  - **Frozen builds must be encrypted**: set `_VARLOCK_ENV_KEY` at build and runtime (generate one with `varlock generate-key`), or opt out with `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1`.
+  - **`next start` without the varlock CLI** fails at boot with the fixes instead of falling back to build-time values.
+
+  A frozen env wins over the environment at boot (with a warning when they differ), and `@dynamic=boot` keys can be set per instance.
+- [#1237](https://github.com/dmno-dev/varlock/pull/1237)  *(patch)*
+  Fix env file watchers keeping short-lived processes (such as Next's telemetry helper after `next dev` stops) running forever
+- [#1239](https://github.com/dmno-dev/varlock/pull/1239)  *(patch)*
+  New `varlock/auto-init` entry: a single edge-safe import that initializes the runtime from an already-resolved env (decrypting it if needed) and applies all runtime patches, without calling the CLI. The same sequence is available as a function, `initVarlockRuntime()` from `varlock/init`, for code that has to set up its inputs first. The Next.js integration now injects one `varlock/init-bundle` file into both server and edge runtimes (`varlock/init-server` and `varlock/init-edge` remain as aliases of it). `varlock/patch-server-response` now loads node builtins lazily and is a no-op where `node:http` does not exist, so the same init code runs in Node, Bun, Cloudflare Workers and Vercel Edge. The vite, Cloudflare and Astro integrations use it instead of assembling the init sequence module by module; the vite plugin's `ssrEdgeRuntime` option is no longer needed and is ignored.
+
 ## 1.2.5
 <sub>2026-10-13</sub>
 

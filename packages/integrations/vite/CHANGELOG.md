@@ -16,6 +16,17 @@
 
 
 
+
+## 1.5.5
+<sub>2026-10-29</sub>
+
+- [#1236](https://github.com/dmno-dev/varlock/pull/1236)  *(patch)*
+  Keep secrets logged in React Server Components out of the dev-mode RSC payload: React's dev console replay now gets redacted args, so logging a sensitive value no longer trips leak detection and truncates the page
+- [#1240](https://github.com/dmno-dev/varlock/pull/1240)  *(patch)* Thanks [@stickerdaniel](https://github.com/stickerdaniel)!
+  Detect `@sveltejs/adapter-cloudflare` with SvelteKit 3, which moved the resolved adapter out of `kit`, so the Workers env loader is injected without explicit options
+- [#1239](https://github.com/dmno-dev/varlock/pull/1239)  *(patch)*
+  New `varlock/auto-init` entry: a single edge-safe import that initializes the runtime from an already-resolved env (decrypting it if needed) and applies all runtime patches, without calling the CLI. The same sequence is available as a function, `initVarlockRuntime()` from `varlock/init`, for code that has to set up its inputs first. The Next.js integration now injects one `varlock/init-bundle` file into both server and edge runtimes (`varlock/init-server` and `varlock/init-edge` remain as aliases of it). `varlock/patch-server-response` now loads node builtins lazily and is a no-op where `node:http` does not exist, so the same init code runs in Node, Bun, Cloudflare Workers and Vercel Edge. The vite, Cloudflare and Astro integrations use it instead of assembling the init sequence module by module; the vite plugin's `ssrEdgeRuntime` option is no longer needed and is ignored.
+
 ## 1.5.4
 <sub>2026-10-13</sub>
 
