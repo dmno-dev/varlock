@@ -64,10 +64,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
-        with:
-          toolchain: stable
-          targets: ${{ matrix.target }}
+        # rustup is preinstalled on GitHub-hosted runners
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
 
       # Cache Cargo registry + build artifacts by lockfile hash
       - name: Cache Cargo
