@@ -729,6 +729,11 @@ describe('type generation', () => {
       }
       const src = await generateTsTypesSrc(resolveFieldTypes(items));
 
+      // eslint is turned off before the @ts-nocheck line, so rules about that comment don't report it
+      const lines = src.split('\n');
+      expect(lines.indexOf('/* eslint-disable */')).toBeGreaterThan(-1);
+      expect(lines.indexOf('/* eslint-disable */')).toBeLessThan(lines.indexOf('// @ts-nocheck'));
+
       // verify the source contains expected type declarations
       expect(src).toContain('export type CoercedEnvSchema');
       expect(src).toContain('DB_HOST: string;');
