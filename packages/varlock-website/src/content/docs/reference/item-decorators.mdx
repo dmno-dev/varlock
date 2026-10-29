@@ -66,6 +66,8 @@ OPTIONAL_ITEM=
 
 Sets whether the item should be considered _sensitive_ - meaning it cannot be exposed to the public. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
 
+Items that are not sensitive are public: integrations may inline them into client bundles or serve them to the browser (see [static vs dynamic vars](/guides/dynamic-config/)). If a value must stay on the server, keep it sensitive even when it is not a secret. Use `redact=false` (below) if it should still appear in logs.
+
 Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultsensitive)
 
 Sensitivity may also be implied by the item's [data type](/reference/data-types). For example, plugin "secret-zero" credential types (like a [1Password `opServiceAccountToken`](/plugins/1password/)) are sensitive by default, so you don't need to add `@sensitive` explicitly (use `@public` or `@sensitive=false` to override). An explicit `@sensitive` on the item always wins.
@@ -110,7 +112,7 @@ Leak detection is a safety net that stops a secret from accidentally being sent 
 ### `@public`
 **Value type:** `boolean`
 
-Opposite of [`@sensitive`](#sensitive). Equivalent to writing `@sensitive=false`.
+Opposite of [`@sensitive`](#sensitive). Equivalent to writing `@sensitive=false`. Public values may be exposed to the browser: static ones are inlined into client bundles where client code references them, and [dynamic](#dynamic) ones are served to the browser by the public env endpoint or boot-time injection (see [loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client)).
 
 ```env-spec
 # @defaultSensitive=true

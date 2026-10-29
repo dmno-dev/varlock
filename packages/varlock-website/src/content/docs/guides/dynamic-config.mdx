@@ -44,7 +44,7 @@ There is one level past dynamic. `@dynamic=boot` says the value is bound at proc
 
 ## Loading dynamic vars in the client
 
-Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. Use it freely whenever a public value should stay out of client bundles or stay runtime-resolved on the server. 
+Marking a public value `@dynamic` is cheap: it is one decorator, and server-side code keeps reading `ENV.KEY` with no other changes. It does not make a value less exposed, though. A static public value only reaches the browser where client code references it, because that is where it gets inlined. A dynamic public value can't be inlined, so the endpoint and boot-time injection approaches below send every public+dynamic key to the browser by default, whether client code reads it or not. `@dynamic` controls when a value is resolved, not who can see it: if a value should never reach the browser, mark it [`@sensitive`](/reference/item-decorators/#sensitive), even if it is not a secret.
 
 
 Because dynamic+public items cannot be bundled into client-side code, if you need them available on the client, we must load them somehow after build time. We can either:
@@ -239,7 +239,7 @@ console.log(ENV.PUBLIC_RUNTIME_FLAG);
 </TabItem>
 </Tabs>
 
-If you only need a subset of keys, return `getPublicDynamicEnv(['KEY_A', 'KEY_B'])` from your endpoint.
+Without arguments, `getPublicDynamicEnv()` returns every public+dynamic key in the schema, to anyone who requests the endpoint. To serve only the keys your client code reads, return `getPublicDynamicEnv(['KEY_A', 'KEY_B'])` instead.
 
 ### Boot-time injection
 
@@ -298,6 +298,8 @@ We can't provide a one-size-fits-all recipe for this, because it depends on your
 </Steps>
 
 The replacement step itself can be accomplished many ways: this shell snippet, a small node script, `envsubst`, or whatever templating your setup already has. The only contract is that `globalThis.__varlockPublicDynamicEnv` is set to the JSON object before your bundle loads.
+
+The `@dynamic,!@sensitive` filter above injects every public+dynamic key into the page. To inject only what the client needs, list the keys instead, e.g. `--filter 'FEATURE_FLAG_X,SITE_KEY,!@sensitive'`.
 
 Whatever tool you use, escape the JSON for HTML before embedding it in a `<script>` tag, so a public value containing something like `</script>` cannot break out of the tag or inject markup. The `sed` step above escapes `<` as its `\u003C` unicode escape, which is spec-valid JSON that parses back to `<`; a node script can serialize with the equivalent escape.
 

@@ -144,7 +144,7 @@ To enable type-safety and IntelliSense for your env vars, enable the [`@generate
 
 ## Public dynamic env endpoint
 
-When the schema contains any public+dynamic keys, the module automatically injects a server route at `/__varlock/public-env` that serves them to the browser. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
+When the schema contains any public+dynamic keys, the module automatically injects a server route at `/__varlock/public-env` that serves them to the browser. It serves every public+dynamic key in the schema, whether or not browser code reads it; to limit that, set `publicDynamicEndpoint: false` and add your own route returning `getPublicDynamicEnv(keys)`. If browser code needs one of these values, load it with `loadPublicDynamicEnv()` before reading `ENV.KEY`; this is rarely needed, but when it is, see [Loading dynamic vars in the client](/guides/dynamic-config/#loading-dynamic-vars-in-the-client).
 
 You can control the injection through the module options:
 
