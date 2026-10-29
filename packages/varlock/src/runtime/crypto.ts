@@ -11,7 +11,7 @@
 import type * as NodeCrypto from 'node:crypto';
 
 // node:crypto is loaded lazily so that merely evaluating this module doesn't touch node
-// builtins — the self-contained init bundle (varlock/init-bundle) includes this file and
+// builtins: the self-contained init bundle (varlock/init-bundle) includes this file and
 // can get evaluated inside edge sandboxes (e.g. Next.js dev middleware) where an eager
 // require('crypto') throws, even when nothing ever gets encrypted/decrypted
 let cachedNodeCrypto: typeof NodeCrypto | undefined;

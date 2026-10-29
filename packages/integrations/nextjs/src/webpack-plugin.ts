@@ -208,7 +208,7 @@ export function createWebpackConfigFn(
                 if (compilation.getAsset('edge-runtime-webpack.js')) {
                   compilation.updateAsset('edge-runtime-webpack.js', injectVarlockInitIntoWebpackRuntime());
                 }
-                // Edge compilation also has webpack-runtime.js — inject there too
+                // Edge compilation also has webpack-runtime.js: inject there too
                 for (const name of ['webpack-runtime.js', '../webpack-runtime.js']) {
                   if (compilation.getAsset(name)) {
                     compilation.updateAsset(name, injectVarlockInitIntoWebpackRuntime());

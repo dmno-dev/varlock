@@ -32,7 +32,12 @@ const FAKE_GRAPH = {
  * and returns its JSON result. A child process is needed because vm.SourceTextModule is
  * behind --experimental-vm-modules.
  */
-function evaluateInEdgeLikeContext(entryFile: string, opts: { env?: Record<string, string>, probe: string }) {
+function evaluateInEdgeLikeContext(entryFile: string, opts: {
+  env?: Record<string, string>,
+  /** extra globals present before the entry evaluates (what earlier code in a bundle would set) */
+  globals?: Record<string, unknown>,
+  probe: string,
+}) {
   const entryPath = path.join(DIST_RUNTIME_DIR, entryFile);
   if (!existsSync(entryPath)) {
     throw new Error(`${entryPath} is missing - build varlock first (bunx turbo run build --filter=varlock)`);
@@ -49,6 +54,7 @@ function evaluateInEdgeLikeContext(entryFile: string, opts: { env?: Record<strin
       console, TextEncoder, TextDecoder, setTimeout, clearTimeout, queueMicrotask,
       URL, Response, Request, Headers, ReadableStream, crypto, atob, btoa,
       process: { env: ${JSON.stringify(opts.env ?? {})} },
+      ...${JSON.stringify(opts.globals ?? {})},
     };
     const context = vm.createContext(sandbox);
     const cache = new Map();
@@ -167,6 +173,17 @@ describe('runtime entries evaluate without node builtins', () => {
       patchConsoleExposed: 'function',
       redacted: expect.not.stringContaining('super-secret-value-abc123'),
     });
+  });
+
+  it('an already-resolved env wins over an encrypted process.env blob (no decrypt, no key needed)', () => {
+    // the Cloudflare init entry sets __varlockLoadedEnv itself, while workerd can also expose
+    // the same (still encrypted) binding on process.env without the key being readable there
+    const result = evaluateInEdgeLikeContext('auto-init.mjs', {
+      env: { __VARLOCK_ENV: encryptEnvBlobSync(JSON.stringify(FAKE_GRAPH), 'ef'.repeat(32)) },
+      globals: { __varlockLoadedEnv: { ...FAKE_GRAPH, config: { ...FAKE_GRAPH.config, PUBLIC_KEY: { value: 'from-loaded-env', isSensitive: false } } } },
+      probe: 'return { publicValue: ns.ENV.PUBLIC_KEY };',
+    });
+    expect(result).toEqual({ publicValue: 'from-loaded-env' });
   });
 
   it('varlock/auto-init decrypts an encrypted blob asynchronously when node:crypto is missing', () => {

@@ -102,10 +102,16 @@ function gateEdgeEntriesUntilReady(ready: Promise<void>) {
  *  - `globalThis.__varlockEncryptedEnv`: set by code that runs ahead of init in the same
  *    bundle (the vite integration's `resolved-env` mode, the Cloudflare bindings loader)
  *  - `process.env.__VARLOCK_ENV`: injected by the platform / a parent process
+ *
+ * An already-resolved graph on `globalThis.__varlockLoadedEnv` wins over a process.env blob,
+ * the same precedence initVarlockEnv applies: that blob would never be read, so it must not
+ * be decrypted either (it can be a parent process's, or Cloudflare's copy of a binding the
+ * Cloudflare init entry already decrypted with a key that is not in process.env).
  */
 function getEncryptedEnvBlob(): { blob: string, source: 'global' | 'process' } | undefined {
   const globalBlob = (globalThis as any).__varlockEncryptedEnv;
   if (typeof globalBlob === 'string' && globalBlob) return { blob: globalBlob, source: 'global' };
+  if ((globalThis as any).__varlockLoadedEnv) return undefined;
   const processBlob = (globalThis as any).process?.env?.__VARLOCK_ENV;
   if (typeof processBlob === 'string' && isEncryptedBlob(processBlob)) return { blob: processBlob, source: 'process' };
   return undefined;

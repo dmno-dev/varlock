@@ -100,7 +100,7 @@ It reads the `__VARLOCK_ENV` blob (decrypting it with `_VARLOCK_ENV_KEY` when it
 
 Import it before anything else in your entry file. ES modules hoist all imports, so an earlier import is the only way to make init run before other modules that read `ENV` at module scope. If your own code has to set something up first, `import { initVarlockRuntime } from 'varlock/init'` gives you the same sequence as a function to call yourself.
 
-`varlock/auto-init` is edge-safe: patches that need node builtins (`node:http` for server response scanning, stdout redaction) become no-ops where those do not exist, so the same import works in Node, Bun, Cloudflare Workers, and Vercel Edge.
+`varlock/auto-init` is edge-safe: patches that need node builtins (`node:http` for server response scanning, stdout redaction) become no-ops where those do not exist, so the same import works in Node, Bun, Cloudflare Workers, and Vercel Edge. One caveat for an encrypted blob on a runtime without `node:crypto` (Vercel Edge): decryption falls back to Web Crypto, which is asynchronous, so `ENV` is ready a microtask after import rather than during it. The Next.js integration waits for it before invoking handlers; elsewhere, await `globalThis.__varlockEnvReady` before reading `ENV` at module scope, or use a plaintext blob.
 
 
 ## Boot via `varlock run`

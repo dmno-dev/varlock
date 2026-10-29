@@ -285,6 +285,12 @@ export function patchGlobalServerResponse(opts?: {
     debug('> node:http is not available in this runtime - nothing to patch');
     return;
   }
+  if (typeof ServerResponse.prototype?.write !== 'function' || typeof ServerResponse.prototype?.end !== 'function') {
+    // a partial node:http polyfill: nothing real to wrap, and wrapping would turn any later
+    // write()/end() into a TypeError from inside varlock
+    debug('> ServerResponse has no write/end to patch');
+    return;
+  }
   if (Object.getOwnPropertyDescriptor(ServerResponse.prototype, patchedKey)) {
     debug('> already patched');
     return;
