@@ -1,6 +1,6 @@
 import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
-import { CoercionError, ValidationError, type ErrorSeverity } from './errors';
+import { CoercionError, ValidationError } from './errors';
 import { parseRegexLikeString } from './regex-like-string';
 import {
   parseDuration, convertDurationFromMs, type DurationUnit,
@@ -431,33 +431,13 @@ function findAmbiguousUrlHost(val: string, url: URL): string | undefined {
   return undefined;
 }
 
-/**
- * Whether `prependHttps` should leave the value alone. `localhost:3000` looks like a URL with a
- * `localhost:` scheme, so a valid port (followed by a path or nothing) reads as `host:port`,
- * unless `allowedProtocols` names that scheme. `tel:123456789` (not a valid port) is untouched.
- * Keep in step with `hasUrlScheme` in packages/vscode-plugin/src/diagnostics-core.ts
- */
-function hasUrlScheme(val: string, allowedProtocols?: unknown) {
-  const match = val.match(/^([a-z][a-z\d+.-]*):(?:(\d{1,5})(?=[/?#]|$))?/i);
-  if (!match) return false;
-  if (match[2] === undefined || Number(match[2]) > 65535) return true;
-  const scheme = match[1].toLowerCase();
-  return Array.isArray(allowedProtocols) && allowedProtocols.some((p) => (
-    _.isString(p) && p.replace(/:$/, '').toLowerCase() === scheme
-  ));
-}
-
 // schemes the WHATWG parser treats as "special": it requires a host for these and silently
 // repairs malformed input (`http:foo`, `https:///x`, `\` as `/`, IPv4 shorthand)
 const SPECIAL_URL_SCHEMES = ['http', 'https', 'ws', 'wss', 'ftp'];
 const URL_SCHEME_WITH_AUTHORITY_REGEX = /^([a-z][a-z\d+.-]*):\/\//i;
 const DOTTED_QUAD_IPV4_REGEX = /^\d{1,3}(?:\.\d{1,3}){3}$/;
-/** protocols a `url` accepts when `allowedProtocols` is not set (enforced from the next major) */
+/** protocols a `url` accepts when `allowedProtocols` is not set */
 const DEFAULT_URL_PROTOCOLS = ['http', 'https'];
-// The strict url checks below are warnings for now so existing schemas get a release to
-// adapt. TODO(next major): flip to 'error'.
-const STRICT_URL_SEVERITY: ErrorSeverity = 'warning';
-const STRICT_URL_TIP = 'This will be an error in the next major version of varlock.';
 
 /**
  * Structural checks `new URL()` does not make. On its own it accepts anything shaped like
@@ -534,7 +514,9 @@ const UrlDataType = createEnvGraphDataType(
     generatePlaceholder: (seed) => `https://${seed}.invalid/`,
     coerce(rawVal) {
       const val = coerceToString(rawVal);
-      if (settings?.prependHttps && !hasUrlScheme(val, settings.allowedProtocols)) return `https://${val}`;
+      // only `scheme://` counts as already having a protocol, so `localhost:3000` and
+      // `example.com:8080/path` get the prefix instead of parsing as a `localhost:` scheme
+      if (settings?.prependHttps && !URL_SCHEME_WITH_AUTHORITY_REGEX.test(val)) return `https://${val}`;
       return val;
     },
     validate(val) {
@@ -544,24 +526,16 @@ const UrlDataType = createEnvGraphDataType(
       } catch (err) {
         throw new ValidationError('Invalid URL');
       }
-      const errors = [] as Array<ValidationError>;
-      const ambiguousHostError = settings?.allowedDomains ? findAmbiguousUrlHost(val, url) : undefined;
       const structureIssue = checkUrlStructure(val, url, { allowNoHost: settings?.allowNoHost });
-      // the allowedDomains check already reports these as an error, so skip the duplicate
-      if (structureIssue && !ambiguousHostError) {
-        errors.push(new ValidationError(structureIssue, { severity: STRICT_URL_SEVERITY, tip: STRICT_URL_TIP }));
-      }
+      if (structureIssue) throw new ValidationError(structureIssue);
+      const errors = [] as Array<ValidationError>;
       const protocol = url.protocol.replace(/:$/, '').toLowerCase();
       const rawAllowedProtocols = settings?.allowedProtocols;
       if (rawAllowedProtocols === undefined) {
         if (!DEFAULT_URL_PROTOCOLS.includes(protocol)) {
-          errors.push(new ValidationError(
-            `Protocol (${protocol}) will not be allowed by default in the next major version of varlock`,
-            {
-              severity: STRICT_URL_SEVERITY,
-              tip: `Only http and https are allowed unless set explicitly: add \`allowedProtocols=[${protocol}]\`, or \`allowedProtocols="*"\` to allow any.`,
-            },
-          ));
+          errors.push(new ValidationError(`Protocol (${protocol}) is not allowed`, {
+            tip: `Only http and https are allowed by default: add \`allowedProtocols=[${protocol}]\`, or \`allowedProtocols="*"\` to allow any.`,
+          }));
         }
       } else if (rawAllowedProtocols === '*') {
         // any protocol
@@ -619,6 +593,7 @@ const UrlDataType = createEnvGraphDataType(
           // special schemes, so `trusted.example\path` would otherwise parse as a host plus path
           const HOST_ENTRY_REGEX = /^(?:\[[0-9a-f:.]+\]|[^\s\\/?#@:[\]]+)(?::\d+)?$/i;
           const malformedDomains = normalizedDomains.filter((d) => !HOST_ENTRY_REGEX.test(d));
+          const ambiguousHostError = findAmbiguousUrlHost(val, url);
           if (!normalizedDomains.length) {
             // an empty list can never match, so say so rather than rejecting every URL
             // with an allowlist that has nothing in it to report
