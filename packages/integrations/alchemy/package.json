@@ -1,0 +1,63 @@
+{
+  "name": "@varlock/alchemy-integration",
+  "description": "Alchemy secret manager backed by varlock: validated env from .env.schema for your stack, typed Worker bindings, and the varlock runtime blob for in-Worker log redaction and leak detection",
+  "version": "0.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmno-dev/varlock.git",
+    "directory": "packages/integrations/alchemy"
+  },
+  "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    ".env.schema"
+  ],
+  "scripts": {
+    "dev": "tsdown --watch",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:ci": "vitest run"
+  },
+  "keywords": [
+    "varlock",
+    "alchemy",
+    "cloudflare",
+    "env",
+    ".env",
+    "environment variables",
+    "secrets",
+    "config",
+    "security",
+    "validation",
+    "leak protection",
+    "varlock-integration"
+  ],
+  "author": "dmno-dev",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "varlock": "workspace:^",
+    "alchemy": ">=2.0.0-beta.80",
+    "effect": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "4.0.6",
+    "tsdown": "catalog:",
+    "varlock": "workspace:^",
+    "vitest": "catalog:"
+  }
+}
