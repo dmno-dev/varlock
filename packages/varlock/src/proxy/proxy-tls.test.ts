@@ -253,6 +253,133 @@ describe('proxy HTTPS MITM (end-to-end)', () => {
     await upstream.close();
   });
 
+  // #1263: a body labelled text/* is not guaranteed to be valid UTF-8 (sum.golang.org
+  // serves binary tiles as text/plain). Scrubbing must not decode/re-encode it.
+  for (const streamed of [false, true]) {
+    test(`a non-UTF-8 text/plain response is scrubbed byte-exact (${streamed ? 'streamed' : 'buffered'})`, async () => {
+      const REAL = 'sk-stub-REALKEY';
+      const PLACEHOLDER = 'sk-stub-PLACEHOLDER';
+      const invalid = Buffer.from([0x89, 0xff, 0xfe, 0x00, 0xc3, 0x28, 0xe2, 0x82]);
+      const upstreamBody = Buffer.concat([invalid, Buffer.from(REAL), invalid]);
+      const upstream = await startUpstream((_req, res) => {
+        res.statusCode = 200;
+        res.setHeader('content-type', 'text/plain; charset=UTF-8');
+        if (streamed) {
+          // no content-length: chunked, takes the stream-scrub path; split mid-secret
+          res.write(upstreamBody.subarray(0, invalid.length + 5));
+          setTimeout(() => res.end(upstreamBody.subarray(invalid.length + 5)), 50);
+        } else {
+          res.setHeader('content-length', String(upstreamBody.length));
+          res.end(upstreamBody);
+        }
+      });
+
+      const runtime = await startLocalProxyRuntime({
+        managedItems: [{ key: 'API_KEY', placeholder: PLACEHOLDER, realValue: REAL }],
+        rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+        egressMode: 'permissive',
+      });
+      const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+      const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+      const raw = await new Promise<Buffer>((resolve, reject) => {
+        const parts: Array<Buffer> = [];
+        let idle: ReturnType<typeof setTimeout>;
+        tlsSocket.on('data', (c: Buffer) => {
+          parts.push(c);
+          clearTimeout(idle);
+          idle = setTimeout(() => resolve(Buffer.concat(parts)), 250);
+        });
+        tlsSocket.on('error', reject);
+        tlsSocket.write(`GET /tile HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n\r\n`);
+      });
+      const headerEnd = raw.indexOf('\r\n\r\n');
+      const head = raw.subarray(0, headerEnd).toString('latin1');
+      let body = raw.subarray(headerEnd + 4);
+      if (/transfer-encoding: chunked/i.test(head)) {
+        const decoded: Array<Buffer> = [];
+        let pos = 0;
+        for (;;) {
+          const lineEnd = body.indexOf('\r\n', pos);
+          const size = parseInt(body.subarray(pos, lineEnd).toString('latin1'), 16);
+          if (!size) break;
+          decoded.push(body.subarray(lineEnd + 2, lineEnd + 2 + size));
+          pos = lineEnd + 2 + size + 2;
+        }
+        body = Buffer.concat(decoded);
+      }
+
+      expect(head.split('\r\n')[0]).toContain('200');
+      expect(body.equals(Buffer.concat([invalid, Buffer.from(PLACEHOLDER), invalid]))).toBe(true);
+
+      tlsSocket.destroy();
+      await runtime.stop();
+      await upstream.close();
+    });
+  }
+
+  test('a HEAD response on a scrubbed route keeps its content-length', async () => {
+    const upstream = await startUpstream((_req, res) => {
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.setHeader('content-length', '1234');
+      res.setHeader('etag', '"abc"');
+      res.end();
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER', realValue: 'sk-stub-REALKEY' }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `HEAD /file HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\nAuthorization: Bearer sk-stub-PLACEHOLDER\r\n\r\n`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(response.toLowerCase()).toContain('content-length: 1234');
+    expect(response.toLowerCase()).toContain('etag: "abc"');
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
+  test('a 206 partial body is passed through unrewritten (Content-Range stays valid)', async () => {
+    const REAL = 'sk-stub-REALKEY';
+    const partialBody = `chunk containing ${REAL} mid-range`;
+    const upstream = await startUpstream((_req, res) => {
+      res.statusCode = 206;
+      res.setHeader('content-type', 'text/plain');
+      res.setHeader('content-range', `bytes 100-${99 + partialBody.length}/5000`);
+      res.setHeader('content-length', String(partialBody.length));
+      res.end(partialBody);
+    });
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'API_KEY', placeholder: 'sk-stub-PLACEHOLDER-LONGER', realValue: REAL }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['API_KEY'] }],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const response = await sendAndRead(
+      tlsSocket,
+      `GET /file HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\nRange: bytes=100-\r\nAuthorization: Bearer sk-stub-PLACEHOLDER-LONGER\r\n\r\n`,
+    );
+
+    expect(response.split('\r\n')[0]).toContain('206');
+    expect(response.toLowerCase()).toContain(`content-length: ${partialBody.length}`);
+    expect(response.endsWith(partialBody)).toBe(true);
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
+
   test('denies a request matched by a block rule, never reaching upstream (static authz)', async () => {
     let upstreamGotRequest = false;
     const upstream = await startUpstream((_req, res) => {
