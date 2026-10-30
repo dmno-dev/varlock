@@ -71,7 +71,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "1.4.5",
+      "version": "1.4.6",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/cloudflare-integration": "workspace:*",
@@ -92,7 +92,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.6.3",
+      "version": "1.6.4",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -151,7 +151,7 @@
     },
     "packages/integrations/nuxt": {
       "name": "@varlock/nuxt-integration",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "dependencies": {
         "@nuxt/kit": "^4.0.3",
       },
@@ -171,7 +171,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.5.5",
+      "version": "1.5.6",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",

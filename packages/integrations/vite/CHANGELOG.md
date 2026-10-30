@@ -17,6 +17,12 @@
 
 
 
+
+## 1.5.6
+<sub>2026-10-30</sub>
+
+- [#1262](https://github.com/dmno-dev/varlock/pull/1262)  *(patch)* Thanks [@fengmk2](https://github.com/fengmk2)! - Reload env values on the first dev server restart when Vite's root is not the working directory
+
 ## 1.5.5
 <sub>2026-10-29</sub>
 
