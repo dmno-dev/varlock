@@ -5,7 +5,7 @@ import { resolveConfig } from 'vite';
 import { decryptEnvBlobSync } from 'varlock/encrypt-env';
 
 // mutable so individual tests can flip the decorator before importing the plugin
-const mockState = vi.hoisted(() => ({ encryptInjectedEnv: true }));
+const mockState = vi.hoisted(() => ({ encryptInjectedEnv: true, publicValue: 'public-value' }));
 
 vi.mock('varlock/exec-sync-varlock', () => ({
   execSyncVarlock: vi.fn(() => ({
@@ -15,7 +15,7 @@ vi.mock('varlock/exec-sync-varlock', () => ({
       settings: { encryptInjectedEnv: mockState.encryptInjectedEnv },
       config: {
         SECRET_KEY: { value: 'super-secret-value', isSensitive: true, isDynamic: true },
-        PUBLIC_VAR: { value: 'public-value', isSensitive: false, isDynamic: false },
+        PUBLIC_VAR: { value: mockState.publicValue, isSensitive: false, isDynamic: false },
       },
     }),
     stderr: '',
@@ -56,6 +56,7 @@ function extractEncryptedBlob(code: string) {
 beforeEach(() => {
   vi.resetModules();
   mockState.encryptInjectedEnv = true;
+  mockState.publicValue = 'public-value';
   // the plugin writes process.env directly, which vi.unstubAllEnvs() does not undo
   delete process.env._VARLOCK_ENV_KEY;
 });
@@ -259,6 +260,48 @@ describe('config hook - reserved vars in vite `define`', () => {
     );
 
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('config hook - dev server restarts', () => {
+  // any directory other than the cwd, which the module-level load uses
+  const appRoot = import.meta.dirname;
+
+  // a restart resolves the config again with new plugin instances, while this
+  // module stays cached, so only the config hook can reload the env
+  async function resolveDevConfig(plugins: Array<any>, root?: string) {
+    await resolveConfig({
+      configFile: false,
+      logLevel: 'silent',
+      root,
+      plugins,
+    }, 'serve');
+  }
+
+  it('reloads on the first restart when the vite root is not the cwd', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+
+    mockState.publicValue = 'first';
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('first');
+
+    mockState.publicValue = 'second';
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('second');
+  });
+
+  it('reloads on the first restart with `rootDir` and a key already in the environment', async () => {
+    // with a key set, the dev-key lifecycle hook does not load `rootDir` first
+    vi.stubEnv('_VARLOCK_ENV_KEY', TEST_KEY);
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+
+    mockState.publicValue = 'first';
+    await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('first');
+
+    mockState.publicValue = 'second';
+    await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('second');
   });
 });
 

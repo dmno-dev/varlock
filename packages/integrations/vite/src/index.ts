@@ -705,6 +705,10 @@ See https://varlock.dev/integrations/vite/ for more details.
         // Vitest workspace setups where each child project has its own
         // env files — the module-level load used cwd which may be wrong.
         reloadConfig(projectRoot);
+        // This load also counts as the first call. Without the flag, the next
+        // call (the first dev restart) would take the branch below and skip
+        // its reload.
+        configHookCalled = true;
       } else if (!configHookCalled) {
         // First config hook call — the config was already loaded from the
         // correct directory, no need to reload.
