@@ -61,7 +61,8 @@ export let varlockLoadedEnv: SerializedEnvGraph;
 /** Stderr output from the last failed varlock load (ANSI-colored) */
 export let varlockLastError: string | undefined;
 let lastErrorAt = 0;
-let configHookCalled = false;
+// set by every load, cleared by the main config hook once it has used that load
+let loadIsUnconsumed = false;
 // one-time guard for the SvelteKit+Cloudflare auto-detection notice
 let cfDetectNoticeLogged = false;
 // one-time guard for the Vercel unencrypted resolved-env warning
@@ -137,6 +138,7 @@ function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   const prevItemCount = Object.keys(varlockLoadedEnv?.config || {}).length;
   loadedConfigDir = path.resolve(cwd ?? process.cwd());
+  loadIsUnconsumed = true;
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
@@ -700,26 +702,16 @@ See https://varlock.dev/integrations/vite/ for more details.
       // root when a framework CLI is pointed elsewhere (`nuxt build --cwd`).
       const rootDiffersFromLoaded = !!(projectRoot && projectRoot !== loadedConfigDir);
 
-      if (rootDiffersFromLoaded) {
-        // Reload with the correct project root. This handles monorepo
-        // Vitest workspace setups where each child project has its own
-        // env files — the module-level load used cwd which may be wrong.
-        reloadConfig(projectRoot);
-        // This load also counts as the first call. Without the flag, the next
-        // call (the first dev restart) would take the branch below and skip
-        // its reload.
-        configHookCalled = true;
-      } else if (!configHookCalled) {
-        // First config hook call — the config was already loaded from the
-        // correct directory, no need to reload.
-        configHookCalled = true;
-      } else if (isDevCommand) {
-        // Dev mode restart (triggered by configFileDependencies change).
-        // The module stays cached so the module-level reloadConfig()
-        // doesn't re-run — we need to reload here, from the same directory
-        // the current config came from rather than cwd.
+      // A load nothing has used yet (the module-level load, the dev-key hook,
+      // an integration's refresh) is current for this resolve. Otherwise this
+      // is a dev restart: the module stays cached, so only this hook can
+      // reload. Loads outside a resolve only happen when the root differs,
+      // which the main hook has already settled, so they do not leave a stale
+      // load marked as unused.
+      if (rootDiffersFromLoaded || (isDevCommand && !loadIsUnconsumed)) {
         reloadConfig(projectRoot ?? loadedConfigDir);
       }
+      loadIsUnconsumed = false;
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 

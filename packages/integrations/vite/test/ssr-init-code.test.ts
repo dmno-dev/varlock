@@ -5,21 +5,24 @@ import { resolveConfig } from 'vite';
 import { decryptEnvBlobSync } from 'varlock/encrypt-env';
 
 // mutable so individual tests can flip the decorator before importing the plugin
-const mockState = vi.hoisted(() => ({ encryptInjectedEnv: true, publicValue: 'public-value' }));
+const mockState = vi.hoisted(() => ({ encryptInjectedEnv: true, publicValue: 'public-value', loads: 0 }));
 
 vi.mock('varlock/exec-sync-varlock', () => ({
-  execSyncVarlock: vi.fn(() => ({
-    stdout: JSON.stringify({
-      basePath: '/fake-project',
-      sources: [],
-      settings: { encryptInjectedEnv: mockState.encryptInjectedEnv },
-      config: {
-        SECRET_KEY: { value: 'super-secret-value', isSensitive: true, isDynamic: true },
-        PUBLIC_VAR: { value: mockState.publicValue, isSensitive: false, isDynamic: false },
-      },
-    }),
-    stderr: '',
-  })),
+  execSyncVarlock: vi.fn(() => {
+    mockState.loads++;
+    return {
+      stdout: JSON.stringify({
+        basePath: '/fake-project',
+        sources: [],
+        settings: { encryptInjectedEnv: mockState.encryptInjectedEnv },
+        config: {
+          SECRET_KEY: { value: 'super-secret-value', isSensitive: true, isDynamic: true },
+          PUBLIC_VAR: { value: mockState.publicValue, isSensitive: false, isDynamic: false },
+        },
+      }),
+      stderr: '',
+    };
+  }),
   VarlockExecError: class VarlockExecError extends Error {
     stdout?: string;
     stderr?: string;
@@ -65,6 +68,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   delete process.env._VARLOCK_ENV_KEY;
+  delete process.env.__VARLOCK_EXECUTION_PHASE;
 });
 
 describe('buildVarlockSsrInitCode() + @encryptInjectedEnv', () => {
@@ -302,6 +306,70 @@ describe('config hook - dev server restarts', () => {
     mockState.publicValue = 'second';
     await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
     expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('second');
+  });
+
+  it('reloads on every restart when the vite root is the cwd, but not on the first resolve', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    const loadsBefore = mockState.loads;
+
+    await resolveDevConfig(varlockVitePlugin(), process.cwd());
+    expect(mockState.loads - loadsBefore).toBe(0);
+
+    for (const value of ['second', 'third']) {
+      mockState.publicValue = value;
+      await resolveDevConfig(varlockVitePlugin(), process.cwd());
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
+    }
+    expect(mockState.loads - loadsBefore).toBe(2);
+  });
+
+  it('loads once per resolve across restarts when the vite root is not the cwd', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    const loadsBefore = mockState.loads;
+
+    for (const value of ['first', 'second', 'third']) {
+      mockState.publicValue = value;
+      await resolveDevConfig(varlockVitePlugin(), appRoot);
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
+    }
+    expect(mockState.loads - loadsBefore).toBe(3);
+  });
+
+  it('loads once per resolve with `rootDir` when the dev-key hook loads first', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    const loadsBefore = mockState.loads;
+
+    for (const value of ['first', 'second', 'third']) {
+      mockState.publicValue = value;
+      await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
+    }
+    expect(mockState.loads - loadsBefore).toBe(3);
+  });
+
+  it('does not reload again after an integration refreshed the env (nuxt restart)', async () => {
+    const { getVarlockLoadedEnv, refreshVarlockEnv, varlockVitePlugin } = await importPlugin();
+    await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+    const loadsBefore = mockState.loads;
+
+    mockState.publicValue = 'refreshed';
+    refreshVarlockEnv(appRoot);
+    await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('refreshed');
+    expect(mockState.loads - loadsBefore).toBe(1);
+  });
+
+  it('does not reload on a build when the root matches the loaded config', async () => {
+    const { varlockVitePlugin } = await importPlugin();
+    const loadsBefore = mockState.loads;
+
+    await resolveConfig({
+      configFile: false,
+      logLevel: 'silent',
+      root: process.cwd(),
+      plugins: varlockVitePlugin(),
+    }, 'build');
+    expect(mockState.loads - loadsBefore).toBe(0);
   });
 });
 
