@@ -6,4 +6,4 @@ This package is installed automatically as an optional dependency of [`varlock`]
 
 It declares `os: ["win32", "linux"]` on purpose: under WSL, varlock runs the Windows `varlock-local-encrypt.exe` through WSL interop to get DPAPI and Windows Hello support, so the helper must also be installed on Linux.
 
-The binary is Authenticode-signed. Checksums for every release are published in `SHA256SUMS.txt` on the matching [GitHub release](https://github.com/dmno-dev/varlock/releases).
+The binary is Authenticode-signed. Checksums are published in `SHA256SUMS.txt` on each [varlock GitHub release](https://github.com/dmno-dev/varlock/releases) that ships this helper (its version can be older than varlock's, since helpers are only re-released when the binary changes).

@@ -201,7 +201,7 @@ sudo varlock-local-encrypt setup --linux-biometrics
 
 The npm package installs the helper through per-platform optional dependencies (`@varlock/native-helper-darwin`, `-linux-x64`, `-linux-arm64`, `-win32-x64`), so you only download the binary for your own platform. One exception: the Windows helper also installs on Linux, because WSL uses it for Windows Hello and TPM support. So a scanner on Linux may still see a Windows `.exe`, but a detection against one platform's binary can no longer block installs on the others.
 
-**Verify the download.** Each [GitHub release](https://github.com/dmno-dev/varlock/releases) includes `SHA256SUMS.txt` with hashes for all native helpers. In npm installs the helper lives under `node_modules/@varlock/native-helper-<platform>/`; compare it against the matching `native-bins/<platform>/...` line for your release version:
+**Verify the download.** Each [GitHub release](https://github.com/dmno-dev/varlock/releases) includes `SHA256SUMS.txt` with hashes for all native helpers. In npm installs the helper lives under `node_modules/@varlock/native-helper-<platform>/`; compare it against the matching `native-bins/<platform>/...` line for your varlock version. The helper packages are only re-released when the binary changes, so their version can be older than varlock's; the checksums are listed under the varlock release either way:
 
 ```powershell
 # Windows PowerShell
