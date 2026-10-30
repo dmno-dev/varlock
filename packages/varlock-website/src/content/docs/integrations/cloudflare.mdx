@@ -446,6 +446,8 @@ If another IaC tool owns the Worker deploy, see [Deploying with Alchemy](#deploy
 
 [Alchemy](https://alchemy.run/) v2 declares a Worker's env with `effect/Config` entries that are read from the deploy process's environment and uploaded as bindings. The [Alchemy integration](/integrations/alchemy/) plugs varlock into alchemy's `secrets` option and gives you typed bindings; use it when your alchemy version has that option. The rest of this section is the zero-package approach that works with any version: import [`varlock/auto-load`](/integrations/javascript/#auto-load) at the top of `alchemy.run.ts` so varlock resolves and validates your schema, and injects the values into `process.env`, before those entries are read:
 
+(On alchemy 2.0.0-beta.84 or later, install `@alchemy.run/cloudflare` alongside `alchemy`; on earlier versions import `alchemy/Cloudflare` instead.)
+
 ```ts title="alchemy.run.ts"
 import "varlock/auto-load";
 import * as Cloudflare from "@alchemy.run/cloudflare";
