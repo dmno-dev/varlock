@@ -8,7 +8,6 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { Transform } from 'node:stream';
-import { StringDecoder } from 'node:string_decoder';
 import tls from 'node:tls';
 import { URL } from 'node:url';
 
@@ -799,6 +798,25 @@ function replaceRealWithPlaceholders(value: string, managedItems: Array<ProxyMan
 }
 
 /**
+ * Bodies are rewritten as latin1 strings, never decoded as UTF-8: a body is not
+ * guaranteed to be valid UTF-8 (even one labelled text/*, e.g. sum.golang.org
+ * serves binary tiles as text/plain), and a UTF-8 decode/re-encode round trip
+ * replaces every invalid byte with U+FFFD. latin1 maps each byte to one char and
+ * back losslessly, so string matching works on raw bytes. The items' values get
+ * the same treatment (their UTF-8 bytes as latin1 chars) so they match the bytes
+ * as they appear on the wire, and as an ASCII-compatible byte match this also
+ * covers ASCII secrets in non-UTF-8 charsets like windows-1252 or Shift_JIS.
+ */
+function toByteStringItems(managedItems: Array<ProxyManagedItem>): Array<ProxyManagedItem> {
+  const toBytes = (value: string) => Buffer.from(value, 'utf8').toString('latin1');
+  return managedItems.map((item) => ({
+    ...item,
+    placeholder: toBytes(item.placeholder),
+    realValue: toBytes(item.realValue),
+  }));
+}
+
+/**
  * Fail-closed response for a blocked/failed request. When `teardown` is set (the
  * MITM tunnel path), short status-only responses don't reliably flush through the
  * CONNECT tunnel, so we write a best-effort response and destroy the socket. The
@@ -1022,33 +1040,32 @@ function pendingRealPrefixLen(text: string, managedItems: Array<ProxyManagedItem
 /**
  * Scrub real values back to placeholders on an *unbounded text stream* (e.g.
  * SSE), chunk by chunk, so a reflected secret in a streamed response is still
- * replaced for the child without buffering the whole stream. A StringDecoder
- * keeps multi-byte UTF-8 chars intact across chunks; only a trailing *partial*
- * real value is held back, so complete chunks flow through immediately.
+ * replaced for the child without buffering the whole stream. Works on bytes
+ * (see toByteStringItems); only a trailing *partial* real value is held back, so
+ * complete chunks flow through immediately.
  */
 function createScrubbingTransform(
   managedItems: Array<ProxyManagedItem>,
   matchedKeys?: Set<string>,
 ): Transform {
-  const decoder = new StringDecoder('utf8');
+  const byteItems = toByteStringItems(managedItems);
   let carry = '';
   const note = (text: string) => {
-    if (matchedKeys) for (const key of detectScrubbedKeys(text, managedItems)) matchedKeys.add(key);
+    if (matchedKeys) for (const key of detectScrubbedKeys(text, byteItems)) matchedKeys.add(key);
   };
   return new Transform({
     transform(chunk, _enc, cb) {
-      const decoded = carry + decoder.write(chunk as Buffer);
+      const decoded = carry + (chunk as Buffer).toString('latin1');
       note(decoded);
-      const scrubbed = replaceRealWithPlaceholders(decoded, managedItems);
-      const hold = pendingRealPrefixLen(scrubbed, managedItems);
+      const scrubbed = replaceRealWithPlaceholders(decoded, byteItems);
+      const hold = pendingRealPrefixLen(scrubbed, byteItems);
       const emitLen = scrubbed.length - hold;
       carry = scrubbed.slice(emitLen);
-      cb(null, Buffer.from(scrubbed.slice(0, emitLen), 'utf8'));
+      cb(null, Buffer.from(scrubbed.slice(0, emitLen), 'latin1'));
     },
     flush(cb) {
-      const decoded = carry + decoder.end();
-      note(decoded);
-      cb(null, Buffer.from(replaceRealWithPlaceholders(decoded, managedItems), 'utf8'));
+      note(carry);
+      cb(null, Buffer.from(replaceRealWithPlaceholders(carry, byteItems), 'latin1'));
     },
   });
 }
@@ -1079,13 +1096,19 @@ function forwardUpstreamResponseWithRedaction(
     ? redactOutgoingHeaders(upstreamRes.headers, managedItems)
     : { ...upstreamRes.headers };
 
-  if (!shouldRedact || !shouldRedactResponseBody(upstreamRes.headers)) {
+  // A 206 body is a byte range of a larger resource: rewriting it would change
+  // its length while Content-Range still describes the original bytes, so the
+  // client would reassemble a corrupt file. Partial bodies pass through (only
+  // their headers are scrubbed).
+  const isPartialContent = statusCode === 206;
+  if (!shouldRedact || isPartialContent || !shouldRedactResponseBody(upstreamRes.headers)) {
     // Scrub unbounded uncompressed text streams (e.g. SSE) chunk-by-chunk so a
     // reflected secret is still replaced. Bodies with a content-length take the
     // buffered path below; compressed/binary bodies can't be scanned without
     // decompressing and pass through unchanged.
     const hasContentLength = getHeaderValue(upstreamRes.headers, 'content-length') !== undefined;
     const canScrubStream = shouldRedact
+      && !isPartialContent
       && managedItems.length > 0
       && !hasContentLength
       && isUncompressedResponse(upstreamRes.headers)
@@ -1098,7 +1121,7 @@ function forwardUpstreamResponseWithRedaction(
       transform.on('end', () => report(matched, true));
       upstreamRes.pipe(transform).pipe(clientRes);
     } else {
-      // Passthrough (compressed/binary/unscanned body) — only header reflection is visible.
+      // Passthrough (compressed/binary/partial/unscanned body) — only header reflection is visible.
       report(headerKeys, false);
       upstreamRes.pipe(clientRes);
     }
@@ -1111,13 +1134,14 @@ function forwardUpstreamResponseWithRedaction(
   });
 
   upstreamRes.on('end', () => {
-    const originalBody = Buffer.concat(chunks).toString('utf8');
-    const bodyKeys = detectScrubbedKeys(originalBody, managedItems);
-    const redactedBody = replaceRealWithPlaceholders(originalBody, managedItems);
+    const byteItems = toByteStringItems(managedItems);
+    const originalBody = Buffer.concat(chunks).toString('latin1');
+    const bodyKeys = detectScrubbedKeys(originalBody, byteItems);
+    const redactedBody = replaceRealWithPlaceholders(originalBody, byteItems);
 
     // Fail-safe (Invariant #6): if a real value somehow survived scrubbing, do
     // NOT forward it — fail closed rather than leak a secret to the child.
-    if (findRealLeak(redactedBody, managedItems)) {
+    if (findRealLeak(redactedBody, byteItems)) {
       if (!clientRes.headersSent) {
         clientRes.writeHead(502, { 'content-type': 'text/plain', connection: 'close' });
       }
@@ -1126,12 +1150,17 @@ function forwardUpstreamResponseWithRedaction(
       return;
     }
 
-    const redactedBuffer = Buffer.from(redactedBody, 'utf8');
+    const redactedBuffer = Buffer.from(redactedBody, 'latin1');
 
+    // Headers are only touched when the body actually changed: an unchanged body
+    // keeps its etag, and a HEAD response keeps the content-length of the body
+    // it describes (it was rewritten to 0 here before).
     const headersForWrite = { ...outgoingHeaders };
-    headersForWrite['content-length'] = String(redactedBuffer.byteLength);
-    delete headersForWrite['transfer-encoding'];
-    delete headersForWrite.etag;
+    if (redactedBody !== originalBody) {
+      headersForWrite['content-length'] = String(redactedBuffer.byteLength);
+      delete headersForWrite['transfer-encoding'];
+      delete headersForWrite.etag;
+    }
 
     clientRes.writeHead(statusCode, headersForWrite);
     clientRes.end(redactedBuffer);
@@ -1545,16 +1574,18 @@ export async function startLocalProxyRuntime({
     const keysForLocation = (location: ProxySubstitutionLocation) => new Set(
       hostItems.filter((item) => item.targets.some((tg) => tg.location === location)).map((item) => item.key),
     );
-    // The body keeps its ORIGINAL bytes unless substitution actually changed it.
-    // Decoding a binary body (an S3 upload, a protobuf payload) mangles invalid
-    // byte sequences into U+FFFD, and a transform signature computed over the
-    // mangled bytes would make the upstream accept silently-corrupted data.
-    const substitutedBodyText = shouldRewrite
-      ? substitutePlaceholdersInSurface(bodyText, managedItems, keysForLocation('body'))
-      : bodyText;
-    const rewrittenBody = substitutedBodyText === bodyText
+    // The body keeps its ORIGINAL bytes unless substitution actually changed it,
+    // and is substituted as bytes (see toByteStringItems): a binary body (an S3
+    // upload, a protobuf payload) round-tripped through UTF-8 would have invalid
+    // byte sequences mangled into U+FFFD, and a transform signature computed over
+    // the mangled bytes would make the upstream accept silently-corrupted data.
+    const bodyBytes = body.toString('latin1');
+    const substitutedBodyBytes = shouldRewrite
+      ? substitutePlaceholdersInSurface(bodyBytes, toByteStringItems(managedItems), keysForLocation('body'))
+      : bodyBytes;
+    const rewrittenBody = substitutedBodyBytes === bodyBytes
       ? body
-      : Buffer.from(substitutedBodyText, 'utf8');
+      : Buffer.from(substitutedBodyBytes, 'latin1');
     let rewrittenPath = t.requestTarget;
     if (shouldRewrite) {
       const queryStart = t.requestTarget.indexOf('?');
