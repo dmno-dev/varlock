@@ -23,34 +23,53 @@ jobs:
       (github.event.action == 'labeled' && github.event.label.name == 'preview:standalone') ||
       (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'preview:standalone'))
     runs-on: depot-ubuntu-24.04
+    outputs:
+      macos-pending: ${{ steps.native.outputs.macos-pending }}
+      rust-pending: ${{ steps.native.outputs.rust-pending }}
+      macos-key: ${{ steps.native.outputs.macos-key }}
+      rust-key: ${{ steps.native.outputs.rust-key }}
     steps:
-      - run: echo "preview:standalone label detected — building preview binaries"
+      - run: echo "preview:standalone label detected, building preview binaries"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # native-sources.ts diffs against the merge base with main
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # installs the repo's pinned bumpy, which native-sources.ts calls
+      - name: Install node deps
+        run: bun install
+      - name: Native helper sources
+        id: native
+        run: bun run scripts/native-sources.ts
 
-  # Build and sign the macOS native binary (cache-aware)
+  # Native helpers: when a side's helpers have no pending release, the published
+  # @varlock/native-helper-* binaries at their pinned version are used as-is (see
+  # build-sea-binaries). Otherwise build unsigned preview binaries; no secrets.
   build-native-macos:
     needs: check-label
+    if: needs.check-label.outputs.macos-pending == 'true'
     uses: ./.github/workflows/build-native-macos.yaml
     with:
       mode: preview
       artifact-name: native-bin-macos-preview
-    secrets:
-      OP_CI_TOKEN: ${{ secrets.OP_CI_TOKEN }}
-      DEPOT_TURBO_TOKEN: ${{ secrets.DEPOT_TURBO_TOKEN }}
+      cache-key: ${{ needs.check-label.outputs.macos-key }}
 
-  # Build Rust native binaries for Linux and Windows
   build-native-rust:
     needs: check-label
-    # Preview builds never sign, so no id-token is granted (signing is gated on
-    # the `sign` input, which only the release workflows pass).
+    if: needs.check-label.outputs.rust-pending == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/build-native-rust.yaml
     with:
       artifact-name: native-bin-rust-preview
+      cache-key: ${{ needs.check-label.outputs.rust-key }}
 
   # Build SEA binaries for all platforms and upload as artifacts
   build-sea-binaries:
-    needs: [build-native-macos, build-native-rust]
+    needs: [check-label, build-native-macos, build-native-rust]
+    if: >-
+      always() && !failure() && !cancelled()
+      && needs.check-label.result == 'success'
     runs-on: depot-ubuntu-24.04-8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,8 +86,20 @@ jobs:
         with:
           token: ${{ secrets.DEPOT_TURBO_TOKEN }}
 
-      # Download macOS native binary
+      # Published helpers for sides with no pending helper release
+      - name: Fetch published native helpers from npm
+        env:
+          MACOS: ${{ needs.check-label.outputs.macos-pending }}
+          RUST: ${{ needs.check-label.outputs.rust-pending }}
+        run: |
+          PLATFORMS=""
+          if [ "$MACOS" != "true" ]; then PLATFORMS="darwin"; fi
+          if [ "$RUST" != "true" ]; then PLATFORMS="$PLATFORMS,linux-x64,linux-arm64,win32-x64"; fi
+          if [ -n "${PLATFORMS#,}" ]; then bun run scripts/fetch-native-helpers.ts --platforms "${PLATFORMS#,}"; fi
+
+      # Preview builds from this run for sides with a pending helper release
       - name: Download macOS native binary
+        if: needs.check-label.outputs.macos-pending == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-macos-preview
@@ -76,18 +107,20 @@ jobs:
       - name: Restore macOS binary permissions
         run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
 
-      # Download Rust native binaries
       - name: Download Linux x64 native binary
+        if: needs.check-label.outputs.rust-pending == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-preview-linux-x64
           path: packages/varlock/native-bins/linux-x64
       - name: Download Linux arm64 native binary
+        if: needs.check-label.outputs.rust-pending == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-preview-linux-arm64
           path: packages/varlock/native-bins/linux-arm64
       - name: Download Windows x64 native binary
+        if: needs.check-label.outputs.rust-pending == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: native-bin-rust-preview-win32-x64

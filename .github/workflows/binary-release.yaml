@@ -6,9 +6,9 @@ name: Re-cut varlock CLI binaries
 # The normal release flow (release.yaml) builds and uploads these in the same run
 # as the npm publish, reusing the in-run signed/notarized native binaries. This
 # workflow is only for re-cutting binaries of an existing version. It pulls the
-# signed native binaries from the published @varlock/native-helper-* npm packages
-# rather than rebuilding + re-signing them, so it needs no Windows runner and no
-# Azure. The macOS CLI binary itself is not published anywhere it could be reused
+# signed native binaries from the @varlock/native-helper-* versions that this
+# varlock version pins on npm rather than rebuilding + re-signing them, so it
+# needs no Windows runner and no Azure. The macOS CLI binary itself is not published anywhere it could be reused
 # from, so it is rebuilt, Developer ID signed, and notarized on a macOS runner,
 # which needs the Apple credentials.
 #
@@ -65,41 +65,10 @@ jobs:
           cosign-release: v3.0.6
 
       # Pull the signed/notarized native binaries from the published npm packages
-      # instead of rebuilding + re-signing them.
+      # (the helper versions that varlock@<version> pins) instead of rebuilding
+      # + re-signing them.
       - name: Fetch native binaries from published npm packages
-        run: |
-          set -euo pipefail
-          TMP="$RUNNER_TEMP/varlock-npm"
-          mkdir -p "$TMP" && cd "$TMP"
-          # wait for registry propagation of every package we are about to pack
-          wait_for() { # <pkg spec> <max attempts>
-            for i in $(seq 1 "$2"); do
-              if npm view "$1" version >/dev/null 2>&1; then return 0; fi
-              echo "waiting for $1 on npm ($i)..."; sleep 10
-            done
-            echo "::error::$1 not found on npm. Note: versions <= 1.16.x predate the per-platform @varlock/native-helper-* packages and cannot be re-cut by this workflow."
-            return 1
-          }
-          wait_for "varlock@${RELEASE_VERSION}" 30
-          for SUFFIX in darwin linux-x64 linux-arm64 win32-x64; do
-            # helpers publish before varlock, so short extra wait once varlock is visible
-            wait_for "@varlock/native-helper-${SUFFIX}@${RELEASE_VERSION}" 12
-          done
-          DEST="$GITHUB_WORKSPACE/packages/varlock/native-bins"
-          rm -rf "$DEST"
-          # platform suffix -> tarball entry mapping; source of truth is
-          # packages/native-helpers/platforms.ts - keep in sync
-          fetch() { # <platform suffix> <tarball entry>
-            rm -rf package
-            npm pack "@varlock/native-helper-$1@${RELEASE_VERSION}"
-            tar -xzf "varlock-native-helper-$1-${RELEASE_VERSION}.tgz"
-            mkdir -p "$DEST/$1"
-            cp -R "package/$2" "$DEST/$1/$2"
-          }
-          fetch darwin VarlockEnclave.app
-          fetch linux-x64 varlock-local-encrypt
-          fetch linux-arm64 varlock-local-encrypt
-          fetch win32-x64 varlock-local-encrypt.exe
+        run: bun run scripts/fetch-native-helpers.ts --varlock-version "$RELEASE_VERSION" --wait
       - name: Restore native binary execute permissions
         run: |
           chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt

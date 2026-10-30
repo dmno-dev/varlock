@@ -77,26 +77,13 @@ jobs:
           name: ${{ inputs.native-bins-artifact }}
           path: packages/varlock/native-bins
 
-      # Re-cut path: reuse the signed + notarized helper from the published
-      # @varlock/native-helper-darwin package instead of rebuilding it
+      # Re-cut path: reuse the signed + notarized darwin helper that the published
+      # varlock pins instead of rebuilding it
       - name: Fetch darwin native binary from npm
         if: inputs.native-bins-npm-version != ''
         env:
           RELEASE_VERSION: ${{ inputs.native-bins-npm-version }}
-        run: |
-          set -euo pipefail
-          PKG="@varlock/native-helper-darwin@${RELEASE_VERSION}"
-          TMP="$RUNNER_TEMP/varlock-npm"
-          mkdir -p "$TMP" && cd "$TMP"
-          for i in $(seq 1 30); do
-            if npm view "$PKG" version >/dev/null 2>&1; then break; fi
-            echo "waiting for $PKG on npm ($i)..."; sleep 10
-          done
-          npm pack "$PKG"
-          tar -xzf "varlock-native-helper-darwin-${RELEASE_VERSION}.tgz"
-          DEST="$GITHUB_WORKSPACE/packages/varlock/native-bins/darwin"
-          rm -rf "$DEST" && mkdir -p "$DEST"
-          cp -R package/VarlockEnclave.app "$DEST/VarlockEnclave.app"
+        run: bun run scripts/fetch-native-helpers.ts --platforms darwin --varlock-version "$RELEASE_VERSION" --wait
 
       - name: Restore native binary execute permissions
         run: chmod +x packages/varlock/native-bins/darwin/VarlockEnclave.app/Contents/MacOS/varlock-local-encrypt
