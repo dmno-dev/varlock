@@ -505,6 +505,12 @@ export const RESOLVERS: Array<ResolverInfo> = [
     insertText: 'forEnv(${1:development})',
   },
   {
+    name: 'isEnv',
+    summary: 'Alias of `forEnv()`. Resolves to true when the current environment matches.',
+    documentation: 'Requires `@currentEnv` to be set in the schema.',
+    insertText: 'isEnv(${1:development})',
+  },
+  {
     name: 'eq',
     summary: 'Checks whether two values are equal.',
     documentation: 'Returns a boolean.',
