@@ -469,6 +469,29 @@ case "daemon":
                 return keychainErrorResponse(error)
             }
 
+        case "keychain-delete":
+            guard let payload = message["payload"] as? [String: Any] else {
+                return ["error": "Missing payload"]
+            }
+            guard let service = payload["service"] as? String else {
+                return ["error": "Missing service"]
+            }
+            guard let account = payload["account"] as? String else {
+                return ["error": "Missing account"]
+            }
+            let keychainName = payload["keychain"] as? String
+
+            do {
+                try KeychainManager.deleteGenericPassword(
+                    service: service,
+                    account: account,
+                    keychainName: keychainName
+                )
+                return ["result": ["deleted": true]]
+            } catch {
+                return keychainErrorResponse(error)
+            }
+
         default:
             return ["error": "Unknown action: \(action)"]
         }
