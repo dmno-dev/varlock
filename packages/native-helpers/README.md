@@ -12,5 +12,7 @@ CI builds, signs, and stages the binaries into `packages/varlock/native-bins/<pl
 Notes:
 
 - `win32-x64` declares `os: ["win32", "linux"]` on purpose: WSL runs the Windows `.exe` through interop for DPAPI and Windows Hello support, so it must also install on Linux.
-- Versions are kept in lockstep with `varlock` via the bumpy `fixed` group in `.bumpy/_config.json`; `varlock` pins them as exact versions. Never bump these packages independently.
+- Versions are independent of `varlock`. A helper is only released when its binary changes, and `varlock` pins it as an exact version, so each `varlock` version maps to one set of released binaries. A helper release cascades a patch release of `varlock` that carries the new pin. The three Rust helpers are a bumpy `fixed` group, since one crate builds all of them.
+- Changing a helper's sources (the source package above, or the shell here) needs a bump file naming the helper, or CI fails (`scripts/native-sources.ts`). Use bump type `none` if the shipped binary is unaffected.
+- Release builds always build, sign, and notarize the helpers being released from source. Every other build that bundles the helpers (CLI binaries, re-cuts, previews of unchanged helpers) fetches the published version that `varlock` pins (`scripts/fetch-native-helpers.ts`). Previews of a pending helper release use unsigned (ad-hoc on macOS) builds made without secrets.
 - The source packages stay separate because they do not map 1:1 to npm packages (one Rust crate produces three of them), and because the shells are pure distribution metadata while the source packages are build systems.

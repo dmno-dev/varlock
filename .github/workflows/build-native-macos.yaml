@@ -1,14 +1,17 @@
 name: Build macOS native binary
 
-# Reusable workflow that compiles, bundles, and Developer ID signs the
-# VarlockEnclave Swift binary on a macOS runner.
+# Reusable workflow that compiles and bundles the VarlockEnclave Swift binary on
+# a macOS runner, and either Developer ID signs it (`sign: true`, releases only)
+# or ad-hoc signs it (previews, no secrets needed).
 #
-# The Swift .build directory is cached by source hash, so the compile
-# step (~minutes) is near-instant on cache hit. The .app bundle wrapping
-# (plist, icon, signing) always runs since it varies by mode.
+# Ad-hoc is enough for previews: npm installs set no quarantine attribute, so
+# Gatekeeper never checks them, and Secure Enclave keys are not bound to the
+# signing identity. The one difference users notice is the keychain() resolver:
+# keychain grants are recorded per signing identity, and an ad-hoc identity is
+# the exact binary hash, so each preview build asks for keychain access again.
 #
-# Notarization is intentionally NOT included here — it's a separate
-# workflow for production releases.
+# Notarization is intentionally NOT included here; it's a separate workflow
+# for production releases.
 
 permissions:
   contents: read
@@ -24,9 +27,22 @@ on:
         description: 'Name for the uploaded artifact'
         type: string
         default: 'native-bin-macos'
+      sign:
+        description: 'Developer ID sign the bundle. Only release builds pass this, along with OP_CI_TOKEN.'
+        type: boolean
+        default: false
+      use-build-cache:
+        description: 'Restore/save the Swift .build directory. Release builds turn this off so a published binary never contains cached build output.'
+        type: boolean
+        default: true
+      cache-key:
+        description: 'If set, the built .app is saved to the Actions cache under this key (preview builds only)'
+        type: string
+        default: ''
     secrets:
       OP_CI_TOKEN:
-        required: true
+        description: '1Password service-account token for the Apple signing credentials. Required only when sign is true.'
+        required: false
       # PR callers pass this so the varlock libs build reuses Depot's turbo cache.
       # Release callers leave it out, so release builds always run from source.
       DEPOT_TURBO_TOKEN:
@@ -54,12 +70,14 @@ jobs:
       # Cache the Swift .build directory so compilation is fast on unchanged source
       - name: Compute Swift source hash
         id: swift-hash
+        if: inputs.use-build-cache
         run: |
           HASH=$(find packages/encryption-binary-swift/swift -type f | sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)
           echo "hash=$HASH" >> $GITHUB_OUTPUT
           echo "Swift source hash: $HASH"
 
       - name: Cache Swift build artifacts
+        if: inputs.use-build-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: packages/encryption-binary-swift/swift/.build
@@ -67,10 +85,12 @@ jobs:
 
       # Build varlock JS so we can use it to resolve secrets from 1Password
       - name: Build varlock libs
+        if: inputs.sign
         run: bun run build:libs
 
       # Load secrets from 1Password via varlock (scoped to the Swift package)
       - name: Load signing secrets
+        if: inputs.sign
         uses: dmno-dev/varlock-action@7141115d0060616e398c5fa9035e67d7820ab2b6 # v1.0.5
         with:
           working-directory: packages/encryption-binary-swift
@@ -79,6 +99,7 @@ jobs:
 
       # Import signing certificate into a temporary keychain
       - name: Import signing certificate
+        if: inputs.sign
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
           KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
@@ -101,11 +122,17 @@ jobs:
 
           echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> $GITHUB_ENV
 
-      # Compile (cached), bundle with mode-specific metadata, and sign
+      # Compile, bundle with mode-specific metadata, and sign
       - name: Build, bundle, and sign
+        env:
+          SIGN: ${{ inputs.sign }}
+          MODE: ${{ inputs.mode }}
         run: |
-          bun run --filter @varlock/encryption-binary-swift build:universal \
-            -- --mode ${{ inputs.mode }} --sign "$APPLE_SIGNING_IDENTITY"
+          if [ "$SIGN" = "true" ]; then
+            bun run --filter @varlock/encryption-binary-swift build:universal -- --mode "$MODE" --sign "$APPLE_SIGNING_IDENTITY"
+          else
+            bun run --filter @varlock/encryption-binary-swift build:universal -- --mode "$MODE" --adhoc
+          fi
 
       - name: Verify binary
         run: |
@@ -209,17 +236,18 @@ jobs:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
           retention-days: 7
 
-      # Cache the signed .app so other jobs (e.g. release-preview) can restore
-      # it on a Linux runner without needing a macOS build
-      - name: Cache signed .app bundle
+      # Preview builds only: lets later runs (other pushes, other PRs once saved
+      # from main) reuse an identical build. Releases never pass a key.
+      - name: Cache built .app bundle
+        if: inputs.cache-key != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/darwin/VarlockEnclave.app
-          key: native-bin-macos-signed-${{ hashFiles('packages/encryption-binary-swift/swift/Package.swift', 'packages/encryption-binary-swift/swift/Sources/**') }}
+          key: ${{ inputs.cache-key }}
 
       - name: Cleanup signing keychain
-        if: always()
+        if: always() && inputs.sign
         run: |
           KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
           if [ -f "$KEYCHAIN_PATH" ]; then
