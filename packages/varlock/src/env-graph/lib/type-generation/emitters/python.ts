@@ -184,7 +184,7 @@ function formatPythonEnvAttrs(fields: Array<ResolvedFieldType>): Array<string> {
     '',
     '',
     'class EnvAttrs:',
-    '    """Attribute access to the coerced env (`ENV.MY_KEY`), so editors show each item\'s docs on hover.',
+    '    """Attribute access to the coerced env (`ENV.<KEY>`), so editors show each item\'s docs on hover.',
     '',
     '    Unset optional keys read as `None`. Build one from any `Env` dict, e.g. in tests.',
     '    """',

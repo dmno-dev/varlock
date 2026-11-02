@@ -189,7 +189,7 @@ Files with these extensions: `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.mts`, `.cts
 
 `.git`, `node_modules`, `dist`, `build`, `.next`, `vendor` and `.venv` are always skipped, on top of anything you exclude yourself.
 
-Within those files the scan recognizes the conventional ways of reading env vars: `process.env.KEY`, `import.meta.env.KEY`, `ENV.KEY` and destructuring for JS-likes, plus `os.environ["KEY"]` / `os.getenv()` and the equivalents in Go, Ruby, PHP, Rust, Java and C#. Code inside comments and inside unrelated string literals is ignored.
+Within those files the scan recognizes the conventional ways of reading env vars: `process.env.KEY`, `import.meta.env.KEY`, `ENV.KEY` and destructuring for JS-likes, plus `os.environ["KEY"]`, `os.environ.get()`, `os.getenv()` and `ENV.KEY` (the [generated Python module](/integrations/python/)) for Python, and the equivalents in Go, Ruby, PHP, Rust, Java and C#. Code inside comments and inside unrelated string literals is ignored.
 
 :::tip[Keys the scan doesn't find]
 If your code reaches env vars through a wrapper instead, such as `configService.get('KEY')`, those references are invisible to the scan and the keys get reported as unused. Add [`@auditExtraPatterns()`](/reference/root-decorators/#auditextrapatterns) to teach it your own access pattern, and pass `fileTypes=[...]` on the same call to cover file types the scan skips by default, such as Terraform or Helm values.
