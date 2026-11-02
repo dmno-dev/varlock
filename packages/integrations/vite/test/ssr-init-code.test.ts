@@ -1,33 +1,51 @@
 import {
   afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { resolveConfig } from 'vite';
 import { decryptEnvBlobSync } from 'varlock/encrypt-env';
 
 // mutable so individual tests can flip the decorator before importing the plugin
-const mockState = vi.hoisted(() => ({ encryptInjectedEnv: true, publicValue: 'public-value', loads: 0 }));
+const mockState = vi.hoisted(() => ({
+  encryptInjectedEnv: true,
+  publicValue: 'public-value',
+  loads: 0,
+  basePath: '/fake-project',
+  sources: [] as Array<{ enabled: boolean, path: string }>,
+  failNextLoad: false,
+}));
 
-vi.mock('varlock/exec-sync-varlock', () => ({
-  execSyncVarlock: vi.fn(() => {
-    mockState.loads++;
-    return {
-      stdout: JSON.stringify({
-        basePath: '/fake-project',
-        sources: [],
+vi.mock('varlock/exec-sync-varlock', () => {
+  class VarlockExecError extends Error {
+    stdout?: string;
+    stderr?: string;
+  }
+  return {
+    execSyncVarlock: vi.fn(() => {
+      mockState.loads++;
+      const stdout = JSON.stringify({
+        basePath: mockState.basePath,
+        sources: mockState.sources,
         settings: { encryptInjectedEnv: mockState.encryptInjectedEnv },
         config: {
           SECRET_KEY: { value: 'super-secret-value', isSensitive: true, isDynamic: true },
           PUBLIC_VAR: { value: mockState.publicValue, isSensitive: false, isDynamic: false },
         },
-      }),
-      stderr: '',
-    };
-  }),
-  VarlockExecError: class VarlockExecError extends Error {
-    stdout?: string;
-    stderr?: string;
-  },
-}));
+      });
+      if (mockState.failNextLoad) {
+        mockState.failNextLoad = false;
+        const err = new VarlockExecError('load failed');
+        err.stdout = stdout;
+        err.stderr = 'resolver failed';
+        throw err;
+      }
+      return { stdout, stderr: '' };
+    }),
+    VarlockExecError,
+  };
+});
 
 // `@varlock/cloudflare-integration` is loaded lazily and is not a dependency of this package
 vi.mock('@varlock/cloudflare-integration/ssr-entry-code', () => ({
@@ -60,6 +78,10 @@ beforeEach(() => {
   vi.resetModules();
   mockState.encryptInjectedEnv = true;
   mockState.publicValue = 'public-value';
+  mockState.basePath = '/fake-project';
+  mockState.sources = [];
+  mockState.failNextLoad = false;
+  delete (globalThis as any).__varlockLoadedEnv;
   // the plugin writes process.env directly, which vi.unstubAllEnvs() does not undo
   delete process.env._VARLOCK_ENV_KEY;
 });
@@ -267,9 +289,23 @@ describe('config hook - reserved vars in vite `define`', () => {
   });
 });
 
-describe('config hook - dev server restarts', () => {
-  // any directory other than the cwd, which the module-level load uses
-  const appRoot = import.meta.dirname;
+describe('env freshness across dev restarts', () => {
+  // a temp project with a real schema file, so the env-file fingerprint has
+  // something to compare. It is never the cwd, which the module-level load uses.
+  let appRoot: string;
+  beforeEach(() => {
+    appRoot = mkdtempSync(path.join(tmpdir(), 'varlock-vite-fresh-'));
+    writeFileSync(path.join(appRoot, '.env.schema'), 'PUBLIC_VAR=first\n');
+    mockState.basePath = appRoot;
+    mockState.sources = [{ enabled: true, path: '.env.schema' }];
+    return () => rmSync(appRoot, { recursive: true, force: true });
+  });
+
+  // a resolver output and the file it comes from change together
+  function editSchema(value: string) {
+    writeFileSync(path.join(appRoot, '.env.schema'), `PUBLIC_VAR=${value}\n# edited\n`);
+    mockState.publicValue = value;
+  }
 
   // a restart resolves the config again with new plugin instances, while this
   // module stays cached, so only the config hook can reload the env
@@ -282,19 +318,75 @@ describe('config hook - dev server restarts', () => {
     }, 'serve');
   }
 
-  it('reloads on the first restart when the vite root is not the cwd', async () => {
+  it('reuses the loaded env on a restart when no env file changed', async () => {
     const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
-
     mockState.publicValue = 'first';
     await resolveDevConfig(varlockVitePlugin(), appRoot);
-    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('first');
+    const loadsBefore = mockState.loads;
 
-    mockState.publicValue = 'second';
+    // a resolver whose output changes on its own (exec(), a remote secret) is
+    // not re-run just because the dev server restarted
+    mockState.publicValue = 'changed-remotely';
     await resolveDevConfig(varlockVitePlugin(), appRoot);
-    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('second');
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    expect(mockState.loads - loadsBefore).toBe(0);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('first');
   });
 
-  it('reloads on the first restart with `rootDir` and a key already in the environment', async () => {
+  it('reloads once per restart after a loaded env file changes', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    mockState.publicValue = 'first';
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    const loadsBefore = mockState.loads;
+
+    for (const value of ['second', 'third']) {
+      editSchema(value);
+      await resolveDevConfig(varlockVitePlugin(), appRoot);
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
+    }
+    expect(mockState.loads - loadsBefore).toBe(2);
+  });
+
+  it('reloads on a restart after a new .env file appears next to a loaded source', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    const loadsBefore = mockState.loads;
+
+    writeFileSync(path.join(appRoot, '.env.local'), 'PUBLIC_VAR=from-local\n');
+    mockState.publicValue = 'from-local';
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    expect(mockState.loads - loadsBefore).toBe(1);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('from-local');
+  });
+
+  it('retries on a restart when the previous load failed, even with no file change', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    mockState.failNextLoad = true;
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    const loadsBefore = mockState.loads;
+
+    mockState.publicValue = 'recovered';
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    expect(mockState.loads - loadsBefore).toBe(1);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('recovered');
+  });
+
+  it('loads once per change with `rootDir` when the dev-key hook loads first', async () => {
+    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+    const loadsBefore = mockState.loads;
+
+    mockState.publicValue = 'first';
+    await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+    for (const value of ['second', 'third']) {
+      editSchema(value);
+      await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
+    }
+    expect(mockState.loads - loadsBefore).toBe(3);
+  });
+
+  it('reloads on the first restart after a change with `rootDir` and a key already in the environment', async () => {
     // with a key set, the dev-key lifecycle hook does not load `rootDir` first
     vi.stubEnv('_VARLOCK_ENV_KEY', TEST_KEY);
     const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
@@ -303,51 +395,60 @@ describe('config hook - dev server restarts', () => {
     await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
     expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('first');
 
-    mockState.publicValue = 'second';
+    editSchema('second');
     await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
     expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('second');
   });
 
-  it('reloads on every restart when the vite root is the cwd, but not on the first resolve', async () => {
-    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
-    const loadsBefore = mockState.loads;
-
-    await resolveDevConfig(varlockVitePlugin(), process.cwd());
-    expect(mockState.loads - loadsBefore).toBe(0);
-
-    for (const value of ['second', 'third']) {
-      mockState.publicValue = value;
-      await resolveDevConfig(varlockVitePlugin(), process.cwd());
-      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
-    }
-    expect(mockState.loads - loadsBefore).toBe(2);
-  });
-
-  it('loads once per resolve across restarts when the vite root is not the cwd', async () => {
-    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
-    const loadsBefore = mockState.loads;
-
-    for (const value of ['first', 'second', 'third']) {
-      mockState.publicValue = value;
-      await resolveDevConfig(varlockVitePlugin(), appRoot);
-      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
-    }
-    expect(mockState.loads - loadsBefore).toBe(3);
-  });
-
-  it('loads once per resolve with `rootDir` when the dev-key hook loads first', async () => {
-    const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
-    const loadsBefore = mockState.loads;
-
-    for (const value of ['first', 'second', 'third']) {
-      mockState.publicValue = value;
+  describe('ensureVarlockEnvFresh() (integration-driven reloads, e.g. nuxt)', () => {
+    it('does nothing when no env file changed (shutdown, config-only reload)', async () => {
+      const { ensureVarlockEnvFresh, getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+      mockState.publicValue = 'first';
       await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
-      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe(value);
-    }
-    expect(mockState.loads - loadsBefore).toBe(3);
+      const loadsBefore = mockState.loads;
+
+      mockState.publicValue = 'changed-remotely';
+      ensureVarlockEnvFresh(appRoot);
+      // a config-only reload: the replacement instance resolves vite again,
+      // and must see the same snapshot its config was evaluated against
+      await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+      expect(mockState.loads - loadsBefore).toBe(0);
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('first');
+    });
+
+    it('reloads after a change, and the next vite resolve reuses that load', async () => {
+      const { ensureVarlockEnvFresh, getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
+      await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+      const loadsBefore = mockState.loads;
+
+      editSchema('refreshed');
+      ensureVarlockEnvFresh(appRoot);
+      expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('refreshed');
+      await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+      expect(mockState.loads - loadsBefore).toBe(1);
+    });
+
+    it('is idempotent: a second call for the same change does not reload', async () => {
+      const { ensureVarlockEnvFresh, varlockVitePlugin } = await importPlugin();
+      await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
+      const loadsBefore = mockState.loads;
+
+      editSchema('refreshed');
+      // nuxt fires both `restart` and `close` for one hook-driven restart
+      ensureVarlockEnvFresh(appRoot);
+      ensureVarlockEnvFresh(appRoot);
+      expect(mockState.loads - loadsBefore).toBe(1);
+    });
+
+    it('reloads when asked for a different root than the loaded one', async () => {
+      const { ensureVarlockEnvFresh } = await importPlugin();
+      const loadsBefore = mockState.loads;
+      ensureVarlockEnvFresh(appRoot);
+      expect(mockState.loads - loadsBefore).toBe(1);
+    });
   });
 
-  it('does not reload again after an integration refreshed the env (nuxt restart)', async () => {
+  it('refreshVarlockEnv() still forces a reload, and the next resolve reuses it', async () => {
     const { getVarlockLoadedEnv, refreshVarlockEnv, varlockVitePlugin } = await importPlugin();
     await resolveDevConfig(varlockVitePlugin({ rootDir: appRoot }));
     const loadsBefore = mockState.loads;
@@ -369,6 +470,46 @@ describe('config hook - dev server restarts', () => {
       root: process.cwd(),
       plugins: varlockVitePlugin(),
     }, 'build');
+    expect(mockState.loads - loadsBefore).toBe(0);
+  });
+});
+
+describe('startup loads', () => {
+  it('adopts an env graph varlock/auto-load already resolved in this process', async () => {
+    // e.g. `import 'varlock/auto-load'` at the top of nuxt.config / vite.config
+    const autoLoadedGraph = {
+      basePath: process.cwd(),
+      sources: [],
+      settings: {},
+      config: { PUBLIC_VAR: { value: 'from-auto-load', isSensitive: false, isDynamic: false } },
+    };
+    (globalThis as any).__varlockLoadedEnv = autoLoadedGraph;
+    const loadsBefore = mockState.loads;
+    const { getVarlockLoadedEnv } = await importPlugin();
+    expect(mockState.loads - loadsBefore).toBe(0);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('from-auto-load');
+  });
+
+  it('does not adopt an auto-loaded graph from a different directory', async () => {
+    (globalThis as any).__varlockLoadedEnv = {
+      basePath: '/some/other/project', sources: [], settings: {}, config: {},
+    };
+    const loadsBefore = mockState.loads;
+    const { getVarlockLoadedEnv } = await importPlugin();
+    expect(mockState.loads - loadsBefore).toBe(1);
+    expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('public-value');
+  });
+
+  it('resolves at import when nothing has been loaded yet', async () => {
+    const loadsBefore = mockState.loads;
+    await importPlugin();
+    expect(mockState.loads - loadsBefore).toBe(1);
+  });
+
+  it('does not reload just because an integration passes its telemetry name', async () => {
+    const { varlockVitePlugin } = await importPlugin();
+    const loadsBefore = mockState.loads;
+    varlockVitePlugin({ integrationTelemetry: { name: '@varlock/some-integration', version: '1.0.0' } });
     expect(mockState.loads - loadsBefore).toBe(0);
   });
 });
