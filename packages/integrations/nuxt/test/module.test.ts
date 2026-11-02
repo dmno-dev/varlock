@@ -206,7 +206,7 @@ describe('@varlock/nuxt-integration module', () => {
     const CONFIG_WITH_PUBLIC_DYNAMIC = {
       basePath: '/fake-project',
       sources: [],
-      settings: {},
+      settings: { publicDynamicFilter: 'PUBLIC_DYNAMIC_VAR' },
       config: {
         PUBLIC_DYNAMIC_VAR: { value: 'x', isSensitive: false, isDynamic: true },
       },
@@ -230,6 +230,13 @@ describe('@varlock/nuxt-integration module', () => {
     });
 
     it('does not inject the route without public+dynamic config', async () => {
+      const nuxtModule = await loadModule();
+      nuxtModule.setup?.({}, FAKE_NUXT);
+      expect(addServerHandlerMock).not.toHaveBeenCalled();
+    });
+
+    it('does not inject the route when the schema has no @publicDynamicFilter', async () => {
+      getVarlockLoadedEnvMock.mockReturnValueOnce({ ...CONFIG_WITH_PUBLIC_DYNAMIC, settings: {} });
       const nuxtModule = await loadModule();
       nuxtModule.setup?.({}, FAKE_NUXT);
       expect(addServerHandlerMock).not.toHaveBeenCalled();
