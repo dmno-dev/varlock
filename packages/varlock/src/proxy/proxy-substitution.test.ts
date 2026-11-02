@@ -426,4 +426,44 @@ describe('proxy substitution surface (end-to-end)', () => {
     await runtime.stop();
     await upstream.close();
   });
+
+  test('body substitution is byte-exact: non-ASCII body text and a non-ASCII real value', async () => {
+    let upstreamBody = Buffer.alloc(0);
+    let upstreamLength = '';
+    const upstream = await startUpstream((req, res) => {
+      upstreamLength = String(req.headers['content-length'] ?? '');
+      const chunks: Array<Buffer> = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        upstreamBody = Buffer.concat(chunks);
+        res.statusCode = 200;
+        res.end('ok');
+      });
+    });
+
+    const REAL = 'sk-réal-秘密-🔑';
+    const runtime = await startLocalProxyRuntime({
+      managedItems: [{ key: 'CLIENT_SECRET', placeholder: 'sk-stub-PLACEHOLDER', realValue: REAL }],
+      rules: [{ domain: [UPSTREAM_HOST], itemKeys: ['CLIENT_SECRET'], substituteIn: ['body:client_secret'] }],
+      egressMode: 'permissive',
+    });
+    const proxyCaPem = readFileSync(runtime.env.NODE_EXTRA_CA_CERTS!, 'utf8');
+
+    const tlsSocket = await openMitmTunnel(runtime.env.HTTP_PROXY!, proxyCaPem, upstream.port);
+    const payload = JSON.stringify({ name: 'Zoë – 東京', client_secret: 'sk-stub-PLACEHOLDER' });
+    const response = await sendAndRead(
+      tlsSocket,
+      `POST /token HTTP/1.1\r\nHost: ${UPSTREAM_HOST}:${upstream.port}\r\nConnection: close\r\n`
+        + `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`,
+    );
+
+    const expected = Buffer.from(JSON.stringify({ name: 'Zoë – 東京', client_secret: REAL }), 'utf8');
+    expect(response.split('\r\n')[0]).toContain('200');
+    expect(upstreamBody.equals(expected)).toBe(true);
+    expect(upstreamLength).toBe(String(expected.byteLength));
+
+    tlsSocket.destroy();
+    await runtime.stop();
+    await upstream.close();
+  });
 });
