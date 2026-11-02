@@ -48,7 +48,7 @@ describe('scanCodeForEnvVars', () => {
   });
 
   test('detects multi-language env access patterns', async () => {
-    fs.writeFileSync(path.join(tempDir, 'app.py'), 'import os\nos.getenv("PY_TOKEN")\nos.environ["PY_URL"]\n');
+    fs.writeFileSync(path.join(tempDir, 'app.py'), 'import os\nfrom env import ENV\nos.getenv("PY_TOKEN")\nos.environ["PY_URL"]\nos.environ.get("PY_OPT")\nport = ENV.PY_ATTR\n');
     fs.writeFileSync(path.join(tempDir, 'main.go'), 'package main\nimport "os"\nfunc main(){_ = os.Getenv("GO_KEY"); _ ,_ = os.LookupEnv("GO_OPT") }\n');
     fs.writeFileSync(path.join(tempDir, 'service.rb'), 'ENV["RB_SECRET"]\nENV.fetch("RB_URL")\n');
     fs.writeFileSync(path.join(tempDir, 'index.php'), '<?php getenv("PHP_DB"); $_ENV["PHP_TOKEN"]; $_SERVER["PHP_MODE"];');
@@ -61,6 +61,8 @@ describe('scanCodeForEnvVars', () => {
     expect(result.keys).toEqual(expect.arrayContaining([
       'PY_TOKEN',
       'PY_URL',
+      'PY_OPT',
+      'PY_ATTR',
       'GO_KEY',
       'GO_OPT',
       'RB_SECRET',

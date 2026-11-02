@@ -72,6 +72,9 @@ const WELL_KNOWN_ENV_KEYS = new Set<string>([
 const WELL_KNOWN_ENV_KEY_PREFIXES = [
   // npm / yarn / pnpm / bun lifecycle: npm_config_*, npm_package_*, npm_lifecycle_*
   'NPM_',
+  // varlock's own internals: __VARLOCK_ENV blob (read by generated code), _VARLOCK_* behavior flags
+  '__VARLOCK_',
+  '_VARLOCK_',
 ];
 
 /**

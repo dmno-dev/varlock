@@ -60,6 +60,7 @@ export type EnvVarSyntax = 'process.env.member'
   | 'custom'
   | 'python.environ'
   | 'python.getenv'
+  | 'python.ENV.member'
   | 'go.getenv'
   | 'ruby.env'
   | 'ruby.fetch'
@@ -165,8 +166,13 @@ const PATTERNS_BY_LANGUAGE: Record<ScannerLanguage, Array<SimplePattern>> = {
       syntax: 'python.environ',
     },
     {
-      regex: /\bos\.getenv\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]/g,
+      regex: /\bos\.(?:getenv|environ\.get)\(\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]/g,
       syntax: 'python.getenv',
+    },
+    {
+      // attribute access on the `ENV` object emitted by `@generatePythonEnv`
+      regex: /\bENV\.([A-Za-z_][A-Za-z0-9_]*)\b/g,
+      syntax: 'python.ENV.member',
     },
   ],
   go: [
