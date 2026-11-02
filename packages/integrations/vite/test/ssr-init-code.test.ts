@@ -1,11 +1,14 @@
 import {
   afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveConfig } from 'vite';
 import { decryptEnvBlobSync } from 'varlock/encrypt-env';
+import { hashEnvSourceContents } from 'varlock/env-source-fingerprint';
 
 // mutable so individual tests can flip the decorator before importing the plugin
 const mockState = vi.hoisted(() => ({
@@ -14,7 +17,10 @@ const mockState = vi.hoisted(() => ({
   loads: 0,
   basePath: '/fake-project',
   sources: [] as Array<{ enabled: boolean, path: string }>,
+  absentSourcePaths: undefined as Array<string> | undefined,
   failNextLoad: false,
+  // set below from the real helper - mocks are hoisted above imports
+  hashFile: undefined as undefined | ((absPath: string) => string | undefined),
 }));
 
 vi.mock('varlock/exec-sync-varlock', () => {
@@ -27,7 +33,12 @@ vi.mock('varlock/exec-sync-varlock', () => {
       mockState.loads++;
       const stdout = JSON.stringify({
         basePath: mockState.basePath,
-        sources: mockState.sources,
+        // like a real load: fingerprint what each file source contained at load time
+        sources: mockState.sources.map((source) => ({
+          ...source,
+          contentHash: mockState.hashFile?.(`${mockState.basePath}/${source.path}`),
+        })),
+        absentSourcePaths: mockState.absentSourcePaths,
         settings: { encryptInjectedEnv: mockState.encryptInjectedEnv },
         config: {
           SECRET_KEY: { value: 'super-secret-value', isSensitive: true, isDynamic: true },
@@ -51,6 +62,14 @@ vi.mock('varlock/exec-sync-varlock', () => {
 vi.mock('@varlock/cloudflare-integration/ssr-entry-code', () => ({
   CLOUDFLARE_SSR_ENTRY_CODE: '/* cloudflare edge env loader */',
 }));
+
+mockState.hashFile = (absPath) => {
+  try {
+    return hashEnvSourceContents(readFileSync(absPath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+};
 
 // warm the module graph (plugin + varlock source) at collection time, so the
 // transform cost is not charged against the first test's timeout
@@ -80,6 +99,7 @@ beforeEach(() => {
   mockState.publicValue = 'public-value';
   mockState.basePath = '/fake-project';
   mockState.sources = [];
+  mockState.absentSourcePaths = undefined;
   mockState.failNextLoad = false;
   delete (globalThis as any).__varlockLoadedEnv;
   // the plugin writes process.env directly, which vi.unstubAllEnvs() does not undo
@@ -298,6 +318,7 @@ describe('env freshness across dev restarts', () => {
     writeFileSync(path.join(appRoot, '.env.schema'), 'PUBLIC_VAR=first\n');
     mockState.basePath = appRoot;
     mockState.sources = [{ enabled: true, path: '.env.schema' }];
+    mockState.absentSourcePaths = ['.env', '.env.local'];
     return () => rmSync(appRoot, { recursive: true, force: true });
   });
 
@@ -347,7 +368,7 @@ describe('env freshness across dev restarts', () => {
     expect(mockState.loads - loadsBefore).toBe(2);
   });
 
-  it('reloads on a restart after a new .env file appears next to a loaded source', async () => {
+  it('reloads on a restart after an env file a load would pick up is created', async () => {
     const { getVarlockLoadedEnv, varlockVitePlugin } = await importPlugin();
     await resolveDevConfig(varlockVitePlugin(), appRoot);
     const loadsBefore = mockState.loads;
@@ -357,6 +378,16 @@ describe('env freshness across dev restarts', () => {
     await resolveDevConfig(varlockVitePlugin(), appRoot);
     expect(mockState.loads - loadsBefore).toBe(1);
     expect(getVarlockLoadedEnv()?.config.PUBLIC_VAR?.value).toBe('from-local');
+  });
+
+  it('does not reload when an env-like file varlock never loads appears', async () => {
+    const { varlockVitePlugin } = await importPlugin();
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    const loadsBefore = mockState.loads;
+
+    writeFileSync(path.join(appRoot, '.env.example'), 'PUBLIC_VAR=example\n');
+    await resolveDevConfig(varlockVitePlugin(), appRoot);
+    expect(mockState.loads - loadsBefore).toBe(0);
   });
 
   it('retries on a restart when the previous load failed, even with no file change', async () => {

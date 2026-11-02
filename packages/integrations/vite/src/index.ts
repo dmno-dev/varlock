@@ -9,6 +9,7 @@ import { initVarlockRuntime } from 'varlock/init';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import { checkEnvSourceDrift } from 'varlock/env-source-fingerprint';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-replacer';
 
@@ -61,9 +62,6 @@ export let varlockLoadedEnv: SerializedEnvGraph;
 /** Stderr output from the last failed varlock load (ANSI-colored) */
 export let varlockLastError: string | undefined;
 let lastErrorAt = 0;
-// stat fingerprint of the env files the current graph could have read, taken
-// when it was loaded - undefined means "unknown", which always counts as stale
-let loadedEnvFingerprint: string | undefined;
 // one-time guard for the SvelteKit+Cloudflare auto-detection notice
 let cfDetectNoticeLogged = false;
 // one-time guard for the Vercel unencrypted resolved-env warning
@@ -136,53 +134,19 @@ let activeIntegrationTelemetry = {
 let loadedConfigDir: string | undefined;
 
 /**
- * Cheap change marker for the env files a load could read: every loaded source
- * plus any `.env*` file next to one, so a newly created `.env.local` also
- * counts as a change. Stat only - never re-resolves. Non-regular files (FIFOs)
- * are skipped, since their stat churns on every read.
- */
-function fingerprintEnvFiles(graph: SerializedEnvGraph | undefined) {
-  const filePaths = new Set<string>();
-  const dirs = new Set<string>();
-  if (graph?.basePath) {
-    dirs.add(path.resolve(graph.basePath));
-    for (const source of graph.sources || []) {
-      if (!source.enabled || !source.path) continue;
-      const absPath = path.resolve(graph.basePath, source.path);
-      filePaths.add(absPath);
-      dirs.add(path.dirname(absPath));
-    }
-  }
-  for (const dir of dirs) {
-    try {
-      for (const name of fs.readdirSync(dir)) {
-        if (name.startsWith('.env')) filePaths.add(path.join(dir, name));
-      }
-    } catch {
-      // missing/unreadable dir - its files show up as missing below
-    }
-  }
-  let newestMtimeMs = 0;
-  const fingerprint = [...filePaths].sort().map((filePath) => {
-    try {
-      const stat = fs.statSync(filePath);
-      if (!stat.isFile()) return `${filePath}:non-regular`;
-      newestMtimeMs = Math.max(newestMtimeMs, stat.mtimeMs);
-      return `${filePath}:${stat.size}:${stat.mtimeMs}`;
-    } catch {
-      return `${filePath}:missing`;
-    }
-  }).join('\n');
-  return { fingerprint, newestMtimeMs };
-}
-
-/**
  * Whether the loaded graph is out of date for `dir`: a different directory, a
  * failed last load (a retry may succeed), or an env file that changed since.
  */
 function isLoadedEnvStale(dir: string) {
-  if (dir !== loadedConfigDir || !configIsValid || loadedEnvFingerprint === undefined) return true;
-  return fingerprintEnvFiles(varlockLoadedEnv).fingerprint !== loadedEnvFingerprint;
+  if (dir !== loadedConfigDir || !configIsValid) return true;
+  // the graph records a hash of what each file source contained when it was
+  // parsed, so an edit made while a load was running still counts. FIFO sources
+  // (e.g. 1Password Environments) are served remotely and can't be verified
+  // without a side-effecting read - like any other remote value, they only
+  // refresh on a fresh dev server start
+  const drift = checkEnvSourceDrift(varlockLoadedEnv, { nonRegularFiles: 'assume-unchanged' });
+  if (drift.drifted) debug('loaded env is stale:', drift.reason);
+  return drift.drifted;
 }
 
 /** shared tail of every successful load (or adopted graph) */
@@ -218,7 +182,6 @@ function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   const prevItemCount = Object.keys(varlockLoadedEnv?.config || {}).length;
   loadedConfigDir = path.resolve(cwd ?? process.cwd());
-  const loadStartedAt = Date.now();
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
@@ -267,11 +230,6 @@ function reloadConfig(cwd?: string) {
     return;
   }
 
-  // a file edited while the load was running may not be reflected in it, so
-  // leave the fingerprint unknown and let the next freshness check reload
-  const { fingerprint, newestMtimeMs } = fingerprintEnvFiles(varlockLoadedEnv);
-  loadedEnvFingerprint = Math.floor(newestMtimeMs) > loadStartedAt ? undefined : fingerprint;
-
   applyLoadedEnv(cwd, prevItemCount);
 }
 
@@ -289,7 +247,6 @@ function adoptAutoLoadedEnv(): boolean {
   varlockLoadedEnv = graph;
   loadedConfigDir = path.resolve(process.cwd());
   configIsValid = true;
-  loadedEnvFingerprint = fingerprintEnvFiles(graph).fingerprint;
   // auto-load already set (and possibly encrypted) process.env.__VARLOCK_ENV
   applyLoadedEnv(undefined, 0);
   return true;

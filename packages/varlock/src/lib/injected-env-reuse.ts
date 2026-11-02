@@ -4,7 +4,7 @@ import type { SerializedEnvGraph } from '../env-graph';
 import { isEncryptedBlob, decryptEnvBlobSync } from '../runtime/crypto';
 import { readVarlockPackageJsonConfig } from './package-json-config';
 import { envValueMatchesBlobItem } from './injected-env-provenance';
-import { hashEnvSourceContents } from './env-source-fingerprint';
+import { checkEnvSourceDrift } from './env-source-fingerprint';
 import { applyFrozenBootKeys, getBootItems } from './frozen-boot-keys';
 import {
   FrozenEnvFileError, PreResolvedEnvError, readFrozenEnvFile, getFrozenEnvFilePath,
@@ -357,42 +357,12 @@ export function evaluateInjectedEnvReuse(opts: {
     };
   }
 
-  // Source drift: the producer fingerprints the contents of each file source it actually
-  // parsed (see getSerializedGraph). If a source has been edited or removed since the blob
-  // was made (e.g. an env file edit followed by a dev-server restart inside the same
-  // `varlock run`), reuse could serve pre-edit values - re-resolve instead. Disabled
-  // sources are verified too: `@disable` lives in the source's own content, so an edit can
-  // re-enable it (an edit that leaves it disabled just costs one harmless re-resolution).
-  // Known gap: a matching env file *created* after the blob won't appear in its sources
-  // list and isn't detected here.
-  if (!Array.isArray(parsedEnv.sources)) {
-    return { reuse: false, reason: 'blob has no sources recorded' };
-  }
-  for (const source of parsedEnv.sources) {
-    if (source.path === undefined) continue;
-    // older producers didn't record fingerprints - we can't verify, so re-resolve
-    if (!source.contentHash) {
-      return { reuse: false, reason: `blob has no content fingerprint for source ${source.path}` };
-    }
-    const sourceFullPath = path.resolve(parsedEnv.basePath, source.path);
-    let currentContents: string;
-    try {
-      // stat-gate before reading - env sources can legitimately be FIFOs (e.g. 1Password
-      // Environments serves .env files as pipes), and reading one here would have side
-      // effects (the serving process rewrites it) or block forever on a writerless pipe.
-      // A non-regular file's content can't be verified without reading it, so fall back
-      // to a fresh resolution, which reads it once the same way any normal load does.
-      if (!fs.statSync(sourceFullPath).isFile()) {
-        return { reuse: false, reason: `source ${source.path} is not a regular file` };
-      }
-      currentContents = fs.readFileSync(sourceFullPath, 'utf8');
-    } catch {
-      return { reuse: false, reason: `source file ${source.path} is missing or unreadable` };
-    }
-    if (hashEnvSourceContents(currentContents) !== source.contentHash) {
-      return { reuse: false, reason: `source file ${source.path} changed since the blob was created` };
-    }
-  }
+  // Source drift: if an env file was edited, removed, or created since the blob was made
+  // (e.g. an env file edit followed by a dev-server restart inside the same `varlock run`),
+  // reuse could serve pre-edit values - re-resolve instead. Non-regular sources (FIFOs) count
+  // as drift: a fresh resolution reads them once the same way any normal load does.
+  const sourceDrift = checkEnvSourceDrift(parsedEnv);
+  if (sourceDrift.drifted) return { reuse: false, reason: `blob is stale: ${sourceDrift.reason}` };
 
   // Env drift: if ANY blob config key's ambient value differs from what the parent
   // injected (e.g. `varlock run -- sh -c 'FOO=x node app.js'`, whether or not FOO was

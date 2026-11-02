@@ -188,6 +188,12 @@
       },
       "default": "./dist/lib/exec-sync-varlock.mjs"
     },
+    "./env-source-fingerprint": {
+      "ts-src": "./src/lib/env-source-fingerprint.ts",
+      "types": "./dist/lib/env-source-fingerprint.d.mts",
+      "import": "./dist/lib/env-source-fingerprint.mjs",
+      "default": "./dist/lib/env-source-fingerprint.mjs"
+    },
     "./config": {
       "ts-src": "./src/config.ts",
       "types": "./dist/dotenv-compat.d.mts",

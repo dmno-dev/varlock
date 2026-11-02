@@ -39,6 +39,7 @@ export default defineConfig([
 
       'src/cli/cli-executable.ts', // cli that gets run via `dmno` command
       'src/lib/exec-sync-varlock.ts', // helper to call varlock cli from code
+      'src/lib/env-source-fingerprint.ts', // env file drift checks for integrations
 
       'src/plugin-lib.ts',
     ],
