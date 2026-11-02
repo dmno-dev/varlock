@@ -1,6 +1,6 @@
 import {
   findSplitValueCompletion, findValueStartCrossing, getRedactionHoldbackLength,
-  redactSensitiveConfig, redactSensitiveConfigForOutput, UNMASK_PREFIX,
+  redactSensitiveConfig,
 } from '../env';
 
 /**
@@ -43,20 +43,8 @@ export function getPartialValueCarry(written: string): string {
 }
 
 /**
- * Length of a trailing (possibly partial) unmask prefix (`👁 `). Streaming redaction holds it
- * back along with any partial secret, so a revealed value split across writes keeps its marker.
- */
-function getUnmaskPrefixHoldbackLength(str: string): number {
-  for (let len = Math.min(UNMASK_PREFIX.length, str.length); len > 0; len--) {
-    if (str.endsWith(UNMASK_PREFIX.slice(0, len))) return len;
-  }
-  return 0;
-}
-
-/**
  * How much of the end of buffered stream text to hold back before emitting the rest: a
- * trailing partial match of a sensitive value (so a value split across writes is still caught),
- * plus an unmask marker right before it (so a revealed value keeps its marker).
+ * trailing partial match of a sensitive value (so a value split across writes is still caught).
  *
  * The cut never goes through a complete value: a value whose ending is also the start of a
  * value (itself or another, e.g. `secret-token-s`) looks like a partial match at its own end,
@@ -72,7 +60,6 @@ export function getStreamHoldbackLength(str: string): number {
     if (start === undefined) break;
     boundary = start;
   }
-  boundary -= getUnmaskPrefixHoldbackLength(str.slice(0, boundary));
   return str.length - boundary;
 }
 
@@ -91,8 +78,8 @@ export function redactStreamWrite(carry: string, text: string): {
 } {
   const split = findSplitValueCompletion(carry, text);
   const output = split
-    ? SPLIT_VALUE_MASK + redactSensitiveConfigForOutput(text.slice(split.length))
-    : redactSensitiveConfigForOutput(text);
+    ? SPLIT_VALUE_MASK + redactSensitiveConfig(text.slice(split.length))
+    : redactSensitiveConfig(text);
   return {
     output,
     carry: getPartialValueCarry(carry + text),

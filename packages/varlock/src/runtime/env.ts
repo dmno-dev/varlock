@@ -3,7 +3,6 @@ import { redactString } from './lib/redaction';
 import type { SerializedEnvGraph } from '../env-graph';
 import { isBrowser } from '../lib/detect-runtime';
 import { debug } from './lib/debug';
-import { isStreamRedactionPatched } from './lib/stream-patch-key';
 import { envValueMatchesBlobItem } from '../lib/injected-env-provenance';
 
 // TODO: would like to move all of the redaction utils out of this file
@@ -14,8 +13,6 @@ import { envValueMatchesBlobItem } from '../lib/injected-env-provenance';
 function isString(s: any) {
   return Object.prototype.toString.call(s) === '[object String]';
 }
-
-const UNMASK_STR = '👁';
 
 
 // Store redaction state on globalThis so all module instances (e.g., multiple CJS bundles
@@ -74,9 +71,8 @@ function collectSensitiveStrings(value: any, collected: Array<string> = []): Arr
 /**
  * Builds the find/replace regex+fn used for redacting secrets in strings.
  *
- * The pattern is a single group around the alternation. Optional unmask-marker groups around
- * it made scanning 2-5x slower (it runs on every log line), so the markers are checked in the
- * replace fn instead. The wrapping group itself is faster than a bare alternation in JSC (bun).
+ * The pattern is a single group around the alternation, which is faster than a bare
+ * alternation in JSC (bun).
  */
 function buildFindReplace(state: RedactionState, values: Array<string>): FindReplace | undefined {
   // if no sensitive items exist, we dont need to do any redaction, but the redact fn is checking for undefined
@@ -92,17 +88,7 @@ function buildFindReplace(state: RedactionState, values: Array<string>): FindRep
     })`,
     'g',
   );
-  const unmaskPrefix = `${UNMASK_STR} `;
-  const unmaskSuffix = ` ${UNMASK_STR}`;
-  const replace: ReplaceFn = (match, _val, offset, fullStr) => {
-    // a value wrapped in unmask markers (see revealSensitiveConfig) is left alone
-    if (
-      offset >= unmaskPrefix.length
-      && fullStr.startsWith(unmaskPrefix, offset - unmaskPrefix.length)
-      && fullStr.startsWith(unmaskSuffix, offset + match.length)
-    ) return match;
-    return state.sensitiveSecretsMap[match].redacted;
-  };
+  const replace: ReplaceFn = (match) => state.sensitiveSecretsMap[match].redacted;
   return { find, replace };
 }
 
@@ -478,45 +464,6 @@ export function redactAllSensitiveValues<T>(o: T): T {
   const { redactorFindReplace } = getRedactionState();
   if (!redactorFindReplace || !o) return o;
   return redactValue(o, new Map(), redactorFindReplace);
-}
-
-/** the marker revealSensitiveConfig puts before a value (streaming redaction holds it back with a partial value) */
-export const UNMASK_PREFIX = `${UNMASK_STR} `;
-
-// strips the markers added by revealSensitiveConfig (lazy, so each pair is handled separately)
-const UNMASK_MARKERS_REGEX = new RegExp(`${UNMASK_STR} ([\\s\\S]*?) ${UNMASK_STR}`, 'g');
-
-/**
- * Redaction for the layer that writes output last (the stream patch, node's console internals,
- * or the console method wrapper where nothing runs after it). Same as redactSensitiveConfig,
- * then strips the unmask markers so values passed through revealSensitiveConfig print as-is.
- *
- * Earlier layers must leave the markers in place: once stripped, a later layer would see a
- * bare secret and redact it.
- */
-export function redactSensitiveConfigForOutput<T>(o: T): T {
-  const redacted = redactSensitiveConfig(o);
-  if (typeof redacted !== 'string' || !redacted.includes(UNMASK_STR)) return redacted;
-  return redacted.replaceAll(UNMASK_MARKERS_REGEX, '$1') as T;
-}
-
-/** whether varlock is redacting console or process stream output in this process */
-function isOutputRedactionActive() {
-  if ((globalThis.console?.log as any)?._varlockPatchedFn) return true;
-  const proc = globalThis.process;
-  return isStreamRedactionPatched(proc?.stdout) || isStreamRedactionPatched(proc?.stderr);
-}
-
-/**
- * utility to unmask a secret/sensitive value when logging to the console
- * currently this only works on a single secret, not objects or aggregated strings
- * */
-export function revealSensitiveConfig(secretStr: string) {
-  // if output redaction is not active, we just return the secret itself
-  if (!isOutputRedactionActive()) return secretStr;
-  // otherwise wrap it in markers, which tell redaction to leave the value alone and are
-  // removed by whichever layer writes the output (see redactSensitiveConfigForOutput)
-  return `${UNMASK_STR} ${secretStr} ${UNMASK_STR}`;
 }
 
 // reusable leak scanning helper function, used by various integrations
