@@ -11,6 +11,9 @@ export class ExecError extends Error {
   }
 }
 
+/** how long to wait for stdio to drain after the child exits, see below */
+const CLOSE_GRACE_PERIOD_MS = 500;
+
 export function spawnAsyncHelper(
   command: string,
   args: Array<string>,
@@ -36,7 +39,12 @@ export function spawnAsyncHelper(
     childProcess.on('error', (err) => {
       reject(err);
     });
-    childProcess.on('exit', (exitCode, signal) => {
+    let settled = false;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const settle = (exitCode: number | null, signal: NodeJS.Signals | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(graceTimer);
       // A child killed by a signal exits with a null code, so only an explicit 0 counts as
       // success. Otherwise whatever partial stdout arrived before the kill would be returned.
       if (exitCode === 0) {
@@ -48,6 +56,19 @@ export function spawnAsyncHelper(
           stderrData || (signal ? `command terminated by ${signal}` : ''),
         ));
       }
+    };
+    // `exit` can fire before stdout/stderr are drained, so settling there could drop output
+    // (eg. an empty stderr on failure). `close` fires once the stdio streams have ended.
+    childProcess.on('close', (exitCode, signal) => settle(exitCode, signal));
+    // But if the child leaves a grandchild (eg. a background daemon) holding the stdio pipes,
+    // `close` never fires. After `exit`, give the streams a short grace period to drain, then
+    // settle with whatever output arrived and stop waiting on the pipes.
+    childProcess.on('exit', (exitCode, signal) => {
+      graceTimer = setTimeout(() => {
+        settle(exitCode, signal);
+        childProcess.stdout?.destroy();
+        childProcess.stderr?.destroy();
+      }, CLOSE_GRACE_PERIOD_MS);
     });
   });
 
