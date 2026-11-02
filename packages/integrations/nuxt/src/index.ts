@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import {
   addPluginTemplate, addServerHandler, addServerPlugin, addTemplate, addTypeTemplate, addVitePlugin, defineNuxtModule,
@@ -27,6 +27,32 @@ export interface VarlockNuxtModuleOptions extends VarlockVitePluginOptions {
    * - object: enabled with a custom `path`
    */
   publicDynamicEndpoint?: boolean | { path?: string },
+}
+
+/**
+ * Cheap change marker for the env files a load could read: every loaded source
+ * plus any `.env*` file next to one (or in the project root), so a newly
+ * created `.env.local` also counts as a change. Stat only - never re-resolves.
+ */
+function fingerprintEnvFiles(rootDir: string, sourcePaths: Array<string>) {
+  const filePaths = new Set(sourcePaths);
+  for (const dir of new Set([rootDir, ...sourcePaths.map((p) => path.dirname(p))])) {
+    try {
+      for (const name of readdirSync(dir)) {
+        if (name.startsWith('.env')) filePaths.add(path.join(dir, name));
+      }
+    } catch {
+      // missing/unreadable dir - its files show up as missing below
+    }
+  }
+  return [...filePaths].sort().map((filePath) => {
+    try {
+      const stat = statSync(filePath);
+      return `${filePath}:${stat.size}:${stat.mtimeMs}`;
+    } catch {
+      return `${filePath}:missing`;
+    }
+  }).join('\n');
 }
 
 const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule<VarlockNuxtModuleOptions>({
@@ -73,9 +99,11 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       // `watch` is missing from the resolved options on some older nuxt 3
       // versions - pushing into a fresh array is then a harmless no-op
       nuxt.options.watch ||= [];
-      for (const envFilePath of getVarlockEnvSourcePaths(nuxt.options.rootDir)) {
+      const envSourcePaths = getVarlockEnvSourcePaths(nuxt.options.rootDir);
+      for (const envFilePath of envSourcePaths) {
         if (!nuxt.options.watch.includes(envFilePath)) nuxt.options.watch.push(envFilePath);
       }
+      const envFilesFingerprint = fingerprintEnvFiles(nuxt.options.rootDir, envSourcePaths);
       // Re-resolve env when a dev reload begins, BEFORE the new nuxt instance
       // evaluates nuxt.config. `ENV` is a proxy over shared global state, so
       // refreshing the store here makes config-time reads (`varlock/auto-load`
@@ -90,6 +118,12 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       // both; instance-local state (not elapsed time) dedupes them, since
       // hooks are awaited and another restart listener can delay `close`
       // arbitrarily.
+      //
+      // `close` also fires on final shutdown (Ctrl+C), and nothing tells the
+      // two apart. So it only refreshes when the env files differ from what
+      // this instance loaded: a plain quit (or a nuxt.config-only edit) then
+      // skips re-resolving, which would otherwise re-run plugin resolvers and
+      // can trigger an extra auth prompt (e.g. 1Password).
       let envRefreshedByRestart = false;
       nuxt.hook('restart', () => {
         envRefreshedByRestart = true;
@@ -97,6 +131,7 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       });
       nuxt.hook('close', () => {
         if (envRefreshedByRestart) return;
+        if (fingerprintEnvFiles(nuxt.options.rootDir, envSourcePaths) === envFilesFingerprint) return;
         refreshVarlockEnv(nuxt.options.rootDir);
       });
     }

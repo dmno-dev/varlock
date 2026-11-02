@@ -1,6 +1,11 @@
 import {
   beforeEach, describe, expect, it, vi,
 } from 'vitest';
+import {
+  mkdtempSync, rmSync, writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import pkg from '../package.json';
 
@@ -155,7 +160,7 @@ describe('@varlock/nuxt-integration module', () => {
       nuxtModule.setup?.({}, fakeNuxt);
 
       // `restart` covers hook-driven restarts (env file edits via options.watch);
-      // `close` covers the CLI's direct reload path (nuxt.config edits), which
+      // `close` covers the CLI's direct reload path (its dotenv file), which
       // never invokes the restart hook
       const restartHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'restart');
       const closeHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'close');
@@ -170,14 +175,50 @@ describe('@varlock/nuxt-integration module', () => {
       expect(refreshVarlockEnvMock).toHaveBeenCalledTimes(1);
     });
 
-    it('re-resolves env on a direct reload (close without restart)', async () => {
-      const nuxtModule = await loadModule();
-      const fakeNuxt = makeDevNuxt();
-      nuxtModule.setup?.({}, fakeNuxt);
+    describe('close without restart', () => {
+      let projectDir: string;
+      beforeEach(() => {
+        projectDir = mkdtempSync(path.join(tmpdir(), 'varlock-nuxt-close-'));
+        writeFileSync(path.join(projectDir, '.env.schema'), 'FOO=bar\n');
+        getVarlockEnvSourcePathsMock.mockReturnValue([path.join(projectDir, '.env.schema')]);
+        return () => {
+          getVarlockEnvSourcePathsMock.mockReset();
+          getVarlockEnvSourcePathsMock.mockReturnValue([]);
+          rmSync(projectDir, { recursive: true, force: true });
+        };
+      });
 
-      const closeHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'close');
-      (closeHook![1] as () => void)();
-      expect(refreshVarlockEnvMock).toHaveBeenCalledWith('/fake-project');
+      async function setupAndGetCloseHook() {
+        const nuxtModule = await loadModule();
+        const fakeNuxt = makeDevNuxt();
+        fakeNuxt.options.rootDir = projectDir;
+        nuxtModule.setup?.({}, fakeNuxt);
+        const closeHook = fakeNuxt.hook.mock.calls.find((call) => call[0] === 'close');
+        return closeHook![1] as () => void;
+      }
+
+      it('re-resolves env on a direct reload after an env file is created', async () => {
+        const closeHook = await setupAndGetCloseHook();
+        // the CLI's own dotenv watcher reloads without the restart hook
+        writeFileSync(path.join(projectDir, '.env'), 'FOO=changed\n');
+        closeHook();
+        expect(refreshVarlockEnvMock).toHaveBeenCalledWith(projectDir);
+      });
+
+      it('re-resolves env after a loaded env file is edited', async () => {
+        const closeHook = await setupAndGetCloseHook();
+        writeFileSync(path.join(projectDir, '.env.schema'), 'FOO=a-longer-value\n');
+        closeHook();
+        expect(refreshVarlockEnvMock).toHaveBeenCalledWith(projectDir);
+      });
+
+      it('does not re-resolve env on shutdown when no env file changed', async () => {
+        // final shutdown (Ctrl+C) also fires `close`; re-resolving there would
+        // re-run plugin resolvers for nothing (and can re-prompt for auth)
+        const closeHook = await setupAndGetCloseHook();
+        closeHook();
+        expect(refreshVarlockEnvMock).not.toHaveBeenCalled();
+      });
     });
 
     it('does not watch or hook restarts outside dev', async () => {
