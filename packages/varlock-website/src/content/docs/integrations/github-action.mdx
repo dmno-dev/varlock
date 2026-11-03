@@ -45,7 +45,7 @@ If you do not have a `.env.schema` file, the action will only load `.env`, since
    APP_ENV=development
 
    # Database configuration
-   # @type=url @required
+   # @type=url(allowedProtocols=[postgres, postgresql]) @required
    DATABASE_URL=
 
    # API configuration
