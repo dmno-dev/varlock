@@ -176,6 +176,15 @@ describe('bindingsFilter and @internal', () => {
     expect(blob.config).toHaveProperty('BETTER_AUTH_SECRET');
   });
 
+  it('keeps machine-local paths and file hashes out of the blob', async () => {
+    const env = Secrets({ path: path.join(fixtures, 'server') });
+    const bindings = await withProvider(env, { stage: 'x' }, env.bindings);
+    const blob = await blobOf(bindings);
+    expect(blob).not.toHaveProperty('basePath');
+    expect(blob.sources).toEqual([]);
+    expect(JSON.stringify(blob)).not.toContain(fixtures);
+  });
+
   it('@internal items reach neither the provider nor the bindings', async () => {
     const env = Secrets({ path: path.join(fixtures, 'root') });
     const { token, op, bindings } = await withProvider(env, { stage: 'x' }, Effect.gen(function* run5() {
