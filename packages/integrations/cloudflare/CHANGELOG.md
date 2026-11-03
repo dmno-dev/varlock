@@ -23,6 +23,13 @@
 
 
 
+
+## 1.6.4
+<sub>2026-11-03</sub>
+
+- [#1273](https://github.com/dmno-dev/varlock/pull/1273)  *(patch)*
+  The deprecated `varlockSvelteKitCloudflarePlugin` now uses the same adapter detection as `varlockVitePlugin()` (fixing `vite dev` on adapter-cloudflare 8) and logs a deprecation warning
+
 ## 1.6.3
 <sub>2026-10-29</sub>
 
