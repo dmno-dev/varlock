@@ -402,13 +402,17 @@ describe('SvelteKit Cloudflare adapter detection', () => {
     api: { options },
   });
 
-  async function initModuleCode(options: Record<string, any>, otherPlugins: Array<any> = []) {
+  async function initModuleCode(
+    options: Record<string, any>,
+    otherPlugins: Array<any> = [],
+    command: 'build' | 'serve' = 'build',
+  ) {
     const { varlockVitePlugin } = await importPlugin();
     const resolved = await resolveConfig({
       configFile: false,
       logLevel: 'silent',
       plugins: [...varlockVitePlugin(), ...otherPlugins, sveltekitSetup(options)],
-    }, 'build');
+    }, command);
     const plugin = findPlugin(resolved.plugins as Array<any>, 'inject-varlock-config');
     return plugin.load.call({ environment: { name: 'ssr' } }, '\0varlock-ssr-init') as string;
   }
@@ -421,6 +425,12 @@ describe('SvelteKit Cloudflare adapter detection', () => {
   it('injects the edge env loader for the SvelteKit 3 config shape', async () => {
     const code = await initModuleCode({ adapter: { name: '@sveltejs/adapter-cloudflare' } });
     expect(code).toContain('/* cloudflare edge env loader */');
+  });
+
+  it('skips the edge env loader in `vite dev`, where SSR runs in Node', async () => {
+    const adapter = { name: '@sveltejs/adapter-cloudflare' };
+    expect(await initModuleCode({ adapter }, [], 'serve')).not.toContain('cloudflare edge env loader');
+    expect(await initModuleCode({ kit: { adapter } }, [], 'serve')).not.toContain('cloudflare edge env loader');
   });
 
   it('leaves other adapters alone, in both config shapes', async () => {

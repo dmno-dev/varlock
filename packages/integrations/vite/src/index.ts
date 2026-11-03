@@ -568,8 +568,14 @@ export function varlockVitePlugin(
   // consumer already supplied
   // `ssrEntryCode` (e.g. the astro integration or the legacy
   // `varlockSvelteKitCloudflarePlugin`) so we never double-inject.
-  async function detectSvelteKitCloudflareTarget(config: { plugins?: ReadonlyArray<any> }) {
+  async function detectSvelteKitCloudflareTarget(config: { command?: string, plugins?: ReadonlyArray<any> }) {
     if (resolvedSsrEntryCode) return;
+    // `vite dev` runs SvelteKit's SSR in Node, where varlock's normal flow loads
+    // the env. adapter-cloudflare 8 emulates `cloudflare:workers` there with
+    // wrangler's platform proxy, whose env has no `__VARLOCK_ENV` binding, so the
+    // loader would throw. `vite preview` also reports 'serve' but runs the built
+    // output, so the loader only matters for builds.
+    if (config.command === 'serve') return;
 
     // SvelteKit's setup plugin (`vite-plugin-sveltekit-setup`) exposes the
     // resolved config via `api.options`. SvelteKit 2 nests it under `kit`,
