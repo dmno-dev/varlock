@@ -49,13 +49,13 @@
   },
   "peerDependencies": {
     "varlock": "workspace:^",
-    "alchemy": ">=2.0.0-beta.84",
-    "effect": "^4.0.0"
+    "alchemy": "^2.0.0-beta.85",
+    "effect": "^4.1.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "alchemy": "2.0.0-beta.84",
-    "effect": "4.0.6",
+    "alchemy": "2.0.0-beta.85",
+    "effect": "4.1.2",
     "tsdown": "catalog:",
     "varlock": "workspace:^",
     "vitest": "catalog:"
