@@ -60,5 +60,5 @@ initVarlockRuntime();
 
 // Re-export env utilities so consumers can use them without a separate import
 export {
-  ENV, redactSensitiveConfig, revealSensitiveConfig, scanForLeaks,
+  ENV, redactSensitiveConfig, scanForLeaks,
 } from 'varlock/env';

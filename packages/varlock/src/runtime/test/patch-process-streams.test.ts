@@ -212,11 +212,6 @@ describe('patchStreamWrite', () => {
     expect(warn.mock.calls[0][0]).toContain('SECRET');
   });
 
-  it('prints values revealed with revealSensitiveConfig (strips the markers)', () => {
-    fake.stream.write(`revealed: 👁 ${SECRET} 👁\n`);
-    expect(fake.output()).toBe(`revealed: ${SECRET}\n`);
-  });
-
   it('does not double-patch', () => {
     expect(patchStreamWrite(fake.stream)).toBe(false);
   });
