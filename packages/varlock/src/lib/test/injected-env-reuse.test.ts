@@ -230,6 +230,16 @@ describe('evaluateInjectedEnvReuse', () => {
         expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('fingerprint') });
       });
 
+      test('does not reuse when an env file a load would pick up was created after the blob', () => {
+        const source = writeSourceFile('.env', 'FOO=foo-val\n');
+        fs.writeFileSync(path.join(tempDir, '.env.local'), 'FOO=local-val\n');
+        const decision = evaluateInjectedEnvReuse({
+          env: { __VARLOCK_ENV: makeBlob({ sources: [source], absentSourcePaths: ['.env.local'] }) },
+          cwd: tempDir,
+        });
+        expect(decision).toMatchObject({ reuse: false, reason: expect.stringContaining('created') });
+      });
+
       test('an unchanged disabled source does not block reuse', () => {
         const source = writeSourceFile('.env.production', '# @disable\nFOO=prod-val\n');
         source.enabled = false;

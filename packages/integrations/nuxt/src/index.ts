@@ -5,7 +5,7 @@ import {
 } from '@nuxt/kit';
 import type { NuxtModule } from '@nuxt/schema';
 import {
-  buildVarlockSsrInitCode, ensureDevEncryptionKey, getVarlockEnvSourcePaths, getVarlockLoadedEnv, refreshVarlockEnv,
+  buildVarlockSsrInitCode, ensureDevEncryptionKey, ensureVarlockEnvFresh, getVarlockEnvSourcePaths, getVarlockLoadedEnv,
   varlockVitePlugin, type VarlockVitePluginOptions,
 } from '@varlock/vite-integration';
 
@@ -76,28 +76,28 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
       for (const envFilePath of getVarlockEnvSourcePaths(nuxt.options.rootDir)) {
         if (!nuxt.options.watch.includes(envFilePath)) nuxt.options.watch.push(envFilePath);
       }
-      // Re-resolve env when a dev reload begins, BEFORE the new nuxt instance
-      // evaluates nuxt.config. `ENV` is a proxy over shared global state, so
-      // refreshing the store here makes config-time reads (`varlock/auto-load`
-      // in nuxt.config) and re-injected process.env values fresh, even though
-      // the config's cached auto-load import does not re-execute.
+      // Bring env up to date when a dev reload begins, BEFORE the new nuxt
+      // instance evaluates nuxt.config. `ENV` is a proxy over shared global
+      // state, so refreshing the store here makes config-time reads
+      // (`varlock/auto-load` in nuxt.config) and re-injected process.env values
+      // fresh, even though the config's cached auto-load import does not
+      // re-execute.
       //
       // Two hooks because reloads reach a running instance two ways: env-file
       // changes surfaced via `options.watch` invoke the `restart` hook, while
       // the CLI's own config watcher (nuxt.config edits, its dotenv file) can
       // reload directly without it - but every reload path closes the old
-      // instance first, so `close` catches those. A hook-driven restart fires
-      // both; instance-local state (not elapsed time) dedupes them, since
-      // hooks are awaited and another restart listener can delay `close`
-      // arbitrarily.
-      let envRefreshedByRestart = false;
+      // instance first, so `close` catches those. `close` also fires on final
+      // shutdown, and nothing tells the two apart, so neither hook forces a
+      // reload: `ensureVarlockEnvFresh` only re-resolves when an env file
+      // changed since the last load. A plain quit or a nuxt.config-only reload
+      // then skips re-running resolvers (and any auth prompts they trigger),
+      // and a hook-driven restart that fires both hooks loads once.
       nuxt.hook('restart', () => {
-        envRefreshedByRestart = true;
-        refreshVarlockEnv(nuxt.options.rootDir);
+        ensureVarlockEnvFresh(nuxt.options.rootDir);
       });
       nuxt.hook('close', () => {
-        if (envRefreshedByRestart) return;
-        refreshVarlockEnv(nuxt.options.rootDir);
+        ensureVarlockEnvFresh(nuxt.options.rootDir);
       });
     }
 

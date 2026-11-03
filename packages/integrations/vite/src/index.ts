@@ -9,6 +9,7 @@ import { initVarlockRuntime } from 'varlock/init';
 import { createDebug, type SerializedEnvGraph } from 'varlock';
 import { execSyncVarlock, VarlockExecError } from 'varlock/exec-sync-varlock';
 import { encryptEnvBlobSync, generateEncryptionKeyHex } from 'varlock/encrypt-env';
+import { checkEnvSourceDrift } from 'varlock/env-source-fingerprint';
 
 import { createReplacerTransformFn, SUPPORTED_FILES } from '@env-spec/utils/ast-replacer';
 
@@ -61,8 +62,6 @@ export let varlockLoadedEnv: SerializedEnvGraph;
 /** Stderr output from the last failed varlock load (ANSI-colored) */
 export let varlockLastError: string | undefined;
 let lastErrorAt = 0;
-// set by every load, cleared by the main config hook once it has used that load
-let loadIsUnconsumed = false;
 // one-time guard for the SvelteKit+Cloudflare auto-detection notice
 let cfDetectNoticeLogged = false;
 // one-time guard for the Vercel unencrypted resolved-env warning
@@ -134,11 +133,55 @@ let activeIntegrationTelemetry = {
  */
 let loadedConfigDir: string | undefined;
 
+/**
+ * Whether the loaded graph is out of date for `dir`: a different directory, a
+ * failed last load (a retry may succeed), or an env file that changed since.
+ */
+function isLoadedEnvStale(dir: string) {
+  if (dir !== loadedConfigDir || !configIsValid) return true;
+  // the graph records a hash of what each file source contained when it was
+  // parsed, so an edit made while a load was running still counts. FIFO sources
+  // (e.g. 1Password Environments) are served remotely and can't be verified
+  // without a side-effecting read - like any other remote value, they only
+  // refresh on a fresh dev server start
+  const drift = checkEnvSourceDrift(varlockLoadedEnv, { nonRegularFiles: 'assume-unchanged' });
+  if (drift.drifted) debug('loaded env is stale:', drift.reason);
+  return drift.drifted;
+}
+
+/** shared tail of every successful load (or adopted graph) */
+function applyLoadedEnv(cwd: string | undefined, prevItemCount: number) {
+  // Reloading from a different directory can silently wipe a working config if
+  // that directory has no schema — `varlock load` succeeds there and returns an
+  // empty graph, which then disables every static replacement. Surface it
+  // instead of letting the build produce a broken bundle.
+  if (cwd && prevItemCount > 0 && Object.keys(varlockLoadedEnv?.config || {}).length === 0) {
+    console.warn(
+      `\x1b[33m[varlock] ⚠️  no env items found when loading from ${cwd}\x1b[0m\n`
+      + 'This directory has no `.env.schema`, so `ENV.*` references will not be replaced at build time.\n'
+      + "If your framework points vite's `root` at a source subdirectory, the integration should pass "
+      + '`rootDir` to `varlockVitePlugin()`.',
+    );
+  }
+
+  // If a runtime auto-load already populated the global (e.g. `varlock/auto-load`
+  // imported in nuxt.config), refresh it with the newly resolved graph -
+  // initVarlockEnv prefers it over the process.env blob, so a stale copy would
+  // pin the old values through every re-init.
+  if ((globalThis as any).__varlockLoadedEnv) {
+    (globalThis as any).__varlockLoadedEnv = varlockLoadedEnv;
+  }
+
+  // initialize varlock and patch globals as necessary (no-ops where disabled by settings)
+  initVarlockRuntime();
+
+  resetStaticReplacements();
+}
+
 function reloadConfig(cwd?: string) {
   debug('loading config - count =', ++loadCount, cwd ? `(cwd: ${cwd})` : '');
   const prevItemCount = Object.keys(varlockLoadedEnv?.config || {}).length;
   loadedConfigDir = path.resolve(cwd ?? process.cwd());
-  loadIsUnconsumed = true;
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
       fullResult: true,
@@ -187,35 +230,30 @@ function reloadConfig(cwd?: string) {
     return;
   }
 
-  // Reloading from a different directory can silently wipe a working config if
-  // that directory has no schema — `varlock load` succeeds there and returns an
-  // empty graph, which then disables every static replacement. Surface it
-  // instead of letting the build produce a broken bundle.
-  if (cwd && prevItemCount > 0 && Object.keys(varlockLoadedEnv?.config || {}).length === 0) {
-    console.warn(
-      `\x1b[33m[varlock] ⚠️  no env items found when loading from ${cwd}\x1b[0m\n`
-      + 'This directory has no `.env.schema`, so `ENV.*` references will not be replaced at build time.\n'
-      + "If your framework points vite's `root` at a source subdirectory, the integration should pass "
-      + '`rootDir` to `varlockVitePlugin()`.',
-    );
-  }
+  applyLoadedEnv(cwd, prevItemCount);
+}
 
-  // If a runtime auto-load already populated the global (e.g. `varlock/auto-load`
-  // imported in nuxt.config), refresh it with the newly resolved graph -
-  // initVarlockEnv prefers it over the process.env blob, so a stale copy would
-  // pin the old values through every re-init.
-  if ((globalThis as any).__varlockLoadedEnv) {
-    (globalThis as any).__varlockLoadedEnv = varlockLoadedEnv;
-  }
 
-  // initialize varlock and patch globals as necessary (no-ops where disabled by settings)
-  initVarlockRuntime();
-
-  resetStaticReplacements();
+/**
+ * Adopt a graph `varlock/auto-load` already resolved in this process (e.g. it is
+ * imported at the top of nuxt.config / vite.config), instead of resolving the
+ * same env a second time. Only when it was loaded from the directory this
+ * module would load from - anything else falls back to a fresh load.
+ */
+function adoptAutoLoadedEnv(): boolean {
+  const graph = (globalThis as any).__varlockLoadedEnv as SerializedEnvGraph | undefined;
+  if (!graph?.basePath || path.resolve(graph.basePath) !== path.resolve(process.cwd())) return false;
+  debug('adopting env graph already resolved by varlock/auto-load');
+  varlockLoadedEnv = graph;
+  loadedConfigDir = path.resolve(process.cwd());
+  configIsValid = true;
+  // auto-load already set (and possibly encrypted) process.env.__VARLOCK_ENV
+  applyLoadedEnv(undefined, 0);
+  return true;
 }
 
 // we run this right away so the globals get injected into the vite.config file
-reloadConfig();
+if (!adoptAutoLoadedEnv()) reloadConfig();
 
 let devMintedKey: string | undefined;
 
@@ -294,6 +332,21 @@ export function ensureDevEncryptionKey(rootDir?: string): string | undefined {
  */
 export function refreshVarlockEnv(rootDir?: string) {
   reloadConfig(rootDir ?? loadedConfigDir);
+}
+
+/**
+ * Re-resolve only if the loaded env is out of date for `rootDir`: a different
+ * directory, a failed last load, or an env file that changed (or appeared)
+ * since it was loaded. Otherwise a no-op, so resolvers (and any auth prompts
+ * they trigger) do not re-run. Used by the Nuxt module when an instance
+ * closes, which happens both before a dev reload and on final shutdown.
+ * Returns whether it reloaded.
+ */
+export function ensureVarlockEnvFresh(rootDir?: string): boolean {
+  const dir = path.resolve(rootDir ?? loadedConfigDir ?? process.cwd());
+  if (!isLoadedEnvStale(dir)) return false;
+  reloadConfig(dir);
+  return true;
 }
 
 /**
@@ -526,14 +579,9 @@ const RESERVED_DEFINE_KEYS = [
 export function varlockVitePlugin(
   vitePluginOptions?: VarlockVitePluginOptions,
 ): any {
+  // attributes later loads to the integration - not worth re-resolving for
   if (vitePluginOptions?.integrationTelemetry) {
-    const prevName = activeIntegrationTelemetry.name;
     activeIntegrationTelemetry = vitePluginOptions.integrationTelemetry;
-    if (prevName !== activeIntegrationTelemetry.name) {
-      // reload from wherever the config currently comes from — falling back to
-      // cwd here would drop a root an integration already corrected
-      reloadConfig(vitePluginOptions.rootDir ?? loadedConfigDir);
-    }
   }
 
   // Resolved at build time. These start from the passed options but may be
@@ -708,16 +756,15 @@ See https://varlock.dev/integrations/vite/ for more details.
       // root when a framework CLI is pointed elsewhere (`nuxt build --cwd`).
       const rootDiffersFromLoaded = !!(projectRoot && projectRoot !== loadedConfigDir);
 
-      // A load nothing has used yet (the module-level load, the dev-key hook,
-      // an integration's refresh) is current for this resolve. Otherwise this
-      // is a dev restart: the module stays cached, so only this hook can
-      // reload. Loads outside a resolve only happen when the root differs,
-      // which the main hook has already settled, so they do not leave a stale
-      // load marked as unused.
-      if (rootDiffersFromLoaded || (isDevCommand && !loadIsUnconsumed)) {
-        reloadConfig(projectRoot ?? loadedConfigDir);
+      // On a dev restart this module stays cached, so only this hook can
+      // reload - but only when the env is actually stale (an env file changed
+      // or the last load failed). A restart for any other reason (a config-only
+      // reload) keeps the snapshot that config was evaluated against.
+      if (rootDiffersFromLoaded) {
+        reloadConfig(projectRoot);
+      } else if (isDevCommand) {
+        ensureVarlockEnvFresh(loadedConfigDir);
       }
-      loadIsUnconsumed = false;
 
       // we do not want to inject via config.define - instead we use @rollup/plugin-replace
 

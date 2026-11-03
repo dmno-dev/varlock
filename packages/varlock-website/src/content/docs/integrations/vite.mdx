@@ -108,6 +108,10 @@ If you are using Vite's `envDir` option to load `.env` files from a custom direc
 
 ---
 
+## Dev server restarts
+
+The plugin adds every env file varlock loads to Vite's watched config dependencies, so editing one (including `.env.schema`) restarts the dev server with freshly resolved env. A restart only re-resolves when an env file changed, a file varlock would load (like `.env.local`) was created, or the previous load failed. Restarts for other reasons, such as editing `vite.config.*`, reuse the env already loaded, so plugin resolvers (and any auth prompts they trigger) do not run again. To pick up a value that changed outside your files, like a secret updated in a remote vault, stop and start the dev server.
+
 ## SSR Code Injection
 Within SSR builds, this plugin will automatically inject varlock initialization code into your entry points.
 There are 3 modes to choose from and specify during plugin initialization. For example:

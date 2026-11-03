@@ -653,7 +653,10 @@ export abstract class EnvGraphDataSource {
                 // TODO: work through possible error types here
               });
 
-              if (!fsStat && allowMissing) continue;
+              if (!fsStat && allowMissing) {
+                this.graph.recordAbsentSourcePath(fullImportPath);
+                continue;
+              }
               if (!fsStat) {
                 this._errors.push(new LoadingError(`Import path does not exist: ${fullImportPath}`));
                 return;
@@ -1082,7 +1085,10 @@ export class DirectoryDataSource extends EnvGraphDataSource {
       return;
     }
 
-    if (!await pathExists(filePath)) return;
+    if (!await pathExists(filePath)) {
+      this.graph.recordAbsentSourcePath(filePath);
+      return;
+    }
     const source = new DotEnvFileDataSource(filePath);
     await this._addChildWithoutImports(source);
     return source;

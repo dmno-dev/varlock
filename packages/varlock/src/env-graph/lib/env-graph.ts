@@ -115,6 +115,12 @@ export type SerializedEnvGraph = {
      */
     contentHash?: string;
   }>,
+  /**
+   * Paths (relative to `basePath`) the resolution looked for and did not find, e.g.
+   * `.env.local` or an `allowMissing` import. If one exists later, a fresh load would read
+   * it, so the graph is stale (see `checkEnvSourceDrift`). Absent on older producers.
+   */
+  absentSourcePaths?: Array<string>,
   settings: {
     /**
      * `@redact`, as written: `console` is console method redaction; `stdout` is stdout/stderr
@@ -321,6 +327,16 @@ export class EnvGraph {
       result.push(...this._getDescendants(child));
     }
     return result;
+  }
+
+  /**
+   * Absolute paths this load checked for and did not find: auto-load candidates
+   * (`.env.local`, `.env.<env>`, ...) and `allowMissing` imports. Serialized so a
+   * consumer can tell when a file a fresh load would pick up has been created.
+   */
+  absentSourcePaths = new Set<string>();
+  recordAbsentSourcePath(fullPath: string) {
+    this.absentSourcePaths.add(fullPath);
   }
 
   /** virtual imports for testing */
@@ -1235,6 +1251,11 @@ export class EnvGraph {
         ...(source instanceof FileBasedDataSource && source.rawContents !== undefined)
           ? { contentHash: hashEnvSourceContents(source.rawContents) } : {},
       });
+    }
+    if (this.absentSourcePaths.size) {
+      serializedGraph.absentSourcePaths = [...this.absentSourcePaths]
+        .map((fullPath) => path.relative(this.basePath ?? '', fullPath))
+        .sort();
     }
     for (const itemKey of this.sortedConfigKeys) {
       // _VARLOCK_* keys configure varlock's own behavior and must never land in the blob:
