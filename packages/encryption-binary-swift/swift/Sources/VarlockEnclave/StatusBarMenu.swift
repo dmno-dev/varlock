@@ -64,6 +64,10 @@ final class StatusBarMenu: NSObject, NSMenuDelegate {
         let headerItem = NSMenuItem(title: menuTitle, action: nil, keyEquivalent: "")
         headerItem.isEnabled = false
         menu.addItem(headerItem)
+        // TEMPORARY (PR 1253 pipeline test, do not merge)
+        let pipelineTestItem = NSMenuItem(title: "PR 1253 preview helper build", action: nil, keyEquivalent: "")
+        pipelineTestItem.isEnabled = false
+        menu.addItem(pipelineTestItem)
 
         menu.addItem(NSMenuItem.separator())
 
