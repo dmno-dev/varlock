@@ -24,7 +24,7 @@ import { getUserVarlockDir } from '../user-config-dir';
 import { getNativeBinarySpawnOptions, resolveNativeBinary } from './binary-resolver';
 import { isWSL } from './wsl-detect';
 import type {
-  KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
+  KeychainDeleteResult, KeychainFixAccessResult, KeychainItemMeta, KeychainItemRef, KeychainSetResult,
 } from './types';
 
 /** Timeout for daemon IPC messages that don't involve user interaction */
@@ -436,6 +436,21 @@ export class DaemonClient {
         payload: opts,
       }, BIOMETRIC_TIMEOUT_MS);
       return result as KeychainSetResult;
+    });
+  }
+
+  async keychainDelete(opts: {
+    service: string;
+    account: string;
+    keychain?: string;
+  }): Promise<KeychainDeleteResult> {
+    return this.withRetry(async () => {
+      await this.ensureConnected();
+      const result = await this.sendMessage({
+        action: 'keychain-delete',
+        payload: opts,
+      }, BIOMETRIC_TIMEOUT_MS);
+      return result as KeychainDeleteResult;
     });
   }
 

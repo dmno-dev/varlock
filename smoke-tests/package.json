@@ -6,7 +6,8 @@
   "description": "Smoke test suite for varlock",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:keychain": "VARLOCK_RUN_KEYCHAIN_SMOKE=1 vitest run tests/keychain-set.test.ts tests/keychain-import.test.ts"
   },
   "devDependencies": {
     "@nubjs/nub": "0.9.3",

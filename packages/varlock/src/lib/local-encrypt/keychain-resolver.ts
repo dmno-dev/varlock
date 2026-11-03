@@ -11,15 +11,20 @@
  *   keychain(service="com.company.db", keychain="System")
  *   keychain("com.company.db")          — shorthand for service
  *   keychain(prompt)                     — interactive picker, writes back reference
+ *   keychain("com.company.db", allowMissing=true) — empty instead of an error when the
+ *     item does not exist, so fallback() can move on
  */
 
 import { createResolver, Resolver } from '../../env-graph/lib/resolver';
 import { ResolutionError, SchemaError } from '../../env-graph/lib/errors';
 import { getDaemonClient } from './index';
+import { DaemonError } from './daemon-client';
 import { writeBackValue } from './write-back';
 
 type KeychainResolverState = {
   mode: 'get';
+  itemKey: string;
+  allowMissingResolver?: Resolver;
   service?: string;
   account?: string;
   keychain?: string;
@@ -49,6 +54,26 @@ function writeBackKeychainRef(
   writeBackValue(itemKey, `keychain(${argsStr})`, sourceFilePath);
 }
 
+function shellQuote(value: string) {
+  return /^[\w%+,./:=@-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function formatRefArgs(state: { service?: string; account?: string; keychain?: string }) {
+  return [
+    state.service ? `service="${state.service}"` : null,
+    state.account ? `account="${state.account}"` : null,
+    state.keychain ? `keychain="${state.keychain}"` : null,
+  ].filter(Boolean).join(', ');
+}
+
+function formatRefFlags(state: { service?: string; account?: string; keychain?: string }) {
+  return [
+    state.service ? `--service ${shellQuote(state.service)}` : null,
+    state.account ? `--account ${shellQuote(state.account)}` : null,
+    state.keychain ? `--keychain ${shellQuote(state.keychain)}` : null,
+  ].filter(Boolean).join(' ');
+}
+
 export const KeychainResolver: typeof Resolver = createResolver<KeychainResolverState>({
   name: 'keychain',
   label: 'Read from macOS Keychain',
@@ -59,9 +84,8 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     arrayMinLength: 0,
   },
   process(): KeychainResolverState {
-    if (process.platform !== 'darwin') {
-      throw new SchemaError('keychain() is only supported on macOS');
-    }
+    // The macOS check happens in resolve(), so a keychain() in a branch that never runs on this
+    // machine (e.g. `if(eq($VARLOCK_OS, "darwin"), keychain(...), ...)`) does not break the schema
 
     // Check for prompt mode: keychain(prompt) or keychain(prompt=1)
     const promptArg = this.objArgs?.prompt;
@@ -77,39 +101,42 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
       return { mode: 'prompt', itemKey, sourceFilePath };
     }
 
-    // Named args mode: keychain(service="...", account="...", keychain="...", field="...")
-    const serviceArg = this.objArgs?.service;
-    const accountArg = this.objArgs?.account;
-    const keychainArg = this.objArgs?.keychain;
-    const fieldArg = this.objArgs?.field;
+    const itemKey: string = (this as any).parent?.key || 'unknown';
 
-    const account = accountArg?.isStatic ? accountArg.staticValue as string : undefined;
-    const keychain = keychainArg?.isStatic ? keychainArg.staticValue as string : undefined;
-    const field = fieldArg?.isStatic ? fieldArg.staticValue as string : undefined;
-
-    if (serviceArg) {
-      if (!serviceArg.isStatic || typeof serviceArg.staticValue !== 'string') {
-        throw new SchemaError('keychain() service must be a static string');
+    // Service comes from service="..." or a single positional arg; account/keychain/field
+    // are always named and combine with either form, e.g. keychain("com.example", account="admin")
+    const staticStringArg = (name: string) => {
+      const arg = this.objArgs?.[name];
+      if (!arg) return undefined;
+      if (!arg.isStatic || typeof arg.staticValue !== 'string') {
+        throw new SchemaError(`keychain() ${name} must be a static string`);
       }
-      return {
-        mode: 'get', service: serviceArg.staticValue, account, keychain, field,
-      };
+      return arg.staticValue;
+    };
+
+    const namedService = staticStringArg('service');
+    const account = staticStringArg('account');
+    const keychain = staticStringArg('keychain');
+    const field = staticStringArg('field');
+
+    let positionalService: string | undefined;
+    if (this.arrArgs?.length) {
+      const positional = this.arrArgs[0];
+      if (this.arrArgs.length > 1 || !positional?.isStatic || typeof positional.staticValue !== 'string') {
+        throw new SchemaError('keychain() expects at most one positional arg: a static service name string');
+      }
+      positionalService = positional.staticValue;
+    }
+    if (namedService && positionalService) {
+      throw new SchemaError('keychain() service was given twice; use either keychain("svc") or keychain(service="svc")');
     }
 
-    // account-only lookup: keychain(account="admin@corp.com", field="account")
-    if (accountArg) {
+    const service = namedService ?? positionalService;
+    // account-only lookups are allowed: keychain(account="admin@corp.com", field="account")
+    if (service || account) {
       return {
-        mode: 'get', account, keychain, field,
+        mode: 'get', itemKey, service, account, keychain, field, allowMissingResolver: this.objArgs?.allowMissing,
       };
-    }
-
-    // Positional shorthand: keychain("com.company.service")
-    if (this.arrArgs?.length === 1 && this.arrArgs[0]?.isStatic) {
-      const value = this.arrArgs[0].staticValue;
-      if (typeof value !== 'string') {
-        throw new SchemaError('keychain() expects a string service name');
-      }
-      return { mode: 'get', service: value, field };
     }
 
     throw new SchemaError(
@@ -118,9 +145,27 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
     );
   },
   async resolve(state: KeychainResolverState) {
+    // allowMissing only covers a missing item; being on another OS is not "missing"
+    if (process.platform !== 'darwin') {
+      throw new ResolutionError('keychain() is only supported on macOS', {
+        tip: [
+          'To use another source on other platforms, either:',
+          '  - branch on the OS: if(eq($VARLOCK_OS, "darwin"), keychain(...), <other source>)',
+          '  - move the keychain() ref to a git-ignored file only Mac users load, like .env.local',
+        ].join('\n'),
+      });
+    }
+
+    let allowMissing = false;
+    if (state.mode === 'get' && state.allowMissingResolver) {
+      const resolved = await state.allowMissingResolver.resolve();
+      allowMissing = resolved === true || resolved === 'true';
+    }
+
     const client = getDaemonClient();
 
     if (state.mode === 'get') {
+      const refFlags = formatRefFlags(state);
       try {
         return await client.keychainGet({
           service: state.service,
@@ -129,18 +174,45 @@ export const KeychainResolver: typeof Resolver = createResolver<KeychainResolver
           field: state.field,
         });
       } catch (err) {
+        const code = err instanceof DaemonError ? err.code : undefined;
+
+        if (code === 'itemNotFound') {
+          if (allowMissing) return undefined;
+          // Creating needs a fully specified ref: `set` writes service+account to the default keychain
+          const canCreate = !!state.service && !!state.account && !state.keychain && !state.field;
+          throw new ResolutionError('Keychain item not found', {
+            tip: canCreate
+              ? [
+                'Save a value for it with:',
+                `  varlock keychain set ${state.itemKey} ${refFlags}`,
+              ].join('\n')
+              : [
+                `Looked for: ${formatRefArgs(state)}`,
+                'Find the right item with `varlock keychain list`, or pick one with keychain(prompt).',
+              ].join('\n'),
+          });
+        }
+
+        // Unknown-field errors also arrive as accessDenied, and fix-access cannot help those
+        if (code === 'accessDenied' && !state.field) {
+          throw new ResolutionError(`Varlock is not allowed to read this Keychain item: ${(err as Error).message}`, {
+            tip: [
+              'Grant access with:',
+              `  varlock keychain fix-access ${refFlags}`,
+              'or choose "Always Allow" the next time macOS asks.',
+            ].join('\n'),
+          });
+        }
+
+        if (code === 'ambiguousMatch') {
+          throw new ResolutionError(`More than one Keychain item matches: ${(err as Error).message}`, {
+            tip: 'Add account="..." to keychain() to pick one. `varlock keychain list` shows the candidates.',
+          });
+        }
+
         throw new ResolutionError(
           `Failed to read keychain item: ${err instanceof Error ? err.message : err}`,
-          {
-            tip: [
-              state.service ? `Service: ${state.service}` : null,
-              state.account ? `Account: ${state.account}` : null,
-              state.keychain ? `Keychain: ${state.keychain}` : null,
-              state.field ? `Field: ${state.field}` : null,
-              'Make sure the item exists in your Keychain and VarlockEnclave has access.',
-              'You can grant access via: keychain(prompt)',
-            ].filter(Boolean).join('\n'),
-          },
+          { tip: `Looked for: ${formatRefArgs(state)}` },
         );
       }
     }
