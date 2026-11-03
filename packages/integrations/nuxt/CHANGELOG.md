@@ -5,6 +5,13 @@
 
 
 
+
+## 0.1.6
+<sub>2026-11-03</sub>
+
+- [#1270](https://github.com/dmno-dev/varlock/pull/1270)  *(patch)*
+  Stop re-resolving env (and re-triggering auth prompts like 1Password) when the Nuxt dev server shuts down or reloads without an env file change
+
 ## 0.1.5
 <sub>2026-10-29</sub>
 

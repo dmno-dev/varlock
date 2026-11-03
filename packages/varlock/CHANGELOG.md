@@ -35,6 +35,18 @@
 
 
 
+
+## 1.24.1
+<sub>2026-11-03</sub>
+
+- [#1265](https://github.com/dmno-dev/varlock/pull/1265)  *(patch)*
+  Proxy: response scrubbing and body substitution no longer corrupt non-UTF-8 bodies (e.g. Go checksum database tiles served as text/plain), HEAD responses keep their `content-length`, and 206 partial responses are no longer rewritten
+- [#1269](https://github.com/dmno-dev/varlock/pull/1269)  *(patch)* - `varlock audit` now detects `ENV.KEY` (from `@generatePythonEnv`) and `os.environ.get()` reads in Python files
+- [#1271](https://github.com/dmno-dev/varlock/pull/1271)  *(patch)*
+  Fix CLI calls occasionally losing stdout/stderr when the command exits quickly under load, which could surface as a vague "unknown" error instead of the real one
+- [#1270](https://github.com/dmno-dev/varlock/pull/1270)  *(patch)*
+  Reusing an injected env blob (auto-load under `varlock run`) now also re-resolves when an env file it would load, like `.env.local`, was created after the blob was made
+
 ## 1.24.0
 <sub>2026-10-29</sub>
 

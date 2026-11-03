@@ -6,6 +6,13 @@
 
 
 
+
+## 2.0.5
+<sub>2026-11-03</sub>
+
+- [#1271](https://github.com/dmno-dev/varlock/pull/1271)  *(patch)*
+  Fix CLI calls occasionally losing stdout/stderr when the command exits quickly under load, which could surface as a vague "unknown" error instead of the real one
+
 ## 2.0.4
 <sub>2026-10-09</sub>
 

@@ -17,6 +17,16 @@
 
 
 
+
+## 1.5.6
+<sub>2026-11-03</sub>
+
+- [#1262](https://github.com/dmno-dev/varlock/pull/1262)  *(patch)* Thanks [@fengmk2](https://github.com/fengmk2)! - Reload env values on the first dev server restart when Vite's root is not the working directory
+- [#1273](https://github.com/dmno-dev/varlock/pull/1273)  *(patch)*
+  Fix `vite dev` 500s on SvelteKit with adapter-cloudflare 8 ("no __VARLOCK_ENV binding found"): the Workers env loader is now only injected into builds
+- [#1270](https://github.com/dmno-dev/varlock/pull/1270)  *(patch)*
+  Dev server restarts only re-resolve env when an env file changed or was created, or the last load failed, and startup reuses env already resolved by varlock/auto-load, so plugin resolvers run once instead of several times
+
 ## 1.5.5
 <sub>2026-10-29</sub>
 
