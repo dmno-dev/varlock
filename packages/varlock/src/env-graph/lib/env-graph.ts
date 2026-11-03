@@ -151,6 +151,8 @@ export type SerializedEnvGraph = {
     redact?: boolean;
     /** true = used only by varlock, not injected into the app. Only present in inspection output (never in the blob). */
     isInternal?: boolean;
+    /** `@tag(...)` names, so consumers of `load --format json-full` can select items by tag. Only present in json-full output (never in the blob). */
+    tags?: Array<string>;
     /**
      * The raw pre-coercion string of the process.env override that produced this value,
      * present only when it differs from the injected string form (e.g. `FLAG=YES` coerced
@@ -1215,7 +1217,12 @@ export class EnvGraph {
     return envObject;
   }
 
-  getSerializedGraph(opts?: { includeInternal?: boolean, filterKeys?: Set<string> }): SerializedEnvGraph {
+  getSerializedGraph(opts?: {
+    includeInternal?: boolean,
+    filterKeys?: Set<string>,
+    /** emit each item's `@tag(...)` names (json-full inspection output; the runtime blob does not carry them) */
+    includeTags?: boolean,
+  }): SerializedEnvGraph {
     const serializedGraph: SerializedEnvGraph = {
       blobFormatVersion: SERIALIZED_ENV_GRAPH_FORMAT_VERSION,
       varlockVersion: VARLOCK_VERSION_ID,
@@ -1266,6 +1273,7 @@ export class EnvGraph {
         ...(overrideStr !== undefined) ? { overrideStr } : {},
         isSensitive: item.isSensitive,
         ...item.isInternal ? { isInternal: true } : {},
+        ...(opts?.includeTags && item.tags.length) ? { tags: item.tags } : {},
         // only emit when opted out — keeps the common-case blob smaller
         ...item.isSensitive && !item.preventLeaks ? { preventLeaks: false } : {},
         ...item.isSensitive && !item.redact ? { redact: false } : {},

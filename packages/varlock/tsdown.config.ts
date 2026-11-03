@@ -34,6 +34,7 @@ export default defineConfig([
       'src/runtime/auto-init.ts',
 
       'src/runtime/crypto.ts',
+      'src/runtime/env-blob.ts',
       'src/auto-load.ts',
       'src/dotenv-compat.ts', // exposed under `/config` to match dotenv
 
@@ -114,6 +115,7 @@ export default defineConfig([
       'src/runtime/patch-server-response.ts',
       'src/runtime/patch-console.ts',
       'src/runtime/crypto.ts',
+      'src/runtime/env-blob.ts',
       'src/lib/exec-sync-varlock.ts',
     ],
 

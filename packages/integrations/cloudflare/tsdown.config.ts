@@ -8,6 +8,7 @@ export default defineConfig({
     'src/init.ts',
     'src/varlock-wrangler.ts',
     'src/shared-ssr-entry-code.ts',
+    'src/env-bindings.ts',
   ],
 
   // package name + version baked in as static defines so we don't import package.json into the bundle
