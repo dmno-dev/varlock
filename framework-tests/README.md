@@ -75,7 +75,7 @@ Each scenario uses `describeScenario()` which:
 - **Next.js** — tests multiple versions (14, 15, 16) and bundlers (webpack, turbopack), verifying env injection, leak detection, log redaction, and sourcemap scrubbing
 - **OpenNext**: Next.js built for Cloudflare Workers with `@opennextjs/cloudflare` and served from local workerd, verifying the frozen (encrypted) env, middleware, request-time leak detection, and log redaction on that target
 - **Expo** — tests the babel plugin transform pipeline, verifying static replacement of public vars, protection of sensitive vars, and correct handling of server (+api) routes
-- **SvelteKit** — tests static replacement behavior for static vs dynamic public vars and runtime access to dynamic public vars via server routes
+- **SvelteKit**: tests static replacement behavior for static vs dynamic public vars and runtime access to dynamic public vars via server routes, plus Cloudflare adapter auto-detection on SvelteKit 2 (adapter 7) and SvelteKit 3 (adapter 8, including `vite dev` and prerendered builds)
 
 ## Real deployment tests (`deploy/`)
 
