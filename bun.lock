@@ -81,7 +81,7 @@
         "vitest": "catalog:",
       },
       "peerDependencies": {
-        "alchemy": ">=2.0.0-beta.80",
+        "alchemy": ">=2.0.0-beta.84",
         "effect": "^4.0.0",
         "varlock": "workspace:^",
       },

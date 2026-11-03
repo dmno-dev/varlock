@@ -6,7 +6,7 @@ Use [varlock](https://varlock.dev) as the secret manager for an [Alchemy](https:
 
 > See [our docs site](https://varlock.dev/integrations/alchemy/) for complete installation and usage instructions.
 
-It is a [secret provider](https://alchemy.run/environments/secret-providers/) for Alchemy's `secrets` option (`Alchemy.Stack(name, { secrets: Varlock.Secrets() })`, alchemy 2.0.0-beta.80 or later) and:
+It is a [secret provider](https://alchemy.run/environments/secret-providers/) for Alchemy's `secrets` option (`Alchemy.Stack(name, { secrets: Varlock.Secrets() })`, alchemy 2.0.0-beta.84 or later) and:
 
 - resolves and validates your `.env.schema` (plugins, `.env` files, `@currentEnv`) before alchemy builds any provider, and makes the values the stack's Effect `Config` source
 - exposes schema items as typed Worker bindings you spread into a resource's `env`, with `@sensitive` items uploaded as secrets; a `bindingsFilter` (`"!#deploy"`) or the root/service split keeps deploy credentials out
