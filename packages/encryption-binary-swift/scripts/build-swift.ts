@@ -15,17 +15,24 @@
  *   bun run scripts/build-swift.ts --universal        # universal binary (CI)
  *   bun run scripts/build-swift.ts --mode release     # production bundle metadata
  *   bun run scripts/build-swift.ts --sign "Developer ID Application: ..."
+ *   bun run scripts/build-swift.ts --adhoc            # ad-hoc sign, never load signing env
+ *
+ * Without --sign or --adhoc, the signing identity comes from APPLE_SIGNING_IDENTITY
+ * (loaded from .env.schema via varlock), falling back to ad-hoc.
  */
 
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 
-import 'varlock/auto-load';
-
 // ── CLI args ────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
+
+// --adhoc skips loading .env.schema, whose signing values come from 1Password, so
+// CI preview builds need no secrets at all
+const adhoc = args.includes('--adhoc');
+if (!adhoc) await import('varlock/auto-load');
 
 function getArg(flag: string): string | undefined {
   const idx = args.indexOf(flag);
@@ -39,8 +46,8 @@ const mode = (getArg('--mode') ?? 'dev') as 'dev' | 'preview' | 'release';
 // version. Nothing reads CFBundleVersion at runtime — not the Swift binary, the
 // Rust binary, the varlock CLI, or notarization — so coupling it to a
 // per-release version served no purpose, and it actively broke binary reuse:
-// CI caches and reuses the signed/notarized .app keyed by source hash, which
-// only holds if the bundle is byte-stable across releases. Keep this constant.
+// CI caches and reuses built .app bundles keyed by source hash, which only holds
+// if the bundle is byte-stable across releases. Keep this constant.
 const version = '1.0.0';
 
 // ── Paths ───────────────────────────────────────────────────────
@@ -186,7 +193,7 @@ console.log(`Built app bundle: ${appDir}`);
 const entitlementsPath = path.resolve(import.meta.dir, '..', 'VarlockEnclave.entitlements');
 
 // Resolve signing identity: explicit flag > APPLE_SIGNING_IDENTITY env var > ad-hoc
-const resolvedIdentity = signingIdentity ?? process.env.APPLE_SIGNING_IDENTITY;
+const resolvedIdentity = adhoc ? undefined : (signingIdentity ?? process.env.APPLE_SIGNING_IDENTITY);
 
 if (resolvedIdentity) {
   run(`codesign --force --deep --options runtime --entitlements "${entitlementsPath}" --sign "${resolvedIdentity}" "${appDir}"`);

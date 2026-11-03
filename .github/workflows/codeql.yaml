@@ -56,8 +56,9 @@ jobs:
 
           echo "js-changed=$(check_pattern '\.(js|ts|jsx|tsx|mjs|cjs)$')" >> $GITHUB_OUTPUT
           echo "actions-changed=$(check_pattern '^\.github/')" >> $GITHUB_OUTPUT
-          echo "swift-changed=$(check_pattern '^packages/encryption-binary-swift/')" >> $GITHUB_OUTPUT
-          echo "rust-changed=$(check_pattern '^packages/encryption-binary-rust/')" >> $GITHUB_OUTPUT
+          # only the sources CodeQL compiles; build scripts are TypeScript (analyze-js)
+          echo "swift-changed=$(check_pattern '^packages/encryption-binary-swift/swift/')" >> $GITHUB_OUTPUT
+          echo "rust-changed=$(check_pattern '^packages/encryption-binary-rust/(src/|Cargo\.(toml|lock)$)')" >> $GITHUB_OUTPUT
 
   analyze-js:
     name: Analyze JavaScript/TypeScript

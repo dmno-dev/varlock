@@ -167,6 +167,7 @@ case "status":
             #endif
         }(),
         "keys": SecureEnclaveManager.listKeys(),
+        "pipelineTest": "PR 1253 preview helper build (temporary, do not merge)",
     ])
 
 // MARK: - daemon

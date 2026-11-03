@@ -9,9 +9,11 @@
       "internalAuthors": ["theoephraim", "philmillman", "@app/copilot-swe-agent", "claude"]
     }
   ],
-  // the per-platform native binary packages must always publish in lockstep with
-  // varlock, which pins them as exact-version optionalDependencies
-  "fixed": [["varlock", "@varlock/native-helper-*"]],
+  // The native helper packages are versioned independently of varlock and only
+  // released when their binaries change (CI fails a PR that changes native sources
+  // without a helper bump file; see scripts/native-sources.ts). The three Rust
+  // helpers are built from one crate, so they always release together.
+  "fixed": [["@varlock/native-helper-linux-*", "@varlock/native-helper-win32-x64"]],
   "packages": {
     // this is the vscode extension
     "env-spec-language": {
@@ -30,6 +32,12 @@
     },
     "varlock": {
       "cascadeFrom": {
+        // varlock pins the helpers as exact-version optionalDependencies, so a
+        // helper release must ship a varlock release carrying the new pin
+        "@varlock/native-helper-*": {
+          "trigger": "patch",
+          "bumpAs": "patch"
+        },
         "@env-spec/parser": {
           "trigger": "patch",
           "bumpAs": "patch"
