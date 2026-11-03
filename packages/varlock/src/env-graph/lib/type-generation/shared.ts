@@ -17,6 +17,8 @@ export type ResolvedFieldType = {
   coerced: CoercedType;
   isRequired: boolean;
   isSensitive: boolean;
+  /** public+dynamic but left out by `@publicDynamicFilter`: never delivered to client code */
+  isClientExcluded?: boolean;
   docs: FieldDocs;
 };
 
@@ -29,6 +31,7 @@ export function resolveFieldType(info: TypeGenItemInfo): ResolvedFieldType {
     coerced,
     isRequired: info.isRequired && !info.isRequiredDynamic,
     isSensitive: info.isSensitive,
+    isClientExcluded: info.isClientExcluded,
     docs: {
       description: info.description,
       isDeprecated: info.isDeprecated,

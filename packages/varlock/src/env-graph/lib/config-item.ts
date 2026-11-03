@@ -848,6 +848,18 @@ export class ConfigItem {
   }
 
   /**
+   * A public+dynamic item left out by the root `@publicDynamicFilter`: never delivered to client
+   * code (the public env endpoint, boot-time injection, browser hydration). Server code reads it
+   * normally. Sensitive items never reach the client, and static ones only where client code
+   * references them, so the filter only applies to public+dynamic items.
+   */
+  get isClientExcluded(): boolean {
+    if (!this._isDynamic || this._isSensitive) return false;
+    const filter = this.envGraph.publicDynamicFilter;
+    return !!filter && !filter.matches(this);
+  }
+
+  /**
    * The explicit `@dynamic` / `@static` decorator that decides this item's dynamic state, if
    * any - the first one found across the item's definitions (same precedence as
    * {@link processDynamic}).
@@ -1439,6 +1451,11 @@ export class ConfigItem {
           if (dynamicDec.decValueResolver?.fnName !== '\0static') break;
           const dynamicDecValue = await dynamicDec.resolve();
           if (dynamicDec.schemaErrors.some((e) => !e.isWarning)) break;
+          if (dynamicDecValue === 'boot' && !usingStatic) {
+            isDynamic = true;
+            foundDynamic = true;
+            break;
+          }
           if (![true, false, undefined].includes(dynamicDecValue)) break;
           if (dynamicDecValue !== undefined) {
             isDynamic = usingStatic ? !dynamicDecValue : dynamicDecValue;
@@ -1518,6 +1535,11 @@ export class ConfigItem {
       }
     }
 
+    const publicDynamicFilter = this.envGraph.publicDynamicFilter;
+    const isClientExcluded = isDynamic && !isSensitive && !!publicDynamicFilter && !publicDynamicFilter.matches({
+      key: this.key, isSensitive, isRequired, isDynamic, tags: this.tags,
+    });
+
     return {
       key: this.key,
       description,
@@ -1526,6 +1548,7 @@ export class ConfigItem {
       isRequiredDynamic,
       isSensitive,
       isDynamic,
+      isClientExcluded,
       icon,
       docsLinks,
       isDeprecated: this.isDeprecated,
@@ -1544,6 +1567,8 @@ export type TypeGenItemInfo = {
   isRequiredDynamic: boolean;
   isSensitive: boolean;
   isDynamic: boolean;
+  /** public+dynamic but left out by `@publicDynamicFilter`: never delivered to client code */
+  isClientExcluded: boolean;
   icon?: string;
   docsLinks: Array<{ url: string, description?: string }>;
   isDeprecated: boolean;

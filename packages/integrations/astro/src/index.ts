@@ -31,6 +31,10 @@ export interface VarlockAstroIntegrationOptions extends VarlockVitePluginOptions
   publicDynamicEndpoint?: boolean | VarlockAstroPublicDynamicEndpointOptions,
 }
 
+/**
+ * Auto mode injects the route only when the schema declares `@publicDynamicFilter` and it selects
+ * at least one public+dynamic key, so nothing is served to the browser unless the schema says so.
+ */
 function hasPublicDynamicConfigInSchema(cwd?: string): boolean {
   try {
     const { stdout } = execSyncVarlock('load --format json-full --compact', {
@@ -38,8 +42,9 @@ function hasPublicDynamicConfigInSchema(cwd?: string): boolean {
       ...(cwd && { cwd }),
     });
     const loadedEnv = JSON.parse(stdout) as SerializedEnvGraph;
+    if (!loadedEnv.settings?.publicDynamicFilter) return false;
     return Object.values(loadedEnv.config || {}).some(
-      (itemInfo) => (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive,
+      (itemInfo) => (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive && itemInfo.client !== false,
     );
   } catch (err) {
     debug('Failed to auto-detect public+dynamic config, skipping endpoint injection', err);
@@ -56,7 +61,7 @@ function shouldInjectPublicDynamicEndpoint(
 ): boolean {
   if (option === false) return false;
   if (option === true || typeof option === 'object') return true;
-  // Auto mode: only inject when public+dynamic keys exist.
+  // Auto mode: only inject when @publicDynamicFilter selects public+dynamic keys.
   return hasPublicDynamicConfigInSchema(cwd);
 }
 

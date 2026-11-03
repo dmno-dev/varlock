@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { ConfigItem, type TypeGenItemInfo } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
-import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
+import { computeFilteredKeys, ParsedItemFilter } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
@@ -135,6 +135,8 @@ export type SerializedEnvGraph = {
     proxyEgress?: ProxyEgressMode;
     /** `@proxyConfig={reload=...}` posture; the proxy resolves `auto` at launch. */
     proxyReload?: 'off' | 'manual' | 'auto';
+    /** `@publicDynamicFilter`, as written. Absent = every public+dynamic item is delivered. */
+    publicDynamicFilter?: string;
   },
   config: Record<string, {
     value: any;
@@ -168,6 +170,8 @@ export type SerializedEnvGraph = {
      * required). `value` is then the default (see lib/frozen-boot-keys).
      */
     boot?: { type: string, typeArgs?: Array<any>, required: boolean };
+    /** false = public+dynamic but not delivered to client code (left out by `@publicDynamicFilter`). Omitted otherwise. */
+    client?: false;
   }>;
   /** Keys that were genuine process.env overrides at this invocation, so nested varlock invocations re-apply exactly those (and nothing else) as overrides. */
   overrideKeys?: Array<string>;
@@ -1273,6 +1277,7 @@ export class EnvGraph {
         // consumers read `isDynamic ?? isSensitive` and the common-case blob stays small
         ...item.isDynamic !== item.isSensitive ? { isDynamic: item.isDynamic } : {},
         ...item.isBootDynamic ? { boot: describeBootItem(item.dataType, item.isRequired) } : {},
+        ...item.isClientExcluded ? { client: false } : {},
       };
     }
     // Only process.env keys that correspond to a config item can actually act as overrides.
@@ -1304,6 +1309,7 @@ export class EnvGraph {
     // Store the raw reload posture (off/manual/auto); the proxy command resolves `auto`
     // at launch from context. Absent = undefined, and the command defaults it to `auto`.
     if (proxyConfig?.reload) serializedGraph.settings.proxyReload = proxyConfig.reload;
+    if (this.publicDynamicFilter) serializedGraph.settings.publicDynamicFilter = this.publicDynamicFilterSource;
 
     // collect all errors into a single nested object
     const errors: SerializedEnvGraphErrors = {};
@@ -1360,6 +1366,30 @@ export class EnvGraph {
    */
   get injectUndefinedAsEmpty(): boolean {
     return this.getRootDec('injectUndefinedAsEmpty')?.resolvedValue ?? false;
+  }
+
+  private _publicDynamicFilter?: { raw: string, filter: ParsedItemFilter };
+  /** `@publicDynamicFilter` as written, if set (static-only, so known before resolution) */
+  get publicDynamicFilterSource(): string | undefined {
+    const resolver = this.getRootDec('publicDynamicFilter')?.decValueResolver;
+    const raw = resolver?.isStatic ? resolver.staticValue : undefined;
+    return typeof raw === 'string' ? raw : undefined;
+  }
+  /**
+   * `@publicDynamicFilter`: limits which public+dynamic items are delivered to client code.
+   * Undefined when not set (or invalid, which the decorator reports), meaning all of them.
+   */
+  get publicDynamicFilter(): ParsedItemFilter | undefined {
+    const raw = this.publicDynamicFilterSource;
+    if (raw === undefined) return undefined;
+    if (this._publicDynamicFilter?.raw !== raw) {
+      try {
+        this._publicDynamicFilter = { raw, filter: new ParsedItemFilter(raw, '@publicDynamicFilter') };
+      } catch {
+        return undefined;
+      }
+    }
+    return this._publicDynamicFilter.filter;
   }
 
   /**
