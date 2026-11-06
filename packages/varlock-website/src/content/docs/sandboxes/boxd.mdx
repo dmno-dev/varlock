@@ -1,0 +1,223 @@
+---
+title: boxd
+description: Using varlock with boxd machines, from resolving and validating env vars for a machine to running the credential proxy so agent machines only hold placeholders.
+---
+
+[boxd](https://boxd.sh/?ref=varlock) runs full Ubuntu machines as KVM microVMs that start in about a second, with a persistent disk, an HTTPS domain per machine, and hibernate, snapshot, and fork. Machines get environment variables from the [machine spec](https://docs.boxd.sh/guides/machine-specs?ref=varlock) the orchestrator creates them with, which makes the orchestrator the natural place for varlock to resolve configuration.
+
+For workloads you trust with credentials, [pass resolved values](#passing-resolved-values). For agentic workloads, use a [broker machine](#credential-proxy-the-broker-machine): one boxd machine runs the [credential proxy](/guides/proxy/) and holds the real values, while agent machines connect through the built-in tunnel with [placeholders](/guides/proxy/rules/#placeholders). boxd's [egress allowlist](https://docs.boxd.sh/guides/egress-allowlist?ref=varlock) is enforced outside the machine, so an agent machine can be pinned to the broker and nothing else.
+
+The examples use varlock **1.24.0** and **`@boxd-sh/sdk` 0.3.0**, with Node 24+ or Bun to run the TypeScript. Pin the proxy version while it is in [preview](/guides/proxy/):
+
+```bash
+npm install varlock@1.24.0 @boxd-sh/sdk@0.3.0
+```
+
+Set `BOXD_API_KEY` in the orchestration environment to a [boxd API key](https://docs.boxd.sh/cli/authentication?ref=varlock#api-keys) (`boxd auth keys`). The key creates and deletes machines and is never sent to a guest.
+
+## Passing resolved values
+
+Run your orchestrator under [`varlock run`](/reference/cli/load-and-run/) (or import [`varlock/auto-load`](/integrations/javascript/)) to resolve and validate its configuration. Pass only the values the workload needs through the spec's `env`:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { Boxd, Machine } from '@boxd-sh/sdk';
+
+const { BOXD_API_KEY, API_KEY } = process.env;
+if (!BOXD_API_KEY || !API_KEY) throw new Error('Set BOXD_API_KEY and API_KEY');
+
+const boxd = new Boxd({ apiKey: BOXD_API_KEY });
+const machine = await boxd.machines.create({
+  spec: Machine.spec().isolated().env({ API_KEY }),
+  deleteAfter: 900,
+});
+try {
+  await boxd.machines.waitUntilReady(machine.id);
+  // The workload can read the real API_KEY from its environment.
+  const result = await boxd.machines.exec(machine.id, { command: 'test -n "$API_KEY"' });
+  if (!result.success) throw new Error('Machine command failed');
+} finally {
+  await boxd.machines.delete(machine.id);
+  await boxd.close();
+}
+```
+
+Spec `env` values reach every `exec` command and login shell in the machine. The real value passes through boxd's API, is readable by code inside the machine, and is kept in the machine's spec, which anyone who can read the machine through the API can see. `isolated()` leaves out the in-machine `boxd` CLI and its account credential, so code in the machine cannot reach your other machines. `deleteAfter` (seconds) makes boxd delete the machine on its own if the orchestrator dies before cleanup.
+
+To hand over the whole resolved env in one value, pass a blob instead of enumerating variables:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { execSync } from 'node:child_process';
+import { Boxd, Machine } from '@boxd-sh/sdk';
+
+const { BOXD_API_KEY } = process.env;
+if (!BOXD_API_KEY) throw new Error('Set BOXD_API_KEY');
+
+// One blob with the resolved env, scoped by --filter to what this machine
+// should see.
+const envBlob = execSync(
+  'varlock load --format json-full --compact --filter "API_KEY"',
+  { encoding: 'utf8' },
+).trim();
+
+const boxd = new Boxd({ apiKey: BOXD_API_KEY });
+const machine = await boxd.machines.create({
+  spec: Machine.spec().isolated().env({
+    // A Node app that imports varlock hydrates process.env, the ENV object,
+    // and log redaction from the blob. No .env files in the machine.
+    __VARLOCK_ENV: envBlob,
+    _VARLOCK_USE_INJECTED_ENV: '1',
+  }),
+  deleteAfter: 900,
+});
+```
+
+Consuming the blob needs either the `varlock` npm package (Node 22.3+) or the varlock CLI in the machine (`varlock run -- <command>` injects plain env vars from the blob, for any workload). See [`_VARLOCK_USE_INJECTED_ENV`](/reference/reserved-variables/#_varlock_use_injected_env).
+
+## Credential proxy: the broker machine
+
+One machine runs `varlock proxy start --expose`. The machine's [HTTPS domain](https://docs.boxd.sh/guides/proxies?ref=varlock) carries the WebSocket tunnel, and agent machines connect with `varlock proxy run --url`. The command fetches the broker's child-view environment and public CA certificates, then wires a loopback proxy for the workload. The real API key and CA private key stay in the broker.
+
+```text
+[agent machine]                         [broker machine]
+  varlock proxy run --url  -- wss -->     proxy :8080 + tunnel
+  (egress pinned to the broker)           (<name>.boxd.sh)
+```
+
+### Schema setup
+
+Create a broker schema containing only the values your agents need:
+
+```env-spec title=".env.schema"
+# @proxyConfig={egress="strict"}
+# ---
+
+# @sensitive @required
+# @proxy(domain="api.example.com", path="/v1/**", substituteIn=["header:authorization"])
+# @placeholder=vlk_placeholder_api_key
+API_KEY=
+```
+
+`API_KEY` and `api.example.com` stand for your workload's credential and API host. Replace the domain and path with the destinations the workload needs. Supply the real value through the orchestrator's environment, an uncommitted `.env.local`, or your existing [secret resolver](/guides/plugins/). The example below only checks placeholder delivery, so a non-secret test value is enough to try it.
+
+[`egress="strict"`](/guides/proxy/rules/#egress-modes) blocks proxied requests that do not match a rule. A narrow `@proxy` rule alone does not do that: egress is permissive by default. The explicit [`@placeholder`](/guides/proxy/rules/#placeholders) makes the handoff easy to check; use a format your client accepts when adapting the example.
+
+### Start the broker and agent
+
+Save this alongside the schema as a separate `orchestrate.ts`. The orchestrator resolves `API_KEY` once and passes it only to the broker:
+
+```ts title="orchestrate.ts"
+import 'varlock/auto-load';
+import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { Boxd, Machine } from '@boxd-sh/sdk';
+
+const { BOXD_API_KEY, API_KEY } = process.env;
+if (!BOXD_API_KEY || !API_KEY) throw new Error('Set BOXD_API_KEY and API_KEY');
+
+const boxd = new Boxd({ apiKey: BOXD_API_KEY });
+const proxyToken = randomUUID();
+const schema = readFileSync('.env.schema', 'utf8');
+const VARLOCK = '/home/boxd/.local/bin/varlock';
+const machineIds: string[] = [];
+
+async function run(machineId: string, command: string) {
+  const result = await boxd.machines.exec(machineId, { command, timeout: 300_000 });
+  if (!result.success) {
+    throw new Error(`Command failed in machine ${machineId}: ${result.stderr}`);
+  }
+  return result;
+}
+
+async function createMachine(env: Record<string, string>) {
+  // isolated: no in-machine boxd CLI or account credential, no private network.
+  // deleteAfter: boxd deletes the machine itself if cleanup never runs.
+  const machine = await boxd.machines.create({
+    spec: Machine.spec().isolated().env(env),
+    deleteAfter: 900,
+  });
+  machineIds.push(machine.id);
+  await boxd.machines.waitUntilReady(machine.id);
+  // The standalone binary does not depend on the guest's Node version.
+  await run(machine.id,
+    'curl -fsSL https://varlock.dev/install.sh -o /tmp/install-varlock.sh'
+    + ' && sh /tmp/install-varlock.sh --version=1.24.0 --dir=/home/boxd/.local/bin');
+  return machine.id;
+}
+
+try {
+  const brokerId = await createMachine({ API_KEY, VARLOCK_PROXY_TOKEN: proxyToken });
+  await boxd.machines.fs.write(brokerId, '/home/boxd/proj/.env.schema', schema);
+  // exec returns once the shell exits; setsid + nohup keep the proxy running.
+  await run(brokerId,
+    `setsid nohup ${VARLOCK} proxy start --path /home/boxd/proj --expose --port 8080`
+    + ' > /home/boxd/proxy.log 2>&1 < /dev/null &');
+  // A bare GET returns 400; this checks that the listener is accepting connections.
+  await run(brokerId,
+    "until curl -s -o /dev/null --proxy '' http://127.0.0.1:8080; do sleep 0.2; done");
+
+  // Route the machine's HTTPS domain to the proxy port. Bot protection would
+  // answer the tunnel's WebSocket upgrade with a browser check, so turn it off.
+  await boxd.machines.proxies.setPort(brokerId, 8080);
+  await boxd.machines.setBotProtection(brokerId, 'off');
+  const [route] = await boxd.machines.proxies.list(brokerId);
+  const brokerHost = route.domain;
+
+  const agentId = await createMachine({
+    VARLOCK_PROXY_TOKEN: proxyToken,
+    VARLOCK_PROXY_URL: `wss://${brokerHost}`,
+  });
+  // From here on the agent can reach the broker and nothing else.
+  await boxd.machines.setEgressAllow(agentId, [brokerHost]);
+
+  const result = await run(agentId, String.raw`
+    ${VARLOCK} proxy run --url "$VARLOCK_PROXY_URL" -- sh -c '
+      test "$API_KEY" = vlk_placeholder_api_key && echo "Placeholder received"
+    '
+  `);
+  console.log(result.stdout.trim()); // Placeholder received
+} finally {
+  // Wait for every deletion request, even if one fails.
+  const cleanup = await Promise.allSettled(machineIds.map((id) => boxd.machines.delete(id)));
+  cleanup.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      console.error(`Cleanup failed; delete machine ${machineIds[index]} manually`);
+      process.exitCode = 1;
+    }
+  });
+  await boxd.close();
+}
+```
+
+Run with `node orchestrate.ts` or `bun run orchestrate.ts`. The check confirms placeholder delivery without calling another API. Once your workload is installed in the agent machine, replace the `sh -c` check with its command (install it before the `setEgressAllow` call, while the machine still has open egress). The agent needs no `.env` files or resolver credentials: `proxy run --url` adopts the broker's placeholder environment over the authenticated tunnel.
+
+The broker's domain is public. Varlock's data-plane token authenticates the tunnel, and the default [bot protection](https://docs.boxd.sh/guides/bot-protection?ref=varlock) check has to be off on the broker, because `proxy run --url` cannot pass a browser check (the tunnel handshake fails with it on). boxd terminates the outer TLS and can see that token and the bootstrap environment; the broker and boxd's infrastructure are inside your trust boundary.
+
+Only [proxy-aware clients](/guides/proxy/running/#client-compatibility) use the injected proxy and CA settings. curl honors them, and `proxy run --url` sets `NODE_USE_ENV_PROXY=1` so Node 24+ `fetch` does too. A client that ignores them cannot reach anything once the agent's egress is pinned to the broker, so it fails rather than sending data out directly.
+
+### Egress and trust model
+
+`setEgressAllow` is what turns "the agent holds placeholders" into "the agent can talk to nothing but varlock policy". boxd enforces the allowlist outside the machine, so a process with root inside cannot lift it, and DNS lookups of names off the list are refused. A few details matter:
+
+- **Pin the exact broker host.** Each machine's domain is `<name>.boxd.sh` (or `<name>.<region>.boxd.sh` outside the default region), which is why the example reads it from `proxies.list()`. Do not allowlist `*.boxd.sh`: that would open every boxd machine's public domain.
+- **Clamp after provisioning.** Once pinned, the agent can no longer reach `varlock.dev` or package registries. Install first, then call `setEgressAllow`. To skip the open window, prepare a machine with varlock and your agent installed, save it as a [snapshot](https://docs.boxd.sh/guides/snapshots?ref=varlock), and create agents with `Machine.spec().from(snapshot('agent-base')).egress(brokerHost)` (`snapshot` is exported by `@boxd-sh/sdk`), so they have the allowlist from their first command. A machine restored from an isolated machine's snapshot stays isolated.
+- **Keep agents isolated.** A machine created without `isolated()` carries an in-machine `boxd` CLI that acts as the machine's owner, so code in it could exec into the broker and read its environment. `isolated()` leaves that CLI, the account credential, and the private network out.
+
+The broker token is shared by the session's clients and authorizes whatever its rules permit. Use separate brokers for workloads with different permissions. Keep non-sensitive bootstrap values suitable for the guest, and avoid [`@proxy=passthrough`](/guides/proxy/rules/#controlling-what-the-agent-sees) for credentials. Bind secrets only to APIs you trust not to return them; response scrubbing has [limits](/guides/proxy/#limitations).
+
+For a longer-lived broker, [`varlock proxy audit`](/guides/proxy/running/#auditing) (run in `/home/boxd/proj` through `boxd.machines.exec`) shows requests and policy decisions. Manage its lifetime explicitly. Machines [hibernate](https://docs.boxd.sh/guides/suspend-resume?ref=varlock) after a period without network traffic; a hibernated broker keeps its memory and processes, and an agent's next tunnel connection to its HTTPS domain wakes it. Leave out `deleteAfter` for a broker that should outlive one run, and [`--persist-ca`](/guides/proxy/running/#pinning-the-port-and-ca-location), with `--cert-dir`, to keep CA trust across a restart on the broker only.
+
+### Cleanup
+
+`proxy run --url` closes its loopback listener and removes its temporary CA files when the child exits. The example deletes both disposable machines in `finally`, including after setup failures. `deleteAfter` deletes them if the orchestrator dies before cleanup.
+
+If you keep the broker and delete only an agent, its token remains valid. Restart the broker with a fresh token to revoke access, and give it only to the clients that should continue.
+
+## Other topologies
+
+The same agent-side command reaches a broker on your own machine or existing infrastructure. Keep the broker separate from the agent and use a reachable URL that carries WebSockets; use `wss://` across the public internet, and put that host in the agent's egress allowlist. See the [topologies overview](/sandboxes/overview/#topologies) and [remote proxy mode](/guides/proxy/running/#remote-proxy-start---expose--proxy-run---url).
+
+:::note[Compared to boxd host-bound secrets]
+boxd can also [bind a secret to hosts](https://docs.boxd.sh/guides/env-secrets?ref=varlock#host-bound-secrets): the machine holds a `bxds_...` placeholder and boxd substitutes the real value into HTTPS requests to those hosts. That keeps the key out of the agent without a broker, and it composes with the setup above. The varlock proxy adds resolution from your existing secret manager through [plugins](/guides/plugins/), per-request rules on path and method, [strict egress](/guides/proxy/rules/#egress-modes), your own audit log, and one `.env.schema` that works the same on every platform.
+:::
