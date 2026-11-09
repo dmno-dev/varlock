@@ -15,6 +15,7 @@ smoke-test-lang-rust/src/env.rs
 smoke-test-lang-php/Env.php
 smoke-test-lang-java/src/main/java/Env.java
 smoke-test-lang-csharp/Env.cs
+smoke-test-lang-csharp-encrypted/Env.cs
 
 # Language build artifacts (from compile-run smoke tests)
 smoke-test-lang-rust/target/
@@ -22,6 +23,8 @@ smoke-test-lang-rust/Cargo.lock
 smoke-test-lang-java/target/
 smoke-test-lang-csharp/bin/
 smoke-test-lang-csharp/obj/
+smoke-test-lang-csharp-encrypted/bin/
+smoke-test-lang-csharp-encrypted/obj/
 __pycache__/
 
 # Test artifacts
