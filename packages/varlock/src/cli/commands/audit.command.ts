@@ -5,7 +5,7 @@ import ansis from 'ansis';
 import { FileBasedDataSource } from '../../env-graph';
 import { CliExitError } from '../helpers/exit-error';
 import { parseRegexLikeString } from '../../env-graph/lib/resolver';
-import { globToRegExp } from '../../env-graph/lib/glob';
+import { compileGlob, type GlobMatcher } from '../../env-graph/lib/glob';
 import { loadVarlockEnvGraph } from '../../lib/load-graph';
 import { checkForNoEnvFiles, checkForSchemaErrors } from '../helpers/error-checks';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
@@ -212,9 +212,9 @@ async function getCustomAuditIgnorePaths(envGraph: any): Promise<Array<string>> 
  * scanner doesn't parse strings, so `"set process.env.FOO first"` in a help message
  * counts as a reference to FOO.
  */
-async function getCustomAuditIgnoreKeys(envGraph: any): Promise<Array<RegExp>> {
+async function getCustomAuditIgnoreKeys(envGraph: any): Promise<Array<GlobMatcher>> {
   const patterns = await getRootDecStringArgs(envGraph, 'auditIgnoreKeys');
-  return patterns.map((pattern) => globToRegExp(pattern));
+  return patterns.map((pattern) => compileGlob(pattern));
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {

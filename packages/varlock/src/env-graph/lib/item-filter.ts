@@ -1,5 +1,5 @@
 import { SchemaError } from './errors';
-import { globToRegExp } from './glob';
+import { compileGlob, type GlobMatcher } from './glob';
 
 /**
  * Shared item-selection language used by the CLI `--filter` flag (`varlock load`/`run`) and the
@@ -51,12 +51,12 @@ export type ItemFilterOptions = {
   tagSelectorsUnsupportedTip?: string;
 };
 
-type FilterToken = | { negate: boolean, kind: 'key', regex: RegExp }
+type FilterToken = | { negate: boolean, kind: 'key', glob: GlobMatcher }
   | { negate: boolean, kind: 'decorator', name: string }
   | { negate: boolean, kind: 'tag', tag: string };
 
 function tokenMatches(item: FilterableItem, token: FilterToken): boolean {
-  if (token.kind === 'key') return token.regex.test(item.key);
+  if (token.kind === 'key') return token.glob.test(item.key);
   if (token.kind === 'decorator') return DECORATOR_PREDICATES[token.name](item);
   return item.tags.includes(token.tag);
 }
@@ -132,7 +132,7 @@ export class ParsedItemFilter {
         }
         return { negate, kind: 'tag' as const, tag };
       }
-      return { negate, kind: 'key' as const, regex: globToRegExp(token) };
+      return { negate, kind: 'key' as const, glob: compileGlob(token) };
     });
     this.usesDecoratorSelector = this.tokens.some((t) => t.kind === 'decorator');
     this.usesTagSelector = this.tokens.some((t) => t.kind === 'tag');
