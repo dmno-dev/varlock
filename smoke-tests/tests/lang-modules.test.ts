@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { execSync } from 'node:child_process';
 
-import { varlockRun } from '../helpers/run-varlock';
+import { runVarlock, varlockRun } from '../helpers/run-varlock';
 
 /** Is a CLI tool available on PATH? Used to skip a language test when its toolchain isn't installed. */
 function hasTool(cmd: string): boolean {
@@ -61,7 +61,7 @@ describe('generated language modules compile and run', () => {
   }, 300_000);
 
   test.skipIf(!hasTool('dotnet'))('C# module decrypts an @encryptInjectedEnv blob', () => {
-    const result = varlockRun(['dotnet', 'run', '--nologo'], { cwd: 'smoke-test-lang-csharp-encrypted' });
+    const result = runVarlock(['run', '--inject', 'blob', '--', 'dotnet', 'run', '--nologo'], { cwd: 'smoke-test-lang-csharp-encrypted' });
     expect(result.output).toContain('OK');
     expect(result.exitCode).toBe(0);
   }, 300_000);
