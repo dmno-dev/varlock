@@ -933,18 +933,23 @@ export class EnvGraph {
     // - false = not yet started
     // - items are removed when completed
     const itemsToResolveStatus = _.fromPairs(keysToResolve.map((key) => [key, false]));
+    // kept as a counter, because counting the object's keys after every item is O(n^2)
+    let itemsRemaining = Object.keys(itemsToResolveStatus).length;
 
     // code is a bit awkward here because we are resolving items in parallel
     // and need to continue resolving dependent items as each finishes
 
     const deferred = new Promise<void>((resolve, reject) => {
       const markItemCompleted = (itemKey: string) => {
-        delete itemsToResolveStatus[itemKey];
+        if (itemKey in itemsToResolveStatus) {
+          delete itemsToResolveStatus[itemKey];
+          itemsRemaining--;
+        }
         if (reverseAdjList[itemKey]) {
           // eslint-disable-next-line no-use-before-define
           reverseAdjList[itemKey].forEach((depKey) => startResolveItem(depKey));
         }
-        if (_.keys(itemsToResolveStatus).length === 0) resolve();
+        if (itemsRemaining === 0) resolve();
       };
 
       const resolveItem = async (itemKey: string) => {
