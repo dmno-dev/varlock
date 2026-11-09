@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { levenshtein } from '../../../lib/suggest-closest';
 import {
-  levenshtein,
   suggestClosest,
   commandPathFromArgs,
   isArgError,
