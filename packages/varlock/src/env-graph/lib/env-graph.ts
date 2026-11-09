@@ -233,12 +233,13 @@ export class EnvGraph {
   /**
    * `shape` builds the graph for tools that only inspect a schema (type checkers, language
    * servers, CI linters): only pure resolvers run, root decorators are never executed, no cache
-   * store is created, plugins are never downloaded, and process.env is ignored. Anything skipped
-   * is recorded in `shapeSkipped`.
+   * store is created, plugins are never downloaded, and process.env is ignored. A file that is only
+   * loaded because its `enabled` or `@disable` condition could not be evaluated never loads a plugin.
+   * Anything skipped is recorded in `shapeSkipped`.
    */
   readonly mode: 'default' | 'shape' = 'default';
   shapeSkipped: Array<{
-    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload' | 'codegenWrite',
+    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload' | 'pluginLoad' | 'codegenWrite',
     name: string,
     /** the item being resolved when a resolver was skipped, when known */
     itemKey?: string,
@@ -822,7 +823,7 @@ export class EnvGraph {
         await this.resolveEnvValues([...deps]);
         // shape mode still resolves the decorator's deps above (only pure resolvers run), which also
         // re-validates them with their final metadata; it only skips the side-effecting execute()
-        if (this.mode === 'shape') {
+        if (this.mode === 'shape' && !decInstance.runsInShapeLoad) {
           this.shapeSkipped.push({ kind: 'rootDecoratorExecute', name: decInstance.name });
           continue;
         }

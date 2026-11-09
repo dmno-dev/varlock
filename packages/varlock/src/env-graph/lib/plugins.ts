@@ -503,8 +503,13 @@ async function initPluginFromLocalPath(localPath: string) {
   // If it's a directory, load package.json and use exports field
   } else if (stats.isDirectory()) {
     const pkgJsonPath = path.join(localPath, 'package.json');
-    if (!(await pathExists(pkgJsonPath))) {
+    const pkgJsonStat = await fs.stat(pkgJsonPath).catch(() => undefined);
+    if (!pkgJsonStat) {
       throw new SchemaError('Plugin is missing package.json file');
+    }
+    // reading a named pipe or a device would block forever
+    if (!pkgJsonStat.isFile()) {
+      throw new SchemaError(`Plugin package.json is not a regular file: ${pkgJsonPath}`);
     }
 
     const packageJsonContents = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
@@ -806,6 +811,17 @@ export async function processPluginInstallDecorators(dataSource: EnvGraphDataSou
       let pluginSrcPath: string | undefined;
       try {
         const installPluginArgs = await pluginDecorator.resolve();
+        // shape mode: a normal load might not load this file at all (its `enabled` or `@disable` condition
+        // could not be evaluated), and loading a plugin runs its code, so the plugin is left out
+        if (graph.mode === 'shape' && dataSource.isPresenceUnknownInShapeLoad) {
+          const pluginName = String(installPluginArgs?.arr?.[0]);
+          graph.shapeSkipped.push({ kind: 'pluginLoad', name: pluginName });
+          pluginDecorator._errors.push(new SchemaError(
+            `Plugin "${pluginName}" was not loaded: shape mode cannot tell whether this file is enabled`,
+            { isWarning: true, location: getErrorLocation(dataSource, pluginDecorator) },
+          ));
+          continue;
+        }
         const pluginSourceDescriptor = installPluginArgs.arr[0];
         if (!_.isString(pluginSourceDescriptor)) {
           throw new SchemaError('Bad @plugin - must provide a string source location');

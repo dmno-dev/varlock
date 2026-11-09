@@ -103,7 +103,21 @@ export abstract class EnvGraphDataSource {
     importFilter?: KeyFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
+    /** @internal shape mode: `enabled` could not be evaluated, so the file was imported without knowing if it is */
+    enabledUnknownInShapeLoad?: boolean,
   };
+  /** @internal shape mode: `@disable` could not be evaluated, so the source was kept without knowing if it is */
+  _disableUnknownInShapeLoad = false;
+  /**
+   * @internal shape mode: this source, or one that imports it, is only in the graph because the condition
+   * that enables or disables it could not be evaluated. A normal load might skip it entirely, so nothing
+   * in it may run code (see processPluginInstallDecorators).
+   */
+  get isPresenceUnknownInShapeLoad(): boolean {
+    return this._disableUnknownInShapeLoad
+      || !!this.importMeta?.enabledUnknownInShapeLoad
+      || !!this.parent?.isPresenceUnknownInShapeLoad;
+  }
   get isImport(): boolean {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
   }
@@ -354,7 +368,10 @@ export abstract class EnvGraphDataSource {
       let disabledVal = await disabledDec.resolve();
       // shape mode: a condition built from a skipped resolver is unknown, so keep the source rather than
       // dropping its items from the graph
-      if (this.graph.mode === 'shape' && disabledDec.decValueResolver?.resultUnknownInShapeLoad) disabledVal = false;
+      if (this.graph.mode === 'shape' && disabledDec.decValueResolver?.resultUnknownInShapeLoad) {
+        disabledVal = false;
+        this._disableUnknownInShapeLoad = true;
+      }
       if (!_.isBoolean(disabledVal)) {
         this._errors.push(new LoadingError('expected @disable to be boolean value'));
         return;
@@ -603,7 +620,12 @@ export abstract class EnvGraphDataSource {
           // Used by type generation to identify env-dependent sources
           const isConditionallyEnabled = !!enabledResolver && !enabledResolver.isStatic;
 
-          const importMeta = { isImport: true, importFilter, isConditionallyEnabled };
+          const importMeta = {
+            isImport: true,
+            importFilter,
+            isConditionallyEnabled,
+            ...enabledUnknown && { enabledUnknownInShapeLoad: true },
+          };
 
           // Check if missing imports should be allowed (defaults to false if not specified)
           const allowMissing = importArgs.obj.allowMissing ?? false;

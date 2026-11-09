@@ -870,6 +870,8 @@ export class ConfigItem {
   }
   /** set once the value resolver has run, so dependents don't re-walk the resolver tree on every read */
   private _valueUnknownInShapeLoad = false;
+  /** @internal shape mode: a `@setValuesBulk` whose data could not be read might set this item */
+  _maybeSetByUnknownBulkInShapeLoad = false;
 
   /**
    * Record the error for a required item with no value. A `@dynamic=boot` item is exempt when
@@ -1137,6 +1139,11 @@ export class ConfigItem {
     if (this.resolutionError) return;
 
     this.isResolved = true;
+
+    // shape mode: bulk data we could not read might fill this item, so empty means unknown here too
+    if (this._maybeSetByUnknownBulkInShapeLoad && (this.resolvedRawValue === undefined || this.resolvedRawValue === '')) {
+      this._valueUnknownInShapeLoad = true;
+    }
 
     // shape mode: a value built from a skipped resolver is unknown. Any value we computed is partial
     // (e.g. `concat("https://", $UNKNOWN)`), so don't coerce or validate it and leave it unset

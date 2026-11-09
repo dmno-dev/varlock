@@ -13,7 +13,9 @@ import {
 } from './resolver';
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
-import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
+import {
+  parseKeyFilterArgs, applyKeyFilter, keyMatchesFilter, type KeyFilter,
+} from './key-filter';
 import { parseDuration } from '../../lib/duration';
 import {
   BUILT_IN_TRANSFORM_SCHEME_SPECS, PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS,
@@ -68,6 +70,10 @@ export abstract class DecoratorInstance {
   /** Purely informational — excluded from the schema fingerprint (see `inert`). */
   get isInert() {
     return !!this.decoratorDef?.inert;
+  }
+  /** @internal whether an EnvGraph in `shape` mode may call execute(), see RootDecoratorDef.runsInShapeLoad */
+  get runsInShapeLoad(): boolean {
+    return !!(this.decoratorDef as RootDecoratorDef | undefined)?.runsInShapeLoad;
   }
 
   private processed = false;
@@ -346,6 +352,12 @@ export type RootDecoratorDef<Processed = any> = {
   objectValueExample?: string;
   process?: (decoratorValue: Resolver) => (Processed | Promise<Processed>);
   execute?: (executeInput: Processed) => void | Promise<void>;
+  /**
+   * Set when `execute()` only resolves its own args and edits the graph, so an EnvGraph in `shape` mode can
+   * run it (the graph skips any arg resolver that reaches outside). It must cope with those args being
+   * unknown: see `Resolver.resultUnknownInShapeLoad`. Every other root decorator is never executed there.
+   */
+  runsInShapeLoad?: boolean;
   useFnArgsResolver?: boolean,
   /**
    * Skip value-resolver creation entirely - for decorators whose raw parsed value is
@@ -825,6 +837,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
   {
     name: 'setValuesBulk',
     isFunction: true,
+    runsInShapeLoad: true,
     process(argsVal) {
       if (!argsVal.arrArgs || argsVal.arrArgs.length === 0) {
         throw new SchemaError('@setValuesBulk requires at least one argument - the data resolver');
@@ -880,10 +893,22 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
         keyFilter?: KeyFilter;
       };
 
+      // shape mode: when the data (or whether it applies at all) comes from a skipped resolver, we cannot know
+      // which items it sets. Every item it could set is marked, so an empty one reads as unknown, not unset.
+      // Items that only `createMissing` would add are not in the graph
+      const skipAsUnknownInShapeLoad = () => {
+        graph.shapeSkipped.push({ kind: 'rootDecoratorExecute', name: 'setValuesBulk' });
+        for (const key of Object.keys(graph.configSchema)) {
+          if (keyFilter && !keyMatchesFilter(key, keyFilter)) continue;
+          graph.configSchema[key]._maybeSetByUnknownBulkInShapeLoad = true;
+        }
+      };
+
       // check enabled before resolving data - important so disabled sources don't trigger data fetching
       const enabledResolver = argsResolver.objArgs?.enabled;
       if (enabledResolver !== undefined) {
         const enabledValue = await enabledResolver.resolve();
+        if (graph.mode === 'shape' && enabledResolver.resultUnknownInShapeLoad) return skipAsUnknownInShapeLoad();
         if (!_.isBoolean(enabledValue)) {
           throw new SchemaError('@setValuesBulk: enabled must be a boolean');
         }
@@ -892,6 +917,7 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
 
       // resolve the args
       const resolved = await argsResolver.resolve() as { arr: Array<any>, obj: Record<string, any> };
+      if (graph.mode === 'shape' && argsResolver.resultUnknownInShapeLoad) return skipAsUnknownInShapeLoad();
       const dataString = resolved.arr[0];
       const format = resolved.obj?.format as string | undefined;
       const createMissing = resolved.obj?.createMissing ?? false;

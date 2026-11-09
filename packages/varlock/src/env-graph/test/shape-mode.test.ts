@@ -470,6 +470,115 @@ describe('EnvGraph shape mode', () => {
   });
 
   // a file that is not a regular file (a named pipe) is refused instead of hanging, however it is reached
+  describe('a file kept only because its condition is unknown', () => {
+    let dir: string;
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-shape-maybe-'));
+      // a plugin that leaves a marker when its module code runs
+      fs.writeFileSync(path.join(dir, 'marker-plugin.cjs'), "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'PLUGIN_RAN'), '');\n");
+    });
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+    const pluginRan = () => fs.existsSync(path.join(dir, 'PLUGIN_RAN'));
+    const loadDir = async (mode: 'default' | 'shape') => {
+      const g = new EnvGraph({ mode });
+      await g.setRootDataSource(new DotEnvFileDataSource(path.join(dir, '.env.schema')));
+      await g.finishLoad();
+      return g;
+    };
+
+    test('an @import that a normal load skips never loads its plugin', async () => {
+      fs.writeFileSync(path.join(dir, '.env.schema'), '# @import(./.env.extra, enabled=eq(exec("echo no"), "yes"))\n# ---\nROOT=1\n');
+      fs.writeFileSync(path.join(dir, '.env.extra'), '# @plugin(./marker-plugin.cjs)\n# ---\nEXTRA=1\n');
+
+      const defaultGraph = await loadDir('default');
+      expect(Object.keys(defaultGraph.configSchema)).toEqual(['ROOT']);
+      expect(pluginRan()).toBe(false); // a normal load never imports the file here
+
+      const g = await loadDir('shape');
+      expect(Object.keys(g.configSchema).sort()).toEqual(['EXTRA', 'ROOT']); // the items are kept
+      expect(pluginRan()).toBe(false);
+      expect(g.shapeSkipped).toContainEqual({ kind: 'pluginLoad', name: './marker-plugin.cjs' });
+    });
+
+    test('a file with an unknown @disable never loads its plugin, nor does a file it imports', async () => {
+      fs.writeFileSync(path.join(dir, '.env.schema'), '# @import(./.env.extra)\n# ---\nROOT=1\n');
+      fs.writeFileSync(path.join(dir, '.env.extra'), '# @disable=eq(exec("echo yes"), "yes")\n# @import(./.env.nested)\n# ---\nEXTRA=1\n');
+      fs.writeFileSync(path.join(dir, '.env.nested'), '# @plugin(./marker-plugin.cjs)\n# ---\nNESTED=1\n');
+
+      const g = await loadDir('shape');
+      expect(Object.keys(g.configSchema).sort()).toEqual(['EXTRA', 'NESTED', 'ROOT']);
+      expect(pluginRan()).toBe(false);
+    });
+
+    test('a file whose condition is known still loads its plugin', async () => {
+      fs.writeFileSync(path.join(dir, '.env.schema'), '# @import(./.env.extra, enabled=eq("yes", "yes"))\n# ---\nROOT=1\n');
+      fs.writeFileSync(path.join(dir, '.env.extra'), '# @plugin(./marker-plugin.cjs)\n# ---\nEXTRA=1\n');
+      await loadDir('shape');
+      expect(pluginRan()).toBe(true);
+    });
+  });
+
+  describe('@setValuesBulk', () => {
+    const summary = (g: EnvGraph) => Object.fromEntries(Object.entries(g.configSchema).map(([key, item]) => [
+      key,
+      item.errors.some((e) => !e.isWarning) ? `error: ${item.errors.find((e) => !e.isWarning)!.message}` : item.resolvedValue,
+    ]));
+
+    test('data written in the schema is applied, the same as in default mode', async () => {
+      const schema = outdent`
+        # @setValuesBulk('{"API_KEY":"abc","ADDED":"new"}', format=json, createMissing=true)
+        # @defaultSensitive=false
+        # ---
+        # @required
+        API_KEY=
+        # @required
+        OTHER=
+      `;
+      const expected = {
+        API_KEY: 'abc',
+        OTHER: 'error: Value is required but is currently empty',
+        ADDED: 'new',
+      };
+      expect(summary((await load(schema, 'default', { resolve: true })).g)).toEqual(expected); // control
+      expect(summary((await load(schema, 'shape', { resolve: true })).g)).toEqual(expected);
+    });
+
+    test('data from a skipped resolver leaves the items it could set unknown, not missing', async () => {
+      const schema = outdent`
+        # @setValuesBulk(exec("echo '{}'"), format=json, pick=[API_*])
+        # @defaultSensitive=false
+        # ---
+        # @required
+        API_KEY=
+        # @required
+        OTHER=
+        API_URL=https://example.com
+      `;
+      const { g } = await load(schema, 'shape', { resolve: true });
+      expect(g.configSchema.API_KEY.isValueUnknownInShapeLoad).toBe(true);
+      expect(g.configSchema.API_KEY.errors).toEqual([]);
+      // not matched by pick, so the bulk data cannot fill it
+      expect(g.configSchema.OTHER.errors.map((e) => e.message)).toEqual(['Value is required but is currently empty']);
+      // an item that already has a value keeps it
+      expect(g.configSchema.API_URL.resolvedValue).toBe('https://example.com');
+      expect(g.shapeSkipped).toContainEqual({ kind: 'rootDecoratorExecute', name: 'setValuesBulk' });
+    });
+
+    test('an unknown enabled= condition leaves the items unknown too', async () => {
+      const schema = outdent`
+        # @setValuesBulk('{"API_KEY":"abc"}', format=json, enabled=eq(exec("echo yes"), "yes"))
+        # ---
+        # @required
+        API_KEY=
+      `;
+      const { g } = await load(schema, 'shape', { resolve: true });
+      expect(g.configSchema.API_KEY.isValueUnknownInShapeLoad).toBe(true);
+      expect(g.configSchema.API_KEY.errors.filter((e) => !e.isWarning)).toEqual([]);
+    });
+  });
+
   describe.skipIf(process.platform === 'win32')('non-regular files', () => {
     const allErrors = (g: EnvGraph) => g.sortedDataSources.flatMap((s) => s.errors.map((e) => e.message)).join('\n');
     let dir: string;
@@ -498,6 +607,20 @@ describe('EnvGraph shape mode', () => {
       const g = new EnvGraph({ mode: 'shape' });
       await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
       expect(allErrors(g)).toMatch(/Not a regular file: .*child.*\.env\.schema/);
+    }, 5000);
+
+    test.each(['default', 'shape'] as const)('a plugin whose package.json is a pipe (%s mode)', async (mode) => {
+      fs.mkdirSync(path.join(dir, 'my-plugin'));
+      execFileSync('mkfifo', [path.join(dir, 'my-plugin', 'package.json')]);
+      const schemaPath = path.join(dir, '.env.schema');
+      fs.writeFileSync(schemaPath, '# @plugin(./my-plugin)\n# ---\nA=1\n');
+      const g = new EnvGraph({ mode });
+      await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
+      await g.finishLoad();
+      const pluginErrors = g.sortedDataSources.flatMap(
+        (s) => s.rootDecorators.flatMap((d) => d.schemaErrors.map((e) => e.message)),
+      );
+      expect(pluginErrors.join('\n')).toMatch(/package\.json is not a regular file/);
     }, 5000);
 
     test('the root schema itself', async () => {
