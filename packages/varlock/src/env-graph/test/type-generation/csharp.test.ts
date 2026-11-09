@@ -24,7 +24,8 @@ describe('generateCsharpEnvSrc', () => {
     expect(src).toContain('public static Env Load()');
     expect(src).toContain('Environment.GetEnvironmentVariable("__VARLOCK_ENV")');
     expect(src).toContain('__VARLOCK_ENV is not set');
-    expect(src).toContain('is encrypted');
+    expect(src).toContain('AesGcm');
+    expect(src).toContain('Environment.GetEnvironmentVariable("_VARLOCK_ENV_KEY")');
     expect(src).toContain('missing required key DB_HOST');
     // object initializer must use Prop = Prop (bare { Prop, } is a collection initializer)
     expect(src).toContain('DbHost = DbHost,');

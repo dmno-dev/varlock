@@ -59,4 +59,10 @@ describe('generated language modules compile and run', () => {
     expect(result.output).toContain('OK');
     expect(result.exitCode).toBe(0);
   }, 300_000);
+
+  test.skipIf(!hasTool('dotnet'))('C# module decrypts an @encryptInjectedEnv blob', () => {
+    const result = varlockRun(['dotnet', 'run', '--nologo'], { cwd: 'smoke-test-lang-csharp-encrypted' });
+    expect(result.output).toContain('OK');
+    expect(result.exitCode).toBe(0);
+  }, 300_000);
 });
