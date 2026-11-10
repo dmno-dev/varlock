@@ -25,6 +25,16 @@ import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
 import { REGEX_LIKE_STRING, parseRegexLikeString } from './regex-like-string';
+import { getResolutionContext } from './resolution-context';
+
+/**
+ * @internal shape mode: errors a resolver threw while one of its inputs was unknown. Such an error is about a
+ * partial value (e.g. `domainFromUrl()` of a half-built url), not a real failure. Noted where the error is
+ * first thrown, so an error from a part of the expression that was fully known stays real.
+ */
+export const errorsFromUnknownInput = new WeakSet<object>();
+/** errors already seen by a resolver, so only the innermost one decides the above */
+const errorsSeenInShapeLoad = new WeakSet<object>();
 
 const execAsync = promisify(exec);
 
@@ -269,7 +279,6 @@ export class Resolver {
   async resolve() {
     const graph = this.envGraph ?? this.dataSource?.graph;
     if (graph?.mode === 'shape' && !this.def.pure) {
-      const { getResolutionContext } = await import('./resolution-context');
       const item = getResolutionContext()?.currentItem;
       graph.shapeSkipped.push({ kind: 'resolver', name: this.def.name, ...item && { itemKey: item.key } });
       this._unknownInShapeLoad = true;
@@ -279,11 +288,9 @@ export class Resolver {
       const resolvedValue = await this.def.resolve.call(this, this.meta);
       return resolvedValue;
     } catch (err) {
-      // shape mode: note, where the error was first thrown, whether this resolver's inputs were unknown. Only
-      // then is it an error about a partial value (e.g. `domainFromUrl()` of a half-built url); an error from a
-      // part of the expression that was fully known is real
-      if (graph?.mode === 'shape' && err && typeof err === 'object' && !('_unknownInputInShapeLoad' in err)) {
-        (err as any)._unknownInputInShapeLoad = this.resultUnknownInShapeLoad;
+      if (graph?.mode === 'shape' && err && typeof err === 'object' && !errorsSeenInShapeLoad.has(err)) {
+        errorsSeenInShapeLoad.add(err);
+        if (this.resultUnknownInShapeLoad) errorsFromUnknownInput.add(err);
       }
       if (err instanceof VarlockError) {
         // prefix error message with resolver function name (matching schema error behavior)
@@ -1350,7 +1357,6 @@ export const CacheResolver: typeof Resolver = createResolver({
     return { ttl, customKey };
   },
   async resolve(state) {
-    const { getResolutionContext } = await import('./resolution-context');
     const ctx = getResolutionContext();
     const cacheStore = ctx?.cacheStore;
     const item = ctx?.currentItem;

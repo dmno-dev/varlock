@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import outdent from 'outdent';
 import {
-  EnvGraph, DotEnvFileDataSource, collectTypeGenItems, generateTsTypesSrc, resolveFieldTypes,
+  EnvGraph, DotEnvFileDataSource, collectTypeGenItems, generateTsTypesSrc, loadEnvGraph, resolveFieldTypes,
 } from '../index';
 import { loadGraph } from './type-generation/helpers';
 
@@ -579,6 +579,57 @@ describe('EnvGraph shape mode', () => {
     });
   });
 
+  test('shapeSkipped only lists root decorators that had something to run', async () => {
+    const { g } = await load(outdent`
+      # @currentEnv=$APP_ENV
+      # @defaultSensitive=false
+      # @defaultRequired=false
+      # ---
+      APP_ENV=dev
+    `, 'shape', { resolve: true });
+    expect(g.shapeSkipped).toEqual([]);
+  });
+
+  test('every built-in resolver is classified as pure or skipped', () => {
+    // A new built-in resolver fails here until someone decides. Leaving it out of both lists is the safe
+    // default (shape mode skips it), but then values built from it quietly turn unknown in every tool.
+    const pure = [
+      'concat',
+      'fallback',
+      'ref',
+      'regex',
+      'remap',
+      'forEnv',
+      'eq',
+      'if',
+      'ifs',
+      'not',
+      'and',
+      'or',
+      'isEmpty',
+      'domainFromUrl',
+      'inferFromPrefix',
+    ];
+    const g = new EnvGraph({ mode: 'shape' });
+    const classified = Object.fromEntries(
+      Object.entries(g.registeredResolverFunctions).map(([name, resolverClass]) => [name, !!resolverClass.def.pure]),
+    );
+    const actualPure = Object.keys(classified).filter((name) => classified[name]).sort();
+    expect(actualPure).toEqual([...pure].sort());
+    const skipped = Object.keys(classified).filter((name) => !classified[name]).sort();
+    expect(skipped).toMatchInlineSnapshot(`
+      [
+        "cache",
+        "exec",
+        "generateOtp",
+        "randomHex",
+        "randomNum",
+        "randomString",
+        "randomUuid",
+      ]
+    `);
+  });
+
   describe.skipIf(process.platform === 'win32')('non-regular files', () => {
     const allErrors = (g: EnvGraph) => g.sortedDataSources.flatMap((s) => s.errors.map((e) => e.message)).join('\n');
     let dir: string;
@@ -595,7 +646,9 @@ describe('EnvGraph shape mode', () => {
       fs.writeFileSync(schemaPath, '# @import(./.env.pipe)\n# ---\nA=1\n');
       const g = new EnvGraph({ mode: 'shape' });
       await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
-      expect(allErrors(g)).toMatch(/Not a regular file: .*\.env\.pipe/);
+      await g.finishLoad();
+      expect(allErrors(g)).toBe('');
+      expect(g.shapeSkipped).toContainEqual({ kind: 'nonRegularFile', name: path.join(dir, '.env.pipe') });
       // no default-mode control: there the read blocks forever
     }, 5000);
 
@@ -606,7 +659,8 @@ describe('EnvGraph shape mode', () => {
       fs.writeFileSync(schemaPath, '# @import(./child/)\n# ---\nA=1\n');
       const g = new EnvGraph({ mode: 'shape' });
       await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
-      expect(allErrors(g)).toMatch(/Not a regular file: .*child.*\.env\.schema/);
+      expect(allErrors(g)).toBe('');
+      expect(g.shapeSkipped).toContainEqual({ kind: 'nonRegularFile', name: path.join(dir, 'child', '.env.schema') });
     }, 5000);
 
     test.each(['default', 'shape'] as const)('a plugin whose package.json is a pipe (%s mode)', async (mode) => {
@@ -628,7 +682,24 @@ describe('EnvGraph shape mode', () => {
       execFileSync('mkfifo', [schemaPath]);
       const g = new EnvGraph({ mode: 'shape' });
       await g.setRootDataSource(new DotEnvFileDataSource(schemaPath));
-      expect(allErrors(g)).toMatch(/Not a regular file/);
+      expect(allErrors(g)).toBe('');
+      expect(g.shapeSkipped).toContainEqual({ kind: 'nonRegularFile', name: schemaPath });
+    }, 5000);
+
+    test('a .env delivered as a pipe is skipped, and every value is unknown because it could set any of them', async () => {
+      fs.writeFileSync(path.join(dir, '.env.schema'), '# @defaultSensitive=false\n# ---\n# @type=port\nPORT=3000\n# @required\nAPI_KEY=\n');
+      execFileSync('mkfifo', [path.join(dir, '.env')]);
+      const g = await loadEnvGraph({ entryFilePaths: `${dir}/`, mode: 'shape' });
+      await g.resolveEnvValues();
+      expect(allErrors(g)).toBe('');
+      expect(g.shapeSkipped).toContainEqual({ kind: 'nonRegularFile', name: path.join(dir, '.env') });
+      // the schema is still fully known
+      expect(g.configSchema.PORT.dataType?.name).toBe('port');
+      expect(g.configSchema.API_KEY.isRequired).toBe(true);
+      // the values are not: the pipe could override PORT and fill API_KEY
+      expect(g.configSchema.PORT.isValueUnknownInShapeLoad).toBe(true);
+      expect(g.configSchema.API_KEY.isValueUnknownInShapeLoad).toBe(true);
+      expect(g.configSchema.API_KEY.errors).toEqual([]);
     }, 5000);
   });
 });

@@ -39,7 +39,7 @@ for (const key of graph.sortedConfigKeys) {
   console.log(key, info.dataType?.coercedType ?? 'string', info.isRequired);
 }
 
-// everything that was not run, e.g. [{ kind: 'rootDecoratorExecute', name: 'currentEnv' }]
+// everything that was not run, e.g. [{ kind: 'resolver', name: 'exec', itemKey: 'TOKEN' }]
 console.log(graph.shapeSkipped);
 ```
 
@@ -55,9 +55,9 @@ This loads the schema file and the files it imports. Value files such as `.env.l
 | Plugins | a pinned plugin is downloaded if missing | never downloaded. If it isn't installed or cached, loading reports a schema error |
 | `process.env` | overrides item values, and builtin variables read it | ignored. Values come from the files that were loaded, and builtin variables only see an env you pass in explicitly (`graph.processEnvOverride`) |
 | Code generation | writes wherever `path` points | only inside the directory of the root schema or directory; a path that leaves it (`..`, absolute, or through a symlink) is a schema error |
-| Files | read as usual | a schema or env file that is not a regular file (a named pipe or a device), whether it is the root file, imported directly, or found in an imported directory, is a loading error instead of a read that never returns |
+| Files | read as usual | a schema or env file that is not a regular file (a named pipe or a device) is skipped and recorded, wherever it is found, because reading one can block forever. Some tools deliver values this way (1Password mounts a `.env` as a pipe), so it is not an error. A skipped file could set any item, so every item's value is then unknown |
 
-Everything skipped is recorded in `graph.shapeSkipped` as `{ kind, name, itemKey? }`, where `kind` is `resolver`, `rootDecoratorExecute`, `cacheStore`, `pluginDownload`, `pluginLoad`, or `codegenWrite`, and `itemKey` is the item whose value was being resolved when a resolver was skipped. Tools can use it to tell users which values could not be computed.
+Everything skipped is recorded in `graph.shapeSkipped` as `{ kind, name, itemKey? }`, where `kind` is `resolver`, `rootDecoratorExecute`, `cacheStore`, `pluginDownload`, `pluginLoad`, `codegenWrite`, or `nonRegularFile`, and `itemKey` is the item whose value was being resolved when a resolver was skipped. Tools can use it to tell users which values could not be computed.
 
 Apart from those differences, a tool sees the same types that [code generation](/guides/code-generation/) produces, and the same requiredness, sensitivity, and validation messages, except where a decorator or function depends on a value that was skipped (see [Pure resolvers](#pure-resolvers)). [Builtin variables](/reference/builtin-variables/) such as `VARLOCK_ENV` are computed from an env you pass in explicitly, or from an empty one, so the same schema gives the same result on any machine. Without CI variables in that env, `VARLOCK_BRANCH` is unknown (and listed in `shapeSkipped`), because the local `git branch --show-current` lookup is skipped.
 

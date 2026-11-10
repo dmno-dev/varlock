@@ -239,11 +239,15 @@ export class EnvGraph {
    */
   readonly mode: 'default' | 'shape' = 'default';
   shapeSkipped: Array<{
-    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload' | 'pluginLoad' | 'codegenWrite',
+    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload' | 'pluginLoad' | 'codegenWrite'
+      | 'nonRegularFile',
     name: string,
     /** the item being resolved when a resolver was skipped, when known */
     itemKey?: string,
   }> = [];
+
+  /** @internal shape mode: a file was skipped instead of read, so no item's value can be known */
+  _hasUnreadSourceInShapeLoad = false;
 
   /** root data source (.env.schema) */
   rootDataSource?: EnvGraphDataSource;
@@ -825,7 +829,8 @@ export class EnvGraph {
         // shape mode still resolves the decorator's deps above (only pure resolvers run), which also
         // re-validates them with their final metadata; it only skips the side-effecting execute()
         if (this.mode === 'shape' && !decInstance.runsInShapeLoad) {
-          this.shapeSkipped.push({ kind: 'rootDecoratorExecute', name: decInstance.name });
+          // most root decorators only carry a value and have nothing to skip
+          if (decInstance.hasExecute) this.shapeSkipped.push({ kind: 'rootDecoratorExecute', name: decInstance.name });
           continue;
         }
         try {

@@ -71,6 +71,10 @@ export abstract class DecoratorInstance {
   get isInert() {
     return !!this.decoratorDef?.inert;
   }
+  /** @internal whether this decorator does anything when executed (most only carry a value) */
+  get hasExecute(): boolean {
+    return !!(this.decoratorDef as RootDecoratorDef | undefined)?.execute;
+  }
   /** @internal whether an EnvGraph in `shape` mode may call execute(), see RootDecoratorDef.runsInShapeLoad */
   get runsInShapeLoad(): boolean {
     return !!(this.decoratorDef as RootDecoratorDef | undefined)?.runsInShapeLoad;

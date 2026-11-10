@@ -19,7 +19,7 @@ import type { CacheHitInfo } from './resolution-context';
 import { EnvGraphDataSource } from './data-source';
 import {
   convertParsedValueToResolvers, getMalformedFunctionCallError, type ResolvedValue, Resolver, StaticValueResolver,
-  ArrayLiteralResolver, ObjectLiteralResolver,
+  ArrayLiteralResolver, ObjectLiteralResolver, errorsFromUnknownInput,
 } from './resolver';
 import { buildTypeSpecPlan, coercedTypesMatch, type TypeSpecPlan } from './type-decorator';
 import { ItemDecoratorInstance } from './decorators';
@@ -1196,7 +1196,7 @@ export class ConfigItem {
       try {
         this.resolvedRawValue = await this.valueResolver.resolve();
       } catch (err) {
-        errorFromUnknownInput = !!(err as any)?._unknownInputInShapeLoad;
+        errorFromUnknownInput = !!err && typeof err === 'object' && errorsFromUnknownInput.has(err);
         if (err instanceof ResolutionError) {
           this.resolutionError = err;
         } else {
@@ -1229,6 +1229,9 @@ export class ConfigItem {
     // shape mode: bulk data we could not read might fill this item, so empty means unknown here too
     const isEmpty = this.resolvedRawValue === undefined || this.resolvedRawValue === '';
     if (this._maybeSetByUnknownBulkInShapeLoad && isEmpty) this._valueUnknownInShapeLoad = true;
+    // shape mode: a source that was not read (a named pipe, see FileBasedDataSource) could set or override
+    // any item, so no value is known
+    if (this.envGraph._hasUnreadSourceInShapeLoad) this._valueUnknownInShapeLoad = true;
     // required or not is unknown, and it matters because there is no value
     const requiredCheckUnknown = this._isRequiredUnknown && isEmpty;
     if (hasUnknownDependency || requiredCheckUnknown || this._validityUnknownInShapeLoad) {
