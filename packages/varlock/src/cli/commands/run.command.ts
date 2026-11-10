@@ -15,6 +15,7 @@ import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
 import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
+import { drainChildOutput } from '../helpers/drain-child-output';
 import { evaluateInjectedEnvReuse, getUseInjectedEnvMode, USE_INJECTED_ENV_VAR } from '../../lib/injected-env-reuse';
 import { getFrozenEnvFilePath, USE_FROZEN_ENV_VAR } from '../../lib/frozen-env-file';
 import { applyFrozenArg, frozenEnvErrorToCliExitError } from '../helpers/frozen-env-cli';
@@ -317,6 +318,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   } finally {
     // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
     signalForwarder.detach();
+    const shutdownRequested = signalForwarder.receivedShutdownSignal;
+    await drainChildOutput(commandProcess, { exitCode, shutdownRequested });
   }
 
   if (isWatchEnabled) {

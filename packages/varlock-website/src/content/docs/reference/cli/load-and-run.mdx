@@ -180,6 +180,8 @@ Note: When the `__VARLOCK_ENV` blob is omitted, framework integrations that rely
 
 This makes `varlock run` safe to use as a container `ENTRYPOINT` (including PID 1), so `docker stop` / pod termination reaches your app gracefully instead of waiting out the grace period and being `SIGKILL`ed.
 
+After the child exits, `varlock run` and `varlock proxy run` allow up to two seconds for piped output to finish draining through redaction. If a descendant keeps a pipe open or the output destination remains blocked, varlock closes its pipe readers and reports that output may be incomplete. An otherwise successful command exits non-zero; an existing non-zero status or a forwarded shutdown keeps the child's exit status. This limit does not shorten a running child's lifetime or disable redaction.
+
 One PID 1 duty varlock does not take on is reaping orphaned processes. If your app spawns subprocesses that can outlive their parent, they are reparented to PID 1 and stay as zombies after they exit. In that case run a minimal init above varlock, for example `ENTRYPOINT ["tini", "--", "varlock", "run", "--"]` or `docker run --init`. Signal forwarding works the same either way. See the [Docker guide](/integrations/docker/#pid-1-signals-and-zombie-processes).
 
 By default varlock forwards and then waits indefinitely for the child. It does **not** impose its own kill deadline, leaving that decision to the orchestrator or operator (a forwarded signal isn't always terminal, since many programs use `SIGHUP` to reload). If you want varlock to escalate to `SIGKILL` when the child hasn't exited within a grace period, set the `_VARLOCK_FORCE_KILL_TIMEOUT_MS` environment variable to a number of milliseconds.

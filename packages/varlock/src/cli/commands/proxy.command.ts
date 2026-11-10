@@ -91,6 +91,7 @@ import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
 import { resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv } from '../helpers/stdout-redaction';
+import { drainChildOutput } from '../helpers/drain-child-output';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
@@ -1666,6 +1667,7 @@ async function awaitProxiedChild(
   } finally {
     // child has exited and been reaped: stop forwarding (avoid signaling a recycled pid)
     opts.signalForwarder.detach();
+    const shutdownRequested = opts.signalForwarder.receivedShutdownSignal;
     // Tear down the container sandbox before other cleanup, so nothing lingers.
     if (opts.sandboxTeardown) {
       try {
@@ -1676,6 +1678,7 @@ async function awaitProxiedChild(
     }
     await opts.cleanup();
     opts.onSummary?.();
+    await drainChildOutput(commandProcess, { exitCode, shutdownRequested });
   }
 
   return exitCode;
