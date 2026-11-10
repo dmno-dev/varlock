@@ -969,9 +969,12 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
         return;
       }
       // shape mode: a named pipe or device would block the read forever, hanging every editor keystroke or
-      // CI lint. Checked here so it covers direct imports, directory imports and auto-loaded files alike
+      // CI lint. It is also how some tools deliver values (1Password mounts a `.env` as a pipe), so this is
+      // not an error: the file is skipped and recorded, and since it could set any item, every value is
+      // unknown. Checked here so it covers direct imports, directory imports and auto-loaded files alike
       if (this.graph?.mode === 'shape' && !fileStat.isFile()) {
-        this._errors.push(new LoadingError(`Not a regular file: ${this.fullPath}`));
+        this.graph.shapeSkipped.push({ kind: 'nonRegularFile', name: this.fullPath });
+        this.graph._hasUnreadSourceInShapeLoad = true;
         return;
       }
       this.rawContents = await fs.readFile(this.fullPath, 'utf8');
