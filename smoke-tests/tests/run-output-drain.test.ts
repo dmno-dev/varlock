@@ -10,6 +10,84 @@ const lateWrite = `setTimeout(() => {
 }, 60)`;
 
 describe('Child output drainage', () => {
+  test.each(['node', 'bun'])('%s drains real parent writes into a paused reader', async (runtime) => {
+    const size = 8 * 1024 * 1024;
+    const code = `process.stdout.write('x'.repeat(${size}) + '\\ntail:' + process.env.SECRET_TOKEN, () => process.exit(0))`;
+    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(runtime, [VARLOCK_CLI, 'run', '--', 'node', '-e', code], {
+        cwd: join(import.meta.dirname, '../smoke-test-basic'),
+        env: { ...process.env, VARLOCK_TELEMETRY_DISABLED: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+      });
+      child.stdout.pause();
+      const resume = setTimeout(() => {
+        child.stdout.resume();
+      }, 300);
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('Paused-reader fixture exceeded its cap'));
+      }, 10000);
+      child.on('error', reject);
+      child.on('close', (status) => {
+        clearTimeout(timer);
+        clearTimeout(resume);
+        resolve({ status, stdout, stderr });
+      });
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.slice(0, size)).toBe('x'.repeat(size));
+    expect(result.stdout.slice(size)).toContain('\ntail:');
+    expect(result.stdout).not.toContain('super-secret-token-12345');
+    expect(result.stderr).toBe('');
+  }, 10000);
+
+  test.each(['node', 'bun'])('%s preserves the child status when stderr closes', async (runtime) => {
+    const code = `process.stderr.write('first\\n', () => setTimeout(() => {
+      process.stderr.write('second\\n');
+      process.stdout.write('intact\\n', () => process.exit(7));
+    }, 100))`;
+    const result = await new Promise<{
+      status: number | null;
+      stdout: string;
+      closedStderr: boolean;
+    }>((resolve, reject) => {
+      const child = spawn(runtime, [VARLOCK_CLI, 'run', '--', 'node', '-e', code], {
+        cwd: join(import.meta.dirname, '../smoke-test-basic'),
+        env: { ...process.env, VARLOCK_TELEMETRY_DISABLED: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let closedStderr = false;
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+      });
+      child.stderr.once('data', () => {
+        closedStderr = true;
+        child.stderr.destroy();
+      });
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('Closed-stderr fixture exceeded its cap'));
+      }, 10000);
+      child.on('error', reject);
+      child.on('close', (status) => {
+        clearTimeout(timer);
+        resolve({ status, stdout, closedStderr });
+      });
+    });
+    expect(result.closedStderr).toBe(true);
+    expect(result.status).toBe(7);
+    expect(result.stdout).toBe('intact\n');
+  }, 10000);
+
   test.skipIf(process.platform === 'win32')('a signal after child exit cannot make incomplete output successful', async () => {
     const holder = 'setTimeout(() => {}, 6000)';
     const code = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(holder)}], {

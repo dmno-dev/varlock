@@ -1,7 +1,32 @@
-import type { Readable } from 'node:stream';
+import type { Readable, Writable } from 'node:stream';
 import { CliExitError } from './exit-error';
 
 const drainTimeoutMs = 2000;
+const outputDrains = new WeakMap<object, () => Promise<void>>();
+
+export function trackChildOutput(source: object, destination: Writable) {
+  const pending = new Set<Promise<void>>();
+  let writeError: unknown;
+  outputDrains.set(source, async () => {
+    await Promise.all(pending);
+    if (writeError) throw writeError;
+  });
+  return {
+    write(text: string) {
+      const written = new Promise<void>((resolve, reject) => {
+        destination.write(text, (error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      }).catch((error: NodeJS.ErrnoException) => {
+        if (destination === process.stderr && (error.code === 'EPIPE' || (destination.errored as NodeJS.ErrnoException | null)?.code === 'EPIPE')) return;
+        writeError ??= error;
+      });
+      pending.add(written);
+      written.then(() => pending.delete(written));
+    },
+  };
+}
 
 export async function drainChildOutput(commandProcess: {
   stdout?: Readable;
@@ -37,12 +62,7 @@ export async function drainChildOutput(commandProcess: {
     await Promise.race([
       (async () => {
         await Promise.all(closed);
-        await Promise.all([process.stdout, process.stderr].map((stream) => new Promise<void>((resolve, reject) => {
-          stream.write('', (error) => {
-            if (error) reject(error);
-            else resolve();
-          });
-        })));
+        await Promise.all(streams.map((stream) => outputDrains.get(stream)?.()));
       })(),
       deadline,
     ]);

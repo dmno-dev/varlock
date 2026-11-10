@@ -1,6 +1,7 @@
 import { CliExitError } from './exit-error';
 import { createRedactedStreamWriter, PARENT_REDACTED_STREAMS_ENV_VAR } from '../../runtime/lib/redact-stream';
 import { parseEnvToggle } from '../../runtime/lib/env-toggle';
+import { trackChildOutput } from './drain-child-output';
 
 export { REDACT_STDOUT_ARG } from './redact-stdout-arg';
 export { parseEnvToggle };
@@ -57,12 +58,12 @@ export function pipeRedactedStreams(
   plan: StdoutRedactionPlan,
 ): void {
   if (plan.redactStdout && commandProcess.stdout) {
-    const writer = createRedactedStreamWriter(process.stdout);
+    const writer = createRedactedStreamWriter(trackChildOutput(commandProcess.stdout, process.stdout));
     commandProcess.stdout.on('data', writer.write);
     commandProcess.stdout.on('close', writer.flush);
   }
   if (plan.redactStderr && commandProcess.stderr) {
-    const writer = createRedactedStreamWriter(process.stderr);
+    const writer = createRedactedStreamWriter(trackChildOutput(commandProcess.stderr, process.stderr));
     commandProcess.stderr.on('data', writer.write);
     commandProcess.stderr.on('close', writer.flush);
   }
