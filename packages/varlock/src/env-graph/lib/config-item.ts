@@ -606,7 +606,38 @@ export class ConfigItem {
    */
   get isSensitiveUnknownInShapeLoad() { return this._isSensitiveUnknown; }
   /** sensitive because the schema says so, not as a fail-closed guess about an unknown sensitivity */
-  get isKnownSensitive() { return this._isSensitive && !this._isSensitiveUnknown; }
+  get isKnownSensitive() { return this._isSensitive && (!this._isSensitiveUnknown || this._probingAsSensitive); }
+  /** @internal shape mode: set while the sensitive-only checks run to see what they would say if it were */
+  private _probingAsSensitive = false;
+  /**
+   * @internal shape mode: whether the item is valid depends on a skipped resolver (a requiredness or
+   * sensitivity that is unknown, and a value that would fail if it turned out to apply). The value is then
+   * reported as unknown rather than as valid.
+   */
+  private _validityUnknownInShapeLoad = false;
+  /**
+   * Shape mode, unknown sensitivity: run sensitive-only checks as if the item were sensitive, undo whatever
+   * they reported, and say whether one of them was a real error.
+   */
+  private wouldFailIfSensitive(runChecks: () => void): boolean {
+    const schemaErrorCount = this._schemaErrors.length;
+    const validationErrorsBefore = this.validationErrors;
+    const implausibleBefore = this._sensitiveIsImplausible;
+    this._probingAsSensitive = true;
+    try {
+      runChecks();
+    } finally {
+      this._probingAsSensitive = false;
+    }
+    const added = [
+      ...this._schemaErrors.slice(schemaErrorCount),
+      ...(this.validationErrors ?? []).filter((e) => !validationErrorsBefore?.includes(e)),
+    ];
+    this._schemaErrors.length = schemaErrorCount;
+    this.validationErrors = validationErrorsBefore;
+    this._sensitiveIsImplausible = implausibleBefore;
+    return added.some((e) => !e.isWarning);
+  }
   /** shape mode: whether a resolver's last result depends on a skipped one. Always false in default mode */
   private resolverUnknownInShapeLoad(resolver?: Resolver) {
     return this.envGraph.mode === 'shape' && !!resolver?.resultUnknownInShapeLoad;
@@ -733,6 +764,9 @@ export class ConfigItem {
     // validation still runs), then force sensitivity for @proxy-managed items below.
     await this.resolveSensitiveSource();
     this.checkSensitiveIsPlausible();
+    if (this._isSensitiveUnknown && this.wouldFailIfSensitive(() => this.checkSensitiveIsPlausible())) {
+      this._validityUnknownInShapeLoad = true;
+    }
 
     // @proxy-managed items are always sensitive: the proxied child only ever sees a
     // placeholder while the real value is injected at the wire, so force sensitivity
@@ -1176,6 +1210,12 @@ export class ConfigItem {
     // shape mode: a resolver that failed on a partial value (e.g. `domainFromUrl()` of a half-built url)
     // did not really fail, the value is just unknown. Errors from fully known parts of the value are kept
     if (this.resolutionError && errorFromUnknownInput) this.resolutionError = undefined;
+    // shape mode: an item is invalid whenever one of its dependencies is, read or not, and an unknown
+    // dependency may turn out invalid (an empty result on a required item, a value its type rejects). So the
+    // item is unknown too, whatever its own resolver said
+    const hasUnknownDependency = this.envGraph.mode === 'shape'
+      && this.dependencyKeys.some((key) => this.envGraph.configSchema[key]?.isValueUnknownInShapeLoad);
+    if (hasUnknownDependency) this.resolutionError = undefined;
 
     if (this.resolvedRawValue instanceof RegExp) {
       this.resolutionError = new ResolutionError('Regex values are meant to be used within function args (e.g., remap()), not as a final resolved value');
@@ -1187,7 +1227,11 @@ export class ConfigItem {
     this.isResolved = true;
 
     // shape mode: bulk data we could not read might fill this item, so empty means unknown here too
-    if (this._maybeSetByUnknownBulkInShapeLoad && (this.resolvedRawValue === undefined || this.resolvedRawValue === '')) {
+    const isEmpty = this.resolvedRawValue === undefined || this.resolvedRawValue === '';
+    if (this._maybeSetByUnknownBulkInShapeLoad && isEmpty) this._valueUnknownInShapeLoad = true;
+    // required or not is unknown, and it matters because there is no value
+    const requiredCheckUnknown = this._isRequiredUnknown && isEmpty;
+    if (hasUnknownDependency || requiredCheckUnknown || this._validityUnknownInShapeLoad) {
       this._valueUnknownInShapeLoad = true;
     }
 
@@ -1295,6 +1339,11 @@ export class ConfigItem {
       }
       this.isValidated = true;
 
+      // shape mode, unknown sensitivity: the checks below run as if the item were sensitive. If one of them
+      // is a real error the value is reported as unknown; whatever they said is dropped either way
+      const errorsBeforeSensitiveChecks = this.validationErrors;
+      this._probingAsSensitive = this._isSensitiveUnknown;
+
       // Redaction can only protect what it can match: a string, long enough not to
       // collide with ordinary text. What follows reports where that does not hold.
       const addError = (err: ValidationError) => {
@@ -1351,7 +1400,19 @@ export class ConfigItem {
           },
         ));
       }
+
+      if (this._probingAsSensitive) {
+        this._probingAsSensitive = false;
+        const added = (this.validationErrors ?? []).filter((e) => !errorsBeforeSensitiveChecks?.includes(e));
+        this.validationErrors = errorsBeforeSensitiveChecks;
+        if (added.some((e) => !e.isWarning) && !this.validationErrors?.some((e) => !e.isWarning)) {
+          this._valueUnknownInShapeLoad = true;
+          this.resolvedRawValue = undefined;
+          this.resolvedValue = undefined;
+        }
+      }
     } catch (err) {
+      this._probingAsSensitive = false;
       if (_.isArray(err)) {
         // could do more checking...
         this.validationErrors = err as Array<ValidationError>;

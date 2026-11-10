@@ -999,16 +999,23 @@ export class EnvGraph {
           return;
         }
 
+        // shape mode: a dependency whose value is unknown may turn out invalid in a normal load. Once one comes
+        // first, a later dependency that is certainly invalid no longer decides the outcome (a normal load would
+        // name whichever is first), and the item resolves to unknown instead (see ConfigItem.resolve)
+        let unknownDependencyFirst = false;
         for (const depKey of adjList[itemKey] || []) {
           const depItem = this.configSchema[depKey];
           // if a dependency is invalid, we mark the item as invalid too
           if (depItem.validationState === 'error') {
+            if (unknownDependencyFirst) continue;
             item.resolutionError = new ResolutionError(`Dependency ${depKey} is invalid`);
             markItemCompleted(itemKey);
             return;
           // if any dependency is not yet resolved, we need to wait for it
           } else if (depKey in itemsToResolveStatus) {
             return;
+          } else if (depItem.isValueUnknownInShapeLoad) {
+            unknownDependencyFirst = true;
           }
         }
 

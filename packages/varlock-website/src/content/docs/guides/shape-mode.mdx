@@ -69,6 +69,16 @@ Everything else resolves to `undefined`: [`exec()`](/reference/functions/#exec),
 
 An `@required`, `@optional`, `@sensitive`, or `@public` that depends on a skipped value (for example `@sensitive=eq(exec("..."), yes)`) is unknown. The item is then treated as optional and sensitive, so it reports no missing value and hides nothing, and `item.isRequiredUnknownInShapeLoad` or `item.isSensitiveUnknownInShapeLoad` is `true` so a tool can show it as unknown. Both are always `false` in default mode. Checks that only apply to a sensitive item (a sensitive boolean, number, or short value, or a sensitive value inside a public one) are skipped for it. If `@currentEnv` points at a skipped value, `forEnv()` is unknown too: `@required=forEnv(production)` is unknown, a value built with it is unknown, and `@disable=forEnv(test)` keeps the file. No `.env.[env]` file is loaded, since the environment is not known.
 
+### What unknown guarantees
+
+For every item, a shape load either reports the value as unknown (`item.isValueUnknownInShapeLoad`) or reports the same value and the same errors as a normal load. The same holds for `isRequired` and `isSensitive`, unless the matching `...UnknownInShapeLoad` flag is set. To keep that promise, an item is also unknown when:
+
+- one of its dependencies is unknown, even one in a branch that isn't taken. A normal load fails an item whenever a dependency is invalid, and an unknown dependency may turn out invalid.
+- it is empty and whether it is required is unknown.
+- whether it is sensitive is unknown, and it would fail a check that only applies to sensitive items (for example a one-character value, or a boolean).
+
+Two limits. A skipped resolver is assumed to succeed with some value: if it fails in a normal load, every item that depends on it fails there too. And an item that is invalid for certain may be missing further errors that depend on something skipped.
+
 Generated types are not affected. Code generation never evaluates a computed `@required` or `@sensitive`, in either mode: such an item is optional, and sensitive unless its data type says otherwise. Other computed decorators, such as `@dynamic`, still see a skipped value as empty.
 
 ### Bulk values
