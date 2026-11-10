@@ -2,6 +2,7 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 import { BUNDLED_ICONS } from './bundled-icons.gen';
+import { lookupJsonKey } from './json-key';
 
 import { createHash } from 'node:crypto';
 import {
@@ -469,38 +470,40 @@ class AwsPluginInstance {
 
   extractJsonKeyFromSecret(secretValue: string, jsonKey?: string): string {
     if (!jsonKey) return secretValue;
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(secretValue);
-      if (!(jsonKey in parsed)) {
-        throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
-          tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-        });
-      }
-      return String(parsed[jsonKey]);
+      parsed = JSON.parse(secretValue);
     } catch (err) {
-      if (err instanceof ResolutionError) throw err;
       throw new ResolutionError(`Failed to parse secret as JSON: ${err instanceof Error ? err.message : String(err)}`, {
         tip: 'Ensure the secret value is valid JSON when extracting a specific key',
       });
     }
+    const result = lookupJsonKey(parsed, jsonKey);
+    if (!result.found) {
+      throw new ResolutionError(`Key "${jsonKey}" not found in secret JSON`, {
+        tip: `Available keys: ${result.availableKeys.join(', ')}`,
+      });
+    }
+    return result.value;
   }
 
   extractJsonKeyFromParameter(paramValue: string, jsonKey?: string): string {
     if (!jsonKey) return paramValue;
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(paramValue);
-      if (!(jsonKey in parsed)) {
-        throw new ResolutionError(`Key "${jsonKey}" not found in parameter JSON`, {
-          tip: `Available keys: ${Object.keys(parsed).join(', ')}`,
-        });
-      }
-      return String(parsed[jsonKey]);
+      parsed = JSON.parse(paramValue);
     } catch (err) {
-      if (err instanceof ResolutionError) throw err;
       throw new ResolutionError(`Failed to parse parameter as JSON: ${err instanceof Error ? err.message : String(err)}`, {
         tip: 'Ensure the parameter value is valid JSON when using the # syntax for key extraction',
       });
     }
+    const result = lookupJsonKey(parsed, jsonKey);
+    if (!result.found) {
+      throw new ResolutionError(`Key "${jsonKey}" not found in parameter JSON`, {
+        tip: `Available keys: ${result.availableKeys.join(', ')}`,
+      });
+    }
+    return result.value;
   }
 }
 

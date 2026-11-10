@@ -10,7 +10,7 @@ This package is a [Varlock](https://varlock.dev) [plugin](https://varlock.dev/gu
 - **IAM role support** - No credentials needed for AWS-hosted apps (EC2, ECS, Lambda, etc.)
 - **AWS CLI authentication** - Works seamlessly with `aws configure` for local development
 - **Auto-infer secret/parameter names** from environment variable names (uses name as-is)
-- **JSON key extraction** from secrets/parameters using `#` syntax or named `key` parameter
+- **JSON key extraction** from secrets/parameters using `#` syntax or named `key` parameter, including dot-separated paths into nested objects
 - **Name prefixing** with `namePrefix` option for organized secret management
 - **OIDC workload identity** - Authenticate from Vercel, GitHub Actions, and other platforms without long-lived credentials
 - Support for named AWS profiles
@@ -225,6 +225,7 @@ Fetch a secret from AWS Secrets Manager.
 
 - Name: `"my-secret"`
 - Name with JSON key: `"my-secret#password"` (shorthand for key extraction)
+- Name with a nested JSON key: `"my-secret#db.host"` (dot-separated path into nested objects)
 - ARN: `"arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret-AbCdEf"`
 
 #### `awsParam()`
