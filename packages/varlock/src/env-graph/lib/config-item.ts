@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   MIN_SENSITIVE_VALUE_LENGTH, SHORT_SENSITIVE_VALUE_LENGTH, collectLeaves,
 } from '../../lib/sensitive-value';
@@ -40,6 +41,9 @@ export type ConfigItemDefAndSource = {
 };
 
 
+
+/** the items whose resolve() is running further up the current async call chain, see ConfigItem.resolve */
+const itemsResolvingInThisCallChain = new AsyncLocalStorage<Set<ConfigItem>>();
 
 export class ConfigItem {
   /** Whether this is a builtin VARLOCK_* variable */
@@ -1053,11 +1057,18 @@ export class ConfigItem {
    * (e.g. every `forEnv()` resolving the current-env item through earlyResolve while it is still pending), so
    * concurrent calls share one run instead of each resolving and validating the item again (which appended a
    * duplicate validation warning per caller).
+   *
+   * A call made from inside the item's own run must not wait for that run: `@required=forEnv(prod)` on the
+   * current-env item resolves the env, which resolves this same item. Such a call goes straight through, as it
+   * always did (the metadata pass is already marked started, so it only resolves the value).
    */
   private _resolveInFlight?: Promise<void>;
   async resolve(reset = false) {
+    const ownRun = itemsResolvingInThisCallChain.getStore()?.has(this);
+    if (ownRun) return this._resolve(reset);
     if (!reset && this._resolveInFlight) return this._resolveInFlight;
-    const run = this._resolve(reset);
+    const callChain = new Set(itemsResolvingInThisCallChain.getStore()).add(this);
+    const run = itemsResolvingInThisCallChain.run(callChain, () => this._resolve(reset));
     this._resolveInFlight = run;
     try {
       await run;
