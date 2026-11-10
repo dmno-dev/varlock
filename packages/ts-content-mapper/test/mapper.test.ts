@@ -215,3 +215,24 @@ describe('shape mode', () => {
     expect(virtual).not.toContain('sk_example_secret_value');
   });
 });
+
+describe('a schema regex that backtracks', () => {
+  it('does not stall the type check', () => {
+    // on the default regex engine this value takes about 20 seconds to reject
+    const dir = makeProject({
+      '.env.schema': [
+        '# @defaultSensitive=false',
+        '# ---',
+        '# @type=string(matches=regex("^(a+)+$"))',
+        `CODE=${'a'.repeat(30)}!`,
+        '',
+      ].join('\n'),
+      'src/index.ts': "import { ENV } from 'varlock/env';\nexport const code: string = ENV.CODE;\n",
+    });
+    const startedAt = performance.now();
+    const r = runTsc(dir);
+    expect(performance.now() - startedAt).toBeLessThan(5000);
+    expect(r.output).toContain('Value must match regex');
+  });
+});
+

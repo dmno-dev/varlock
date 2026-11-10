@@ -16,10 +16,17 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import v8 from 'node:v8';
 import { MappedCodeBuilder, runContentMapper, SpanMapFeature as F } from 'ts-content-mapper';
 import { loadShapeGraph } from './shape';
 import { genSchemaApi } from './schema-api';
 import { lowerSchema } from './lower';
+
+// A schema regex written to backtrack forever (`^(a+)+$` against a long value) would stall every type check
+// for seconds or minutes. This asks V8 to move a regex to its non-backtracking engine once it has backtracked
+// a lot (50,000 steps by default). It covers patterns without lookaround or backreferences; those stay on the
+// normal engine. The switch is process-wide, which is fine here: this process only ever loads schemas.
+v8.setFlagsFromString('--enable-experimental-regexp-engine-on-excessive-backtracks');
 
 type ExposeEnv = 'global' | 'local';
 type ImportMode = 'keys' | 'module';
