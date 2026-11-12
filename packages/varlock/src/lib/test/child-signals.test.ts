@@ -1,7 +1,10 @@
 import {
   describe, test, expect, afterEach, vi,
 } from 'vitest';
+import { gracefulExit } from 'exit-hook';
 import { claimSignals, createChildSignalForwarder, FORWARDED_SIGNALS } from '../child-signals';
+
+vi.mock('exit-hook', () => ({ gracefulExit: vi.fn() }));
 
 const SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT'];
 
@@ -50,6 +53,49 @@ describe('claimSignals', () => {
     } finally {
       killSpy.mockRestore();
     }
+  });
+
+  describe('after the child exits', () => {
+    afterEach(() => vi.mocked(gracefulExit).mockClear());
+
+    function exitedForwarder() {
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const child = { pid: 424242, kill: vi.fn((_signal?: number | NodeJS.Signals) => true) };
+      const forwarder = createChildSignalForwarder();
+      forwarder.attach(child);
+      forwarder.detach();
+      return { forwarder, child, killSpy };
+    }
+
+    test('a signal during cleanup is held, then acted on by beginFinalFlush()', () => {
+      const { forwarder, child, killSpy } = exitedForwarder();
+      try {
+        process.emit('SIGTERM', 'SIGTERM');
+        process.emit('SIGINT', 'SIGINT');
+        expect(gracefulExit).not.toHaveBeenCalled();
+        expect(child.kill).not.toHaveBeenCalled();
+        expect(killSpy).not.toHaveBeenCalled();
+
+        forwarder.beginFinalFlush();
+        // the first held signal decides the exit status
+        expect(gracefulExit).toHaveBeenCalledTimes(1);
+        expect(gracefulExit).toHaveBeenCalledWith(143);
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
+
+    test('a signal during the final flush exits immediately with 128+N', () => {
+      const { forwarder, killSpy } = exitedForwarder();
+      try {
+        forwarder.beginFinalFlush();
+        expect(gracefulExit).not.toHaveBeenCalled();
+        process.emit('SIGINT', 'SIGINT');
+        expect(gracefulExit).toHaveBeenCalledWith(130);
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
   });
 
   test('createChildSignalForwarder leaves exactly one listener per forwarded signal', () => {

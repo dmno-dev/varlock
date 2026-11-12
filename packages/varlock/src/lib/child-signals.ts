@@ -1,4 +1,6 @@
 import { openSync, closeSync } from 'node:fs';
+import { constants as osConstants } from 'node:os';
+import { gracefulExit } from 'exit-hook';
 
 /**
  * Signals we forward to a long-running child so it can shut down gracefully: the
@@ -84,8 +86,19 @@ export interface ChildSignalForwarder {
    * attach is forwarded now, so an `await` in that window can't drop it. Idempotent.
    */
   attach(child: ChildLike): void;
-  /** Call once the child has exited and been reaped, so we never signal a recycled pid. */
+  /**
+   * Call once the child has exited and been reaped, so we never signal a recycled pid.
+   * A signal arriving after this is held (not forwarded, not acted on) so the caller's
+   * cleanup can finish; `beginFinalFlush()` then acts on it.
+   */
   detach(): void;
+  /**
+   * Call after post-child cleanup, right before the final (unbounded) stdout/stderr flush.
+   * If a signal arrived since `detach()`, varlock exits now with 128+N; any later signal
+   * exits immediately. Our claimed listeners replaced the default "terminate" action, so
+   * without this a stalled output reader would make varlock unkillable.
+   */
+  beginFinalFlush(): void;
   /**
    * Whether varlock received (and forwarded) a shutdown signal (SIGINT/SIGTERM/SIGQUIT,
    * not SIGHUP) while the child ran. A child that handles e.g. SIGINT and then exits with
@@ -131,6 +144,12 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
   // signals received before attach(); replayed once we know the child
   const pendingSignals: Array<NodeJS.Signals> = [];
 
+  let finalFlushStarted = false;
+  // first signal received after the child exited, before beginFinalFlush()
+  let heldSignal: NodeJS.Signals | undefined;
+  // exit as if the signal had killed us (exit-hook ignores repeat calls)
+  const exitForSignal = (signal: NodeJS.Signals) => gracefulExit(128 + (osConstants.signals[signal] ?? 0));
+
   const signalChild = (signal: NodeJS.Signals | number) => {
     if (childExited || !child?.pid) return;
     try {
@@ -150,6 +169,12 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   FORWARDED_SIGNALS.forEach((signal) => {
     const forwardSignal = () => {
+      // the child is gone: nothing to forward to (see detach / beginFinalFlush)
+      if (childExited) {
+        if (finalFlushStarted) exitForSignal(signal);
+        else heldSignal ??= signal;
+        return;
+      }
       if (SHUTDOWN_SIGNALS.includes(signal)) receivedShutdownSignal = true;
       if (!child) {
         pendingSignals.push(signal);
@@ -185,6 +210,10 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
     detach() {
       childExited = true;
       if (forceKillTimer) clearTimeout(forceKillTimer);
+    },
+    beginFinalFlush() {
+      finalFlushStarted = true;
+      if (heldSignal) exitForSignal(heldSignal);
     },
     get receivedShutdownSignal() {
       return receivedShutdownSignal;

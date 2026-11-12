@@ -69,6 +69,32 @@ describe('exec', () => {
     expect(output.trim()).toBe('err-output');
   });
 
+  it('should wait for a descendant still writing to the inherited pipe', async () => {
+    // the child exits immediately, but a grandchild holding its stdout writes 300ms later
+    const script = `
+      require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => console.log("late"), 300)'], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
+      console.log('early');
+    `;
+    const childProcess = exec('node', ['-e', script], { stdout: 'pipe', stderr: 'pipe' });
+    const chunks: Array<string> = [];
+    childProcess.stdout!.on('data', (d) => chunks.push(d.toString()));
+
+    await childProcess;
+    expect(chunks.join('').split('\n').filter(Boolean)).toEqual(['early', 'late']);
+  });
+
+  it('should stop waiting for a descendant holding the pipe after the drain timeout', async () => {
+    const script = `
+      require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
+    `;
+    const startMs = Date.now();
+    const childProcess = exec('node', ['-e', script], { stdout: 'pipe', stderr: 'pipe', outputDrainTimeoutMs: 300 });
+    const result = await childProcess;
+    expect(result.exitCode).toBe(0);
+    expect(Date.now() - startMs).toBeLessThan(5000);
+    expect(childProcess.stdout!.destroyed).toBe(true);
+  });
+
   it('should resolve with inherited stdio', async () => {
     const result = await exec('node', ['-e', 'process.exit(0)'], {
       stdio: 'inherit',

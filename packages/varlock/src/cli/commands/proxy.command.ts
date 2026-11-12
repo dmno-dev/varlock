@@ -90,7 +90,9 @@ import type { ProxyManagedItem, ProxyRule, ProxyTransformSchemeDef } from '../..
 import { generateProxyPlaceholderForItem } from '../../proxy/placeholder';
 import { isVarlockReservedKey } from '../../env-graph/lib/reserved-vars';
 import { resetRedactionMap } from '../../runtime/env';
-import { resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv } from '../helpers/stdout-redaction';
+import {
+  resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv, flushStdio,
+} from '../helpers/stdout-redaction';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import { CliExitError } from '../helpers/exit-error';
 import { reportChildCommandError } from '../helpers/child-exit';
@@ -1678,6 +1680,10 @@ async function awaitProxiedChild(
     opts.onSummary?.();
   }
 
+  // cleanup (audit log flush, session record) is done: a signal held during it, or one
+  // arriving while we flush output to a slow reader, now ends varlock
+  opts.signalForwarder.beginFinalFlush();
+  await flushStdio();
   return exitCode;
 }
 

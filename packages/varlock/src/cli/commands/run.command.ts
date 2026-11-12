@@ -9,7 +9,9 @@ import {
 } from '../helpers/error-checks';
 import { getCliItemFilter } from '../helpers/item-filter';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
-import { resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv } from '../helpers/stdout-redaction';
+import {
+  resolveStdoutRedaction, pipeRedactedStreams, setParentRedactedStreamsEnv, flushStdio,
+} from '../helpers/stdout-redaction';
 import { flushSchemaLoadedEvent } from '../helpers/telemetry';
 import { buildInjectedBlobEnv } from '../helpers/injected-env-blob';
 import { resolveInjectMode } from '../helpers/inject-mode';
@@ -330,6 +332,9 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   if (!isWatchEnabled) {
+    // no cleanup step here: a signal from now on ends varlock, even mid-flush
+    signalForwarder.beginFinalFlush();
+    await flushStdio();
     return gracefulExit(exitCode);
   } else {
     console.error('... watching for changes ...');

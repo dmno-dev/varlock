@@ -48,6 +48,28 @@ export function resolveStdoutRedaction(opts: {
 }
 
 /**
+ * Streams with a `write()` that returned false and no `drain` since. We track this ourselves
+ * because Bun's stdout/stderr hand writes straight to a native sink: `writableLength` and
+ * `writableNeedDrain` stay 0/false and an empty write's callback fires immediately, even with
+ * megabytes still queued. A `false` return followed by `drain` is the only signal that works
+ * in both Node and Bun.
+ */
+const streamsAwaitingDrain = new Set<NodeJS.WritableStream>();
+const drainListeners = new WeakSet<NodeJS.WritableStream>();
+
+function drainTrackedWriter(stream: NodeJS.WritableStream) {
+  if (!drainListeners.has(stream)) {
+    drainListeners.add(stream);
+    stream.on('drain', () => streamsAwaitingDrain.delete(stream));
+  }
+  return {
+    write(text: string) {
+      if (!stream.write(text)) streamsAwaitingDrain.add(stream);
+    },
+  };
+}
+
+/**
  * Wire the shared chunk-boundary-buffered redactor onto whichever of the child's streams the
  * plan marks for redaction (so a secret split across two chunks is still caught). No-ops for
  * any stream that is inherited, since there is no pipe to read.
@@ -57,12 +79,12 @@ export function pipeRedactedStreams(
   plan: StdoutRedactionPlan,
 ): void {
   if (plan.redactStdout && commandProcess.stdout) {
-    const writer = createRedactedStreamWriter(process.stdout);
+    const writer = createRedactedStreamWriter(drainTrackedWriter(process.stdout));
     commandProcess.stdout.on('data', writer.write);
     commandProcess.stdout.on('close', writer.flush);
   }
   if (plan.redactStderr && commandProcess.stderr) {
-    const writer = createRedactedStreamWriter(process.stderr);
+    const writer = createRedactedStreamWriter(drainTrackedWriter(process.stderr));
     commandProcess.stderr.on('data', writer.write);
     commandProcess.stderr.on('close', writer.flush);
   }
@@ -79,4 +101,30 @@ export function setParentRedactedStreamsEnv(env: Record<string, string | undefin
   // tagged with our pid: only our direct child writes straight into the pipes we redact
   if (streams.length) env[PARENT_REDACTED_STREAMS_ENV_VAR] = `${process.pid}:${streams.join(',')}`;
   else delete env[PARENT_REDACTED_STREAMS_ENV_VAR];
+}
+
+/**
+ * Wait until everything the redaction writers queued on our stdout/stderr has been handed
+ * off. Call before exiting: `gracefulExit` only flushes for up to 1s, which truncates
+ * output when the reader is slower than that (`varlock run -- cmd | slow-consumer`).
+ * Running the command directly would just block on the slow reader, so we do too. A reader
+ * that goes away surfaces as EPIPE, handled by `handleBrokenPipe`; a signal while we wait
+ * exits via the child signal forwarder.
+ */
+export async function flushStdio(): Promise<void> {
+  await Promise.all([process.stdout, process.stderr].map((stream) => new Promise<void>((resolve) => {
+    if (!stream.writable || stream.destroyed) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      stream.off('error', done);
+      resolve();
+    };
+    // then an empty write as a barrier for anything written since (Node only; Bun's fires at once)
+    const afterDrain = () => stream.write('', done);
+    stream.once('error', done);
+    if (streamsAwaitingDrain.has(stream)) stream.once('drain', afterDrain);
+    else afterDrain();
+  })));
 }
