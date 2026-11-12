@@ -20,6 +20,37 @@ interface ExecOptions {
    * grandchildren are terminated too. Ignored on Windows.
    */
   detached?: boolean;
+  /**
+   * After the child exits, how long to keep waiting for its piped stdout/stderr to close
+   * before giving up and destroying them. A descendant that inherited the pipe (e.g. a
+   * backgrounded server) can hold it open indefinitely, so this must be bounded.
+   */
+  outputDrainTimeoutMs?: number;
+}
+
+const DEFAULT_OUTPUT_DRAIN_TIMEOUT_MS = 2000;
+
+/**
+ * Wait for the given streams to close, destroying any still open after `timeoutMs`
+ * (which emits `close`, so listeners such as the redaction writer still flush).
+ */
+function waitForPipesToClose(streams: Array<Readable | null | undefined>, timeoutMs: number): Promise<void> {
+  const open = streams.filter((s): s is Readable => !!s && !s.closed);
+  if (!open.length) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      for (const s of open) {
+        if (!s.closed) s.destroy();
+      }
+    }, timeoutMs);
+    Promise.all(open.map((s) => new Promise<void>((r) => {
+      if (s.closed) r();
+      else s.once('close', () => r());
+    }))).then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /**
@@ -296,7 +327,7 @@ export function exec(
       );
     });
 
-    childProcess.on('exit', (code, signal) => {
+    const settle = (code: number | null, signal: NodeJS.Signals | null) => {
       // Windows special case: exit code 1 without error event might be ENOENT
       if (process.platform === 'win32' && code === 1 && !errorEmitted && !existsSync(resolvedCommand)) {
         const error: any = new Error(`Command not found: ${command}`);
@@ -324,6 +355,15 @@ export function exec(
       } else {
         resolve(exitResult);
       }
+    };
+
+    childProcess.on('exit', (code, signal) => {
+      // `exit` can fire before the child's piped output has been read, so settle only once
+      // those pipes close (or the post-exit grace period runs out).
+      waitForPipesToClose(
+        [childProcess.stdout, childProcess.stderr],
+        options.outputDrainTimeoutMs ?? DEFAULT_OUTPUT_DRAIN_TIMEOUT_MS,
+      ).then(() => settle(code, signal));
     });
   }) as Promise<ExecResult> & Partial<ExecResult> & { kill: (signal?: number | NodeJS.Signals) => boolean };
 

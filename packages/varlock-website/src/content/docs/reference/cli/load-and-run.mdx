@@ -146,6 +146,8 @@ varlock run -- sh -c 'echo $MY_VAR' # ✅ will work
 
 Detection is per stream. For example `varlock run -- node app.js | tee log.txt` redacts stdout (piped) while stderr (still attached to your terminal) passes through.
 
+When output is piped, varlock reads everything the command writes before exiting, including output from background processes it started that still hold the pipe. To avoid hanging on a long-lived background process (for example `sh -c 'server &'`), it waits at most 2 seconds after the command exits, then closes the pipe. Anything written after that is dropped, and the background process gets `SIGPIPE` on its next write.
+
 To override the auto-detection:
 ```bash
 # force-disable redaction even when output is piped/redirected

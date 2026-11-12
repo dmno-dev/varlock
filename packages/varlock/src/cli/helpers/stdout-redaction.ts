@@ -80,3 +80,25 @@ export function setParentRedactedStreamsEnv(env: Record<string, string | undefin
   if (streams.length) env[PARENT_REDACTED_STREAMS_ENV_VAR] = `${process.pid}:${streams.join(',')}`;
   else delete env[PARENT_REDACTED_STREAMS_ENV_VAR];
 }
+
+/**
+ * Wait until everything the redaction writers queued on our stdout/stderr has been handed
+ * off. Call before exiting: `gracefulExit` only flushes for up to 1s, which truncates
+ * output when the reader is slower than that (`varlock run -- cmd | slow-consumer`).
+ * Running the command directly would just block on the slow reader, so we do too. A reader
+ * that goes away surfaces as EPIPE, handled by `handleBrokenPipe`.
+ */
+export async function flushStdio(): Promise<void> {
+  await Promise.all([process.stdout, process.stderr].map((stream) => new Promise<void>((resolve) => {
+    if (!stream.writable || stream.destroyed || !stream.writableLength) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      stream.off('error', done);
+      resolve();
+    };
+    stream.once('error', done);
+    stream.write('', done);
+  })));
+}
