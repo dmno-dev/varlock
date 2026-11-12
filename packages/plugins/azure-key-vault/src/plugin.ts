@@ -7,7 +7,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { spawnAsync } from '@env-spec/utils/exec-helpers';
 import { getOidcToken } from '@env-spec/utils/oidc-tokens';
 
 const { ValidationError, SchemaError, ResolutionError } = plugin.ERRORS;
@@ -231,6 +231,8 @@ class AzurePluginInstance {
   private oidcToken?: string;
   /** cached Entra access tokens, keyed by resource (Key Vault and App Configuration use different scopes) */
   private cachedTokens = new Map<string, CachedToken>();
+  /** token requests in flight, keyed by resource, so concurrent lookups share one request */
+  private inflightTokens = new Map<string, Promise<string>>();
   private fetchCache = new Map<string, Promise<string>>();
   /** optional cache TTL - when set, resolved values are cached */
   cacheTtl?: string | number;
@@ -355,10 +357,12 @@ class AzurePluginInstance {
 
   private async getAzureCliToken(resource: string): Promise<string | undefined> {
     const scope = `${resource}/.default`;
+    // az stores its config and token caches in AZURE_CONFIG_DIR when set, ~/.azure otherwise
+    const azureConfigDir = process.env.AZURE_CONFIG_DIR || join(homedir(), '.azure');
 
     // Try the older accessTokens.json format first
     try {
-      const tokenCachePath = join(homedir(), '.azure', 'accessTokens.json');
+      const tokenCachePath = join(azureConfigDir, 'accessTokens.json');
       const tokenCacheContent = await readFile(tokenCachePath, 'utf-8');
       const tokens = JSON.parse(tokenCacheContent);
 
@@ -387,7 +391,7 @@ class AzurePluginInstance {
 
     // Try the newer MSAL token cache format
     try {
-      const msalCachePath = join(homedir(), '.azure', 'msal_token_cache.json');
+      const msalCachePath = join(azureConfigDir, 'msal_token_cache.json');
       const msalCacheContent = await readFile(msalCachePath, 'utf-8');
       const msalCache = JSON.parse(msalCacheContent);
 
@@ -421,11 +425,14 @@ class AzurePluginInstance {
     try {
       debug('No cached token found, attempting to get token from az CLI directly');
       // Scope the request to the configured tenant so we don't get a token for the wrong account.
-      const tenantArg = this.tenantId ? ` --tenant ${this.tenantId}` : '';
-      const result = execSync(`az account get-access-token --resource ${resource}${tenantArg}`, {
-        encoding: 'utf-8',
+      const args = ['account', 'get-access-token', '--resource', resource];
+      if (this.tenantId) args.push('--tenant', this.tenantId);
+      // async so a slow CLI does not block the event loop (and time out other in-flight requests)
+      const result = await spawnAsync('az', args, {
         timeout: 10000,
-        stdio: ['ignore', 'pipe', 'ignore'], // Suppress stderr
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // az is a .cmd shim on Windows, which can only be run through a shell
+        shell: process.platform === 'win32',
       });
 
       const tokenData = JSON.parse(result);
@@ -524,8 +531,19 @@ class AzurePluginInstance {
   /**
    * Get an Entra access token for the given resource (e.g. Key Vault or App Configuration).
    * Tokens are cached per resource since each service requires its own scope.
+   * Concurrent calls for the same resource share one in-flight request; the entry is
+   * cleared once it settles so later calls re-check expiry and failures can be retried.
    */
-  private async getAccessToken(resource: string): Promise<string> {
+  private getAccessToken(resource: string): Promise<string> {
+    let inflight = this.inflightTokens.get(resource);
+    if (!inflight) {
+      inflight = this.fetchAccessToken(resource).finally(() => this.inflightTokens.delete(resource));
+      this.inflightTokens.set(resource, inflight);
+    }
+    return inflight;
+  }
+
+  private async fetchAccessToken(resource: string): Promise<string> {
     // Check if we have a cached token that's still valid (with 5 min buffer)
     const cachedToken = this.cachedTokens.get(resource);
     if (cachedToken && cachedToken.expiresAt > Date.now() + 5 * 60 * 1000) {

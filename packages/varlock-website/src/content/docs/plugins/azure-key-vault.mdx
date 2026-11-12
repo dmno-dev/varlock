@@ -60,7 +60,7 @@ The plugin tries authentication methods in this priority order:
 1. **Service Principal** - If all three credentials (`tenantId`, `clientId`, `clientSecret`) are provided
 2. **OIDC federated credentials** - If `tenantId` and `clientId` are provided without `clientSecret`, uses [OIDC workload identity federation](/guides/oidc/)
 3. **Managed Identity** - Automatically used when running on Azure infrastructure
-4. **Azure CLI** - Falls back to `az login` for local development
+4. **Azure CLI** - Falls back to `az login` for local development. Reads the CLI token cache (from `AZURE_CONFIG_DIR` if set, otherwise `~/.azure`), and runs `az account get-access-token` if no valid cached token is found
 
 The same chain is used for both services. Only the token scope differs (`https://vault.azure.net` for Key Vault, `https://azconfig.io` for App Configuration), and tokens are cached per scope. App Configuration additionally accepts an access-key connection string via `appConfigConnectionString`, which bypasses this chain for App Configuration requests only (see [Access-key connection string](#access-key-connection-string) below).
 
