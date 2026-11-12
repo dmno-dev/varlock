@@ -88,9 +88,17 @@ export interface ChildSignalForwarder {
   attach(child: ChildLike): void;
   /**
    * Call once the child has exited and been reaped, so we never signal a recycled pid.
-   * After this, a forwarded signal exits varlock (128+N) instead of being forwarded.
+   * A signal arriving after this is held (not forwarded, not acted on) so the caller's
+   * cleanup can finish; `beginFinalFlush()` then acts on it.
    */
   detach(): void;
+  /**
+   * Call after post-child cleanup, right before the final (unbounded) stdout/stderr flush.
+   * If a signal arrived since `detach()`, varlock exits now with 128+N; any later signal
+   * exits immediately. Our claimed listeners replaced the default "terminate" action, so
+   * without this a stalled output reader would make varlock unkillable.
+   */
+  beginFinalFlush(): void;
   /**
    * Whether varlock received (and forwarded) a shutdown signal (SIGINT/SIGTERM/SIGQUIT,
    * not SIGHUP) while the child ran. A child that handles e.g. SIGINT and then exits with
@@ -136,6 +144,12 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
   // signals received before attach(); replayed once we know the child
   const pendingSignals: Array<NodeJS.Signals> = [];
 
+  let finalFlushStarted = false;
+  // first signal received after the child exited, before beginFinalFlush()
+  let heldSignal: NodeJS.Signals | undefined;
+  // exit as if the signal had killed us (exit-hook ignores repeat calls)
+  const exitForSignal = (signal: NodeJS.Signals) => gracefulExit(128 + (osConstants.signals[signal] ?? 0));
+
   const signalChild = (signal: NodeJS.Signals | number) => {
     if (childExited || !child?.pid) return;
     try {
@@ -155,12 +169,10 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   FORWARDED_SIGNALS.forEach((signal) => {
     const forwardSignal = () => {
-      // The child is gone but varlock is still finishing up (draining its output to a
-      // slow or stalled reader). There is nothing to forward to, and our claimed listener
-      // has replaced the default "terminate" action, so exit ourselves as if the signal
-      // had killed us. Otherwise a stalled reader would make varlock unkillable.
+      // the child is gone: nothing to forward to (see detach / beginFinalFlush)
       if (childExited) {
-        gracefulExit(128 + (osConstants.signals[signal] ?? 0));
+        if (finalFlushStarted) exitForSignal(signal);
+        else heldSignal ??= signal;
         return;
       }
       if (SHUTDOWN_SIGNALS.includes(signal)) receivedShutdownSignal = true;
@@ -198,6 +210,10 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
     detach() {
       childExited = true;
       if (forceKillTimer) clearTimeout(forceKillTimer);
+    },
+    beginFinalFlush() {
+      finalFlushStarted = true;
+      if (heldSignal) exitForSignal(heldSignal);
     },
     get receivedShutdownSignal() {
       return receivedShutdownSignal;

@@ -1680,6 +1680,9 @@ async function awaitProxiedChild(
     opts.onSummary?.();
   }
 
+  // cleanup (audit log flush, session record) is done: a signal held during it, or one
+  // arriving while we flush output to a slow reader, now ends varlock
+  opts.signalForwarder.beginFinalFlush();
   await flushStdio();
   return exitCode;
 }

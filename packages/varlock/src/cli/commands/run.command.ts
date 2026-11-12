@@ -332,6 +332,8 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
   }
 
   if (!isWatchEnabled) {
+    // no cleanup step here: a signal from now on ends varlock, even mid-flush
+    signalForwarder.beginFinalFlush();
     await flushStdio();
     return gracefulExit(exitCode);
   } else {
