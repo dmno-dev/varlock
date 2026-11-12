@@ -431,6 +431,21 @@ describe('CLI Commands', () => {
       expect(parsed.config.OP_TOKEN).toMatchObject({ value: 'secret-zero', isInternal: true });
     });
 
+    test('--format json-full includes @tag names, the run-injected blob does not', () => {
+      const result = runVarlock(['load', '--format', 'json-full'], { cwd: 'smoke-test-tags' });
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.config.TAGGED_VAR.tags).toEqual(['deploy']);
+      expect(parsed.config.APP_VAR.tags).toBeUndefined();
+
+      const script = `
+        const blob = JSON.parse(process.env.__VARLOCK_ENV);
+        process.exit(blob.config.TAGGED_VAR && blob.config.TAGGED_VAR.tags === undefined ? 0 : 1);
+      `;
+      const run = runVarlock(['run', '--', 'node', '-e', script], { cwd: 'smoke-test-tags' });
+      expect(run.exitCode).toBe(0);
+    });
+
     test('run --filter strips excluded vars from the child env even when set ambiently', () => {
       // child exits 0 only if DROP_VAR is ABSENT and KEEP_VAR is present - the ambient value
       // must not slip through the process.env spread just because it was excluded by --filter

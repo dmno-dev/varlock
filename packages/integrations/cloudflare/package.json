@@ -30,6 +30,11 @@
       "types": "./dist/shared-ssr-entry-code.d.mts",
       "import": "./dist/shared-ssr-entry-code.mjs",
       "default": "./dist/shared-ssr-entry-code.mjs"
+    },
+    "./env-bindings": {
+      "types": "./dist/env-bindings.d.mts",
+      "import": "./dist/env-bindings.mjs",
+      "default": "./dist/env-bindings.mjs"
     }
   },
   "bin": {

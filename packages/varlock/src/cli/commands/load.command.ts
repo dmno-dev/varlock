@@ -174,7 +174,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     // routinely consumed programmatically (framework integrations shell out to this exact
     // command to get their injected config), so a secret-zero credential must not appear here
     // unless explicitly requested. Pass --include-internal for local human inspection.
-    const serialized = envGraph.getSerializedGraph({ includeInternal: !!includeInternal, filterKeys });
+    // tags travel in json-full so consumers (e.g. an IaC helper picking a Worker's subset) can
+    // select by @tag without re-running varlock; the run-injected blob does not carry them
+    const serialized = envGraph.getSerializedGraph({
+      includeInternal: !!includeInternal, filterKeys, includeTags: true,
+    });
     // Detect the proxy context via the unified resolver (env marker → session
     // token → ancestry), so the annotation is accurate even if the child scrubbed
     // the env marker.
