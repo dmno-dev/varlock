@@ -21,6 +21,7 @@
 */
 
 import { initVarlockEnv } from './env';
+import { applyVarlockConfigEnvAliases, getVarlockConfigEnvVar } from './lib/config-env-aliases';
 import { patchGlobalConsole } from './patch-console';
 import { patchProcessStreams } from './patch-process-streams';
 import { patchGlobalServerResponse } from './patch-server-response';
@@ -139,10 +140,12 @@ function storeDecryptedEnv(decrypted: string, source: 'global' | 'process') {
  * as `globalThis.__varlockEnvReady`, and Next.js edge handler invocation is gated on it.
  */
 export function initVarlockRuntime() {
+  applyVarlockConfigEnvAliases();
   const encrypted = getEncryptedEnvBlob();
   if (encrypted) {
-    const key = (globalThis as any).process?.env?._VARLOCK_ENV_KEY;
-    if (!key) throw new Error('[varlock] env blob is encrypted but _VARLOCK_ENV_KEY is not set');
+    // read directly (not just via the alias copy above), which is a no-op on a read-only process.env
+    const key = getVarlockConfigEnvVar('_VARLOCK_ENV_KEY');
+    if (!key) throw new Error('[varlock] env blob is encrypted but _VARLOCK_ENV_KEY (or VARLOCK_ENV_KEY) is not set');
     try {
       storeDecryptedEnv(decryptEnvBlobSync(encrypted.blob, key), encrypted.source);
       initNow();

@@ -226,6 +226,10 @@ services:
 
 Your app boots exactly as it does with a file: `import 'varlock/auto-load'` and read `ENV`.
 
+:::caution[Not for AWS Lambda]
+This route does not work on AWS Lambda. Lambda rejects env var names that start with `_`, so `__VARLOCK_ENV` cannot be set, and it caps all of a function's env vars at 4 KB combined, which an encrypted payload usually exceeds. Ship a frozen file in the deploy package instead (or [freeze into the build output](#freezing-in-build-output)), and set `VARLOCK_USE_FROZEN_ENV=1` and `VARLOCK_ENV_KEY`. The `_VARLOCK_*` configuration variables can all be set without the leading underscore; see [Reserved variables](/reference/reserved-variables/#configuration-variables-_varlock_).
+:::
+
 The summary goes to stderr in this mode, so stdout carries the payload and nothing else. Everything else is identical to writing a file: the same resolution, the same encryption, the same refusal to emit a payload built from a failed resolution.
 
 ### What you give up

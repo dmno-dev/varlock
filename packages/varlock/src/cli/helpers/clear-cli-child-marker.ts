@@ -1,4 +1,5 @@
 import { CLI_CHILD_MARKER } from '../../lib/cli-child-marker';
+import { applyVarlockConfigEnvAliases } from '../../runtime/lib/config-env-aliases';
 
 /**
  * Side-effect module: must be the FIRST import of the CLI entrypoint.
@@ -20,3 +21,6 @@ export function clearCliChildMarker() {
 }
 
 clearCliChildMarker();
+// also accept `VARLOCK_ENV_KEY` etc. for `_VARLOCK_*` config vars (see config-env-aliases),
+// before any command reads them or snapshots process.env for a child
+applyVarlockConfigEnvAliases();

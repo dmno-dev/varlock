@@ -1,3 +1,5 @@
+import { VARLOCK_CONFIG_ENV_VAR_ALIAS_NAMES } from '../../runtime/lib/config-env-aliases';
+
 /**
  * Single source of truth for varlock's reserved environment variables.
  *
@@ -28,6 +30,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
   {
     name: '_VARLOCK_ENV_KEY',
     description: 'Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments.',
+  },
+  {
+    name: '_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV',
+    description: 'Set to `1` in the build environment to let a Next.js build freeze the env into its output without encrypting it. Without it, a frozen build fails when `_VARLOCK_ENV_KEY` is not set.',
   },
   {
     name: '_VARLOCK_CACHE_KEY',
@@ -98,10 +104,13 @@ export const VARLOCK_INTERNAL_ENV_VARS: Array<ReservedVarInfo> = [
 ];
 
 /**
- * Check if a config item key is reserved for varlock infrastructure. These keys are never
- * exposed via the ENV proxy, serialized into the injected env blob, included in generated
- * types, or recorded as override provenance — even if a user defines one in their schema.
+ * Check if a config item key is reserved for varlock infrastructure: any `_VARLOCK_*` key, plus
+ * the underscore-free aliases of the config vars (`VARLOCK_ENV_KEY`, ...; see config-env-aliases),
+ * which configure varlock the same way. Computed builtins like `VARLOCK_ENV` are not reserved.
+ * These keys are never exposed via the ENV proxy, serialized into the injected env blob,
+ * included in generated types, or recorded as override provenance, even if a user defines one
+ * in their schema.
  */
 export function isVarlockReservedKey(key: string): boolean {
-  return key.startsWith(VARLOCK_RESERVED_KEY_PREFIX);
+  return key.startsWith(VARLOCK_RESERVED_KEY_PREFIX) || VARLOCK_CONFIG_ENV_VAR_ALIAS_NAMES.has(key);
 }

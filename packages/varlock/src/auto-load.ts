@@ -6,6 +6,7 @@ import { createDebug } from './lib/debug';
 import { isVarlockCliChild } from './lib/cli-child-marker';
 
 import { initVarlockEnv, getPreInjectionProcessEnv } from './runtime/env';
+import { applyVarlockConfigEnvAliases } from './runtime/lib/config-env-aliases';
 import { patchGlobalConsole } from './runtime/patch-console';
 import { patchProcessStreams } from './runtime/patch-process-streams';
 import { patchGlobalServerResponse } from './runtime/patch-server-response';
@@ -39,6 +40,8 @@ function getPartialResolvedEnv(err: unknown): Record<string, unknown> {
 }
 
 function autoLoad() {
+  // `VARLOCK_ENV_KEY` etc. for platforms that reject a leading underscore (see config-env-aliases)
+  applyVarlockConfigEnvAliases();
   // `@internal` keys stripped from a reused blob - their ambient env values are scrubbed
   // after init (see the bottom of this module)
   let strippedInternalKeys: Array<string> = [];

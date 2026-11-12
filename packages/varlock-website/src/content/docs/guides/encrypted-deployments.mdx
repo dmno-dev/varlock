@@ -57,6 +57,8 @@ No setup needed. `varlock-wrangler deploy` **auto-generates a key** and uploads 
 
 You must set `_VARLOCK_ENV_KEY` as an environment variable on your platform. The key must be available at both **build time** (for encryption) and **runtime** (for decryption). It must be a real environment variable in both places: it's a reserved `_VARLOCK_*` name that varlock never populates from `.env` files, and it can't be baked in via vite's `define` (the value has to come from the actual process environment at runtime, not a string substituted at build time).
 
+Some platforms reject environment variable names that start with `_` (AWS Lambda requires a leading letter). On those, set the key as `VARLOCK_ENV_KEY` instead. varlock reads it as `_VARLOCK_ENV_KEY` when that is not set. The same works for the other [`_VARLOCK_*` configuration variables](/reference/reserved-variables/#configuration-variables-_varlock_).
+
 <Steps>
 
 1. **Generate and set the key**

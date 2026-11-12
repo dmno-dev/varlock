@@ -96,6 +96,8 @@ function evaluateCjsBundleInEdgeLikeContext(bundleFile: string, opts: {
   env?: Record<string, string>,
   /** model Next's dev edge sandbox, whose `process` shim throws when a node API is read off it */
   processThrowsOnNodeApis?: boolean,
+  /** model a runtime whose process.env is read-only (writes silently no-op) */
+  freezeEnv?: boolean,
   probe: string,
 }) {
   const bundlePath = path.join(DIST_RUNTIME_DIR, bundleFile);
@@ -116,6 +118,7 @@ function evaluateCjsBundleInEdgeLikeContext(bundleFile: string, opts: {
     }
     const module = { exports: {} };
     const processShim = { env: ${JSON.stringify(opts.env ?? {})} };
+    if (${JSON.stringify(!!opts.freezeEnv)}) Object.freeze(processShim.env);
     if (${JSON.stringify(!!opts.processThrowsOnNodeApis)}) {
       for (const api of ['getBuiltinModule', 'stdout', 'stderr', 'ppid', 'cwd']) {
         Object.defineProperty(processShim, api, {
@@ -215,6 +218,36 @@ describe('runtime entries evaluate without node builtins', () => {
       `,
     });
     expect(result).toEqual({ publicValue: 'public-value', consolePatched: true, patchConsoleExposed: 'function' });
+  });
+
+  it('the injected init-bundle decrypts with VARLOCK_ENV_KEY (for platforms that reject a leading `_`)', () => {
+    const key = 'ce'.repeat(32);
+    const result = evaluateCjsBundleInEdgeLikeContext('init-bundle.cjs', {
+      env: { __VARLOCK_ENV: encryptEnvBlobSync(JSON.stringify(FAKE_GRAPH), key), VARLOCK_ENV_KEY: key },
+      probe: `
+        await sandbox.__varlockEnvReady;
+        return { publicValue: ns.ENV.PUBLIC_KEY };
+      `,
+    });
+    expect(result).toEqual({ publicValue: 'public-value' });
+  });
+
+  it('the injected init-bundle decrypts with VARLOCK_ENV_KEY on a read-only process.env', () => {
+    const key = 'cf'.repeat(32);
+    const result = evaluateCjsBundleInEdgeLikeContext('init-bundle.cjs', {
+      env: {
+        __VARLOCK_ENV: encryptEnvBlobSync(JSON.stringify({
+          ...FAKE_GRAPH, settings: { ...FAKE_GRAPH.settings, disableProcessEnvInjection: true },
+        }), key),
+        VARLOCK_ENV_KEY: key,
+      },
+      freezeEnv: true,
+      probe: `
+        await sandbox.__varlockEnvReady;
+        return { publicValue: ns.ENV.PUBLIC_KEY };
+      `,
+    });
+    expect(result).toEqual({ publicValue: 'public-value' });
   });
 
   it("the injected init-bundle runs under Next's dev edge sandbox, whose process shim throws on node APIs", () => {
