@@ -1,6 +1,8 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createHash, createHmac } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -664,6 +666,70 @@ describe('azureSecret()', () => {
     expect(tokenRequest?.scope).toBe('https://vault.azure.net/.default');
     expect(fake.requests.some((r) => r.pathname === '/secrets/database-url')).toBe(true);
   });
+
+  test('shares one token request across secrets resolved concurrently', async () => {
+    const fake = await startFakeAzure({ vaultSecrets: { 'secret-a': 'value-a', 'secret-b': 'value-b', 'secret-c': 'value-c' } });
+
+    await pluginTest({
+      injectValues: spInjectValues,
+      schema: outdent`
+        ${servicePrincipalSchema(fake, `,\n#   vaultUrl="${fake.url}/"`)}
+        # @sensitive
+        SECRET_A=azureSecret("secret-a")
+        # @sensitive
+        SECRET_B=azureSecret("secret-b")
+        # @sensitive
+        SECRET_C=azureSecret("secret-c")
+      `,
+      expectValues: { SECRET_A: 'value-a', SECRET_B: 'value-b', SECRET_C: 'value-c' },
+    })();
+
+    expect(fake.requests.filter((r) => r.pathname.endsWith('/oauth2/v2.0/token'))).toHaveLength(1);
+  });
+
+  test.skipIf(process.platform === 'win32')('falls back to one async az CLI call when no cached CLI token is found', async () => {
+    const fake = await startFakeAzure({ vaultSecrets: { 'secret-a': 'value-a', 'secret-b': 'value-b' } });
+
+    // a fake `az` on PATH that logs each call and prints a token, plus an empty AZURE_CONFIG_DIR
+    // so the plugin finds no token cache files and has to shell out
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'varlock-az-test-'));
+    const callLog = path.join(tmpDir, 'calls.log');
+    const azPath = path.join(tmpDir, 'az');
+    fs.writeFileSync(azPath, outdent`
+      #!/bin/sh
+      echo "$@" >> "${callLog}"
+      echo '{"accessToken":"${ENTRA_TOKEN}","expiresOn":"2099-01-01 00:00:00.000000"}'
+    `, { mode: 0o755 });
+    const configDir = path.join(tmpDir, 'azure-config');
+    fs.mkdirSync(configDir);
+
+    const origPath = process.env.PATH;
+    const origConfigDir = process.env.AZURE_CONFIG_DIR;
+    process.env.PATH = `${tmpDir}${path.delimiter}${origPath}`;
+    process.env.AZURE_CONFIG_DIR = configDir;
+    try {
+      await pluginTest({
+        schema: outdent`
+          # @plugin(${PLUGIN_PATH})
+          # @initAzure(vaultUrl="${fake.url}/")
+          # ---
+          # @sensitive
+          SECRET_A=azureSecret("secret-a")
+          # @sensitive
+          SECRET_B=azureSecret("secret-b")
+        `,
+        expectValues: { SECRET_A: 'value-a', SECRET_B: 'value-b' },
+      })();
+    } finally {
+      process.env.PATH = origPath;
+      if (origConfigDir === undefined) delete process.env.AZURE_CONFIG_DIR;
+      else process.env.AZURE_CONFIG_DIR = origConfigDir;
+    }
+
+    const calls = fs.readFileSync(callLog, 'utf-8').trim().split('\n');
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    expect(calls).toEqual(['account get-access-token --resource https://vault.azure.net']);
+  }, 15_000);
 
   test('errors when the instance has no vaultUrl configured', async () => {
     const fake = await startFakeAzure({ settings: [{ key: 'X', value: 'y' }] });
