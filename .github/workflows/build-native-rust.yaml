@@ -3,8 +3,10 @@ name: Build Rust native binaries
 # Reusable workflow that compiles the varlock-local-encrypt Rust binary
 # for Linux and Windows targets.
 #
-# Builds are cached by Cargo.lock + source hash. Each platform builds
-# natively on its own runner for maximum compatibility.
+# Each platform builds natively on its own runner for maximum compatibility.
+# Preview builds reuse the Cargo build cache and can save the built binaries
+# for later runs (cache-key); release builds use neither, so a published binary
+# never contains cached build output.
 #
 # Output: native binaries uploaded as artifacts, ready to be bundled
 # into the varlock npm package and CLI release archives.
@@ -23,8 +25,12 @@ on:
         description: 'Base name for uploaded artifacts (suffixed with platform)'
         type: string
         default: 'native-bin-rust'
-      source-hash:
-        description: 'Pre-computed hash of Rust source files (from Ubuntu runner). When provided, used for the binary cache key instead of local hashFiles to ensure cross-OS consistency.'
+      use-build-cache:
+        description: 'Restore/save the Cargo registry + target cache. Release builds turn this off.'
+        type: boolean
+        default: true
+      cache-key:
+        description: 'If set, each built binary is saved to the Actions cache under <cache-key>-<platform subdir> (preview builds only)'
         type: string
         default: ''
       sign:
@@ -72,6 +78,7 @@ jobs:
 
       # Cache Cargo registry + build artifacts by lockfile hash
       - name: Cache Cargo
+        if: inputs.use-build-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -268,14 +275,20 @@ jobs:
       # Cache the built binary so preview releases on other runners can restore it.
       # Path must match what test.yaml's release-preview-packages restores to.
       - name: Prepare binary for cache
+        if: inputs.cache-key != ''
         shell: bash
         run: |
           mkdir -p "packages/varlock/native-bins/${{ matrix.native-bin-subdir }}"
           cp "native-bins/${{ matrix.native-bin-subdir }}/${{ matrix.binary-name }}" \
              "packages/varlock/native-bins/${{ matrix.native-bin-subdir }}/"
+      # enableCrossOsArchive: the win32 binary is saved on Windows but probed and
+      # restored on Ubuntu; without it, the cache version gets a Windows-only
+      # component and Ubuntu lookups never match.
       - name: Cache built binary
+        if: inputs.cache-key != ''
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         continue-on-error: true  # cache key is immutable; fails harmlessly if already saved by a concurrent run
         with:
           path: packages/varlock/native-bins/${{ matrix.native-bin-subdir }}/
-          key: native-bin-rust-${{ matrix.native-bin-subdir }}-${{ inputs.source-hash || hashFiles('packages/encryption-binary-rust/Cargo.lock', 'packages/encryption-binary-rust/src/**') }}
+          enableCrossOsArchive: true
+          key: ${{ inputs.cache-key }}-${{ matrix.native-bin-subdir }}
