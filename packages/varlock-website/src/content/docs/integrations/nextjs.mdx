@@ -366,7 +366,7 @@ The decision is made at build time and never at boot, so a value never has two p
 
 How a frozen build behaves:
 
-- **It must be encrypted.** Generate a key with `varlock generate-key` and set `_VARLOCK_ENV_KEY` both in the build environment and at runtime. See the [encrypted deployments guide](/guides/encrypted-deployments/). A build without the key fails. Set `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1` only if you accept every resolved secret sitting unencrypted in your build output.
+- **It must be encrypted.** Generate a key with `varlock generate-key` and set `_VARLOCK_ENV_KEY` both in the build environment and at runtime. On platforms that reject env var names starting with `_` (such as AWS Lambda), set it as `VARLOCK_ENV_KEY` instead. See the [encrypted deployments guide](/guides/encrypted-deployments/). A build without the key fails. Set `_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV=1` only if you accept every resolved secret sitting unencrypted in your build output.
 - **Frozen values win over the environment at boot.** If the environment sets a different value for a frozen key, varlock uses the frozen value and prints a warning. A `__VARLOCK_ENV` blob in the environment (for example from `varlock run`) is ignored, also with a warning.
 - **Values that must vary per instance** go in the schema as [`@dynamic=boot`](/guides/frozen-env/#keys-supplied-at-boot). The frozen value becomes a default, and a value set in the environment at boot replaces it after being checked against the item's type.
 - Rotating a secret takes effect on your next build, not on the next restart.

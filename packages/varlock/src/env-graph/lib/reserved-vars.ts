@@ -30,6 +30,10 @@ export const VARLOCK_CONFIG_ENV_VARS: Array<ReservedVarInfo> = [
     description: 'Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments.',
   },
   {
+    name: '_VARLOCK_ALLOW_PLAINTEXT_FROZEN_ENV',
+    description: 'Set to `1` in the build environment to let a Next.js build freeze the env into its output without encrypting it. Without it, a frozen build fails when `_VARLOCK_ENV_KEY` is not set.',
+  },
+  {
     name: '_VARLOCK_CACHE_KEY',
     description: 'Encryption key for the on-disk resolved-value cache. When set (e.g. as a CI secret), it enables the disk cache in environments without OS keychain access.',
   },

@@ -536,6 +536,7 @@ function bootFromFrozenBuildEnv(frozenEnv: string): LoadedEnvConfig {
         '',
         '🚨 [varlock] this build\'s env is frozen and encrypted, but _VARLOCK_ENV_KEY is not set 🚨',
         'Set _VARLOCK_ENV_KEY at runtime to the key that was set when building.',
+        '(On platforms that reject env var names starting with `_`, like AWS Lambda, set VARLOCK_ENV_KEY instead.)',
         '',
       ].join('\n'));
       process.exit(1);

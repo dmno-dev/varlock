@@ -5,6 +5,9 @@ import { isBrowser } from '../lib/detect-runtime';
 import { debug } from './lib/debug';
 import { isStreamRedactionPatched } from './lib/stream-patch-key';
 import { envValueMatchesBlobItem } from '../lib/injected-env-provenance';
+import { applyVarlockConfigEnvAliases } from './lib/config-env-aliases';
+
+export { applyVarlockConfigEnvAliases };
 
 // TODO: would like to move all of the redaction utils out of this file
 // but its complicated since it is imported by code that may be run in the backend and frontend
@@ -634,6 +637,10 @@ type EnvState = {
 };
 
 const processExists = !!globalThis.process;
+
+// `VARLOCK_ENV_KEY` etc. stand in for `_VARLOCK_*` config vars on platforms that reject a
+// leading underscore (AWS Lambda). Applied before the snapshot below so it sees them too.
+applyVarlockConfigEnvAliases();
 
 const ENV_STATE_KEY = '__varlockEnvState';
 function getEnvState(): EnvState {

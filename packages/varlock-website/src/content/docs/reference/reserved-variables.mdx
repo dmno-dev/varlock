@@ -19,6 +19,10 @@ Config items whose key starts with `_VARLOCK_` are reserved for varlock. They ar
 
 Set these in your shell, CI, or deploy environment to configure varlock's behavior.
 
+:::note[Platforms that reject a leading underscore]
+Some platforms don't allow environment variable names that start with `_`. AWS Lambda, for example, requires names to start with a letter. On those, set any of these variables without the leading underscore instead: `VARLOCK_ENV_KEY` for `_VARLOCK_ENV_KEY`, `VARLOCK_USE_FROZEN_ENV` for `_VARLOCK_USE_FROZEN_ENV`, and so on. If both forms are set, the `_VARLOCK_*` one wins. This applies only to the variables listed in this section, not to `__VARLOCK_*` internals.
+:::
+
 ### `_VARLOCK_ENV_KEY`
 
 Encryption key used to decrypt the injected env blob at runtime. Typically set in deploy environments. See [Encrypted deployments](/guides/encrypted-deployments/).

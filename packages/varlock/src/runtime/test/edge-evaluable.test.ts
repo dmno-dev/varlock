@@ -217,6 +217,18 @@ describe('runtime entries evaluate without node builtins', () => {
     expect(result).toEqual({ publicValue: 'public-value', consolePatched: true, patchConsoleExposed: 'function' });
   });
 
+  it('the injected init-bundle decrypts with VARLOCK_ENV_KEY (for platforms that reject a leading `_`)', () => {
+    const key = 'ce'.repeat(32);
+    const result = evaluateCjsBundleInEdgeLikeContext('init-bundle.cjs', {
+      env: { __VARLOCK_ENV: encryptEnvBlobSync(JSON.stringify(FAKE_GRAPH), key), VARLOCK_ENV_KEY: key },
+      probe: `
+        await sandbox.__varlockEnvReady;
+        return { publicValue: ns.ENV.PUBLIC_KEY };
+      `,
+    });
+    expect(result).toEqual({ publicValue: 'public-value' });
+  });
+
   it("the injected init-bundle runs under Next's dev edge sandbox, whose process shim throws on node APIs", () => {
     // the old edge bundle never touched node builtins; the unified one must survive a
     // `process` whose node-API properties throw on access rather than being undefined

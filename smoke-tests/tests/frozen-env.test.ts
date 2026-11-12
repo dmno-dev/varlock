@@ -39,6 +39,9 @@ const ISOLATED_KEYS = [
   '_VARLOCK_ENV_KEY',
   '_VARLOCK_USE_INJECTED_ENV',
   '_VARLOCK_USE_FROZEN_ENV',
+  'VARLOCK_ENV_KEY',
+  'VARLOCK_USE_INJECTED_ENV',
+  'VARLOCK_USE_FROZEN_ENV',
   'APP_ENV',
   'PUBLIC_VAR',
   'SECRET_TOKEN',
@@ -271,6 +274,22 @@ describe('varlock freeze --out -', () => {
     expect(result.output).toContain('COERCED_FLAG_IS_BOOL=true');
   });
 
+  test('the payload boots with only underscore-free config var names set (AWS Lambda)', () => {
+    const blob = freeze({ args: ['--out', '-'] }).stdout.trim();
+    const result = runApp({
+      cwd: blobDeployDir,
+      env: {
+        __VARLOCK_ENV: blob,
+        _VARLOCK_USE_FROZEN_ENV: undefined,
+        VARLOCK_USE_INJECTED_ENV: '1',
+        VARLOCK_ENV_KEY: encryptionKey,
+      },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('PUBLIC_VAR=public-value-prod');
+    expect(result.output).toContain('SECRET_OK=true');
+  });
+
   test('refuses to emit an unencrypted payload without a key', () => {
     const result = runVarlock(['freeze', '--out', '-'], {
       cwd: SCENARIO,
@@ -313,6 +332,24 @@ describe('booting from a frozen env file', () => {
     expect(result.output).toContain('SECRET_OK=true');
     // coerced types survive the round trip (a string "true" would fail this)
     expect(result.output).toContain('COERCED_FLAG_IS_BOOL=true');
+  });
+
+  // AWS Lambda rejects env var names starting with `_`, so each `_VARLOCK_*` config var can
+  // also be set without the leading underscore
+  test('accepts VARLOCK_ENV_KEY / VARLOCK_USE_FROZEN_ENV in place of the _VARLOCK_* names', () => {
+    const result = runApp({
+      env: { _VARLOCK_USE_FROZEN_ENV: undefined, VARLOCK_USE_FROZEN_ENV: '1', VARLOCK_ENV_KEY: encryptionKey },
+    });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('APP_ENV=production');
+    expect(result.output).toContain('SECRET_OK=true');
+  });
+
+  test('the _VARLOCK_* name wins over the underscore-free alias', () => {
+    const otherKey = runVarlock(['generate-key', '--plain']).stdout.trim();
+    const result = runApp({ env: { _VARLOCK_ENV_KEY: encryptionKey, VARLOCK_ENV_KEY: otherKey } });
+    expect(result.exitCode, result.output).toBe(0);
+    expect(result.output).toContain('APP_ENV=production');
   });
 
   test('varlock run consumes it too', () => {
