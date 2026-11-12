@@ -15,12 +15,15 @@ export const VARLOCK_CLI = join(SMOKE_TESTS_DIR, 'node_modules', 'varlock', 'bin
 export function runVarlock(args: Array<string>, options?: {
   cwd?: string;
   env?: Record<string, string>;
+  /** Written to the child's stdin (e.g. a secret for `keychain set`) */
+  input?: string;
 }) {
   const cwd = options?.cwd ? join(SMOKE_TESTS_DIR, options.cwd) : SMOKE_TESTS_DIR;
   const env = { ...process.env, ...options?.env };
   const result = spawnSync(process.execPath, [VARLOCK_CLI, ...args], {
     cwd,
     env,
+    input: options?.input,
     encoding: 'utf-8',
   });
 
