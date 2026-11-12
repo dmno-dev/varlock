@@ -1,4 +1,6 @@
 import { openSync, closeSync } from 'node:fs';
+import { constants as osConstants } from 'node:os';
+import { gracefulExit } from 'exit-hook';
 
 /**
  * Signals we forward to a long-running child so it can shut down gracefully: the
@@ -84,7 +86,10 @@ export interface ChildSignalForwarder {
    * attach is forwarded now, so an `await` in that window can't drop it. Idempotent.
    */
   attach(child: ChildLike): void;
-  /** Call once the child has exited and been reaped, so we never signal a recycled pid. */
+  /**
+   * Call once the child has exited and been reaped, so we never signal a recycled pid.
+   * After this, a forwarded signal exits varlock (128+N) instead of being forwarded.
+   */
   detach(): void;
   /**
    * Whether varlock received (and forwarded) a shutdown signal (SIGINT/SIGTERM/SIGQUIT,
@@ -150,6 +155,14 @@ export function createChildSignalForwarder(): ChildSignalForwarder {
 
   FORWARDED_SIGNALS.forEach((signal) => {
     const forwardSignal = () => {
+      // The child is gone but varlock is still finishing up (draining its output to a
+      // slow or stalled reader). There is nothing to forward to, and our claimed listener
+      // has replaced the default "terminate" action, so exit ourselves as if the signal
+      // had killed us. Otherwise a stalled reader would make varlock unkillable.
+      if (childExited) {
+        gracefulExit(128 + (osConstants.signals[signal] ?? 0));
+        return;
+      }
       if (SHUTDOWN_SIGNALS.includes(signal)) receivedShutdownSignal = true;
       if (!child) {
         pendingSignals.push(signal);

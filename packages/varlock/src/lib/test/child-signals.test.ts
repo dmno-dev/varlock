@@ -1,7 +1,10 @@
 import {
   describe, test, expect, afterEach, vi,
 } from 'vitest';
+import { gracefulExit } from 'exit-hook';
 import { claimSignals, createChildSignalForwarder, FORWARDED_SIGNALS } from '../child-signals';
+
+vi.mock('exit-hook', () => ({ gracefulExit: vi.fn() }));
 
 const SIGNALS: Array<NodeJS.Signals> = ['SIGTERM', 'SIGINT'];
 
@@ -47,6 +50,23 @@ describe('claimSignals', () => {
       forwarder.attach(child);
       expect(killSpy.mock.calls.length + child.kill.mock.calls.length).toBe(callsBefore);
       forwarder.detach();
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  test('a signal after detach() exits varlock with 128+N instead of being swallowed', () => {
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const child = { pid: 424242, kill: vi.fn((_signal?: number | NodeJS.Signals) => true) };
+    try {
+      const forwarder = createChildSignalForwarder();
+      forwarder.attach(child);
+      forwarder.detach();
+      // e.g. while flushing output to a stalled reader after the child exited
+      process.emit('SIGTERM', 'SIGTERM');
+      expect(gracefulExit).toHaveBeenCalledWith(143);
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(killSpy).not.toHaveBeenCalled();
     } finally {
       killSpy.mockRestore();
     }
