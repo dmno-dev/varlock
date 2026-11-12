@@ -803,6 +803,8 @@ export function initVarlockEnv(opts?: {
   const setProcessEnv = processExists && !serializedEnvData.settings?.disableProcessEnvInjection;
   const dynamicKeys: Array<string> = [];
   const publicDynamicKeys: Array<string> = [];
+  // public+dynamic, but left out of client delivery by `@publicDynamicFilter`
+  const clientExcludedKeys: Array<string> = [];
 
   // if we've already injected process.env vars in the past, we'll reset those now
   // (injection bookkeeping lives on the shared state so a reload flowing through a
@@ -825,7 +827,7 @@ export function initVarlockEnv(opts?: {
     // isDynamic is omitted from the blob when it matches the sensitivity linkage
     if (item.isDynamic ?? item.isSensitive) {
       dynamicKeys.push(itemKey);
-      if (!item.isSensitive) publicDynamicKeys.push(itemKey);
+      if (!item.isSensitive) (item.client === false ? clientExcludedKeys : publicDynamicKeys).push(itemKey);
     }
     envValues[itemKey] = item.value;
     if (setProcessEnv) {
@@ -852,6 +854,7 @@ export function initVarlockEnv(opts?: {
   }
   (globalThis as any).__varlockDynamicKeys = dynamicKeys;
   (globalThis as any).__varlockPublicDynamicKeys = publicDynamicKeys;
+  (globalThis as any).__varlockClientExcludedKeys = clientExcludedKeys;
   envState.initialized = true;
 }
 
@@ -882,10 +885,13 @@ type DynamicConfigAccessMeta = {
 
 /**
  * Dynamic key lists live on globalThis (like the rest of the shared env state):
- * `__varlockDynamicKeys` is written by initVarlockEnv (server-side only), while
- * `__varlockPublicDynamicKeys` is also injected into browser bundles by the
- * framework integrations. A missing global means "unknown" (e.g. hydration
- * before any init), which callers treat differently from known-and-empty.
+ * `__varlockDynamicKeys` and `__varlockClientExcludedKeys` are written by
+ * initVarlockEnv (server-side only), while `__varlockPublicDynamicKeys` is also
+ * injected into browser bundles by the framework integrations. It holds only the
+ * keys delivered to client code, so keys left out by `@publicDynamicFilter` are not
+ * in it (or in anything built on it: getPublicDynamicEnv, hydration). A missing
+ * global means "unknown" (e.g. hydration before any init), which callers treat
+ * differently from known-and-empty.
  *
  * Sets are cached per underlying array reference since the ENV proxy checks
  * membership on every property access.
@@ -1039,7 +1045,11 @@ export async function loadPublicDynamicEnv(opts?: {
     });
     if (!response.ok) {
       throw new Error(
-        `[varlock] Failed to load public dynamic env (${response.status}) from ${endpoint}`,
+        `[varlock] Failed to load public dynamic env (${response.status}) from ${endpoint}${
+          response.status === 404 && endpoint === DEFAULT_PUBLIC_DYNAMIC_ENV_ENDPOINT
+            ? '. The Astro and Nuxt integrations only inject this route when the schema sets '
+            + '@publicDynamicFilter (or the integration option publicDynamicEndpoint is set).'
+            : ''}`,
       );
     }
 
@@ -1086,7 +1096,9 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
     const publicDynamicKeys = getKeySetGlobal('__varlockPublicDynamicKeys');
     if (prop in envValues) {
       if (dynamicKeys?.has(prop)) {
-        const isPublic = !!publicDynamicKeys?.has(prop);
+        // client-excluded keys are still public: their point is runtime freshness too
+        const isPublic = !!publicDynamicKeys?.has(prop)
+          || !!getKeySetGlobal('__varlockClientExcludedKeys')?.has(prop);
         debug(`[dynamic-access] detected dynamic access for ENV.${prop}`);
         notifyDynamicConfigAccess({ key: prop, isPublic });
         // Guard only public+dynamic values: baking one into prerendered output defeats
@@ -1128,7 +1140,11 @@ const EnvProxy = new Proxy<TypedEnvSchema>({}, {
       }
       // during development, we can feed in extra metadata and show more helpful errors
       if ((globalThis as any).__varlockValidKeys && (globalThis as any).__varlockValidKeys.includes(prop)) {
-        throw new Error(`\`ENV.${prop}\` exists, but is not available in this environment`);
+        throw new Error(
+          `\`ENV.${prop}\` exists, but is not available in this environment. `
+          + 'Sensitive values never reach client code, and public+dynamic ones only when '
+          + 'loaded at runtime and selected by @publicDynamicFilter (if set).',
+        );
       } else {
         throw new Error(`\`ENV.${prop}\` does not exist`);
       }

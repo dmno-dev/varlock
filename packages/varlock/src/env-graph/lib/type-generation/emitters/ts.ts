@@ -291,7 +291,7 @@ export async function generateTsTypesSrc(fields: Array<ResolvedFieldType>, optio
 
   const exposedNonSensitiveKeys: Array<string> = [];
   for (const field of fields) {
-    if (!field.isSensitive) exposedNonSensitiveKeys.push(field.key);
+    if (!field.isSensitive && !field.isClientExcluded) exposedNonSensitiveKeys.push(field.key);
   }
   // the public schema is the non-sensitive keys picked off the full schema; when there are none
   // (every key is sensitive), `Pick<T, ''>` would be invalid — use an empty object type instead.

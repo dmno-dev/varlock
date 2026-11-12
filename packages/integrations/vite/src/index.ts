@@ -79,7 +79,8 @@ function resetStaticReplacements() {
   for (const itemKey in varlockLoadedEnv?.config) {
     const itemInfo = varlockLoadedEnv.config[itemKey];
     const isDynamic = itemInfo.isDynamic ?? itemInfo.isSensitive;
-    if (isDynamic && !itemInfo.isSensitive) {
+    // keys left out by `@publicDynamicFilter` stay server-side: never listed for the client
+    if (isDynamic && !itemInfo.isSensitive && itemInfo.client !== false) {
       publicDynamicKeys.push(itemKey);
     }
     if (!isDynamic) {

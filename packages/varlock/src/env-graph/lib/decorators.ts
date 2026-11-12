@@ -14,6 +14,7 @@ import {
 import { ResolutionError, SchemaError, type VarlockError } from './errors';
 import type { EnvGraph } from './env-graph';
 import { parseKeyFilterArgs, applyKeyFilter, type KeyFilter } from './key-filter';
+import { ParsedItemFilter } from './item-filter';
 import { parseDuration } from '../../lib/duration';
 import {
   BUILT_IN_TRANSFORM_SCHEME_SPECS, PROXY_APPROVAL_EACH_VALUES, REMOVED_PROXY_RULE_OPTIONS,
@@ -756,6 +757,18 @@ export const builtInRootDecorators: Array<RootDecoratorDef<any>> = [
       if (!decVal.isStatic || !_.isBoolean(decVal.staticValue)) {
         throw new Error('@disableProcessEnvInjection must be a static boolean — env-dependent values would make generated code differ per environment');
       }
+    },
+  },
+  {
+    // which public+dynamic items are delivered to client code (endpoint, boot-time injection,
+    // hydration). Static-only: integrations and code generation read it at build time.
+    name: 'publicDynamicFilter',
+    process: (decVal) => {
+      if (!decVal.isStatic || typeof decVal.staticValue !== 'string') {
+        throw new Error('@publicDynamicFilter must be a static filter string, e.g. @publicDynamicFilter="#browser"');
+      }
+      // throws on invalid selectors
+      return new ParsedItemFilter(decVal.staticValue, '@publicDynamicFilter');
     },
   },
   {

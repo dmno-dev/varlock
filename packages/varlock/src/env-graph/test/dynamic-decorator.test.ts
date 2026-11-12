@@ -435,3 +435,74 @@ describe('@dynamic=boot', () => {
     }));
   });
 });
+
+// `@dynamic={client=false}`: public+dynamic, but never delivered to client code
+describe('@publicDynamicFilter', () => {
+  async function loadGraph(contents: string) {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', { overrideContents: contents }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    return g;
+  }
+
+  const SCHEMA = outdent`
+    # @publicDynamicFilter="#browser,SITE_*"
+    # ---
+    # @public @dynamic @tag(browser)
+    FLAG=a
+    # @public @dynamic
+    SITE_KEY=b
+    # @public @dynamic
+    AUTH_URL=c
+    # @public @tag(browser)
+    STATIC_FLAG=d
+    # @sensitive @tag(browser)
+    SECRET=eeeeeeeeee
+  `;
+
+  test('public+dynamic items it does not select are excluded from the client', async () => {
+    const g = await loadGraph(SCHEMA);
+    expect(g.configSchema.FLAG.isClientExcluded).toBe(false);
+    expect(g.configSchema.SITE_KEY.isClientExcluded).toBe(false);
+    expect(g.configSchema.AUTH_URL.isClientExcluded).toBe(true);
+    // only public+dynamic items are affected
+    expect(g.configSchema.STATIC_FLAG.isClientExcluded).toBe(false);
+    expect(g.configSchema.SECRET.isClientExcluded).toBe(false);
+
+    const { config, settings } = g.getSerializedGraph();
+    expect(settings.publicDynamicFilter).toBe('#browser,SITE_*');
+    expect(config.AUTH_URL).toMatchObject({ isDynamic: true, client: false });
+    for (const key of ['FLAG', 'SITE_KEY', 'STATIC_FLAG', 'SECRET']) {
+      expect(config[key]).not.toHaveProperty('client');
+    }
+  });
+
+  test('without it, every public+dynamic item is delivered', async () => {
+    const g = await loadGraph('AUTH_URL=c # @public @dynamic');
+    expect(g.configSchema.AUTH_URL.isClientExcluded).toBe(false);
+    const { config, settings } = g.getSerializedGraph();
+    expect(config.AUTH_URL).not.toHaveProperty('client');
+    expect(settings).not.toHaveProperty('publicDynamicFilter');
+  });
+
+  test('typegen info matches', async () => {
+    const g = await loadGraph(SCHEMA);
+    expect((await g.configSchema.AUTH_URL.getTypeGenInfo()).isClientExcluded).toBe(true);
+    expect((await g.configSchema.FLAG.getTypeGenInfo()).isClientExcluded).toBe(false);
+  });
+
+  test('typegen info treats @dynamic=boot items as dynamic', async () => {
+    const g = await loadGraph('PORT=3000 # @public @type=port @dynamic=boot');
+    expect((await g.configSchema.PORT.getTypeGenInfo()).isDynamic).toBe(true);
+  });
+
+  test('invalid values are schema errors', async () => {
+    for (const value of ['"@nope"', 'true', 'forEnv(prod)']) {
+      const g = await loadGraph(`# @publicDynamicFilter=${value}\n# ---\nFOO=a`);
+      expect(g.getSerializedGraph().settings).not.toHaveProperty('publicDynamicFilter');
+      const rootDec = g.getRootDec('publicDynamicFilter');
+      expect(rootDec?.schemaErrors.length, value).toBeGreaterThan(0);
+    }
+  });
+});
