@@ -16,6 +16,18 @@ describe('isVarlockReservedKey', () => {
     expect(isVarlockReservedKey(`${VARLOCK_RESERVED_KEY_PREFIX}ANYTHING_NEW`)).toBe(true);
   });
 
+  it('matches the underscore-free aliases of config vars', () => {
+    expect(isVarlockReservedKey('VARLOCK_ENV_KEY')).toBe(true);
+    expect(isVarlockReservedKey('VARLOCK_CACHE_KEY')).toBe(true);
+    expect(isVarlockReservedKey('VARLOCK_USE_FROZEN_ENV')).toBe(true);
+  });
+
+  it('does not reserve computed builtins', () => {
+    for (const name of ['VARLOCK_ENV', 'VARLOCK_IS_CI', 'VARLOCK_BRANCH', 'VARLOCK_PLATFORM']) {
+      expect(isVarlockReservedKey(name), name).toBe(false);
+    }
+  });
+
   it('does not match normal config keys', () => {
     expect(isVarlockReservedKey('FOO')).toBe(false);
     expect(isVarlockReservedKey('VARLOCK_ENV')).toBe(false); // no leading underscore
@@ -67,6 +79,25 @@ describe('serialized graph excludes reserved _VARLOCK_ keys', () => {
     expect(Object.keys(config)).toContain('FOO');
     expect(Object.keys(config)).not.toContain('_VARLOCK_ENV_KEY');
     expect(Object.keys(config)).not.toContain('_VARLOCK_REDACT_STDOUT');
+  });
+
+  it('drops schema-defined aliases too, even with an ambient key value', async () => {
+    const g = await buildGraph(
+      outdent`
+        # @defaultSensitive=false @defaultRequired=false
+        # ---
+        FOO=bar
+        VARLOCK_ENV_KEY=
+        VARLOCK_CACHE_KEY=
+        _VARLOCK_ENV_KEY=
+      `,
+      { VARLOCK_ENV_KEY: 'ambient-key', VARLOCK_CACHE_KEY: 'ambient-cache-key' },
+    );
+    const serialized = g.getSerializedGraph();
+    expect(Object.keys(serialized.config)).toEqual(['FOO']);
+    expect(JSON.stringify(serialized)).not.toContain('ambient-key');
+    expect(JSON.stringify(serialized)).not.toContain('ambient-cache-key');
+    expect(serialized.overrideKeys ?? []).not.toContain('VARLOCK_ENV_KEY');
   });
 
   it('only records schema config keys in override provenance (not arbitrary env vars or reserved keys)', async () => {

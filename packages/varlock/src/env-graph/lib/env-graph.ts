@@ -639,10 +639,12 @@ export class EnvGraph {
       for (const itemKey of Object.keys(source.configItemDefs)) {
         if (isVarlockReservedKey(itemKey)) {
           source._errors.push(new SchemaError(
-            `"${itemKey}" uses varlock's reserved _VARLOCK_ prefix`,
+            itemKey.startsWith('_')
+              ? `"${itemKey}" uses varlock's reserved _VARLOCK_ prefix`
+              : `"${itemKey}" is reserved: it is an alias for varlock's _${itemKey} setting`,
             {
               isWarning: true,
-              tip: 'Keys starting with _VARLOCK_ are reserved for configuring varlock itself and are excluded from the injected env and generated types. Rename this item unless that exclusion is intended.',
+              tip: 'Keys starting with _VARLOCK_ (and their underscore-free aliases like VARLOCK_ENV_KEY) are reserved for configuring varlock itself and are excluded from the injected env and generated types. Rename this item unless that exclusion is intended.',
             },
           ));
         }

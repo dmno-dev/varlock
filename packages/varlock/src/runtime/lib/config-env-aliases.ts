@@ -20,6 +20,25 @@ export const VARLOCK_CONFIG_ENV_VAR_NAMES = [
   '_VARLOCK_USE_FROZEN_ENV',
 ] as const;
 
+/** The underscore-free alias names themselves (`VARLOCK_ENV_KEY`, ...) */
+export const VARLOCK_CONFIG_ENV_VAR_ALIAS_NAMES: ReadonlySet<string> = new Set(
+  VARLOCK_CONFIG_ENV_VAR_NAMES.map((name) => name.slice(1)),
+);
+
+type ConfigEnvVarName = typeof VARLOCK_CONFIG_ENV_VAR_NAMES[number];
+
+/**
+ * Read a `_VARLOCK_*` config var, falling back to its underscore-free alias. Use where the
+ * value matters even if process.env is read-only (so `applyVarlockConfigEnvAliases` could
+ * not copy the alias over).
+ */
+export function getVarlockConfigEnvVar(
+  name: ConfigEnvVarName,
+  env: Record<string, string | undefined> | undefined = (globalThis as any).process?.env,
+): string | undefined {
+  return env?.[name] || env?.[name.slice(1)] || undefined;
+}
+
 /**
  * Copy each underscore-free alias (`VARLOCK_ENV_KEY`) onto its `_VARLOCK_*` name when that
  * name is not already set, so every reader of the `_VARLOCK_*` name sees it.
