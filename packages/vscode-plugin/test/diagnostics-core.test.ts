@@ -6,7 +6,6 @@ import {
   getDecoratorOccurrences,
   getTypeInfoFromPrecedingComments,
   validateStaticValue,
-  getStaticValueWarning,
 } from '../src/diagnostics-core';
 
 describe('diagnostics-core', () => {
@@ -179,31 +178,29 @@ describe('diagnostics-core', () => {
         },
         'example.com',
       ),
-    ).toBe('URL must include a protocol unless prependHttps=true.');
+    ).toBe('URL must start with a scheme followed by `://` (for example `https://`), unless prependHttps=true.');
   });
 
-  it('warns on values new URL() accepts but are not usable URLs', () => {
+  it('rejects values new URL() accepts but are not usable URLs', () => {
     const urlType = (options: Record<string, string> = {}) => ({ name: 'url', args: [], options });
-    const next = ' This will be an error in the next major version of varlock.';
-    expect(validateStaticValue(urlType(), 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8')).toBeUndefined();
-    expect(getStaticValueWarning(urlType(), 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8'))
-      .toBe(`URL must start with a scheme followed by \`://\` (for example \`https://\`).${next}`);
-    expect(getStaticValueWarning(urlType(), 'https:///example.com')).toBe(`URL is missing a host.${next}`);
-    expect(getStaticValueWarning(urlType(), 'http://0x7f.1'))
-      .toBe(`URL host \`0x7f.1\` must be written as a full IPv4 address (\`127.0.0.1\`).${next}`);
-    expect(getStaticValueWarning(urlType(), 'https://a..b')).toBe(`URL host \`a..b\` is not a valid hostname.${next}`);
-    expect(getStaticValueWarning(urlType(), 'https://example.com/a b'))
-      .toBe(`URL must not contain whitespace or control characters.${next}`);
-    expect(getStaticValueWarning(urlType({ allowedProtocols: '*' }), 'sqlite:///app.db')).toContain('allowNoHost=true');
-    expect(getStaticValueWarning(urlType({ allowedProtocols: '*', allowNoHost: 'true' }), 'sqlite:///app.db')).toBeUndefined();
-    expect(getStaticValueWarning(urlType({ prependHttps: 'true' }), 'localhost:3000')).toBeUndefined();
-    expect(getStaticValueWarning(urlType(), 'https://example.com')).toBeUndefined();
+    expect(validateStaticValue(urlType(), 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8')).toContain('must start with a scheme');
+    expect(validateStaticValue(urlType(), 'https:///example.com')).toBe('URL is missing a host.');
+    expect(validateStaticValue(urlType(), 'http://0x7f.1'))
+      .toBe('URL host `0x7f.1` must be written as a full IPv4 address (`127.0.0.1`).');
+    expect(validateStaticValue(urlType(), 'https://a..b')).toBe('URL host `a..b` is not a valid hostname.');
+    expect(validateStaticValue(urlType(), 'https://example.com/a b'))
+      .toBe('URL must not contain whitespace or control characters.');
+    expect(validateStaticValue(urlType({ allowedProtocols: '*' }), 'sqlite:///app.db')).toContain('allowNoHost=true');
+    expect(validateStaticValue(urlType({ allowedProtocols: '*', allowNoHost: 'true' }), 'sqlite:///app.db')).toBeUndefined();
+    expect(validateStaticValue(urlType({ prependHttps: 'true' }), 'localhost:3000')).toBeUndefined();
+    expect(validateStaticValue(urlType({ prependHttps: 'true' }), 'SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8')).toBeDefined();
+    expect(validateStaticValue(urlType(), 'https://example.com')).toBeUndefined();
   });
 
-  it('warns on non-http protocols unless allowedProtocols is set', () => {
+  it('rejects non-http protocols unless allowedProtocols is set', () => {
     const urlType = (options: Record<string, string> = {}) => ({ name: 'url', args: [], options });
-    expect(getStaticValueWarning(urlType(), 'postgres://localhost/db')).toContain('allowedProtocols=[postgres]');
-    expect(getStaticValueWarning(urlType({ allowedProtocols: '[postgres]' }), 'postgres://localhost/db')).toBeUndefined();
+    expect(validateStaticValue(urlType(), 'postgres://localhost/db')).toContain('allowedProtocols=[postgres]');
+    expect(validateStaticValue(urlType({ allowedProtocols: '[postgres]' }), 'postgres://localhost/db')).toBeUndefined();
     expect(validateStaticValue(urlType({ allowedProtocols: '*' }), 'postgres://localhost/db')).toBeUndefined();
     expect(validateStaticValue(urlType({ allowedProtocols: '[http, "*"]' }), 'postgres://localhost/db')).toBeUndefined();
   });
@@ -211,24 +208,15 @@ describe('diagnostics-core', () => {
   it('prepends https:// to host:port values with prependHttps', () => {
     const urlType = { name: 'url', args: [], options: { prependHttps: 'true', allowedDomains: '[localhost]' } };
     expect(validateStaticValue(urlType, 'localhost:3000')).toBeUndefined();
-    expect(validateStaticValue(
-      { name: 'url', args: [], options: { prependHttps: 'true', allowedProtocols: '[tel]' } },
-      'tel:123456789',
-    )).toBeUndefined();
-    expect(validateStaticValue(
-      { name: 'url', args: [], options: { prependHttps: 'true', allowedProtocols: '[urn]' } },
-      'urn:123',
-    )).toBeUndefined();
   });
 
   it('rejects allowlisted URLs whose host other parsers may read differently', () => {
     const urlType = { name: 'url', args: [], options: { allowedDomains: '[example.com]' } };
     expect(validateStaticValue(urlType, 'https://example.com\\@evil.com/'))
-      .toBe('URL must not contain backslashes when allowedDomains is set.');
-    expect(validateStaticValue(urlType, 'https:///example.com'))
-      .toBe('URL must be written as `scheme://host` when allowedDomains is set.');
+      .toBe('URL must not contain backslashes.');
+    expect(validateStaticValue(urlType, 'https:///example.com')).toBe('URL is missing a host.');
     expect(validateStaticValue(urlType, 'https://%65xample.com/'))
-      .toBe('URL host must not be percent-encoded when allowedDomains is set.');
+      .toBe('URL host must not contain percent-encoded characters.');
     expect(validateStaticValue(urlType, 'https://user:pass@example.com:8443/')).toBeUndefined();
     expect(validateStaticValue({ name: 'url', args: [], options: { allowedDomains: '["xn--fa-hia.de"]' } }, 'https://faß.de/'))
       .toBe('URL host must be written in ASCII when allowedDomains is set (use `xn--fa-hia.de`).');
@@ -265,15 +253,6 @@ describe('diagnostics-core', () => {
           args: [],
           options: { prependHttps: 'true', allowedProtocols: '[postgres]' },
         },
-        'postgres://localhost/database',
-      ),
-    ).toBeUndefined();
-  });
-
-  it('accepts any valid URL protocol when allowedProtocols is omitted', () => {
-    expect(
-      validateStaticValue(
-        { name: 'url', args: [], options: {} },
         'postgres://localhost/database',
       ),
     ).toBeUndefined();
