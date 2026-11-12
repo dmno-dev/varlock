@@ -492,7 +492,8 @@ type LoadedEnvConfig = {
  * freeze-into-bundle), read from the next config recorded in the build output: the standalone
  * server passes it in `__NEXT_PRIVATE_STANDALONE_CONFIG`, `next start` reads
  * `.next/required-server-files.json` (a custom distDir is caught later by the config plugin).
- * `null` when the build did not freeze, `undefined` when the build output cannot be read.
+ * `null` when the build did not freeze, `undefined` when the build output cannot be read or
+ * does not record the config's `env`.
  */
 function readFrozenBuildEnv(dir: string): string | null | undefined {
   try {
@@ -506,8 +507,10 @@ function readFrozenBuildEnv(dir: string): string | null | undefined {
       if (!fs.existsSync(source)) return undefined;
       config = JSON.parse(fs.readFileSync(source, 'utf8')).config;
     }
-    if (!config) return undefined;
-    const frozenEnv = config.env?.[FROZEN_BUILD_ENV_KEY] ?? null;
+    // A recorded config with no `env` can't tell us whether the build froze: Next drops it on
+    // Vercel (`experimental.runtimeServerDeploymentId`), so defer to the runtime prelude
+    if (!config?.env) return undefined;
+    const frozenEnv = config.env[FROZEN_BUILD_ENV_KEY] ?? null;
     // lets the config plugin check this was the build actually being served
     if (frozenEnv) process.env[FROZEN_BOOT_SOURCE_ENV_KEY] = source;
     return frozenEnv;
