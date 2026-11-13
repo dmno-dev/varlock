@@ -302,7 +302,7 @@ MY_DATE=2024-03-20T15:30:00Z
 
 <div>
 ### `timeZone`
-Checks for a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) name, using the time zone database built into the JS runtime. Names are case-sensitive, and UTC offsets like `+05:00` are rejected.
+Checks for a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) name, using the time zone database built into the JS runtime. Only one spelling per zone is accepted: names are case-sensitive, legacy aliases like `US/Eastern` or `Asia/Calcutta` are rejected in favor of `America/New_York` or `Asia/Kolkata`, `UTC` is accepted but `Etc/UTC` and `GMT` are not, and UTC offsets like `+05:00` are rejected. The error message suggests the standard name when there is one.
 ```env-spec
 # @type=timeZone
 APP_TIME_ZONE=Europe/Madrid
