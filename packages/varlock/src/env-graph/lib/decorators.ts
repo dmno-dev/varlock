@@ -210,9 +210,11 @@ export abstract class DecoratorInstance {
 
   resolvedValue?: any;
   isResolved = false;
+  /** set when resolving threw, so a later call does not run the resolver and record the same error again */
+  private resolveFailed = false;
 
   async resolve() {
-    if (this.isResolved) return this.resolvedValue;
+    if (this.isResolved || this.resolveFailed) return this.resolvedValue;
 
     await this.process();
     // decorators that skip value-resolver creation (see process()) have nothing to resolve
@@ -229,6 +231,7 @@ export abstract class DecoratorInstance {
       this.resolvedValue = await this.decValueResolver.resolve();
     } catch (err) {
       this._errors.push(err as any);
+      this.resolveFailed = true;
       return;
     }
 
