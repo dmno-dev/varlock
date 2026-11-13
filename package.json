@@ -12,7 +12,8 @@
     "packages/integrations/*",
     "packages/native-helpers/*",
     "packages/plugins/*",
-    "packages/plugins/effect/test/effect3"
+    "packages/plugins/effect/test/effect3",
+    "packages/ts-content-mapper/example"
   ],
   "scripts": {
     "build": "turbo build --filter=\"!smoke-test-*\"",

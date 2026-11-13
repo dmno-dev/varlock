@@ -103,7 +103,21 @@ export abstract class EnvGraphDataSource {
     importFilter?: KeyFilter,
     /** true when the @import had a non-static `enabled` parameter (e.g. `enabled=forEnv("dev")`) */
     isConditionallyEnabled?: boolean,
+    /** @internal shape mode: `enabled` could not be evaluated, so the file was imported without knowing if it is */
+    enabledUnknownInShapeLoad?: boolean,
   };
+  /** @internal shape mode: `@disable` could not be evaluated, so the source was kept without knowing if it is */
+  _disableUnknownInShapeLoad = false;
+  /**
+   * @internal shape mode: this source, or one that imports it, is only in the graph because the condition
+   * that enables or disables it could not be evaluated. A normal load might skip it entirely, so nothing
+   * in it may run code (see processPluginInstallDecorators).
+   */
+  get isPresenceUnknownInShapeLoad(): boolean {
+    return this._disableUnknownInShapeLoad
+      || !!this.importMeta?.enabledUnknownInShapeLoad
+      || !!this.parent?.isPresenceUnknownInShapeLoad;
+  }
   get isImport(): boolean {
     return !!this.importMeta?.isImport || !!this.parent?.isImport;
   }
@@ -351,7 +365,13 @@ export abstract class EnvGraphDataSource {
         }
       }
 
-      const disabledVal = await disabledDec.resolve();
+      let disabledVal = await disabledDec.resolve();
+      // shape mode: a condition built from a skipped resolver is unknown, so keep the source rather than
+      // dropping its items from the graph
+      if (this.graph.mode === 'shape' && disabledDec.decValueResolver?.resultUnknownInShapeLoad) {
+        disabledVal = false;
+        this._disableUnknownInShapeLoad = true;
+      }
       if (!_.isBoolean(disabledVal)) {
         this._errors.push(new LoadingError('expected @disable to be boolean value'));
         return;
@@ -585,7 +605,10 @@ export abstract class EnvGraphDataSource {
           }
 
           // Check if the import is enabled/disabled using key-val option (defaults to true if not specified)
-          const enabledValue = importArgs.obj.enabled ?? true;
+          const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
+          // shape mode: a condition built from a skipped resolver is unknown, so import the file anyway
+          const enabledUnknown = this.graph.mode === 'shape' && !!enabledResolver?.resultUnknownInShapeLoad;
+          const enabledValue = enabledUnknown ? true : importArgs.obj.enabled ?? true;
           if (!_.isBoolean(enabledValue)) {
             throw new Error('expected @import enabled parameter to be a boolean');
           }
@@ -595,10 +618,14 @@ export abstract class EnvGraphDataSource {
 
           // Track if this import was conditionally enabled (non-static enabled resolver)
           // Used by type generation to identify env-dependent sources
-          const enabledResolver = importDec.decValueResolver?.objArgs?.enabled;
           const isConditionallyEnabled = !!enabledResolver && !enabledResolver.isStatic;
 
-          const importMeta = { isImport: true, importFilter, isConditionallyEnabled };
+          const importMeta = {
+            isImport: true,
+            importFilter,
+            isConditionallyEnabled,
+            ...enabledUnknown && { enabledUnknownInShapeLoad: true },
+          };
 
           // Check if missing imports should be allowed (defaults to false if not specified)
           const allowMissing = importArgs.obj.allowMissing ?? false;
@@ -936,8 +963,18 @@ export abstract class FileBasedDataSource extends EnvGraphDataSource {
   // no async constructors... :(
   async _finishInit() {
     if (!this.rawContents) {
-      if (!await pathExists(this.fullPath)) {
+      const fileStat = await fs.stat(this.fullPath).catch(() => undefined);
+      if (!fileStat) {
         this._errors.push(new LoadingError(`File does not exist: ${this.fullPath}`));
+        return;
+      }
+      // shape mode: a named pipe or device would block the read forever, hanging every editor keystroke or
+      // CI lint. It is also how some tools deliver values (1Password mounts a `.env` as a pipe), so this is
+      // not an error: the file is skipped and recorded, and since it could set any item, every value is
+      // unknown. Checked here so it covers direct imports, directory imports and auto-loaded files alike
+      if (this.graph?.mode === 'shape' && !fileStat.isFile()) {
+        this.graph.shapeSkipped.push({ kind: 'nonRegularFile', name: this.fullPath });
+        this.graph._hasUnreadSourceInShapeLoad = true;
         return;
       }
       this.rawContents = await fs.readFile(this.fullPath, 'utf8');

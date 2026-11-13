@@ -230,6 +230,25 @@ export class EnvGraph {
   /** @internal --skip-cache flag: skip cache entirely */
   _skipCacheMode = false;
 
+  /**
+   * `shape` builds the graph for tools that only inspect a schema (type checkers, language
+   * servers, CI linters): only pure resolvers run, root decorators are never executed, no cache
+   * store is created, plugins are never downloaded, and process.env is ignored. A file that is only
+   * loaded because its `enabled` or `@disable` condition could not be evaluated never loads a plugin.
+   * Anything skipped is recorded in `shapeSkipped`.
+   */
+  readonly mode: 'default' | 'shape' = 'default';
+  shapeSkipped: Array<{
+    kind: 'resolver' | 'rootDecoratorExecute' | 'cacheStore' | 'pluginDownload' | 'pluginLoad' | 'codegenWrite'
+      | 'nonRegularFile',
+    name: string,
+    /** the item being resolved when a resolver was skipped, when known */
+    itemKey?: string,
+  }> = [];
+
+  /** @internal shape mode: a file was skipped instead of read, so no item's value can be known */
+  _hasUnreadSourceInShapeLoad = false;
+
   /** root data source (.env.schema) */
   rootDataSource?: EnvGraphDataSource;
 
@@ -486,7 +505,8 @@ export class EnvGraph {
     this.codeGeneratorsRegistry[name] = generatorDef;
   }
 
-  constructor() {
+  constructor(opts?: { mode?: 'default' | 'shape' }) {
+    if (opts?.mode) this.mode = opts.mode;
     // register base data types (string, number, boolean, etc)
     for (const dataType of BaseDataTypes) {
       this.registerDataType(dataType);
@@ -513,7 +533,8 @@ export class EnvGraph {
       this.registerProxyTransformScheme(schemeName, schemeDef);
     }
 
-    this.overrideValues = originalProcessEnv;
+    // in shape mode the shell's env must not change what a schema means
+    this.overrideValues = this.mode === 'shape' ? {} : originalProcessEnv;
   }
 
   /**
@@ -526,12 +547,15 @@ export class EnvGraph {
   /** Cached CI env info, computed lazily from processEnvOverride or real process.env */
   private _cachedCiEnv?: CiEnvInfo;
   get ciEnvInfo(): CiEnvInfo {
-    this._cachedCiEnv ??= getCiEnv(this.processEnvOverride ?? process.env);
+    this._cachedCiEnv ??= getCiEnv(this.processEnvForBuiltins);
     return this._cachedCiEnv;
   }
 
   /** The process env record used for builtin var detection */
   get processEnvForBuiltins(): Record<string, string | undefined> {
+    // shape mode never reads the real shell env, so ambient CI variables cannot change what a schema means;
+    // an env the caller passes in explicitly is a deliberate input and is still used
+    if (this.mode === 'shape') return this.processEnvOverride ?? {};
     return this.processEnvOverride ?? process.env;
   }
 
@@ -557,6 +581,8 @@ export class EnvGraph {
     const builtinType = builtinDef.type || 'string';
     const BuiltinVarResolver = createResolver({
       name: `\0builtin:${key}`,
+      // reads the environment only, apart from the opt-in skippedInShapeLoad lookups
+      pure: true,
       description: builtinDef.description,
       // Advertise the builtin's declared type so that if the item gets a
       // process() call (e.g. when registered early via a root-decorator
@@ -568,6 +594,11 @@ export class EnvGraph {
         const builtinItem = graph.configSchema[key];
         if (builtinItem) {
           builtinItem._builtinUsageWarning = builtinDef.usageWarning?.(graph.ciEnvInfo, graph.processEnvForBuiltins);
+        }
+        if (graph.mode === 'shape' && builtinDef.skippedInShapeLoad?.(graph.ciEnvInfo, graph.processEnvForBuiltins)) {
+          graph.shapeSkipped.push({ kind: 'resolver', name: key });
+          this._unknownInShapeLoad = true;
+          return undefined;
         }
         return builtinDef.resolver(graph.ciEnvInfo, graph.processEnvForBuiltins);
       },
@@ -686,7 +717,10 @@ export class EnvGraph {
           `@cache resolved to an invalid value (${JSON.stringify(cacheSetting)}) — must be one of: "auto", "memory", "disk", "disabled"`,
         ));
       }
-      if (cacheMode === 'disabled') {
+      if (this.mode === 'shape') {
+        if (cacheMode !== 'disabled') this.shapeSkipped.push({ kind: 'cacheStore', name: cacheMode });
+        this._cacheStore = undefined;
+      } else if (cacheMode === 'disabled') {
         this._cacheMode = 'disabled';
         this._skipCacheMode = true;
         this._cacheStore = undefined;
@@ -763,9 +797,8 @@ export class EnvGraph {
     }
     this.configItemsProcessed = true;
 
-    if (hasErrors) return;
-
-    // check for cycles in resolver dependencies
+    // check for cycles in resolver dependencies. This runs even when another item already has an error:
+    // an item on an unmarked cycle waits on itself forever when values are resolved
     const cycles = findGraphCycles(this.graphAdjacencyList);
     for (const cycleItemKeys of cycles) {
       for (const itemKey of cycleItemKeys) {
@@ -779,6 +812,8 @@ export class EnvGraph {
         );
       }
     }
+
+    if (hasErrors) return;
     this.checkBootDynamicItems();
 
     // now execute all root decorators
@@ -791,6 +826,13 @@ export class EnvGraph {
         // resolveEnvValues() skips any item whose deps are not in the set it was given
         const deps = this.expandKeysWithTransitiveDeps(decInstance.decValueResolver.deps);
         await this.resolveEnvValues([...deps]);
+        // shape mode still resolves the decorator's deps above (only pure resolvers run), which also
+        // re-validates them with their final metadata; it only skips the side-effecting execute()
+        if (this.mode === 'shape' && !decInstance.runsInShapeLoad) {
+          // most root decorators only carry a value and have nothing to skip
+          if (decInstance.hasExecute) this.shapeSkipped.push({ kind: 'rootDecoratorExecute', name: decInstance.name });
+          continue;
+        }
         try {
           await decInstance.execute();
         } catch (err) {
@@ -962,16 +1004,23 @@ export class EnvGraph {
           return;
         }
 
+        // shape mode: a dependency whose value is unknown may turn out invalid in a normal load. Once one comes
+        // first, a later dependency that is certainly invalid no longer decides the outcome (a normal load would
+        // name whichever is first), and the item resolves to unknown instead (see ConfigItem.resolve)
+        let unknownDependencyFirst = false;
         for (const depKey of adjList[itemKey] || []) {
           const depItem = this.configSchema[depKey];
           // if a dependency is invalid, we mark the item as invalid too
           if (depItem.validationState === 'error') {
+            if (unknownDependencyFirst) continue;
             item.resolutionError = new ResolutionError(`Dependency ${depKey} is invalid`);
             markItemCompleted(itemKey);
             return;
           // if any dependency is not yet resolved, we need to wait for it
           } else if (depKey in itemsToResolveStatus) {
             return;
+          } else if (depItem.isValueUnknownInShapeLoad) {
+            unknownDependencyFirst = true;
           }
         }
 
@@ -1041,7 +1090,8 @@ export class EnvGraph {
     const sensitiveStrings: Array<{ key: string, str: string }> = [];
     for (const itemKey in this.configSchema) {
       const item = this.configSchema[itemKey];
-      if (!item.isSensitive) continue;
+      // an unknown sensitivity (shape mode) is true only to be safe, so it does not make another value leak
+      if (!item.isKnownSensitive) continue;
       // mirrors what resetRedactionMap registers: every string leaf, plus the serialized
       // form of a composite - so an array(number) with no redactable leaves still has its
       // joined "3000,3001" in the map
@@ -1450,6 +1500,12 @@ export class EnvGraph {
           ? path.resolve(dec.dataSource.fullPath, '..')
           : process.cwd();
         const outputPath = path.resolve(sourceDir, settings.obj.path);
+        // shape mode reads schemas nobody has reviewed: a schema must not be able to write outside the project
+        // it was loaded from (`path=../..`, an absolute path, or a symlink pointing out of it)
+        if (this.mode === 'shape' && !await this.isWritableInShapeLoad(outputPath)) {
+          this.shapeSkipped.push({ kind: 'codegenWrite', name: outputPath });
+          throw new SchemaError(`@${decoratorName} - in shape mode, \`path\` must stay inside the project (${outputPath})`);
+        }
 
         const filterStr: string | undefined = settings.obj.filter;
         if (!fieldsByFilterStr.has(filterStr ?? '')) {
@@ -1485,6 +1541,24 @@ export class EnvGraph {
       }
     }
     return { generatedCount, skippedImportOnlyCount };
+  }
+
+  /**
+   * Shape mode only writes generated code inside the directory of the root schema: the nearest existing ancestor
+   * of the target is resolved through symlinks and must be inside it, and the target itself must not be a symlink.
+   */
+  private async isWritableInShapeLoad(outputPath: string) {
+    const root = this.rootDataSource;
+    let rootDir = this.basePath ?? process.cwd();
+    if (root instanceof FileBasedDataSource) rootDir = path.dirname(root.fullPath);
+    else if (root && 'basePath' in root && typeof root.basePath === 'string') rootDir = root.basePath; // DirectoryDataSource
+    const realRoot = await fs.promises.realpath(rootDir).catch(() => path.resolve(rootDir));
+    let existing = path.dirname(outputPath);
+    while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+    const realParent = await fs.promises.realpath(existing).catch(() => existing);
+    const inside = realParent === realRoot || realParent.startsWith(realRoot + path.sep);
+    const targetIsLink = await fs.promises.lstat(outputPath).then((st) => st.isSymbolicLink(), () => false);
+    return inside && !targetIsLink;
   }
 
   /**

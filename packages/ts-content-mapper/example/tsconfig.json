@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "contentMappers": [
+    { "package": "@varlock/ts-content-mapper",
+      "extensions": [".schema"],
+      "options": { "exposeEnv": "global" } }
+  ],
+  "include": ["src", ".env.schema"]
+}
