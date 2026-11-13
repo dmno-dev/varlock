@@ -698,7 +698,7 @@ Apache License
 
 - Author: Pictogrammers (https://github.com/Templarian/MaterialDesign)
 - License: Apache 2.0 (Apache-2.0), https://github.com/Templarian/MaterialDesign/blob/master/LICENSE
-- Icons used: `mdi:identifier`, `mdi:timer-outline`, `mdi:web`
+- Icons used: `mdi:identifier`, `mdi:map-clock-outline`, `mdi:timer-outline`, `mdi:web`
 
 ```
 Pictogrammers Free License
