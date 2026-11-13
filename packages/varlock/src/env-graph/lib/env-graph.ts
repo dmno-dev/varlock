@@ -763,9 +763,8 @@ export class EnvGraph {
     }
     this.configItemsProcessed = true;
 
-    if (hasErrors) return;
-
-    // check for cycles in resolver dependencies
+    // check for cycles in resolver dependencies. This runs even when another item already has an error:
+    // an item on an unmarked cycle waits on itself forever when values are resolved
     const cycles = findGraphCycles(this.graphAdjacencyList);
     for (const cycleItemKeys of cycles) {
       for (const itemKey of cycleItemKeys) {
@@ -779,6 +778,8 @@ export class EnvGraph {
         );
       }
     }
+
+    if (hasErrors) return;
     this.checkBootDynamicItems();
 
     // now execute all root decorators
