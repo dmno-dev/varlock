@@ -81,12 +81,12 @@ export function pipeRedactedStreams(
   if (plan.redactStdout && commandProcess.stdout) {
     const writer = createRedactedStreamWriter(drainTrackedWriter(process.stdout));
     commandProcess.stdout.on('data', writer.write);
-    commandProcess.stdout.on('close', writer.flush);
+    commandProcess.stdout.on('close', writer.end);
   }
   if (plan.redactStderr && commandProcess.stderr) {
     const writer = createRedactedStreamWriter(drainTrackedWriter(process.stderr));
     commandProcess.stderr.on('data', writer.write);
-    commandProcess.stderr.on('close', writer.flush);
+    commandProcess.stderr.on('close', writer.end);
   }
 }
 
