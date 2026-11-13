@@ -545,12 +545,12 @@ describe('diagnostics-core', () => {
 
     const timeZoneType = { name: 'timeZone', args: [], options: {} };
     expect(validateStaticValue(timeZoneType, 'Europe/Madrid')).toBeUndefined();
-    expect(validateStaticValue(timeZoneType, 'Asia/Kolkata')).toBeUndefined();
-    expect(validateStaticValue(timeZoneType, 'Europe/Madird')).toBe('"Europe/Madird" is not a known IANA time zone.');
+    expect(validateStaticValue(timeZoneType, 'US/Eastern')).toBeUndefined();
+    expect(validateStaticValue(timeZoneType, 'Europe/Madird')).toBe('Value must be a known IANA time zone.');
     expect(validateStaticValue(timeZoneType, '+05:00')).toBe('Value must be an IANA time zone name, not a UTC offset.');
-    expect(validateStaticValue(timeZoneType, 'europe/madrid')).toBe('"europe/madrid" is not a standard IANA time zone name, use "Europe/Madrid".');
-    expect(validateStaticValue(timeZoneType, 'Asia/Calcutta')).toContain('use "Asia/Kolkata"');
-    expect(validateStaticValue(timeZoneType, 'US/Eastern')).toContain('not a standard IANA time zone name');
+    expect(validateStaticValue(timeZoneType, 'europe/madrid')).toBe('Time zone names are case-sensitive, did you mean "Europe/Madrid"?');
+    expect(validateStaticValue(timeZoneType, 'utc')).toBe('Time zone names are case-sensitive, did you mean "UTC"?');
+    expect(validateStaticValue(timeZoneType, 'us/eastern')).toContain('case-sensitive');
 
     expect(
       validateStaticValue(

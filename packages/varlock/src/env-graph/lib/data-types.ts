@@ -2,7 +2,6 @@ import _ from '@env-spec/utils/my-dash';
 import { type FallbackIfUnknown } from '@env-spec/utils/type-utils';
 import { CoercionError, ValidationError, type ErrorSeverity } from './errors';
 import { parseRegexLikeString } from './regex-like-string';
-import { checkTimeZoneName } from './time-zone';
 import {
   parseDuration, convertDurationFromMs, type DurationUnit,
 } from '../../lib/duration';
@@ -974,6 +973,42 @@ const IsoDateDataType = createEnvGraphDataType({
 });
 
 
+// Validation leans on the runtime's own tz database via `Intl`, so we ship no zone list.
+// Engines accept a few things that are not IANA names (UTC offsets like `+05:00`) and match
+// names case-insensitively, while most consumers (e.g. the `TZ` env var on Linux) are
+// case-sensitive, so we check both explicitly.
+// NOTE: mirrored in packages/vscode-plugin/src/diagnostics-core.ts - keep them in sync.
+let lowercaseTimeZoneLookup: Map<string, string> | undefined;
+function findTimeZoneByCase(val: string): string | undefined {
+  if (!lowercaseTimeZoneLookup) {
+    lowercaseTimeZoneLookup = new Map();
+    const zones = (Intl as any).supportedValuesOf?.('timeZone') as Array<string> | undefined;
+    for (const zone of zones ?? []) lowercaseTimeZoneLookup.set(zone.toLowerCase(), zone);
+  }
+  return lowercaseTimeZoneLookup.get(val.toLowerCase());
+}
+/** returns an error message, or undefined if `val` is a correctly cased IANA time zone name */
+function checkTimeZoneName(val: string): string | undefined {
+  if (/^[+-]\d/.test(val)) return 'Value must be an IANA time zone name, not a UTC offset';
+  let resolved: string;
+  try {
+    resolved = new Intl.DateTimeFormat('en-US', { timeZone: val }).resolvedOptions().timeZone;
+  } catch {
+    return `"${val}" is not a known IANA time zone`;
+  }
+  if (resolved === val) return;
+  const correctCase = findTimeZoneByCase(val)
+    ?? (resolved.toLowerCase() === val.toLowerCase() ? resolved : undefined);
+  if (correctCase) {
+    return correctCase === val ? undefined : `Time zone names are case-sensitive, did you mean "${correctCase}"?`;
+  }
+  // A legacy alias (e.g. `US/Eastern`) that the engine canonicalized to another zone. Engines
+  // do not expose alias casing, but every segment of every IANA name starts with an uppercase
+  // letter or digit, so a lowercase start is always wrong.
+  if (val.split('/').some((segment) => /^[a-z]/.test(segment))) {
+    return `Time zone names are case-sensitive, "${val}" is miscased (it is an alias of "${resolved}")`;
+  }
+}
 const TimeZoneDataType = createEnvGraphDataType({
   name: 'timeZone',
   icon: 'mdi:map-clock-outline',

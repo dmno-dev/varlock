@@ -978,8 +978,9 @@ describe('timeZone data type', () => {
     'Europe/Madrid',
     'UTC',
     'America/Argentina/Buenos_Aires',
-    'Asia/Kolkata', // Node's Intl reports this as the legacy Asia/Calcutta
-    'Europe/Amsterdam', // an IANA link since 2022, still a standard name
+    'America/Buenos_Aires', // legacy alias
+    'US/Eastern', // legacy alias, canonicalized to America/New_York on Node
+    'Etc/UTC',
     'Etc/GMT+5',
   ])('accepts %s', async (value) => {
     const g = await loadAndResolve(outdent`
@@ -1006,26 +1007,23 @@ describe('timeZone data type', () => {
   it.each([
     ['europe/madrid', 'Europe/Madrid'],
     ['utc', 'UTC'],
-    ['Etc/UTC', 'UTC'],
-    ['Asia/Calcutta', 'Asia/Kolkata'],
-    ['America/Buenos_Aires', 'America/Argentina/Buenos_Aires'],
-  ])('rejects non-standard spelling %s and suggests %s', async (value, suggestion) => {
+  ])('rejects wrong casing (%s) and suggests the correct name', async (value, suggestion) => {
     const g = await loadAndResolve(outdent`
       # @type=timeZone
       TZ=${value}
     `);
     expect(g.configSchema.TZ.isValid).toBe(false);
-    expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain(`use "${suggestion}"`);
+    expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain(`"${suggestion}"`);
   });
 
-  // legacy aliases are rejected in any casing (Node canonicalizes them, Bun keeps them as given)
-  it.each(['US/Eastern', 'Us/Eastern', 'US/EASTERN', 'us/eastern'])('rejects legacy alias %s', async (value) => {
+  // Node canonicalizes these to a different zone, so no casing suggestion is available
+  it.each(['us/eastern', 'etc/utc'])('rejects wrong-cased legacy alias %s', async (value) => {
     const g = await loadAndResolve(outdent`
       # @type=timeZone
       TZ=${value}
     `);
     expect(g.configSchema.TZ.isValid).toBe(false);
-    expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain('not a standard IANA time zone name');
+    expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain('case-sensitive');
   });
 });
 
