@@ -187,10 +187,10 @@ describe('runtime re-injection of composite values (initVarlockEnv)', () => {
   });
 });
 
-describe('simple-object serialization (issue #900)', () => {
-  it('simple-object values serialize as JSON, not "[object Object]"', async () => {
+describe('simpleObject serialization (issue #900)', () => {
+  it('simpleObject values serialize as JSON, not "[object Object]"', async () => {
     const g = await loadAndResolve(outdent`
-      # @type=simple-object
+      # @type=simpleObject
       MY_OBJECT='{"key": "value"}'
     `);
     expect(g.configSchema.MY_OBJECT.resolvedValue).toEqual({ key: 'value' });

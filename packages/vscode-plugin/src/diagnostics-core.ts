@@ -676,6 +676,13 @@ export function validateStaticValue(typeInfo: TypeInfo, value: string) {
       return /^\d{4}-\d{2}-\d{2}(?:[T ][0-9:.+-Z]*)?$/.test(value) && !Number.isNaN(Date.parse(value))
         ? undefined
         : 'Value must be a valid ISO date.';
+    case 'timeZone':
+      try {
+        Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions();
+        return /^[+-]\d/.test(value) ? 'Value must be an IANA time zone name, not a UTC offset.' : undefined;
+      } catch {
+        return 'Value must be a known IANA time zone.';
+      }
     case 'uuid': {
       const version = typeInfo.options.version;
       const detectedVersion = /^[0-9a-f]{8}-[0-9a-f]{4}-([1-8])[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.exec(value)?.[1];

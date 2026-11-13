@@ -795,7 +795,7 @@ const DomainDataType = createEnvGraphDataType(
 
 
 const SimpleObjectDataType = createEnvGraphDataType({
-  name: 'simple-object',
+  name: 'simpleObject',
   icon: 'tabler:code-dots', // curly brackets with nothing inside
   coercedType: 'object',
   coerce(val) {
@@ -972,6 +972,44 @@ const IsoDateDataType = createEnvGraphDataType({
   },
 });
 
+
+// Validation leans on the runtime's own tz database via `Intl`, so we ship no zone list.
+// Engines accept a few things that are not IANA names (UTC offsets like `+05:00`) and match
+// names case-insensitively, while most consumers (e.g. the `TZ` env var on Linux) are
+// case-sensitive, so we check both explicitly.
+let lowercaseTimeZoneLookup: Map<string, string> | undefined;
+function findTimeZoneByCase(val: string): string | undefined {
+  if (!lowercaseTimeZoneLookup) {
+    lowercaseTimeZoneLookup = new Map();
+    const zones = (Intl as any).supportedValuesOf?.('timeZone') as Array<string> | undefined;
+    for (const zone of zones ?? []) lowercaseTimeZoneLookup.set(zone.toLowerCase(), zone);
+  }
+  return lowercaseTimeZoneLookup.get(val.toLowerCase());
+}
+const TimeZoneDataType = createEnvGraphDataType({
+  name: 'timeZone',
+  icon: 'mdi:map-clock-outline',
+  typeDescription: 'IANA time zone name (e.g. `Europe/Madrid`)',
+  validate(val) {
+    if (/^[+-]\d/.test(val)) {
+      return new ValidationError('Value must be an IANA time zone name, not a UTC offset');
+    }
+    let resolved: string;
+    try {
+      resolved = new Intl.DateTimeFormat('en-US', { timeZone: val }).resolvedOptions().timeZone;
+    } catch {
+      return new ValidationError(`"${val}" is not a known IANA time zone`);
+    }
+    if (resolved !== val) {
+      const correctCase = findTimeZoneByCase(val)
+        ?? (resolved.toLowerCase() === val.toLowerCase() ? resolved : undefined);
+      if (correctCase && correctCase !== val) {
+        return new ValidationError(`Time zone names are case-sensitive, did you mean "${correctCase}"?`);
+      }
+    }
+    return true;
+  },
+});
 
 // RFC 9562 versions 1-8 (captures the version digit), plus the special NIL and MAX UUIDs
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-([1-8])[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1384,6 +1422,14 @@ const RecordDataType = createEnvGraphDataType((settings?: RecordDataTypeSettings
   };
 });
 
+/**
+ * Old type names still accepted (with a deprecation warning) and the name that replaced them.
+ * TODO: drop in the next major.
+ */
+export const DEPRECATED_DATA_TYPE_ALIASES: Record<string, string> = {
+  'simple-object': 'simpleObject',
+};
+
 export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   StringDataType,
   NumberDataType,
@@ -1397,6 +1443,7 @@ export const BaseDataTypes: Array<EnvGraphDataTypeFactory> = [
   PortDataType,
   SemverDataType,
   IsoDateDataType,
+  TimeZoneDataType,
   UuidDataType,
   Md5DataType,
   DurationDataType,

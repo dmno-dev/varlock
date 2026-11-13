@@ -7,7 +7,7 @@ import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './da
 import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
 import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
-import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
+import { BaseDataTypes, DEPRECATED_DATA_TYPE_ALIASES, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError, ValidationError } from './errors';
 import {
@@ -490,6 +490,9 @@ export class EnvGraph {
     // register base data types (string, number, boolean, etc)
     for (const dataType of BaseDataTypes) {
       this.registerDataType(dataType);
+    }
+    for (const [alias, name] of Object.entries(DEPRECATED_DATA_TYPE_ALIASES)) {
+      this.dataTypesRegistry[alias] = this.dataTypesRegistry[name];
     }
     // register base resolvers (concat, ref, exec, etc)
     for (const resolverClass of BaseResolvers) {

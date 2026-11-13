@@ -20,7 +20,7 @@ export const NON_STRING_TYPE_FIXTURE = outdent`
   DEBUG=false                 # @optional @public
   # @type=enum(dev, staging, prod)
   APP_ENV=dev                 # @required @public
-  # @type=simple-object
+  # @type=simpleObject
   CONFIG={}                   # @optional @public
   API_KEY=                    # @required @sensitive
 `;

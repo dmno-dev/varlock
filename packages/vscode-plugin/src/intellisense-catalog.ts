@@ -370,10 +370,10 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     ],
   },
   {
-    name: 'simple-object',
+    name: 'simpleObject',
     summary: 'JSON-like object value.',
     documentation: 'Coerces plain objects or JSON strings into objects.',
-    insertText: 'simple-object',
+    insertText: 'simpleObject',
   },
   {
     name: 'enum',
@@ -445,6 +445,12 @@ export const DATA_TYPES: Array<DataTypeInfo> = [
     summary: 'ISO 8601 date string.',
     documentation: 'Supports date strings with optional time and milliseconds.',
     insertText: 'isoDate',
+  },
+  {
+    name: 'timeZone',
+    summary: 'IANA time zone name.',
+    documentation: 'Validates names like `Europe/Madrid` or `UTC` against the runtime time zone database.',
+    insertText: 'timeZone',
   },
   {
     name: 'uuid',

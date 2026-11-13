@@ -956,6 +956,65 @@ describe('md5 data type', () => {
   });
 });
 
+describe('deprecated data type names', () => {
+  it.each([
+    '@type=simple-object',
+    '@type=array(simple-object)',
+  ])('%s still works but warns', async (decorator) => {
+    const g = await loadAndResolve(outdent`
+      # ${decorator}
+      OBJ='${decorator.includes('array') ? '[{"a": 1}]' : '{"a": 1}'}'
+    `);
+    const item = g.configSchema.OBJ;
+    expect(item.isValid).toBe(true);
+    expect(item.dataType?.name).toBe(decorator.includes('array') ? 'array' : 'simpleObject');
+    const warnings = item.errors.filter((e) => (e as any).isWarning);
+    expect(warnings.map((w) => w.message).join('\n')).toContain('use "simpleObject" instead');
+  });
+});
+
+describe('timeZone data type', () => {
+  it.each([
+    'Europe/Madrid',
+    'UTC',
+    'America/Argentina/Buenos_Aires',
+    'America/Buenos_Aires', // legacy alias
+    'Etc/GMT+5',
+  ])('accepts %s', async (value) => {
+    const g = await loadAndResolve(outdent`
+      # @type=timeZone
+      TZ=${value}
+    `);
+    expect(g.configSchema.TZ.isValid).toBe(true);
+    expect(g.configSchema.TZ.resolvedValue).toBe(value);
+  });
+
+  it.each([
+    ['typo', 'Europe/Madird'],
+    ['UTC offset', '+05:00'],
+    ['compact UTC offset', '-0800'],
+    ['garbage', 'not a zone'],
+  ])('rejects %s', async (_label, value) => {
+    const g = await loadAndResolve(outdent`
+      # @type=timeZone
+      TZ="${value}"
+    `);
+    expect(g.configSchema.TZ.isValid).toBe(false);
+  });
+
+  it.each([
+    ['europe/madrid', 'Europe/Madrid'],
+    ['utc', 'UTC'],
+  ])('rejects wrong casing (%s) and suggests the correct name', async (value, suggestion) => {
+    const g = await loadAndResolve(outdent`
+      # @type=timeZone
+      TZ=${value}
+    `);
+    expect(g.configSchema.TZ.isValid).toBe(false);
+    expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain(`"${suggestion}"`);
+  });
+});
+
 describe('domain data type', () => {
   it('accepts a basic domain', async () => {
     const g = await loadAndResolve(outdent`

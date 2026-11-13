@@ -7,7 +7,9 @@ import {
   ParsedEnvSpecStaticValue,
   type ParsedEnvSpecDecorator,
 } from '@env-spec/parser';
-import type { CoercedType, EnvGraphDataType, EnvGraphDataTypeFactory } from './data-types';
+import {
+  DEPRECATED_DATA_TYPE_ALIASES, type CoercedType, type EnvGraphDataType, type EnvGraphDataTypeFactory,
+} from './data-types';
 import {
   assertUnwrappedRegexSource, convertParsedValueToResolvers, deprecatedRegexStringWarning,
   type Resolver,
@@ -98,8 +100,17 @@ function unknownDataTypeError(name: string, context?: string): SchemaError {
   return new SchemaError(`${context ? `${context} - ` : ''}unknown data type: ${name}`, {
     // `object` is the natural guess for what varlock calls `record` (reserved for a
     // possible future per-key shape type)
-    ...name === 'object' ? { tip: 'use record(...) for typed key/value maps, or simple-object for untyped JSON objects' } : {},
+    ...name === 'object' ? { tip: 'use record(...) for typed key/value maps, or simpleObject for untyped JSON objects' } : {},
   });
+}
+
+function warnIfDeprecatedTypeName(ctx: TypeSpecContext, name: string, context?: string) {
+  const replacement = DEPRECATED_DATA_TYPE_ALIASES[name];
+  if (!replacement) return;
+  pushWarningOnce(ctx.warnings, new SchemaError(
+    `${context ? `${context} - ` : ''}data type "${name}" is deprecated, use "${replacement}" instead`,
+    { isWarning: true, tip: 'it will be removed in the next major version' },
+  ));
 }
 
 function typeSpecDisplayName(node: TypeSpecNode): string {
@@ -191,6 +202,7 @@ function buildBareTypePlan(
   context?: string,
 ): TypeSpecPlan {
   if (!(name in ctx.registry)) throw unknownDataTypeError(name, context);
+  warnIfDeprecatedTypeName(ctx, name, context);
   if (name === 'enum') throw emptyEnumError(context ?? '@type=enum');
   return { deferred: [], build: () => ctx.registry[name]() };
 }
@@ -505,6 +517,7 @@ function buildTypeCallPlan(
 ): TypeSpecPlan {
   const name = fnCall.name;
   if (!(name in ctx.registry)) throw unknownDataTypeError(name, context);
+  warnIfDeprecatedTypeName(ctx, name, context);
 
   if (name === 'array') return buildArrayTypePlan(ctx, fnCall, context);
   if (name === 'record') return buildRecordTypePlan(ctx, fnCall, context);
