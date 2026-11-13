@@ -977,6 +977,7 @@ const IsoDateDataType = createEnvGraphDataType({
 // Engines accept a few things that are not IANA names (UTC offsets like `+05:00`) and match
 // names case-insensitively, while most consumers (e.g. the `TZ` env var on Linux) are
 // case-sensitive, so we check both explicitly.
+// NOTE: mirrored in packages/vscode-plugin/src/diagnostics-core.ts - keep them in sync.
 let lowercaseTimeZoneLookup: Map<string, string> | undefined;
 function findTimeZoneByCase(val: string): string | undefined {
   if (!lowercaseTimeZoneLookup) {
@@ -986,28 +987,35 @@ function findTimeZoneByCase(val: string): string | undefined {
   }
   return lowercaseTimeZoneLookup.get(val.toLowerCase());
 }
+/** returns an error message, or undefined if `val` is a correctly cased IANA time zone name */
+function checkTimeZoneName(val: string): string | undefined {
+  if (/^[+-]\d/.test(val)) return 'Value must be an IANA time zone name, not a UTC offset';
+  let resolved: string;
+  try {
+    resolved = new Intl.DateTimeFormat('en-US', { timeZone: val }).resolvedOptions().timeZone;
+  } catch {
+    return `"${val}" is not a known IANA time zone`;
+  }
+  if (resolved === val) return;
+  const correctCase = findTimeZoneByCase(val)
+    ?? (resolved.toLowerCase() === val.toLowerCase() ? resolved : undefined);
+  if (correctCase) {
+    return correctCase === val ? undefined : `Time zone names are case-sensitive, did you mean "${correctCase}"?`;
+  }
+  // A legacy alias (e.g. `US/Eastern`) that the engine canonicalized to another zone. Engines
+  // do not expose alias casing, but every segment of every IANA name starts with an uppercase
+  // letter or digit, so a lowercase start is always wrong.
+  if (val.split('/').some((segment) => /^[a-z]/.test(segment))) {
+    return `Time zone names are case-sensitive, "${val}" is miscased (it is an alias of "${resolved}")`;
+  }
+}
 const TimeZoneDataType = createEnvGraphDataType({
   name: 'timeZone',
   icon: 'mdi:map-clock-outline',
   typeDescription: 'IANA time zone name (e.g. `Europe/Madrid`)',
   validate(val) {
-    if (/^[+-]\d/.test(val)) {
-      return new ValidationError('Value must be an IANA time zone name, not a UTC offset');
-    }
-    let resolved: string;
-    try {
-      resolved = new Intl.DateTimeFormat('en-US', { timeZone: val }).resolvedOptions().timeZone;
-    } catch {
-      return new ValidationError(`"${val}" is not a known IANA time zone`);
-    }
-    if (resolved !== val) {
-      const correctCase = findTimeZoneByCase(val)
-        ?? (resolved.toLowerCase() === val.toLowerCase() ? resolved : undefined);
-      if (correctCase && correctCase !== val) {
-        return new ValidationError(`Time zone names are case-sensitive, did you mean "${correctCase}"?`);
-      }
-    }
-    return true;
+    const error = checkTimeZoneName(val);
+    return error ? new ValidationError(error) : true;
   },
 });
 

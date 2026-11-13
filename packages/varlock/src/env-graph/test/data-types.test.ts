@@ -979,6 +979,8 @@ describe('timeZone data type', () => {
     'UTC',
     'America/Argentina/Buenos_Aires',
     'America/Buenos_Aires', // legacy alias
+    'US/Eastern', // legacy alias, canonicalized to America/New_York on Node
+    'Etc/UTC',
     'Etc/GMT+5',
   ])('accepts %s', async (value) => {
     const g = await loadAndResolve(outdent`
@@ -1012,6 +1014,16 @@ describe('timeZone data type', () => {
     `);
     expect(g.configSchema.TZ.isValid).toBe(false);
     expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain(`"${suggestion}"`);
+  });
+
+  // Node canonicalizes these to a different zone, so no casing suggestion is available
+  it.each(['us/eastern', 'etc/utc'])('rejects wrong-cased legacy alias %s', async (value) => {
+    const g = await loadAndResolve(outdent`
+      # @type=timeZone
+      TZ=${value}
+    `);
+    expect(g.configSchema.TZ.isValid).toBe(false);
+    expect(g.configSchema.TZ.validationErrors?.[0]?.message).toContain('case-sensitive');
   });
 });
 
