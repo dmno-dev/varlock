@@ -70,8 +70,11 @@ for (const suffix of platforms) {
 
   const workDir = path.join(tmp, suffix);
   fs.mkdirSync(workDir);
-  const [packed] = JSON.parse(npm(['pack', spec, '--json'], workDir));
-  execFileSync('tar', ['-xzf', packed.filename], { cwd: workDir });
+  // don't parse `npm pack --json`: npm 12 changed it from an array to an object keyed by name
+  npm(['pack', spec], workDir);
+  const tarballs = fs.readdirSync(workDir).filter((f) => f.endsWith('.tgz'));
+  if (tarballs.length !== 1) throw new Error(`expected one tarball from npm pack ${spec}, found: ${tarballs.join(', ') || 'none'}`);
+  execFileSync('tar', ['-xzf', tarballs[0]!], { cwd: workDir });
 
   const entry = SUBDIR_CONTENTS[suffix];
   const destDir = path.join(DEST, suffix);
