@@ -8,6 +8,13 @@
 
 
 
+
+## 1.3.2
+<sub>2026-11-13</sub>
+
+- [#1298](https://github.com/dmno-dev/varlock/pull/1298)  *(patch)*
+  Fetch the Azure access token once per service when resolving many secrets at once, run `az account get-access-token` without blocking other requests, and read the Azure CLI token cache from `AZURE_CONFIG_DIR` when set
+
 ## 1.3.1
 <sub>2026-10-09</sub>
 

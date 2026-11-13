@@ -18,6 +18,13 @@
 
 
 
+
+## 0.5.1
+<sub>2026-11-13</sub>
+
+- [#1300](https://github.com/dmno-dev/varlock/pull/1300)  *(patch)*
+  Add built-in `timeZone` data type that validates IANA time zone names. Rename the `simple-object` data type to `simpleObject` so all built-in type names are camelCase (`simple-object` still works but logs a deprecation warning).
+
 ## 0.5.0
 <sub>2026-10-13</sub>
 

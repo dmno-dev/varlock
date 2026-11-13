@@ -59,7 +59,7 @@
     },
     "packages/env-spec-parser": {
       "name": "@env-spec/parser",
-      "version": "0.6.2",
+      "version": "0.6.3",
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
@@ -71,7 +71,7 @@
     },
     "packages/integrations/astro": {
       "name": "@varlock/astro-integration",
-      "version": "1.4.5",
+      "version": "1.4.6",
       "devDependencies": {
         "@types/node": "catalog:",
         "@varlock/cloudflare-integration": "workspace:*",
@@ -92,7 +92,7 @@
     },
     "packages/integrations/cloudflare": {
       "name": "@varlock/cloudflare-integration",
-      "version": "1.6.3",
+      "version": "1.6.4",
       "bin": {
         "varlock-wrangler": "./bin/varlock-wrangler.js",
       },
@@ -134,7 +134,7 @@
     },
     "packages/integrations/nextjs": {
       "name": "@varlock/nextjs-integration",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "devDependencies": {
         "@babel/parser": "^7.29.3",
         "@env-spec/utils": "workspace:^",
@@ -151,7 +151,7 @@
     },
     "packages/integrations/nuxt": {
       "name": "@varlock/nuxt-integration",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "dependencies": {
         "@nuxt/kit": "^4.0.3",
       },
@@ -171,7 +171,7 @@
     },
     "packages/integrations/vite": {
       "name": "@varlock/vite-integration",
-      "version": "1.5.5",
+      "version": "1.5.6",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -205,7 +205,7 @@
     },
     "packages/plugins/1password": {
       "name": "@varlock/1password-plugin",
-      "version": "2.0.6",
+      "version": "2.0.7",
       "devDependencies": {
         "@1password/sdk": "0.4.1-beta.1",
         "@1password/sdk-core": "0.4.1-beta.1",
@@ -238,7 +238,7 @@
     },
     "packages/plugins/aws-secrets": {
       "name": "@varlock/aws-secrets-plugin",
-      "version": "1.2.5",
+      "version": "1.3.0",
       "devDependencies": {
         "@aws-sdk/client-secrets-manager": "^3.700.0",
         "@aws-sdk/client-ssm": "^3.700.0",
@@ -271,7 +271,7 @@
     },
     "packages/plugins/azure-key-vault": {
       "name": "@varlock/azure-key-vault-plugin",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -287,7 +287,7 @@
     },
     "packages/plugins/bitwarden": {
       "name": "@varlock/bitwarden-plugin",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -404,7 +404,7 @@
     },
     "packages/plugins/keepass": {
       "name": "@varlock/keepass-plugin",
-      "version": "2.0.4",
+      "version": "2.0.5",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -453,7 +453,7 @@
     },
     "packages/plugins/pass": {
       "name": "@varlock/pass-plugin",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -487,7 +487,7 @@
     },
     "packages/plugins/proton-pass": {
       "name": "@varlock/proton-pass-plugin",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "devDependencies": {
         "@env-spec/utils": "workspace:^",
         "@types/node": "catalog:",
@@ -519,7 +519,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.24.0",
+      "version": "1.25.0",
       "bin": {
         "varlock": "./bin/cli.js",
       },
@@ -606,7 +606,7 @@
     },
     "packages/vscode-plugin": {
       "name": "env-spec-language",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "devDependencies": {
         "@env-spec/parser": "workspace:*",
         "@types/node": "catalog:",

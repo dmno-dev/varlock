@@ -13,6 +13,12 @@
 
 
 
+
+## 0.6.3
+<sub>2026-11-13</sub>
+
+- [#1282](https://github.com/dmno-dev/varlock/pull/1282)  *(patch)* Thanks [@voiys](https://github.com/voiys)! - Fix item and syntax error offsets being wrong for files that use Windows (CRLF) line endings
+
 ## 0.6.2
 <sub>2026-10-13</sub>
 
