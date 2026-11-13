@@ -25,6 +25,7 @@ import { DecoratorInstance } from './decorators';
 import { getErrorLocation } from './error-location';
 import { isBuiltinVar } from './builtin-vars';
 import { REGEX_LIKE_STRING, parseRegexLikeString } from './regex-like-string';
+import { suggestClosest } from '../../lib/suggest-closest';
 
 const execAsync = promisify(exec);
 
@@ -692,6 +693,11 @@ export const ForEnvResolver: typeof Resolver = createResolver({
     arrayMinLength: 1,
   },
   process() {
+    // The args are checked against the @currentEnv item's enum once all items are typed (see
+    // checkForEnvArgs). Which item that is has to be read now: @disable is processed before
+    // the file's own @currentEnv takes effect, so it uses the parent's.
+    const forEnvCalls = this.envGraph?.forEnvCalls;
+    if (forEnvCalls && !forEnvCalls.has(this)) forEnvCalls.set(this, this.dataSource?.envFlagKey);
     return this.arrArgs!;
   },
   async resolve(matchEnvArgs) {
@@ -711,6 +717,40 @@ export const ForEnvResolver: typeof Resolver = createResolver({
     return matchEnvs.includes(currentEnv);
   },
 });
+
+/**
+ * A static `forEnv()` arg that is not a member of the @currentEnv item's enum can never match,
+ * so the call is dead (`@required=forEnv(prodution)` silently never requires anything).
+ * Reported as a warning, not an error, since a schema with a stale arg (an env dropped from
+ * the enum) loads fine today.
+ *
+ * Only checked when the item is a plain `enum(...)` whose members are written literally.
+ * Dynamic args (`forEnv($X)`) and any other type of env item are left alone.
+ *
+ * Everything goes in the message rather than the tip, because warnings on a data source
+ * (a root decorator's) are printed without their tip.
+ */
+export function checkForEnvArgs(forEnvCalls: Array<Resolver>, envItem?: ConfigItem) {
+  if (!envItem || envItem.hasComputedType) return;
+  const members = envItem.dataType?.coercedType;
+  if (typeof members !== 'object' || !('enum' in members)) return;
+  const envNames = members.enum.map(String);
+  const envNameSet = new Set(envNames);
+
+  for (const resolver of forEnvCalls) {
+    for (const arg of resolver.arrArgs ?? []) {
+      if (!(arg instanceof StaticValueResolver)) continue;
+      const argName = String(arg.staticValue);
+      if (envNameSet.has(argName)) continue;
+      const suggestion = suggestClosest(argName, envNames);
+      resolver._errors.push(new SchemaError(
+        `${resolver.fnName}(): "${argName}" is not a possible value of ${envItem.key} (the @currentEnv item: ${envNames.join(', ')}), so it can never match`
+        + `${suggestion ? `. Did you mean "${suggestion}"?` : ''}`,
+        { isWarning: true },
+      ));
+    }
+  }
+}
 
 export const EqResolver: typeof Resolver = createResolver({
   name: 'eq',

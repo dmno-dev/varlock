@@ -6,7 +6,9 @@ import { ConfigItem, type TypeGenItemInfo } from './config-item';
 import { EnvGraphDataSource, FileBasedDataSource, ImportAliasSource } from './data-source';
 import { computeFilteredKeys, type ParsedItemFilter } from './item-filter';
 
-import { BaseResolvers, createResolver, type ResolverChildClass } from './resolver';
+import {
+  BaseResolvers, checkForEnvArgs, createResolver, type Resolver, type ResolverChildClass,
+} from './resolver';
 import { BaseDataTypes, type EnvGraphDataTypeFactory } from './data-types';
 import { findGraphCycles, getTransitiveDeps, type GraphAdjacencyList } from './graph-utils';
 import { ResolutionError, SchemaError, ValidationError } from './errors';
@@ -257,6 +259,12 @@ export class EnvGraph {
   envFlagFallback?: string;
 
   configSchema: Record<string, ConfigItem> = {};
+
+  /**
+   * every forEnv() call seen while processing, with the key of the @currentEnv item it
+   * evaluates against, checked once all item types are known
+   */
+  forEnvCalls = new Map<Resolver, string | undefined>();
 
 
   /**
@@ -780,6 +788,16 @@ export class EnvGraph {
       }
     }
     this.checkBootDynamicItems();
+    // grouped by @currentEnv item, so each item's env names are read once
+    const forEnvCallsByEnvKey = new Map<string, Array<Resolver>>();
+    this.forEnvCalls.forEach((envKey, call) => {
+      if (!envKey) return;
+      const calls = forEnvCallsByEnvKey.get(envKey);
+      if (calls) calls.push(call);
+      else forEnvCallsByEnvKey.set(envKey, [call]);
+    });
+    forEnvCallsByEnvKey.forEach((calls, envKey) => checkForEnvArgs(calls, this.configSchema[envKey]));
+    this.forEnvCalls.clear();
 
     // now execute all root decorators
     for (const source of this.sortedDataSources) {

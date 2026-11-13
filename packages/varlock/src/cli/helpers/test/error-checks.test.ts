@@ -131,4 +131,31 @@ describe('checkForSchemaErrors prints each error once', () => {
       expect(countOccurrences(output, err.message), err.message).toBe(1);
     }
   });
+
+  it('shows the did-you-mean for a forEnv() typo in a root decorator', async () => {
+    const g = await loadGraph(outdent`
+      # @currentEnv=$APP_ENV
+      # @import(./.env.extra, enabled=forEnv(prodution), allowMissing=true)
+      # ---
+      # @type=enum(development, production)
+      # @public
+      APP_ENV=production
+    `);
+    const output = captureOutput(() => checkForSchemaErrors(g, { noThrow: true }));
+    expect(output).toContain('"prodution" is not a possible value of APP_ENV');
+    expect(output).toContain('Did you mean "production"?');
+  });
+
+  it('lists the possible values for a forEnv() root decorator with no close match', async () => {
+    const g = await loadGraph(outdent`
+      # @currentEnv=$APP_ENV
+      # @import(./.env.extra, enabled=forEnv(staging), allowMissing=true)
+      # ---
+      # @type=enum(development, production)
+      # @public
+      APP_ENV=production
+    `);
+    const output = captureOutput(() => checkForSchemaErrors(g, { noThrow: true }));
+    expect(output).toContain('"staging" is not a possible value of APP_ENV (the @currentEnv item: development, production)');
+  });
 });
