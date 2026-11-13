@@ -104,6 +104,14 @@ describe('createRedactedStreamWriter', () => {
     expect(written.join('')).toBe('heißer\n');
   });
 
+  it('preserves a leading BOM, including one split across chunks', () => {
+    const writer = createRedactedStreamWriter(fakeStream);
+    writer.write(Buffer.from([0xEF, 0xBB]));
+    writer.write(Buffer.from([0xBF, 0x68, 0x69]));
+    writer.end();
+    expect(written.join('')).toBe('﻿hi');
+  });
+
   it('emits a trailing incomplete character on end', () => {
     const writer = createRedactedStreamWriter(fakeStream);
     writer.write(Buffer.from([0x61, 0xC3]));

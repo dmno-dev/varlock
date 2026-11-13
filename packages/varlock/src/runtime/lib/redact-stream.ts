@@ -134,7 +134,8 @@ export function createRedactedStreamWriter(
   let carry = '';
   let flushTimeout: ReturnType<typeof setTimeout> | undefined;
   // one decoder per stream, so a multi-byte character split across chunks is decoded whole
-  const decoder = new TextDecoder();
+  // ignoreBOM: true keeps a leading BOM in the output (like Buffer#toString) instead of stripping it
+  const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
   const clearFlushTimeout = () => {
     if (flushTimeout !== undefined) {
