@@ -95,6 +95,22 @@ describe('createRedactedStreamWriter', () => {
     vi.useRealTimers();
   });
 
+  it('decodes a multi-byte character split across chunks', () => {
+    const writer = createRedactedStreamWriter(fakeStream);
+    writer.write(Buffer.from([0x68, 0x65, 0x69, 0xC3]));
+    vi.advanceTimersByTime(200);
+    writer.write(Buffer.from([0x9F, 0x65, 0x72, 0x0A]));
+    writer.end();
+    expect(written.join('')).toBe('heißer\n');
+  });
+
+  it('emits a trailing incomplete character on end', () => {
+    const writer = createRedactedStreamWriter(fakeStream);
+    writer.write(Buffer.from([0x61, 0xC3]));
+    writer.end();
+    expect(written.join('')).toBe('a�');
+  });
+
   it('redacts a secret contained within a single chunk', () => {
     const writer = createRedactedStreamWriter(fakeStream);
     writer.write(`key=${SECRET_VALUE}\n`);

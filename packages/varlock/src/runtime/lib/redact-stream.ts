@@ -133,6 +133,8 @@ export function createRedactedStreamWriter(
   // end of output already flushed (raw, on timeout) that could be the start of a value
   let carry = '';
   let flushTimeout: ReturnType<typeof setTimeout> | undefined;
+  // one decoder per stream, so a multi-byte character split across chunks is decoded whole
+  const decoder = new TextDecoder();
 
   const clearFlushTimeout = () => {
     if (flushTimeout !== undefined) {
@@ -150,7 +152,7 @@ export function createRedactedStreamWriter(
   };
 
   const write = (chunk: Buffer | string) => {
-    let text = pending + chunk.toString();
+    let text = pending + (typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
     pending = '';
     let output = '';
 
@@ -186,5 +188,12 @@ export function createRedactedStreamWriter(
     }
   };
 
-  return { write, flush };
+  /** call when the source stream closes: emits any trailing incomplete character, then flushes */
+  const end = () => {
+    const rest = decoder.decode();
+    if (rest) pending += rest;
+    flush();
+  };
+
+  return { write, flush, end };
 }
