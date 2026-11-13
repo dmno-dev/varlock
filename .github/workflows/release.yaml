@@ -194,9 +194,10 @@ jobs:
       - name: Install node deps
         run: bun install
       # No turbo cache: published artifacts are always built from source.
-      # Ensure npm >= 11.15.0 for OIDC/provenance
+      # npm >= 11.15.0 for OIDC/provenance. Pinned to 11: npm 12 changed CLI output
+      # (e.g. `npm pack --json`) that release tooling reads.
       - name: Update npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@^11.15.0
 
       # Native helpers: binaries built, signed, and notarized earlier in this run
       # for helpers this publish releases; the published version pinned by varlock
