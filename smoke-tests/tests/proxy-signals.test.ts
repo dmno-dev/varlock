@@ -13,11 +13,13 @@ const SKIP = process.platform === 'win32';
  * Spawn `varlock proxy run -- <command>`, wait until the child prints a `ready` marker,
  * send `signal` to the varlock process itself, and resolve once it exits.
  * stdin is left non-interactive so varlock runs the child in its own process group.
+ * `--new` keeps it from attaching to a proxy session another test file started in the same
+ * fixture dir (it can be shutting down and refuse the connection).
  */
 function runAndSignal(command: Array<string>, signal: NodeJS.Signals, env?: Record<string, string>) {
   return new Promise<{ output: string; code: number | null; signal: NodeJS.Signals | null }>(
     (resolve, reject) => {
-      const child = spawn(process.execPath, [VARLOCK_CLI, 'proxy', 'run', '--', ...command], {
+      const child = spawn(process.execPath, [VARLOCK_CLI, 'proxy', 'run', '--new', '--', ...command], {
         cwd: PROXY_CWD,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, ...env },
