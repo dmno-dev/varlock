@@ -19,6 +19,15 @@
 
 
 
+
+## 2.0.1
+<sub>2026-11-13</sub>
+
+- [#1295](https://github.com/dmno-dev/varlock/pull/1295)  *(patch)*
+  Accept `VARLOCK_ENV_KEY` (and the other `_VARLOCK_*` config vars without the leading underscore) for platforms like AWS Lambda that reject env var names starting with `_`
+- [#1297](https://github.com/dmno-dev/varlock/pull/1297)  *(patch)*
+  Fix frozen builds exiting at boot on Vercel, where Next.js leaves the config `env` out of the build output. Rewritten Turbopack runtime files now also get matching content hashes in the build's file traces.
+
 ## 2.0.0
 <sub>2026-10-29</sub>
 

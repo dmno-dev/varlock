@@ -8,6 +8,13 @@
 
 
 
+
+## 1.3.0
+<sub>2026-11-13</sub>
+
+- [#1291](https://github.com/dmno-dev/varlock/pull/1291)  *(minor)* Thanks [@jsskeen-utah](https://github.com/jsskeen-utah)!
+  `awsSecret()` and `awsParam()` can read nested JSON values with a dot-separated key, such as `awsSecret("db-config#db.host")`. An exact top-level key with the same name still takes precedence.
+
 ## 1.2.5
 <sub>2026-10-09</sub>
 

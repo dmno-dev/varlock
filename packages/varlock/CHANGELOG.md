@@ -35,6 +35,36 @@
 
 
 
+
+## 1.25.0
+<sub>2026-11-13</sub>
+
+- [#1300](https://github.com/dmno-dev/varlock/pull/1300)  *(minor)*
+  Add built-in `timeZone` data type that validates IANA time zone names. Rename the `simple-object` data type to `simpleObject` so all built-in type names are camelCase (`simple-object` still works but logs a deprecation warning).
+- [#1281](https://github.com/dmno-dev/varlock/pull/1281)  *(minor)* Thanks [@jsskeen-utah](https://github.com/jsskeen-utah)! - Generated C# modules now decrypt @encryptInjectedEnv blobs using _VARLOCK_ENV_KEY, instead of rejecting them.
+- [#1265](https://github.com/dmno-dev/varlock/pull/1265)  *(patch)*
+  Proxy: response scrubbing and body substitution no longer corrupt non-UTF-8 bodies (e.g. Go checksum database tiles served as text/plain), HEAD responses keep their `content-length`, and 206 partial responses are no longer rewritten
+- [#1269](https://github.com/dmno-dev/varlock/pull/1269)  *(patch)* - `varlock audit` now detects `ENV.KEY` (from `@generatePythonEnv`) and `os.environ.get()` reads in Python files
+- [#1271](https://github.com/dmno-dev/varlock/pull/1271)  *(patch)*
+  Fix CLI calls occasionally losing stdout/stderr when the command exits quickly under load, which could surface as a vague "unknown" error instead of the real one
+- [#1270](https://github.com/dmno-dev/varlock/pull/1270)  *(patch)*
+  Reusing an injected env blob (auto-load under `varlock run`) now also re-resolves when an env file it would load, like `.env.local`, was created after the blob was made
+- [#1295](https://github.com/dmno-dev/varlock/pull/1295)  *(patch)*
+  Accept `VARLOCK_ENV_KEY` (and the other `_VARLOCK_*` config vars without the leading underscore) for platforms like AWS Lambda that reject env var names starting with `_`
+- [#1253](https://github.com/dmno-dev/varlock/pull/1253)  *(patch)*
+  Native helper packages (`@varlock/native-helper-*`) are now versioned independently and only re-released when their binaries change. varlock still pins exact helper versions.
+- [#1296](https://github.com/dmno-dev/varlock/pull/1296)  *(patch)*
+  Fix `varlock run` and `varlock proxy run` dropping piped output: output still unread when the command exits, output from background processes it started, and output that a slow reader had not consumed within 1 second
+- [#1299](https://github.com/dmno-dev/varlock/pull/1299)  *(patch)* - Fix `varlock run` corrupting multi-byte UTF-8 characters split across chunks of piped output
+- [#1286](https://github.com/dmno-dev/varlock/pull/1286)  *(patch)* Thanks [@voiys](https://github.com/voiys)!
+  A dependency cycle is now reported even when another item has a schema error, instead of the load stopping with "varlock stopped before the command finished"
+- [#1284](https://github.com/dmno-dev/varlock/pull/1284)  *(patch)* Thanks [@voiys](https://github.com/voiys)!
+  Resolving a large schema no longer slows down quadratically with the number of items (3,000 items: about 245 ms to 50 ms)
+- [#1283](https://github.com/dmno-dev/varlock/pull/1283)  *(patch)* Thanks [@voiys](https://github.com/voiys)! - Key globs with many `*` (in `pick`/`omit`, `--filter` and `@auditIgnoreKeys`) no longer take seconds or minutes to match
+- [#1285](https://github.com/dmno-dev/varlock/pull/1285)  *(patch)* Thanks [@voiys](https://github.com/voiys)!
+  An error from a decorator's value (for example `@required=forEnv(prod)` when the current environment is not set) is reported once instead of twice
+- [#1288](https://github.com/dmno-dev/varlock/pull/1288)  *(patch)* Thanks [@voiys](https://github.com/voiys)! - An item reached by several resolvers at the same time is resolved and validated once instead of once per caller
+
 ## 1.24.0
 <sub>2026-10-29</sub>
 
