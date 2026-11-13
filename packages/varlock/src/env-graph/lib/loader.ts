@@ -26,8 +26,14 @@ export async function loadEnvGraph(opts?: {
   clearCache?: boolean,
   skipCache?: boolean,
   afterInit?: (graph: EnvGraph) => Promise<void>,
+  /**
+   * `shape` loads the schema for tools that only inspect it (see `EnvGraph.mode`): nothing reaches outside
+   * the process, so no cache is cleared or opened here either
+   */
+  mode?: 'default' | 'shape',
 }) {
-  const graph = new EnvGraph();
+  const graph = new EnvGraph({ mode: opts?.mode });
+  const isShapeLoad = graph.mode === 'shape';
   if (opts?.overrideValues) graph.overrideValues = opts.overrideValues;
   if (opts?.processEnvOverride) graph.processEnvOverride = opts.processEnvOverride;
 
@@ -39,7 +45,7 @@ export async function loadEnvGraph(opts?: {
 
   // --clear-cache always clears the persistent disk cache(s), even when combined
   // with --skip-cache or when the active store for this run is memory-backed
-  if (opts?.clearCache) {
+  if (opts?.clearCache && !isShapeLoad) {
     const diskStores = [new CacheStore()];
     if (envKey) {
       try {
@@ -58,7 +64,7 @@ export async function loadEnvGraph(opts?: {
 
   // initialize cache store (encryption key is ensured lazily on first write)
   // auto policy: native-backend disk > env-key disk > in-process memory
-  if (!opts?.skipCache) {
+  if (!opts?.skipCache && !isShapeLoad) {
     // getBackendType() is a filesystem-only check. It must not spawn the native
     // helper: that runs on every load, and on WSL2 a single spawn of the Windows
     // .exe through interop measured ~5s in #1078 (0.7s load -> 5.9s)
