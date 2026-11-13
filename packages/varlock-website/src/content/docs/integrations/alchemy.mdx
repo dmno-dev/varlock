@@ -100,7 +100,7 @@ Requires alchemy 2.0.0-beta.85 or later. Alchemy is moving fast and this integra
 
 ## Environments and stages
 
-While varlock resolves, the alchemy run is visible to the schema as `ALCHEMY_STACK`, `ALCHEMY_STAGE`, and `ALCHEMY_DEV` (`true` under `alchemy dev`). The package ships a schema fragment that declares them and derives an environment name, `ALCHEMY_ENV`, from them. Copy it into your schema and point `@currentEnv` at it:
+While varlock resolves, the alchemy run is visible to the schema as `ALCHEMY_STACK_NAME`, `ALCHEMY_STAGE`, and `ALCHEMY_DEV` (`true` under `alchemy dev`). The first two use the names alchemy binds into every Worker, so the integration leaves them out of `env.bindings` (alchemy already binds them) but keeps them in the blob for the typed `ENV`. The package ships a schema fragment that declares them and derives an environment name, `ALCHEMY_ENV`, from them. Copy it into your schema and point `@currentEnv` at it:
 
 ```env-spec
 # @currentEnv=$ALCHEMY_ENV
@@ -121,12 +121,12 @@ CORS_ORIGIN=http://localhost:4321   # .env.preview and .env.production override 
 | `alchemy dev` (any stage) | `development` | `.env.development` |
 | `--stage production` or `prod` | `production` | `.env.production` |
 | `--stage staging`, `--stage test` | `staging`, `test` | `.env.staging`, `.env.test` |
-| any other stage (`dev_sam`, `pr-42`, ...) | `preview` | `.env.preview` |
+| any other stage (`live_sam`, `pr-42`, ...) | `preview` | `.env.preview` |
 | no stage (plain `varlock load`) | `development` | `.env.development` |
 
-The mapping is ordinary schema logic, so change it like any other value: match your own stage names with [`remap()`](/reference/functions/#remap) (for example `regex("^pr-")` to a `pr` environment and `regex("^dev_")` to `sandbox`), or drop `ALCHEMY_ENV` and derive your own flag. The `env` option in `alchemy.run.ts` can also set any of these from `{ stack, stage, dev }`, and an ambient value overrides the schema's. varlock's own `VARLOCK_ENV` is left alone. (The fragment is `.env.schema` inside the package; once [package imports](/guides/import/) land you will be able to `@import(npm:@varlock/alchemy-integration/.env.schema)` instead of copying it.)
+The mapping is ordinary schema logic, so change it like any other value: match your own stage names with [`remap()`](/reference/functions/#remap) (for example `regex("^pr-")` to a `pr` environment and `regex("^dev_")` to `sandbox`), or drop `ALCHEMY_ENV` and derive your own flag. An ambient value (for example `ALCHEMY_ENV=production` in the shell or CI) overrides the schema's. varlock's own `VARLOCK_ENV` is left alone. (The fragment is `.env.schema` inside the package; once [package imports](/guides/import/) land you will be able to `@import(npm:@varlock/alchemy-integration/.env.schema)` instead of copying it.)
 
-Alchemy treats moving a stage between local emulation (`alchemy dev`) and live (`alchemy deploy`) as a replacement of every resource, so deploy to a named stage (`--stage preview`) rather than the personal `dev_<user>` stage you develop on.
+`alchemy deploy` defaults to the `live_<user>` stage and `alchemy dev` to `dev_<user>`. Avoid passing the same `--stage` to both: alchemy treats moving a stage between local emulation and live as a replacement of every resource.
 
 ## Several services, one stack
 
@@ -148,7 +148,7 @@ const server = yield* Cloudflare.Worker("server", {
 });
 ```
 
-All schemas feed the stack's `Config` (the root schema wins on duplicate keys), but only service schemas produce bindings: the root schema is deploy-process config by definition, so Cloudflare credentials there never need a tag. Pass `root: false` if the infra package has no schema of its own, or `{ path, filter, bindingsFilter }` per service to select a subset with a [filter expression](/reference/cli-commands/#filtering-items).
+All schemas feed the stack's `Config` (the root schema wins on duplicate keys), but only service schemas produce bindings: the root schema is deploy-process config by definition, so Cloudflare credentials there never need a tag. Pass `root: false` if the infra package has no schema of its own, or `{ path, bindingsFilter, blob }` per service; `bindingsFilter` takes a [filter expression](/reference/cli-commands/#filtering-items).
 
 ## Validation and injection only, no varlock runtime
 
@@ -189,16 +189,14 @@ export type ServerWorkerEnv = Cloudflare.InferEnv<ReturnType<typeof makeServer>>
 ## Options
 
 - `path`: directory holding the schema; defaults to the directory alchemy runs in.
-- `filter`: varlock `--filter` expression; items outside it are neither resolved nor bound, and do not reach alchemy's `Config` either.
-- `bindingsFilter`: same syntax, applied after resolution to decide which items become bindings and enter the blob. Everything still reaches alchemy's `Config`. `@required` is not available here.
-- `blob`: `false` leaves `__VARLOCK_ENV` out of the bindings (no in-Worker runtime); `{ maxBytes }` changes the chunk size from Cloudflare's 5KB secret limit for another platform.
-- `env`: `({ stack, stage, dev }) => Record<string, string>` of extra env vars to expose to varlock while it resolves, on top of `ALCHEMY_STACK`, `ALCHEMY_STAGE`, and `ALCHEMY_DEV`. An ambient value overrides what the schema derives.
+- `bindingsFilter`: a varlock [filter expression](/reference/cli-commands/#filtering-items), applied after resolution to decide which items become bindings and enter the blob. Everything still reaches alchemy's `Config`. `@required` is not available here.
+- `blob`: `false` leaves `__VARLOCK_ENV` out of the bindings (no in-Worker runtime).
 
 ## Things to know
 
 - `effect` must resolve to a single copy in your project. The package peer-depends on it, like alchemy does; two copies make alchemy unable to read the `Redacted` values this package produces (`Unable to get redacted value`).
 - During `alchemy login` (auth-provider discovery) the provider contributes nothing, so a schema whose values come from a vault does not block configuring the very credentials it needs.
-- Resolution happens once per alchemy session (each `deploy`, `plan`, or dev reload). Plugin-backed items are resolved then, so a 1Password or AWS lookup runs per session, not per Worker.
+- Resolution happens once per alchemy session (each `deploy`, `plan`, or dev reload). Plugin-backed items are resolved then, so a 1Password or AWS lookup runs per session, not per Worker. Create the provider once at module level: `secrets: ({ stage }) => [Varlock.Secrets()]` builds a new provider on each call, so `env.bindings` from a different instance resolves a second time (and may prompt twice).
 - Cloudflare secrets are capped at 5KB. A larger blob is split into `__VARLOCK_ENV_CHUNKS` and `__VARLOCK_ENV_<n>` bindings automatically; the runtime reassembles them.
 - The provider never writes to `process.env`. Read values in `alchemy.run.ts` through `Config` (or the bindings). Code that reads `process.env` directly, especially at module top level, needs `import "varlock/auto-load"` instead (see [Deploying with Alchemy](/integrations/cloudflare/#deploying-with-alchemy)).
 - The blob carries resolved values only, not local file paths, so the same schema and values deploy the same blob from a laptop or CI. The exception is `@encryptInjectedEnv`: encryption uses a fresh nonce each time (and a fresh key unless `_VARLOCK_ENV_KEY` is set), so every `alchemy deploy` updates the Worker's blob secrets even when nothing changed. Cloudflare already stores Worker secrets encrypted, so most stacks can leave it off.

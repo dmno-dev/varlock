@@ -17,26 +17,27 @@ const PROVIDER_TAG = '@varlock/alchemy-integration::Varlock';
 /** Cloudflare Workers cap each secret at 5KB; the default blob chunk size */
 const CLOUDFLARE_SECRET_MAX_BYTES = 5120;
 
+/**
+ * Variables alchemy binds into every Worker itself (and skips on deploy when `env` repeats
+ * them). Schema items with these names stay in the `__VARLOCK_ENV` blob but are not bound again.
+ */
+const ALCHEMY_RUNTIME_KEYS = new Set(['ALCHEMY_PHASE', 'ALCHEMY_WORKER_NAME', 'ALCHEMY_STACK_NAME', 'ALCHEMY_STAGE', 'ALCHEMY_CLOUDFLARE_ACCOUNT_ID']);
+
 /** The alchemy stack and stage a resolution is for. */
-export interface AlchemyResolveContext {
+interface AlchemyResolveContext {
   readonly stack: string | undefined;
   readonly stage: string;
   /** true under `alchemy dev` (local emulation) */
   readonly dev: boolean;
 }
 
-/** Options shared by the root schema and each service schema. */
+/** Options shared by the single schema and each service schema. */
 export interface VarlockSchemaOptions {
   /**
    * Directory holding the `.env.schema` (and `.env*` files), relative to the directory alchemy
    * runs in. Defaults to the current directory.
    */
   path?: string;
-  /**
-   * varlock `--filter` expression (key globs, `!negations`, `@decorator`, `#tag`) limiting
-   * which items are resolved and bound. Items outside the filter are not validated either.
-   */
-  filter?: string;
   /**
    * Which items become application bindings (and enter the `__VARLOCK_ENV` blob). Same syntax
    * as `--filter` (key globs, `!negations`, `#tags`, `@sensitive`, `@dynamic`), e.g. `"!#deploy"`
@@ -47,24 +48,13 @@ export interface VarlockSchemaOptions {
   /**
    * Include the `__VARLOCK_ENV` runtime blob in the bindings so
    * `@varlock/cloudflare-integration/init` can boot varlock inside the Worker
-   * (log redaction, leak detection, typed `ENV`). Default `true`, chunked for Cloudflare's 5KB
-   * secret limit; pass `{ maxBytes }` for another platform's per-variable limit, or `false`.
+   * (log redaction, leak detection, typed `ENV`). Default `true`; a blob over Cloudflare's 5KB
+   * secret limit is split into chunks.
    */
-  blob?: boolean | { maxBytes?: number };
+  blob?: boolean;
 }
 
-/** Env vars to expose to varlock while it resolves, derived from the alchemy stack, stage and mode. */
-export type VarlockEnvHook = (ctx: AlchemyResolveContext) => Record<string, string | undefined>;
-
-export interface VarlockSecretsOptions extends VarlockSchemaOptions {
-
-  /**
-   * Extra env vars to expose to varlock while it resolves, on top of `ALCHEMY_STACK`,
-   * `ALCHEMY_STAGE` and `ALCHEMY_DEV`. Values here override what a schema derives from those,
-   * e.g. `env: ({ stage }) => ({ ALCHEMY_ENV: stage })`.
-   */
-  env?: VarlockEnvHook;
-}
+export type VarlockSecretsOptions = VarlockSchemaOptions;
 
 export interface VarlockServicesOptions<ServiceName extends string> {
   /**
@@ -72,10 +62,9 @@ export interface VarlockServicesOptions<ServiceName extends string> {
    * alchemy's `Config` but are never offered as application bindings. Defaults to the current
    * directory; pass `false` if this package has no schema of its own.
    */
-  root?: Pick<VarlockSchemaOptions, 'path' | 'filter'> | false;
+  root?: Pick<VarlockSchemaOptions, 'path'> | false;
   /** One schema per service, keyed by the name you pass to `bindingsFor()`. */
   services: Record<ServiceName, string | VarlockSchemaOptions>;
-  env?: VarlockEnvHook;
 }
 
 /** Bindings that carry the varlock runtime blob (all uploaded as secrets except the chunk count). */
@@ -132,27 +121,9 @@ function loadError(err: unknown): Config.ConfigError {
   return configError(err instanceof Error ? err.message : String(err), err);
 }
 
-/**
- * The `--filter` grammar is key globs, `!`, `@decorator`, `#tag` and commas, so a filter
- * expression never needs quoting on the command line. Whitespace around commas is optional in
- * the grammar and is dropped here, since the CLI invocation splits arguments on spaces.
- */
-const FILTER_EXPR = /^[A-Za-z0-9_*?!@#,.-]+$/;
-function filterArg(filter: string): string {
-  const compact = filter.replace(/\s+/g, '');
-  if (!FILTER_EXPR.test(compact)) {
-    throw new Error(
-      `varlock: invalid filter expression ${JSON.stringify(filter)} (expected key globs, !negations, @decorators, #tags, comma-separated)`,
-    );
-  }
-  return compact;
-}
-
-function loadGraph(opts: VarlockSchemaOptions, env: Record<string, string | undefined>): SerializedEnvGraph {
+function loadGraph(opts: Pick<VarlockSchemaOptions, 'path'>, env: Record<string, string>): SerializedEnvGraph {
   // `@internal` items never appear in json-full, so they never reach alchemy at all
-  let command = 'load --format json-full --compact';
-  if (opts.filter) command += ` --filter=${filterArg(opts.filter)}`;
-  const { stdout } = execSyncVarlock(command, {
+  const { stdout } = execSyncVarlock('load --format json-full --compact', {
     fullResult: true,
     ...(opts.path ? { cwd: opts.path } : {}),
     env: { ...process.env, ...env },
@@ -206,7 +177,7 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
   const bindings: Record<string, Config.Config<unknown>> = {};
   const forApp = appGraph(graph, opts.bindingsFilter);
   for (const [key, item] of Object.entries(forApp.config)) {
-    if (item.value === undefined) continue;
+    if (item.value === undefined || ALCHEMY_RUNTIME_KEYS.has(key)) continue;
     if (item.isSensitive) {
       // Redacted -> secret_text
       bindings[key] = Config.succeed(Redacted.make(envString(item)));
@@ -222,7 +193,7 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
     const blob = buildEnvBlobBindings({
       json: JSON.stringify(forApp),
       encryptInjectedEnv: forApp.settings?.encryptInjectedEnv,
-      maxBytes: typeof opts.blob === 'object' ? opts.blob.maxBytes : CLOUDFLARE_SECRET_MAX_BYTES,
+      maxBytes: CLOUDFLARE_SECRET_MAX_BYTES,
     });
     for (const [key, value] of Object.entries(blob)) {
       bindings[key] = key === '__VARLOCK_ENV_CHUNKS'
@@ -233,13 +204,16 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
   return bindings;
 }
 
-/** what alchemy tells varlock about the run, plus the user's extra vars */
-function contextEnv(ctx: AlchemyResolveContext, opts: { env?: VarlockEnvHook }) {
+/**
+ * what alchemy tells varlock about the run, under the names alchemy itself binds into Workers
+ * (`ALCHEMY_STACK_NAME`, `ALCHEMY_STAGE`) plus `ALCHEMY_DEV`. The deploy process never has the
+ * resolved stage in its env (alchemy only reads `$ALCHEMY_STAGE` as a default), so it is passed here.
+ */
+function contextEnv(ctx: AlchemyResolveContext): Record<string, string> {
   return {
-    ...(ctx.stack !== undefined ? { ALCHEMY_STACK: ctx.stack } : {}),
+    ...(ctx.stack !== undefined ? { ALCHEMY_STACK_NAME: ctx.stack } : {}),
     ALCHEMY_STAGE: ctx.stage,
     ALCHEMY_DEV: ctx.dev ? 'true' : 'false',
-    ...(opts.env?.(ctx) ?? {}),
   };
 }
 
@@ -316,7 +290,7 @@ function singleSchema<Schema extends object>(
   options: VarlockSecretsOptions,
 ): VarlockSecretsProvider<VarlockBindings<Schema>> {
   const { layer, bindingsFor } = makeProvider((ctx) => {
-    const graph = loadGraph(options, contextEnv(ctx, options));
+    const graph = loadGraph(options, contextEnv(ctx));
     return { values: providerValues(graph), bindings: { '': schemaBindings(graph, options) } };
   });
   return new VarlockSecretsProvider({
@@ -338,7 +312,7 @@ function multiSchema<Schemas extends Record<string, object>>(
   options: VarlockServicesOptions<keyof Schemas & string>,
 ): VarlockServicesProvider<Schemas> {
   const { layer, bindingsFor } = makeProvider((ctx) => {
-    const env = contextEnv(ctx, options);
+    const env = contextEnv(ctx);
     const values: Record<string, string> = {};
     const bindings: Resolved['bindings'] = {};
     if (options.root !== false) {

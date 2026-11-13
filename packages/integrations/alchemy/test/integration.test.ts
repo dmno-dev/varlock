@@ -74,7 +74,7 @@ describe('Secrets()', () => {
     expect(Object.keys(blob.config).sort()).toEqual([
       'ALCHEMY_DEV',
       'ALCHEMY_ENV',
-      'ALCHEMY_STACK',
+      'ALCHEMY_STACK_NAME',
       'ALCHEMY_STAGE',
       'APP_ENV',
       'BETTER_AUTH_SECRET',
@@ -86,6 +86,11 @@ describe('Secrets()', () => {
       'STAGE_SEEN',
     ]);
     expect(blob.config.BETTER_AUTH_SECRET.tags).toBeUndefined();
+    expect(blob.config.ALCHEMY_STACK_NAME.value).toBe('app');
+    // alchemy binds these into every Worker itself, so they stay in the blob but are not bound again
+    expect(bindings).not.toHaveProperty('ALCHEMY_STAGE');
+    expect(bindings).not.toHaveProperty('ALCHEMY_STACK_NAME');
+    expect(bindings).toHaveProperty('ALCHEMY_DEV');
   });
 
   it('lets the shipped ALCHEMY_ENV expression derive the environment from stage and mode', async () => {
@@ -97,13 +102,18 @@ describe('Secrets()', () => {
     expect(await withProvider(env, { stage: 'staging' }, Config.String('ALCHEMY_ENV'))).toBe('staging');
   });
 
-  it('lets the env hook override the derived ALCHEMY_ENV', async () => {
-    const pinned = Secrets({ path: path.join(fixtures, 'server'), env: () => ({ ALCHEMY_ENV: 'production' }) });
-    const { cors, bindings } = await withProvider(pinned, { stage: 'dev_test' }, Effect.gen(function* run3() {
-      return { cors: yield* Config.String('CORS_ORIGIN'), bindings: yield* pinned.bindings };
-    }));
-    expect(cors).toBe('https://prod.example.com');
-    expect(await value(bindings.CORS_ORIGIN)).toBe('https://prod.example.com');
+  it('lets an ambient ALCHEMY_ENV override the derived one', async () => {
+    process.env.ALCHEMY_ENV = 'production';
+    try {
+      const pinned = Secrets({ path: path.join(fixtures, 'server') });
+      const { cors, bindings } = await withProvider(pinned, { stage: 'dev_test' }, Effect.gen(function* run3() {
+        return { cors: yield* Config.String('CORS_ORIGIN'), bindings: yield* pinned.bindings };
+      }));
+      expect(cors).toBe('https://prod.example.com');
+      expect(await value(bindings.CORS_ORIGIN)).toBe('https://prod.example.com');
+    } finally {
+      delete process.env.ALCHEMY_ENV;
+    }
   });
 
   it('tells the schema whether this is alchemy dev', async () => {
@@ -123,28 +133,6 @@ describe('Secrets()', () => {
     const broken = Secrets({ path: path.join(fixtures, 'invalid') });
     await expect(withProvider(broken, { stage: 'x' }, Effect.void))
       .rejects.toThrow(/varlock could not load[\s\S]*MUST_BE_SET/);
-  });
-});
-
-describe('filter', () => {
-  it('scopes resolution with key globs and negated tags, passed to the CLI unquoted', async () => {
-    const keys = Secrets({ path: path.join(fixtures, 'server'), filter: 'BETTER_*, CORS_ORIGIN' });
-    const narrowed = await withProvider(keys, { stage: 'x' }, keys.bindings);
-    expect(Object.keys(narrowed).sort()).toEqual(['BETTER_AUTH_SECRET', 'CORS_ORIGIN', '__VARLOCK_ENV']);
-
-    const noDeploy = Secrets({ path: path.join(fixtures, 'server'), filter: '!#deploy' });
-    const { hook, bindings } = await withProvider(noDeploy, { stage: 'x' }, Effect.gen(function* run() {
-      return { hook: yield* Config.option(Config.String('DEPLOY_HOOK_TOKEN')), bindings: yield* noDeploy.bindings };
-    }));
-    // unlike bindingsFilter, a filter keeps the item out of alchemy's Config too
-    expect(hook._tag).toBe('None');
-    expect(bindings.DEPLOY_HOOK_TOKEN).toBeUndefined();
-    expect(bindings.BETTER_AUTH_SECRET).toBeDefined();
-  });
-
-  it('rejects anything outside the filter grammar before running varlock', async () => {
-    const bad = Secrets({ path: path.join(fixtures, 'server'), filter: 'A; rm -rf /' });
-    await expect(withProvider(bad, { stage: 'x' }, Effect.void)).rejects.toThrow(/invalid filter expression/);
   });
 });
 
@@ -236,8 +224,6 @@ describe('Secrets({ services })', () => {
     expect(Object.keys(server).sort()).toEqual([
       'ALCHEMY_DEV',
       'ALCHEMY_ENV',
-      'ALCHEMY_STACK',
-      'ALCHEMY_STAGE',
       'APP_ENV',
       'BETTER_AUTH_SECRET',
       'CORS_ORIGIN',
