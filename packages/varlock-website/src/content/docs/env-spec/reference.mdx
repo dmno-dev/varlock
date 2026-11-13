@@ -149,6 +149,10 @@ ITEM1=
 
 ## Common rules
 
+### Line endings
+
+Files may use `\n` or `\r\n` line endings. Both are treated the same, so parsed values are identical either way.
+
 ### Value handling
 
 Values are interpreted similarly for config item values, decorator values, and values within function call arguments. Values may be wrapped in quotes or not, but handling varies slightly:

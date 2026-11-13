@@ -136,6 +136,9 @@ Each has a key, an optional value, and optional attached comments.
 
 
 
+## Line endings
+Files may use `\n` or `\r\n` line endings. Both are treated the same, so parsed values are identical either way. Node and syntax error locations (offset, line, column) always refer to the text you passed in, including any `\r` characters.
+
 ## Common Value-Handling Rules
 Values are interpreted similarly for config item values, decorator values, and values within function call arguments. Values may be wrapped in quotes or not, but handling varies slightly.
 
