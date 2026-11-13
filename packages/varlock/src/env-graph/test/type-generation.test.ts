@@ -1396,7 +1396,7 @@ describe('type generation', () => {
           FLAG=true                 # @type=boolean @public
           # @type=enum(dev, staging, prod)
           APP_ENV=dev               # @public
-          # @type=simple-object
+          # @type=simpleObject
           CONFIG={}                 # @public
         `,
       });

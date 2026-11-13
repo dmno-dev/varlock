@@ -301,6 +301,15 @@ MY_DATE=2024-03-20T15:30:00Z
 </div>
 
 <div>
+### `timeZone`
+Checks for a valid [IANA time zone](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) name, using the time zone database built into the JS runtime. Names are case-sensitive, and UTC offsets like `+05:00` are rejected.
+```env-spec
+# @type=timeZone
+APP_TIME_ZONE=Europe/Madrid
+```
+</div>
+
+<div>
 ### `uuid`
 Checks for valid [UUID](https://en.wikipedia.org/wiki/UUID) (versions 1-8 per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562), including `NIL` and `MAX`).
 
@@ -327,10 +336,10 @@ MY_HASH=d41d8cd98f00b204e9800998ecf8427e
 </div>
 
 <div>
-### `simple-object`
-Validates and coerces JSON strings into objects. Equivalent to a bare [`record`](#record); prefer `record`, which can also validate keys and values.
+### `simpleObject`
+Validates and coerces JSON strings into objects. Equivalent to a bare [`record`](#record); prefer `record`, which can also validate keys and values. Formerly named `simple-object`, which still works but is deprecated.
 ```env-spec
-# @type=simple-object
+# @type=simpleObject
 MY_OBJECT={"key": "value"}
 ```
 </div>
@@ -430,6 +439,6 @@ Validation errors are reported per entry (`"apac" is not a valid key - ...`).
 
 In application code, `ENV.ENDPOINTS` is typed as `Record<string, string>` (enum-constrained keys narrow further). In `process.env` the value is JSON.
 
-An untyped item whose value is an object literal (e.g. `ITEM={k=v}`) is inferred as a record automatically. The existing `simple-object` type behaves the same as a bare `record`.
+An untyped item whose value is an object literal (e.g. `ITEM={k=v}`) is inferred as a record automatically. The existing `simpleObject` type behaves the same as a bare `record`.
 </div>
 </div>

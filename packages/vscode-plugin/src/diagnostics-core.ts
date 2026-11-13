@@ -628,6 +628,32 @@ export function getStaticValueWarning(typeInfo: TypeInfo, value: string) {
   return undefined;
 }
 
+// Mirrors the runtime `timeZone` validator in packages/varlock/src/env-graph/lib/data-types.ts.
+let lowercaseTimeZoneLookup: Map<string, string> | undefined;
+function checkTimeZoneName(value: string): string | undefined {
+  if (/^[+-]\d/.test(value)) return 'Value must be an IANA time zone name, not a UTC offset.';
+  let resolved: string;
+  try {
+    resolved = new Intl.DateTimeFormat('en-US', { timeZone: value }).resolvedOptions().timeZone;
+  } catch {
+    return 'Value must be a known IANA time zone.';
+  }
+  if (resolved === value) return undefined;
+  if (!lowercaseTimeZoneLookup) {
+    const zones = (Intl as any).supportedValuesOf?.('timeZone') as Array<string> | undefined;
+    lowercaseTimeZoneLookup = new Map((zones ?? []).map((zone) => [zone.toLowerCase(), zone]));
+  }
+  const correctCase = lowercaseTimeZoneLookup.get(value.toLowerCase())
+    ?? (resolved.toLowerCase() === value.toLowerCase() ? resolved : undefined);
+  if (correctCase) {
+    return correctCase === value ? undefined : `Time zone names are case-sensitive, did you mean "${correctCase}"?`;
+  }
+  if (value.split('/').some((segment) => /^[a-z]/.test(segment))) {
+    return `Time zone names are case-sensitive, "${value}" is miscased (it is an alias of "${resolved}").`;
+  }
+  return undefined;
+}
+
 export function validateStaticValue(typeInfo: TypeInfo, value: string) {
   switch (typeInfo.name) {
     case 'string':
@@ -676,6 +702,8 @@ export function validateStaticValue(typeInfo: TypeInfo, value: string) {
       return /^\d{4}-\d{2}-\d{2}(?:[T ][0-9:.+-Z]*)?$/.test(value) && !Number.isNaN(Date.parse(value))
         ? undefined
         : 'Value must be a valid ISO date.';
+    case 'timeZone':
+      return checkTimeZoneName(value);
     case 'uuid': {
       const version = typeInfo.options.version;
       const detectedVersion = /^[0-9a-f]{8}-[0-9a-f]{4}-([1-8])[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.exec(value)?.[1];
