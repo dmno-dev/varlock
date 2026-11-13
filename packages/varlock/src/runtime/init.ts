@@ -145,7 +145,7 @@ export function initVarlockRuntime() {
   if (encrypted) {
     // read directly (not just via the alias copy above), which is a no-op on a read-only process.env
     const key = getVarlockConfigEnvVar('_VARLOCK_ENV_KEY');
-    if (!key) throw new Error('[varlock] env blob is encrypted but _VARLOCK_ENV_KEY (or VARLOCK_ENV_KEY) is not set');
+    if (!key) throw new Error('[varlock] env blob is encrypted but _VARLOCK_ENV_KEY is not set (VARLOCK_ENV_KEY is also accepted)');
     try {
       storeDecryptedEnv(decryptEnvBlobSync(encrypted.blob, key), encrypted.source);
       initNow();
