@@ -53,7 +53,7 @@ except urllib.error.URLError as e:
 describe('python through the credential proxy (strict TLS verification)', () => {
   test.skipIf(SKIP)('urllib completes a strict-verified MITM request (installed CLI)', () => {
     const result = runVarlock(
-      ['proxy', 'run', '--', PYTHON!, '-c', PYTHON_CLIENT],
+      ['proxy', 'run', '--new', '--', PYTHON!, '-c', PYTHON_CLIENT],
       { cwd: 'smoke-test-proxy' },
     );
 
@@ -68,7 +68,7 @@ describe('python through the credential proxy (strict TLS verification)', () => 
     // The bundled/compiled binary is the risky artifact for cert generation
     // (module init order differs from bun run / vitest), so prove it there too.
     const result = runBinary(
-      ['proxy', 'run', '--', PYTHON!, '-c', PYTHON_CLIENT],
+      ['proxy', 'run', '--new', '--', PYTHON!, '-c', PYTHON_CLIENT],
       { cwd: 'smoke-test-proxy' },
     );
 
