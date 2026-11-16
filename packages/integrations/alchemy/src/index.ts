@@ -169,7 +169,11 @@ function appGraph(graph: SerializedEnvGraph, bindingsFilter?: string): Serialize
     config[key] = rest;
   }
   const { basePath: _basePath, ...portable } = graph;
-  return { ...portable, sources: [], config };
+  // the blob always ships unencrypted (see schemaBindings), so say so
+  const settings = { ...graph.settings, encryptInjectedEnv: false };
+  return {
+    ...portable, sources: [], settings, config,
+  };
 }
 
 /** Worker bindings for one schema: values are literal Configs, so they never consult the provider */
@@ -190,9 +194,12 @@ function schemaBindings(graph: SerializedEnvGraph, opts: VarlockSchemaOptions): 
     }
   }
   if (opts.blob !== false) {
+    // `@encryptInjectedEnv` protects a blob baked into build output. Here the blob is a Worker
+    // secret and the key would be another secret beside it, so encryption protects nothing; it
+    // would only change the ciphertext (fresh nonce and key) and redeploy secrets every run.
     const blob = buildEnvBlobBindings({
       json: JSON.stringify(forApp),
-      encryptInjectedEnv: forApp.settings?.encryptInjectedEnv,
+      plaintext: true,
       maxBytes: CLOUDFLARE_SECRET_MAX_BYTES,
     });
     for (const [key, value] of Object.entries(blob)) {

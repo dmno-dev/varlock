@@ -34,6 +34,17 @@ describe('env blob bindings', () => {
     expect(readEnvBlob(bindings)).toBe(json);
   });
 
+  it('plaintext ignores encryptInjectedEnv and an ambient key', () => {
+    process.env._VARLOCK_ENV_KEY = 'ab'.repeat(32);
+    try {
+      const bindings = buildEnvBlobBindings({ json, encryptInjectedEnv: true, plaintext: true });
+      expect(Object.keys(bindings)).toEqual(['__VARLOCK_ENV']);
+      expect(bindings.__VARLOCK_ENV).toBe(json);
+    } finally {
+      delete process.env._VARLOCK_ENV_KEY;
+    }
+  });
+
   it('never splits a multi-byte character', () => {
     const chunks = chunkString('é'.repeat(10), 3);
     expect(chunks.every((c) => new TextEncoder().encode(c).byteLength <= 3)).toBe(true);

@@ -173,6 +173,17 @@ describe('bindingsFilter and @internal', () => {
     expect(JSON.stringify(blob)).not.toContain(fixtures);
   });
 
+  it('ships the blob unencrypted even with @encryptInjectedEnv, so it is stable across runs', async () => {
+    const env = Secrets({ path: path.join(fixtures, 'encrypted') });
+    const first = await withProvider(env, { stage: 'x' }, env.bindings);
+    const second = await withProvider(env, { stage: 'x' }, env.bindings);
+    expect(first).not.toHaveProperty('_VARLOCK_ENV_KEY');
+    const blob = await blobOf(first);
+    expect(blob.config.SECRET.value).toBe('encrypted-fixture-secret');
+    expect(blob.settings.encryptInjectedEnv).toBe(false);
+    expect(await blobOf(second)).toEqual(blob);
+  });
+
   it('@internal items reach neither the provider nor the bindings', async () => {
     const env = Secrets({ path: path.join(fixtures, 'root') });
     const { token, op, bindings } = await withProvider(env, { stage: 'x' }, Effect.gen(function* run5() {

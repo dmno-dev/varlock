@@ -57,6 +57,11 @@ export function buildEnvBlobBindings(opts: {
    */
   encryptionKey?: string;
   /**
+   * never encrypt, even with `encryptInjectedEnv` or an ambient key: for targets that store the
+   * blob as a platform secret next to where the key would go, so encryption adds no protection
+   */
+  plaintext?: boolean;
+  /**
    * per-variable byte limit of the target platform (Cloudflare Workers secrets: 5120). When set
    * and the blob is larger, it is split into `__VARLOCK_ENV_CHUNKS` + `__VARLOCK_ENV_<n>`.
    * Leave unset for platforms without a per-variable cap.
@@ -64,8 +69,8 @@ export function buildEnvBlobBindings(opts: {
   maxBytes?: number;
 }): EnvBlobBindings {
   const bindings: Record<string, string> = {};
-  let encryptionKey = opts.encryptionKey ?? process.env._VARLOCK_ENV_KEY;
-  if (opts.encryptInjectedEnv && !encryptionKey) encryptionKey = generateEncryptionKeyHex();
+  let encryptionKey = opts.plaintext ? undefined : (opts.encryptionKey ?? process.env._VARLOCK_ENV_KEY);
+  if (opts.encryptInjectedEnv && !opts.plaintext && !encryptionKey) encryptionKey = generateEncryptionKeyHex();
 
   let blob = opts.json;
   if (encryptionKey) {
