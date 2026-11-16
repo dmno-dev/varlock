@@ -104,6 +104,11 @@ type ScanState = {
    * chunks no longer line up with the decoded text and all further output must be re-encoded
    * from it (otherwise the held bytes would go out twice if a later chunk gets rewritten) */
   reEncode: boolean,
+  /** per-response streaming decompressor (false if unavailable, undefined until first use) */
+  incrementalDecompress: ((chunk: Buffer) => Buffer) | false | undefined,
+  /** set once the incremental decompressor hits a decode error */
+  decompressFailed: boolean,
+  /** compressed chunks so far - only used by the fallback when incremental decompression is unavailable */
   zlibChunks: Array<Buffer>,
   /** streaming decoder for decompressed deltas, which may end inside a multi-byte character */
   decompressedDecoder: TextDecoder | undefined,
@@ -118,6 +123,8 @@ function getScanState(res: any): ScanState {
     carry: '',
     decoder: undefined,
     reEncode: false,
+    incrementalDecompress: undefined,
+    decompressFailed: false,
     zlibChunks: [],
     decompressedDecoder: undefined,
     decompressedLength: 0,
@@ -140,6 +147,111 @@ function decodeDecompressedDelta(state: ScanState, decompressed: Buffer, isFinal
   const delta = decompressed.subarray(state.decompressedLength);
   state.decompressedLength = decompressed.byteLength;
   return state.decompressedDecoder.decode(delta, { stream: !isFinal });
+}
+
+/**
+ * Creates a stateful decompressor that takes one compressed chunk at a time and returns the
+ * bytes it decodes to, so a response is decompressed once rather than once per chunk.
+ *
+ * Node's public sync API (`zlib.*Sync`, `stream._processChunk`) closes the stream after each
+ * call, so this drives the stream's native handle directly - the same loop node runs in
+ * `processChunkSync`, minus the close. That relies on internals (`_handle.writeSync`,
+ * `_writeState`, `_chunkSize`), which node 22+ and bun both provide; when they are missing
+ * this returns undefined and the caller falls back to re-decompressing the whole response.
+ * The returned function throws once the stream fails to decode.
+ */
+function createIncrementalDecompressor(
+  encoding: string,
+  res: ServerResponse,
+): ((chunk: Buffer) => Buffer) | undefined {
+  const zlib = getZlib() as any;
+  if (!zlib) return undefined;
+  let stream: any;
+  let flushFlag: number | undefined;
+  try {
+    if (encoding === 'gzip' || encoding === 'deflate') {
+      stream = zlib.createUnzip();
+      flushFlag = zlib.constants.Z_SYNC_FLUSH;
+    } else if (encoding === 'br') {
+      stream = zlib.createBrotliDecompress();
+      flushFlag = zlib.constants.BROTLI_OPERATION_FLUSH;
+    } else if (encoding === 'zstd' && typeof zlib.createZstdDecompress === 'function') {
+      stream = zlib.createZstdDecompress();
+      flushFlag = zlib.constants.ZSTD_e_flush;
+    }
+  } catch {
+    return undefined;
+  }
+  if (!stream) return undefined;
+  if (
+    flushFlag === undefined
+    || typeof stream._handle?.writeSync !== 'function'
+    || !stream._writeState
+    || !stream._chunkSize
+  ) {
+    stream.close?.();
+    return undefined;
+  }
+  // a decode error destroys the stream, and an unhandled 'error' event would crash the process
+  stream.on('error', () => { /* surfaced via stream.destroyed below */ });
+  // free the decoder's native memory when the response is done rather than at some later GC
+  res.once('close', () => stream.close());
+
+  return (chunk) => {
+    const out: Array<Buffer> = [];
+    let inOffset = 0;
+    let inLength = chunk.byteLength;
+    for (;;) {
+      const buffer = Buffer.allocUnsafe(stream._chunkSize);
+      stream._handle.writeSync(flushFlag, chunk, inOffset, inLength, buffer, 0, buffer.length);
+      if (stream.destroyed || !stream._handle) throw new Error('decompression failed');
+      const [outLeft, inLeft] = stream._writeState;
+      out.push(buffer.subarray(0, buffer.length - outLeft));
+      inOffset += inLength - inLeft;
+      inLength = inLeft;
+      // output buffer not filled means the decoder consumed everything it could
+      if (outLeft !== 0) return Buffer.concat(out);
+    }
+  };
+}
+
+/**
+ * Decompresses the next compressed chunk of a response and returns the newly decoded text, or
+ * undefined if nothing can be scanned (stream doesn't decode yet, or has failed).
+ */
+function decompressNextChunk(
+  state: ScanState,
+  res: ServerResponse,
+  encoding: string,
+  chunk: Buffer,
+  isFinal = false,
+): string | undefined {
+  if (state.decompressFailed) return undefined;
+  if (state.incrementalDecompress === undefined) {
+    state.incrementalDecompress = createIncrementalDecompressor(encoding, res) ?? false;
+  }
+  if (state.incrementalDecompress) {
+    try {
+      state.decompressedDecoder ||= new TextDecoder();
+      return state.decompressedDecoder.decode(state.incrementalDecompress(chunk), { stream: !isFinal });
+    } catch {
+      // replaying the chunks would fail the same way, so stop trying (fails open, as before)
+      state.decompressFailed = true;
+      debug(`⚠️ leak scan skipped - compressed response did not decode (${encoding})`);
+      return undefined;
+    }
+  }
+
+  // fallback: re-decompress everything seen so far and scan only the new tail
+  const decompress = getDecompressor(encoding);
+  if (!decompress) return undefined;
+  state.zlibChunks.push(chunk);
+  try {
+    return decodeDecompressedDelta(state, decompress(Buffer.concat(state.zlibChunks)), isFinal);
+  } catch {
+    // partial compressed data that doesn't decode yet - scanned when more chunks arrive
+    return undefined;
+  }
 }
 
 /**
@@ -385,21 +497,13 @@ export function patchGlobalServerResponse(opts?: {
       chunkStr = decodeChunk(state, rawChunk);
       if (!state.reEncode && incompleteTrailingUtf8Bytes(rawChunk)) state.reEncode = true;
     } else {
-      const decompress = getDecompressor(String(compressionType).toLowerCase());
-      if (decompress) {
+      const encoding = String(compressionType).toLowerCase();
+      if (getDecompressor(encoding)) {
         chunkType = 'compressed';
-        // TODO: figure out how we can decompress one chunk at a time instead of storing everything
-        state.zlibChunks.push(rawChunk);
         // NOTE - we must attempt to decode from the very FIRST chunk: small responses
         // arrive as a single complete compressed chunk, so skipping it means never
-        // scanning at all (and browsers always send Accept-Encoding: gzip). A genuinely
-        // partial stream fails to decode here and gets scanned once more chunks arrive.
-        try {
-          const decompressedChunk = decompress(Buffer.concat(state.zlibChunks));
-          chunkStr = decodeDecompressedDelta(state, decompressedChunk);
-        } catch (err) {
-          // partial compressed data that doesn't decode yet — scanned when more chunks arrive
-        }
+        // scanning at all (and browsers always send Accept-Encoding: gzip)
+        chunkStr = decompressNextChunk(state, this, encoding, rawChunk as Buffer);
       } else {
         // no decompressor for this encoding — response cannot be scanned (fails open)
         debug(`⚠️ leak scan skipped - unsupported content-encoding: ${compressionType}`);
@@ -491,21 +595,17 @@ export function patchGlobalServerResponse(opts?: {
     let chunkStr: string | undefined;
 
     if (isBinaryChunk && compressionType) {
-      const decompress = getDecompressor(String(compressionType).toLowerCase());
-      let decompressed: Buffer | undefined;
-      if (decompress) {
-        state.zlibChunks.push(endChunk as Buffer);
-        try {
-          decompressed = decompress(Buffer.concat(state.zlibChunks));
-        } catch (err) {
-          // stream didn't decode, nothing more we can do at this point (fails open)
-          debug(`⚠️ leak scan skipped - compressed response did not decode at end() (${compressionType})`);
-        }
-      }
-      if (decompressed !== undefined) {
+      const encoding = String(compressionType).toLowerCase();
+      const decompressedStr = getDecompressor(encoding)
+        ? decompressNextChunk(state, this, encoding, endChunk as Buffer, true)
+        : undefined;
+      if (decompressedStr === undefined) {
+        // stream didn't decode, nothing more we can do at this point (fails open)
+        debug(`⚠️ leak scan skipped - compressed response did not decode at end() (${compressionType})`);
+      } else {
         // compressed output can't be scrubbed, so a detected leak always throws (see write above)
         try {
-          scanForLeaks(state.carry + decodeDecompressedDelta(state, decompressed, true), {
+          scanForLeaks(state.carry + decompressedStr, {
             method: 'patched ServerResponse.end',
             file: (this as any).req?.url,
           });
