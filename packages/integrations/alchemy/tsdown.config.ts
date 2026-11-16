@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown';
 import pkg from './package.json' with { type: 'json' };
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/cloudflare.ts'],
 
   // package name + version baked in as static defines so we don't import package.json into the bundle
   define: {

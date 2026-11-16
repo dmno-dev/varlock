@@ -8,6 +8,7 @@ import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as Redacted from 'effect/Redacted';
 import { Secrets } from '../src/index';
+import { bindings as workerBindings } from '../src/cloudflare';
 
 const fixtures = path.join(import.meta.dirname, 'fixtures');
 
@@ -44,6 +45,7 @@ async function withProvider<A>(
 }
 
 const value = <A>(config: Config.Config<A>) => Effect.runPromise(config as Effect.Effect<A, unknown>);
+const env0 = () => Secrets({ path: path.join(fixtures, 'server') });
 const blobOf = async (bindings: Record<string, Config.Config<unknown>>) => JSON.parse(
   Redacted.value(await value(bindings.__VARLOCK_ENV) as Redacted.Redacted<string>),
 );
@@ -57,7 +59,7 @@ describe('Secrets()', () => {
         cors: yield* Config.String('CORS_ORIGIN'),
         // ALCHEMY_STAGE is visible to the schema while it resolves
         stageSeen: yield* Config.String('STAGE_SEEN'),
-        bindings: yield* env.bindings,
+        bindings: yield* workerBindings(env),
       };
     }));
     expect(cors).toBe('http://localhost:4321');
@@ -107,7 +109,7 @@ describe('Secrets()', () => {
     try {
       const pinned = Secrets({ path: path.join(fixtures, 'server') });
       const { cors, bindings } = await withProvider(pinned, { stage: 'dev_test' }, Effect.gen(function* run3() {
-        return { cors: yield* Config.String('CORS_ORIGIN'), bindings: yield* pinned.bindings };
+        return { cors: yield* Config.String('CORS_ORIGIN'), bindings: yield* workerBindings(pinned) };
       }));
       expect(cors).toBe('https://prod.example.com');
       expect(await value(bindings.CORS_ORIGIN)).toBe('https://prod.example.com');
@@ -124,8 +126,7 @@ describe('Secrets()', () => {
   });
 
   it('can leave the blob out', async () => {
-    const noBlob = Secrets({ path: path.join(fixtures, 'server'), blob: false });
-    const bindings = await withProvider(noBlob, { stage: 'x' }, noBlob.bindings);
+    const bindings = await withProvider(env, { stage: 'x' }, workerBindings(env, { blob: false }));
     expect(bindings.__VARLOCK_ENV).toBeUndefined();
   });
 
@@ -139,7 +140,7 @@ describe('Secrets()', () => {
 describe('composite values', () => {
   it('bind as their env string form, with coerced numbers and booleans kept', async () => {
     const env = Secrets({ path: path.join(fixtures, 'composite') });
-    const bindings = await withProvider(env, { stage: 'x' }, env.bindings);
+    const bindings = await withProvider(env, { stage: 'x' }, workerBindings(env));
     expect(await value(bindings.LIST)).toBe('one,two');
     expect(await value(bindings.OBJ)).toBe('{"a":1}');
     expect(Redacted.value(await value(bindings.SECRET_LIST) as unknown as Redacted.Redacted<string>)).toBe('key-one-long,key-two-long');
@@ -154,7 +155,7 @@ describe('bindingsFilter and @internal', () => {
   it('bindingsFilter keeps tagged items out of the bindings and blob but not the provider', async () => {
     const env = Secrets({ path: path.join(fixtures, 'server'), bindingsFilter: '!#deploy' });
     const { hook, bindings } = await withProvider(env, { stage: 'x' }, Effect.gen(function* run4() {
-      return { hook: yield* Config.String('DEPLOY_HOOK_TOKEN'), bindings: yield* env.bindings };
+      return { hook: yield* Config.String('DEPLOY_HOOK_TOKEN'), bindings: yield* workerBindings(env) };
     }));
     expect(hook).toBe('deploy-hook-value-long');
     expect(bindings.DEPLOY_HOOK_TOKEN).toBeUndefined();
@@ -166,22 +167,41 @@ describe('bindingsFilter and @internal', () => {
 
   it('keeps machine-local paths and file hashes out of the blob', async () => {
     const env = Secrets({ path: path.join(fixtures, 'server') });
-    const bindings = await withProvider(env, { stage: 'x' }, env.bindings);
+    const bindings = await withProvider(env, { stage: 'x' }, workerBindings(env));
     const blob = await blobOf(bindings);
     expect(blob).not.toHaveProperty('basePath');
     expect(blob.sources).toEqual([]);
     expect(JSON.stringify(blob)).not.toContain(fixtures);
   });
 
-  it('ships the blob unencrypted even with @encryptInjectedEnv, so it is stable across runs', async () => {
+  it('rejects @encryptInjectedEnv for the Worker blob with the fix', async () => {
     const env = Secrets({ path: path.join(fixtures, 'encrypted') });
-    const first = await withProvider(env, { stage: 'x' }, env.bindings);
-    const second = await withProvider(env, { stage: 'x' }, env.bindings);
-    expect(first).not.toHaveProperty('_VARLOCK_ENV_KEY');
-    const blob = await blobOf(first);
-    expect(blob.config.SECRET.value).toBe('encrypted-fixture-secret');
-    expect(blob.settings.encryptInjectedEnv).toBe(false);
-    expect(await blobOf(second)).toEqual(blob);
+    await expect(withProvider(env, { stage: 'x' }, workerBindings(env)))
+      .rejects.toThrow(/@encryptInjectedEnv=isEmpty\(\$ALCHEMY_STAGE\)/);
+    // without the blob the setting does not matter
+    const bindings = await withProvider(env, { stage: 'x' }, workerBindings(env, { blob: false }));
+    expect(bindings).not.toHaveProperty('__VARLOCK_ENV');
+  });
+
+  it('ships a stable plaintext blob when @encryptInjectedEnv is off for alchemy runs', async () => {
+    const env = Secrets({ path: path.join(fixtures, 'encrypted-conditional') });
+    process.env._VARLOCK_ENV_KEY = 'ab'.repeat(32);
+    try {
+      const first = await withProvider(env, { stage: 'x' }, workerBindings(env));
+      const second = await withProvider(env, { stage: 'x' }, workerBindings(env));
+      expect(first).not.toHaveProperty('_VARLOCK_ENV_KEY');
+      const blob = await blobOf(first);
+      expect(blob.config.SECRET.value).toBe('encrypted-fixture-secret');
+      expect(blob.settings.encryptInjectedEnv).toBeFalsy();
+      expect(await blobOf(second)).toEqual(blob);
+    } finally {
+      delete process.env._VARLOCK_ENV_KEY;
+    }
+  });
+
+  it('rejects a provider that did not come from Secrets()', async () => {
+    await expect(withProvider(env0(), { stage: 'x' }, workerBindings({} as never)))
+      .rejects.toThrow(/provider returned by Varlock.Secrets/);
   });
 
   it('@internal items reach neither the provider nor the bindings', async () => {
@@ -190,7 +210,7 @@ describe('bindingsFilter and @internal', () => {
       return {
         token: yield* Config.String('CLOUDFLARE_API_TOKEN'),
         op: yield* Config.option(Config.String('OP_TOKEN')),
-        bindings: yield* env.bindings,
+        bindings: yield* workerBindings(env),
       };
     }));
     expect(token).toBe('cf-token-value-long-enough');
@@ -227,10 +247,10 @@ describe('Secrets({ services })', () => {
     });
   });
 
-  it('bindingsFor() returns one service with its own blob; root items are never bound', async () => {
+  it('bindings(env, name) returns one service with its own blob; root items are never bound', async () => {
     const { server, web } = await withProvider(env, { stage: 'dev_test' }, Effect.all({
-      server: env.bindingsFor('server'),
-      web: env.bindingsFor('web'),
+      server: workerBindings(env, 'server'),
+      web: workerBindings(env, 'web'),
     }));
     expect(Object.keys(server).sort()).toEqual([
       'ALCHEMY_DEV',
@@ -252,7 +272,7 @@ describe('Secrets({ services })', () => {
   });
 
   it('rejects an unknown service name', async () => {
-    await expect(withProvider(env, { stage: 'dev_test' }, env.bindingsFor('nope' as never)))
+    await expect(withProvider(env, { stage: 'dev_test' }, workerBindings(env, 'nope' as never)))
       .rejects.toThrow(/no schema named "nope"/);
   });
 });

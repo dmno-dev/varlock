@@ -15,6 +15,11 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs",
       "default": "./dist/index.mjs"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare.d.mts",
+      "import": "./dist/cloudflare.mjs",
+      "default": "./dist/cloudflare.mjs"
     }
   },
   "files": [
