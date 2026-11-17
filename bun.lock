@@ -59,7 +59,7 @@
     },
     "packages/env-spec-parser": {
       "name": "@env-spec/parser",
-      "version": "0.6.3",
+      "version": "0.6.4",
       "devDependencies": {
         "@types/node": "catalog:",
         "ansis": "catalog:",
@@ -519,7 +519,7 @@
     },
     "packages/varlock": {
       "name": "varlock",
-      "version": "1.25.0",
+      "version": "1.25.1",
       "bin": {
         "varlock": "./bin/cli.js",
       },

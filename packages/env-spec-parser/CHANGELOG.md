@@ -14,6 +14,13 @@
 
 
 
+
+## 0.6.4
+<sub>2026-11-17</sub>
+
+- [#1309](https://github.com/dmno-dev/varlock/pull/1309)  *(patch)* Thanks [@anubhavlal07](https://github.com/anubhavlal07)!
+  Allow whitespace between `=` and a quoted value, function call, or literal (e.g. `A = "x"`), which previously failed to parse or fell back to a plain string
+
 ## 0.6.3
 <sub>2026-11-13</sub>
 
