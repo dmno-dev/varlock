@@ -4,7 +4,7 @@ import * as Redacted from 'effect/Redacted';
 import type { SerializedEnvGraph } from 'varlock';
 import { buildEnvBlobBindings } from 'varlock/env-blob';
 import {
-  appGraphFor, configError, envString,
+  appGraphFor, envString,
   type BindingsServices, type VarlockSecretsProvider, type VarlockServicesProvider,
 } from './core';
 
@@ -57,19 +57,10 @@ export type WorkerBindings<Schema extends object> = {
   readonly [K in keyof Schema]: Config.Config<WorkerBindingValue<NonNullable<Schema[K]>>>;
 } & VarlockRuntimeBindings;
 
-function encryptInjectedEnvError(): Config.ConfigError {
-  return configError([
-    'varlock: @encryptInjectedEnv is on, but a Cloudflare Worker receives the __VARLOCK_ENV blob as a secret binding,',
-    'with the key as another secret beside it, so encryption would protect nothing and change the blob on every deploy.',
-    'Turn it off for alchemy runs and keep it for other builds:  # @encryptInjectedEnv=isEmpty($ALCHEMY_STAGE)',
-    '(declare ALCHEMY_STAGE in the schema), or pass { blob: false } if the Worker does not use the varlock runtime.',
-  ].join('\n'));
-}
-
-function workerBindings(
+const workerBindings = (
   graph: SerializedEnvGraph,
   opts: WorkerBindingsOptions,
-): Effect.Effect<Record<string, Config.Config<unknown>>, Config.ConfigError> {
+) => Effect.gen(function* buildWorkerBindings() {
   const bindings: Record<string, Config.Config<unknown>> = {};
   for (const [key, item] of Object.entries(graph.config)) {
     if (item.value === undefined || WORKER_RUNTIME_KEYS.has(key)) continue;
@@ -85,11 +76,16 @@ function workerBindings(
       bindings[key] = Config.succeed(envString(item));
     }
   }
-  if (opts.blob === false) return Effect.succeed(bindings);
-  if (graph.settings?.encryptInjectedEnv) return Effect.fail(encryptInjectedEnvError());
-  // plaintext also ignores an ambient _VARLOCK_ENV_KEY, for the same reason as the error above
+  if (opts.blob === false) return bindings;
+  if (graph.settings?.encryptInjectedEnv) {
+    yield* Effect.logDebug('varlock: @encryptInjectedEnv has no effect on Worker bindings (the blob is a secret binding)');
+  }
+  // `@encryptInjectedEnv` protects a blob baked into build output. Here the blob is a Worker
+  // secret and the key would be another secret beside it, so encryption protects nothing; it
+  // would only change the ciphertext (fresh nonce and key) and redeploy secrets every run.
+  // `plaintext` also ignores an ambient _VARLOCK_ENV_KEY.
   const blob = buildEnvBlobBindings({
-    json: JSON.stringify(graph),
+    json: JSON.stringify({ ...graph, settings: { ...graph.settings, encryptInjectedEnv: false } }),
     plaintext: true,
     maxBytes: CLOUDFLARE_SECRET_MAX_BYTES,
   });
@@ -98,8 +94,8 @@ function workerBindings(
       ? Config.succeed(value)
       : Config.succeed(Redacted.make(value));
   }
-  return Effect.succeed(bindings);
-}
+  return bindings;
+});
 
 /**
  * Cloudflare Worker bindings for a varlock schema, to spread into a Worker's `env`. Each item

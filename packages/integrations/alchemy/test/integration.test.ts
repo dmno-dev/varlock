@@ -174,26 +174,24 @@ describe('bindingsFilter and @internal', () => {
     expect(JSON.stringify(blob)).not.toContain(fixtures);
   });
 
-  it('rejects @encryptInjectedEnv for the Worker blob with the fix', async () => {
+  it('ships the blob unencrypted even with @encryptInjectedEnv, so it is stable across runs', async () => {
     const env = Secrets({ path: path.join(fixtures, 'encrypted') });
-    await expect(withProvider(env, { stage: 'x' }, workerBindings(env)))
-      .rejects.toThrow(/@encryptInjectedEnv=isEmpty\(\$ALCHEMY_STAGE\)/);
-    // without the blob the setting does not matter
-    const bindings = await withProvider(env, { stage: 'x' }, workerBindings(env, { blob: false }));
-    expect(bindings).not.toHaveProperty('__VARLOCK_ENV');
+    const first = await withProvider(env, { stage: 'x' }, workerBindings(env));
+    const second = await withProvider(env, { stage: 'x' }, workerBindings(env));
+    expect(first).not.toHaveProperty('_VARLOCK_ENV_KEY');
+    const blob = await blobOf(first);
+    expect(blob.config.SECRET.value).toBe('encrypted-fixture-secret');
+    expect(blob.settings.encryptInjectedEnv).toBe(false);
+    expect(await blobOf(second)).toEqual(blob);
   });
 
-  it('ships a stable plaintext blob when @encryptInjectedEnv is off for alchemy runs', async () => {
-    const env = Secrets({ path: path.join(fixtures, 'encrypted-conditional') });
+  it('ignores an ambient _VARLOCK_ENV_KEY', async () => {
+    const env = Secrets({ path: path.join(fixtures, 'server') });
     process.env._VARLOCK_ENV_KEY = 'ab'.repeat(32);
     try {
-      const first = await withProvider(env, { stage: 'x' }, workerBindings(env));
-      const second = await withProvider(env, { stage: 'x' }, workerBindings(env));
-      expect(first).not.toHaveProperty('_VARLOCK_ENV_KEY');
-      const blob = await blobOf(first);
-      expect(blob.config.SECRET.value).toBe('encrypted-fixture-secret');
-      expect(blob.settings.encryptInjectedEnv).toBeFalsy();
-      expect(await blobOf(second)).toEqual(blob);
+      const bindings = await withProvider(env, { stage: 'x' }, workerBindings(env));
+      expect(bindings).not.toHaveProperty('_VARLOCK_ENV_KEY');
+      expect((await blobOf(bindings)).config).toHaveProperty('BETTER_AUTH_SECRET');
     } finally {
       delete process.env._VARLOCK_ENV_KEY;
     }
