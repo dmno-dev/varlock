@@ -47,7 +47,7 @@ You can get started with varlock by installing the CLI:
 npm install varlock
 
 # OR as standalone CLI via homebrew
-brew install dmno-dev/tap/varlock
+brew install varlock
 
 # OR via cURL
 curl -sSfL https://varlock.dev/install.sh | sh -s

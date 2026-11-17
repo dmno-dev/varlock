@@ -69,7 +69,7 @@ You can get started with varlock by installing the CLI:
 npx varlock init
 
 # Or install as standalone binary
-brew install dmno-dev/tap/varlock # via homebrew
+brew install varlock # via homebrew
 curl -sSfL https://varlock.dev/install.sh | sh -s # via cURL
 
 # Or use the official Docker image

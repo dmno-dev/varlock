@@ -138,7 +138,7 @@ const aiCatalog = {
     {
       identifier: 'urn:ai:varlock.dev:cli:varlock',
       displayName: 'varlock CLI',
-      description: 'Command line tool for loading, validating, encrypting, and scanning .env files. Install with npx varlock init, brew install dmno-dev/tap/varlock, or the install.sh script.',
+      description: 'Command line tool for loading, validating, encrypting, and scanning .env files. Install with npx varlock init, brew install varlock, or the install.sh script.',
       type: 'text/html',
       url: `${SITE}/getting-started/installation/`,
       representativeQueries: [

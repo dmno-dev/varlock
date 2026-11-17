@@ -8,7 +8,7 @@ set -e
 GITHUB_URL="https://github.com/dmno-dev/varlock"
 GITHUB_RELEASES_URL="${GITHUB_URL}/releases"
 HOMEBREW_FORMULA_URL="https://raw.githubusercontent.com/dmno-dev/homebrew-tap/refs/heads/main/Formula/varlock.rb"
-HOMEBREW_TAP_NAME="dmno-dev/tap/varlock"
+HOMEBREW_FORMULA_NAME="varlock"
 
 OS=""
 ARCH=""
@@ -120,7 +120,7 @@ main() {
     echo "Detected homebrew 🍺 - installing varlock via brew"
     echo "(rerun with \`--force-no-brew\` to install binary directly instead)"
     echo ""
-    brew install "$HOMEBREW_TAP_NAME"
+    brew install "$HOMEBREW_FORMULA_NAME"
     return 0;
   fi
 

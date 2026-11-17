@@ -161,7 +161,7 @@ export default defineConfig({
             \`\`\`bash
             npx varlock init                 # add to a JS/TS project
             npm install varlock              # or add the dependency directly
-            brew install dmno-dev/tap/varlock  # standalone binary via Homebrew
+            brew install varlock  # standalone binary via Homebrew
             curl -sSfL https://varlock.dev/install.sh | sh -s   # standalone binary via script
             \`\`\`
 
