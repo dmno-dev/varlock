@@ -82,4 +82,5 @@ export { patchProcessStreams } from './runtime/patch-process-streams';
 export { patchGlobalServerResponse } from './runtime/patch-server-response';
 export { patchGlobalResponse } from './runtime/patch-response';
 export { createDebug, type Debugger } from './lib/debug';
+export { filterSerializedGraphKeys } from './lib/serialized-graph-filter';
 export type { SerializedEnvGraph };
