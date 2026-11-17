@@ -142,11 +142,39 @@ describe('whitespace after the equals sign', basicValueTests([
   ['  "with spaces" # comment', 'with spaces'],
   [' """multi\nline"""', 'multi\nline'],
   [' foo(1, 2)', { fnName: 'foo', fnArgs: [1, 2] }],
+  [' \t "mixed"', 'mixed'],
+  [' "trailing"   ', 'trailing'],
   [' unquoted', 'unquoted'],
+  [' unquoted with spaces  ', 'unquoted with spaces'],
+  [' true', true],
+  [' 123', 123],
+  [' "123"', '123'],
   ['   ', undefined],
   ['  # comment', undefined],
   [' "not closed', new Error()],
+  [' "x" trailing', new Error()],
 ]));
+
+describe('whitespace on both sides of the equals sign', () => {
+  it.each([
+    ['VAL = "x"', 'x'],
+    ["VAL\t=\t'x'", 'x'],
+    ['export VAL = "x"', 'x'],
+    ['VAL = "x" # comment', 'x'],
+    ['VAL = """multi\nline"""', 'multi\nline'],
+  ])('%s', (input, expected) => {
+    const result = parseEnvSpecDotEnvFile(input);
+    const item = result.configItems[0];
+    expect(item.key).toEqual('VAL');
+    expectInstanceOf(item.value, ParsedEnvSpecStaticValue);
+    expect(item.value.value).toEqual(expected);
+  });
+
+  it('VAL = fn(a) parses as a function call', () => {
+    const result = parseEnvSpecDotEnvFile('VAL = fn(a)');
+    expectInstanceOf(result.configItems[0].value, ParsedEnvSpecFunctionCall);
+  });
+});
 
 describe('literals after whitespace following the equals sign', () => {
   it('ARR = [a, b] and OBJ = { k=v } parse as literals', () => {
