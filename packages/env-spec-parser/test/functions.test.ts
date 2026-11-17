@@ -193,6 +193,27 @@ describe('ref expansion', functionValueTests({
     `,
     expected: { ITEM: 'foo' },
   },
+  'ref expansion - whitespace around equals, unquoted': {
+    input: outdent`
+      OTHER=foo
+      ITEM = $OTHER
+    `,
+    expected: { ITEM: 'foo' },
+  },
+  'ref expansion - whitespace around equals, double quotes': {
+    input: outdent`
+      OTHER=foo
+      ITEM = "\${OTHER}-bar"
+    `,
+    expected: { ITEM: 'foo-bar' },
+  },
+  'ref expansion - whitespace around equals, single quotes (NOT EXPANDED)': {
+    input: outdent`
+      OTHER=foo
+      ITEM = '\${OTHER}'
+    `,
+    expected: { ITEM: '${OTHER}' },
+  },
 }));
 
 describe('complex cases', functionValueTests({
