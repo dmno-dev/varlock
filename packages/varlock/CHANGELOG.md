@@ -36,6 +36,13 @@
 
 
 
+
+## 1.25.1
+<sub>2026-11-17</sub>
+
+- [#1306](https://github.com/dmno-dev/varlock/pull/1306)  *(patch)*
+  Speed up the response leak scan on large compressed (gzip/br/zstd) responses by decompressing each chunk once instead of re-decompressing the whole response on every write
+
 ## 1.25.0
 <sub>2026-11-13</sub>
 
