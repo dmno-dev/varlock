@@ -28,7 +28,7 @@ EnvSpecFile =
 ConfigItem =
   preComments:(@(DecoratorComment / Comment) "\n")*
   (_ "export " _)? // we'll allow `export SOME_VAR=...` so we can read other env files
-  _ key:ConfigItemKey _ "=" value:ConfigItemValue? // I don't like supporting the extra spaces around the key
+  _ key:ConfigItemKey _ "=" _ value:ConfigItemValue? // I don't like supporting the extra spaces around the key
   _
   postComment:(@(DecoratorComment / Comment))?
   _n

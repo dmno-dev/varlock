@@ -135,6 +135,27 @@ describe('function calls', basicValueTests([
   ['foo(key1=123, key2="\\")#")', { fnName: 'foo', fnArgs: { key1: 123, key2: '")#' } }],
 ]));
 
+describe('whitespace after the equals sign', basicValueTests([
+  [' "dquote"', 'dquote'],
+  ["\t'squote'", 'squote'],
+  [' `backtick`', 'backtick'],
+  ['  "with spaces" # comment', 'with spaces'],
+  [' """multi\nline"""', 'multi\nline'],
+  [' foo(1, 2)', { fnName: 'foo', fnArgs: [1, 2] }],
+  [' unquoted', 'unquoted'],
+  ['   ', undefined],
+  ['  # comment', undefined],
+  [' "not closed', new Error()],
+]));
+
+describe('literals after whitespace following the equals sign', () => {
+  it('ARR = [a, b] and OBJ = { k=v } parse as literals', () => {
+    const result = parseEnvSpecDotEnvFile('ARR = [a, b]\nOBJ = { k=v }');
+    expectInstanceOf(result.configItems[0].value, ParsedEnvSpecArrayLiteral);
+    expectInstanceOf(result.configItems[1].value, ParsedEnvSpecObjectLiteral);
+  });
+});
+
 describe('post-comment handling', basicValueTests([
   ['#comment', undefined],
   [' #comment', undefined],

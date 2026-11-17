@@ -213,6 +213,19 @@ it('keeps later description lines when a commented-out value closes on the same 
   }
 });
 
+it('keeps later description lines when a commented-out value after spaced equals closes on the same line', () => {
+  for (const value of ['"x"', '[a, b]', '{ a=1 }', 'fn(a, "b")']) {
+    const parsedFile = parseEnvSpecDotEnvFile([
+      '# before',
+      `# VAL = ${value}`,
+      '# after',
+      'VAL=foo',
+    ].join('\n'));
+    const item = parsedFile.configItems[0] as ParsedEnvSpecConfigItem;
+    expect(item.description, value).toEqual('before\nafter');
+  }
+});
+
 it('still applies decorators after an unclosed commented-out value', () => {
   const parsedFile = parseEnvSpecDotEnvFile([
     '# before',
