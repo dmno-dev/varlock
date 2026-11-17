@@ -147,6 +147,26 @@ SECRET_BAR= # dynamic by default (sensitive)
 </div>
 
 <div>
+### `@publicDynamicFilter`
+**Value type:** `string` (a [filter](/reference/cli-commands/#filtering-items), written literally)
+
+Selects which public+dynamic items are delivered to client code: the values `getPublicDynamicEnv()` returns, the keys browser hydration accepts, and the client key list framework integrations inject. Public+dynamic items it does not select stay on the server, where code reads them normally, and are never returned by `getPublicDynamicEnv()`, even when requested by name. Sensitive items never reach the client, and static ones are inlined where client code references them, so the filter only applies to public+dynamic items.
+
+When absent, every public+dynamic item is delivered. The [Astro](/integrations/astro/#client-side-usage) and [Nuxt](/integrations/nuxt/#public-dynamic-env-endpoint) integrations only inject their public env route automatically when this is set.
+
+Tag items to keep the decision next to each one, or list keys and globs:
+
+```env-spec
+# @publicDynamicFilter="#browser"
+# ---
+# @public @dynamic @tag(browser)
+FEATURE_FLAG_X=
+# @public @dynamic
+BETTER_AUTH_URL=   # server only
+```
+</div>
+
+<div>
 ### `@disable`
 **Value type:** `boolean`
 

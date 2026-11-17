@@ -233,7 +233,9 @@ export function createWebpackConfigFn(
                 try {
                   const graph = JSON.parse(process.env.__VARLOCK_ENV || '{}') as SerializedEnvGraph;
                   publicDynamicKeys = Object.entries(graph.config || {})
-                    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive)
+                    .filter(([, item]) => (
+                      (item.isDynamic ?? item.isSensitive) && !item.isSensitive && item.client !== false
+                    ))
                     .map(([key]) => key);
                 } catch {
                   // bad/missing blob - skip injection rather than break the build

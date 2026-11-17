@@ -1,5 +1,5 @@
 import {
-  afterEach, beforeEach, describe, expect, it, vi,
+  afterEach, beforeEach, describe, expect, it, vi, onTestFinished,
 } from 'vitest';
 import {
   ENV,
@@ -208,5 +208,31 @@ describe('public dynamic env hydration', () => {
     expect(fetchCount).toBe(1);
     expect(a).toEqual({ [DYNAMIC_KEY]: 'loaded-concurrent' });
     expect(b).toEqual({ [DYNAMIC_KEY]: 'loaded-concurrent' });
+  });
+});
+
+describe('keys left out by @publicDynamicFilter', () => {
+  it('are readable server-side but never served or hydrated', () => {
+    const prevBlob = process.env.__VARLOCK_ENV;
+    process.env.__VARLOCK_ENV = JSON.stringify({
+      sources: [],
+      config: {
+        CLIENT_KEY: { value: 'client', isSensitive: false, isDynamic: true },
+        SERVER_ONLY_KEY: {
+          value: 'server', isSensitive: false, isDynamic: true, client: false,
+        },
+      },
+    });
+    onTestFinished(() => {
+      if (prevBlob === undefined) delete process.env.__VARLOCK_ENV;
+      else process.env.__VARLOCK_ENV = prevBlob;
+    });
+    initVarlockEnv();
+    expect((ENV as any).SERVER_ONLY_KEY).toBe('server');
+    expect(getPublicDynamicConfigKeys()).toEqual(['CLIENT_KEY']);
+    expect(getDynamicConfigKeys()).toContain('SERVER_ONLY_KEY');
+    expect(getPublicDynamicEnv()).toEqual({ CLIENT_KEY: 'client' });
+    // even when asked for explicitly
+    expect(getPublicDynamicEnv(['SERVER_ONLY_KEY'])).toEqual({});
   });
 });

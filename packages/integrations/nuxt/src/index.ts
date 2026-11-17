@@ -103,16 +103,20 @@ const varlockNuxtModule: NuxtModule<VarlockNuxtModuleOptions> = defineNuxtModule
 
     // Inject a nitro route serving public+dynamic values to the browser, same
     // as the Astro integration's `/__varlock/public-env` route. Auto mode only
-    // injects when the schema actually declares public+dynamic items. The
+    // injects when the schema sets @publicDynamicFilter and it selects public+dynamic
+    // items, so nothing reaches the browser unless the schema says so. The
     // handler runs after the nitro init plugin (registered below), so ENV is
     // initialized by the time a request hits it.
     const pdOption = moduleOptions.publicDynamicEndpoint;
     let injectPublicDynamicEndpoint = pdOption === true || typeof pdOption === 'object';
     if (pdOption === undefined) {
       const loadedEnv = getVarlockLoadedEnv(nuxt.options.rootDir);
-      injectPublicDynamicEndpoint = Object.values(loadedEnv?.config || {}).some(
-        (itemInfo) => (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive,
-      );
+      injectPublicDynamicEndpoint = !!loadedEnv?.settings?.publicDynamicFilter
+        && Object.values(loadedEnv.config || {}).some(
+          (itemInfo) => (
+            (itemInfo.isDynamic ?? itemInfo.isSensitive) && !itemInfo.isSensitive && itemInfo.client !== false
+          ),
+        );
     }
     if (injectPublicDynamicEndpoint) {
       const routePath = (typeof pdOption === 'object' && pdOption.path) || DEFAULT_PUBLIC_DYNAMIC_ENDPOINT;

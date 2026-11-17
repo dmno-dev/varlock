@@ -176,10 +176,10 @@ const parseFailureWarnedFiles = new Set<string>();
  * comments, and template literal text are never touched.
  * Falls back to regex replacement if the file fails to parse.
  */
-/** keys that are public AND dynamic - the ones browsers hydrate at runtime */
+/** keys that are public AND dynamic (minus any left out by `@publicDynamicFilter`) - the ones browsers hydrate at runtime */
 function getPublicDynamicKeys(envGraph: SerializedEnvGraph): Array<string> {
   return Object.entries(envGraph.config)
-    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive)
+    .filter(([, item]) => (item.isDynamic ?? item.isSensitive) && !item.isSensitive && item.client !== false)
     .map(([key]) => key);
 }
 

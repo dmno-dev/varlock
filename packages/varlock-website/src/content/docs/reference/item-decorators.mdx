@@ -66,7 +66,7 @@ OPTIONAL_ITEM=
 
 Sets whether the item should be considered _sensitive_ - meaning it cannot be exposed to the public. The value will be always be redacted in CLI output, and client integrations can take further action to prevent leaks.
 
-Items that are not sensitive are public: integrations may inline them into client bundles or serve them to the browser (see [static vs dynamic vars](/guides/dynamic-config/)). If a value must stay on the server, keep it sensitive even when it is not a secret. Use `redact=false` (below) if it should still appear in logs.
+Items that are not sensitive are public: integrations may inline them into client bundles or serve them to the browser (see [static vs dynamic vars](/guides/dynamic-config/)). To keep public+dynamic values that browser code does not need on the server, use the [`@publicDynamicFilter`](/reference/root-decorators/#publicdynamicfilter) root decorator.
 
 Default behavior for all items can be set using the [`@defaultSensitive` root decorator](/reference/root-decorators/#defaultsensitive)
 
