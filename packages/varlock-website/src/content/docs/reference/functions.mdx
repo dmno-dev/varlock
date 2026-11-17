@@ -539,14 +539,15 @@ Encrypted payload lifecycle:
 Reads a secret from the **macOS Keychain**. This built-in resolver communicates through Varlock's native Swift daemon, enforcing biometric (Touch ID) authentication and per-session access control. See the [macOS Keychain page](/plugins/macos-keychain/) for full documentation.
 
 **Array args:**
-- `service` (optional): Service name of the keychain item (positional shorthand)
+- `service` (optional): Service name of the keychain item (positional shorthand). Can be combined with the key/value args below.
 - `prompt` (optional): Enter interactive picker mode
 
 **Key/value args:**
-- `service` (optional): Service name of the keychain item
+- `service` (optional): Service name of the keychain item. Use either this or the positional form, not both.
 - `account` (optional): Account identifier for the keychain item
 - `keychain` (optional): Name of a specific keychain to search (e.g., `"System"`)
-- `field` (optional): Specific field to extract from the keychain item
+- `field` (optional): Return one of the item's metadata attributes instead of its secret: `account`, `label`, `service`, or `server`
+- `allowMissing` (optional): If `true`, resolve to empty instead of failing when the item does not exist
 - `prompt` (optional): If set, opens a native picker dialog for interactive selection
 
 ```env-spec /keychain\\(.*\\)/
@@ -561,7 +562,7 @@ NEW_SECRET=keychain(prompt)
 ```
 
 :::caution
-`keychain()` is only available on macOS. For cross-platform local encryption, use [`varlock()`](#varlock) instead.
+`keychain()` is only available on macOS. For cross-platform local encryption, use [`varlock()`](#varlock) instead, or see [other platforms and optional items](/plugins/macos-keychain/#other-platforms-and-optional-items) for mixing `keychain()` with other sources.
 :::
 </div>
 

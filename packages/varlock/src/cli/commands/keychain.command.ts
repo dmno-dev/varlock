@@ -19,7 +19,7 @@ import { checkForSchemaErrors } from '../helpers/error-checks';
 import { password } from '../helpers/prompts';
 import { type TypedGunshiCommandFn } from '../helpers/gunshi-type-utils';
 import {
-  commandSpec, listCommandSpec, fixAccessCommandSpec, setCommandSpec, importCommandSpec,
+  commandSpec, listCommandSpec, fixAccessCommandSpec, setCommandSpec, deleteCommandSpec, importCommandSpec,
 } from './keychain.command-spec';
 
 type KeychainRef = {
@@ -493,6 +493,33 @@ export const setCommandFn: TypedGunshiCommandFn<typeof setCommandSpec> = async (
     write: ctx.values['write-to'],
     force: Boolean(ctx.values.force),
   });
+};
+
+// --- `varlock keychain delete` ----------------------------------------------
+
+export const deleteCommandFn: TypedGunshiCommandFn<typeof deleteCommandSpec> = async (ctx) => {
+  assertMacOS();
+
+  if (!ctx.values.account) {
+    throw new CliExitError('Missing --account for keychain delete', {
+      suggestion: 'Use --account "project:profile:KEY".',
+    });
+  }
+
+  const ref = {
+    service: ctx.values.service,
+    account: ctx.values.account,
+    keychain: ctx.values.keychain,
+  };
+  try {
+    await getDaemonClient().keychainDelete(ref);
+  } catch (err) {
+    if (isKeychainItemNotFoundError(err)) {
+      throw new CliExitError(`Keychain item not found: ${formatKeychainRef(ref)}`);
+    }
+    throw err;
+  }
+  console.log(`Deleted Keychain item ${formatKeychainRef(ref)}.`);
 };
 
 // --- `varlock keychain import` ----------------------------------------------

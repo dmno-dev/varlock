@@ -30,6 +30,7 @@ private let allowedBinaryNames: Set<String> = [
     "varlock",               // SEA CLI binary
     "node",                  // Node.js (varlock TS client)
     "bun",                   // Bun runtime (varlock TS client)
+    "deno",                  // Deno runtime (varlock TS client)
 ]
 
 /// Verify that a peer process is an allowed Varlock client.
