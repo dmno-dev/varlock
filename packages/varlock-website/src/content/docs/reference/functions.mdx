@@ -209,6 +209,8 @@ DEV_API_KEY=
 # @required=forEnv(staging, production)
 PROD_API_KEY=
 ```
+
+If the `@currentEnv` item is typed as an `enum`, varlock warns about any argument written out literally that is not one of the enum values, because it can never match. For example, `forEnv(prodution)` is reported instead of silently never being true, and the warning suggests the closest enum value when there is one (within two edits). Arguments that are not literal, such as `forEnv($OTHER_ITEM)`, are not checked, and neither is an enum whose values are computed.
 </div>
 
 

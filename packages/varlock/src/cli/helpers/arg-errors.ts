@@ -1,5 +1,6 @@
 import { CliExitError } from './exit-error';
 import { fmt } from './pretty-format';
+import { suggestClosest as suggestClosestName } from '../../lib/suggest-closest';
 
 // Errors about the CLI arguments themselves - unrelated to the env-graph's ValidationError,
 // which is about config item values failing their schema.
@@ -29,46 +30,16 @@ type CommandNotFoundError = {
 /** gunshi's placeholder name for the unnamed entry command; never something to suggest */
 const ANONYMOUS_COMMAND_NAME = '(anonymous)';
 
-/**
- * Levenshtein distance, kept dependency-free for the "did you mean" suggestion.
- *
- * @internal exported for unit tests
- */
-export function levenshtein(a: string, b: string): number {
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const dist: Array<Array<number>> = Array.from({ length: rows }, () => new Array(cols).fill(0));
-  for (let i = 0; i < rows; i++) dist[i][0] = i;
-  for (let j = 0; j < cols; j++) dist[0][j] = j;
-  for (let i = 1; i < rows; i++) {
-    for (let j = 1; j < cols; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dist[i][j] = Math.min(
-        dist[i - 1][j] + 1,
-        dist[i][j - 1] + 1,
-        dist[i - 1][j - 1] + cost,
-      );
-    }
-  }
-  return dist[a.length][b.length];
-}
-
 const stripDashes = (value: string) => value.replace(/^--?/, '');
 
 /**
  * Closest candidate within edit distance 2, or undefined when nothing is close enough.
+ * Leading dashes are ignored so `--alow` matches `--allow`.
  *
  * @internal exported for unit tests
  */
 export function suggestClosest(typed: string, candidates: Array<string>, maxDistance = 2) {
-  let best: { name: string, distance: number } | undefined;
-  for (const candidate of candidates) {
-    const distance = levenshtein(stripDashes(typed), stripDashes(candidate));
-    if (distance <= maxDistance && (!best || distance < best.distance)) {
-      best = { name: candidate, distance };
-    }
-  }
-  return best?.name;
+  return suggestClosestName(typed, candidates, maxDistance, stripDashes);
 }
 
 // Errors arrive from gunshi's own bundle, so `instanceof` against the classes re-exported
