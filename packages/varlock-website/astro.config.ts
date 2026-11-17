@@ -161,8 +161,8 @@ export default defineConfig({
             \`\`\`bash
             npx varlock init                 # add to a JS/TS project
             npm install varlock              # or add the dependency directly
-            brew install varlock  # standalone binary via Homebrew
-            curl -sSfL https://varlock.dev/install.sh | sh -s   # standalone binary via script
+            brew install varlock             # Homebrew manages the Node.js dependency
+            curl -sSfL https://varlock.dev/install.sh | sh -s -- --force-no-brew   # standalone binary without Node.js
             \`\`\`
 
             Common CLI commands: \`varlock init\`, \`varlock load\`, \`varlock run -- <cmd>\`, \`varlock encrypt\`, \`varlock scan\`, \`varlock proxy\`.

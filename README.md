@@ -68,9 +68,11 @@ You can get started with varlock by installing the CLI:
 # Run the installation wizard, which will install as a dependency in a JavaScript project
 npx varlock init
 
-# Or install as standalone binary
-brew install varlock # via homebrew
-curl -sSfL https://varlock.dev/install.sh | sh -s # via cURL
+# Or install via Homebrew (includes Node.js)
+brew install varlock
+
+# Or install the standalone binary without Node.js
+curl -sSfL https://varlock.dev/install.sh | sh -s -- --force-no-brew
 
 # Or use the official Docker image
 docker pull ghcr.io/dmno-dev/varlock:latest

@@ -46,11 +46,11 @@ You can get started with varlock by installing the CLI:
 # Install as a dependency in a js project
 npm install varlock
 
-# OR as standalone CLI via homebrew
+# OR install via Homebrew (includes Node.js)
 brew install varlock
 
-# OR via cURL
-curl -sSfL https://varlock.dev/install.sh | sh -s
+# OR install the standalone binary without Node.js
+curl -sSfL https://varlock.dev/install.sh | sh -s -- --force-no-brew
 ```
 
 See the full installation [docs](https://varlock.dev/getting-started/installation/).

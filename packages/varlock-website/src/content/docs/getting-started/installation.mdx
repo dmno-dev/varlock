@@ -6,10 +6,7 @@ description: How to install and set up Varlock in your project
 import ExecCommandWidget from "@/components/ExecCommandWidget.astro";
 import { LinkButton, TabItem, Tabs } from "@astrojs/starlight/components";
 
-There are two ways to install Varlock:
-
-1. Install as a `package.json` dependency in JavaScript/TypeScript projects (the `varlock` CLI package)
-2. Install as a standalone binary
+You can install Varlock as a `package.json` dependency, via Homebrew, or as a standalone binary.
 
 If you prefer to let your AI agent install Varlock for you, you can skip these instructions and build a prompt for your agent:
 
@@ -40,17 +37,23 @@ For AI agent workflows, use non-interactive mode instead:
 
 <ExecCommandWidget command="varlock init --agent" showBinary={false} dlx={true} />
 
-## As a standalone binary
+## Via Homebrew
 
-To install `varlock` CLI as a binary, run:
+The official Homebrew formula installs the npm package and manages its Node.js dependency:
 
 ```bash
-# Install via homebrew
 brew install varlock
-
-# OR via cURL
-curl -sSfL https://varlock.dev/install.sh | sh -s
 ```
+
+## As a standalone binary
+
+To install the compiled CLI without Node.js, run:
+
+```bash
+curl -sSfL https://varlock.dev/install.sh | sh -s -- --force-no-brew
+```
+
+Without `--force-no-brew`, the script uses Homebrew when it is available and installs the Node-backed CLI instead.
 
 Then run the setup wizard to help you get started:
 ```bash
@@ -78,7 +81,7 @@ Options:
 
 ### Verifying a release
 
-Both install paths already check integrity for you: the homebrew formula pins a sha256 per archive, and `install.sh` verifies the downloaded archive against the release's `checksums.txt` before installing.
+Homebrew verifies the formula's source checksum. When installing the standalone binary, `install.sh` verifies the downloaded archive against the release's `checksums.txt` before installing.
 
 If you are pinning varlock yourself (a container image, a provisioning script, or a tool that installs varlock on a user's behalf), download the archive from the release tag and verify it the same way:
 
@@ -108,7 +111,7 @@ cosign verify-blob checksums.txt \
 
 Both workflow identities are accepted because binaries are normally cut by `release.yaml` alongside the npm publish, and re-cut by `binary-release.yaml` when an already-published version needs new archives.
 
-On macOS, the `varlock` binary in the standalone archives (and the homebrew install) is also Developer ID signed and notarized, with hardened runtime enabled. Hardened runtime stops other processes running as your user from attaching to `varlock` and reading resolved values out of its memory. To check the signature on an installed binary:
+On macOS, the `varlock` binary in the standalone archives is also Developer ID signed and notarized, with hardened runtime enabled. Hardened runtime stops other processes running as your user from attaching to `varlock` and reading resolved values out of its memory. To check the signature on an installed binary:
 
 ```bash
 codesign --verify --strict "$(which varlock)"
@@ -118,7 +121,7 @@ codesign -dv "$(which varlock)" 2>&1 | grep -E "^Identifier|TeamIdentifier|flags
 # TeamIdentifier=BPHZUT9PGB
 ```
 
-This only applies to the standalone binary. When varlock is installed from npm it runs inside `node` (or `bun`), so the process is signed by whoever built that runtime, if at all.
+This only applies to the standalone binary. When varlock is installed from npm or Homebrew it runs inside `node` (or `bun`), so the process is signed by whoever built that runtime, if at all.
 
 :::note
 Signing was added after varlock 1.14.0, so older releases have `checksums.txt` but no bundle. If a release has no `checksums.txt.cosign.bundle` asset, it predates signing and only the checksum step applies.
