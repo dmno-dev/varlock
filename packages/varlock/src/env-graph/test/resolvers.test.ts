@@ -10,6 +10,7 @@
 import {
   describe, it, expect, vi,
 } from 'vitest';
+import path from 'node:path';
 import { outdent } from 'outdent';
 import { DotEnvFileDataSource, EnvGraph } from '../index';
 import { ResolutionError, SchemaError } from '../lib/errors';
@@ -151,8 +152,266 @@ describe('exec()', functionValueTests({
   },
 }));
 
+describe('exec() shell command must be fixed text', functionValueTests({
+  'static text keeps its shell syntax': {
+    input: 'ITEM=exec(`echo a && echo b | tr b c`)',
+    expected: { ITEM: 'a\nc' },
+  },
+  'static quotes are fine': {
+    input: 'ITEM=exec(`printf \'[%s]\' "a b"`)',
+    expected: { ITEM: '[a b]' },
+  },
+  'error - interpolated value': {
+    // used to run `echo cfg-dev; echo pwned` as two commands
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`echo cfg-\${APP_ENV}\`)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - interpolated via $() expansion': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=$(echo cfg-\${APP_ENV})
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - interpolated inside static quotes': {
+    input: outdent`
+      EVIL='$(echo pwned)'
+      ITEM=exec(\`printf %s "x-\${EVIL}"\`)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - wholly dynamic command': {
+    input: outdent`
+      CMD="echo from-var"
+      ITEM=exec($CMD)
+    `,
+    expected: { ITEM: SchemaError },
+  },
+  'error - nested function call': {
+    input: 'ITEM=exec(fallback("", "echo hi"))',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('exec() shell command error tips', () => {
+  async function execError(input: string) {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: `# @defaultSensitive=false\n# ---\nAPP_ENV=dev\nITEM_NAME=x\n${input}`,
+    }));
+    await g.finishLoad();
+    const err = g.configSchema.ITEM.errors[0];
+    return { message: err.message, tip: [err.tip ?? []].flat().join('\n') };
+  }
+
+  it('suggests the array form for plain words and values', async () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const { tip } = await execError('ITEM=exec(`./load.sh --env ${APP_ENV} op://vault/${ITEM_NAME}/field`)');
+    // eslint-disable-next-line no-template-curly-in-string
+    expect(tip).toContain('exec(["./load.sh", "--env", $APP_ENV, "op://vault/${ITEM_NAME}/field"])');
+  });
+
+  it.skipIf(process.platform === 'win32')('suggests positional values when the command has shell syntax', async () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const { tip } = await execError('ITEM=exec(`my-cli get ${ITEM_NAME} | jq -r .value`)');
+    expect(tip).toContain('exec(`my-cli get "$1" | jq -r .value`, $ITEM_NAME)');
+    expect(tip).toContain('single quotes');
+  });
+
+  it('handles double quotes in the command when suggesting the array form', async () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const { tip } = await execError('ITEM=exec(`op read "op://vault/${ITEM_NAME}/field"`)');
+    // eslint-disable-next-line no-template-curly-in-string
+    expect(tip).toContain('exec(["op", "read", "op://vault/${ITEM_NAME}/field"])');
+  });
+
+  it('falls back to a generic example when the rewrite is not mechanical', async () => {
+    // eslint-disable-next-line no-template-curly-in-string
+    const { tip } = await execError("ITEM=exec(`cat '${ITEM_NAME}' | wc -c`)");
+    expect(tip).toContain('exec(["my-cli", "get", $ITEM])');
+  });
+
+  it('suggests the array form when values are passed to a command that ignores them', async () => {
+    const { message, tip } = await execError('ITEM=exec(`echo`, "hi", $APP_ENV)');
+    expect(message).toContain('does not use them');
+    expect(tip).toContain('exec(["echo", "hi", $APP_ENV])');
+  });
+
+  it('moves values after an array into it', async () => {
+    const { tip } = await execError('ITEM=exec(["echo"], "hi", $APP_ENV)');
+    expect(tip).toContain('exec(["echo", "hi", $APP_ENV])');
+  });
+
+  it('explains how to pick a command from a value', async () => {
+    const { tip } = await execError('ITEM=exec($APP_ENV)');
+    expect(tip).toContain('exec([$CLI, "get", $ITEM])');
+    expect(tip).toContain('if($IS_PROD, exec(');
+  });
+});
+
+describe('exec() shell command with values', functionValueTests({
+  'values are read as "$1", "$2"..., never as shell syntax': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(\`printf '[%s][%s]' "$1" "$2" | tr a-z A-Z\`, $APP_ENV, '$(whoami)')
+    `,
+    expected: { ITEM: '[DEV; ECHO PWNED][$(WHOAMI)]' },
+  },
+  'functions can supply a value, including the program': {
+    input: outdent`
+      IS_PROD=false
+      ITEM=exec(\`"$1" "$2"\`, if($IS_PROD, "false", "echo"), "picked")
+    `,
+    expected: { ITEM: 'picked' },
+  },
+  'env= variables can be used alongside values (single-quoted command)': {
+    input: outdent`
+      TOKEN=tok-123
+      ITEM=exec('echo "$1-$MY_TOKEN"', "a", env={MY_TOKEN=$TOKEN})
+    `,
+    expected: { ITEM: 'a-tok-123' },
+  },
+  'error - values passed but the command never reads them': {
+    input: 'ITEM=exec(`echo`, "hi")',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
+describe('exec() array form', functionValueTests({
+  'runs the program with each element as one argument, no shell': {
+    input: outdent`
+      APP_ENV="dev; echo pwned"
+      ITEM=exec(["echo", "a b", $APP_ENV, '$(whoami)'])
+    `,
+    expected: { ITEM: 'a b dev; echo pwned $(whoami)' },
+  },
+  'an interpolated string is one argument': {
+    input: outdent`
+      ITEM_NAME="my item"
+      ITEM=exec(["printf", "%s", "op://vault/\${ITEM_NAME}/field"])
+    `,
+    expected: { ITEM: 'op://vault/my item/field' },
+  },
+  'the program can come from a function': {
+    input: outdent`
+      IS_PROD=false
+      ITEM=exec([if($IS_PROD, "false", "echo"), "picked"])
+    `,
+    expected: { ITEM: 'picked' },
+  },
+  'numbers and booleans are stringified': {
+    input: 'ITEM=exec(["echo", 1, true])',
+    expected: { ITEM: '1 true' },
+  },
+  'shell syntax in an element is literal': {
+    input: 'ITEM=exec(["echo", "a | b && c"])',
+    expected: { ITEM: 'a | b && c' },
+  },
+  'error - empty program': {
+    input: 'ITEM=exec(["", "arg"])',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - empty array': {
+    input: 'ITEM=exec([])',
+    expected: { ITEM: SchemaError },
+  },
+  'error - values after the array': {
+    input: 'ITEM=exec(["echo"], "hi")',
+    expected: { ITEM: SchemaError },
+  },
+  'error - missing program': {
+    input: 'ITEM=exec(["definitely-not-a-real-command-varlock", "--flag"])',
+    expected: { ITEM: ResolutionError },
+  },
+}));
+
+describe('exec() options', functionValueTests({
+  'stdin= is written to the command': {
+    input: outdent`
+      SECRET="p@ss word; echo pwned"
+      ITEM=exec(["cat", "-"], stdin=$SECRET)
+    `,
+    expected: { ITEM: 'p@ss word; echo pwned' },
+  },
+  'stdin= works with a shell command too': {
+    input: 'ITEM=exec(`tr a-z A-Z`, stdin="shout")',
+    expected: { ITEM: 'SHOUT' },
+  },
+  'env= adds variables to the child environment': {
+    input: outdent`
+      TOKEN=tok-123
+      ITEM=exec('echo $MY_TOKEN-$MY_FLAG', env={MY_TOKEN=$TOKEN, MY_FLAG=true})
+    `,
+    expected: { ITEM: 'tok-123-true' },
+  },
+  'env= does not leak into later execs': {
+    input: outdent`
+      FIRST=exec('echo $ONLY_HERE', env={ONLY_HERE=yes})
+      ITEM=exec('echo [$ONLY_HERE]')
+    `,
+    expected: { FIRST: 'yes', ITEM: '[]' },
+  },
+  'cwd= is resolved relative to the env file': {
+    // the test data source lives at ./.env.schema, so cwd=".." is the parent of cwd
+    input: 'ITEM=exec(["pwd"], cwd="..")',
+    expected: { ITEM: path.dirname(process.cwd()) },
+  },
+  'timeout= kills a hung command': {
+    input: 'ITEM=exec(["sleep", "5"], timeout="100ms")',
+    expected: { ITEM: ResolutionError },
+  },
+  'timeout= must be a valid duration': {
+    input: 'ITEM=exec(["echo", "hi"], timeout="soon")',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - unknown option': {
+    input: 'ITEM=exec("echo hi", shell=false)',
+    expected: { ITEM: SchemaError },
+  },
+  'error - env= must be an object': {
+    input: 'ITEM=exec("echo hi", env="A=b")',
+    expected: { ITEM: ResolutionError },
+  },
+}));
 
 describe('exec() failures', () => {
+  it('reports a timeout as such, without the resolved command', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultSensitive=false
+        # ---
+        ITEM=exec(["sleep", "5"], timeout="100ms")
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const err = g.configSchema.ITEM.errors.find((e) => e instanceof ResolutionError);
+    expect(err?.message).toContain('timed out after 100ms');
+  });
+
+  it('reports the command as written, not with resolved values filled in', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultSensitive=false
+        # ---
+        TOKEN=super-secret-token-value
+        ITEM=exec(["definitely-not-a-real-command-varlock", "--token", $TOKEN])
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    const err = g.configSchema.ITEM.errors.find((e) => e instanceof ResolutionError);
+    expect(err?.message).toContain('command failed');
+    expect(err?.message).toContain('exec(');
+    expect(err?.message).not.toContain('super-secret-token-value');
+    expect(err?.tip ?? '').not.toContain('super-secret-token-value');
+  });
+
   it('reports exit code + stderr on the error without logging to stdout', async () => {
     const consoleLog = vi.spyOn(console, 'log');
     try {
