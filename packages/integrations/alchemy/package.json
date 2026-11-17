@@ -1,6 +1,6 @@
 {
   "name": "@varlock/alchemy-integration",
-  "description": "Alchemy secret manager backed by varlock: validated env from .env.schema for your stack, typed Worker bindings, and the varlock runtime blob for in-Worker log redaction and leak detection",
+  "description": "Alchemy secret manager backed by varlock: validated env from .env.schema for your stack, typed Cloudflare Worker bindings, and the varlock runtime blob for in-Worker log redaction and leak detection",
   "version": "0.0.0",
   "repository": {
     "type": "git",

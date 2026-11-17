@@ -13,9 +13,13 @@ import InstallJsDepsWidget from '@/components/InstallJsDepsWidget.astro';
 [Alchemy](https://alchemy.run/) v2 declares infrastructure and Worker code in one TypeScript program and reads configuration through `effect/Config`. Its [`secrets` option](https://alchemy.run/environments/secret-providers/) lets a stack choose where those values come from. This package is that provider for varlock:
 
 - Your `.env.schema` is resolved and validated (plugins, `.env` files, `@currentEnv`) before alchemy builds any provider. Values become the stack's `Config` source, so alchemy's own reads (Cloudflare credentials included) come from varlock.
-- The provider works on any platform alchemy deploys to. For Cloudflare Workers, the `@varlock/alchemy-integration/cloudflare` adapter turns every schema item into a typed Worker binding. `@sensitive` items upload as secrets, everything else as plain text or JSON.
+- For Cloudflare Workers, the `@varlock/alchemy-integration/cloudflare` adapter turns every schema item into a typed Worker binding. `@sensitive` items upload as secrets, everything else as plain text or JSON.
 - The `__VARLOCK_ENV` blob rides along, so `@varlock/cloudflare-integration/init` gives the Worker [log redaction and leak detection](/integrations/cloudflare/#log-redaction-and-leak-prevention) and a typed `ENV`.
 - Deploy credentials stay out of Workers: in a multi-service stack the root schema is never bound, and for a single schema `bindingsFilter` (for example `"!#deploy"`) keeps tagged items out of the bindings and the blob while alchemy can still read them.
+
+:::note[Platform support]
+Cloudflare Workers are fully supported. On other platforms alchemy deploys to (AWS, GCP, ...), the provider still validates the schema and feeds alchemy's `Config`, but there is no adapter that delivers values to the running app yet; see [Other platforms](#other-platforms).
+:::
 
 :::note[Alchemy version]
 Requires alchemy 2.0.0-beta.85 or later. Alchemy is moving fast and this integration tracks the latest release; upgrade alchemy if you are behind. On older versions, `import "varlock/auto-load"` at the top of `alchemy.run.ts` still works; see [Deploying with Alchemy](/integrations/cloudflare/#deploying-with-alchemy).
@@ -27,6 +31,8 @@ Requires alchemy 2.0.0-beta.85 or later. Alchemy is moving fast and this integra
 1. **Install the packages** in the package that holds `alchemy.run.ts`
 
     <InstallJsDepsWidget packages="@varlock/alchemy-integration @varlock/cloudflare-integration varlock" />
+
+    `@varlock/cloudflare-integration` provides the in-Worker runtime and is only needed for Cloudflare Workers.
 
     Cloudflare resources live in `@alchemy.run/cloudflare` (same version as `alchemy`), so install that too if you have not already:
 
