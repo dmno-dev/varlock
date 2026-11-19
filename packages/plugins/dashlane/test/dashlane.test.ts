@@ -121,6 +121,20 @@ describe('dashlane plugin', () => {
       expectValues: { SECRET: '  spaced-value  ' },
     }));
 
+    // the fake dcli prints "<response>\n", so a response ending in "\r" is the
+    // "value\r\n" that dcli prints on Windows
+    test('strips a Windows (CRLF) line ending from dcli output', dlTest({
+      dcliResponses: { 'dl://abc123/password': 'windows-secret\r' },
+      schema: 'SECRET=dashlane("dl://abc123/password")',
+      expectValues: { SECRET: 'windows-secret' },
+    }));
+
+    test('keeps a carriage return inside the value', dlTest({
+      dcliResponses: { 'dl://abc123/password': 'a\rb' },
+      schema: 'SECRET=dashlane("dl://abc123/password")',
+      expectValues: { SECRET: 'a\rb' },
+    }));
+
     test('multiple secrets in one schema', dlTest({
       dcliResponses: {
         'dl://abc/password': 'dashlane-password-1',

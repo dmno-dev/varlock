@@ -211,7 +211,8 @@ export class DashlanePluginInstance {
 
     try {
       const result = await this.execDcli(['read', dlUri]);
-      const value = result.replace(/\n$/, '');
+      // dcli ends its output with a line break: "\n", or "\r\n" on Windows
+      const value = result.replace(/\r?\n$/, '');
       this.cache.set(dlUri, value);
       return value;
     } catch (err) {
