@@ -30,7 +30,7 @@ varlock has several layers, and they make different promises. Reports are triage
 - Writing a value through a path redaction does not cover (`fs.writeSync`, files, sockets, worker threads, native code, child processes, output before varlock initialized, or via a reference to the original `console`/`write` captured before patching).
 - Printing a value after transforming it (base64, hex, URL encoding, case changes, splitting it into pieces by hand, hashing).
 - A value split across chunks by a child that pauses mid-value, or by code that relays output in arbitrary chunks without `varlock run`; the documented outcome is a partial mask plus a warning.
-- Unredacted output on an interactive terminal, or under an explicit opt-out (`@redact=false`, `@sensitive={redact=false}`, `revealSensitiveConfig()`, `--no-redact-stdout`, `_VARLOCK_REDACT_STDOUT=0`).
+- Unredacted output on an interactive terminal, or under an explicit opt-out (`@redact=false`, `@sensitive={redact=false}`, `--no-redact-stdout`, `_VARLOCK_REDACT_STDOUT=0`).
 - The first two characters of a masked value being visible (`my▒▒▒▒▒`).
 - Contrived values that overlap themselves or each other, or values too short to redact meaningfully (varlock warns about these at load time).
 - Leak prevention not catching values that reach a client outside a response body (headers, cookies, WebSockets, static assets, bundler inlining).

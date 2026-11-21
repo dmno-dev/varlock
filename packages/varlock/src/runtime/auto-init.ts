@@ -14,5 +14,5 @@ initVarlockRuntime();
 // Re-export env utilities so consumers can `import { ENV } from 'varlock/auto-init'`
 // without a separate import that would create a second uninitialized module instance.
 export {
-  ENV, redactSensitiveConfig, revealSensitiveConfig, scanForLeaks,
+  ENV, redactSensitiveConfig, scanForLeaks,
 } from './env';
