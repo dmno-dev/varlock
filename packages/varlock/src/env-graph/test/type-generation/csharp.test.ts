@@ -101,6 +101,26 @@ describe('generateCsharpEnvSrc', () => {
     expect(src).toContain('Keys omitted from this typed module (not valid identifiers): LOAD, GET_TYPE.');
   });
 
+  test('skips a key whose property name would equal the class name', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      ENV=x          # @required @public
+      APP_ENV=y      # @required @public
+      OK_KEY=z       # @required @public
+    `);
+    const defaultClass = generateCsharpEnvSrc(fields);
+    expect(defaultClass).not.toContain('public required string Env ');
+    expect(defaultClass).toContain('public required string AppEnv { get; init; }');
+    expect(defaultClass).toContain('Keys omitted from this typed module (not valid identifiers): ENV.');
+
+    const namedClass = generateCsharpEnvSrc(fields, { className: 'AppEnv' });
+    expect(namedClass).toContain('public sealed class AppEnv');
+    expect(namedClass).not.toContain('public required string AppEnv ');
+    expect(namedClass).toContain('public required string Env { get; init; }');
+    expect(namedClass).toContain('Keys omitted from this typed module (not valid identifiers): APP_ENV.');
+  });
+
   test('skips keys that cannot become a valid C# property name after PascalCase', async () => {
     const { fields } = await loadFixtureFields(outdent`
       # @defaultSensitive=false

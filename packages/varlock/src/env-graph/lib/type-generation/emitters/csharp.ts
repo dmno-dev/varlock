@@ -212,6 +212,11 @@ export function generateCsharpEnvSrc(
   fields: Array<ResolvedFieldType>,
   opts?: { namespace?: unknown, className?: unknown },
 ): string {
+  const className = opts?.className === undefined ? 'Env' : String(opts.className);
+  if (!IDENTIFIER_SAFE_KEY.test(className) || isCsharpReserved(className)) {
+    throw new Error(`@generateCsharpEnv - \`class\` must be a valid C# class name (got ${JSON.stringify(opts?.className)})`);
+  }
+
   const { safe, skipped } = partitionRepresentableKeys(
     fields,
     (k) => {
@@ -219,15 +224,11 @@ export function generateCsharpEnvSrc(
       return !CSHARP_IDENTIFIER.test(name)
         || isCsharpReserved(name)
         || CSHARP_ENV_CLASS_MEMBERS.has(name)
-        || CSHARP_OBJECT_CLASS_MEMBERS.has(name);
+        || CSHARP_OBJECT_CLASS_MEMBERS.has(name)
+        || name === className;
     },
   );
   assertNoFieldNameCollisions(safe, snakeToPascalCase, 'C#');
-
-  const className = opts?.className === undefined ? 'Env' : String(opts.className);
-  if (!IDENTIFIER_SAFE_KEY.test(className) || isCsharpReserved(className)) {
-    throw new Error(`@generateCsharpEnv - \`class\` must be a valid C# class name (got ${JSON.stringify(opts?.className)})`);
-  }
 
   let namespace: string | undefined;
   if (opts?.namespace !== undefined && String(opts.namespace).trim() !== '') {
