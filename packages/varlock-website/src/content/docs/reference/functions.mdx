@@ -308,6 +308,30 @@ ALLOWED_ORIGIN=concat("https://", domainFromUrl($API_URL))
 ```
 </div>
 
+<div>
+### `jsonField()`
+
+Picks one field out of a JSON value. The first argument is the source: JSON text, or any resolver that produces it, such as [`exec()`](#exec) or a plugin resolver. The second argument is the path to the field.
+
+Use a dot-separated path for nested fields. `db.host` reads `value.db.host`. If the source has a top-level key with the exact name of the path, that key is used, so keys that contain dots still work. Object and array results come back as JSON text.
+
+An empty or undefined source resolves to undefined. Source text that is not valid JSON, or a path with no matching key, is a resolution error. The error lists the keys available at the level where the path stopped.
+
+The same path rules apply to [`awsSecret()` and `awsParam()`](/plugins/aws-secrets/#nested-json-keys) when you use the `#` syntax.
+
+```env-spec "jsonField"
+# a CLI that prints JSON, such as a credential export
+CREDENTIALS=exec(`my-cli export --format=json`)
+
+AWS_ACCESS_KEY_ID=jsonField($CREDENTIALS, "AccessKeyId")
+AWS_SESSION_TOKEN=jsonField($CREDENTIALS, "SessionToken")
+
+# nested fields
+CONFIG=exec(`my-cli config --format=json`)
+DB_HOST=jsonField($CONFIG, "db.host")
+```
+</div>
+
 </div>
 
 ## Random value generators
