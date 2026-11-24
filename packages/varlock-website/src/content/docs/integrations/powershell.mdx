@@ -11,7 +11,7 @@ Add [`@generatePwshEnv`](/reference/root-decorators/#generatepwshenv) to your sc
 # @generatePwshEnv(path=./Env.ps1)
 ```
 
-The file is regenerated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly with [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). Requires **PowerShell 7.2+** (the loader uses `System.Security.Cryptography.AesGcm` and the C# compiler that ships with PowerShell 7). Optional `functionName=` sets the loader function name (default: `Get-Env`). It must be a Verb-Noun name, such as `Get-AppEnv`. Property names are PascalCase (`DB_HOST` becomes `DbHost`).
+The file is regenerated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly with [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). Requires **PowerShell 7.4+** (.NET 8; the loader uses `System.Security.Cryptography.AesGcm` and the C# compiler that ships with PowerShell 7.4). Optional `functionName=` sets the loader function name (default: `Get-Env`). It must be a Verb-Noun name, such as `Get-AppEnv`. Property names are PascalCase (`DB_HOST` becomes `DbHost`).
 
 ## Reading values
 

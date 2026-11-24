@@ -84,6 +84,18 @@ describe('generatePwshEnvSrc', () => {
     expect(src).not.toContain('# >');
   });
 
+  test('requires PowerShell 7.4 and fails clearly on older versions', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # ---
+      DB_HOST=localhost  # @required @public
+    `);
+    const src = generatePwshEnvSrc(fields);
+    expect(src).toContain('# Requires PowerShell 7.4+');
+    expect(src).toContain('if ($PSVersionTable.PSVersion -lt [version]\'7.4\') {');
+    expect(src).toContain('requires PowerShell 7.4 or later');
+    expect(src).not.toContain('7.2');
+  });
+
   test('is registered as the generatePwshEnv decorator', () => {
     const def = builtInCodeGenerators.find((d) => d.decoratorName === 'generatePwshEnv');
     expect(def).toBeDefined();

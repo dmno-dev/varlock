@@ -829,7 +829,7 @@ Optional `namespace=` and `class=` (default: no namespace, class `Env`).
 <div>
 ### `@generatePwshEnv()`
 
-A self-contained PowerShell file: a loader function (default `Get-Env`) that returns a typed object (an instance of a C# class compiled with `Add-Type`), plus a `<functionName>SensitiveKeys` function. Requires PowerShell 7.2+. See [PowerShell usage](/integrations/powershell/).
+A self-contained PowerShell file: a loader function (default `Get-Env`) that returns a typed object (an instance of a C# class compiled with `Add-Type`), plus a `<functionName>SensitiveKeys` function. Requires PowerShell 7.4+. See [PowerShell usage](/integrations/powershell/).
 
 ```env-spec
 # @generatePwshEnv(path=./Env.ps1)
