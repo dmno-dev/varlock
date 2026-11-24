@@ -114,6 +114,11 @@ function isCsharpReserved(name: string): boolean {
   return CSHARP_KEYWORDS.has(name);
 }
 
+// members the generated env class declares itself; a property with one of these names would clash
+const CSHARP_ENV_CLASS_MEMBERS = new Set(['Load', 'SensitiveKeys', 'DecryptBlob']);
+// members every C# object inherits from System.Object; a property with one of these names hides them
+const CSHARP_OBJECT_CLASS_MEMBERS = new Set(['Equals', 'GetHashCode', 'GetType', 'ToString', 'MemberwiseClone', 'Finalize']);
+
 /** one or more identifiers joined by dots, e.g. `App.Config` */
 const CSHARP_NAMESPACE = /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
@@ -211,7 +216,10 @@ export function generateCsharpEnvSrc(
     fields,
     (k) => {
       const name = snakeToPascalCase(k);
-      return !CSHARP_IDENTIFIER.test(name) || isCsharpReserved(name);
+      return !CSHARP_IDENTIFIER.test(name)
+        || isCsharpReserved(name)
+        || CSHARP_ENV_CLASS_MEMBERS.has(name)
+        || CSHARP_OBJECT_CLASS_MEMBERS.has(name);
     },
   );
   assertNoFieldNameCollisions(safe, snakeToPascalCase, 'C#');
