@@ -6,6 +6,7 @@ import { generateCsharpEnvSrc } from './emitters/csharp';
 import { generateGoEnvSrc, resolveGoPackageName } from './emitters/go';
 import { generateJavaEnvSrc } from './emitters/java';
 import { generatePhpEnvSrc } from './emitters/php';
+import { generatePwshEnvSrc } from './emitters/pwsh';
 import { generatePythonEnvSrc } from './emitters/python';
 import { generateRustEnvSrc } from './emitters/rust';
 import { generateTsTypesSrc } from './emitters/ts';
@@ -149,6 +150,13 @@ export const builtInCodeGenerators: Array<CodeGeneratorDef> = [
     generate: (ctx) => generateCsharpEnvSrc(ctx.fields, {
       namespace: ctx.options.namespace,
       className: ctx.options.class,
+    }),
+  },
+  {
+    decoratorName: 'generatePwshEnv',
+    knownOptions: ['functionName'],
+    generate: (ctx) => generatePwshEnvSrc(ctx.fields, {
+      functionName: ctx.options.functionName,
     }),
   },
   {

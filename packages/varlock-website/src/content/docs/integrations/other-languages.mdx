@@ -27,8 +27,9 @@ It exposes only these primitives (no global singleton or imposed caching), so it
 | PHP | `@generatePhpEnv` | [PHP](/integrations/php/) |
 | Java | `@generateJavaEnv` | [Java](/integrations/java/) |
 | C# | `@generateCsharpEnv` | [C#](/integrations/csharp/) |
+| PowerShell | `@generatePwshEnv` | [PowerShell](/integrations/powershell/) |
 
-Files are generated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly via [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli/load-and-run/#run), which always injects a **plaintext** blob. The generated loaders don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if a loader is handed an encrypted blob it fails with a clear message rather than a raw parse error.
+Files are generated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly via [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). The loaders read `__VARLOCK_ENV`, so run your program under [`varlock run`](/reference/cli/load-and-run/#run), which always injects a **plaintext** blob. The generated loaders for Python, Rust, Go, PHP, and Java don't decrypt, so they don't support [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) (a JS/SSR build-output feature); if one of those loaders is handed an encrypted blob it fails with a clear message rather than a raw parse error. The C# and PowerShell loaders decrypt the blob with `_VARLOCK_ENV_KEY`, so they work with encrypted blobs.
 
 Note that `varlock run --inject vars` strips the `__VARLOCK_ENV` blob from the child process, so the generated loaders can't work under it. Use the default injection mode (or `--inject blob`) when your program loads a generated module.
 

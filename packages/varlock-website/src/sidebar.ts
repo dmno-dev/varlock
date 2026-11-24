@@ -178,6 +178,7 @@ export const sidebar: StarlightUserConfig['sidebar'] = [
               { label: 'PHP', slug: 'integrations/php' },
               { label: 'Java', slug: 'integrations/java' },
               { label: 'C#', slug: 'integrations/csharp' },
+              { label: 'PowerShell', slug: 'integrations/powershell' },
               { label: 'Other languages', slug: 'integrations/other-languages' },
             ],
           },

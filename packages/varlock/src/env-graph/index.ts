@@ -22,6 +22,7 @@ export {
   generateGoEnvSrc,
   generateJavaEnvSrc,
   generatePhpEnvSrc,
+  generatePwshEnvSrc,
   generatePythonEnvSrc,
   generateRustEnvSrc,
   generateTsTypesSrc,
