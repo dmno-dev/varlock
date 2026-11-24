@@ -85,6 +85,42 @@ describe('generateCsharpEnvSrc', () => {
     expect(src).toContain('"MY-KEY"');
   });
 
+  test('skips keys whose names clash with generated class members (Load, GetType, and the other object members)', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      LOAD=a        # @required @public
+      GET_TYPE=b    # @required @public
+      OK_KEY=c      # @required @public
+    `);
+    const src = generateCsharpEnvSrc(fields);
+    expect(src).not.toContain('public required string Load');
+    expect(src).not.toContain('public required string GetType');
+    expect(src).toContain('public static Env Load()');
+    expect(src).toContain('public required string OkKey { get; init; }');
+    expect(src).toContain('Keys omitted from this typed module (not valid identifiers): LOAD, GET_TYPE.');
+  });
+
+  test('skips a key whose property name would equal the class name', async () => {
+    const { fields } = await loadFixtureFields(outdent`
+      # @defaultSensitive=false
+      # ---
+      ENV=x          # @required @public
+      APP_ENV=y      # @required @public
+      OK_KEY=z       # @required @public
+    `);
+    const defaultClass = generateCsharpEnvSrc(fields);
+    expect(defaultClass).not.toContain('public required string Env ');
+    expect(defaultClass).toContain('public required string AppEnv { get; init; }');
+    expect(defaultClass).toContain('Keys omitted from this typed module (not valid identifiers): ENV.');
+
+    const namedClass = generateCsharpEnvSrc(fields, { className: 'AppEnv' });
+    expect(namedClass).toContain('public sealed class AppEnv');
+    expect(namedClass).not.toContain('public required string AppEnv ');
+    expect(namedClass).toContain('public required string Env { get; init; }');
+    expect(namedClass).toContain('Keys omitted from this typed module (not valid identifiers): APP_ENV.');
+  });
+
   test('skips keys that cannot become a valid C# property name after PascalCase', async () => {
     const { fields } = await loadFixtureFields(outdent`
       # @defaultSensitive=false
