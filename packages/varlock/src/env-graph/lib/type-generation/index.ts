@@ -5,6 +5,7 @@ export { generateGoEnvSrc } from './emitters/go';
 export { generatePhpEnvSrc } from './emitters/php';
 export { generateJavaEnvSrc } from './emitters/java';
 export { generateCsharpEnvSrc } from './emitters/csharp';
+export { generatePwshEnvSrc } from './emitters/pwsh';
 export {
   resolveFieldType,
   resolveFieldTypes,

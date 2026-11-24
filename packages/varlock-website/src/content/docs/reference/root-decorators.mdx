@@ -827,6 +827,18 @@ Optional `namespace=` and `class=` (default: no namespace, class `Env`).
 </div>
 
 <div>
+### `@generatePwshEnv()`
+
+A self-contained PowerShell file: a loader function (default `Get-Env`) that returns a typed object (an instance of a C# class compiled with `Add-Type`), plus a `<functionName>SensitiveKeys` function. Requires PowerShell 7.2+. See [PowerShell usage](/integrations/powershell/).
+
+```env-spec
+# @generatePwshEnv(path=./Env.ps1)
+```
+
+Optional `functionName=` (default: `Get-Env`). Must be a Verb-Noun name, such as `Get-AppEnv`.
+</div>
+
+<div>
 ### `@generateTypes()` (deprecated)
 
 Deprecated TypeScript-only alias for [`@generateTsTypes`](#generatetstypes). `@generateTypes(lang=ts, path=...)` still works; for other languages use the matching `@generate*Env` decorator (`@generateTypes(lang=py, ...)` errors with a pointer to `@generatePythonEnv`).

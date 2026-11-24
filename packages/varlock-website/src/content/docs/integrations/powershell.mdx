@@ -1,0 +1,64 @@
+---
+title: PowerShell
+description: Use varlock with PowerShell via a generated, typed loader function
+---
+
+To use varlock with PowerShell, [install the standalone binary](/getting-started/installation/#as-a-standalone-binary) and run your script under [`varlock run`](/reference/cli/load-and-run/#run). It loads and validates your env, then injects it into the process.
+
+Add [`@generatePwshEnv`](/reference/root-decorators/#generatepwshenv) to your schema to generate a self-contained `.ps1` file: a loader function that parses the injected [`__VARLOCK_ENV`](/reference/reserved-variables/#__varlock_env) blob and returns a typed object, plus a function that lists the sensitive keys. The object is an instance of a small C# class that the file compiles with `Add-Type`.
+
+```env-spec title=".env.schema"
+# @generatePwshEnv(path=./Env.ps1)
+```
+
+The file is regenerated automatically on [`varlock load`](/reference/cli/load-and-run/#load) and [`varlock run`](/reference/cli/load-and-run/#run), or explicitly with [`varlock codegen`](/reference/cli/cache-and-codegen/#codegen). Requires **PowerShell 7.2+** (the loader uses `System.Security.Cryptography.AesGcm` and the C# compiler that ships with PowerShell 7). Optional `functionName=` sets the loader function name (default: `Get-Env`). It must be a Verb-Noun name, such as `Get-AppEnv`. Property names are PascalCase (`DB_HOST` becomes `DbHost`).
+
+## Reading values
+
+Dot-source the generated file, then call the loader function. The file uses `$PSScriptRoot` in your script to find it, so the path works from any directory:
+
+```powershell title="run.ps1"
+. "$PSScriptRoot/Env.ps1"
+
+$e = Get-Env
+Write-Output "$($e.DbHost):$($e.DbPort)"
+```
+
+```bash
+varlock run -- pwsh ./run.ps1
+```
+
+Each property holds the value with the type the schema declares: integers, decimals, and booleans are converted, and optional values that are unset come back as `$null`. Objects, arrays, and records come back as `JsonElement`, so read them with its methods (for example `(Get-Env).Cfg.GetProperty('a').GetInt64()`). The object is a snapshot taken when you call `Get-Env`, so call it again to read values after the environment changes. The first load in a session compiles the class, which takes a moment (about half a second in testing). Later loads of the same schema reuse it. To read a single value, select its property:
+
+```powershell
+$dbHost = (Get-Env).DbHost
+Get-Env | Select-Object DbPort
+```
+
+`Get-Env` takes no parameters. Read a value from the object's property, or pipe the object to `Select-Object`.
+
+The loader throws a clear error if `__VARLOCK_ENV` is missing (for example, if you forgot `varlock run`) or if a required key is absent.
+
+:::note[Editor completion]
+In the VS Code editor, completion for the generated functions (for example `Get-Env` and its properties) may not appear in a script until the file is dot-sourced in the integrated terminal. The editor doesn't pick up functions from a dot-source that uses `$PSScriptRoot`, which keeps the path portable. Once the file is loaded in the terminal, completion works. This was observed with PowerShell extension 2025.4.0.
+:::
+
+## Sensitive keys
+
+The generated file also defines `<functionName>SensitiveKeys`, which returns the names of the sensitive items. Use it to build your own redaction or leak-scanning:
+
+```powershell
+Get-EnvSensitiveKeys
+```
+
+:::note
+Every key is also injected as a plain environment variable, so you can read any of them with `$env:NAME` (raw strings) if you don't need the typed loader. Keys whose names aren't valid identifiers (they contain `.` or `-`) can't be properties, so read those from the env var directly. See [Other languages](/integrations/other-languages/) for the shared details on the injected blob, raw env vars, and encryption.
+:::
+
+## Help
+
+`Get-Help Get-Env` lists each property with its type and schema description. `-Examples` shows usage examples, and `-Full` adds the output type and the notes.
+
+## Encrypted blobs
+
+If [`@encryptInjectedEnv`](/reference/root-decorators/#encryptinjectedenv) is set, use `varlock run --inject blob` so the encrypted blob reaches your script. The loader decrypts it with the key in `_VARLOCK_ENV_KEY`, which `varlock run` provides in that mode.
