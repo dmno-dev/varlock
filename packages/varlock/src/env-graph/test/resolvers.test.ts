@@ -152,6 +152,24 @@ describe('exec()', functionValueTests({
 }));
 
 
+describe('exec() line endings', () => {
+  it('strips one trailing CRLF without leaving a carriage return', async () => {
+    const g = new EnvGraph();
+    await g.setRootDataSource(new DotEnvFileDataSource('.env.schema', {
+      overrideContents: outdent`
+        # @defaultRequired=false
+        # @defaultSensitive=false
+        # ---
+        ITEM=exec("printf 'moo\\r\\n'")
+      `,
+    }));
+    await g.finishLoad();
+    await g.resolveEnvValues();
+    expect(g.configSchema.ITEM.resolvedValue).toBe('moo');
+  });
+});
+
+
 describe('exec() failures', () => {
   it('reports exit code + stderr on the error without logging to stdout', async () => {
     const consoleLog = vi.spyOn(console, 'log');
