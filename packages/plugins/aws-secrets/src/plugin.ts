@@ -2,7 +2,7 @@ import {
   type Resolver, type PluginCacheAccessor, plugin, resolveCacheTtl,
 } from 'varlock/plugin-lib';
 import { BUNDLED_ICONS } from './bundled-icons.gen';
-import { lookupJsonKey } from './json-key';
+import { lookupJsonKey } from '@env-spec/utils/json-key';
 
 import { createHash } from 'node:crypto';
 import {

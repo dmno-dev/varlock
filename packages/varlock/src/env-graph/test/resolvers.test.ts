@@ -778,6 +778,62 @@ describe('isEmpty()', functionValueTests({
   },
 }));
 
+describe('jsonField()', functionValueTests({
+  'reads a top-level and a nested field': {
+    input: outdent`
+      SRC="{\\"AccessKeyId\\":\\"AKIA1\\",\\"db\\":{\\"host\\":\\"db.example.com\\",\\"port\\":5432}}"
+      TOP=jsonField($SRC, "AccessKeyId")
+      NESTED=jsonField($SRC, "db.host")
+      NUMBER=jsonField($SRC, "db.port")
+    `,
+    expected: {
+      TOP: 'AKIA1',
+      NESTED: 'db.example.com',
+      NUMBER: '5432',
+    },
+  },
+  'returns objects and arrays as JSON text': {
+    input: outdent`
+      SRC="{\\"db\\":{\\"host\\":\\"h\\",\\"port\\":1},\\"list\\":[1,2]}"
+      OBJ=jsonField($SRC, "db")
+      ARR=jsonField($SRC, "list")
+    `,
+    expected: {
+      OBJ: '{"host":"h","port":1}',
+      ARR: '[1,2]',
+    },
+  },
+  'an exact top-level key wins over a dot path': {
+    input: outdent`
+      SRC="{\\"db.host\\":\\"exact\\",\\"db\\":{\\"host\\":\\"nested\\"}}"
+      ITEM=jsonField($SRC, "db.host")
+    `,
+    expected: { ITEM: 'exact' },
+  },
+  'empty source stays undefined': {
+    input: outdent`
+      ITEM=jsonField("", "a")
+      UNDEF=jsonField(undefined, "a")
+    `,
+    expected: { ITEM: undefined, UNDEF: undefined },
+  },
+  'error - missing key': {
+    input: outdent`
+      SRC="{\\"a\\":1}"
+      ITEM=jsonField($SRC, "b")
+    `,
+    expected: { ITEM: ResolutionError },
+  },
+  'error - source is not JSON': {
+    input: 'ITEM=jsonField("not json", "a")',
+    expected: { ITEM: ResolutionError },
+  },
+  'error - path is missing': {
+    input: 'ITEM=jsonField("{}")',
+    expected: { ITEM: SchemaError },
+  },
+}));
+
 describe('domainFromUrl()', functionValueTests({
   working: {
     input: outdent`

@@ -5,6 +5,7 @@ import {
 } from 'node:crypto';
 
 import _ from '@env-spec/utils/my-dash';
+import { lookupJsonKey } from '@env-spec/utils/json-key';
 import {
   ParsedEnvSpecFunctionArgs, ParsedEnvSpecFunctionCall, ParsedEnvSpecKeyValuePair,
   ParsedEnvSpecStaticValue, ParsedEnvSpecObjectLiteral, ParsedEnvSpecArrayLiteral,
@@ -919,6 +920,43 @@ export const DomainFromUrlResolver: typeof Resolver = createResolver({
   },
 });
 
+export const JsonFieldResolver: typeof Resolver = createResolver({
+  name: 'jsonField',
+  icon: 'mdi:code-json',
+  argsSchema: {
+    type: 'array',
+    arrayExactLength: 2,
+  },
+  async resolve() {
+    const source = await this.arrArgs![0].resolve();
+    const path = await this.arrArgs![1].resolve();
+    // like domainFromUrl, an empty source stays empty so it composes with optional items
+    if (source === undefined || source === '') return undefined;
+    if (typeof path !== 'string' || !path) {
+      throw new ResolutionError('expects a non-empty string path');
+    }
+    let parsed: unknown = source;
+    if (typeof source === 'string') {
+      try {
+        parsed = JSON.parse(source);
+      } catch {
+        throw new ResolutionError('source is not valid JSON', {
+          tip: 'expects JSON text, such as the output of a CLI that prints JSON',
+        });
+      }
+    }
+    const result = lookupJsonKey(parsed, path);
+    if (!result.found) {
+      throw new ResolutionError(`key "${path}" not found in JSON`, {
+        tip: result.availableKeys.length
+          ? `available keys at this level: ${result.availableKeys.join(', ')}`
+          : 'the source has no object at this path',
+      });
+    }
+    return result.value;
+  },
+});
+
 
 // ── Random value generators ────────────────────────────────────────────
 
@@ -1377,6 +1415,7 @@ export const BaseResolvers: Array<ResolverChildClass> = [
   OrResolver,
   IsEmptyResolver,
   DomainFromUrlResolver,
+  JsonFieldResolver,
   RegexResolver,
   InferFromPrefixResolver,
 ];
