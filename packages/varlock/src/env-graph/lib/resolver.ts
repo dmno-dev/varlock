@@ -500,9 +500,9 @@ export const ExecResolver: typeof Resolver = createResolver({
       // this avoids multiple 1password auth popups, but it also makes multiple 1p calls very slow
       // we likely want to remove this once we have the specific 1Password plugin re-implemented
       const { stdout } = await execQueue.enqueue(() => execAsync(commandStr));
-      // trim trailing newline by default
+      // trim trailing newline (LF or CRLF) by default
       // we could allow options here?
-      return stdout.replace(/\n$/, '');
+      return stdout.replace(/\r?\n$/, '');
     } catch (err) {
       // surface the exit code and stderr on the error itself rather than logging here -
       // a stray log would land in stdout and corrupt machine-readable output (e.g. json-full).
