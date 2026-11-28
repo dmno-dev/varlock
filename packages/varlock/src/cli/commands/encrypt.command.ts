@@ -105,6 +105,16 @@ async function encryptFile(keyId: string, filePath: string) {
 }
 
 export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) => {
+  const filePath = ctx.values.file;
+  const rawOutput = ctx.values.format === 'raw';
+  if (filePath && rawOutput) {
+    throw new CliExitError('--format raw is only available when encrypting a single value');
+  }
+  if (rawOutput && process.stdin.isTTY) {
+    throw new CliExitError('--format raw requires a value on stdin; pipe or redirect one, or omit --format raw to use the interactive prompt');
+  }
+
+  const log = (message?: string) => (rawOutput ? console.error(message) : console.log(message));
   const keyId = String(ctx.values['key-id'] || 'varlock-default');
   const backend = localEncrypt.getBackendInfo();
 
@@ -117,7 +127,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     );
   }
 
-  console.log(`Using ${backend.type} backend (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`);
+  log(`Using ${backend.type} backend (${backend.hardwareBacked ? 'hardware-backed' : 'file-based'})`);
 
   // Hardware-backed but no presence gate → decryption is unattended (headless/CI hosts).
   if (backend.hardwareBacked && !backend.biometricAvailable) {
@@ -127,13 +137,11 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     } else if (process.platform === 'win32' || process.env.WSL_DISTRO_NAME) {
       platformHint = '\nConfigure Windows Hello to require fingerprint/PIN on interactive decrypts.';
     }
-    console.log(
+    log(
       '\nNote: no presence gate is configured, so values decrypt unattended (suitable for headless/CI hosts).'
       + `\nThis protects secrets at rest, but not against a process already running as your user.${platformHint}`,
     );
   }
-
-  const filePath = ctx.values.file;
 
   // --file mode: encrypt all sensitive plaintext values in a .env file
   if (filePath) {
@@ -143,7 +151,7 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
 
   // Single-value mode — read from stdin if piped, otherwise prompt interactively.
   // Avoids putting secrets in shell history (e.g. `echo $SECRET | varlock encrypt`).
-  console.log('');
+  log('');
 
   let ciphertext: string;
 
@@ -175,7 +183,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
     ciphertext = result;
   } else {
-    const prompted = await password({ message: 'Enter the value you want to encrypt', hint: 'for multi-line values, pipe via stdin' });
+    const prompted = await password({
+      message: 'Enter the value you want to encrypt',
+      hint: 'for multi-line values, pipe via stdin',
+    });
     if (isCancel(prompted)) return gracefulExit();
     try {
       ciphertext = await localEncrypt.encryptValue(prompted, keyId);
@@ -187,6 +198,10 @@ export const commandFn: TypedGunshiCommandFn<typeof commandSpec> = async (ctx) =
     }
   }
 
-  console.log('\nCopy this into your .env.local file and rename the key appropriately:\n');
-  console.log(`SOME_SENSITIVE_KEY=varlock("local:${ciphertext}")`);
+  if (rawOutput) {
+    process.stdout.write(`varlock("local:${ciphertext}")\n`);
+  } else {
+    console.log('\nCopy this into your .env.local file and rename the key appropriately:\n');
+    console.log(`SOME_SENSITIVE_KEY=varlock("local:${ciphertext}")`);
+  }
 };

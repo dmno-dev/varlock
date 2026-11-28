@@ -23,6 +23,7 @@ varlock encrypt [options]
 
 **Options:**
 - `--file`:    Path to a `.env` file; encrypts all sensitive plaintext values in-place
+- `--format`:  Output format for single-value mode: `pretty` (default) or `raw`
 
 **Examples:**
 ```bash
@@ -33,14 +34,30 @@ varlock encrypt
 printf '%s' "$SECRET" | varlock encrypt
 varlock encrypt < secret.txt
 
+# Output only the varlock() expression to stdout for scripts
+printf '%s' "$SECRET" | varlock encrypt --format raw
+
 # Encrypt all sensitive plaintext values in a .env file
 varlock encrypt --file .env.local
 ```
 
-In single-value mode, you'll either be prompted to enter a value (hidden input) or the value will be read from stdin when piped. The encrypted output is printed for you to copy into your `.env.local` file:
+In single-value mode, you'll either be prompted to enter a value (hidden input) or the value will be read from stdin when piped. By default, the encrypted output is printed for you to copy into your `.env.local` file:
 ```
 SOME_SENSITIVE_KEY=varlock("local:<encrypted>")
 ```
+
+Use `--format raw` to write only the `varlock("local:...")` expression to stdout. Raw mode requires a value on stdin and does not prompt, so command substitution captures only the env value:
+
+```powershell
+$envFilePath = '/path/to/your/.env.local'
+@"
+# @sensitive
+VALUE_1=$(awesome-password -y | varlock encrypt --format raw)
+"@ | Set-Content $envFilePath
+```
+
+`--format raw` is only supported for single-value mode, not with `--file`.
+If stdin is a terminal, raw mode exits with an error. Pipe or redirect a value into it, or omit `--format raw` to use the interactive prompt.
 
 :::tip
 Piping via stdin avoids exposing secrets in your shell history. Prefer `printf '%s'` over `echo` to avoid a trailing newline (varlock strips a single trailing newline either way).
