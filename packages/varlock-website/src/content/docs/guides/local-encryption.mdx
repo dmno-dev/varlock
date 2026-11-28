@@ -61,6 +61,8 @@ Use [`varlock encrypt`](/reference/cli/encryption/#encrypt) to create encrypted 
 ```bash
 # Interactive: encrypt a single value
 varlock encrypt
+# Script-friendly: print only the encrypted varlock() expression
+printf '%s' "$SECRET" | varlock encrypt --format raw
 # Batch: encrypt all sensitive plaintext values in .env.local
 varlock encrypt --file .env.local
 ```
